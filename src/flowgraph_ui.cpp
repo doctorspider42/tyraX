@@ -388,6 +388,7 @@ void App::drawFlowGraphWindow() {
     const ImVec2 dbgCanvasMin = ImGui::GetCursorScreenPos();
     const ImVec2 dbgCanvasSize = ImGui::GetContentRegionAvail();
 
+    if (flowEditorCtx_) ImNodes::EditorContextSet((ImNodesEditorContext*)flowEditorCtx_);
     ImNodes::BeginNodeEditor();
 
     // Push stored node positions into imnodes whenever the edited graph, the

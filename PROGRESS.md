@@ -721,15 +721,194 @@ Each finished feature lands as its own commit.
      numbered in parallel (main's own set repeats 216, 217 and 219 for the same
      reason). The drone set is the one directly below; main's set follows it,
      running up to 222 (main took 222 for the rotation nodes), and 223/224 sit
-     at the head of that second section.
+     at the head of that second section, and 225 (procedural generation, merged
+     in from its own branch) sits above them, and 226/227 above that.
      Once more for the flow-graph expansion batch: it was written against 222
      and numbered 223-229 in parallel with main's 223/224, so it was
-     RENUMBERED to 225-231 when the two met. Continue from 232. -->
+     RENUMBERED to 225-231 when the two met.
+     And once more here: this branch ran 232-246 while main took 227, 232 and
+     233 for the credits editor, the vendored-license sweep and the flow-graph
+     zoom fix, so 232/233 appear twice. All kept. Continue from 247. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
+- (227) **`examples/procedural`: the whole node library in one map** (owner:
+  "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").
+  Six volumes over a 140x140 terrain shaped to give the terrain-reading nodes
+  something to read (flat plaza, rolling ground, one genuinely steep ridge):
+  **forest** (noise clearings x slope mask, soft-edged slope filter, minimum
+  distance, keep-away-from the plaza BY NAME, weighted pool, Vary),
+  **colonnade** (Single Point -> Radial Array, 12 pillars on an exact circle),
+  **cairn** (Single Point -> Array up Y with per-copy yaw and taper), **fence**
+  (Curve -> Scatter along Curve -> Array stepping in POINT space for the second
+  row), **orchard** (grid source, mask filter, Set Attribute driving size) and
+  **crystals** (Scatter in Volume merged with a surface scatter, then Limit).
+  All 23 node types appear at least once; three volumes carry Object Settings.
+  345 instances bake to **17 chunk meshes / 6 894 triangles**; the project ships
+  in the release profile and opens on its own *Procedural* window layout, so the
+  graph editor is there on first launch. Five hand-written assets (8-72 tris,
+  one shared .mtl, the pine deliberately two-material so the bake's per-material
+  submesh split is exercised) keep it about the graphs rather than the art.
+  **Two things the authoring caught**, both worth knowing: a chunk mesh file is
+  named after the volume's id **shortened to 8 hex** (`procbake::shortId`), so
+  hand-authored ids sharing a prefix silently overwrite each other's meshes -
+  real ids are 16 random hex, but a fixture that invents them must vary the
+  FIRST eight; and a graph whose last link is missing bakes zero instances with
+  no error, because "no path to Output" is a valid (empty) graph - the window's
+  issue list says it, a headless `--refresh-gen` does not.
+  **Verified**: `--refresh-gen` reports 6 volumes -> 17 chunks -> 345 instances,
+  and the per-volume counts were re-derived from the baked `.obj` files
+  (98 pines + 35 rocks, 12 pillars, 6 rocks, 94 posts, 30 trees, 70 crystals);
+  Docker build clean with the release audit passing; PCSX2 (software renderer,
+  PAL) runs it at the **50 FPS vsync cap**, EE 44 % / VU 19 % / GS 12 %; the
+  editor opens it with the Procedural window on the forest graph, "baked", no
+  validation issues. Real hardware not measured - 17 draw calls is the number to
+  watch there.
+- (226) **The procedural graph learns to say "all of them" and "exactly there"**
+  (owner, after using 225: "brakuje mi foreach - np wszystkie wygenerowane
+  assety mają LOD na 5unit" and "wstawiam asset i analitycznie go powielam - po
+  osi Y, albo po okręgu"). Three additions and one rename, all in the same
+  place the previous entry built.
+  *The foreach.* Instances merge into one mesh per (asset, chunk) at bake time,
+  so there is no per-instance anything on the console - what CAN carry a
+  property is the generated chunk OBJECT, and until now the bake hardcoded four
+  of them (cast shadow, collision, draw distance, layer) and left the rest at
+  editor defaults. Editing one by hand is not a workflow either: the next bake
+  makes new chunks that know nothing about it. The new **Object Settings** node
+  is where a property is stated ONCE for the whole volume - a rows table over
+  `procObjectProps()` (mesh LOD distance, baked lighting, show in reflections),
+  applied in `procbake::applySettings` after the fixed fields. It carries no
+  pins on purpose: it is not a step in the chain, it is a fact about the whole
+  output. Mesh LOD is the case the owner asked for and it needed NO new code
+  downstream - `templates.cpp` already bakes the decimated tiers for any model
+  a per-object `meshLodOverride > 0` names, so a scattered forest gets mesh LOD
+  without turning it on project-wide (measured: the chunk `.tmdl` goes
+  10 608 -> 14 072 bytes when the setting is on, and back).
+  *The analytic half.* The five sources were all stochastic or lattice-shaped;
+  "this asset, twelve times around a circle" and "three of them stacked up the
+  Y axis" could not be said at all. Now: **Single Point** (one point, at the
+  volume centre or at a named object, plus an offset), **Array** (count copies
+  along an XYZ step, with per-copy yaw and scale, optionally stepping in the
+  point's own frame so posts follow their fence) and **Radial Array** (count
+  copies around a circle centred on each incoming point; axis, start, sweep,
+  turn-with-the-ring). Both repeat nodes copy EVERY incoming point, so they
+  work on one placed point and on a whole scattered field alike. Three rules
+  they had to respect: identity is `copyKey(node, sourceKey, i)` so a manual
+  edit binds to "copy 7 of that point" rather than to an index; they do NOT
+  thin by the progressive-preview fraction (dropping copies would lie about an
+  exact count - the sources already thinned); and because they MULTIPLY their
+  input they stop at 200 000 points with a warning instead of eating the frame.
+  Doing this in the graph rather than as an editor "duplicate N times" is the
+  whole point: 12 pillars placed as 12 objects are 12 submits (~12 ms on real
+  hardware), through the graph they merge into one chunk mesh.
+  *The rename.* The owner also reported the entry points read as two different
+  things: the object type was "Scatter volume" while the graph's Sources menu
+  offers scatter/grid/volume/curve - so the object looked like it chose the
+  method. It is now a **Procedural volume** everywhere the user reads (menu
+  item, type label, window, docs), with the tooltip saying it opens the graph
+  editor; the enum and the serialized key stay `scatter`, because those are
+  file format. `+ Add object > Procedural volume...` and *Tools > Procedural >
+  New volume* now say they are the same verb. Also fixed: an ObjectName combo
+  hardcoded "(terrain)" as its empty label on every node, which was wrong on
+  Keep Away From (empty = every solid object) and would have been wrong on
+  Single Point (empty = the volume centre) - the label is a registry field now.
+  **Verified** headlessly and in the GUI: a fixture project (a 12-triangle
+  pillar, Single Point -> Radial Array 12 x r=10 -> Array 3 x Step Y 2, scale
+  0.9/copy -> Pick Asset -> Output, plus Object Settings) bakes 36 instances /
+  432 triangles into 4 chunks, and reading the baked `.obj` back gives exactly
+  what the graph says: distinct Y levels 0 / 2 / 3.8 / 4 / 5.62 (the 0.9 taper)
+  and vertex radii 9.51..10.51 around the ring. The chunk objects carry
+  `"meshLod": 5` and `"reflected": true`; a second `--refresh-gen` re-bakes
+  nothing (the settings rows hash into `bakeHash`, so idempotence holds) while
+  editing a settings row does make it stale. Docker build of the generated
+  game: OK. Editor GUI screenshot: the two Repeat nodes in their own purple
+  category, the pinless Object Settings card with its two rows, and the stacked
+  ring in the viewport preview.
+- (225) **Procedural content generation: a scatter-graph tool whose output is
+  ordinary static geometry** (owner brief: a backlog for node-based procedural
+  scenes, "adapt it to our system, aim for the best solution"). The backlog
+  asked for a graph, typed edges, a cached evaluator, deterministic RNG,
+  scattering, filters, splines, terrain nodes, a bake and ergonomics. What
+  landed is the minimal path plus most of layers 2/6 - and one architectural
+  decision that shaped everything else.
+  *The decision.* On real hardware every StaPip submit costs ~0.7-1.5 ms of
+  fixed EE overhead regardless of vertex count (measured in entry 100 and
+  written into the static-batching notes), so "draw one tree 500 times" is
+  arithmetically impossible - 500 submits is half a second per frame. So there
+  is no runtime instancing and no runtime graph: the bake MERGES the instances
+  of one asset inside one world chunk into a single mesh and writes it as an
+  ordinary `.obj` in the source asset's own folder, plus one Model scene object
+  per chunk. Everything downstream then works with **zero new code**: the
+  `.tmdl` bake, distance mesh LOD, texture quantization/atlasing, frustum
+  culling, the disc layout, live link. That is also why the chunk meshes live
+  next to their source asset - the same `mtllib` line resolves unchanged.
+  D2 from the backlog ("bake or runtime-from-seed?") is therefore answered
+  "always bake", and D1 ("global graph or per object?") is answered per object:
+  a new `Scatter` scene-object type (18) carries the graph in
+  `SceneObject::procGraph` and its transform IS the region, so the ordinary
+  gizmo moves/resizes it and copy/paste/undo/collaboration come for free.
+  *The modules* follow the decalproj/aobake/navmesh pattern - host-only, no GL,
+  no ImGui: `procgraph` (data model + the 19-node registry + validation),
+  `procgen` (the evaluator), `procbake` (the merge + the scene reconcile).
+  Three properties they are built around, in the order their absence hurts:
+  DETERMINISM (every draw is `hash(seed, node id, point key, channel)`, so
+  adding an unconnected node in another branch cannot reshuffle the forest),
+  PREFIX STABILITY (generators emit a fixed Halton sequence and density picks a
+  PREFIX of it, so raising density adds points BETWEEN the existing ones - which
+  is simultaneously what makes progressive preview honest and what lets a manual
+  override stay attached to its instance) and CACHING (per-node memo keyed on
+  parameters + input hashes; a slider at the end of a 20-node graph re-runs one
+  node). Manual per-instance edits (FILT-05, the task the backlog calls out as
+  the one procedural tools lose) bind to the point's stable key, never an index.
+  *Deliberately not done:* procedural terrain (the graph READS height/slope/
+  curvature/painted layers instead), spline geometry extrusion, painted density
+  masks, and a background evaluation thread - the evaluator is 0.6 ms on the
+  demo scene, and drag frames fall back to a density fraction with a ~25 ms
+  budget, which is the user-visible half of GRAF-05. All written up in
+  `docs/procedural-generation.md`.
+  **Verified in four layers.** (1) A host harness (procgraph+procgen+procbake +
+  objparser+primmesh, no GUI) runs 40 property checks: identical output for
+  identical input; a new seed reshuffles; two unconnected nodes in another
+  branch change NOTHING; density 3 -> 12 loses 0 of 113 points and moves 0 of
+  them; editing the last node re-runs 2 nodes and serves 5 from cache, an
+  unchanged graph runs 0; a 10 % preview is a strict subset of the full result;
+  an override survives a density change (and so does a deletion); a hard slope
+  filter leaves nothing above 9.78 deg of a 10 deg limit (re-derived from the
+  heightmap independently); a 4-unit minimum distance yields a closest pair of
+  4.018; type-mismatched and cyclic links are refused; the bake is idempotent
+  and keeps chunk object ids. (2) A fixture harness built a real project
+  (two Tree-Generator trees at 132 and 380 triangles, 69 instances, 18 chunks,
+  13 572 triangles), baked it, saved, reloaded and compared - graph identical,
+  chunks intact, bake not stale. (3) `--build` + PCSX2 (software renderer):
+  the forest renders on the console with per-instance scale/rotation variety on
+  sculpted terrain at **109 FPS** with vsync off (PAL caps at 50), 18 draw
+  calls. (4) The editor GUI: the Procedural window and the live viewport
+  preview captured and read (the preview draws the instances through the
+  ordinary model path, so it is shaded like the chunks that ship).
+  **Three bugs the verification caught, worth recording:**
+  - chunk objects were created without an object id, and the merge-friendly file
+    layout keys `objects/<id>.json` on it - so every baked chunk was written to
+    nowhere and silently vanished on the next load;
+  - `bakeHash` (the staleness check) hashed raw floats, but the `.tyra` stores
+    floats as `%.6g`: after a save/load round trip 1056 of 1089 heightmap
+    samples came back as different bit patterns and every bake read as stale
+    forever. A fixed-step quantizer does not fix this either (values straddle
+    step boundaries); hashing to the file's OWN six significant digits is
+    stable by construction, because the reparsed value quantizes to the integer
+    it was printed from;
+  - `ImNodes::EditorContextSet(nullptr)` after drawing the second node canvas
+    left imnodes' editor context null, so the next frame's Flow Graph crashed
+    on startup (an access violation with no output). Both canvases now own an
+    explicit editor context created at init - which they need anyway, or their
+    panning and selection fight over one state.
+  Also: `Instance detail` on the Output node decimates the source mesh once
+  before merging (meshlod, welded WITHOUT normals as the .tmdl bake learned to
+  do) - measured 21 % off a tree, because a leaf-card canopy is all locked
+  border edges and can only be made cheaper by authoring fewer, bigger cards.
+  That is in the docs as the honest answer to "why is my forest still 30k
+  triangles".
 - (224) **Directional third-person locomotion: face-camera (strafe) mode +
   back/strafe-left/strafe-right clips.** Until now the avatar always turned
   into its movement direction, so one walk clip covered every step. New Player
@@ -14879,7 +15058,272 @@ Each finished feature lands as its own commit.
   `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
   nothing a generated game project's assistant does needs it.
 
-- (226) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
+<<<<<<< HEAD
+- (232) **Runtime procedural generation + prefabs** - the two halves of "build
+  the world while the game runs". Until now a Procedural volume was baked: the
+  editor evaluated the graph and wrote finished chunk meshes, and the console
+  never learned a graph existed (entry above). A volume now has a **mode**, and
+  in *Runtime* the graph is COMPILED into the game (`src/gen/procedural.gen.cpp`,
+  emitted by the new `src/procrt.cpp`) and evaluated on the EE - so the world
+  can be different every boot and no geometry ships at all. **Prefabs**
+  (`src/prefab.*`, `Project::prefabs`, `Section::Prefabs`, the *Tools > Prefabs*
+  window in `src/prefab_ui.cpp`) are the other half: a group of scene objects
+  with their flow graphs, captured from a selection and stamped back by hand, by
+  a graph (`Pick Prefab`) or by a flow node (`Spawn Prefab`) while the game runs.
+  Written up in `docs/procedural-runtime.md` and `docs/prefabs.md`.
+
+  **The design decision the whole thing rests on is the merge.** A PS2 static
+  submit costs ~0.7-1.5 ms of fixed EE time whatever it contains, so neither
+  feature can exist as "spawn one object per instance": 500 cubes or 27 rooms
+  would be a frame and a half each. Both therefore end in the same place -
+  `TerrainGame::ProcChunk`, a world-space vertex bag the GAME built, drawn like
+  a static batch, merged per (source mesh, world chunk). A prefab's members are
+  split at build time by `prefab::memberMerges`: plain static geometry folds
+  into the bag, and only members that need an identity something can address (a
+  graph, scripts, physics, a light, a layer) take a clone-pool slot and a submit
+  of their own. The Prefabs window states that split per prefab before you
+  build, because the second number is the one that runs out (32 clones per
+  scene, 8 per instance). A prefab spawned BY A VOLUME merges into the volume's
+  chunk grid rather than its own - which is what makes the cube example 27 rooms
+  in ~4 draw calls; a flow-node spawn keeps its own bags, because Despawn Prefab
+  has to be able to take that one instance away again.
+
+  Merged geometry has no objects behind it, so it would be scenery you walk
+  through - right for vegetation, wrong for architecture. Every merged member
+  with collision contributes one conservative world AABB to `procColliders`,
+  tested in `collidePlayer` next to the object boxes (axis-aligned on purpose,
+  with a 3-unit cheap reject: it is hundreds of boxes per walker per frame, and
+  without the reject the cube example measured 47 FPS instead of 50).
+
+  **`procrt::capability()` is the honest half.** The console has a heightmap, a
+  few models and 32 MB - it does not have your `.obj` files, your splat map or
+  your scene graph. One table (`kRuntimeNodes`) is read by both the capability
+  check and the emitter, so the window can never promise a node the compiler
+  cannot produce; a graph using Curve / Scatter along Curve / Keep Away From, a
+  painted-layer Terrain Mask or an object-target surface scatter is named, with
+  the reason, under the budget bar the moment you switch to Runtime - and
+  codegen refuses to emit it rather than generating code that will not compile.
+  The emitted evaluator is a faithful twin of `procgen.cpp` (same mix64, same
+  Halton, same per-point channels), which is what makes a runtime volume
+  previewable in the viewport at all.
+
+  Two structural notes on the emitter. Points live in ONE growing buffer and
+  every node returns the `[begin, end)` range it produced, always ending at
+  `count` - that is what makes a filter's in-place compaction and a Merge's
+  plain concatenation correct with no allocation anywhere. And a node feeding
+  two consumers is **emitted twice**, which is not a bug but the dataflow
+  meaning (each branch gets its own copy of the cloud) - hence `emitSeq` in the
+  variable names, after the first attempt produced `int r1b` twice.
+
+  **Blocks Fill** is the new source node and the one whose value is in what it
+  does NOT emit: it walks the column field and emits only blocks with an exposed
+  face, each carrying a 6-bit `faces` mask the merge honours by dropping any
+  source triangle whose outward normal points at a covered face. A flat plain
+  then costs two triangles per block instead of twelve, and the blocks-terrain
+  example generates 2 400 blocks out of the 27 000 its field describes. `faces`
+  is a plain attribute rather than a property of a block type, so any asset
+  merged anywhere honours it; `depth` and `height` are likewise plain, which is
+  why "grass on top, dirt under it, stone below" is five ordinary Filter by
+  Attribute branches and not a special node. In a runtime volume the solid field
+  is published as the world's collision (one 32-bit word per column - hence the
+  32-level cap), read by `collidePlayer` for floor, ceiling and walls. Exactly
+  one block is climbable in a stride, which means the block must be SHORTER than
+  the player: the first attempt used 2-unit cubes under a 1.8-unit walker and
+  every single-block rise was a wall the camera stared into.
+
+  Also: the codegen's `SceneObjectData` row emitter was extracted
+  (`writeObjectDataRow`) so prefab members go through the identical field list -
+  and the empty-scene placeholder row, hand-typed and never exercised, turned out
+  to have already drifted behind the struct. It is now written by the same
+  emitter.
+
+  **Verified end to end in PCSX2** (software renderer, PAL). `examples/blocks-terrain`:
+  the boot log reports `Procedural world: 2423 instances, seed 7`, the screen
+  shows stepped terraces of cubes with snow on the peaks, and it holds **50.05
+  FPS**. Regeneration was measured by temporarily swapping the button trigger for
+  `Every N Seconds` (this machine's PCSX2 has no keyboard bindings on Pad1, so a
+  button press is not scriptable here): six consecutive `Procedural world:` lines
+  with six different seeds and instance counts, and a screenshot of a visibly
+  different landscape at the same frame rate. `examples/cube`: `Procedural
+  the-cube: 27 instances`, the player stands inside a room whose walls, floor
+  hatch and doorway are all there, at **50.00 FPS**. The pad-driven half - actually
+  pressing TRIANGLE, and walking through a doorway into the next room - still
+  needs a hands-on test with a controller.
+
+- (233) **Procedural + prefabs: the five things that were wrong with using
+  them.** A backlog from actually building a world out of the previous entry's
+  features, so each item is small and each one is a place the tool lied about
+  itself.
+
+  **Prefab notes were unreadable.** The field that documents a prefab was a
+  one-line `InputText`: it showed the first ~50 characters and hid the rest
+  behind a caret nobody thinks to move. The obvious fix is the wrong widget
+  twice over, because ImGui's multiline `InputText` does not word-wrap either -
+  a long note stays one line and scrolls sideways. So the resting state is now a
+  plain wrapped paragraph and the editor only appears while you are typing in
+  it (click to edit, click away to save; the buffer is a member, since multiline
+  has no Enter to commit on and the refresh-every-frame pattern the single-line
+  fields use would overwrite what is being typed). The prefab list shows the
+  note as a tooltip, so a pool of a dozen is browsable without selecting each.
+
+  **Nothing said an object came out of a prefab.** `SceneObject::prefabSource`
+  records the prefab's name on every stamped object - editor bookkeeping, read
+  by nothing downstream - and the Project panel folds them into one collapsible
+  node per prefab, the same shape the streaming layers already use above them
+  (click the label to select the whole instance, the arrow to list its members,
+  drag the header to move the lot onto a layer). Properties says *From prefab:
+  X* with an *Open in Prefabs* shortcut and a *Forget* button for a member
+  reworked into something else; the multi-select view says it too, because
+  clicking a group selects twenty objects and that is the case that happens.
+  The mark survives copy/paste (a copy of a room is still a room), is retargeted
+  by a prefab rename, and is CLEARED by *Create from selection* - otherwise
+  every instance of the new prefab files itself under the old one's name.
+  Default CLOSED: collapsing them is the point, a scene of 27 rooms is
+  otherwise 500 rows.
+
+  **The Pick Prefab tooltip was a wall of prose that named none of its own
+  controls.** Fixed generically rather than by editing one string: a node's
+  tooltip (add menu and hover, one renderer) is now its `.desc` followed by ONE
+  LINE PER CONTROL - each parameter's label with its tip, plus what the columns
+  of a table-bodied node mean (`w 34`, `1.00`, `1.00` say weight and scale
+  range now, in a tooltip and on the drags themselves). The Pick Prefab
+  paragraph shrank to what only it can say and points at Tools > Prefabs for
+  the per-prefab cost split.
+
+  **"Right-click a node > Preview" did nothing.** A real bug with a one-line
+  cause: the context menu remembered its target in `procDescNode_`, which is the
+  HOVER tracker and is reset to -1 on every frame the cursor is not over a node
+  - an open popup being exactly such a frame. The menu opened and closed itself
+  on the next frame, i.e. it flashed for 16 ms. It has its own `procCtxNode_`
+  now.
+
+  **A runtime volume could not be previewed at any seed but its own.** With
+  *New world every run*, the number in the Seed box is not the seed a player
+  gets, so the viewport was showing one draw out of many and the only way to see
+  the others was to build the game and boot it. The **seed simulator**
+  (`runProcSeedSweep`, `procgen::Options::seedOverride`) evaluates the graph on
+  N seeds - the authored one first, then the sequence *Reseed* itself hands out
+  - and tabulates instances, triangles and chunks per world. Click a row to show
+  that world in the viewport, *Use* to adopt the seed, and read the summary,
+  which is the actual point: the instance and triangle SPREAD, and how many
+  seeds blow the Output node's triangle budget. A volume that fits on the seed
+  you authored with and overruns on one boot in eight is a bug you would
+  otherwise meet on the console. The simulated seed is a way of LOOKING at the
+  graph - it never touches the `.tyra`, never makes a bake stale, is dropped on
+  a volume switch, and uses a scratch cache per trial so it cannot evict the
+  live preview's memo. `procgen`'s evaluation seed moved from scattered
+  `ctx.g.seed` reads to one `Ctx::seed` field, which is what made the override a
+  three-line change instead of thirty.
+
+  Also, because item four was otherwise unverifiable: **`--ui-script` learned
+  `rightclick`** (same three-phase shape as `click`, on mouse index 1). Context
+  menus were the one part of the editor a script could not reach, which is
+  exactly how a menu that closed the frame after it opened shipped unnoticed.
+  The docs' example quoting was wrong too - the tokenizer strips DOUBLE quotes
+  only, so a two-word target written `'like this'` silently arrives as two
+  tokens.
+
+  **Verified in the running editor** (`--ui-script` on a copy of
+  `examples/cube`, no human, no focus). Prefab grouping: two prefabs inserted
+  through the real *Insert into scene* path, saved, reopened - the outliner
+  shows `room-red (21)` / `room-jade (20)` instead of 41 rows, 41 objects carry
+  `prefabSource` in `objects/*.json`, double-click expands, clicking the label
+  selects 20 objects (the viewport outlines all of them and the Prefabs window
+  header changes to *Create from selection (20 objects)*), and `expect` asserts
+  the provenance buttons in BOTH the single- and multi-object Properties views.
+  Seed simulator: eight seeds swept on the cube's runtime volume, table filled,
+  summary green at 27-27 instances. Node docs: the Output node's hover shows
+  *Cast shadow*, *Collision*, *Instance detail*, *Triangle budget* and *Runtime
+  instance cap* each with its explanation. Right-click: the context menu is
+  still open eight frames after the click and `expect "Preview this node"`
+  passes - and the same script against a `-Dev` build of the PRE-FIX code fails
+  it, which is what makes that a test rather than a screenshot. Notes: the
+  cube's own prefab note now renders as two wrapped lines instead of one clipped
+  one. Nothing here reaches the PS2 (`prefabSource` is editor-only and the
+  simulator is a preview), so there is no console half to test.
+
+- (234) **A prefab-scattering graph previewed as empty ground.** Reported
+  straight after the entry above, by the obvious first move: open
+  `examples/cube`, open its only procedural volume, look. The readout said *27
+  instances*, the viewport showed a bare terrain, and the budget bar said *0 /
+  40000 triangles* for a world of 27 rooms.
+
+  One cause, three consumers. A point carries an asset **or** a prefab
+  (`Instance::asset` / `Instance::prefab`), and everything downstream had only
+  ever been taught about the asset half: `viewport.cpp`'s scatter loop skipped
+  `asset < 0`, `procbake::estimate` did the same and then blamed the author
+  ("some instances have no asset assigned - add a Pick Asset node") for a graph
+  that had a perfectly good Pick Prefab, and `updateProcPreview`'s multi-volume
+  merge rebased asset indices but not prefab ones, so two volumes' prefab pools
+  aliased. Pick Prefab shipped in (224) with its own preview never once looked
+  at - the runtime half was verified on the console, which is exactly where the
+  gap could hide.
+
+  The preview now expands each prefab instance through **`prefab::instantiate`**
+  - the same function *Insert into scene* and the runtime spawner use - into
+  world-space objects the viewport draws through a new shared
+  `drawStaticObject` (the mirror pass's `drawReflected` was already that
+  function; now there is one of it). Going through `instantiate` rather than
+  composing transforms in the viewport is the point: the preview cannot invent a
+  placement the world would not produce, and it silently inherits the
+  yaw-plus-translation-only convention the console has. Capped at 6000 preview
+  objects, and a truncated preview SAYS so - showing part of a world without
+  saying which part is worse than showing none of it. `estimate` counts each
+  instance's **mergeable** members (models via `sourceMesh`, primitives via the
+  existing `primTriangleCount`), so the budget bar and the seed simulator stop
+  reporting zero, and its warning now names both node types and only fires for
+  instances that really have nothing to place.
+
+  **Verified in the running editor** on an untouched copy of `examples/cube`:
+  the viewport draws the 3x3x3 lattice of coloured rooms with no bake and no
+  game, and the readout reads *27 instances | 14 chunks | 6480 triangles | ~759
+  KB* where it read zeros. The seed simulator's eight seeds now show 6480
+  triangles and 9-14 chunks each instead of 0/0. And the simulator's central
+  claim - that clicking a seed shows THAT world - is measured rather than
+  eyeballed: cropped to the viewport rect, the authored seed differs from two
+  others by 156k and 132k of 327k pixels, those two differ from each other by
+  154k, and a frame against itself differs by 0.
+
+- (235) **A way to hide the procedural preview, and a layout to author one in.**
+  Both asked for once the preview from (227) actually worked, which is the
+  order these things arrive in.
+
+  **View > Procedural preview** (and a *Show preview* checkbox in the window's
+  own tool row, because that is where you are standing when it gets in your
+  way) drops the generated geometry from the viewport. Two decisions worth
+  stating. The graph is still **evaluated** while hidden - the instance counts,
+  the triangle budget, the warnings and the seed simulator are the reason the
+  window is open, and freezing them silently to save a few milliseconds would be
+  a worse lie than a forest covering the ground. And it hides the OUTPUT only:
+  mask/curve node previews and the curve edit handles still draw, since a
+  *Preview this node* that showed nothing because a different toggle was off
+  would be its own bug report. Cheap where it can be - the prefab expansion (up
+  to 6000 objects) is skipped entirely while hidden.
+
+  **`LayoutRecipe::Procedural`** - the graph along the bottom, viewport above
+  it, Project left, Properties right, Prefabs as a bottom TAB. The arrangement
+  follows the loop: you drag a density slider and watch the world change, so
+  those two windows must both be on screen and neither may hide the other.
+  Properties earns the right column because a volume's own box IS the region the
+  graph fills. Prefabs started as a 0.22 side column and the first screenshot
+  killed that: its member table truncated every column to three characters, so
+  it moved to the bottom dock where switching to it hands it the full width -
+  it is consulted, not watched. A new built-in layout is four places, and the
+  one that is easy to miss is the `hasRecipe` top-up in `project::load`: without
+  it every existing project keeps its saved layout list and never sees the new
+  layout at all.
+
+  **Verified in the running editor** (`--ui-script`, `examples/cube` copy). The
+  layout appears in the Layout menu of an EXISTING project (the migration path,
+  not just a fresh one), switches, and the screenshot shows the intended
+  arrangement with `Layout: Procedural` in the title bar. The toggle is measured
+  rather than eyeballed: over the viewport rect, hiding changes 91 797 of
+  616 100 pixels (the 27-room cube goes, the terrain stays) and showing again
+  reproduces the original frame **byte for byte** - 0 pixels differ - while the
+  readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
+  which is the "still evaluated" half of the promise.
+=======
+- (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
   is one bool on `TerrainConfig`, which is exactly why it needed no new
@@ -14966,6 +15410,318 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
+>>>>>>> origin/main
+
+- (237) **Merge fallout: a procedural volume scattered onto a terrain that no
+  longer exists.** Found while merging main's *optional terrain* (236) into the
+  procedural branch - the two features had never been in one tree, so nothing
+  was wrong with either of them on its own.
+
+  Terrain removal deliberately KEEPS the heightmap so the ground can come back,
+  and the generated sampler answers `TERRAIN_VOID_Y` for a scene that has none.
+  `procgen::terrainHeight` knew about neither: it read the kept heightmap and
+  answered a real height, so *Scatter on Surface* and every *Snap to surface*
+  placed the preview on an invisible ground while the console - which resolves
+  the same call through `procTerrainY` -> `terrainHeightAtScene` - would put the
+  whole volume a million units down. Exactly the host/console twin drift the
+  runtime evaluator's whole design is meant to prevent, and invisible from
+  either side alone.
+
+  The host sampler now returns the same void height, and a graph that samples
+  the ground in a terrain-less scene says so in the window's warning list rather
+  than quietly producing a volume in the void. Verified with a project made by
+  main's own `--new ... --no-terrain`: adding a procedural volume raises *"this
+  scene has no terrain, so there is no surface to place on - turn Snap to
+  surface off"* next to the ordinary empty-pool warnings.
+
+- (238) **The pool rows were unreadable, and there was no way to scatter a
+  primitive.** Both reported off one screenshot of a Pick Asset node reading
+  `(pick a` and `w 5 0.9 1.1 x`.
+
+  **Readability.** Node item width 140 -> 168, so an enum or an object-name
+  combo stops saying `(terra`. The pool row's asset combo now spans the node
+  (236) and shows the **basename** - `res/models/` is identical on every row and
+  was eating exactly the width the name needed - with the full path on hover.
+  The three numbers moved to a computed third-of-the-row each (67 instead of
+  56/52/52) and the scale fields read `x1.00` rather than a bare `1.00`, since
+  next to a weight a lone `0.90` says nothing about being a multiplier. The
+  numeric half of a row is now ONE function shared by the asset and prefab
+  pools, which were already meant to be the same shape.
+
+  **Scattering a primitive.** The answer is not a new node. A one-member prefab
+  already does exactly this - merged into the chunk bags, costed by the Prefabs
+  window, spawnable on the console - so the gap was that you had to know to go
+  and make one. A *Pick Prefab* row's picker now ends in **Capture from the
+  scene**: pick any scene object and it becomes an ordinary prefab named after
+  it, with the row pointed at it. A second "scatter a scene object" mechanism
+  would have been the same feature with its own bugs, its own runtime tables and
+  its own drift; this adds no code path at all below the picker. *Pick Asset*
+  stays `.obj`-only and says so, with its combo pointing at Pick Prefab - a node
+  that is never going to be the right place for a primitive should say where the
+  right place is rather than just refusing.
+
+  **Verified in the running editor.** A Box added through the Add menu, captured
+  with one object selected, and a pool row pointed at it: the viewport draws the
+  cube's lattice with grey scattered boxes where the red rooms were, and the
+  budget follows honestly - 6480 -> 3972 triangles, which is 12 per box against
+  ~240 per room. The widened rows are in the screenshot: `room-steel` reads in
+  full and `w 34 | x1.00 | x1.00 | x` are separated. What was NOT clicked is the
+  new combo entry itself - a `##`-labelled ImGui combo has no name for
+  `--ui-script` to target, so the capture was exercised through the identical
+  `prefab::capture` call the Prefabs window makes, and the picker section itself
+  is a human check.
+
+- (239) **Fix: the prefab picker collided with itself.** Reported as an ImGui
+  "2 visible items with conflicting ID" banner when picking the same prefab
+  twice - and the diagnosis is worse than the report: it fires the moment you
+  use the *Capture from the scene* entry added in (238) at all.
+
+  A `Selectable`'s LABEL is its ImGui id, and that popup shows two lists.
+  Capturing the object `box-1` makes a prefab called `box-1` while the object is
+  still standing in the scene, so the very next open has `box-1` in both halves
+  - two visible items, one id. Exactly the rule the Drone Generator's knobs
+  learned in 210, in a shape nobody had met before: not two widgets that happen
+  to share a caption, but two LISTS whose contents overlap by construction.
+
+  Every entry now carries an explicit `##<prefix><index>` (`##pf`, `##cap`,
+  `##m`, `##o`) - the displayed text stops at `##`, so nothing moves - and the
+  capture entries also show the object's type the way the outliner does, since
+  a separator alone is thin grounds for telling two identical names apart. The
+  asset picker and the object-name parameter combo got the same treatment
+  defensively: neither can produce a duplicate today, and neither is worth
+  re-learning this from.
+
+  **Honest about the verification.** The fix is by construction (unique index
+  per entry, distinct prefixes per list) and the editor builds and passes the
+  25-step procedural regression with `expect-not "MESSAGE FROM DEAR IMGUI"` in
+  it - but that assertion never OPENS the picker, so it proves only that nothing
+  else conflicts. `--ui-script` cannot click a `##`-labelled combo (there is no
+  name to target) and ImGui's keyboard nav does not reach inside the imnodes
+  canvas, so the popup itself stays a human check. Worth knowing before the next
+  attempt to script one.
+
+- (240) **Height offset on the two ground-based scatter sources.** Asked as "how
+  do I raise the level the prefabs start from - right now it begins at terrain
+  level", about a *Scatter on Grid* with Snap on and 8 levels. There was no
+  answer: with Snap on the base IS the terrain height and nothing offset it, and
+  the only workaround was turning Snap off, which trades terrain-following for a
+  flat base at the volume's centre. *Single Point* already had an *Offset Y*, so
+  the vocabulary existed everywhere except where it was needed.
+
+  `Height offset` on *Scatter on Grid* and *Scatter on Surface*. It offsets the
+  BASE, whatever the base happened to be - the terrain under each point, the
+  sampled object's triangle, or the volume centre - so the lift follows the
+  ground instead of flattening it, and on Grid it lands before the level
+  stacking so a tower starts above the ground rather than in it. On Surface it
+  is applied after the volume's Y clip on purpose: the clip asks whether the
+  SURFACE is inside the region, not where the point ends up hovering. The
+  runtime emitters were changed in the same commit, because a preview that does
+  not predict the console is the one thing a runtime volume cannot afford.
+
+  Also corrected a tip that was simply wrong: *Levels* claimed "Snap has to be
+  OFF for this to mean anything". It does not - each column starts at its own
+  ground height and the stack follows the terrain, which is exactly what the
+  reporter was doing when they asked.
+
+  **Verified** by reading the emitted twin, which is the honest test for a
+  runtime volume: at offset 0 the generated line is `P.y = c.volPos[1] + 0.0f +
+  (float)iy * 14.0f` (unchanged behaviour for every existing project, since the
+  parameter defaults to 0 and an untouched parameter is not even stored); at 25
+  with Snap off, `c.volPos[1] + 25.0f + ...`; at 6.5 with Snap ON,
+  `c.terrainY(px, pz) + 6.5f + (float)iy * 14.0f`; and Scatter on Surface at
+  3.25 emits `P.y = c.terrainY(px, pz) + 3.25f`. The editor preview agrees - the
+  cube example's whole lattice floats 25 units off the ground in the viewport.
+
+- (241) **The runtime seed can be wired, and the procedural nodes got their own
+  menu.** Asked as "can I re-roll a dynamic procedural object at runtime? I see
+  Generate Volume but its seed is typed by hand".
+
+  Half the answer already existed and was not findable: **Seed `-1` rolls a
+  fresh one**, which is exactly what `examples/cube` fires from TRIANGLE. The
+  other half was a real gap - the node had no `numIn`, so the one value in the
+  whole feature that a game might want to COMPUTE was the one value that could
+  not be. It has one now (`numOperand` + `lroundf`, the rules the number plane
+  already states for an int consumer), which is the difference between a random
+  world and a chosen one: a save value or a level counter wired into the Seed
+  makes "restore the map this save game had" and "level 7 always looks like
+  level 7" the same one-node mechanism, with no geometry stored either way.
+
+  And **Spawn Prefab / Despawn Prefab / Generate Volume moved to a `Procedural`
+  category**, asked for as "it is getting cramped in there" - `Object` had 30
+  entries, the most crowded menu in the editor. They belong together by
+  mechanism and not just by menu: prefab spawns and a runtime volume's output
+  both end in `TerrainGame::ProcChunk` bags plus the clone pool. Free to do -
+  `flowNodeCategories()` derives the submenu list from the registry, so a new
+  category is one string.
+
+  **Verified through the emitted code**, which is where a codegen change is
+  either right or not. Unwired: `ctx.generateVolume(0, (int)lroundf(-1.0F),
+  false)` - the typed value still wins, so nothing existing moved. Wired through
+  a Math chain to a save value: `ctx.generateVolume(0,
+  (int)lroundf((ctx.saveValues[0] * 7919.0F)), false)`. The category shows in
+  `--list-nodes` (the AI catalog and the add menu read the same registry), whose
+  line for the node also now reports `number (overrides num[0])` among its
+  inputs. The add MENU itself is a human check: it opens on a right-click of
+  empty canvas, and a canvas is a whole-window item that `--ui-script` refuses
+  to click - the third place this limitation has come up, now written down in
+  the skill.
+
+- (242) **Two bugs from a user's own runtime volume** (`dynamic-cube`: a grid of
+  prefab boxes, regenerated on Cross). Reported as "it does not regenerate -
+  the flow graph fires, I checked with the debugger" and "only one row is built,
+  the preview shows eight".
+
+  **Generate Volume compiled to a comment.** The node's object name was empty,
+  and `procrt::volumeIndexOf` matches by exact name, so it returned -1 and
+  codegen emitted `// node 2 (Generate Volume): '' is not a runtime Procedural
+  volume in this scene`. The node is still instrumented like any action, so the
+  Live Debugger showed it firing while it did nothing - about the most
+  misleading failure available. Empty now means SELF, which is the convention
+  every other `ObjectName` param follows and the common wiring: a Generate
+  Volume node usually sits on the volume it drives.
+
+  **The prefab instance pool is a budget nobody was told about.** The graph
+  yields 9x9 points per level over eight levels = 648, each carrying a prefab,
+  and each prefab instance takes a record from a pool of **48**. The runtime
+  refuses the rest ("instance pool full") and the console builds 48 of 648.
+  Because *Scatter on Grid* runs its level loop outermost, the survivors are all
+  from the bottom - the world renders as one row, which reads as a broken
+  generator rather than a ceiling. The triangle budget said nothing: 648 boxes
+  is 7 776 of 20 000 triangles, comfortable. `MAX_PREFAB_INSTANCES` is now
+  `prefab::kMaxRuntimeInstances`, one constant read by both codegen and the
+  editor, and `procgen::evaluate` warns the moment a runtime volume's prefab
+  count crosses it, naming the cheaper alternative (a model through Pick Asset
+  merges without an instance record).
+
+  **Verified**: regenerating the user's project's codegen on a copy turns the
+  comment into `if (ctx.generateVolume) ctx.generateVolume(0,
+  (int)lroundf(-1.0F), false)`. The pool warning is by construction - same
+  `Result::warnings` vector and same renderer as the terrain-void warning
+  captured on screen in (237) - but that particular string was not screenshotted:
+  the Procedural window shares a dock tab with Prefabs in this project and
+  `--ui-script` cannot bring a tab forward (a tab's label is its window's name,
+  which `find` excludes as a whole-window item). The pool CEILING itself was not
+  re-measured on console; 48 is what the generated game has always used.
+
+- (243) **Bake a prefab to a model.** Asked for straight after (242) exposed the
+  48-instance ceiling: "can a prefab be saved as an .obj? then you could
+  assemble a thing out of a few primitives and not have to load them
+  separately". Yes - and it is the way out of that ceiling, not just a
+  convenience.
+
+  `prefab::bakeToModel` flattens the mergeable members into one
+  `res/models/<name>.obj` + a generated `.mtl`. Mostly assembly rather than
+  invention: `primmesh` already tessellates primitives host-side (decalproj and
+  gibake use it), `objparser` reads model members and standalone `.mtl`
+  libraries GUI-free, and procbake's merged-`.obj` writer was the shape to copy.
+  The genuinely new part is generating the material library, because a
+  primitive's colour lives on the OBJECT and a `.obj` has no per-vertex colour:
+  triangles are grouped by (colour x material) into one `newmtl` each, so the
+  file carries one `usemtl` run per look rather than one per member. A member
+  material's texture is COPIED next to the output - the PS2 cannot walk `..`,
+  so a path that only resolves on a PC is not an option.
+
+  Two details worth stating. Normals take the member's rotation with its scale
+  INVERTED first, or a squashed box shades as though it had never been squashed.
+  And the transform is `Rz*Ry*Rx`, the order `Viewport::modelMatrix` and
+  procbake already use - any other order bakes the thing somewhere the editor
+  never showed it.
+
+  The bake is one-way and says so: the result is dumb geometry, the prefab stays
+  as the source, and members that cannot merge are LISTED in the window (with
+  the reason) rather than silently dropped.
+
+  **Verified end to end, on the console.** Host: a harness over the GL-free
+  module (the property this module was built for) bakes the reporter's three
+  prefabs - `box-1.obj`, 1 member, 12 triangles, 1 material, `Kd 0.7402 0.0399
+  0.0399` matching the red box, and a bbox of 6.19 x 6.19 x 6.27 that agrees
+  with the window's "6.2 x 6.2 x 6.3 units" readout with Y starting at 0 (the
+  prefab-origin convention). Console: the same 9x9x8 grid that built **48 of
+  648** through Pick Prefab, re-pointed at the baked models through Pick Asset,
+  logs `Procedural procedural-1: 648 instances` - all of them - and renders a
+  full field of red/green/blue boxes at **50.17 FPS**, the PAL cap, with EE 39 %
+  / VU 5 % / GS 8 %. Docker build clean.
+
+  Not covered: the window's own button was clicked only in as much as the code
+  path is shared with the harness - the Prefabs window sits behind another dock
+  tab in that project and `--ui-script` cannot bring a tab forward.
+
+- (244) **Prefab window honesty: the bake report sticks to its prefab, Delete
+  confirms, and a bake cannot clobber a hand-made model.** The reporter of
+  (243) came back with "each of my three prefabs is baked, but only the last
+  one I pick applies to all three". No bake was wrong - the three `.obj`s on
+  disk were distinct (in fact the blue one had never been baked at all). What
+  applied to all three was the REPORT: `prefabBakeReport_` was one global
+  member drawn under whatever prefab was selected, so the green `Baked: ...`
+  line followed you around the list and read as "this prefab is baked" three
+  times over. It is now keyed by the prefab's id (`prefabBakeFor_`) and draws
+  only under the prefab it belongs to.
+
+  Second half of the report: Delete had no confirmation and no Ctrl+Z. The
+  missing undo is structural - prefabs live outside the history snapshot
+  (which holds scenes, like sequences and menus) - so the fix is the same one
+  scenes got: a *Delete Prefab?* modal, stating that undo cannot bring it
+  back, that placed copies stay, and naming the scenes whose graphs still
+  spawn the prefab by name (those Spawn Prefab / Pick Prefab entries would
+  keep the name and spawn nothing).
+
+  Bake undo stays absent on purpose (it writes files, not scene edits; the
+  prefab remains the source and a re-bake is the update path) but gained the
+  guard that makes that safe: the output stem comes from the prefab's NAME,
+  and "box" is exactly what a hand-made model is also called - so the bake now
+  refuses to overwrite any `res/models/<stem>.obj`/`.mtl` whose first line is
+  not the bake's own marker.
+
+  **Verified** with a 27-step `--ui-script` run (exit 0) against a scratch
+  copy of the reporter's project, layouts stripped so the Prefabs window is
+  reachable: bake blue -> report under blue; select red -> NO report (the bug,
+  gone); bake red -> report under red; a fake hand-written
+  `box-green-prefab.obj` -> Bake fails with the rename hint in the status bar
+  and the file survives byte-for-byte; Delete -> modal appears (screenshot),
+  Cancel keeps the prefab, Delete removes it (`expect-not` on the list row)
+  and the manifest ends with two prefabs. All asserted with `expect`/
+  `expect-not` plus screenshots read back frame-by-frame.
+
+- (245) **The bake is visible and takes itself back: a persistent Baked/Not
+  baked readout per prefab, and a Delete bake... button.** Follow-up from the
+  same reporter, two asks in one: "if undoing a bake is deleting the model,
+  put that option on the prefab so I don't have to dig" and "sitting on a
+  selected prefab I'd like to SEE whether it is baked - the green line is
+  only there for a moment". Both were the same missing thing: the window only
+  knew about bakes made THIS session (`prefabBakeReport_`), so after a
+  restart a baked prefab and a never-baked one looked identical.
+
+  `prefab::bakeOnDisk` now answers "is this prefab baked" from the file
+  system - the stem's `.obj` exists AND carries the bake marker in its first
+  line, the same test the overwrite guard of (244) uses (shared as
+  `isBakeOutput`), so a hand-made model that merely shares the name is never
+  claimed as a bake. The window draws a green `Baked: res/models/<stem>.obj`
+  whenever that holds (the tris/materials numbers and the skipped list still
+  belong to the session's fresh bake only) and an explicit *Not baked to a
+  model* otherwise. Cached per (id, name) key - the answer is a file read,
+  and the name is in the key because a rename points at a different stem -
+  invalidated after a bake and after a delete, never polled per frame.
+
+  `prefab::deleteBake` is the way back: marker-guarded like the bake, removes
+  the `.obj`, the `.mtl` (only if the bake wrote it) and the derived `.tmdl`,
+  leaves copied-in textures (they are copies of sources that still exist).
+  The *Delete bake...* button sits on the Baked line behind a confirm modal
+  that counts who still draws from the file - scene objects by `modelPath`
+  and *Pick Asset* rows, the likely consumer since scattering through Pick
+  Asset is the whole reason to bake - and the per-asset settings keyed by the
+  path (textureQuality / modelLods / modelUnitMeters) go with it, the same
+  bookkeeping the Asset Browser's delete does.
+
+  **Verified** with a 21-step `--ui-script` run (exit 0) on the (244) scratch
+  project in a FRESH editor session - the readout showed `Baked:` +
+  *Delete bake...* for a prefab baked in the previous session (the restart
+  case, asserted with `expect` before any bake was clicked), Cancel kept the
+  files, Delete removed `.obj`+`.mtl` from disk (`expect-not` on the button,
+  screenshot shows *Not baked to a model*), and an immediate re-bake brought
+  the button back. Negative case: stripping the marker line off a baked
+  `.obj` flips its prefab to `expect-not "Delete bake"` - a file the bake
+  does not own is not offered for deletion.
+
 
 - (227) **Vendored dependencies are pinned, mirrored and their licenses ship** -
   the question that started it was "czy dobrze robimy, że osadzamy vendory tak,
@@ -15044,3 +15800,60 @@ Each finished feature lands as its own commit.
   what would change it. Not decided here: whether to grant one, and whether to
   attach the Apache boilerplate header to `src/*.cpp` (recommended by the
   license, not required, and a ~90-file sweep).
+- (246) **The EE crash handler hung the game instead of reporting a crash -
+  `ee_dbg_install(2)` never returns.** Reported from a real console: a debug
+  build with the handler on froze on the LOADING screen, every boot. The
+  symptom lied convincingly - no `crash.txt`, no `log.txt` growth, no
+  `livedbg.bin`, and PCSX2 at **FPS 0 with EE ~11%**, i.e. the EE *idle*, not
+  spinning. Three independent reads pinned it before a single line was
+  changed: no `open name host:livedbg.cmd` ever appeared on the ps2link
+  console (the debugger polls that file immediately after the bootPhase block,
+  so the loop never left it); pad polling every 4 frames over ps2link let the
+  console log be COUNTED (9, 13, ... 33 - and a PAL `everyFrames(0.7)` hold
+  ends at 35); and `TYRA_LOG` breadcrumbs then walked it to
+  `livedbg::tickImpl` -> `CrashHandler::install`.
+
+  The cause is `ee_dbg_install(2)`. It drops interrupts and rewrites the
+  error-level vector at 0x80000100 under the running machine, and never comes
+  back; `ee_dbg_install(1)` returns fine on the same boot, both ways round.
+  **Fix: install level 1 only** - nothing is lost, because level 2 is the NMI
+  / cache-error vector while address error, bus error, reserved instruction,
+  overflow and trap all arrive on level 1.
+
+  Disassembling `libeedebug.a` (no sources in the image) also settled why the
+  careful cause list of (194) could never have helped, and left two facts
+  worth keeping: `ee_dbg_install(1)` hooks causes **1..3** via
+  `SetVTLBRefillHandler` and **4..7 + 10..13** via `SetVCommonHandler`
+  *whatever* you register, and its vector **always ERETs** - it never chains
+  to the kernel handler it saved (that copy exists only for `ee_dbg_remove`).
+  So a hooked cause with no handler is a latent infinite exception loop, which
+  is fatal for a TLB refill; the fix hands causes 1..3 straight back after the
+  install. (`ee_dbg_set_level2_handler` also bounds-checks `cause < 4`, so the
+  old 4..15 registrations were silently doing nothing.)
+
+  **Verified on real hardware, which is the only place it can be**: a forced
+  signed-overflow `add` produced `CRASH: Arithmetic overflow, excCode 12`,
+  `crash.txt` on the host, and `--symbolize` naming the exact source line
+  (`example_interaction.cpp:24`). Independently confirming (194)'s other
+  finding: **PCSX2 cannot produce EE exceptions at all** - the same forced
+  overflow AND an illegal opcode both executed as no-ops there, so
+  crash-CATCHING is hardware-only even though the hang reproduced in both.
+
+  Two follow-ups from the same session, both owner asks. A crash now **takes
+  the screen** (`init_scr`/`scr_printf`, the mechanism the opt-in assert
+  screen already uses): an exception is unrecoverable, and a frozen last frame
+  is indistinguishable from a hang - which is exactly what cost this evening.
+  Confirmed on the owner's TV. It paints ONCE and then halts on
+  `SleepThread()` rather than looping the printf the way the upstream assert
+  screen does: the debug console's framebuffer holds the text by itself, and
+  idling keeps the other threads schedulable - measured, a console sitting on
+  the crash screen still answers ps2link, so the next run is a redeploy from
+  the editor instead of a walk over to press Reset. Debug-only by
+  construction, so a shipped game cannot show it: a release build generates
+  `live_debug.gen.cpp` as a stub, never calls `install()`, links neither the
+  TU nor `-leedebug`. And in the Debugger the crash block
+  grew a **Run again** button (same transport, no rebuild) while the resolved
+  backtrace moved into its own horizontally scrolling box - demangled C++
+  names run to hundreds of characters and were falling off the panel edge
+  (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
+  names"` + `shot`).

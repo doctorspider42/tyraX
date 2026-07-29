@@ -12,6 +12,7 @@
 #include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
+#include "procgen.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -97,6 +98,12 @@ public:
     // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
     // treat that as a floor ask the model, not this (App::placementHeight).
     float terrainHeight(float x, float z) const;
+
+    // The camera ray through normalized image coords - the same one pick() and
+    // terrainRaycast() build. Exposed so the app can hit-test things the
+    // viewport does not own (procedural scatter instances live in the graph,
+    // not in the scene object list).
+    void cameraRay(float u, float v, float outOrigin[3], float outDir[3]) const;
 
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
@@ -203,6 +210,41 @@ public:
     // owns the Project). The GL mesh is rebuilt only when `version` changes,
     // so this can be called every frame cheaply; pass nullptr to hide.
     void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
+
+    // Procedural scatter preview (docs/procedural-generation.md). The app
+    // evaluates every Scatter volume's graph (procgen, off the UI thread) and
+    // pushes the result in once per frame; the viewport draws the instances
+    // with the ordinary model path, so the preview is shaded exactly like the
+    // baked chunks that ship. `version` gates the overlay-mesh rebuilds (mask
+    // grid, curve polyline) - the instance list itself is cheap to re-walk.
+    //
+    // The baked chunk objects (SceneObject::procSource) are NOT drawn while a
+    // preview exists: they are build output of the same deterministic
+    // evaluation, and drawing both would double every tree.
+    struct ScatterPreview {
+        uint64_t version = 0;
+        std::vector<std::string> assets;  // index = Instance::asset
+        std::vector<procgen::Instance> instances;
+        // Prefab instances, already expanded into WORLD-SPACE objects by the
+        // app (prefab::instantiate - the same function Insert into scene and
+        // the runtime spawner use, so the preview cannot invent a placement the
+        // world would not produce). A Pick Prefab point carries no asset, so
+        // without these such an instance draws as nothing at all.
+        std::vector<SceneObject> prefabObjects;
+        // An isolated node's own output, shown instead of instances: a mask
+        // draped over the terrain, or a curve as a polyline (UX-01).
+        std::shared_ptr<const procgen::Mask> mask;
+        std::shared_ptr<const procgen::Curve> curve;
+        // Control points of the curve node being edited (world XYZ triples),
+        // drawn as grabbable handles; -1 = none highlighted.
+        std::vector<float> handles;
+        int activeHandle = -1;
+        // Instances above this are drawn as plain points instead of meshes -
+        // one GL draw per instance is fine for thousands, not for tens of
+        // thousands, and the author still needs to see the layout.
+        int proxyAbove = 4000;
+    };
+    void setScatterPreview(ScatterPreview p);
 
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
@@ -505,6 +547,15 @@ private:
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+
+    // Scatter preview (see setScatterPreview): the pushed result plus the GL
+    // meshes for its mask / curve overlays, rebuilt only when version changes.
+    ScatterPreview scatter_;
+    uint64_t scatterVersion_ = 0;
+    bool scatterHasVersion_ = false;
+    Mesh scatterMaskMesh_;
+    Mesh scatterCurveMesh_;
+    Mesh scatterPointsMesh_;  // proxy dots for very large instance counts
 
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.

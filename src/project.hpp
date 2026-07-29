@@ -11,6 +11,7 @@
 #include "flowgraph.hpp"
 #include "grading.hpp"
 #include "input.hpp"
+#include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
 
@@ -123,11 +124,17 @@ enum class PrimitiveType {
     // list, and use the In Area flow trigger for volume triggers.
     // See docs/areas.md.
     Area = 17,
+    // Scatter volume: an authoring-only region (wireframe box in the editor,
+    // nothing at all in the game) carrying a procedural graph in
+    // procGraph. The graph scatters instances inside this box; the build
+    // bakes them into ordinary static chunk meshes, so the console never
+    // learns a graph existed. See docs/procedural-generation.md.
+    Scatter = 18,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Area + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scatter + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -520,12 +527,65 @@ struct SceneObject {
     // ("self"), so a copied object brings a working copy of its behavior.
     FlowGraph flowGraph;
 
+    // Procedural graph (type == Scatter): what this volume generates. The
+    // object's transform IS the region the graph works in, so the ordinary
+    // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
+    // static geometry at build (procbake); nothing of it reaches the PS2.
+    ProcGraph procGraph;
+    // Set on the chunk objects a Scatter bake produced: the id of the Scatter
+    // object that owns them. They are real scene objects (so codegen,
+    // culling, LOD and the disc layout need no special case) but the editor
+    // treats them as build output: not drawn in the viewport (the live graph
+    // preview stands in for them), grouped in the outliner, and replaced
+    // wholesale by the next bake. Empty = hand-authored, the normal case.
+    std::string procSource;
+    // Name of the prefab this object was stamped from (empty = authored by
+    // hand, the normal case). Editor bookkeeping ONLY - nothing downstream
+    // reads it: an inserted prefab produces ordinary, fully independent
+    // objects, and editing the prefab afterwards does not reach back. It exists
+    // because the outliner otherwise cannot tell twenty hand-placed slabs from
+    // twenty that arrived together, which is the one question you ask when a
+    // scene has prefabs in it. Kept through a copy/paste on purpose (a copy of
+    // a room is still a room); dropped by prefab::capture, which must not
+    // record where its own members came from.
+    std::string prefabSource;
+
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
 };
+
+// A reusable group of scene objects - their flow graphs included - stamped
+// into the world by hand, by a procedural graph, or by the Spawn Prefab flow
+// node while the game runs (docs/prefabs.md). The verbs live in prefab.hpp;
+// the struct is here because a prefab MEMBER is a SceneObject and nothing
+// lighter: a prefab is a piece of scene, and everything the editor, codegen and
+// the runtime already do with an object has to keep working after it comes out
+// of one. The only difference is the frame - member transforms are LOCAL to the
+// prefab origin, so instantiating is a yaw plus a translation.
+struct Prefab {
+    // Stable, opaque identity (16 hex chars) - the collaboration merge key,
+    // like SceneObject::id. Every REFERENCE to a prefab is by name.
+    std::string id;
+    std::string name;
+    // Free prose: what this thing is for, how it is meant to be placed, what
+    // the caller has to provide. Multi-line - the field it is edited in wraps,
+    // because a one-line box turned every note into its own first half.
+    std::string notes;
+    // Members. Their `id` is empty by construction - an instance gets fresh
+    // ids, and two instances of one prefab must never share an identity.
+    std::vector<SceneObject> objects;
+
+    bool empty() const { return objects.empty(); }
+};
+
+inline bool operator==(const Prefab& a, const Prefab& b) {
+    return a.id == b.id && a.name == b.name && a.notes == b.notes &&
+           a.objects == b.objects;
+}
+inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
 const char* primitiveTypeName(PrimitiveType t);
 
@@ -623,7 +683,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
-           a.flowGraph == b.flowGraph && a.scripts == b.scripts;
+           a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
+           a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.prefabSource == b.prefabSource;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -1588,7 +1650,8 @@ enum class LayoutRecipe {
     Default = 0,
     Director = 1,
     Material = 2,
-    Debugger = 3
+    Debugger = 3,
+    Procedural = 4
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
@@ -2144,6 +2207,14 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
+    // objects - their flow graphs included - stamped into the world by hand,
+    // by a procedural graph, or by the Spawn Prefab node while the game runs.
+    // Project-wide like the preset collections above (a prefab built in one
+    // scene is available in all of them) and persisted through save(), but not
+    // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
+    std::vector<Prefab> prefabs;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -2297,6 +2368,7 @@ enum class Section {
     AnimEdits,       // "animClipEdits"
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
+    Prefabs,         // "prefabs" (reusable object groups)
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
