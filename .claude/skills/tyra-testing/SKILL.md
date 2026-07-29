@@ -128,7 +128,7 @@ probe is still absent after a fetch.
 `TYRAX` below.)
 
 ```
-TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter]
+TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
@@ -150,10 +150,17 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   fixture either game template — the editor deliberately offers no way to
   switch afterwards.
   Defaults match the *New Project* dialog: 100x100 terrain, 1 unit = 1 m, the
-  **debug** profile with Live Link on, USB keyboard & mouse off. It echoes the
+  **debug** profile with Live Link on, USB keyboard & mouse off — except the
+  preset, which stays `empty` here while the dialog starts on `fpp`. It echoes the
   terrain size and world scale, so `--new` + a grep over the `.tyra` is the
   cheapest check that a new-project default landed (a fixture that needs the
   old release-profile behavior has to set it explicitly).
+  **`--no-terrain`** (accepted anywhere among the optional arguments) scaffolds a
+  scene with no ground at all (docs/terrain.md) — the fixture for the void-floor
+  behavior, and the fast way to check the terrain-less codegen: the `.tyra` gets
+  `"enabled": false` and `inc/scene_data.hpp` reads `TERRAIN_ENABLEDS = {false}`
+  with `TERRAIN_TEXTURES = {-1}`. Verifying it in PCSX2 needs a floor object in
+  the scene, or the player falls at boot — which is the feature, not a bug.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
 - `--bake-gi` runs the whole global-illumination bake for every scene
@@ -507,6 +514,17 @@ Notes:
   cover — the surrounding UI and anything dragged by hand — say so in
   PROGRESS.md and leave it for a human.
 
+  **A screen effect that cannot be SEEN and one that is not happening look
+  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  pixels differing** across four captures 250 ms apart — the ease-out cuts it to
+  0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
+  than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
+  So before debugging a subtle visual, do the arithmetic on how many PIXELS the
+  effect is worth at the render resolution, and re-run the fixture with the
+  effect turned up past that. The flip side is useful too: a fixture whose frames
+  are otherwise byte-identical between captures is a clean instrument — that zero
+  is what lets a 200-pixel horizon shift mean something.
+
   **A capture is worth more when it is measured** (PROGRESS 132). Whichever
   tool produced the PNG, read pixel ROWS out of it rather than eyeballing:
   plateau widths and adjacent-step sizes are what told flat shading apart from
@@ -693,6 +711,27 @@ Notes:
   was verified). The key -> object/node map is `src/gen/livedbg.sym`; the
   editor and the probe must not both drive `livedbg.cmd` at once (the editor
   rewrites it whenever it goes missing or its state changes).
+
+  **Prefer a C++ probe over a Python one here, and link the editor's own
+  decoder**: `src/livedbg.cpp` has no GL/ImGui/project.hpp dependency, so a
+  ~60-line `main()` compiled with **just that one file** (`g++ -std=c++20
+  -static probe.cpp <repo>/src/livedbg.cpp -I<repo>/src` — `-static`, or the exe
+  dies with `0xC0000139` looking for MinGW's DLLs) calls `loadSymbols` +
+  `readSnapshot` and prints per-node hit counts with their node ids and types,
+  every watch variable BY NAME, and the armed timers. A hand-rolled Python
+  reader can disagree with the format; this one cannot. That turns "did this node
+  fire, how often, and what did it leave behind" into a command — which is how
+  the 84-node flow-graph expansion (entry 231) was verified: wire every new
+  mechanism to an unattended trigger, have each write a **distinct predictable
+  integer** into a flow variable, and read the lot back in one shot. `hashMatch`
+  in that dump is the check that the ELF's symbol table is the one the editor
+  thinks it is.
+
+  Two things that dump makes clear and would otherwise read as bugs: a trigger
+  whose exec output is **unwired** has a hit count of 0 (codegen does not
+  instrument an empty chain) even though its bool/number outputs work fine; and
+  an event's payload trailing the live counter is the **one-frame bus latency**
+  showing up as a number, not a lost write.
 - **Inspect what went to VU1**: arm a capture (Debugger > VU, or command flag
   bit 3 in `livedbg.cmd`) and the game writes `bin/vucap.bin`;
   `tyrax-editor --dump-vucap <projectDir>` prints the decoded chain (DMA tags,

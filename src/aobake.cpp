@@ -1160,11 +1160,15 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         float occ = 0.0f;
         for (const Occluder* oc : local)
             occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
-        // ground term; an empty heightmap samples the y = 0 plane
-        const float ground =
-            heightAtWorld(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-                          (float)sc.terrain.depth, wp[0], wp[2]);
-        occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+        // ground term; an empty heightmap samples the y = 0 plane. With the
+        // terrain REMOVED there is no ground to contact at all, so the term is
+        // left out rather than taken against that plane (docs/terrain.md).
+        if (sc.terrain.enabled) {
+            const float ground =
+                heightAtWorld(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                              (float)sc.terrain.depth, wp[0], wp[2]);
+            occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+        }
         return occ > 1.0f ? 1.0f : occ;
     };
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,

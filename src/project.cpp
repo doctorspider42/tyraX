@@ -191,7 +191,9 @@ static std::string flowGraphJson(const FlowGraph& fg) {
                 (l.kind == FlowLinkBool ? ", \"bool\": true" : "") +
                 (l.kind == FlowLinkText ? ", \"text\": true" : "") +
                 (l.kind == FlowLinkNum ? ", \"number\": true" : "") +
-                (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") + " }";
+                (l.toPin ? ", \"pin\": " + std::to_string(l.toPin) : "") +
+                (l.fromPin ? ", \"fpin\": " + std::to_string(l.fromPin) : "") +
+                " }";
     }
     return json + "] }";
 }
@@ -488,6 +490,10 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 v && v->type == json::Value::Type::Bool && v->boolean)
                 l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
+            // "fpin" = which exec OUTPUT of the source the link leaves (Branch's
+            // true/false, Sequence's 1..4). Omitted at 0, which is every link
+            // written before multi-output nodes existed.
+            if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
             if (l.kind == FlowLinkExec && !l.toPin)
                 for (const Retarget& r : retargets)
                     if (r.nodeId == l.toNode) l.toPin = r.pin;
@@ -1201,7 +1207,10 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         const SceneData& sc = p.scenes[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << sc.name
              << "\",\n      \"terrain\": { \"width\": " << sc.terrain.width
-             << ", \"depth\": " << sc.terrain.depth << " },\n      ";
+             << ", \"depth\": " << sc.terrain.depth
+             // Omitted at its default, like every other flag here: a project
+             // with no "enabled" key HAS a terrain (docs/terrain.md).
+             << (sc.terrain.enabled ? "" : ", \"enabled\": false") << " },\n      ";
         writeSceneVisuals(json, sc);
         if (!sc.layers.empty()) {
             json << ",\n      \"layers\": ";
@@ -2417,6 +2426,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
         if (const auto* t = js.find("terrain")) {
             if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
             if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
+            if (const auto* v = t->find("enabled")) sc.terrain.enabled = v->boolOr(true);
         }
         readSceneVisuals(js, sc);
         if (const auto* objs = js.find("objects");
@@ -4273,6 +4283,8 @@ std::string load(Project& out, const std::string& projectDir) {
                         sc.terrain.width = (int)v->numberOr(64);
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
+                    if (const auto* v = t->find("enabled"))
+                        sc.terrain.enabled = v->boolOr(true);
                 }
                 readSceneVisuals(js, sc);
                 out.scenes.push_back(std::move(sc));
@@ -4499,7 +4511,8 @@ std::string saveHistory(const Project& p, const History& h) {
             const SceneData& sc = s.scenes[k];
             json << (k ? ", " : "") << "{ \"name\": \"" << sc.name
                  << "\", \"terrain\": { \"width\": " << sc.terrain.width
-                 << ", \"depth\": " << sc.terrain.depth << " }, ";
+                 << ", \"depth\": " << sc.terrain.depth
+                 << (sc.terrain.enabled ? "" : ", \"enabled\": false") << " }, ";
             writeSceneVisuals(json, sc);
             if (!sc.layers.empty()) {
                 json << ", \"layers\": ";
@@ -4567,6 +4580,8 @@ std::string loadHistory(const Project& p, History& h) {
                         sc.terrain.width = (int)v->numberOr(64);
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
+                    if (const auto* v = t->find("enabled"))
+                        sc.terrain.enabled = v->boolOr(true);
                 }
                 readSceneVisuals(js, sc);
                 s.scenes.push_back(std::move(sc));

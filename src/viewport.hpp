@@ -94,7 +94,10 @@ public:
     // hands to the placement snapping and the occluder collection.
     bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
 
-    float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
+    // Bilinear terrain height; 0 when the terrain is flat. Also 0 with the
+    // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
+    // treat that as a floor ask the model, not this (App::placementHeight).
+    float terrainHeight(float x, float z) const;
 
     // The camera ray through normalized image coords - the same one pick() and
     // terrainRaycast() build. Exposed so the app can hit-test things the
@@ -527,6 +530,7 @@ private:
 
     void ensureFramebuffer(int width, int height);
     void buildTerrainMesh();
+    void buildWorldAxes();  // origin gizmo; drawn with or without a terrain
     void buildPrimitiveMeshes();
     Mesh uploadMesh(const std::vector<float>& interleaved);  // pos3 + color3
     // pos3 + color4 + uv2 (the particle-shader layout) - terrain layer passes

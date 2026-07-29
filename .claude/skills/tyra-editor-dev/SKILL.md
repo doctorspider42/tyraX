@@ -331,21 +331,61 @@ bool logic folds into inline C++ expressions.
 convention for every consumer, mirroring `posIn` over X/Y/Z. Codegen resolves
 it to a self-contained float C++ expression (`numExprImpl` / `numOperand` in
 `flowGraphScript`, the bool-plane shape) so a value needs no runtime slot;
-`flowNumFolds()` — a *pure* node with both pins, i.e. a Math node — is the
-single predicate deciding whether an input folds over every link or takes only
-the first, read by the editor's link pruning AND by codegen. Two things a new
+`flowNumFolds()` is the single predicate deciding whether an input folds over
+every link or takes only the first, read by the editor's link pruning AND by
+codegen — and it reads two **declared** flags rather than inferring anything:
+`numFold` (n-ary: Add, Min, Modulo) and `numInExtra` ("the wire is an operand of
+its own, num[0] is a separate param" — Clamp's value between its Min/Max, Number
+At Least's value against its Threshold). Both exist because inference was wrong:
+`pure && numIn && numOut` is true of a unary Sine too, and the editor's "num[0]
+came from the link" notice was a lie on every At-Least node. Two things a new
 number consumer must do: read `numOperand(n)` instead of `n.num[0]`, and accept
 that **Live Logic cannot patch it** (`capability()` rejects any graph with a
-number link — the IR carries num[] as compile-time constants). Two things a new
+number link — the IR carries num[] as compile-time constants).
+
+**A value plane and the position plane can feed each other** (Get X reads a
+position, With X writes one from a number), so `posExprImpl` and `numExprImpl`
+are mutually recursive through the forward-declared `numInputVis`/`numOperandVis`
+— and those take the **visited path**, not a fresh one. A cycle that hops planes
+is invisible to either guard alone, and starting a fresh path at the boundary
+recurses until the stack goes; conversely `numExprImpl` must drop **its own id**
+from the path before calling `posExprImpl`, or the position walk reads the node
+as visited and silently skips its own input link. Both bugs were hit building the
+Vector nodes; `--refresh-gen` on a deliberate pos→num→pos cycle is the check.
+One cost to know: a position is three independent C++ **expressions**, so a long
+Vector chain is re-emitted once per component per consumer. Constant chains fold
+away in the compiler; a chain with a wired angle really does pay its trig per
+component (`PosRotateY` folds `sinf`/`cosf` at codegen time when the angle is a
+typed-in constant for exactly this reason). Two things a new
 *int* consumer must do: round (the plane is float, `flowInt` is not) and, if it
 names variables, join BOTH copies of the collect list (`collectFlowVars` in
 templates.cpp and the identical walk in livelogic.cpp) — a variable named only
 by a getter still takes its index slot, and a missing entry shifts every index
 after it.
 
+**A node that decides where exec goes next** (the `Flow` category: Branch,
+Sequence, Gate, Switch Number, Timer, Tween, For Loop): set `execOutCount` +
+`execOutLabels` and emit each branch yourself. The branch a link LEAVES is
+`FlowLink::fromPin` (serialized `"fpin": N`, omitted at 0); output 0 keeps the
+original pin slot 1, outputs 1..7 take slots 18..24 (`kFlowMaxExecOut` = 8), and
+**`flowExecOutCount(t)` is the one answer** to "how many outputs does this type
+have" - read by the editor's pin submission, both link-validity checks (editor
+AND `aigen.cpp`) and codegen. Inside `actionCode` the local `branch(outPin, pad)`
+returns that output's whole chain as inline C++, so a Branch costs one `if`; each
+branch walks with its OWN COPY of the visited path, because two outputs of one
+Sequence may legitimately reach the same action (it then runs twice, which is
+what the wiring says) while a link back into the path is still a cycle. Nodes
+needing per-frame state (Timer, Tween, Cooldown) declare it through `addMember`
+in the per-node state pass and tick in the `update()` prologue like Delay - never
+straight into `members`, or the time machine cannot see it. **Live Logic cannot
+patch a branching node**: a block is a straight instruction list, so
+`capability()` rejects any graph where `flowExecOutCount > 1`, and
+`livelogic.cpp`'s own exec walk filters `fromPin != 0` to stay honest with
+codegen's.
+
 **Several triggers on one node** (show/hide/toggle/add): set `execInCount` +
 `execInLabels` on the `FlowNodeType` and switch on the `pin` argument in
-`actionCode(n, pad, pin)`. The pin a link fires is `FlowLink::toPin`
+`actionCode(n, pad, pin, visited)`. The pin a link fires is `FlowLink::toPin`
 (serialized `"pin": N`, omitted at 0); pin ids come from `flowExecInPin` (slot 2
 for the first, spare slots 10..15 for the rest — `kFlowMaxExecIn` = 7). Do NOT
 add a Show*/Hide* *pair* of node types: that was the old convention and the five
@@ -444,6 +484,46 @@ the world scale, so the FPP preset is a 1.8 m player at any scale, while an
 existing project's numbers are never touched — and the *New Project* modal's
 per-field prose belongs in a `prefHelp("...")` `(?)` tooltip, not in
 `TextDisabled` paragraphs that push the buttons off the screen.
+
+**The terrain is optional** (`TerrainConfig::enabled`, docs/terrain.md) and it
+is the reference point for "a subsystem a scene can be built without". The flag
+lives in `TerrainConfig`, so it travels through `project::create`'s existing
+`terrain` argument, the scene table's `"terrain"` object and `SceneData`'s
+`operator==` (undo) with no new plumbing — but *reading* it is spread by design,
+and the split is the thing to copy:
+- **One decision, made once, in the height sampler.** `terrainHeightAtScene`
+  returns `TERRAIN_VOID_Y` (a deep but FINITE -1e6) when the scene has no
+  terrain, and ~30 call sites in the generated game — the walkers, the physics
+  contact, the spring arm, the raycasts, `aoShadeMul`'s ground term, the blob
+  shadows' fade — become correct with no branch of their own: "there is no
+  floor" IS "the floor is unreachably low". Finite matters: every one of those
+  sites subtracts or compares heights, and an infinity would produce NaN
+  geometry rather than a skipped effect.
+- **Explicit `TERRAIN_ENABLED` only where a site BUILDS something** rather than
+  answering a question: `resetTerrainChunks` (no chunks at all, which is what
+  makes `renderTerrain` and the streaming pass no-ops), `setupLightPools` (a
+  ground pool needs a ground), the projected-shadow patch (skipped over the
+  void, or it draws geometry a million units down), the rain particle's fall
+  length, and the player spawn Y (the void would drop the player before the
+  first collision could catch them — the spawn point's own Y is used instead).
+- **The host bakes each read `sc.terrain.enabled` themselves** (`navmesh::bake`
+  returns an empty grid, `decalproj` drops the terrain receiver, `gibake` skips
+  the ground soup + the terrain lightmap and mixes the flag into its cache
+  signature, `aobake`'s atlas leaves the ground-contact term out, texbake skips
+  the ground textures/stochastic supertiles) — they already take
+  `(Project, SceneData)`, so gating inside is what keeps codegen and the
+  viewport agreeing for free. `collectTexturePaths` skipping a terrain-less
+  scene is what makes `TERRAIN_TEXTURES` -1 and the ground textures not ship.
+- **The editor's twin is `Viewport::terrain_.enabled`**: `buildTerrainMesh`
+  builds nothing (world axes still do), `terrainRaycast` misses, and the AO
+  ground-contact uniform is forced off — the shader's fallback is the y = 0
+  plane, which would darken every object against a floor that isn't there.
+  `App::placementHeight()` returns an EMPTY `placement::HeightFn` (placement.cpp
+  already reads that as "no terrain under the footprint") instead of the
+  viewport's 0.0 fallback.
+So: a new consumer of the terrain asks `sc.terrain.enabled` on the host and
+`TERRAIN_ENABLED` in a generated builder — but a new consumer of the terrain
+*height* needs nothing at all.
 
 **Inline text icons** (`{{cross}}` / `{{action:jump}}`, docs/text-icons.md).
 `Project::textIcons` (`TextIcon`: name + PNG + scale, seeded per pad button by

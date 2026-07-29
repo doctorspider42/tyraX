@@ -458,6 +458,13 @@ Capability capability(const Project& p, const SceneData& sc,
         for (const FlowLink& l : fg.links)
             if (l.kind == FlowLinkNum && (l.toNode == n.id || l.fromNode == n.id))
                 reject("a number link (the value plane is not in the IR)");
+        // A second exec OUTPUT means control flow the IR has no shape for: a
+        // block is a straight list of instructions, so a Branch's two arms
+        // cannot be expressed. Today every such node type is unsupported
+        // anyway; this catches the case where one gains a branch later, because
+        // the interpreter's exec walk below ignores fromPin and would silently
+        // run BOTH arms.
+        if (flowExecOutCount(*t) > 1) reject(std::string(t->title) + " (branches)");
     }
     if ((int)fg.nodes.size() > kMaxInstrs) reject("too many nodes");
     (void)p;
@@ -520,7 +527,13 @@ bool compile(const Project& p, int sceneIndex, size_t ownerIndex, Program& out) 
     std::function<void(int, std::vector<int>&)> emitChain =
         [&](int fromId, std::vector<int>& visited) {
             for (const FlowLink& l : fg.links) {
-                if (l.kind != FlowLinkExec || l.fromNode != fromId) continue;
+                // fromPin 0 only: capability() rejects any graph whose nodes
+                // have a second exec output, so a link off one cannot reach
+                // here - but matching it explicitly keeps this walk honest
+                // against codegen's, which does filter on it.
+                if (l.kind != FlowLinkExec || l.fromNode != fromId ||
+                    l.fromPin != 0)
+                    continue;
                 const FlowNode* m = c.node(l.toNode);
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);

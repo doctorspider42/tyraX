@@ -2025,6 +2025,9 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
         if (t == "SetVarInt" || t == "VarAtLeast" || t == "GetVarIntText") return 0;
         if (t == "SetVarBool" || t == "GetVarBool") return 1;
         if (t == "SetVarPos" || t == "GetVarPos") return 2;
+        // Graph events are a fourth namespace with the same "exists by being
+        // named" rule, so the same Pick... list serves them.
+        if (t == "SendEvent" || t == "OnEvent") return 3;
         return -1;
     };
     const int want = ns(nodeType);

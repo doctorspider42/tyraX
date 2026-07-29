@@ -235,7 +235,7 @@ short* volumePrefabSlots(int v) {
 }
 
 const VolumeDef VOLUMES[] = {
-  { 0, 1, "the-cube", 128.0f, 0.0f, 0, 1, 0, 3u, 256, 0, pAssets_0, 0, pPrefabs_0, 4 },
+  { 0, 1, "the-cube", 128.0f, 0.0f, 0, 1, 1, 2365144877u, 256, 0, pAssets_0, 0, pPrefabs_0, 4 },
 };
 
 int generate(int volume, Ctx& c) {

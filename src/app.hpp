@@ -1858,9 +1858,16 @@ private:
     char newLocation_[512] = "";
     int newWidth_ = 100;
     int newDepth_ = 100;
+    // "Create terrain" (docs/terrain.md): off starts the scene with NO ground
+    // at all - no mesh, no floor in the game - for a project whose floors are
+    // placed geometry (an interior, a platformer). Default on: a ground plane
+    // is what "a new project" has always meant, and it is what the presets
+    // below stand on.
+    bool newTerrain_ = true;
     // Index into kNewPresets (app.cpp): FPP / Third person / Empty. Starts on
-    // Empty, which is what a fresh project has always been.
-    int newTemplate_ = 2;
+    // FPP - the walk-around-a-world preset is what most projects want first,
+    // and an empty scene is a deliberate choice rather than a default.
+    int newTemplate_ = 0;
     // World scale (docs/world-scale.md), picked while the project is created -
     // afterwards it is a setting that deliberately rescales nothing, so the
     // honest moment to ask is before there is any content. Index into the
@@ -1915,6 +1922,9 @@ private:
     bool openNewScenePopup_ = false;
     char newSceneName_[64] = "scene-2";
     int newSceneWidth_ = 64, newSceneDepth_ = 64;
+    // Same question the New Project dialog asks (docs/terrain.md): a scene may
+    // start with no ground at all. Default on, like a scene always had.
+    bool newSceneTerrain_ = true;
     std::string newSceneError_;
 
     // Disc Layout window (Project > Disc Layout...): plan preview + reorder

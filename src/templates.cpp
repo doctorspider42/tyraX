@@ -255,6 +255,11 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
         paths.push_back(t);
     };
     for (const SceneData& sc : p.scenes) {
+        // A scene with no terrain (docs/terrain.md) ships no ground textures:
+        // nothing draws them, and GS VRAM is 1.33 MB. textureIndexOf then
+        // answers -1 for that scene, which is the "no terrain texture" value
+        // the runtime already handles.
+        if (!sc.terrain.enabled) continue;
         const std::string baseTex =
             project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
                 .texture;
@@ -2695,6 +2700,21 @@ float g_frameScale = 1.0F;
 // frame instead of advancing behind the menu.
 bool g_gameplayPaused = false;
 
+// True while the Set Player Input flow node has taken the controls away (a
+// cutscene, a dialogue, a scripted fall). Only the walker's INPUT reads honour
+// it - gravity, collision and the camera keep running, so a locked player still
+// falls and still gets framed instead of freezing in mid-air. Cleared on scene
+// load, so a lock cannot survive a reload.
+bool g_playerLocked = false;
+
+// Camera Shake flow node: a decaying handheld wobble applied to whatever camera
+// is in force this frame (the walker's, or a cutscene override). Amplitude in
+// world units, g_camShakeT the seconds left; the noise is the same sum of sines
+// the Cutscene Director's per-shot shake uses, so the two look alike.
+float g_camShake = 0.0F;
+float g_camShakeT = 0.0F;
+float g_camShakeClock = 0.0F;
+
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
 // the player's Enabled flag in loadScene, flipped by the Set Flashlight flow
@@ -4682,6 +4702,11 @@ void TerrainGame::loop() {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
   }
+  // Player input lock (Set Player Input flow node).
+  if (scriptCtx.lockInput >= 0) {
+    g_playerLocked = scriptCtx.lockInput == 0;
+    scriptCtx.lockInput = -1;
+  }
   // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
@@ -4764,6 +4789,32 @@ void TerrainGame::loop() {
     cameraUp = scriptCtx.cameraUp;
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
+  }
+  // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
+  // move by the same offset, so the shot wobbles without swinging the aim -
+  // shaking only the eye would read as a lurching pan.
+  if (scriptCtx.shakeAmp >= 0.0F) {
+    g_camShake = scriptCtx.shakeAmp;
+    g_camShakeT = scriptCtx.shakeSec;
+    scriptCtx.shakeAmp = -1.0F;
+  }
+  if (g_camShake > 0.0F && g_camShakeT > 0.0F) {
+    g_camShakeClock += g_frameDt;
+    const float t = g_camShakeClock;
+    // Fade out over the last of the hold, so it settles instead of snapping.
+    const float a = g_camShake * (g_camShakeT < 0.25F ? g_camShakeT * 4.0F
+                                                     : 1.0F);
+    const Vec4 off(
+        a * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F)),
+        a * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F)),
+        a * 0.3F * sinf(t * 13.9F + 2.3F));
+    cameraPosition = cameraPosition + off;
+    cameraLookAt = cameraLookAt + off;
+    g_camShakeT -= g_frameDt;
+    if (g_camShakeT <= 0.0F) {
+      g_camShakeT = 0.0F;
+      g_camShake = 0.0F;
+    }
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -6777,6 +6828,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   // on/off toggle starts on.
   g_flashEnabled = FLASHLIGHT_ENABLED;
   g_flashOn = true;
+  // A Set Player Input lock must never survive a scene load - a cutscene that
+  // switches scenes would otherwise hand the player a world they cannot move in.
+  g_playerLocked = false;
+  g_camShake = 0.0F;
+  g_camShakeT = 0.0F;
 
   // Authored objects + the dynamic spawn pool (Spawn Object flow node).
   runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
@@ -6869,8 +6925,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     if (P.objIndex < 0) continue;
     P.x = SCENE_OBJECTS[P.objIndex].position[0];
     P.z = SCENE_OBJECTS[P.objIndex].position[2];
-    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
-                           : terrainHeightAt(P.x, P.z);
+    // Feet on the ground - unless the player flies, or the scene HAS no ground
+    // (docs/terrain.md), in which case the authored height is the only sensible
+    // start: the void answer would drop the player a million units below the
+    // world before the first frame's collision could catch them.
+    P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
+              ? SCENE_OBJECTS[P.objIndex].position[1]
+              : terrainHeightAt(P.x, P.z);
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -7184,7 +7245,12 @@ void TerrainGame::updateParticles() {
         } else if (kind == 4) {  // rain: fast streaks, die on the terrain
           const float fall = 14.0F + r2 * 6.0F;
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.6F, -fall, (r3 - 0.5F) * 0.6F, 0.0F);
-          float drop = by - terrainHeightAt(sx, sz);
+          // Fall distance = how far the ground is below the emitter. With no
+          // terrain (docs/terrain.md) that is the void, and a drop would live
+          // for hours - so the emitter's own height is the fall instead, which
+          // keeps the volume raining.
+          float drop = TERRAIN_ENABLED ? by - terrainHeightAt(sx, sz)
+                                       : d.scale[1];
           if (drop < 0.5F) drop = 0.5F;
           ps.maxLife[i] = drop / fall;
         } else if (kind == 5) {  // custom: cone jet, physics from the knobs
@@ -8530,6 +8596,10 @@ void TerrainGame::setupLightBeams() {
 void TerrainGame::setupLightPools() {
   lightPools.clear();
   if (!beamCoronaTex) return;
+  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
+  // there is nothing to drop it onto, so the scene simply has none - the beams,
+  // the coronas and the per-vertex light are unaffected.
+  if (!TERRAIN_ENABLED) return;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
   // follows the camera flashlight's terrain hit.
@@ -9246,6 +9316,10 @@ void TerrainGame::renderProjShadows() {
     // of folding down beside it - a shadow that floats a little, against one
     // that stands up in the air.
     const float baseY = projSurfaceAt(gx, gz);
+    // Nothing under the caster at all: with no terrain (docs/terrain.md) the
+    // surface answer is the void, and a patch built down there is geometry a
+    // million units from the scene. A caster over a hole simply casts nothing.
+    if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;
     const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
     auto patchY = [&](float px, float pz) {
       return onGeometry ? baseY : terrainHeightAt(px, pz);
@@ -9633,11 +9707,18 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
@@ -9656,7 +9737,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // Mouse look (controls.hpp): the USB mouse drives player 1 (pad 1). The
     // deltas are the counts accumulated since the previous frame, so no
     // g_frameScale: the same swipe turns the same angle at any frame rate.
-    if (pi == 0 && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
+    if (pi == 0 && !g_playerLocked && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
       P.yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
 #endif
     if (fixedCam) {
@@ -9664,7 +9745,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     } else {
       P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
 #ifdef TYRAX_KBD_MOUSE
-      if (pi == 0)
+      if (pi == 0 && !g_playerLocked)
         P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
 #endif
       if (P.pitch > 1.35F) P.pitch = 1.35F;
@@ -9696,8 +9777,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x += (fx * cp * forward - fz * strafe) * step;
     P.z += (fz * cp * forward + fx * strafe) * step;
     P.y += sinf(P.pitch) * forward * step;
-    if (inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
-    if (inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
 
     P.camPos = Vec4(P.x, P.y, P.z);
     P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
@@ -9749,7 +9830,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.y = ground;
       P.velY = 0.0F;
       grounded = true;
-      if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+      if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
         P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
@@ -9908,7 +9989,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (P.y <= ground) {
     P.y = ground;
     P.velY = 0.0F;
-    if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+    if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
       P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
@@ -14487,6 +14568,15 @@ void TerrainGame::buildHighlightApron(int index, float half) {
 // The pool never reallocates afterwards: chunk bags point into their own
 // slot's vectors, so slots must not move while chunks are alive.
 void TerrainGame::resetTerrainChunks() {
+  // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
+  // what makes renderTerrain and the streaming pass no-ops: every loop over
+  // them runs zero times.
+  if (!TERRAIN_ENABLED) {
+    terrainChunksX = terrainChunksZ = 0;
+    terrainChunks.clear();
+    terrainChunkSlot.clear();
+    return;
+  }
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
   terrainChunksX = (cellsX + TERRAIN_CHUNK_CELLS - 1) / TERRAIN_CHUNK_CELLS;
@@ -15321,15 +15411,19 @@ void TerrainGame::init() {
   if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
 
   // Player start: the first spawn point in the scene (if any)
+  float spawnY = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
       playerX = SCENE_OBJECTS[i].position[0];
       playerZ = SCENE_OBJECTS[i].position[2];
+      spawnY = SCENE_OBJECTS[i].position[1];
       yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
       break;
     }
   }
-  playerY = terrainHeightAt(playerX, playerZ);
+  // Feet on the ground - or at the spawn point's own height in a scene with no
+  // terrain, where there is no ground to stand on (docs/terrain.md).
+  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
 
   updatePlayer();
   buildScene();
@@ -15536,15 +15630,18 @@ void TerrainGame::loop() {
     playerZ = 0.0F;
     yaw = 0.0F;
     pitch = 0.0F;
+    float spawnY = 0.0F;
     for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
       if (SCENE_OBJECTS[i].type == 4) {
         playerX = SCENE_OBJECTS[i].position[0];
         playerZ = SCENE_OBJECTS[i].position[2];
+        spawnY = SCENE_OBJECTS[i].position[1];
         yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
         break;
       }
     }
-    playerY = terrainHeightAt(playerX, playerZ);
+    // The spawn point's own height in a scene with no terrain - see initScene.
+    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
     playerVelY = 0.0F;
   }
 
@@ -15619,6 +15716,11 @@ void TerrainGame::loop() {
   if (scriptCtx.flashlight >= 0) {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
+  }
+  // Player input lock (Set Player Input flow node).
+  if (scriptCtx.lockInput >= 0) {
+    g_playerLocked = scriptCtx.lockInput == 0;
+    scriptCtx.lockInput = -1;
   }
   // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
   if (scriptCtx.fog >= 0) {
@@ -15702,6 +15804,32 @@ void TerrainGame::loop() {
     cameraUp = scriptCtx.cameraUp;
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
+  }
+  // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
+  // move by the same offset, so the shot wobbles without swinging the aim -
+  // shaking only the eye would read as a lurching pan.
+  if (scriptCtx.shakeAmp >= 0.0F) {
+    g_camShake = scriptCtx.shakeAmp;
+    g_camShakeT = scriptCtx.shakeSec;
+    scriptCtx.shakeAmp = -1.0F;
+  }
+  if (g_camShake > 0.0F && g_camShakeT > 0.0F) {
+    g_camShakeClock += g_frameDt;
+    const float t = g_camShakeClock;
+    // Fade out over the last of the hold, so it settles instead of snapping.
+    const float a = g_camShake * (g_camShakeT < 0.25F ? g_camShakeT * 4.0F
+                                                     : 1.0F);
+    const Vec4 off(
+        a * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F)),
+        a * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F)),
+        a * 0.3F * sinf(t * 13.9F + 2.3F));
+    cameraPosition = cameraPosition + off;
+    cameraLookAt = cameraLookAt + off;
+    g_camShakeT -= g_frameDt;
+    if (g_camShakeT <= 0.0F) {
+      g_camShakeT = 0.0F;
+      g_camShake = 0.0F;
+    }
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -15834,11 +15962,18 @@ void TerrainGame::updatePlayer() {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -15848,8 +15983,10 @@ void TerrainGame::updatePlayer() {
   // Mouse look (controls.hpp). The deltas are the counts accumulated since
   // the previous frame, so no g_frameScale: the same swipe turns the same
   // angle at any frame rate.
-  yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
-  pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  if (!g_playerLocked) {
+    yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
+    pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  }
 #endif
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
@@ -15912,7 +16049,7 @@ void TerrainGame::updatePlayer() {
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
-    if (inputClicked(engine->pad, IA_ROLE_JUMP))
+    if (!g_playerLocked && inputClicked(engine->pad, IA_ROLE_JUMP))
       playerVelY = JUMP_SPEED * g_frameDt;
   }
 
@@ -16802,6 +16939,19 @@ struct ScriptContext {
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
+
+  // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
+  // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
+  // away - gravity, collision and the camera keep running, so a locked player
+  // still falls and is still framed. The game applies and resets it.
+  int lockInput = -1;
+
+  // Camera shake (Camera Shake flow node). shakeAmp < 0 = leave; else the
+  // amplitude in world units (0 stops it) held for shakeSec seconds. The game
+  // applies the request to its own decaying shake and resets shakeAmp. It
+  // perturbs whatever camera is in force, cutscene override included.
+  float shakeAmp = -1.0F;
+  float shakeSec = 0.0F;
 
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
   // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
@@ -17932,8 +18082,11 @@ static std::string aoDataHeader(const Project& p) {
         // its RGB carries the baked emissive light, which is what puts the
         // pools and their shadows on the ground per pixel instead of per
         // ~2-metre vertex.
+        // ...and a scene with the terrain removed has no ground pass to sample
+        // it, so it gets no map at all (texbake makes the same call).
         const aobake::AoImage map =
-            gi.valid ? gi.terrain
+            !sc.terrain.enabled ? aobake::AoImage()
+            : gi.valid          ? gi.terrain
                      : aobake::terrainAOMap(
                            sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                            (float)sc.terrain.depth,
@@ -19375,10 +19528,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return n < 0 ? 0 : (n > 128 ? 128 : n);
     };
 
+    // The terrain SIZE is also the scene's world bounds (every walker is
+    // clamped to it), so it is emitted whether or not the scene has a ground.
     sceneFloats("TERRAIN_WIDTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.width); });
     sceneFloats("TERRAIN_DEPTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.depth); });
+    // Does the scene have a terrain at all (docs/terrain.md)? False means no
+    // ground mesh is built, no ground textures ship - and no floor: the height
+    // sampler answers TERRAIN_VOID_Y everywhere, so the player, the physics
+    // bodies and the particles rest on placed geometry only and fall through
+    // the void elsewhere. Deep but FINITE on purpose: every "is it below the
+    // ground" comparison and every height difference in the game keeps working
+    // (a shadow patch fades out, a raindrop's fall length is huge, a body never
+    // lands), and no arithmetic here ever sees an infinity.
+    out << "constexpr float TERRAIN_VOID_Y = -1000000.0F;\n";
+    sceneBools("TERRAIN_ENABLEDS",
+               [&](int si) { return p.scenes[si].terrain.enabled; });
     auto lightOf = [&](int si, int axis) {
         float lx = rs[si].lightDir[0], ly = rs[si].lightDir[1], lz = rs[si].lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
@@ -19743,6 +19909,7 @@ inline int everyFrames(float seconds) {
 #define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
@@ -19859,14 +20026,16 @@ static std::string screenFxDispatch(const Project& p, bool inLoop) {
         const CustomScreenFx* e = customScreenFx(fx[n]->key);
         if (inLoop) {
             if (top) continue;
-            out << "      if (i == " << layer
+            out << "      if (i == " << layer << " && g_screenFxOn_" << n
                 << ")  // " << e->title << "\n"
                 << "        engine->renderer.core.applyCustomPostFx(&screenFx_"
                 << n << ", nullptr);\n";
         } else {
             if (!top) continue;
-            out << "    engine->renderer.core.applyCustomPostFx(&screenFx_" << n
-                << ", nullptr);  // " << e->title << "\n";
+            out << "    if (g_screenFxOn_" << n
+                << ")  // " << e->title << "\n"
+                << "      engine->renderer.core.applyCustomPostFx(&screenFx_"
+                << n << ", nullptr);\n";
         }
     }
     return out.str();
@@ -19891,7 +20060,13 @@ static std::string screenFxHeader(const Project& p) {
         out << "qword_t* screenFx_" << n
             << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user);"
                "  // "
-            << e->title << "\n";
+            << e->title << "\n"
+            // Exported so the flow graph's Set Screen Effect node can reach
+            // them; the effect body reads the same array.
+            << "extern bool g_screenFxOn_" << n
+            << ";      // Set Screen Effect: on/off\n"
+            << "extern float g_screenFxParam_" << n
+            << "[4];  // Set Screen Effect: live params\n";
     }
     if (fx.empty()) out << "// (no custom screen effects placed)\n";
     out << "\n}  // namespace " << ns << "\n";
@@ -19921,13 +20096,21 @@ static std::string screenFxSource(const Project& p) {
         for (int i = 0; i < 4; ++i)
             body = replaceAll(body, "{p" + std::to_string(i) + "}",
                               "param[" + std::to_string(i) + "]");
+        // The params live in a WRITABLE global rather than a function-local
+        // const, so the Set Screen Effect flow node can drive them at runtime;
+        // the authored values are its initializer, so a project with no such
+        // node behaves exactly as it did. Same for the enable flag the dispatch
+        // reads below.
         out << "\n// " << e->title << " (" << pl->key << ")\n"
+            << "bool g_screenFxOn_" << n << " = true;\n"
+            << "float g_screenFxParam_" << n << "[4] = {"
+            << floatLit(pl->params[0]) << ", " << floatLit(pl->params[1]) << ", "
+            << floatLit(pl->params[2]) << ", " << floatLit(pl->params[3])
+            << "};\n"
             << "qword_t* screenFx_" << n
             << "(Tyra::RendererCorePostFx& fx, qword_t* q, void* user) {\n"
             << "  (void)user; (void)fx; (void)q;\n"
-            << "  const float param[4] = {" << floatLit(pl->params[0]) << ", "
-            << floatLit(pl->params[1]) << ", " << floatLit(pl->params[2]) << ", "
-            << floatLit(pl->params[3]) << "};\n"
+            << "  const float* param = g_screenFxParam_" << n << ";\n"
             << "  (void)param;\n"
             << body;
         if (!body.empty() && body.back() != '\n') out << "\n";
@@ -20136,6 +20319,17 @@ std::string sequencesHeader(const Project& p) {
            "// loop inside beginFrame/endFrame after the HUD (solid 2D quads;\n"
            "// no-op unless the active cutscene draws them).\n"
            "void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);\n"
+           "// True while a cutscene is playing - what the On Sequence Finished\n"
+           "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
+           "// letterbox that a cutscene currently owns those.\n"
+           "bool playing();\n"
+           "// Letterbox coverage per edge (fractions of the screen) for the\n"
+           "// Set Letterbox Bars flow node, used by renderOverlay when NO\n"
+           "// sequence is active. The style -> fraction mapping stays on the\n"
+           "// host (seqBarsFractions in src/sequence.hpp), so the console needs\n"
+           "// no table: codegen writes the numbers straight in.\n"
+           "extern float g_flowBarTB;\n"
+           "extern float g_flowBarLR;\n"
            "}  // namespace sequences\n"
            "}  // namespace "
         << ns << "\n";
@@ -20593,6 +20787,13 @@ static const bool g_seqRegistered = []() {
 namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
+bool playing() { return g_seqDirector.activeIndex() >= 0; }
+
+// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// active. A cutscene's own style wins, because it writes barsAmount every frame
+// and clears everything on release.
+float g_flowBarTB = 0.0F;
+float g_flowBarLR = 0.0F;
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -20619,10 +20820,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
+  // A cutscene's baked style, or the flow node's coverage when none is
+  // playing - the two never both apply, so one pair of fractions is enough.
   const int idx = g_seqDirector.activeIndex();
-  if (ctx.barsAmount > 0.0F && idx >= 0) {
-    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
-    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
+  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
+    const float tb = barTB * ctx.barsAmount * H;
+    const float lr = barLR * ctx.barsAmount * W;
     fill(0.0F, 0.0F, W, tb, 1.0F);
     fill(0.0F, H - tb, W, tb, 1.0F);
     fill(0.0F, 0.0F, lr, H, 1.0F);
@@ -20737,6 +20942,23 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
                     collect(boolVars, n.str);
                 else if (n.type == "SetVarPos" || n.type == "GetVarPos")
                     collect(posVars, n.str);
+            }
+}
+
+// Graph events (Send Event / On Event) live in one game-global namespace, like
+// the flow variables above and for the same reason: an event exists by being
+// named on either node, and the slot index has to be the same answer for
+// codegen and for the time machine's capture - which sizes its buffer from this
+// list without being able to see the generated arrays.
+void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                if (n.type != "SendEvent" && n.type != "OnEvent") continue;
+                if (n.str.empty()) continue;
+                bool seen = false;
+                for (const std::string& e : events) seen |= (e == n.str);
+                if (!seen) events.push_back(n.str);
             }
 }
 
@@ -20867,6 +21089,24 @@ std::string flowGraphScript(const Project& p) {
             if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
+    // Set Screen Effect names a custom effect KEY; the generated symbol suffix
+    // is its index in enabledScreenFx() - the SAME order screenFxSource emits
+    // the bodies in, so the two cannot disagree. A key placed twice resolves to
+    // the first enabled placement (the node's description says so).
+    const auto screenFxList = enabledScreenFx(p);
+    auto screenFxSlot = [&](const std::string& key) {
+        for (size_t i = 0; i < screenFxList.size(); ++i)
+            if (screenFxList[i]->key == key) return (int)i;
+        return -1;
+    };
+    const bool anyScreenFxNode = [&] {
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                for (const FlowNode& n : o.flowGraph.nodes)
+                    if (n.type == "SetScreenFx") return true;
+        return false;
+    }();
+
     // Same list as menu_data.gen.hpp MENU_EVENTS - indices must agree.
     const std::vector<std::string> menuEvents = collectMenuEvents(p);
     auto menuEventIndex = [&](const std::string& name) {
@@ -20881,6 +21121,14 @@ std::string flowGraphScript(const Project& p) {
     // being named on any Set/Get node.
     std::vector<std::string> intVars, boolVars, posVars;
     collectFlowVars(p, intVars, boolVars, posVars);
+    // Graph events share the same "exists by being named" rule.
+    std::vector<std::string> flowEvents;
+    collectFlowEvents(p, flowEvents);
+    auto eventIndex = [&](const std::string& name) {
+        for (size_t i = 0; i < flowEvents.size(); ++i)
+            if (flowEvents[i] == name) return (int)i;
+        return -1;
+    };
 
     // Live Debugger (docs/live-debugger.md): with the debugger on, every
     // trigger and every action reports itself to the running game's hit table
@@ -20945,9 +21193,16 @@ std::string flowGraphScript(const Project& p) {
     bool anyInArea = false;
     bool anyNumDiv = false;
     bool anyRotateBy = false;
+    bool anyRandom = false;
+    bool anyTween = false;
+    // Every node type the project actually uses, so each generated helper is
+    // gated on the one node that needs it (a project with no Math nodes should
+    // not carry the Math helpers).
+    std::set<std::string> used;
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const FlowNode& n : o.flowGraph.nodes) {
+                used.insert(n.type);
                 if (const FlowNodeType* t = flowNodeType(n.type))
                     anyTextNode |= (t->textIn || t->textOut);
                 anyRaycast |= (n.type == "Raycast");
@@ -20955,8 +21210,16 @@ std::string flowGraphScript(const Project& p) {
                 anyInArea |= (n.type == "InArea");
                 anyNumDiv |= (n.type == "NumDiv");
                 anyRotateBy |= (n.type == "RotateObjectBy");
+                anyRandom |= (n.type == "RandomBranch" ||
+                              n.type == "RollRandom" ||
+                              n.type == "RollAreaPoint");
+                anyTween |= (n.type == "Tween");
             }
     const bool anyNav = anyNavAiNode(p);
+    auto uses = [&](const char* k) { return used.count(k) != 0; };
+    // Snap To Terrain / Terrain Height At read the same heightmap the Raycast
+    // node does, so they pull in the same generated header.
+    const bool anyTerrainQuery = uses("PosOnTerrain") || uses("PosTerrainY");
 
     std::ostringstream out;
     out << "// Generated by TyraX from the per-object Flow Graphs. Do not\n"
@@ -20965,8 +21228,12 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n";
-    if (anyRaycast)
-        out << "#include \"terrain_heights.gen.hpp\"  // Raycast vs terrain\n";
+    if (anyRaycast || anyTerrainQuery)
+        out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
+               "Terrain\n";
+    if (anyScreenFxNode)
+        out << "#include \"scripts/screen_fx.gen.hpp\"  // Set Screen Effect "
+               "(live params)\n";
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
@@ -21100,6 +21367,231 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "}\n";
     }
 
+    if (anyRandom) {
+        // A graph's randomness, not the game's: one xorshift32 shared by every
+        // Random Branch. Seeded from a constant on purpose - the EE has no
+        // wall clock at boot worth seeding from, and a run that reproduces is
+        // worth more than one that surprises. Games wanting a different roll
+        // each session can stir it from a save value.
+        out << "\n// Random Branch: xorshift32, shared by every graph in the "
+               "project.\n"
+               "static unsigned int g_flowRandState = 0x1234567U;\n"
+               "static inline unsigned int flowRand() {\n"
+               "  unsigned int x = g_flowRandState;\n"
+               "  x ^= x << 13;\n"
+               "  x ^= x >> 17;\n"
+               "  x ^= x << 5;\n"
+               "  g_flowRandState = x;\n"
+               "  return x;\n"
+               "}\n";
+        if (uses("RollRandom"))
+            out << "\n// Roll Random node. `whole` rounds to an integer, and\n"
+                   "// then both ends are inclusive - a 1..6 die really can\n"
+                   "// roll a 6.\n"
+                   "static inline float flowRandRange(float lo, float hi,\n"
+                   "                                  bool whole) {\n"
+                   "  if (lo > hi) { const float t = lo; lo = hi; hi = t; }\n"
+                   "  if (whole) {\n"
+                   "    const int a = (int)ceilf(lo), b = (int)floorf(hi);\n"
+                   "    if (b <= a) return (float)a;\n"
+                   "    return (float)(a + (int)(flowRand() %\n"
+                   "                            (unsigned)(b - a + 1)));\n"
+                   "  }\n"
+                   "  const float t = (float)(flowRand() & 0xFFFFU) / 65535.0F;\n"
+                   "  return lo + (hi - lo) * t;\n"
+                   "}\n";
+        if (uses("RollAreaPoint"))
+            out << "\n// Roll Point In Area node: a uniform point inside the\n"
+                   "// Area object's box, read LIVE (a moving area moves the\n"
+                   "// scatter). It samples in the area's OWN basis (areaBasis,\n"
+                   "// scene_data.hpp - the same one pointInArea tests against),\n"
+                   "// so a rotated area scatters inside itself rather than\n"
+                   "// inside its axis-aligned bound.\n"
+                   "static void flowAreaPoint(const ScriptContext& ctx, int idx,\n"
+                   "                          float* out) {\n"
+                   "  if (idx < 0 || idx >= ctx.objectCount) {\n"
+                   "    out[0] = out[1] = out[2] = 0.0F;\n"
+                   "    return;\n"
+                   "  }\n"
+                   "  const AreaBasis b = areaBasis(ctx.objects[idx].data);\n"
+                   "  float u[3];\n"
+                   "  for (int a = 0; a < 3; ++a)\n"
+                   "    u[a] = b.h[a] *\n"
+                   "           ((float)(flowRand() & 0xFFFFU) / 32767.5F - 1.0F);\n"
+                   "  for (int a = 0; a < 3; ++a)\n"
+                   "    out[a] = b.o[a] + b.ax[a] * u[0] + b.ay[a] * u[1] +\n"
+                   "             b.az[a] * u[2];\n"
+                   "}\n";
+    }
+
+    // Math-plane helpers, one per node that needs one. All of them exist for the
+    // same reason: a graph must not be able to produce a NaN or an infinity that
+    // then propagates into a position, a save file or the GS.
+    if (uses("NumMod"))
+        out << "\n// Modulo node: a zero divisor yields 0, not a NaN.\n"
+               "static inline float flowNumMod(float a, float b) {\n"
+               "  return (b > -0.000001F && b < 0.000001F) ? 0.0F : fmodf(a, b);\n"
+               "}\n";
+    if (uses("NumMin"))
+        out << "\nstatic inline float flowMin(float a, float b) {\n"
+               "  return a < b ? a : b;\n"
+               "}\n";
+    if (uses("NumMax"))
+        out << "\nstatic inline float flowMax(float a, float b) {\n"
+               "  return a > b ? a : b;\n"
+               "}\n";
+    if (uses("NumSign"))
+        out << "\nstatic inline float flowSign(float x) {\n"
+               "  return x > 0.0F ? 1.0F : (x < 0.0F ? -1.0F : 0.0F);\n"
+               "}\n";
+    if (uses("NumSqrt"))
+        out << "\n// Square Root node: a negative input yields 0, not a NaN.\n"
+               "static inline float flowSqrt(float x) {\n"
+               "  return x <= 0.0F ? 0.0F : sqrtf(x);\n"
+               "}\n";
+    if (uses("NumClamp"))
+        out << "\nstatic inline float flowClamp(float x, float lo, float hi) {\n"
+               "  if (lo > hi) { const float t = lo; lo = hi; hi = t; }\n"
+               "  return x < lo ? lo : (x > hi ? hi : x);\n"
+               "}\n";
+    if (uses("NumLerp"))
+        out << "\n// Lerp node: the fraction is clamped, so a Timer that has\n"
+               "// overrun cannot push the blend past its endpoint.\n"
+               "static inline float flowLerpN(float t, float from, float to) {\n"
+               "  if (t < 0.0F) t = 0.0F;\n"
+               "  if (t > 1.0F) t = 1.0F;\n"
+               "  return from + (to - from) * t;\n"
+               "}\n";
+    if (uses("NumRemap"))
+        out << "\n// Remap Range node: a zero-width input range maps to the\n"
+               "// output minimum instead of dividing by zero.\n"
+               "static inline float flowRemap(float x, float i0, float i1,\n"
+               "                             float o0, float o1) {\n"
+               "  const float d = i1 - i0;\n"
+               "  if (d > -0.000001F && d < 0.000001F) return o0;\n"
+               "  float t = (x - i0) / d;\n"
+               "  if (t < 0.0F) t = 0.0F;\n"
+               "  if (t > 1.0F) t = 1.0F;\n"
+               "  return o0 + (o1 - o0) * t;\n"
+               "}\n";
+    if (uses("NumInRange"))
+        out << "\nstatic inline bool flowInRange(float x, float lo, float hi) {\n"
+               "  if (lo > hi) { const float t = lo; lo = hi; hi = t; }\n"
+               "  return x >= lo && x <= hi;\n"
+               "}\n";
+    if (uses("PosDistance") || uses("ObjDistance") || uses("FindNearest"))
+        out << "\nstatic inline float flowDist3(float ax, float ay, float az,\n"
+               "                              float bx, float by, float bz) {\n"
+               "  const float dx = ax - bx, dy = ay - by, dz = az - bz;\n"
+               "  return sqrtf(dx * dx + dy * dy + dz * dz);\n"
+               "}\n";
+    if (uses("GetVelocity") || uses("PlayerFallSpeed"))
+        out << "\n// Velocities are stored as per-FRAME displacements (that is\n"
+               "// what the physics pass integrates); a graph reasons in units\n"
+               "// per second, so every read and write converts. Guarded because\n"
+               "// the very first frame has no measured dt yet.\n"
+               "static inline float flowVelPerSec(float perFrame) {\n"
+               "  return g_frameDt > 0.0001F ? perFrame / g_frameDt : 0.0F;\n"
+               "}\n";
+    if (uses("LookAt"))
+        out << "\n// Look At node: point an object at a world position. Yaw 0\n"
+               "// faces +Z (the walker's own convention: forward = (sin yaw,\n"
+               "// 0, cos yaw)), and because the engine applies Rz*Ry*Rx a\n"
+               "// model's +Z tilts to (0, -sin x, cos x) - hence the NEGATIVE\n"
+               "// pitch to aim upwards. Degenerate (target on top of the\n"
+               "// object) leaves the rotation alone rather than snapping it.\n"
+               "static void flowLookAt(RuntimeObject& o, float tx, float ty,\n"
+               "                       float tz, bool tilt) {\n"
+               "  const float dx = tx - o.data.position[0];\n"
+               "  const float dy = ty - o.data.position[1];\n"
+               "  const float dz = tz - o.data.position[2];\n"
+               "  const float flat = sqrtf(dx * dx + dz * dz);\n"
+               "  if (flat < 0.0001F && (!tilt || fabsf(dy) < 0.0001F)) return;\n"
+               "  if (flat >= 0.0001F)\n"
+               "    o.data.rotation[1] = atan2f(dx, dz) * 57.29578F;\n"
+               "  o.data.rotation[0] = tilt ? -atan2f(dy, flat) * 57.29578F\n"
+               "                            : 0.0F;\n"
+               "  o.data.rotation[2] = 0.0F;\n"
+               "  o.dirty = true;\n"
+               "}\n";
+    if (uses("CameraFromObject"))
+        out << "\n// Camera From Object node: eye = the object's position, aim =\n"
+               "// its own +Z lens direction rotated by its Euler (Rz*Ry*Rx) -\n"
+               "// the SAME convention seqCameraForward uses for a Cutscene\n"
+               "// Director Camera entity, so an object placed and aimed in the\n"
+               "// viewport frames exactly what the viewport showed.\n"
+               "static void flowCameraFrom(ScriptContext& ctx,\n"
+               "                           const RuntimeObject& o) {\n"
+               "  const float d2r = 0.01745329F;\n"
+               "  const float sx = sinf(o.data.rotation[0] * d2r);\n"
+               "  const float cx = cosf(o.data.rotation[0] * d2r);\n"
+               "  const float sy = sinf(o.data.rotation[1] * d2r);\n"
+               "  const float cy = cosf(o.data.rotation[1] * d2r);\n"
+               "  const float sz = sinf(o.data.rotation[2] * d2r);\n"
+               "  const float cz = cosf(o.data.rotation[2] * d2r);\n"
+               "  const Tyra::Vec4 eye(o.data.position[0], o.data.position[1],\n"
+               "                       o.data.position[2]);\n"
+               "  const Tyra::Vec4 fwd(cx * sy * cz + sx * sz,\n"
+               "                       cx * sy * sz - sx * cz, cx * cy);\n"
+               "  ctx.cameraOverride = true;\n"
+               "  ctx.cameraEye = eye;\n"
+               "  ctx.cameraAt = eye + fwd;\n"
+               "  ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n"
+               "}\n";
+    if (uses("FindNearest"))
+        out << "\n// Find Nearest node: the closest ACTIVE candidate to a point.\n"
+               "// The candidate list is a static index table baked by codegen\n"
+               "// from the name prefix, so the runtime never compares strings.\n"
+               "// maxDist 0 = no limit. Returns the object index (-1 = none)\n"
+               "// and writes its position; with no hit the position is left at\n"
+               "// the query point, so a downstream Spawn Object lands where you\n"
+               "// looked rather than at the world origin.\n"
+               "static int flowFindNearest(const ScriptContext& ctx,\n"
+               "                          const int* cand, int count, float px,\n"
+               "                          float py, float pz, float maxDist,\n"
+               "                          float* outPos) {\n"
+               "  int best = -1;\n"
+               "  float bestD = maxDist > 0.0F ? maxDist : 1e30F;\n"
+               "  for (int i = 0; i < count; ++i) {\n"
+               "    const int oi = cand[i];\n"
+               "    if (oi < 0 || oi >= ctx.objectCount) continue;\n"
+               "    const RuntimeObject& o = ctx.objects[oi];\n"
+               "    if (!o.active) continue;\n"
+               "    const float d = flowDist3(o.data.position[0],\n"
+               "                              o.data.position[1],\n"
+               "                              o.data.position[2], px, py, pz);\n"
+               "    if (d < bestD) { bestD = d; best = oi; }\n"
+               "  }\n"
+               "  if (best >= 0) {\n"
+               "    outPos[0] = ctx.objects[best].data.position[0];\n"
+               "    outPos[1] = ctx.objects[best].data.position[1];\n"
+               "    outPos[2] = ctx.objects[best].data.position[2];\n"
+               "  } else {\n"
+               "    outPos[0] = px; outPos[1] = py; outPos[2] = pz;\n"
+               "  }\n"
+               "  return best;\n"
+               "}\n";
+
+    if (anyTween) {
+        out << "\n// Tween Value: the eased 0..1 ramp and the value it drives.\n"
+               "// Recomputed wherever the number output is read, so the curve\n"
+               "// and the value cannot drift apart.\n"
+               "static inline float flowEase(float t, int mode) {\n"
+               "  if (t < 0.0F) t = 0.0F;\n"
+               "  if (t > 1.0F) t = 1.0F;\n"
+               "  if (mode == 1) return t * t;                      // ease in\n"
+               "  if (mode == 2) return t * (2.0F - t);             // ease out\n"
+               "  if (mode == 3) return t * t * (3.0F - 2.0F * t);  // smooth\n"
+               "  return t;\n"
+               "}\n"
+               "static inline float flowTween(float elapsed, float secs,\n"
+               "                              float from, float to, int ease) {\n"
+               "  const float t = secs > 0.0001F ? flowEase(elapsed / secs, ease)\n"
+               "                                 : 1.0F;\n"
+               "  return from + (to - from) * t;\n"
+               "}\n";
+    }
+
     if (anyNumDiv) {
         out << "\n// Divide node: a graph must not be able to produce a NaN that\n"
                "// then propagates into a position or a save file.\n"
@@ -21121,6 +21613,46 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "(double)z);\n"
                "  return std::string(b);\n"
                "}\n";
+        if (uses("NumToTextFmt"))
+            out << "// Number To Text (formatted): fixed decimals and a "
+                   "zero-padded\n"
+                   "// minimum width, so a score reads 00420. The width counts "
+                   "the\n"
+                   "// WHOLE digits only - padding the decimals too would be a "
+                   "second\n"
+                   "// meaning for one number.\n"
+                   "static std::string flowNumTextFmt(float v, int dec, int wid) {\n"
+                   "  char b[40];\n"
+                   "  const bool neg = v < 0.0F;\n"
+                   "  if (neg) v = -v;\n"
+                   "  snprintf(b, sizeof(b), \"%.*f\", dec, (double)v);\n"
+                   "  std::string s(b);\n"
+                   "  int whole = (int)s.size();\n"
+                   "  const size_t dot = s.find('.');\n"
+                   "  if (dot != std::string::npos) whole = (int)dot;\n"
+                   "  std::string pad;\n"
+                   "  for (int i = whole; i < wid; ++i) pad += '0';\n"
+                   "  return (neg ? std::string(\"-\") : std::string()) + pad + s;\n"
+                   "}\n";
+        if (uses("SecondsToText"))
+            out << "// Seconds To Clock: M:SS(.t). Negative clamps to 0:00 - a\n"
+                   "// countdown that overshoots must not print \"-0:01\".\n"
+                   "static std::string flowClockText(float sec, bool tenths) {\n"
+                   "  if (sec < 0.0F) sec = 0.0F;\n"
+                   "  const int total = (int)sec;\n"
+                   "  const int m = total / 60;\n"
+                   "  const int s2 = total % 60;\n"
+                   "  char b[32];\n"
+                   "  if (tenths) {\n"
+                   "    int t = (int)((sec - (float)total) * 10.0F);\n"
+                   "    if (t < 0) t = 0;\n"
+                   "    if (t > 9) t = 9;\n"
+                   "    snprintf(b, sizeof(b), \"%d:%02d.%d\", m, s2, t);\n"
+                   "  } else {\n"
+                   "    snprintf(b, sizeof(b), \"%d:%02d\", m, s2);\n"
+                   "  }\n"
+                   "  return std::string(b);\n"
+                   "}\n";
     }
 
     if (anyDynText) {
@@ -21169,6 +21701,70 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
     std::ostringstream registrations;
     bool anyGraph = false;
+
+    // Graph events (Send Event / On Event). DOUBLE-BUFFERED on purpose: senders
+    // write `next`, receivers read `cur`, and the bus script below - registered
+    // FIRST, so it runs before every graph - promotes one to the other once per
+    // frame. That is what makes delivery uniform. Without it, whether a receiver
+    // saw an event in the same frame or the next would depend on the order
+    // getScripts() happens to hold, which is an emission detail no author can
+    // see and no graph could compensate for. The cost is one frame of latency,
+    // stated in the node's own description.
+    if (!flowEvents.empty()) {
+        auto names = [&]() {
+            std::string s;
+            for (size_t i = 0; i < flowEvents.size(); ++i)
+                s += (i ? ", " : "") + flowEvents[i];
+            return s;
+        };
+        const std::string n = std::to_string(flowEvents.size());
+        out << "\n// Graph events (Send Event / On Event), one game-global "
+               "namespace:\n// "
+            << names()
+            << "\n"
+               "static unsigned char flowEvtCur["
+            << n << "] = {};\n"
+               "static float flowEvtCurVal["
+            << n << "] = {};\n"
+               "static unsigned char flowEvtNext["
+            << n << "] = {};\n"
+               "static float flowEvtNextVal["
+            << n << "] = {};\n"
+               "\n"
+               "// The bus. Registered before every graph script, so `cur` is\n"
+               "// already this frame's mail by the time any receiver looks.\n"
+               "class FlowEventBus : public Script {\n"
+               " public:\n"
+               "  void update(ScriptContext& ctx) override {\n";
+        if (dbgOn)
+            out << "    // Halted at a breakpoint: freeze the mail too, or an\n"
+                   "    // event sent just before the stop would be dropped\n"
+                   "    // while the author was looking at it.\n"
+                   "    if (livedbg::halted()) return;\n";
+        out << "    if (ctx.sceneGeneration != generation_) {\n"
+               "      // A scene (re)load must not deliver the old scene's mail.\n"
+               "      generation_ = ctx.sceneGeneration;\n"
+               "      for (int i = 0; i < "
+            << n
+            << "; ++i) {\n"
+               "        flowEvtCur[i] = flowEvtNext[i] = 0;\n"
+               "        flowEvtCurVal[i] = flowEvtNextVal[i] = 0.0F;\n"
+               "      }\n"
+               "      return;\n"
+               "    }\n"
+               "    for (int i = 0; i < "
+            << n
+            << "; ++i) {\n"
+               "      flowEvtCur[i] = flowEvtNext[i];\n"
+               "      flowEvtCurVal[i] = flowEvtNextVal[i];\n"
+               "      flowEvtNext[i] = 0;\n"
+               "    }\n"
+               "  }\n"
+               "\n private:\n"
+               "  unsigned int generation_ = 0;\n"
+               "};\n";
+        registrations << "TYRA_SCRIPT(" << ns << "::FlowEventBus);\n";
+    }
 
     for (size_t si = 0; si < p.scenes.size(); ++si) {
     const auto& sceneObjs = p.scenes[si].objects;
@@ -21282,7 +21878,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // own inputs).
                 if (const FlowNodeType* st = flowNodeType(src->type);
                     st && st->idOut &&
-                    (flowCustomNode(src->type) || src->type == "Raycast"))
+                    (flowCustomNode(src->type) || src->type == "Raycast" ||
+                     src->type == "FindNearest"))
                     return "objOut" + std::to_string(src->id);
                 cur = src;
             }
@@ -21301,11 +21898,27 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return false;
         };
 
+        // The number plane, forward-declared: the Vector transformers take
+        // their second operand from it (With X's number, Scale's factor,
+        // Rotate Around Y's angle), while the number plane in turn reads
+        // positions (Get X, Distance To Point) - so the two are mutually
+        // recursive. Assigned right after numInput/numOperand are defined
+        // below; nothing evaluates a position before then.
+        //
+        // Both take the visited PATH, because the cycle guard has to survive the
+        // hop between planes: a position feeding a number feeding that same
+        // position is a cycle neither plane can see on its own, and starting a
+        // fresh path at the boundary (as the plain numInput does at a
+        // consumer's top level) would recurse until the stack ran out.
+        std::function<std::string(const FlowNode&, const std::vector<int>&)>
+            numInputVis, numOperandVis;
+
         // XYZ expressions a node's position resolves to: an incoming position
         // link (Get Position reads the source object live; Set Object
         // Position forwards its own resolution) beats the node's own
         // X/Y/Z params (SetPosition) or its target object's position
-        // (TeleportPlayer / GetPosition).
+        // (TeleportPlayer / GetPosition). The Vector nodes sit in between: they
+        // compute a new position FROM the linked one.
         std::function<std::array<std::string, 3>(const FlowNode&, std::vector<int>&)>
             posExprImpl = [&](const FlowNode& n,
                               std::vector<int>& visited) -> std::array<std::string, 3> {
@@ -21319,14 +21932,79 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (!seen) {
                 visited.push_back(n.id);
                 const FlowNodeType* t = flowNodeType(n.type);
+                // A LATCHED output wins over this node's own position input.
+                // Find Nearest has both - a query point in, the found object's
+                // position out - and taking the input first silently made it
+                // forward the query point instead of the answer.
+                if (t && t->posOut &&
+                    (flowCustomNode(n.type) || n.type == "Raycast" ||
+                     n.type == "RollAreaPoint" || n.type == "FindNearest" ||
+                     getPosLatched(n))) {
+                    const std::string base =
+                        "posOut" + std::to_string(n.id) + "[";
+                    return {base + "0]", base + "1]", base + "2]"};
+                }
                 if (t && t->posIn) {
+                    // The position wired in, or the origin when nothing is.
+                    std::array<std::string, 3> in = {"0.0F", "0.0F", "0.0F"};
+                    bool wired = false;
                     for (const FlowLink& l : fg.links) {
                         if (l.kind != FlowLinkPos || l.toNode != n.id) continue;
                         if (const FlowNode* src = nodeById(l.fromNode)) {
                             const FlowNodeType* st = flowNodeType(src->type);
-                            if (st && st->posOut) return posExprImpl(*src, visited);
+                            if (st && st->posOut) {
+                                in = posExprImpl(*src, visited);
+                                wired = true;
+                                break;
+                            }
                         }
                     }
+                    // Vector transformers compute FROM that input; every other
+                    // posIn node simply forwards it (Set Object Position's
+                    // params stepping aside for a link, and so on).
+                    if (n.type == "PosWithX")
+                        return {numOperandVis(n, visited), in[1], in[2]};
+                    if (n.type == "PosWithY")
+                        return {in[0], numOperandVis(n, visited), in[2]};
+                    if (n.type == "PosWithZ")
+                        return {in[0], in[1], numOperandVis(n, visited)};
+                    if (n.type == "PosOffset")
+                        return {"(" + in[0] + " + " + floatLit(n.num[0]) + ")",
+                                "(" + in[1] + " + " + floatLit(n.num[1]) + ")",
+                                "(" + in[2] + " + " + floatLit(n.num[2]) + ")"};
+                    if (n.type == "PosScale") {
+                        const std::string f = numOperandVis(n, visited);
+                        return {"(" + in[0] + " * " + f + ")",
+                                "(" + in[1] + " * " + f + ")",
+                                "(" + in[2] + " * " + f + ")"};
+                    }
+                    if (n.type == "PosRotateY") {
+                        // Fold the trig at codegen time when the angle is a
+                        // typed-in constant (the common case: a fixed ring
+                        // step); a wired angle pays two runtime trig calls.
+                        const std::string wiredDeg = numInputVis(n, visited);
+                        std::string cs, sn;
+                        if (wiredDeg.empty()) {
+                            const double r = (double)n.num[0] * 0.017453292519943295;
+                            cs = floatLit((float)std::cos(r));
+                            sn = floatLit((float)std::sin(r));
+                        } else {
+                            cs = "cosf((" + wiredDeg + ") * 0.01745329F)";
+                            sn = "sinf((" + wiredDeg + ") * 0.01745329F)";
+                        }
+                        return {"(" + in[0] + " * " + cs + " + " + in[2] + " * " +
+                                    sn + ")",
+                                in[1],
+                                "(" + in[2] + " * " + cs + " - " + in[0] + " * " +
+                                    sn + ")"};
+                    }
+                    if (n.type == "PosOnTerrain")
+                        return {in[0],
+                                "(terrainHeightAtScene(ctx.scene, " + in[0] +
+                                    ", " + in[2] + ") + " + floatLit(n.num[0]) +
+                                    ")",
+                                in[2]};
+                    if (wired) return in;
                 }
             }
             // A custom node's (or Raycast's / an exec-wired Get Position's)
@@ -21334,6 +22012,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->posOut &&
                 (flowCustomNode(n.type) || n.type == "Raycast" ||
+                 n.type == "RollAreaPoint" || n.type == "FindNearest" ||
                  getPosLatched(n))) {
                 const std::string base = "posOut" + std::to_string(n.id) + "[";
                 return {base + "0]", base + "1]", base + "2]"};
@@ -21344,9 +22023,65 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string base = "flowPos[" + std::to_string(vi) + "][";
                 return {base + "0]", base + "1]", base + "2]"};
             }
+            // Nodes whose own X/Y/Z params ARE their position when nothing is
+            // wired (a rotation triple counts - it rides this plane too).
             if (n.type == "SetPosition" || n.type == "SetVarPos" ||
-                n.type == "MoveObjectTo")
+                n.type == "MoveObjectTo" || n.type == "PosConst" ||
+                n.type == "SetRotation" || n.type == "RotateObjectBy" ||
+                n.type == "SetScale" || n.type == "SetVelocity")
                 return {floatLit(n.num[0]), floatLit(n.num[1]), floatLit(n.num[2])};
+            // The player, straight off ScriptContext. Player 2's slot equals
+            // player 1's while it is inactive, so "nearest player" logic needs
+            // no guard of its own.
+            if (n.type == "PlayerPos") {
+                const char* v = n.num[0] != 0.0f ? "ctx.player2Position."
+                                                 : "ctx.playerPosition.";
+                return {std::string(v) + "x", std::string(v) + "y",
+                        std::string(v) + "z"};
+            }
+            if (n.type == "PlayerLook")
+                return {"ctx.playerLook.x", "ctx.playerLook.y",
+                        "ctx.playerLook.z"};
+            // Object fields that are 3-vectors and therefore ride this plane.
+            // Velocity is stored as a per-FRAME displacement, so it converts to
+            // the units/second a graph reasons in - never leak the frame rate
+            // into the value plane.
+            if (n.type == "GetScale" || n.type == "GetRotation" ||
+                n.type == "GetVelocity") {
+                const char* field = n.type == "GetScale" ? "scale" : "rotation";
+                const std::string dyn2 = targetExpr(n);
+                const std::string obj =
+                    dyn2.empty()
+                        ? (resolveTarget(n) < 0
+                               ? std::string()
+                               : "ctx.objects[" +
+                                     std::to_string(resolveTarget(n)) + "]")
+                        : "ctx.objects[" + dyn2 + "]";
+                if (obj.empty()) return {"0.0F", "0.0F", "0.0F"};
+                if (n.type == "GetVelocity") {
+                    auto vel = [&](const char* c) {
+                        return "flowVelPerSec(" + obj + ".velocity" + c + ")";
+                    };
+                    // A runtime handle may be -1; a component read has to be
+                    // guarded on its own because it is an expression, not a
+                    // statement.
+                    if (!dyn2.empty()) {
+                        auto g = [&](const char* c) {
+                            return "(" + dyn2 + " >= 0 ? " + vel(c) + " : 0.0F)";
+                        };
+                        return {g("X"), g("Y"), g("Z")};
+                    }
+                    return {vel("X"), vel("Y"), vel("Z")};
+                }
+                auto comp = [&](int a) {
+                    const std::string e = obj + ".data." + field + "[" +
+                                          std::to_string(a) + "]";
+                    return dyn2.empty()
+                               ? e
+                               : "(" + dyn2 + " >= 0 ? " + e + " : 0.0F)";
+                };
+                return {comp(0), comp(1), comp(2)};
+            }
             // Runtime target (spawned clone / custom object output): read the
             // position through the handle, guarded per component.
             const std::string dyn = targetExpr(n);
@@ -21390,6 +22125,123 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) return "0.0F";
                 return "ctx.saveValues[" + std::to_string(vi) + "]";
             }
+            // Flow-control nodes that publish a number: their state member, read
+            // live. Not pure (they run), but on the value plane they read like
+            // any other source.
+            if (n.type == "Counter")
+                return "(float)count" + std::to_string(n.id);
+            if (n.type == "Timer") return "timerT" + std::to_string(n.id);
+            if (n.type == "ForLoop")
+                return "(float)loopIdx" + std::to_string(n.id);
+            if (n.type == "Tween") {
+                // Recomputed from the elapsed time wherever it is read, so the
+                // eased curve and the value can never disagree.
+                int ease = (int)std::lround(n.num[3]);
+                if (ease < 0) ease = 0;
+                if (ease > 3) ease = 3;
+                return "flowTween(twT" + std::to_string(n.id) + ", " +
+                       floatLit(n.num[2] > 0.0f ? n.num[2] : 0.0f) + ", " +
+                       floatLit(n.num[0]) + ", " + floatLit(n.num[1]) + ", " +
+                       std::to_string(ease) + ")";
+            }
+            if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) return "0.0F";
+                return "flowEvtCurVal[" + std::to_string(ei) + "]";
+            }
+            if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
+            if (n.type == "PlayerFallSpeed")
+                return "flowVelPerSec(ctx.playerVelY)";
+            if (n.type == "ObjDistance") {
+                // The distance between the target OBJECT and the linked point.
+                const std::string dyn2 = targetExpr(n);
+                std::string base;
+                if (!dyn2.empty())
+                    base = "ctx.objects[" + dyn2 + "].data.position[";
+                else if (resolveTarget(n) >= 0)
+                    base = "ctx.objects[" + std::to_string(resolveTarget(n)) +
+                           "].data.position[";
+                else
+                    return "0.0F";
+                std::vector<int> pv;
+                for (int id : visited)
+                    if (id != n.id) pv.push_back(id);
+                const auto e = posExprImpl(n, pv);
+                const std::string d = "flowDist3(" + base + "0], " + base +
+                                      "1], " + base + "2], " + e[0] + ", " +
+                                      e[1] + ", " + e[2] + ")";
+                return dyn2.empty() ? d
+                                    : "(" + dyn2 + " >= 0 ? " + d + " : 0.0F)";
+            }
+            if (n.type == "SceneTime") return "timeSec";
+            if (n.type == "FrameTime") return "g_frameDt";
+            if (n.type == "Oscillate")
+                return "(" + floatLit(n.num[2]) + " + " + floatLit(n.num[0]) +
+                       " * sinf(6.2831853F * " + floatLit(n.num[1]) +
+                       " * timeSec))";
+            // Number readers on the position plane. `visited` is this call's
+            // own copy, so the position chain cannot loop back into us.
+            if (n.type == "PosGetX" || n.type == "PosGetY" ||
+                n.type == "PosGetZ" || n.type == "PosDistance" ||
+                n.type == "PosTerrainY") {
+                // Everything walked so far EXCEPT this node: numExprImpl
+                // pushed our own id, and leaving it in would make the position
+                // walk read us as visited and skip our own input link (which
+                // silently resolved Get X to the graph owner's position).
+                std::vector<int> pv;
+                for (int id : visited)
+                    if (id != n.id) pv.push_back(id);
+                const auto e = posExprImpl(n, pv);
+                if (n.type == "PosGetX") return e[0];
+                if (n.type == "PosGetY") return e[1];
+                if (n.type == "PosGetZ") return e[2];
+                if (n.type == "PosTerrainY")
+                    return "terrainHeightAtScene(ctx.scene, " + e[0] + ", " +
+                           e[2] + ")";
+                return "flowDist3(" + e[0] + ", " + e[1] + ", " + e[2] + ", " +
+                       floatLit(n.num[0]) + ", " + floatLit(n.num[1]) + ", " +
+                       floatLit(n.num[2]) + ")";
+            }
+
+            // The first wired number input - what the UNARY math nodes read
+            // (a second link on one of them is pruned by the editor).
+            auto firstNum = [&]() -> std::string {
+                for (const FlowLink& l : fg.links) {
+                    if (l.kind != FlowLinkNum || l.toNode != n.id) continue;
+                    const FlowNode* src = nodeById(l.fromNode);
+                    if (!src) continue;
+                    const FlowNodeType* st = flowNodeType(src->type);
+                    if (!st || !st->numOut) continue;
+                    return numExprImpl(*src, visited);
+                }
+                return std::string();
+            };
+            if (t->numIn && t->numOut && !flowNumFolds(*t)) {
+                const std::string x = firstNum();
+                if (x.empty()) return "0.0F";  // nothing wired: nothing to shape
+                if (n.type == "NumAbs") return "fabsf(" + x + ")";
+                if (n.type == "NumNeg") return "(-(" + x + "))";
+                if (n.type == "NumSign") return "flowSign(" + x + ")";
+                if (n.type == "NumFloor") return "floorf(" + x + ")";
+                if (n.type == "NumCeil") return "ceilf(" + x + ")";
+                if (n.type == "NumRound") return "((float)lroundf(" + x + "))";
+                if (n.type == "NumSqrt") return "flowSqrt(" + x + ")";
+                if (n.type == "NumSin")
+                    return "sinf((" + x + ") * 0.01745329F)";
+                if (n.type == "NumCos")
+                    return "cosf((" + x + ") * 0.01745329F)";
+                if (n.type == "NumClamp")
+                    return "flowClamp(" + x + ", " + floatLit(n.num[0]) + ", " +
+                           floatLit(n.num[1]) + ")";
+                if (n.type == "NumLerp")
+                    return "flowLerpN(" + x + ", " + floatLit(n.num[0]) + ", " +
+                           floatLit(n.num[1]) + ")";
+                if (n.type == "NumRemap")
+                    return "flowRemap(" + x + ", " + floatLit(n.num[0]) + ", " +
+                           floatLit(n.num[1]) + ", " + floatLit(n.num[2]) +
+                           ", " + floatLit(n.num[3]) + ")";
+                return "0.0F";
+            }
             if (!flowNumFolds(*t)) return "0.0F";  // not a Math node
 
             // Math: fold the wired inputs in LINK order. One input makes the B
@@ -21408,10 +22260,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (es.empty())
                 return n.type == "NumSub" ? "(-" + b + ")" : b;
             if (es.size() == 1) es.push_back(b);
-            if (n.type == "NumDiv") {
+            // The n-ary ops that are function calls rather than operators fold
+            // left-to-right the same way the operator ones do.
+            const char* fn = n.type == "NumDiv"   ? "flowNumDiv"
+                             : n.type == "NumMod" ? "flowNumMod"
+                             : n.type == "NumPow" ? "powf"
+                             : n.type == "NumMin" ? "flowMin"
+                             : n.type == "NumMax" ? "flowMax"
+                                                  : nullptr;
+            if (fn) {
                 std::string s = es[0];
                 for (size_t i = 1; i < es.size(); ++i)
-                    s = "flowNumDiv(" + s + ", " + es[i] + ")";
+                    s = std::string(fn) + "(" + s + ", " + es[i] + ")";
                 return s;
             }
             const char* op = n.type == "NumAdd"   ? " + "
@@ -21427,7 +22287,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
         // The number wired into a node's number input, or "" when nothing is -
         // the "a linked number overrides num[0]" test every consumer makes.
-        auto numInput = [&](const FlowNode& n) -> std::string {
+        // `vis` is the path already walked; a top-level consumer starts empty,
+        // the position plane hands its own path in (see the forward
+        // declarations above).
+        auto numInputOn = [&](const FlowNode& n,
+                              const std::vector<int>& vis) -> std::string {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->numIn) return "";
             for (const FlowLink& l : fg.links) {
@@ -21436,15 +22300,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (!src) continue;
                 const FlowNodeType* st = flowNodeType(src->type);
                 if (!st || !st->numOut) continue;
-                return numExprImpl(*src, std::vector<int>{});
+                return numExprImpl(*src, vis);
             }
             return "";
+        };
+        auto numInput = [&](const FlowNode& n) {
+            return numInputOn(n, std::vector<int>{});
         };
         // A consumer's float operand: the wired number if any, else num[0].
         auto numOperand = [&](const FlowNode& n) {
             const std::string e = numInput(n);
             return e.empty() ? floatLit(n.num[0]) : e;
         };
+        // Close the loop with the position plane (declared above it).
+        numInputVis = numInputOn;
+        numOperandVis = [&](const FlowNode& n, const std::vector<int>& vis) {
+            const std::string e = numInputOn(n, vis);
+            return e.empty() ? floatLit(n.num[0]) : e;
+        };
+
+        // The text plane, forward-declared. Join Text and Text Equals READ text
+        // inputs, and the text-input walker is built on textExpr further down -
+        // so the two are mutually recursive. `textPath` is that recursion's cycle
+        // guard: before Join Text existed no text node had a text INPUT, so a
+        // cycle was impossible and the plane needed none.
+        std::function<std::vector<std::string>(const FlowNode&)> textInputsFwd;
+        std::vector<int> textPath;
 
         // Boolean-value plane: each trigger exposes a per-frame condition,
         // logic gates fold those conditions, and "On Condition" turns a bool
@@ -21486,23 +22367,45 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (idx < 0) return "false";
                 return "navPlayerSeen(ctx, " + std::to_string(idx) + args;
             }
+            if (n.type == "TextEquals") {
+                const auto es = textInputsFwd(n);
+                if (es.empty()) return "false";  // nothing to compare
+                return "(" + es[0] + " == std::string(\"" +
+                       escapeCString(n.str) + "\"))";
+            }
+            if (n.type == "OnSequenceEnd") return "sequences::playing()";
+            if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) return "false";
+                return "(flowEvtCur[" + std::to_string(ei) + "] != 0)";
+            }
             if (n.type == "IsLayerLoaded") {
                 const int li = layerIndexOf(n.str);
                 if (li < 0) return "false";  // unknown layer name
                 return "(ctx.layerState && ctx.layerState[" + std::to_string(li) +
                        "] == 2)";
             }
-            if (n.type == "ValueAtLeast") {
+            if (n.type == "ValueAtLeast" || n.type == "ValueAtMost") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "false";
                 return "(ctx.saveValues[" + std::to_string(vi) +
-                       "] >= " + numOperand(n) + ")";
+                       (n.type == "ValueAtMost" ? "] <= " : "] >= ") +
+                       numOperand(n) + ")";
             }
-            if (n.type == "NumAtLeast") {
-                // The number plane's own comparison - nothing wired means
+            if (n.type == "NumAtLeast" || n.type == "NumAtMost" ||
+                n.type == "NumEquals" || n.type == "NumInRange") {
+                // The number plane's own comparisons - nothing wired means
                 // nothing to compare, which is false rather than "0 >= 0".
                 const std::string e = numInput(n);
                 if (e.empty()) return "false";
+                if (n.type == "NumAtMost")
+                    return "(" + e + " <= " + floatLit(n.num[0]) + ")";
+                if (n.type == "NumInRange")
+                    return "flowInRange(" + e + ", " + floatLit(n.num[0]) +
+                           ", " + floatLit(n.num[1]) + ")";
+                if (n.type == "NumEquals")
+                    return "(fabsf((" + e + ") - " + floatLit(n.num[0]) +
+                           ") <= " + floatLit(std::fabs(n.num[1])) + ")";
                 return "(" + e + " >= " + floatLit(n.num[0]) + ")";
             }
             if (n.type == "GetVarBool") {
@@ -21653,6 +22556,36 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string e = numInput(n);
                 return "flowNumText(" + (e.empty() ? "0.0F" : e) + ")";
             }
+            if (n.type == "NumToTextFmt") {
+                const std::string e = numInput(n);
+                int dec = (int)std::lround(n.num[0]);
+                if (dec < 0) dec = 0;
+                if (dec > 6) dec = 6;
+                int wid = (int)std::lround(n.num[1]);
+                if (wid < 0) wid = 0;
+                if (wid > 12) wid = 12;
+                return "flowNumTextFmt(" + (e.empty() ? "0.0F" : e) + ", " +
+                       std::to_string(dec) + ", " + std::to_string(wid) + ")";
+            }
+            if (n.type == "SecondsToText") {
+                const std::string e = numInput(n);
+                return "flowClockText(" + (e.empty() ? "0.0F" : e) + ", " +
+                       (n.num[0] != 0.0f ? "true" : "false") + ")";
+            }
+            if (n.type == "TextJoin") {
+                for (int id : textPath)
+                    if (id == n.id) return "std::string()";  // cycle
+                textPath.push_back(n.id);
+                const auto es = textInputsFwd(n);
+                textPath.pop_back();
+                if (es.empty()) return "std::string()";
+                const std::string sep =
+                    "std::string(\"" + escapeCString(n.str) + "\")";
+                std::string out2 = es[0];
+                for (size_t i = 1; i < es.size(); ++i)
+                    out2 = "(" + out2 + " + " + sep + " + " + es[i] + ")";
+                return out2;
+            }
             return "std::string()";
         };
 
@@ -21669,6 +22602,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             }
             return es;
         };
+        textInputsFwd = textInputs;
 
         // Display Text's string: the node's own prefix (str2) followed by every
         // wired text input, concatenated. Same shape as Log Message, minus the
@@ -21695,12 +22629,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return (int)usedSounds.size() - 1;
         };
 
+        // The exec walker, forward-declared: a flow-control node (Branch,
+        // Sequence, Gate, ...) emits the chain hanging off each of its OWN exec
+        // outputs inline, and it is actionCode that emits those nodes - so the
+        // two are mutually recursive. Assigned right after emitExec is defined
+        // below; nothing calls actionCode before then.
+        std::function<std::string(int, int, const std::string&,
+                                  std::vector<int>&)>
+            emitExecPin;
+
         // action node -> inline statements. `pin` is the exec input the link
         // fired (FlowLink::toPin): a merged node (Set Object Visible's
         // show/hide/toggle) switches its body on it, every other node ignores
-        // it because it only has pin 0.
-        auto actionCode = [&](const FlowNode& n, const std::string& pad,
-                              int pin) -> std::string {
+        // it because it only has pin 0. `visited` is the exec path that reached
+        // this node, threaded through so a flow-control node's own branches can
+        // recurse without re-entering a node already on the path.
+        auto actionCode = [&](const FlowNode& n, const std::string& pad, int pin,
+                              std::vector<int>& visited) -> std::string {
+            // The chain hanging off exec output `outPin` of THIS node. Each
+            // branch walks with its own COPY of the path: two outputs of one
+            // Sequence may legitimately reach the same action (it then runs
+            // twice, which is what the wiring says), while a link back into the
+            // path is still caught as a cycle.
+            auto branch = [&](int outPin, const std::string& bpad) {
+                std::vector<int> sub = visited;
+                return emitExecPin(n.id, outPin, bpad, sub);
+            };
             std::ostringstream c;
             // dyn: the target is a runtime handle (Spawn Object clone or a
             // custom node's object output); the whole action is then wrapped in
@@ -21830,18 +22784,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "RotateObjectBy") {
                 // Wrapped like the physics tumble does: a node fired often
                 // enough would otherwise walk the angle into the range where
-                // float degrees lose resolution.
+                // float degrees lose resolution. A linked position carries the
+                // delta as a 3-vector, so a computed turn works; the skip-zero
+                // shortcut only applies to typed-in params.
+                const auto e = posExpr(n);
+                bool linked = false;
+                for (const FlowLink& l : fg.links)
+                    linked |= (l.kind == FlowLinkPos && l.toNode == n.id);
                 for (int a = 0; a < 3; ++a) {
-                    if (n.num[a] == 0.0f) continue;
+                    if (!linked && n.num[a] == 0.0f) continue;
                     c << pad << obj << ".data.rotation[" << a
                       << "] = flowWrapDeg(" << obj << ".data.rotation[" << a
-                      << "] + " << floatLit(n.num[a]) << ");\n";
+                      << "] + " << (linked ? e[a] : floatLit(n.num[a]))
+                      << ");\n";
                 }
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "SetRotation") {
+                // A linked position IS the rotation, which is what makes
+                // Get Object Rotation -> With Y -> Set Object Rotation work.
+                const auto e = posExpr(n);
                 for (int a = 0; a < 3; ++a)
-                    c << pad << obj << ".data.rotation[" << a
-                      << "] = " << floatLit(n.num[a]) << ";\n";
+                    c << pad << obj << ".data.rotation[" << a << "] = " << e[a]
+                      << ";\n";
                 c << pad << obj << ".dirty = true;\n";
             } else if (n.type == "SpinObject") {
                 // Only the RATE is written here; the game's own object pass
@@ -21874,9 +22838,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << ");\n";
             } else if (n.type == "Delay") {
                 // arm (or restart) the countdown; the per-frame block at the
-                // top of update() fires the linked actions when it hits 0
-                c << pad << "delay" << n.id << " = everyFrames("
-                  << floatLit(n.num[0]) << ");\n";
+                // top of update() fires the linked actions when it hits 0.
+                // everyFrames() runs at ARM time, so a wired number works here
+                // as-is - the delay can be computed.
+                c << pad << "delay" << n.id << " = everyFrames(" << numOperand(n)
+                  << ");\n";
             } else if (n.type == "MoveObjectTo") {
                 c << pad << "move" << n.id << " = true;\n";
             } else if (n.type == "SetSaveText") {
@@ -21936,16 +22902,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        n.type == "SetFlare" || n.type == "SetGodRays") {
                 // Bloom's re-add FIX is a whole byte, so it accepts up to 2
                 // (over-add, hot glow); grain / flare / god rays top out at 1.
-                int v = (int)(n.num[0] * 128.0f + 0.5f);
                 const int hi = n.type == "SetBloom" ? 255 : 128;
-                if (v < 0) v = 0;
-                if (v > hi) v = hi;
-                c << pad << "ctx."
-                  << (n.type == "SetBloom"    ? "bloom"
-                      : n.type == "SetGrain"  ? "grain"
-                      : n.type == "SetFlare"  ? "flare"
-                                              : "godRays")
-                  << " = " << v << ";\n";
+                const char* field = n.type == "SetBloom"   ? "bloom"
+                                    : n.type == "SetGrain" ? "grain"
+                                    : n.type == "SetFlare" ? "flare"
+                                                           : "godRays";
+                const std::string wired = numInput(n);
+                if (wired.empty()) {
+                    // Nothing wired: fold the clamp at codegen time.
+                    int v = (int)(n.num[0] * 128.0f + 0.5f);
+                    if (v < 0) v = 0;
+                    if (v > hi) v = hi;
+                    c << pad << "ctx." << field << " = " << v << ";\n";
+                } else {
+                    // A wired number (a Tween ramping the effect up) has to be
+                    // clamped where it is read.
+                    c << pad << "{\n"
+                      << pad << "  int a = (int)(" << wired << " * 128.0F + 0.5F);\n"
+                      << pad << "  if (a < 0) a = 0;\n"
+                      << pad << "  if (a > " << hi << ") a = " << hi << ";\n"
+                      << pad << "  ctx." << field << " = a;\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetDof") {
                 // Mode (num[3]): 0 = set the custom params, 1 = off,
                 // 2 = restore the scene's authored setting (-2 request).
@@ -22136,10 +23114,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << pad << "}\n";
                 }
             } else if (n.type == "SetMusicVolume") {
-                int vol = (int)n.num[0];
-                if (vol < 0) vol = 0;
-                if (vol > 100) vol = 100;
-                c << pad << "ctx.engine->audio.song.setVolume(" << vol << ");\n";
+                const std::string wired = numInput(n);
+                if (wired.empty()) {
+                    int vol = (int)n.num[0];
+                    if (vol < 0) vol = 0;
+                    if (vol > 100) vol = 100;
+                    c << pad << "ctx.engine->audio.song.setVolume(" << vol
+                      << ");\n";
+                } else {
+                    c << pad << "{\n"
+                      << pad << "  int v = (int)(" << wired << ");\n"
+                      << pad << "  if (v < 0) v = 0;\n"
+                      << pad << "  if (v > 100) v = 100;\n"
+                      << pad << "  ctx.engine->audio.song.setVolume(v);\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetValue" || n.type == "AddValue") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) {
@@ -22298,6 +23287,390 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ");\n";
             } else if (n.type == "StopAi") {
                 c << pad << "navStop(ctx, " << objIdx << ");\n";
+            // ---------------------------------------------------------------
+            // Flow control. Each of these decides which of its own exec
+            // outputs continues, and emits that chain inline - so the whole
+            // construct is ordinary C++ control flow with no dispatch cost.
+            // Their state members are declared in the per-node state pass
+            // below (one place, so the time machine's walk sees them).
+            } else if (n.type == "Branch") {
+                std::string cond = boolInputsOr(n);
+                if (cond.empty()) cond = "false";  // nothing wired
+                const std::string yes = branch(0, pad + "  ");
+                const std::string no = branch(1, pad + "  ");
+                if (yes.empty() && no.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (Branch): neither output is wired\n";
+                } else if (yes.empty()) {
+                    c << pad << "if (!(" << cond << ")) {\n" << no << pad << "}\n";
+                } else {
+                    c << pad << "if (" << cond << ") {\n" << yes << pad << "}\n";
+                    if (!no.empty()) c << pad << "else {\n" << no << pad << "}\n";
+                }
+            } else if (n.type == "Sequence") {
+                // Each output in its own block: two branches may both declare
+                // locals (a Move Object To glide does), and the whole point of
+                // this node is that output 1 finishes before output 2 starts.
+                for (int e = 0; e < 4; ++e) {
+                    const std::string ch = branch(e, pad + "  ");
+                    if (ch.empty()) continue;
+                    c << pad << "{  // Sequence output " << (e + 1) << "\n" << ch
+                      << pad << "}\n";
+                }
+            } else if (n.type == "DoOnce") {
+                const std::string v = "once" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = false;  // Do Once: armed again\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "if (!" << v << ") {\n" << pad << "  " << v
+                      << " = true;\n" << ch << pad << "}\n";
+                }
+            } else if (n.type == "DoN") {
+                const std::string v = "doN" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = 0;  // Do N Times: count restarted\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "if ((float)" << v << " < " << numOperand(n)
+                      << ") {\n" << pad << "  ++" << v << ";\n" << ch << pad
+                      << "}\n";
+                }
+            } else if (n.type == "Gate") {
+                const std::string v = "gate" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = true;   // Gate opened\n";
+                } else if (pin == 2) {
+                    c << pad << v << " = false;  // Gate closed\n";
+                } else {
+                    const std::string ch = branch(0, pad + "  ");
+                    if (!ch.empty())
+                        c << pad << "if (" << v << ") {\n" << ch << pad << "}\n";
+                }
+            } else if (n.type == "FlipFlop") {
+                const std::string v = "flip" + std::to_string(n.id);
+                const std::string a = branch(0, pad + "  ");
+                const std::string b = branch(1, pad + "  ");
+                if (a.empty() && b.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (Flip Flop): neither output is wired\n";
+                } else {
+                    c << pad << "if (!" << v << ") {\n" << a << pad << "} else {\n"
+                      << b << pad << "}\n" << pad << v << " = !" << v << ";\n";
+                }
+            } else if (n.type == "SwitchNumber") {
+                std::vector<std::string> cases;
+                for (int e = 0; e < 4; ++e) cases.push_back(branch(e, pad + "    "));
+                const std::string other = branch(4, pad + "    ");
+                bool any = !other.empty();
+                for (const std::string& s : cases) any |= !s.empty();
+                if (!any) {
+                    c << pad << "// node " << n.id
+                      << " (Switch Number): no output is wired\n";
+                } else {
+                    c << pad << "{\n" << pad << "  const int sw" << n.id
+                      << " = (int)lroundf(" << numOperand(n) << ");\n";
+                    bool first = true;
+                    for (int e = 0; e < 4; ++e) {
+                        if (cases[e].empty()) continue;
+                        c << pad << "  " << (first ? "if" : "else if") << " (sw"
+                          << n.id << " == " << e << ") {\n" << cases[e] << pad
+                          << "  }\n";
+                        first = false;
+                    }
+                    if (!other.empty()) {
+                        if (first) {
+                            // Only "else" is wired: every value takes it, so
+                            // the comparison would be dead code.
+                            c << pad << "  (void)sw" << n.id << ";\n" << other;
+                        } else {
+                            c << pad << "  else if (sw" << n.id << " < 0 || sw"
+                              << n.id << " > 3) {\n" << other << pad << "  }\n";
+                        }
+                    }
+                    c << pad << "}\n";
+                }
+            } else if (n.type == "RandomBranch") {
+                int outs = (int)std::lround(n.num[0]);
+                if (outs < 2) outs = 2;
+                if (outs > 4) outs = 4;
+                std::vector<std::string> arms;
+                bool any = false;
+                for (int e = 0; e < outs; ++e) {
+                    arms.push_back(branch(e, pad + "    "));
+                    any |= !arms.back().empty();
+                }
+                if (!any) {
+                    c << pad << "// node " << n.id
+                      << " (Random Branch): no output is wired\n";
+                } else {
+                    c << pad << "{\n" << pad << "  const int pick" << n.id
+                      << " = (int)(flowRand() % " << outs << "U);\n";
+                    for (int e = 0; e < outs; ++e) {
+                        if (arms[e].empty()) continue;
+                        c << pad << "  " << (e == 0 ? "if" : "else if") << " (pick"
+                          << n.id << " == " << e << ") {\n" << arms[e] << pad
+                          << "  }\n";
+                    }
+                    c << pad << "}\n";
+                }
+            } else if (n.type == "Cooldown") {
+                // The countdown itself is ticked in the per-frame prologue; here
+                // the only question is whether the valve is open.
+                const std::string v = "cool" + std::to_string(n.id);
+                const std::string ch = branch(0, pad + "  ");
+                if (!ch.empty())
+                    c << pad << "if (" << v << " <= 0.0F) {\n" << pad << "  " << v
+                      << " = " << floatLit(n.num[0] > 0.0f ? n.num[0] : 0.0f)
+                      << ";\n" << ch << pad << "}\n";
+            } else if (n.type == "Counter") {
+                const std::string v = "count" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << v << " = 0;  // Counter reset\n";
+                } else {
+                    long every = std::lround(n.num[0]);
+                    if (every < 1) every = 1;
+                    const std::string ch = branch(0, pad + "  ");
+                    c << pad << "++" << v << ";\n";
+                    if (!ch.empty()) {
+                        if (every == 1)
+                            c << pad << "{\n" << ch << pad << "}\n";
+                        else
+                            c << pad << "if (" << v << " % " << every
+                              << " == 0) {\n" << ch << pad << "}\n";
+                    }
+                }
+            } else if (n.type == "Timer") {
+                const std::string t0 = "timerT" + std::to_string(n.id);
+                const std::string r = "timerRun" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << r << " = false;  // Timer stopped\n";
+                } else if (pin == 2) {
+                    c << pad << t0 << " = 0.0F;  // Timer reset\n";
+                } else {
+                    c << pad << r << " = true;   // Timer started\n";
+                }
+            } else if (n.type == "Tween") {
+                const std::string t0 = "twT" + std::to_string(n.id);
+                const std::string r = "twRun" + std::to_string(n.id);
+                if (pin == 1) {
+                    c << pad << r << " = false;  // Tween stopped where it is\n";
+                } else {
+                    c << pad << t0 << " = 0.0F;\n" << pad << r << " = true;\n";
+                }
+            } else if (n.type == "RestartScene") {
+                c << pad << "ctx.requestScene = ctx.scene;  // reload this "
+                     "scene\n";
+            } else if (n.type == "SetScreenFx") {
+                // The placement index IS the generated symbol suffix, so it is
+                // resolved here against the same enabledScreenFx() order
+                // screenFxSource emits.
+                const int fi = screenFxSlot(n.str);
+                if (fi < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SetScreenFx): no enabled placement of '" << n.str
+                      << "' in the screen stack\n";
+                } else if (pin == 1 || pin == 2) {
+                    c << pad << "g_screenFxOn_" << fi << " = "
+                      << (pin == 1 ? "true" : "false") << ";\n";
+                } else {
+                    c << pad << "g_screenFxParam_" << fi << "[0] = "
+                      << numOperand(n) << ";\n";
+                    for (int a = 1; a < 4; ++a)
+                        c << pad << "g_screenFxParam_" << fi << "[" << a
+                          << "] = " << floatLit(n.num[a]) << ";\n";
+                }
+            } else if (n.type == "SendEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) {
+                    c << pad << "// node " << n.id
+                      << " (SendEvent): no event name\n";
+                } else {
+                    // Written into `next`; the bus promotes it before any graph
+                    // runs on the following frame.
+                    c << pad << "flowEvtNext[" << ei << "] = 1;\n"
+                      << pad << "flowEvtNextVal[" << ei << "] = "
+                      << numOperand(n) << ";  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetCamera") {
+                // Eye from the position link, aim at the target object. Written
+                // straight onto the fields the Cutscene Director publishes, so
+                // there is no second camera system to keep in step - and a
+                // playing cutscene simply overwrites them next frame.
+                const auto e = posExpr(n);
+                c << pad << "ctx.cameraOverride = true;\n"
+                  << pad << "ctx.cameraEye = Tyra::Vec4(" << e[0] << ", " << e[1]
+                  << ", " << e[2] << ");\n"
+                  << pad << "ctx.cameraAt = Tyra::Vec4(" << obj
+                  << ".data.position[0], " << obj << ".data.position[1], " << obj
+                  << ".data.position[2]);\n"
+                  << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
+            } else if (n.type == "CameraFromObject") {
+                c << pad << "flowCameraFrom(ctx, " << obj << ");\n";
+            } else if (n.type == "ReleaseCamera") {
+                c << pad << "ctx.cameraOverride = false;\n"
+                  << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
+            } else if (n.type == "CameraShake") {
+                c << pad << "ctx.shakeAmp = " << numOperand(n) << ";\n"
+                  << pad << "ctx.shakeSec = " << floatLit(n.num[1]) << ";\n";
+            } else if (n.type == "SetFade") {
+                c << pad << "{\n"
+                  << pad << "  float a = " << numOperand(n) << ";\n"
+                  << pad << "  if (a < 0.0F) a = 0.0F;\n"
+                  << pad << "  if (a > 1.0F) a = 1.0F;\n"
+                  << pad << "  ctx.fadeAlpha = a;\n"
+                  << pad << "}\n";
+            } else if (n.type == "SetBars") {
+                // The style -> coverage mapping is resolved HERE (the host's own
+                // seqBarsFractions), so the console carries no table: codegen
+                // writes the two fractions in as literals.
+                int style = (int)std::lround(n.num[0]);
+                if (style < 0) style = 0;
+                if (style > 4) style = 4;
+                float bt = 0.0f, bb = 0.0f, bl = 0.0f, br = 0.0f;
+                seqBarsFractions(style, bt, bb, bl, br);
+                c << pad << "sequences::g_flowBarTB = " << floatLit(bt) << ";\n"
+                  << pad << "sequences::g_flowBarLR = " << floatLit(bl) << ";\n"
+                  << pad << "{\n"
+                  << pad << "  float a = " << numOperand(n) << ";\n"
+                  << pad << "  if (a < 0.0F) a = 0.0F;\n"
+                  << pad << "  if (a > 1.0F) a = 1.0F;\n"
+                  << pad << "  ctx.barsAmount = " << (style == 0 ? "0.0F" : "a")
+                  << ";\n"
+                  << pad << "}\n";
+            } else if (n.type == "SetPlayerVisible") {
+                c << pad << "ctx.hidePlayer = " << (pin == 1 ? "true" : "false")
+                  << ";\n";
+            } else if (n.type == "SetSfxVolume") {
+                c << pad << "{\n"
+                  << pad << "  int v = (int)(" << numOperand(n) << ");\n"
+                  << pad << "  if (v < 0) v = 0;\n"
+                  << pad << "  if (v > 100) v = 100;\n"
+                  << pad << "  ctx.sfxVolume = v;\n"
+                  << pad << "}\n";
+            } else if (n.type == "SetScale") {
+                const auto e = posExpr(n);  // a position link beats X/Y/Z
+                c << pad << obj << ".data.scale[0] = " << e[0] << ";\n"
+                  << pad << obj << ".data.scale[1] = " << e[1] << ";\n"
+                  << pad << obj << ".data.scale[2] = " << e[2] << ";\n"
+                  << pad << obj << ".dirty = true;\n";
+            } else if (n.type == "ScaleObjectBy") {
+                c << pad << "{\n"
+                  << pad << "  const float f = " << numOperand(n) << ";\n"
+                  << pad << "  " << obj << ".data.scale[0] *= f;\n"
+                  << pad << "  " << obj << ".data.scale[1] *= f;\n"
+                  << pad << "  " << obj << ".data.scale[2] *= f;\n"
+                  << pad << "  " << obj << ".dirty = true;\n"
+                  << pad << "}\n";
+            } else if (n.type == "LookAt") {
+                const auto e = posExpr(n);
+                c << pad << "flowLookAt(" << obj << ", " << e[0] << ", " << e[1]
+                  << ", " << e[2] << ", "
+                  << (n.num[0] != 0.0f ? "true" : "false") << ");\n";
+            } else if (n.type == "SetVelocity") {
+                // The graph speaks units/SECOND; RuntimeObject stores a
+                // per-frame displacement.
+                const auto e = posExpr(n);
+                c << pad << obj << ".velocityX = (" << e[0] << ") * g_frameDt;\n"
+                  << pad << obj << ".velocityY = (" << e[1] << ") * g_frameDt;\n"
+                  << pad << obj << ".velocityZ = (" << e[2] << ") * g_frameDt;\n"
+                  // A body at PHYS_ASLEEP skips simulation entirely, so a
+                  // velocity written onto a sleeping crate would do nothing.
+                  << pad << obj << ".restFrames = 0;\n";
+            } else if (n.type == "StopMotion") {
+                c << pad << obj << ".velocityX = 0.0F;\n"
+                  << pad << obj << ".velocityY = 0.0F;\n"
+                  << pad << obj << ".velocityZ = 0.0F;\n"
+                  << pad << obj << ".spin[0] = 0.0F;\n"
+                  << pad << obj << ".spin[1] = 0.0F;\n"
+                  << pad << obj << ".spin[2] = 0.0F;\n"
+                  // Everything that was moving it on its own, a Spin Object
+                  // rate included - otherwise "stop" stops only half of it.
+                  << pad << obj << ".spinRate[0] = 0.0F;\n"
+                  << pad << obj << ".spinRate[1] = 0.0F;\n"
+                  << pad << obj << ".spinRate[2] = 0.0F;\n";
+            } else if (n.type == "SetUsable") {
+                c << pad << obj << ".data.usable = " << (pin == 1 ? 0 : 1)
+                  << ";\n";
+            } else if (n.type == "SetPlayerInput") {
+                c << pad << "ctx.lockInput = " << (pin == 1 ? 1 : 0)
+                  << ";  // " << (pin == 1 ? "unlock" : "lock") << "\n";
+            } else if (n.type == "FindNearest") {
+                // The prefix resolves to a static index table at codegen time,
+                // exactly like Patrol Waypoints' route - the runtime never
+                // compares strings.
+                std::vector<int> cands;
+                if (!n.str.empty())
+                    for (size_t i = 0; i < sceneObjs.size(); ++i)
+                        if (sceneObjs[i].name.rfind(n.str, 0) == 0)
+                            cands.push_back((int)i);
+                if (cands.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (FindNearest): no objects named '" << n.str
+                      << "<...>'\n";
+                } else {
+                    const auto e = posExpr(n);
+                    c << pad << "{\n" << pad << "  static const int cand"
+                      << n.id << "[] = {";
+                    for (size_t i = 0; i < cands.size(); ++i)
+                        c << (i ? ", " : "") << cands[i];
+                    c << "};  //";
+                    for (int ci : cands) c << " " << sceneObjs[ci].name;
+                    c << "\n"
+                      << pad << "  objOut" << n.id << " = flowFindNearest(\n"
+                      << pad << "      ctx, cand" << n.id << ", "
+                      << cands.size() << ", " << e[0] << ", " << e[1] << ", "
+                      << e[2] << ",\n"
+                      << pad << "      " << floatLit(n.num[0]) << ", posOut"
+                      << n.id << ");\n"
+                      << pad << "}\n"
+                      << branch(0, pad);
+                }
+            } else if (n.type == "RollRandom") {
+                // Latched, not an expression: two consumers of "the same" roll
+                // must see the same number.
+                const std::string v = "rnd" + std::to_string(n.id);
+                c << pad << v << " = flowRandRange(" << floatLit(n.num[0])
+                  << ", " << floatLit(n.num[1]) << ", "
+                  << (n.num[2] != 0.0f ? "true" : "false") << ");\n"
+                  << branch(0, pad);
+            } else if (n.type == "RollAreaPoint") {
+                const int ai = areaIndexOf(n.str);
+                if (ai < 0) {
+                    c << pad << "// node " << n.id
+                      << " (RollAreaPoint): unknown area '" << n.str << "'\n";
+                } else {
+                    c << pad << "flowAreaPoint(ctx, " << ai << ", posOut"
+                      << n.id << ");\n"
+                      << branch(0, pad);
+                }
+            } else if (n.type == "ForLoop") {
+                const std::string v = "loopIdx" + std::to_string(n.id);
+                const std::string body = branch(0, pad + "    ");
+                const std::string done = branch(1, pad + "  ");
+                if (body.empty() && done.empty()) {
+                    c << pad << "// node " << n.id
+                      << " (For Loop): neither output is wired\n";
+                } else {
+                    c << pad << "{\n"
+                      << pad << "  int times" << n.id << " = (int)lroundf("
+                      << numOperand(n) << ");\n"
+                      << pad << "  if (times" << n.id << " < 0) times" << n.id
+                      << " = 0;\n"
+                      // The cap is the whole reason this is safe on the EE: the
+                      // body runs inside one frame, so an unbounded count from
+                      // the number plane would be a hang, not a slow frame.
+                      << pad << "  if (times" << n.id << " > 64) times" << n.id
+                      << " = 64;\n";
+                    if (!body.empty())
+                        c << pad << "  for (" << v << " = 0; " << v << " < times"
+                          << n.id << "; ++" << v << ") {\n" << body << pad
+                          << "  }\n";
+                    else
+                        c << pad << "  " << v << " = times" << n.id << ";\n";
+                    if (!done.empty()) c << done;
+                    c << pad << "}\n";
+                }
             } else if (const CustomFlowNode* cn = flowCustomNode(n.type)) {
                 const FlowNodeType* t = &cn->type;
                 c << pad << "// node " << n.id << " (" << n.type << ")\n";
@@ -22375,18 +23748,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return dbgHit(n, pad) + c.str();
         };
 
-        // Emit the actions reached by exec links out of `fromId`. A custom
-        // node with exec_out fires its own downstream inline right after it
-        // runs (so raycast -> [exec] -> Hide Object sequences the data
-        // dependency); `visited` guards against exec cycles. Built-in Delay's
-        // exec-out fires from its per-frame countdown, not here, so it does not
-        // recurse. Pure data / trigger nodes never "run".
-        std::function<std::string(int, const std::string&, std::vector<int>&)> emitExec =
-            [&](int fromId, const std::string& pad,
-                std::vector<int>& visited) -> std::string {
+        // Emit the actions reached by exec links out of exec OUTPUT `fromPin` of
+        // `fromId`. A custom node with exec_out fires its own downstream inline
+        // right after it runs (so raycast -> [exec] -> Hide Object sequences the
+        // data dependency); `visited` guards against exec cycles. Built-in
+        // Delay's exec-out fires from its per-frame countdown, not here, so it
+        // does not recurse. Pure data / trigger nodes never "run".
+        std::function<std::string(int, int, const std::string&,
+                                  std::vector<int>&)>
+            emitExec = [&](int fromId, int fromPin, const std::string& pad,
+                           std::vector<int>& visited) -> std::string {
             std::ostringstream c;
             for (const FlowLink& l : fg.links) {
-                if (l.kind != FlowLinkExec || l.fromNode != fromId) continue;
+                if (l.kind != FlowLinkExec || l.fromNode != fromId ||
+                    l.fromPin != fromPin)
+                    continue;
                 const FlowNode* m = nodeById(l.toNode);
                 if (!m) continue;
                 const FlowNodeType* t = flowNodeType(m->type);
@@ -22402,18 +23778,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     continue;
                 }
                 visited.push_back(key);
-                c << actionCode(*m, pad, l.toPin);
+                c << actionCode(*m, pad, l.toPin, visited);
                 if (t->execThrough &&
                     (flowCustomNode(m->type) || m->type == "Raycast" ||
                      m->type == "GetPosition"))
-                    c << emitExec(m->id, pad, visited);
+                    c << emitExec(m->id, 0, pad, visited);
             }
             return c.str();
         };
-        // all actions exec-linked to a trigger (pure data nodes never "run")
+        emitExecPin = emitExec;
+        // all actions exec-linked to a trigger's / an armed timer's output
+        // (pure data nodes never "run")
         auto linkedActions = [&](int triggerId, const std::string& pad) {
             std::vector<int> visited;
-            return emitExec(triggerId, pad, visited);
+            return emitExec(triggerId, 0, pad, visited);
         };
 
         const std::string cls =
@@ -22477,6 +23855,22 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         //    actions the frame it reaches 0.
         //  - Move Object To: glides the target toward the (live) goal at
         //    Speed units/s until it arrives.
+        //
+        // The graph's own clock first: seconds since this scene loaded, read by
+        // Scene Time and Oscillate. Per graph rather than global because a
+        // global would need something that ticks exactly once per frame, and
+        // every script's update() is a candidate - this one cannot be
+        // double-counted, and it rewinds with the rest of the graph's state.
+        {
+            bool needTime = false;
+            for (const FlowNode& n : fg.nodes)
+                needTime |= (n.type == "SceneTime" || n.type == "Oscillate");
+            if (needTime) {
+                addMember("float", "timeSec", "0.0F", 'f', 1);
+                flagResets << "      timeSec = 0.0F;\n";
+                clsOut << "    timeSec += g_frameDt;\n";
+            }
+        }
         for (const FlowNode& n : fg.nodes) {
             if (n.type == "SpawnObject") {
                 // handle slots live globally but reset with this script's
@@ -22549,6 +23943,84 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "      }\n"
                        << "      " << obj << ".dirty = true;\n"
                        << "    }\n";
+            } else if (n.type == "DoOnce") {
+                const std::string v = "once" + std::to_string(n.id);
+                addMember("bool", v, "false", 'b', 1);
+                flagResets << "      " << v << " = false;\n";
+            } else if (n.type == "DoN") {
+                const std::string v = "doN" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "Gate") {
+                // "Start open" is both the initializer and what a scene reload
+                // goes back to - a gate is state, and a rewind must restore it.
+                const std::string v = "gate" + std::to_string(n.id);
+                const char* init = n.num[0] != 0.0f ? "true" : "false";
+                addMember("bool", v, init, 'b', 1);
+                flagResets << "      " << v << " = " << init << ";\n";
+            } else if (n.type == "FlipFlop") {
+                const std::string v = "flip" + std::to_string(n.id);
+                addMember("bool", v, "false", 'b', 1);
+                flagResets << "      " << v << " = false;\n";
+            } else if (n.type == "Counter") {
+                const std::string v = "count" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "ForLoop") {
+                // A member rather than a loop-local, so the node's number output
+                // (the iteration index) is a name that exists everywhere - it
+                // simply holds the last index once the loop is over.
+                const std::string v = "loopIdx" + std::to_string(n.id);
+                addMember("int", v, "0", 'i', 1);
+                flagResets << "      " << v << " = 0;\n";
+            } else if (n.type == "RollRandom") {
+                const std::string v = "rnd" + std::to_string(n.id);
+                addMember("float", v, "0.0F", 'f', 1);
+                flagResets << "      " << v << " = 0.0F;\n";
+            } else if (n.type == "Cooldown") {
+                const std::string v = "cool" + std::to_string(n.id);
+                addMember("float", v, "0.0F", 'f', 1);
+                flagResets << "      " << v << " = 0.0F;\n";
+                clsOut << "    if (" << v << " > 0.0F) {\n"
+                       << "      " << v << " -= g_frameDt;\n"
+                       << "      if (" << v << " < 0.0F) " << v << " = 0.0F;\n"
+                       << "    }\n";
+            } else if (n.type == "Timer") {
+                const std::string t0 = "timerT" + std::to_string(n.id);
+                const std::string r = "timerRun" + std::to_string(n.id);
+                addMember("float", t0, "0.0F", 'f', 1);
+                addMember("bool", r, "false", 'b', 1);
+                flagResets << "      " << t0 << " = 0.0F;\n"
+                           << "      " << r << " = false;\n";
+                const float dur = n.num[0];
+                clsOut << "    if (" << r << ") {\n"
+                       << "      " << t0 << " += g_frameDt;\n";
+                if (dur > 0.0f) {
+                    clsOut << "      if (" << t0 << " >= " << floatLit(dur)
+                           << ") {\n"
+                           << "        " << t0 << " = " << floatLit(dur) << ";\n"
+                           << "        " << r << " = false;\n"
+                           << linkedActions(n.id, "        ") << "      }\n";
+                }
+                clsOut << "    }\n";
+            } else if (n.type == "Tween") {
+                const std::string t0 = "twT" + std::to_string(n.id);
+                const std::string r = "twRun" + std::to_string(n.id);
+                addMember("float", t0, "0.0F", 'f', 1);
+                addMember("bool", r, "false", 'b', 1);
+                flagResets << "      " << t0 << " = 0.0F;\n"
+                           << "      " << r << " = false;\n";
+                const float secs = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                // The value itself is not stored: it is a pure function of the
+                // elapsed time (numExprImpl emits flowTween), so consumers read
+                // it live and nothing can go stale.
+                clsOut << "    if (" << r << ") {\n"
+                       << "      " << t0 << " += g_frameDt;\n"
+                       << "      if (" << t0 << " >= " << floatLit(secs) << ") {\n"
+                       << "        " << t0 << " = " << floatLit(secs) << ";\n"
+                       << "        " << r << " = false;\n"
+                       << linkedActions(n.id, "        ") << "      }\n"
+                       << "    }\n";
             }
         }
 
@@ -22561,6 +24033,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !(flowCustomNode(n.type) || n.type == "Raycast" ||
+                        n.type == "RollAreaPoint" || n.type == "FindNearest" ||
                         getPosLatched(n)))
                 continue;
             const std::string id = std::to_string(n.id);
@@ -22758,6 +24231,27 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
                 clsOut << "    if (ctx.menuEvent == " << ei << ") {  // \"" << n.str
                     << "\"\n" << body << "    }\n";
+            } else if (n.type == "OnEvent") {
+                const int ei = eventIndex(n.str);
+                if (ei < 0) {
+                    clsOut << "    // node " << n.id
+                           << " (OnEvent): no event name\n";
+                    continue;
+                }
+                // No edge latch needed: the flag lives for exactly one frame,
+                // so its presence IS the edge.
+                clsOut << "    if (flowEvtCur[" << ei << "]) {  // \"" << n.str
+                       << "\"\n" << body << "    }\n";
+            } else if (n.type == "OnSequenceEnd") {
+                // The FALLING edge of "a cutscene is playing" - which covers a
+                // sequence running out, Stop Sequence, and the player skipping
+                // it, because all three land in the same place.
+                const std::string flag = "seqWas" + std::to_string(n.id);
+                addMember("bool", flag, "false", 'b', 1);
+                flagResets << "      " << flag << " = false;\n";
+                clsOut << "    {\n      const bool playing = sequences::playing();\n"
+                       << "      if (!playing && " << flag << ") {\n" << body
+                       << "      }\n      " << flag << " = playing;\n    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);
@@ -22954,13 +24448,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
     // disagree about what slot N is.
     if (timeOn) {
         const size_t total = intVars.size() + boolVars.size() + posVars.size();
-        out << "\n// Time machine (docs/time-machine.md): the flow variables, "
-               "both directions.\n"
+        // Graph events join the walk after the variables: two slots each (the
+        // mail delivered this frame and the mail in flight), because an event
+        // flag lives exactly one frame and a rewind that dropped it would
+        // either lose a delivery or re-fire one already consumed.
+        // liveTimeSource sizes its buffer from collectFlowEvents, so the two
+        // counts agree by construction.
+        const size_t evSlots = flowEvents.size() * 2;
+        out << "\n// Time machine (docs/time-machine.md): the flow variables and "
+               "the event bus, both directions.\n"
                "int flowTimeVarCount() { return "
-            << total << "; }\n"
+            << (total + evSlots) << "; }\n"
                "void flowTimeRead(int index, float* out3) {\n"
                "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
-        if (total == 0) {
+        if (total + evSlots == 0) {
             out << "  (void)index;  // this project defines no flow variables\n";
         } else {
             out << "  switch (index) {\n";
@@ -22975,11 +24476,21 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 out << "    case " << slot << ":\n      out3[0] = flowPos[" << i
                     << "][0]; out3[1] = flowPos[" << i << "][1]; out3[2] = flowPos["
                     << i << "][2];\n      break;  // " << posVars[i] << "\n";
+            for (size_t i = 0; i < flowEvents.size(); ++i) {
+                out << "    case " << slot++ << ":\n      out3[0] = flowEvtCur["
+                    << i << "] ? 1.0F : 0.0F; out3[1] = flowEvtCurVal[" << i
+                    << "];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (delivered)\n";
+                out << "    case " << slot++ << ":\n      out3[0] = flowEvtNext["
+                    << i << "] ? 1.0F : 0.0F; out3[1] = flowEvtNextVal[" << i
+                    << "];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (in flight)\n";
+            }
             out << "    default: break;\n  }\n";
         }
         out << "}\n"
                "void flowTimeWrite(int index, const float* in3) {\n";
-        if (total == 0) {
+        if (total + evSlots == 0) {
             out << "  (void)index; (void)in3;\n";
         } else {
             out << "  switch (index) {\n";
@@ -22994,6 +24505,16 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 out << "    case " << slot << ":\n      flowPos[" << i
                     << "][0] = in3[0]; flowPos[" << i << "][1] = in3[1]; flowPos["
                     << i << "][2] = in3[2];\n      break;  // " << posVars[i] << "\n";
+            for (size_t i = 0; i < flowEvents.size(); ++i) {
+                out << "    case " << slot++ << ":\n      flowEvtCur[" << i
+                    << "] = in3[0] != 0.0F ? 1 : 0; flowEvtCurVal[" << i
+                    << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (delivered)\n";
+                out << "    case " << slot++ << ":\n      flowEvtNext[" << i
+                    << "] = in3[0] != 0.0F ? 1 : 0; flowEvtNextVal[" << i
+                    << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
+                    << "\" (in flight)\n";
+            }
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
@@ -25143,7 +26664,14 @@ static std::string liveTimeSource(const Project& p) {
     maxObjects += 32;  // the runtime spawn pool (MAX_SPAWNED_OBJECTS)
     std::vector<std::string> intVars, boolVars, posVars;
     collectFlowVars(p, intVars, boolVars, posVars);
-    const size_t vars = intVars.size() + boolVars.size() + posVars.size();
+    // Must match flowTimeVarCount() in flow_graph.gen.cpp exactly: the graph
+    // events take two slots each after the variables (delivered + in flight).
+    // This TU cannot see the generated arrays, so both sides count from the
+    // same two collectors.
+    std::vector<std::string> flowEvents;
+    collectFlowEvents(p, flowEvents);
+    const size_t vars = intVars.size() + boolVars.size() + posVars.size() +
+                        flowEvents.size() * 2;
     // Upper bound on the graphs' own state. The exact figure is a sum of
     // per-class constants in flow_graph.gen.cpp, which this translation unit
     // can only ask for at runtime - so size the buffer for the worst case a
@@ -25165,7 +26693,8 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(3);  // layout version - bump when the walk above changes
+    mix(4);  // layout version - bump when the walk above changes
+             // (4: graph events joined the variable slots)
     mix(maxObjects);
     mix(vars);
     mix(saves);
@@ -25964,8 +27493,12 @@ static std::string terrainHeightsHeader(const Project& p) {
     std::vector<int> vws(sceneCount, 2), vds(sceneCount, 2);
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
-        const bool hasData =
-            sc.hmW >= 2 && sc.hmD >= 2 && (int)sc.heights.size() == sc.hmW * sc.hmD;
+        // A scene with no terrain (docs/terrain.md) keeps its heightmap in the
+        // project but ships the 2x2 placeholder: terrainHeightAtScene answers
+        // the void before it ever reads the table, and a 257x257 grid nobody
+        // samples is a quarter of a megabyte of EE RAM.
+        const bool hasData = sc.terrain.enabled && sc.hmW >= 2 && sc.hmD >= 2 &&
+                             (int)sc.heights.size() == sc.hmW * sc.hmD;
         if (hasData) vws[si] = sc.hmW, vds[si] = sc.hmD;
         out << "// scene \"" << sc.name << "\"\n"
             << "constexpr float HM_" << si << "_HEIGHTS[" << vws[si] * vds[si] << "] = {";
@@ -26015,7 +27548,7 @@ static std::string terrainHeightsHeader(const Project& p) {
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const int n = (int)sc.terrainLayers.size();
-        if (n == 0) continue;
+        if (n == 0 || !sc.terrain.enabled) continue;  // no ground, no splatting
         out << "constexpr unsigned char SPLAT_" << si << "_WEIGHTS["
             << vws[si] * vds[si] * n << "] = {";
         const bool match = sc.splatW == vws[si] && sc.splatD == vds[si] &&
@@ -26046,7 +27579,8 @@ static std::string terrainHeightsHeader(const Project& p) {
     }
     out << "inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si) {
-        const bool has = !p.scenes[si].terrainLayers.empty();
+        const bool has = !p.scenes[si].terrainLayers.empty() &&
+                         p.scenes[si].terrain.enabled;
         out << (si ? ", " : "");
         if (has)
             out << "SPLAT_" << si << "_WEIGHTS";
@@ -26055,8 +27589,16 @@ static std::string terrainHeightsHeader(const Project& p) {
     }
     out << "};\n\n"
            "/** Bilinear terrain height at world coordinates in a scene. The\n"
-           " * game maps terrainHeightAt(x, z) to the active scene. */\n"
+           " * game maps terrainHeightAt(x, z) to the active scene.\n"
+           " *\n"
+           " * A scene whose terrain was removed in the editor has NO ground\n"
+           " * (docs/terrain.md): this answers TERRAIN_VOID_Y everywhere, so\n"
+           " * every caller that treats it as the floor - the walkers, the\n"
+           " * physics bodies, the blob shadows, the camera spring arm, the\n"
+           " * raycasts - agrees that there is nothing to stand on, and the\n"
+           " * floors are whatever geometry the scene places. */\n"
            "inline float terrainHeightAtScene(int scene, float x, float z) {\n"
+           "  if (!TERRAIN_ENABLEDS[scene]) return TERRAIN_VOID_Y;\n"
            "  const float* hm = TERRAIN_HEIGHTS_TABLES[scene];\n"
            "  const int hw = HM_WS[scene];\n"
            "  const int hd = HM_DS[scene];\n"
@@ -26545,7 +28087,12 @@ NavAgent* navBegin(ScriptContext& ctx, int obj, unsigned char mode,
   a.pauseLeft = 0.0F;
   a.repathLeft = 0.0F;
   const float* p = ctx.objects[obj].data.position;
-  a.yOff = p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2]);
+  // Height above the ground - and in a scene with no terrain there is no
+  // ground, so the agent keeps its authored height (the nav grid is empty
+  // there anyway, so nothing moves: docs/terrain.md, docs/navigation-ai.md).
+  a.yOff = TERRAIN_ENABLEDS[ctx.scene]
+               ? p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2])
+               : p[1];
   return &a;
 }
 
@@ -26648,7 +28195,9 @@ void navMoveAgent(ScriptContext& ctx, int idx) {
     const float mv = step < dist ? step : dist;
     pos[0] += dx / dist * mv;
     pos[2] += dz / dist * mv;
-    pos[1] = terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff;
+    pos[1] = TERRAIN_ENABLEDS[ctx.scene]
+                 ? terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff
+                 : a.yOff;  // no ground to snap to - see navBegin
     // turn toward the motion (degrees, shortest arc)
     float desired = atan2f(dx, dz) * 180.0F / NAV_PI;
     float d = desired - o.data.rotation[1];
@@ -26895,7 +28444,11 @@ static std::string textureDataHeader(const Project& p) {
                                                         : maxLayers;
     out << "\nconstexpr int TERRAIN_LAYER_COUNTS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << p.scenes[si].terrainLayers.size();
+        // No terrain, no painted layers - the layers stay in the project (the
+        // terrain can be created again) but nothing ships (docs/terrain.md).
+        out << (si ? ", " : "")
+            << (p.scenes[si].terrain.enabled ? p.scenes[si].terrainLayers.size()
+                                             : (size_t)0);
     out << "};\n"
         << "constexpr int TERRAIN_MAX_LAYERS = " << (maxLayers > 0 ? maxLayers : 1)
         << ";\n";

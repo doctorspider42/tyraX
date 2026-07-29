@@ -5,16 +5,16 @@
 
 namespace Cube {
 
-constexpr int PREFAB_COUNT = 4;
+constexpr int PREFAB_COUNT = 5;
 // How many prefab instances may be live at once. Each one costs a
 // handful of merged bags plus whatever clone-pool slots its
 // identity-carrying members take.
 constexpr int MAX_PREFAB_INSTANCES = 48;
-inline const char* PREFAB_NAMES[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {"room-steel", "room-amber", "room-jade", "room-red"};
-constexpr int PREFAB_FIRST[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {0, 20, 40, 60};
-constexpr int PREFAB_COUNTS[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {20, 20, 20, 21};
+inline const char* PREFAB_NAMES[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {"room-steel", "room-amber", "room-jade", "room-red", "prefab"};
+constexpr int PREFAB_FIRST[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {0, 20, 40, 60, 81};
+constexpr int PREFAB_COUNTS[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {20, 20, 20, 21, 2};
 
-constexpr int PREFAB_MEMBER_COUNT = 81;
+constexpr int PREFAB_MEMBER_COUNT = 83;
 constexpr SceneObjectData PREFAB_MEMBERS[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {
     {0, {-4.75F, 0.25F, 0.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 0.5F, 14.0F}, {0.446F, 0.475F, 0.518F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // room-steel-floor0
     {0, {4.75F, 0.25F, 0.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 0.5F, 14.0F}, {0.446F, 0.475F, 0.518F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // room-steel-floor1
@@ -97,8 +97,10 @@ constexpr SceneObjectData PREFAB_MEMBERS[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER
     {0, {4.75F, 7.0F, 6.75F}, {0.0F, 0.0F, 0.0F}, {4.5F, 14.0F, 0.5F}, {0.62F, 0.24F, 0.24F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // room-red-pz1
     {0, {0.0F, 10.0F, 6.75F}, {0.0F, 0.0F, 0.0F}, {5.0F, 8.0F, 0.5F}, {0.62F, 0.24F, 0.24F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // room-red-pz2
     {0, {0.0F, 2.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {2.4F, 2.4F, 2.4F}, {0.95F, 0.85F, 0.35F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // room-red-core
+    {1, {-0.739669F, 0.5F, 0.201586F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1
+    {1, {0.739669F, 0.500023F, -0.201586F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1-copy
 };
-constexpr unsigned char PREFAB_MERGE[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0};
+constexpr unsigned char PREFAB_MERGE[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1};
 
 constexpr int PREFAB_SCENE_LIST[4] = {0, 1, 2, 3};
 constexpr int PREFAB_SCENE_FIRST[1] = {0};

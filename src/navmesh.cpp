@@ -72,6 +72,12 @@ NavGrid bake(const Project& p, const SceneData& s) {
     const float width = (float)s.terrain.width;
     const float depth = (float)s.terrain.depth;
     if (width <= 0.0f || depth <= 0.0f) return g;
+    // Walkability IS the terrain surface here (slope + what blocks it), so a
+    // scene with the terrain removed has nowhere to walk and the grid stays
+    // empty - agents then hold still instead of pathing over a void. Standing
+    // on placed geometry is a player thing, not a nav one (docs/terrain.md,
+    // docs/navigation-ai.md).
+    if (!s.terrain.enabled) return g;
 
     float cell = p.settings.navCellSize;
     if (cell < 0.25f) cell = 0.25f;

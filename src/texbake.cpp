@@ -610,8 +610,12 @@ std::string bake(const Project& p,
             // light as well, so a scene can have glowing lamps and no ambient
             // occlusion at all.
             {
+                // A scene with the terrain removed ships no ground lightmap -
+                // nothing draws the ground pass that would sample it
+                // (docs/terrain.md). Codegen makes the same call.
                 const aobake::AoImage map =
-                    gi.valid ? gi.terrain
+                    !sc.terrain.enabled ? aobake::AoImage()
+                    : gi.valid          ? gi.terrain
                              : aobake::terrainAOMap(
                                    sc.heights, sc.hmW, sc.hmD,
                                    (float)sc.terrain.width,
@@ -673,6 +677,7 @@ std::string bake(const Project& p,
                 log("[editor] stochastic tiling: " + srcRel + ": " + err);
         };
         for (const SceneData& sc : p.scenes) {
+            if (!sc.terrain.enabled) continue;  // no ground, no ground textures
             if (sc.terrainBaseStochastic)
                 genStoch(project::resolveTerrainMaterial(
                              p, project::resolvedSettings(p, sc).terrainMaterial)

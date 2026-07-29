@@ -1362,6 +1362,7 @@ void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
 
 float Viewport::terrainHeight(float x, float z) const {
     if (hmW_ < 2 || hmD_ < 2 || (int)heights_.size() != hmW_ * hmD_) return 0.0f;
+    if (!terrain_.enabled) return 0.0f;  // no ground - see the header note
     const float w = (float)terrain_.width, d = (float)terrain_.depth;
     float gx = (x + w * 0.5f) / w * (hmW_ - 1);
     float gz = (z + d * 0.5f) / d * (hmD_ - 1);
@@ -1534,6 +1535,9 @@ bool Viewport::projectToImage(const float world[3], float& outU,
 
 bool Viewport::terrainRaycast(float u, float v, float& outX, float& outZ) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
+    // A removed terrain has no surface to hit, so every brush stroke misses -
+    // the app disables the tools too, this is the backstop (docs/terrain.md).
+    if (!terrain_.enabled) return false;
 
     const CamView cam = camView(fbWidth_, fbHeight_);
     float ro[3], rd[3];
@@ -1673,6 +1677,21 @@ void Viewport::buildTerrainMesh() {
     for (Mesh& m : terrainLayerMeshes_) destroyMesh(m);
     destroyMesh(axes_);
 
+    // A scene with no terrain (docs/terrain.md) draws no ground at all: no
+    // chunks, no grid lines, no layer passes and no AO heightmap - the same
+    // nothing the generated game builds. The world axes below still draw, they
+    // are the origin gizmo, not the terrain.
+    if (!terrain_.enabled) {
+        tcCellsX_ = tcCellsZ_ = tcChunksX_ = tcChunksZ_ = 0;
+        terrainChunkMeshes_.clear();
+        terrainLineMeshes_.clear();
+        terrainLayerMeshes_.clear();
+        aoGrid_.clear();
+        aoHmW_ = aoHmD_ = 0;
+        buildWorldAxes();
+        return;
+    }
+
     // Match the generated PS2 game: checker pattern, capped cell count,
     // vertex heights from the sculpted heightmap. Built per chunk so a
     // sculpt stroke rebuilds only the chunks under the brush.
@@ -1719,7 +1738,12 @@ void Viewport::buildTerrainMesh() {
     for (int cz = 0; cz < tcChunksZ_; ++cz)
         for (int cx = 0; cx < tcChunksX_; ++cx) buildTerrainChunkMesh(cx, cz);
 
-    // World axes: X red, Y green, Z blue (slightly above terrain)
+    buildWorldAxes();
+}
+
+// World axes: X red, Y green, Z blue (slightly above the ground plane). Sized
+// by the scene's extent, which exists with or without a terrain.
+void Viewport::buildWorldAxes() {
     const float w = (float)terrain_.width, d = (float)terrain_.depth;
     std::vector<float> lines;
     float axisLen = (w > d ? w : d) * 0.6f;
@@ -1983,6 +2007,7 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
 
 void Viewport::updateTerrainRegion(const std::vector<float>& heights, float worldX,
                                    float worldZ, float radius) {
+    if (!terrain_.enabled) return;  // nothing built, nothing to refresh
     if ((int)heights.size() != hmW_ * hmD_ || terrainChunkMeshes_.empty()) {
         heights_ = heights;
         buildTerrainMesh();  // dims changed - fall back to the full rebuild
@@ -3734,7 +3759,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniformMatrix4fv(uModel_, 1, GL_FALSE, model ? model->m : identityM.m);
         glUniform1i(uLit_, model ? 1 : 0);  // world matrix given = lit geometry
         glUniform1i(uAoSelfObj_, aoSelfObj);
-        glUniform1i(uAoGround_, aoGroundOn ? 1 : 0);
+        // The ground-contact term needs a ground: with the terrain removed the
+        // shader would darken every object against the y = 0 plane it samples
+        // as a fallback (docs/terrain.md). The generated game agrees by
+        // construction - there the term reads the void height.
+        glUniform1i(uAoGround_, (aoGroundOn && terrain_.enabled) ? 1 : 0);
         glUniform1i(uAoReceive_, aoReceive ? 1 : 0);
         glUniform3f(uTint_, r, g, b);
         glUniform3f(uEmissive_, emissive[0], emissive[1], emissive[2]);
