@@ -192,7 +192,11 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   whenever the thing you are measuring is an asset. It also runs the **asset bakes that live
   inside refreshGenerated**: animated models into `res/models/*.tskl` and
   static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
-  its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model
+  its problems as `[anim bake]` / `[model bake]` lines on stdout, plus the
+  **credits page strips** (docs/credits.md) into `res/credits/<roll>-<k>.png` -
+  so a roll's typography and page count are checkable with no Docker and no GUI:
+  refresh, stitch the pages back into one image and look at it, and read
+  `CREDITS_PAGE_TOTAL` / `contentH` out of `inc/credits_data.gen.hpp`. So a model
   format / LOD change is verifiable headlessly: refresh, then read the file's
   bytes (a few lines of Python on the layout in `src/tmdl.hpp` /
   `glbparser.cpp` tell you the tier vertex counts). Note the texture bake

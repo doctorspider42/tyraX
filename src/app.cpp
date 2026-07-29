@@ -89,6 +89,11 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Credits Editor: the preview strip's share of the window HEIGHT
+    // (0.15..0.75), set by dragging the splitter above it. Same reasoning as
+    // matEdSplit - how much room a preview deserves is a property of the
+    // monitor and of what you are doing, not of the project.
+    float creditsSplit = 0.42f;
     // Lighting the Material / Animation Editor previews bake with: "" = the
     // scene's ambience, "*" = the neutral studio default, anything else = an
     // ambience preset name. A view preference of this machine, not project
@@ -185,6 +190,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("creditsSplit", v))
+            cfg.creditsSplit = toF(v, cfg.creditsSplit);
         else if (match("matEdLight", v)) cfg.matEdLight = v;
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
@@ -249,6 +256,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "creditsSplit=" << cfg.creditsSplit << "\n"
       << "matEdLight=" << cfg.matEdLight << "\n"
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
@@ -482,6 +490,7 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        creditsSplit_ = cfg.creditsSplit;
         matEdLight_ = cfg.matEdLight;
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
@@ -781,6 +790,7 @@ void App::drawUI() {
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
+    drawCreditsWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
@@ -921,7 +931,7 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, matEdLight_, animEdLight_,
+                      matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
                       placementSnap_, showAxisGizmo_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
@@ -1294,6 +1304,12 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "End credits: headings, role/name pairs, images and page\n"
+                    "breaks, imported from a text file if you like, scrolling\n"
+                    "over music with a skip button and somewhere to go after.");
             ImGui::Separator();
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
             if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
@@ -3786,6 +3802,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
+    if (key == "credits") return &showCreditsEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
@@ -8541,7 +8558,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode",  "Rebind key"};
+        "Choice",         "Apply video mode",  "Rebind key",     "Play credits"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -8573,7 +8590,8 @@ void App::drawMenusWindow() {
         changed |= textTokenPicker("labeltok", en.label);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames,
+                         IM_ARRAYSIZE(kActionNames))) {
             en.param.clear();
             en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
@@ -8638,6 +8656,14 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::PlayCredits) {
+            paramCombo("##credits", "<roll>", project_.credits,
+                       [](const CreditsRoll& r) -> const std::string& { return r.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Credits roll to play (Tools > Credits Editor). The menu\n"
+                    "closes first; where the player ends up afterwards is the\n"
+                    "roll's own finish action.");
         } else if (en.action == MenuEntry::RebindKey) {
             // Two references: WHICH action to rebind, and the save value the
             // player's override is persisted in (docs/input-bindings.md).

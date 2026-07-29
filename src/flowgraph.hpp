@@ -124,6 +124,7 @@ enum class FlowParamKind {
     LayerName,  // name of a SceneData::layers entry (streaming layer)
     AreaName,   // name of a PrimitiveType::Area object in the scene
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
+    CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
     InputActionName,  // name of a Project::input action (Tools > Input Map)
@@ -865,6 +866,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "restarts it."},
         {.key = "StopSequence", .title = "Stop Sequence", .category = "Scene",
          .desc = "Stops the active cutscene."},
+        // Credits (docs/credits.md). A rolling credits screen owns the whole
+        // frame, so unlike a cutscene it is not something the graph keeps
+        // driving: it starts here and reports back through On Credits Finished.
+        {.key = "PlayCredits", .title = "Play Credits", .category = "Scene",
+         .strKind = FlowParamKind::CreditsName,
+         .desc = "Starts the credits roll named str (Tools > Credits Editor). "
+                 "The roll takes over the screen and the pad until it ends or "
+                 "the player skips it - gameplay, scripts and this graph are "
+                 "frozen meanwhile - and then runs its own finish action (stay "
+                 "in the game, switch scene, open a menu, fire a flow event)."},
+        {.key = "StopCredits", .title = "Stop Credits", .category = "Scene",
+         .desc = "Ends the rolling credits immediately, exactly as a player's "
+                 "skip does - including the roll's finish action."},
+        {.key = "OnCreditsEnd", .title = "On Credits Finished",
+         .category = "Triggers", .trigger = true, .boolOut = true,
+         .desc = "Fires the frame a credits roll stops - whether it ran out, "
+                 "was skipped or was stopped by a node. Its bool output is "
+                 "\"credits are rolling right now\"."},
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {.key = "SetHudVisible", .title = "Set HUD Visible", .category = "HUD",
          .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},

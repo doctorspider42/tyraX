@@ -13120,6 +13120,112 @@ Each finished feature lands as its own commit.
   but with no input in an unattended run there is nothing to block. That half
   stays a hands-on test, per the standing convention.
 
+- (232) **Credits Editor - end credits as project-wide data** (*Tools > Credits
+  Editor*, docs/credits.md), asked for as "credits editor/generator, nie tylko
+  pole tekstowe": a roll is a FLOW of blocks - headings, two-column role/name
+  rows, wrapped lines, images, gaps and page breaks - each free to override the
+  roll's size/typeface/colour, scrolling up at a chosen speed or playing as
+  cards (one screenful, cross-faded), over a music track it starts and stops
+  itself, with a skip and somewhere to go afterwards. Started by a menu row
+  (a new `MenuEntry::PlayCredits`, action 11 - a title screen's CREDITS row) or
+  the *Play Credits* node; *Stop Credits* and *On Credits Finished* complete the
+  set. Long rolls come from a text file (`# SECTION`, `Role: Name`, `> centered`,
+  `[image x.png 0.5]`, `---`), and the source path is kept so *Re-import* picks
+  up an edited file.
+  Three decisions carry the feature. (1) **The look is BAKED once and shared**:
+  `menubake::creditsLayout`/`bakeCreditsStripRGBA` lay the blocks out and
+  rasterize them into a strip of pow2 PAGE textures, and both the editor preview
+  and the generated player consume those same pixels with the same arithmetic -
+  so there is no second layout to drift, and the preview is the console's frame
+  rather than an impression of it. (2) **Pages, not a sprite per line**: the GS
+  pins every texture it draws in a ~1.33 MB budget with no eviction
+  (docs/gs-vram.md), so a dozen strings would flush mid-scroll; a 512x256 page at
+  4 bits is ~64 KB, the cap is 16 pages (4096 px of roll, over three minutes at
+  20 px/s), and the window prints pages / duration / VRAM estimate and says
+  *content clipped* instead of silently cutting. Pages bake OPAQUE on the roll's
+  background colour when there is no backdrop, which is what makes 16 colours
+  enough for antialiased text; a backdrop forces transparency and wants 8-bit.
+  (3) **The roll owns the frame and reports where to go**: the loop hook (both
+  game-cpp loops) ticks it and returns while `credits::playing()`, and the frame
+  it ends its finish action becomes an ordinary request - `requestScene`,
+  `openMenu`, or the new `scriptCtx.pendingEvent` (promoted inside
+  `updateGameMenu`, the one place that clears `menuEvent`). A skip runs the same
+  finish action, so skipping and watching land in the same place. *On Credits
+  Finished* deliberately does NOT edge-detect `playing()` the way
+  *On Sequence Finished* does: a roll freezes every graph, so no node ever runs
+  to latch "it was playing" - the runtime counts finished rolls and the node
+  fires when its own copy falls behind (re-synced to the live count on a scene
+  reload, not to zero).
+  **Verified** at layers 0-3. Editor and PS2 sides both compile clean
+  (`-Wall`, Build OK). Headless: a `--new` fpp fixture with a hand-written roll
+  (heading, three pair rows, a wrapped paragraph, a page break, THE END) plus a
+  title menu whose second row is action `credits`; `--refresh-gen` baked
+  `res/credits/credits-{0,1,2}.png` + the skip-hint sprite and emitted
+  `CREDITS_COUNT = 1`, `CREDITS_PAGE_TOTAL = 3`, `contentH 562`, `finish 2 menu
+  0`. Stitching the three pages back into one image is how the typography was
+  checked (gold heading, role right-aligned against the gutter, two names under
+  one role, the paragraph wrapped at the margin, the break leaving a clean
+  screenful). In PCSX2: the title screen's CREDITS row hands over, the roll
+  enters from the bottom with `PRESS (X) TO SKIP` baked including the button
+  glyph, scrolls ~120 PS2 px in 3 s at 40 px/s, and a Cross press skips it
+  straight back to the title menu. `VRAMSTAT` over the whole roll: 10 uploads,
+  9 resident, **0 evictions**, 0.216 MB free - the page budget behaving as
+  designed. One dead end worth recording: the first two runs read as "the finish
+  action never fires", and it was the TEST - the trailing `--pad "press cross"`
+  that was meant to prove the skip also selected START on the menu that had just
+  opened, closing it before the screenshot. Two `TYRA_LOG`s on the ownable
+  `terrain_game.cpp` settled it (`CRDBG finish=2 menu=0 gmi=-1` then `openMenu=0`)
+  before the clean run showed the panel. The editor window is `--ui-script`ed
+  too (13 steps, exit 0): Tools > Credits Editor, select the roll, `expect` the
+  block stack / *Import text...* / *+ Role/name* / the transport, and a capture
+  showing the imported blocks listed as `# TYRA CREDITS TEST` / `Game design:
+  Ada Lovelace` / `=== page break ===` next to the report line **3/16 pages |
+  27 s | ~216 KB VRAM**. Pressing *Play* and capturing at 12.7 s shows the
+  preview scrolling the same pairs and SPECIAL THANKS block the console drew at
+  that point in the roll - which is the property the shared bake buys.
+  What no script covered: judging the scroll's smoothness and the music mix by
+  eye and ear.
+  The window was reworked once it had real content in it ("potrafi się tu
+  ciasno zrobić... mamy trochę niewykorzystanego miejsca"): the fixed 300 px
+  preview became a **height splitter** (`creditsSplit_` in editor.ini, the
+  matEdSplit_ idiom) so the settings half and the preview half trade room, and
+  the space a 512x448 preview leaves beside itself in a wide window became the
+  **Jump to** list - every block with the second it is centred on screen,
+  clicking one scrubs the preview there and selects it (clipped blocks listed in
+  amber). The times are the roll's own arithmetic run backwards, so the list
+  cannot disagree with what the preview shows. The block inspector also became a
+  collapsing header: with a block selected it used to sit between you and the
+  roll settings. Verified with `--ui-script`: clicking `0:11  # CAST` in the list
+  moves the playhead to 11.4 s and the capture shows that heading centred in the
+  preview. The splitter DRAG itself is not scriptable - an InvisibleButton has no
+  label for the item registry to name, the same limitation the Material Editor's
+  splitter has - so that part is a by-hand check.
+  **`examples/credits`** ships with it, because a roll is the kind of thing you
+  want to SEE: a scrolling end roll on the title screen's CREDITS row (imported
+  from a checked-in `credits.txt`, logo image included, finishing back on that
+  title screen) plus a **card-mode dedication** that L1 plays mid-game and that
+  resumes exactly where it interrupted, with `On Credits Finished` wired to a
+  HUD text. Both were driven unattended with `--pad` and captured: cards
+  cross-fading, then the resumed checkerboard with THANKS FOR WATCHING over it.
+  Authoring it found the two real bugs of the day. The **page sweep ate the
+  user's image**: `res/credits` was swept of anything no roll claimed, which is
+  exactly where the editor imports an Image block's PNG - the bake now owns a
+  folder of its own (`res/credits/pages/`, git-ignored like `res/menus`, listed
+  as build-written in the Asset Browser) and never touches the assets one level
+  up. And **`flow_graph.gen.cpp` did not include `credits.gen.hpp`**, so a Play
+  Credits NODE (as opposed to a menu row) failed to compile - the menu path had
+  hidden it, since `updateGameMenu` lives in the game cpp that already included
+  the header. Both are the same lesson: the second way in is the one that finds
+  the bug.
+  One drive-by fix came out of checking the OTHER game template: an **Empty
+  (orbit) project did not compile at all** - the object-less scene's placeholder
+  row in `scene_data.hpp` was one value short of `SceneObjectData`, so every
+  column past `dynLit` shifted and the build died in a different TU with
+  "invalid conversion from 'const char*' to 'int'". Exactly the drift the
+  emitter's own comment warns about; a missing `-1` (animModel) restores it, and
+  an empty project with NO rolls now builds clean, which is also the check that
+  `CREDITS_COUNT = 0` costs the game nothing.
+
 ## Backlog (rough order)
 
 - **Finish opt-in dynamic lighting per object** (branch
