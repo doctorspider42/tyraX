@@ -15144,3 +15144,35 @@ Each finished feature lands as its own commit.
   name to target) and ImGui's keyboard nav does not reach inside the imnodes
   canvas, so the popup itself stays a human check. Worth knowing before the next
   attempt to script one.
+
+- (240) **Height offset on the two ground-based scatter sources.** Asked as "how
+  do I raise the level the prefabs start from - right now it begins at terrain
+  level", about a *Scatter on Grid* with Snap on and 8 levels. There was no
+  answer: with Snap on the base IS the terrain height and nothing offset it, and
+  the only workaround was turning Snap off, which trades terrain-following for a
+  flat base at the volume's centre. *Single Point* already had an *Offset Y*, so
+  the vocabulary existed everywhere except where it was needed.
+
+  `Height offset` on *Scatter on Grid* and *Scatter on Surface*. It offsets the
+  BASE, whatever the base happened to be - the terrain under each point, the
+  sampled object's triangle, or the volume centre - so the lift follows the
+  ground instead of flattening it, and on Grid it lands before the level
+  stacking so a tower starts above the ground rather than in it. On Surface it
+  is applied after the volume's Y clip on purpose: the clip asks whether the
+  SURFACE is inside the region, not where the point ends up hovering. The
+  runtime emitters were changed in the same commit, because a preview that does
+  not predict the console is the one thing a runtime volume cannot afford.
+
+  Also corrected a tip that was simply wrong: *Levels* claimed "Snap has to be
+  OFF for this to mean anything". It does not - each column starts at its own
+  ground height and the stack follows the terrain, which is exactly what the
+  reporter was doing when they asked.
+
+  **Verified** by reading the emitted twin, which is the honest test for a
+  runtime volume: at offset 0 the generated line is `P.y = c.volPos[1] + 0.0f +
+  (float)iy * 14.0f` (unchanged behaviour for every existing project, since the
+  parameter defaults to 0 and an untouched parameter is not even stored); at 25
+  with Snap off, `c.volPos[1] + 25.0f + ...`; at 6.5 with Snap ON,
+  `c.terrainY(px, pz) + 6.5f + (float)iy * 14.0f`; and Scatter on Surface at
+  3.25 emits `P.y = c.terrainY(px, pz) + 3.25f`. The editor preview agrees - the
+  cube example's whole lattice floats 25 units off the ground in the viewport.

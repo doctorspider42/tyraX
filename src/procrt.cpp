@@ -401,6 +401,7 @@ struct Emitter {
     Range emitScatterSurface(const ProcNode& n, const std::string& v) {
         const float density = procgraph::num(n, "density");
         const int cap = std::max(1, procgraph::inum(n, "max"));
+        const float lift = procgraph::num(n, "lift");
         const std::string mask = maskExpr(n, 0, "px", "pz");
         line("int " + v + "b = c.count;");
         line("{");
@@ -423,7 +424,8 @@ struct Emitter {
         line("    if (c.count >= c.cap) break;");
         line("    procrt::Pt& P = c.buf[c.count++];");
         line("    procrt::clearPt(P);");
-        line("    P.key = key; P.x = px; P.z = pz; P.y = c.terrainY(px, pz);");
+        line("    P.key = key; P.x = px; P.z = pz; P.y = c.terrainY(px, pz) + " +
+             fmt(lift) + ";");
         line("    float nx, ny, nz; procrt::terrainNormal(c, px, pz, nx, ny, nz);");
         baseAttrs("nx", "ny", "nz", n.id);
         if (!mask.empty() && attrSlot(procattr::kMask) >= 0)
@@ -438,6 +440,7 @@ struct Emitter {
         const float spacing = std::max(0.1f, procgraph::num(n, "spacing"));
         const float jitter = std::clamp(procgraph::num(n, "jitter"), 0.0f, 1.0f);
         const bool snap = procgraph::flag(n, "snap");
+        const float lift = procgraph::num(n, "lift");
         const int levels = std::max(1, procgraph::inum(n, "levels"));
         const float step = procgraph::num(n, "levelstep");
         const std::string mask = maskExpr(n, 0, "px", "pz");
@@ -475,8 +478,8 @@ struct Emitter {
         line("    procrt::clearPt(P);");
         line("    P.key = key; P.x = px; P.z = pz;");
         line(std::string("    P.y = ") +
-             (snap ? "c.terrainY(px, pz)" : "c.volPos[1]") + " + (float)iy * " +
-             fmt(step) + ";");
+             (snap ? "c.terrainY(px, pz)" : "c.volPos[1]") + " + " + fmt(lift) +
+             " + (float)iy * " + fmt(step) + ";");
         if (snap)
             line("    float nx, ny, nz; procrt::terrainNormal(c, px, pz, nx, ny, nz);");
         else

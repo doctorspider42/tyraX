@@ -233,6 +233,12 @@ pool, a missing Output.
   points disappear.
 - **Bypass** passes a node's first input straight through: an instant A/B of one
   step.
+- **Height offset** on *Scatter on Surface* and *Scatter on Grid* is where the
+  first point sits, measured from whatever the node chose as its base — the
+  terrain under each point (Snap on) or the volume's centre height (Snap off).
+  It FOLLOWS the ground rather than flattening it, so a lifted stack over hilly
+  terrain stays parallel to the hills. On Grid it is applied before the level
+  stacking, which is how a tower starts above the ground instead of on it.
 - **To scatter a primitive**, or anything else already standing in the scene,
   open a *Pick Prefab* row's picker and choose it under **Capture from the
   scene**. That makes an ordinary one-member prefab, so a scattered box travels

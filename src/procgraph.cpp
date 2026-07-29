@@ -26,6 +26,11 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                       "that object's surface instead (models sample their "
                       "triangles proportionally to area, so a dense mesh "
                       "region does not get more points)."},
+              {.key = "lift", .label = "Height offset", .kind = PK::Float,
+               .def = 0.0f, .lo = -512.0f, .hi = 512.0f,
+               .tip = "Raises (or lowers) every point off the surface it "
+                      "landed on, following the ground rather than flattening "
+                      "it. 0 = resting on the surface."},
               {.key = "max", .label = "Max points", .kind = PK::Int,
                .def = 20000.0f, .lo = 1.0f, .hi = 200000.0f,
                .tip = "Hard cap on generated candidates - the safety net "
@@ -52,13 +57,22 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                .tip = "Random offset inside the cell (1 = the full cell)."},
               {.key = "snap", .label = "Snap to surface", .kind = PK::Bool,
                .def = 1.0f,
-               .tip = "Drop each point onto the terrain and read its normal."},
+               .tip = "Drop each point onto the terrain and read its normal. "
+                      "Off = the lattice sits flat at the volume's own centre "
+                      "height instead."},
+              {.key = "lift", .label = "Height offset", .kind = PK::Float,
+               .def = 0.0f, .lo = -512.0f, .hi = 512.0f,
+               .tip = "Where the FIRST level sits, measured from whatever Snap "
+                      "chose as the base - the terrain under each point, or the "
+                      "volume's centre. This is how a stack starts above the "
+                      "ground instead of on it."},
               {.key = "levels", .label = "Levels", .kind = PK::Int, .def = 1.0f,
                .lo = 1.0f, .hi = 64.0f,
                .tip = "Stacked copies of the whole lattice, so the source is a "
                       "3D grid instead of a floor plan: a tower of rooms, a "
-                      "shelf wall, a voxel frame. Snap has to be OFF for this "
-                      "to mean anything."},
+                      "shelf wall, a voxel frame. Works with Snap either way - "
+                      "on, each column starts at its own ground height and the "
+                      "stack follows the terrain."},
               {.key = "levelstep", .label = "Level height", .kind = PK::Float,
                .def = 4.0f, .lo = 0.1f, .hi = 512.0f,
                .tip = "World units between levels."}},

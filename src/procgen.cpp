@@ -810,6 +810,12 @@ Points genSurface(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
             maskV = std::clamp(mask->sample(inst.pos[0], inst.pos[2]), 0.0f, 1.0f);
             if (rand01(ctx.seed, n.id, key, 0) >= maskV) continue;
         }
+        // Off the surface it landed on - the terrain under the point, or the
+        // sampled object's triangle - so the lift FOLLOWS the ground instead of
+        // flattening it. Applied after the volume's Y clip on purpose: the clip
+        // asks whether the surface is inside the region, not where the point
+        // ends up hovering.
+        inst.pos[1] += procgraph::num(n, "lift");
         inst.key = key;
         out.pts.push_back(inst);
         ensureBaseAttrs(out);
@@ -847,6 +853,7 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
     // moving what is there).
     const int levels = std::max(1, procgraph::inum(n, "levels"));
     const float levelStep = procgraph::num(n, "levelstep");
+    const float lift = procgraph::num(n, "lift");
     ctx.res->candidates += nx * nz * levels;
     for (int iy = 0; iy < levels; ++iy) {
         if (ctx.canceled()) break;
@@ -882,7 +889,7 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                 inst.pos[0] = wx;
                 inst.pos[2] = wz;
                 inst.pos[1] = snap ? terrainHeight(ctx.s, wx, wz) : ctx.vol.cy;
-                inst.pos[1] += (float)iy * levelStep;
+                inst.pos[1] += lift + (float)iy * levelStep;
                 inst.key = key;
                 out.pts.push_back(inst);
                 ensureBaseAttrs(out);
