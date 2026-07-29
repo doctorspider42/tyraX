@@ -15658,9 +15658,15 @@ Each finished feature lands as its own commit.
   the screen** (`init_scr`/`scr_printf`, the mechanism the opt-in assert
   screen already uses): an exception is unrecoverable, and a frozen last frame
   is indistinguishable from a hang - which is exactly what cost this evening.
-  Debug-only by construction, so a shipped game cannot show it: a release
-  build generates `live_debug.gen.cpp` as a stub, never calls `install()`,
-  links neither the TU nor `-leedebug`. And in the Debugger the crash block
+  Confirmed on the owner's TV. It paints ONCE and then halts on
+  `SleepThread()` rather than looping the printf the way the upstream assert
+  screen does: the debug console's framebuffer holds the text by itself, and
+  idling keeps the other threads schedulable - measured, a console sitting on
+  the crash screen still answers ps2link, so the next run is a redeploy from
+  the editor instead of a walk over to press Reset. Debug-only by
+  construction, so a shipped game cannot show it: a release build generates
+  `live_debug.gen.cpp` as a stub, never calls `install()`, links neither the
+  TU nor `-leedebug`. And in the Debugger the crash block
   grew a **Run again** button (same transport, no rebuild) while the resolved
   backtrace moved into its own horizontally scrolling box - demangled C++
   names run to hundreds of characters and were falling off the panel edge

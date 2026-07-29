@@ -50,8 +50,16 @@ void crashTrampoline() {
   // init_scr() is ps2sdk's kernel debug console, the same one the opt-in
   // assert screen uses; it needs no renderer state, which is the point when
   // the renderer is what died.
+  // Paint ONCE, then idle the EE with SleepThread - the same halt a failed
+  // assertion has always used. Looping the printf (what the upstream assert
+  // screen does) would busy-wait the EE for as long as the crash is up, for no
+  // benefit: the debug console's framebuffer holds the text by itself. Idling
+  // instead leaves the other threads schedulable, and that is worth real money
+  // over ps2link: measured on hardware, a console sitting on this crash screen
+  // still answers, so the next deploy is a redeploy from the editor rather than
+  // a walk over to the console to press Reset.
   init_scr();
-  for (;;) {
+  {
     scr_setXY(0, 2);
     scr_printf("  ==============  TYRAX  =============\n");
     scr_printf("  |\n");
@@ -71,6 +79,7 @@ void crashTrampoline() {
                (unsigned int)g_info.epc);
     scr_printf("  ====================================\n");
   }
+  for (;;) SleepThread();  // dead game, live console
 }
 
 void capture(EE_RegFrame* f, int level) {
