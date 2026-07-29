@@ -1092,7 +1092,17 @@ glfw 3.4, imguizmo, imnodes, stb, ufbx, miniaudio — all git-ignored;
 whenever something is absent. **The dependency list lives only in `deps.ps1` /
 `deps.sh`**, which the setup and build scripts read — add a new third-party
 library **to both** and nowhere else, or one platform's build guard won't know
-about it (see tyra-testing for the failure that caused). Toolchain: Windows
+about it (see tyra-testing for the failure that caused). Every entry pins an
+exact `Commit` SHA and names a `Mirror` (our `doctorspider42/tyrax-vendor-*`
+fork, used when the upstream fetch fails); `Ref` is the branch/tag that SHA came
+from and is documentation only. **Never put a branch name where a SHA belongs** —
+setup skips a vendor directory whose probe already exists, so a branch pin
+freezes silently at whatever HEAD that machine happened to fetch, and two
+checkouts drift apart with nothing to say so. To bump: new SHA in both lists
+(`gh repo sync` the mirror first so the SHA exists there too), delete the vendor
+directory, re-run setup, build. A new dependency also needs its license notice
+in `THIRD-PARTY-LICENSES.md` — see the Dependency policy in the README.
+Toolchain: Windows
 `scoop install mingw cmake ninja` (build.ps1 finds scoop's mingw even
 off-PATH); Linux `./setup.sh --deps`, which reads the per-family package lists
 in deps.sh (`SYSTEM_PACKAGES_apt`/`_dnf`/`_pacman`/`_zypper`) and installs via
