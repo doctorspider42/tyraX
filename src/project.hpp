@@ -531,6 +531,16 @@ struct SceneObject {
     // preview stands in for them), grouped in the outliner, and replaced
     // wholesale by the next bake. Empty = hand-authored, the normal case.
     std::string procSource;
+    // Name of the prefab this object was stamped from (empty = authored by
+    // hand, the normal case). Editor bookkeeping ONLY - nothing downstream
+    // reads it: an inserted prefab produces ordinary, fully independent
+    // objects, and editing the prefab afterwards does not reach back. It exists
+    // because the outliner otherwise cannot tell twenty hand-placed slabs from
+    // twenty that arrived together, which is the one question you ask when a
+    // scene has prefabs in it. Kept through a copy/paste on purpose (a copy of
+    // a room is still a room); dropped by prefab::capture, which must not
+    // record where its own members came from.
+    std::string prefabSource;
 
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
@@ -552,7 +562,10 @@ struct Prefab {
     // like SceneObject::id. Every REFERENCE to a prefab is by name.
     std::string id;
     std::string name;
-    std::string notes;  // one line of prose: what this thing is for
+    // Free prose: what this thing is for, how it is meant to be placed, what
+    // the caller has to provide. Multi-line - the field it is edited in wraps,
+    // because a one-line box turned every note into its own first half.
+    std::string notes;
     // Members. Their `id` is empty by construction - an instance gets fresh
     // ids, and two instances of one prefab must never share an identity.
     std::vector<SceneObject> objects;
@@ -663,7 +676,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
-           a.procGraph == b.procGraph && a.procSource == b.procSource;
+           a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.prefabSource == b.prefabSource;
 }
 
 // General project preferences (Project > Preferences in the editor).

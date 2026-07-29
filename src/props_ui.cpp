@@ -274,6 +274,38 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // Provenance. Stated once, right under the name, because "where did this
+    // come from" is the first thing asked about an object in a scene built out
+    // of prefabs - and because the answer includes what it is NOT (a live link
+    // back to the prefab).
+    if (!o.prefabSource.empty()) {
+        ImGui::TextDisabled("From prefab: %s", o.prefabSource.c_str());
+        ImGui::SameLine();
+        prefHelp(
+            "This object was stamped from that prefab and is an ordinary, "
+            "independent scene object now - editing the prefab later does not "
+            "change it, and editing it does not change the prefab. The Project "
+            "panel groups everything carrying this mark under one node.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open in Prefabs")) {
+            for (size_t pi = 0; pi < project_.prefabs.size(); ++pi)
+                if (project_.prefabs[pi].name == o.prefabSource)
+                    prefabSelected_ = (int)pi;
+            showPrefabs_ = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget")) {
+            // The escape hatch: a member reworked into something else should
+            // stop claiming a lineage it no longer has.
+            o.prefabSource.clear();
+            committed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Drop the prefab mark from this object - it leaves the group in\n"
+                "the Project panel and becomes a plain hand-authored object.");
+    }
+
     // Streaming layer (Project panel > Layers). Shown as soon as the scene
     // has layers - or when the object still references a deleted-scene name.
     if (!project_.active().layers.empty() || !o.layer.empty()) {
@@ -1626,6 +1658,23 @@ void App::drawMultiProperties() {
             tally += std::to_string(n) + " " + typeLabel((PrimitiveType)t);
         }
         ImGui::TextDisabled("%s", tally.c_str());
+    }
+    // Provenance, same as the single-object view - and this is the case that
+    // actually happens, because clicking a prefab group in the Project panel
+    // selects the whole instance at once.
+    {
+        std::string src = objs.front()->prefabSource;
+        for (auto* p : objs)
+            if (p->prefabSource != src) src.clear();
+        if (!src.empty()) {
+            ImGui::TextDisabled("All from prefab: %s", src.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Open in Prefabs")) {
+                for (size_t pi = 0; pi < project_.prefabs.size(); ++pi)
+                    if (project_.prefabs[pi].name == src) prefabSelected_ = (int)pi;
+                showPrefabs_ = true;
+            }
+        }
     }
     ImGui::Separator();
 

@@ -444,15 +444,13 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .ins = {{.label = "points", .type = ProcType::Points}},
          .outs = {{.label = "points", .type = ProcType::Points}},
          .rows = ProcRowKind::Prefabs,
-         .desc = "Assigns each point one PREFAB from a weighted pool - the way "
-                 "to scatter something built rather than modelled: a room, a "
-                 "shack, a lamp post with its light and its script. A prefab "
-                 "instance is not merged with its neighbours the way a model "
-                 "is: its own static members merge into one bag and its "
-                 "identity-carrying members become real objects, so the cost is "
-                 "roughly one draw call plus a spawn slot per live member - "
-                 "mind the counts. A point may carry a prefab or an asset, "
-                 "never both; the last node to write wins."},
+         .desc = "Assigns each point one prefab from the pool below - the way to "
+                 "scatter something BUILT rather than modelled: a room, a shack, "
+                 "a lamp post with its light and its script. A point carries a "
+                 "prefab or a model, never both; whichever of these nodes runs "
+                 "last wins. Costs one draw call per instance plus one spawn "
+                 "slot per member that keeps an identity - Tools > Prefabs "
+                 "shows that split for each prefab."},
 
         {.key = "Vary",
          .title = "Vary Transform",

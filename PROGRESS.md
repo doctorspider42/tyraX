@@ -14315,3 +14315,95 @@ Each finished feature lands as its own commit.
   hatch and doorway are all there, at **50.00 FPS**. The pad-driven half - actually
   pressing TRIANGLE, and walking through a doorway into the next room - still
   needs a hands-on test with a controller.
+
+- (226) **Procedural + prefabs: the five things that were wrong with using
+  them.** A backlog from actually building a world out of the previous entry's
+  features, so each item is small and each one is a place the tool lied about
+  itself.
+
+  **Prefab notes were unreadable.** The field that documents a prefab was a
+  one-line `InputText`: it showed the first ~50 characters and hid the rest
+  behind a caret nobody thinks to move. The obvious fix is the wrong widget
+  twice over, because ImGui's multiline `InputText` does not word-wrap either -
+  a long note stays one line and scrolls sideways. So the resting state is now a
+  plain wrapped paragraph and the editor only appears while you are typing in
+  it (click to edit, click away to save; the buffer is a member, since multiline
+  has no Enter to commit on and the refresh-every-frame pattern the single-line
+  fields use would overwrite what is being typed). The prefab list shows the
+  note as a tooltip, so a pool of a dozen is browsable without selecting each.
+
+  **Nothing said an object came out of a prefab.** `SceneObject::prefabSource`
+  records the prefab's name on every stamped object - editor bookkeeping, read
+  by nothing downstream - and the Project panel folds them into one collapsible
+  node per prefab, the same shape the streaming layers already use above them
+  (click the label to select the whole instance, the arrow to list its members,
+  drag the header to move the lot onto a layer). Properties says *From prefab:
+  X* with an *Open in Prefabs* shortcut and a *Forget* button for a member
+  reworked into something else; the multi-select view says it too, because
+  clicking a group selects twenty objects and that is the case that happens.
+  The mark survives copy/paste (a copy of a room is still a room), is retargeted
+  by a prefab rename, and is CLEARED by *Create from selection* - otherwise
+  every instance of the new prefab files itself under the old one's name.
+  Default CLOSED: collapsing them is the point, a scene of 27 rooms is
+  otherwise 500 rows.
+
+  **The Pick Prefab tooltip was a wall of prose that named none of its own
+  controls.** Fixed generically rather than by editing one string: a node's
+  tooltip (add menu and hover, one renderer) is now its `.desc` followed by ONE
+  LINE PER CONTROL - each parameter's label with its tip, plus what the columns
+  of a table-bodied node mean (`w 34`, `1.00`, `1.00` say weight and scale
+  range now, in a tooltip and on the drags themselves). The Pick Prefab
+  paragraph shrank to what only it can say and points at Tools > Prefabs for
+  the per-prefab cost split.
+
+  **"Right-click a node > Preview" did nothing.** A real bug with a one-line
+  cause: the context menu remembered its target in `procDescNode_`, which is the
+  HOVER tracker and is reset to -1 on every frame the cursor is not over a node
+  - an open popup being exactly such a frame. The menu opened and closed itself
+  on the next frame, i.e. it flashed for 16 ms. It has its own `procCtxNode_`
+  now.
+
+  **A runtime volume could not be previewed at any seed but its own.** With
+  *New world every run*, the number in the Seed box is not the seed a player
+  gets, so the viewport was showing one draw out of many and the only way to see
+  the others was to build the game and boot it. The **seed simulator**
+  (`runProcSeedSweep`, `procgen::Options::seedOverride`) evaluates the graph on
+  N seeds - the authored one first, then the sequence *Reseed* itself hands out
+  - and tabulates instances, triangles and chunks per world. Click a row to show
+  that world in the viewport, *Use* to adopt the seed, and read the summary,
+  which is the actual point: the instance and triangle SPREAD, and how many
+  seeds blow the Output node's triangle budget. A volume that fits on the seed
+  you authored with and overruns on one boot in eight is a bug you would
+  otherwise meet on the console. The simulated seed is a way of LOOKING at the
+  graph - it never touches the `.tyra`, never makes a bake stale, is dropped on
+  a volume switch, and uses a scratch cache per trial so it cannot evict the
+  live preview's memo. `procgen`'s evaluation seed moved from scattered
+  `ctx.g.seed` reads to one `Ctx::seed` field, which is what made the override a
+  three-line change instead of thirty.
+
+  Also, because item four was otherwise unverifiable: **`--ui-script` learned
+  `rightclick`** (same three-phase shape as `click`, on mouse index 1). Context
+  menus were the one part of the editor a script could not reach, which is
+  exactly how a menu that closed the frame after it opened shipped unnoticed.
+  The docs' example quoting was wrong too - the tokenizer strips DOUBLE quotes
+  only, so a two-word target written `'like this'` silently arrives as two
+  tokens.
+
+  **Verified in the running editor** (`--ui-script` on a copy of
+  `examples/cube`, no human, no focus). Prefab grouping: two prefabs inserted
+  through the real *Insert into scene* path, saved, reopened - the outliner
+  shows `room-red (21)` / `room-jade (20)` instead of 41 rows, 41 objects carry
+  `prefabSource` in `objects/*.json`, double-click expands, clicking the label
+  selects 20 objects (the viewport outlines all of them and the Prefabs window
+  header changes to *Create from selection (20 objects)*), and `expect` asserts
+  the provenance buttons in BOTH the single- and multi-object Properties views.
+  Seed simulator: eight seeds swept on the cube's runtime volume, table filled,
+  summary green at 27-27 instances. Node docs: the Output node's hover shows
+  *Cast shadow*, *Collision*, *Instance detail*, *Triangle budget* and *Runtime
+  instance cap* each with its explanation. Right-click: the context menu is
+  still open eight frames after the click and `expect "Preview this node"`
+  passes - and the same script against a `-Dev` build of the PRE-FIX code fails
+  it, which is what makes that a test rather than a screenshot. Notes: the
+  cube's own prefab note now renders as two wrapped lines instead of one clipped
+  one. Nothing here reaches the PS2 (`prefabSource` is editor-only and the
+  simulator is a preview), so there is no console half to test.

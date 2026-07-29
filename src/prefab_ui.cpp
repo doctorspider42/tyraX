@@ -12,6 +12,7 @@
 #include "app_internal.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -124,7 +125,17 @@ void App::drawPrefabsWindow() {
         char label[128];
         snprintf(label, sizeof(label), "%s  (%d)##pf%d", pf.name.c_str(),
                  (int)pf.objects.size(), i);
-        if (ImGui::Selectable(label, prefabSelected_ == i)) prefabSelected_ = i;
+        if (ImGui::Selectable(label, prefabSelected_ == i) && prefabSelected_ != i) {
+            prefabSelected_ = i;
+            prefabNotesEditing_ = false;  // the buffer belonged to the old one
+        }
+        if (!pf.notes.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+            ImGui::BeginTooltip();
+            ImGui::PushTextWrapPos(scaled(320));
+            ImGui::TextUnformatted(pf.notes.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndTooltip();
+        }
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -144,13 +155,53 @@ void App::drawPrefabsWindow() {
         else
             saveAll("Prefab renamed");
     }
-    char noteBuf[256];
-    snprintf(noteBuf, sizeof(noteBuf), "%s", pf.notes.c_str());
-    ImGui::SetNextItemWidth(scaled(360));
-    if (ImGui::InputText("Notes", noteBuf, sizeof(noteBuf),
-                         ImGuiInputTextFlags_EnterReturnsTrue)) {
-        pf.notes = noteBuf;
-        saveAll("Prefab notes");
+    // Notes: read as WRAPPED prose, edited in a multiline box on click.
+    //
+    // The obvious widget is the wrong one twice over. A single-line InputText
+    // (what this was) shows the first ~50 characters and hides the rest behind
+    // a caret nobody thinks to move - the field that documents a prefab was
+    // the one field you could not read. And ImGui's multiline InputText does
+    // not word-wrap either: a long note stays one line and scrolls sideways.
+    // So the resting state is a plain wrapped paragraph and the editor only
+    // appears while it is being typed in.
+    ImGui::TextUnformatted("Notes");
+    const float notesH = ImGui::GetTextLineHeight() * 3.6f;
+    if (prefabNotesEditing_) {
+        if (prefabNotesFocus_) {
+            ImGui::SetKeyboardFocusHere();
+            prefabNotesFocus_ = false;
+        }
+        // Multiline has no Enter to commit on, so the buffer is a MEMBER: the
+        // refresh-from-the-model-every-frame pattern the single-line fields use
+        // works only because EnterReturnsTrue copies back on the Enter frame.
+        ImGui::InputTextMultiline("##pfnotes", prefabNotesBuf_,
+                                  sizeof(prefabNotesBuf_),
+                                  ImVec2(-FLT_MIN, notesH),
+                                  ImGuiInputTextFlags_AllowTabInput);
+        if (ImGui::IsItemDeactivated()) {
+            prefabNotesEditing_ = false;
+            if (pf.notes != prefabNotesBuf_) {
+                pf.notes = prefabNotesBuf_;
+                saveAll("Prefab notes");
+            }
+        }
+        ImGui::TextDisabled("Enter starts a new line; click away to save.");
+    } else {
+        ImGui::BeginChild("##pfnotesview", ImVec2(-FLT_MIN, notesH),
+                          ImGuiChildFlags_Borders);
+        if (pf.notes.empty())
+            ImGui::TextDisabled("(click to describe what this prefab is for)");
+        else
+            ImGui::TextWrapped("%s", pf.notes.c_str());
+        const bool clicked = ImGui::IsWindowHovered() &&
+                             ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+        ImGui::EndChild();
+        if (clicked) {
+            snprintf(prefabNotesBuf_, sizeof(prefabNotesBuf_), "%s",
+                     pf.notes.c_str());
+            prefabNotesEditing_ = true;
+            prefabNotesFocus_ = true;
+        }
     }
 
     if (ImGui::Button("Insert into scene")) {

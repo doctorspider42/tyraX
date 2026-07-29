@@ -116,6 +116,13 @@ struct Options {
     // volume transform, the terrain, other objects). Mixed into every node
     // hash, so the cache cannot serve a stale answer after a scene edit.
     uint64_t contextSerial = 0;
+    // Evaluate as if ProcGraph::seed were this (0 = use the graph's own). The
+    // seed simulator: a RUNTIME volume can be told to roll a fresh seed on the
+    // console, so "what does this graph actually produce" is a question about a
+    // distribution, not about one number - and the only honest way to answer it
+    // before the game boots is to run the other worlds here. Never affects
+    // bakeHash: this is a way of LOOKING at the graph, not an edit to it.
+    uint32_t seedOverride = 0;
     // Cooperative cancel for the worker thread; checked between nodes and
     // inside the generators' inner loops.
     std::atomic<bool>* cancel = nullptr;

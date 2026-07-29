@@ -48,6 +48,7 @@ the window as a prefix — so `click "Remote/Cross"` is fine.
 | Command | What it does |
 |---|---|
 | `click <target>` | hover, press, release — over three frames, like a real cursor |
+| `rightclick <target>` | the context-menu button, same three frames - how a right-click menu is reached at all |
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |
 | `hover <target>` | move the cursor onto it and leave it there |

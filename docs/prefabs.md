@@ -6,7 +6,11 @@ once and stamped into the world as many times as you like: by hand, by a
 running.
 
 Build a hut out of primitives, select it, press **Create from selection**. From
-then on it is one thing with a name.
+then on it is one thing with a name — and a **Notes** field next to it, which is
+a wrapped paragraph you click to edit rather than a one-line box, because what a
+prefab is for and how it wants to be placed does not fit in fifty characters.
+The list shows the note as a tooltip, so a pool of a dozen prefabs is browsable
+without selecting each one.
 
 Working demo: [examples/cube](../examples/cube) — four room prefabs stamped
 onto a 3×3×3 lattice on the console at boot.
@@ -31,6 +35,17 @@ you already placed (use *Replace from selection* to update the prefab itself).
 This is a deliberate simplification: a live link would have to decide what
 happens to an instance somebody has since moved, recoloured or scripted, and
 every answer to that is worse than "the copy is yours now".
+
+**Instances stay recognisable, though.** Every stamped object records the
+prefab's name (`SceneObject::prefabSource`, editor bookkeeping — nothing
+downstream reads it), and the Project panel folds them into one collapsible node
+per prefab, the same shape the streaming layers use above them. Click the group
+label to select the whole instance, the arrow to list its members. The
+Properties panel says *From prefab: &lt;name&gt;* with an *Open in Prefabs*
+shortcut and a *Forget* button for a member you have reworked into something
+else. The mark travels through a copy/paste (a copy of a room is still a room)
+and is dropped by *Create from selection*, which would otherwise file every
+instance of the NEW prefab under the old one's name.
 
 Flow graphs come along untouched, and **object-name references inside them are
 not rewritten**. A graph built around *self* (the default for every

@@ -998,12 +998,12 @@ static int uiScriptFromCli(int argc, char** argv) {
             "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
             "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
             "\n"
-            "script: click|hover|doubleclick|expect|expect-not <target>\n"
+            "script: click|rightclick|hover|doubleclick|expect|expect-not <target>\n"
             "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
             "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
-            "example: --ui-script myproj \"click Tools; click 'Remote Pad';"
+            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
             " shot pad.png\"\n"
             "hint:    a script of just \"dump\" lists every widget on screen\n");
         return 2;

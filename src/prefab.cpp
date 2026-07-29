@@ -108,6 +108,10 @@ Prefab capture(const SceneData& s, const std::vector<int>& sel,
         SceneObject o = s.objects[i];
         o.id.clear();      // an instance gets its own identity
         o.procSource.clear();  // never capture build output as authored content
+        // A prefab does not record which prefab its members were taken from -
+        // it IS the prefab now, and the outliner grouping would otherwise put
+        // every instance of the new one under the old one's name.
+        o.prefabSource.clear();
         o.position[0] -= ox;
         o.position[1] -= oy;
         o.position[2] -= oz;
@@ -126,6 +130,11 @@ std::vector<SceneObject> instantiate(const Prefab& pf, float x, float y,
     for (const SceneObject& m : pf.objects) {
         SceneObject o = m;
         o.id.clear();
+        // Provenance for the outliner (SceneObject::prefabSource) - the members
+        // are otherwise indistinguishable from hand-placed ones, which is the
+        // whole point of a prefab and also what makes a scene built from them
+        // unreadable in a flat list.
+        o.prefabSource = pf.name;
         if (!suffix.empty()) o.name += suffix;
         const float lx = m.position[0] * s, ly = m.position[1] * s,
                     lz = m.position[2] * s;
@@ -192,6 +201,9 @@ bool rename(Project& p, const std::string& from, const std::string& to) {
     pf->name = to;
     for (SceneData& s : p.scenes)
         for (SceneObject& o : s.objects) {
+            // Provenance is a reference too: an already-placed instance would
+            // otherwise keep grouping under a prefab name that no longer exists.
+            if (o.prefabSource == from) o.prefabSource = to;
             for (FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
                 if (t && t->strKind == FlowParamKind::PrefabName && n.str == from)

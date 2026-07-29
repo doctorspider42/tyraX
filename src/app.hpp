@@ -598,6 +598,11 @@ private:
     // Drops overrides that no longer change anything, so an undone tweak
     // leaves nothing behind in the .tyra.
     void pruneProcOverrides(ProcGraph& g);
+    // Runs the edited volume's graph on `count` seeds and fills
+    // procSeedTrials_. Synchronous - one trial is one full evaluation, which is
+    // the number the readout already shows in milliseconds, so the caller can
+    // tell the user what it is about to spend.
+    void runProcSeedSweep(int objectIndex, int count);
     // Tools > Drone Generator (docs/drone-generator.md) - the ambient/drone
     // music tool. All of these live in droneui.cpp (the assetbrowser.cpp
     // precedent: a self-contained subsystem gets its own TU).
@@ -1116,6 +1121,12 @@ private:
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
     int prefabSelected_ = 0;
+    // The Notes field: a wrapped paragraph at rest, a multiline editor while it
+    // is being typed in (ImGui's multiline InputText does not word-wrap, so the
+    // editor cannot also be the reading view - see drawPrefabsWindow).
+    char prefabNotesBuf_[1024] = {};
+    bool prefabNotesEditing_ = false;
+    bool prefabNotesFocus_ = false;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and
@@ -1135,6 +1146,11 @@ private:
     int procPreviewNode_ = 0;  // isolate this node's output (0 = the Output node)
     int procDescNode_ = -1;    // node-description tooltip target + since when
     double procDescSince_ = 0.0;
+    // The node the right-click menu belongs to. Deliberately NOT procDescNode_:
+    // that one is a HOVER tracker reset to -1 on every frame the cursor is not
+    // over a node, and an open popup is exactly such a frame - sharing them made
+    // the menu close on the frame after it opened, i.e. right-click did nothing.
+    int procCtxNode_ = -1;
     ProcGraph procClipboard_;
     void* procEditorCtx_ = nullptr;  // ImNodesEditorContext (own canvas state)
     // Evaluation. One cache per volume id (keyed so switching volumes keeps
@@ -1163,6 +1179,25 @@ private:
     int procCurvePoint_ = -1;  // its selected control point (-1 = append mode)
     bool procOverrideMode_ = false;
     uint64_t procSelInstance_ = 0;  // selected instance key (0 = none)
+    // Seed simulator (docs/procedural-runtime.md). A runtime volume set to
+    // "New world every run" builds a different world on every boot, so the one
+    // seed in the graph says nothing about what a player will get. The
+    // simulator runs the graph on several seeds HERE and shows what each would
+    // produce; picking one previews it in the viewport.
+    struct ProcSeedTrial {
+        uint32_t seed = 0;
+        int instances = 0;
+        int triangles = 0;
+        int chunks = 0;
+        int warnings = 0;
+        double millis = 0.0;
+    };
+    std::vector<ProcSeedTrial> procSeedTrials_;
+    std::string procSeedTrialsFor_;  // volume id the trials belong to
+    int procSeedCount_ = 8;
+    // 0 = show the authored seed (the normal state). Non-zero replaces it in
+    // the preview only - the graph is never edited by looking at it.
+    uint32_t procSeedPreview_ = 0;
 
     // Viewport overlays: TV frames (PAL 4:3 and NTSC, which shows a
     // slightly wider slice of the same 512x448 buffer)

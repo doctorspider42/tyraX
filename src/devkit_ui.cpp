@@ -2270,6 +2270,7 @@ void App::uiScriptTick() {
     // while, and a false failure is worse than a slow pass.
     const bool needsTarget =
         s.kind == uiscript::Step::Click || s.kind == uiscript::Step::DoubleClick ||
+        s.kind == uiscript::Step::RightClick ||
         s.kind == uiscript::Step::HoldClick || s.kind == uiscript::Step::Hover ||
         s.kind == uiscript::Step::Drag || s.kind == uiscript::Step::Expect;
     if (needsTarget && uiStepPhase_ == 0) {
@@ -2347,6 +2348,23 @@ void App::uiScriptTick() {
                 uiStepPhase_ = 3;
             } else {
                 finishStep();  // one settle frame, so the UI has reacted
+            }
+            break;
+        case uiscript::Step::RightClick:
+            // The context-menu button. Same shape as Click on the OTHER index -
+            // which is the whole point: a right-click menu used to be the one
+            // part of the editor a script could not reach, so nothing that hangs
+            // off one (the flow and procedural canvases, the object list) could
+            // be asserted without a human.
+            io.AddMousePosEvent(uiTargetX_, uiTargetY_);
+            if (uiStepPhase_ == 1) {
+                io.AddMouseButtonEvent(1, true);
+                uiStepPhase_ = 2;
+            } else if (uiStepPhase_ == 2) {
+                io.AddMouseButtonEvent(1, false);
+                uiStepPhase_ = 3;
+            } else {
+                finishStep();
             }
             break;
         case uiscript::Step::DoubleClick:

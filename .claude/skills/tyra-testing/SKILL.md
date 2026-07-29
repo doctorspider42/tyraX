@@ -460,10 +460,10 @@ Notes:
 
   ```powershell
   build\tyrax-editor.exe --ui-script <projectDir> `
-      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+      'frames 20; click Tools; click "Remote Pad"; shot panel.png; quit'
   ```
 
-  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  `click|rightclick|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -472,7 +472,9 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted with DOUBLE quotes, the only kind the tokenizer strips**, so
+  on PowerShell put the whole script in single quotes or the shell eats them and
+  a two-word target arrives as two tokens, `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -

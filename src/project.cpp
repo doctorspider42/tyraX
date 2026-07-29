@@ -687,6 +687,8 @@ std::string objectJson(const SceneObject& o) {
     if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
     if (!o.procSource.empty())
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
+    if (!o.prefabSource.empty())
+        json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
     return json + " }";
 }
 
@@ -3111,6 +3113,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
+        if (const auto* v = jo.find("prefabSource"))
+            o.prefabSource = v->stringOr("");
         out.push_back(std::move(o));
     }
 }

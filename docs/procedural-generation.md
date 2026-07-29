@@ -198,8 +198,14 @@ cast shadow, collision and the streaming layer are deliberately **not** in this
 list — they live on Output (and the layer on the volume itself), so every field
 has exactly one place.
 
-Every node's tooltip (add menu and hover) is its full description — the
-registry entry is the documentation.
+Every node's tooltip — the add menu and the node hover draw the same thing — is
+its description **followed by one line per control**: each parameter's label
+with its `tip`, and, for a node whose body is a table (an asset pool, a prefab
+pool, a curve, the settings list), what that table's columns mean. The registry
+entry is the documentation, and a paragraph that explains the idea while naming
+none of the knobs sitting under it is only half of one — the reader is looking
+at `w 34` and `1.00 1.00`. So when you add a parameter, give it a `.tip`; the
+pool columns and the node's own prose are worth keeping short in exchange.
 
 ---
 
@@ -220,7 +226,9 @@ pool, a missing Output.
   points disappear.
 - **Bypass** passes a node's first input straight through: an instant A/B of one
   step.
-- **Seed** reshuffles everything; **Reseed** rolls a new one.
+- **Seed** reshuffles everything; **Reseed** rolls a new one. A *runtime* volume
+  also gets a [seed simulator](procedural-runtime.md#the-seed-simulator) —
+  several seeds evaluated at once, so the spread rather than one draw.
 
 ### Editing a curve
 

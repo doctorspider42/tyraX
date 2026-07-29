@@ -255,11 +255,14 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
         s.source = line;
         auto needArg = [&](size_t count) { return tok.size() == count; };
 
-        if (cmd == "click" || cmd == "doubleclick" || cmd == "hover" ||
+        if (cmd == "click" || cmd == "rightclick" || cmd == "right-click" ||
+            cmd == "doubleclick" || cmd == "hover" ||
             cmd == "expect" || cmd == "expect-not" || cmd == "expectnot" ||
             cmd == "expect-checked" || cmd == "expect-unchecked") {
             if (!needArg(2)) return fail(cmd + " needs one target");
             s.kind = cmd == "click"             ? Step::Click
+                     : cmd == "rightclick"      ? Step::RightClick
+                     : cmd == "right-click"     ? Step::RightClick
                      : cmd == "doubleclick"     ? Step::DoubleClick
                      : cmd == "hover"           ? Step::Hover
                      : cmd == "expect"          ? Step::Expect

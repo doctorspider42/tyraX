@@ -6494,10 +6494,15 @@ void App::drawSceneSection() {
         // One object row: Selectable with the existing multi-select clicks and
         // hidden dimming, doubling as a drag source for layer reassignment.
         // Ctrl/Shift+click extends the selection; plain click replaces it.
-        auto objectRow = [&](int i) {
+        auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
+            // Inside a prefab group the provenance is already stated by the
+            // group header; outside one (a member dragged onto another layer,
+            // or a copy pasted somewhere else) the row has to say it itself.
+            const bool tag = !o.prefabSource.empty() && !inPrefabGroup;
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (tag ? "  [" + o.prefabSource + "]" : "") +
                                 (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
             if (hidden)
@@ -6548,10 +6553,85 @@ void App::drawSceneSection() {
             ImGui::EndDragDropTarget();
         };
 
+        // Objects stamped from a prefab collapse into one node per prefab -
+        // the same shape as the layer groups above them, and for the same
+        // reason: twenty slabs that arrived together are one thing in the
+        // author's head and twenty rows in a flat list. The group sits at the
+        // position of its FIRST member, so the list keeps scene order instead
+        // of quietly sorting itself, and it starts CLOSED (collapsing them is
+        // the point - a scene of 27 prefab rooms is otherwise 500 rows). Click
+        // the label to select the whole instance, the arrow to open it.
+        auto selectAll = [&](const std::vector<int>& ms) {
+            clearSelection();
+            for (int j : ms) toggleSelect(j);
+        };
+        auto emitRows = [&](const std::vector<int>& idxs) {
+            std::vector<std::string> done;
+            for (int i : idxs) {
+                const std::string src = project_.objects()[i].prefabSource;
+                if (src.empty()) {
+                    objectRow(i);
+                    continue;
+                }
+                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
+                done.push_back(src);
+                std::vector<int> members;
+                for (int j : idxs)
+                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                bool allSel = true;
+                for (int j : members) allSel &= isSelected(j);
+                ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
+                                            ImGuiTreeNodeFlags_OpenOnArrow |
+                                            ImGuiTreeNodeFlags_OpenOnDoubleClick;
+                if (allSel) pflags |= ImGuiTreeNodeFlags_Selected;
+                const std::string header = src + "  (" +
+                                           std::to_string(members.size()) +
+                                           ")##pfgrp" + std::to_string(i);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.80f, 0.96f, 1.0f));
+                const bool open = ImGui::TreeNodeEx(header.c_str(), pflags);
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                    if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)
+                        for (int j : members) { if (!isSelected(j)) toggleSelect(j); }
+                    else
+                        selectAll(members);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(
+                        "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
+                        "These are ordinary objects - editing the prefab does not\n"
+                        "reach back into them.\n"
+                        "Click to select all %d, the arrow to list them.",
+                        src.c_str(), (int)members.size());
+                // A closed group would otherwise make its members undraggable,
+                // so the header is a drag source for the whole instance.
+                if (grouped && ImGui::BeginDragDropSource()) {
+                    if (!allSel) selectAll(members);
+                    const int first = members.front();
+                    ImGui::SetDragDropPayload("SCENE_OBJECT", &first, sizeof(int));
+                    ImGui::Text("Move %d objects (%s)", (int)members.size(),
+                                src.c_str());
+                    ImGui::EndDragDropSource();
+                }
+                if (open) {
+                    for (int j : members) objectRow(j, true);
+                    ImGui::TreePop();
+                }
+            }
+        };
+
+        // Indices of the scene's objects, in order, that pass `keep`.
+        auto indicesWhere = [&](auto keep) {
+            std::vector<int> out;
+            for (int i = 0; i < (int)project_.objects().size(); ++i)
+                if (keep(project_.objects()[i])) out.push_back(i);
+            return out;
+        };
+
         ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
                           ImGuiChildFlags_Borders);
         if (!grouped) {
-            for (int i = 0; i < (int)project_.objects().size(); ++i) objectRow(i);
+            emitRows(indicesWhere([](const SceneObject&) { return true; }));
         } else {
             const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
                                               ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -6570,8 +6650,9 @@ void App::drawSceneSection() {
                 if (!l.editorVisible) ImGui::PopStyleColor();
                 dropTarget(l.name);
                 if (open) {
-                    for (int i = 0; i < (int)project_.objects().size(); ++i)
-                        if (project_.objects()[i].layer == l.name) objectRow(i);
+                    emitRows(indicesWhere([&](const SceneObject& o) {
+                        return o.layer == l.name;
+                    }));
                     ImGui::TreePop();
                 }
             }
@@ -6585,10 +6666,9 @@ void App::drawSceneSection() {
             const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
             dropTarget("");
             if (open) {
-                for (int i = 0; i < (int)project_.objects().size(); ++i) {
-                    const SceneObject& o = project_.objects()[i];
-                    if (o.layer.empty() || !layerExists(o.layer)) objectRow(i);
-                }
+                emitRows(indicesWhere([&](const SceneObject& o) {
+                    return o.layer.empty() || !layerExists(o.layer);
+                }));
                 ImGui::TreePop();
             }
         }

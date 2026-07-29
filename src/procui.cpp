@@ -96,6 +96,51 @@ void App::pruneProcOverrides(ProcGraph& g) {
         g.overrides.end());
 }
 
+void App::runProcSeedSweep(int objectIndex, int count) {
+    procSeedTrials_.clear();
+    if (!hasProject_ || objectIndex < 0 ||
+        objectIndex >= (int)project_.objects().size())
+        return;
+    const SceneObject& vol = project_.objects()[objectIndex];
+    if (vol.type != PrimitiveType::Scatter || vol.procGraph.empty()) return;
+    procSeedTrialsFor_ = vol.id;
+
+    // Seed 0 of the sweep is the AUTHORED one, so the table always contains the
+    // world the graph currently describes and every other row is read against
+    // it. The rest walk the same LCG "Reseed" uses, which means the sweep shows
+    // exactly the seeds pressing Reseed would hand out - not an unrelated
+    // sequence that happens to also be random.
+    std::vector<uint32_t> seeds;
+    seeds.push_back(vol.procGraph.seed ? vol.procGraph.seed : 1u);
+    uint32_t s = seeds.front();
+    for (int i = 1; i < count; ++i) {
+        s = s * 1664525u + 1013904223u;
+        if (s == 0) s = 1;
+        seeds.push_back(s);
+    }
+
+    for (uint32_t sd : seeds) {
+        procgen::Options opt;
+        // A fresh serial per trial and a scratch cache: the sweep must not
+        // evict the live preview's memo, which is what makes editing the graph
+        // afterwards feel instant.
+        opt.contextSerial = modelEditSerial_ ^ ((uint64_t)sd << 24) ^ 0x5EEDu;
+        opt.seedOverride = sd;
+        procgen::Cache scratch;
+        const procgen::Result r = procgen::evaluate(project_, project_.active(),
+                                                    vol, opt, &scratch);
+        const procbake::Report est = procbake::estimate(project_, vol, r);
+        ProcSeedTrial t;
+        t.seed = sd;
+        t.instances = (int)r.instances.size();
+        t.triangles = est.triangles;
+        t.chunks = est.chunks;
+        t.warnings = (int)r.warnings.size();
+        t.millis = r.millis;
+        procSeedTrials_.push_back(t);
+    }
+}
+
 void App::updateProcPreview() {
     const std::vector<int> vols = procVolumes();
     if (vols.empty()) {
@@ -116,7 +161,8 @@ void App::updateProcPreview() {
     // editor, so this re-runs while the slider moves - which is exactly what
     // the per-node cache and the progressive fraction below are for.
     const uint64_t serial = modelEditSerial_ ^ ((uint64_t)procPreviewNode_ << 40) ^
-                            ((uint64_t)project_.activeScene << 56);
+                            ((uint64_t)project_.activeScene << 56) ^
+                            ((uint64_t)procSeedPreview_ << 8);
     // Which volume is being EDITED is not part of the cache key (that would
     // throw away every node cache on a volume switch) but it does have to
     // re-trigger the pass: the budget readout is filled from the edited
@@ -150,6 +196,11 @@ void App::updateProcPreview() {
         // keep showing their finished output so the scene stays readable.
         if (procPreviewNode_ != 0 && idx == procVolume_)
             opt.previewNode = procPreviewNode_;
+        // Same rule for the simulated seed: only the volume being edited is
+        // shown under another seed, so the rest of the scene stays the world
+        // the project describes.
+        if (procSeedPreview_ != 0 && idx == procVolume_)
+            opt.seedOverride = procSeedPreview_;
         const procgen::Result r =
             procgen::evaluate(project_, project_.active(), vol,
                               opt, &procCaches_[vol.id]);
@@ -304,6 +355,92 @@ static ImU32 procTypeColor(ProcType t) {
     return IM_COL32(200, 200, 200, 255);
 }
 
+// What a node's variable-length table means, column by column. The rows editor
+// is drawn generically from ProcRowKind, so its columns are the one part of a
+// node that the parameter tips cannot reach - and on a pool node the table IS
+// the node.
+static const char* procRowsHelp(ProcRowKind k) {
+    switch (k) {
+        case ProcRowKind::Assets:
+            return "Pool rows: a model from res/models, its weight, and the "
+                   "scale range one point may draw from. Weights are relative - "
+                   "70/25/5 and 14/5/1 pick the same way.";
+        case ProcRowKind::Prefabs:
+            return "Pool rows: a prefab (Tools > Prefabs), its weight, and the "
+                   "scale range one point may draw from. Weights are relative - "
+                   "34/26/26/14 is simply 'the first one a bit more often'.";
+        case ProcRowKind::Points:
+            return "Control points of the curve, in world XYZ. Edit in viewport "
+                   "turns terrain clicks into new points.";
+        case ProcRowKind::Settings:
+            return "One row per property, applied to every object the bake "
+                   "generates.";
+        case ProcRowKind::None: break;
+    }
+    return nullptr;
+}
+
+// Hover help for the just-submitted rows header.
+static void procRowsHelpTip(ProcRowKind k, float wrap) {
+    const char* h = procRowsHelp(k);
+    if (!h || !ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) return;
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(wrap);
+    ImGui::TextUnformatted(h);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+// Hover help for one column of a pool row. The drags are unlabelled by
+// necessity (they have to fit on a node), so this is the only place the
+// numbers say what they are.
+static void procPoolColTip(int col) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) return;
+    static const char* const kTips[3] = {
+        "Weight: how often this row is drawn, RELATIVE to the other rows. "
+        "0 disables it without losing the row.",
+        "Scale min: the smallest size a point may draw for this row. Equal to "
+        "the max = every copy the same size.",
+        "Scale max: the largest size a point may draw for this row. Vary "
+        "Transform multiplies whatever is picked here.",
+    };
+    ImGui::SetTooltip("%s", kTips[col]);
+}
+
+// The node's documentation, drawn identically by the add-menu tooltip and by
+// the node hover: what it does, then ONE LINE PER CONTROL. A paragraph that
+// explains the idea but names none of the knobs sitting right under it is the
+// failure this replaces - the reader is looking at "w 34" and "1.00 1.00" and
+// the text talks about draw calls.
+static void procNodeDoc(const ProcNodeType& t, float wrap) {
+    ImGui::PushTextWrapPos(wrap);
+    ImGui::TextUnformatted(t.title);
+    if (t.desc && *t.desc) ImGui::TextDisabled("%s", t.desc);
+    bool anyTip = false;
+    for (const ProcParamDef& p : t.params) anyTip |= (p.tip && *p.tip);
+    if (!t.params.empty()) {
+        ImGui::Separator();
+        for (const ProcParamDef& p : t.params) {
+            ImGui::TextUnformatted(p.label);
+            if (p.tip && *p.tip) {
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::TextDisabled(" - %s", p.tip);
+            } else if (anyTip) {
+                // Nothing to add is a fine answer, but say it rather than
+                // leaving a bare label that reads like a truncated line.
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::TextDisabled(" - %s",
+                                    p.kind == ProcParamKind::Bool ? "on/off" : "");
+            }
+        }
+    }
+    if (const char* rh = procRowsHelp(t.rows)) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", rh);
+    }
+    ImGui::PopTextWrapPos();
+}
+
 void App::drawProceduralWindow() {
     if (!showProcedural_ || !hasProject_) return;
     ImGui::SetNextWindowSize(ImVec2(scaled(980.0f), scaled(620.0f)), ImGuiCond_FirstUseEver);
@@ -340,6 +477,7 @@ void App::drawProceduralWindow() {
             procVolumeId_ = project_.objects()[procVolume_].id;
             procPositionsApplied_ = false;
             procPreviewNode_ = 0;
+            procSeedPreview_ = 0;
         } else {
             procVolumeId_ = project_.objects()[procVolume_].id;
         }
@@ -357,6 +495,7 @@ void App::drawProceduralWindow() {
                 procPreviewNode_ = 0;
                 procCurveNode_ = 0;
                 procSelInstance_ = 0;
+                procSeedPreview_ = 0;  // the simulated seed was that volume's
             }
         }
         ImGui::EndCombo();
@@ -637,6 +776,132 @@ void App::drawProceduralWindow() {
         ImGui::Unindent(scaled(8.0f));
     }
 
+    // --- seed simulator (runtime volumes only) ------------------------------
+    // A baked volume has one world and you are looking at it. A RUNTIME one is
+    // a program, and with "New world every run" the seed in the graph is not
+    // the seed the player gets - so "what does this graph produce" is a
+    // question about a spread, and the only way to answer it used to be to
+    // build the game and boot it. This runs the graph on several seeds right
+    // here: the table is the spread, clicking a row previews that world in the
+    // viewport, and the summary is the honest budget answer (the worst seed is
+    // the one that ships).
+    if (g.runtime) {
+        if (ImGui::TreeNodeEx("Seed simulator##procseedsim",
+                              ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            ImGui::Indent(scaled(8.0f));
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            ImGui::SliderInt("Seeds", &procSeedCount_, 2, 24);
+            ImGui::SameLine();
+            if (ImGui::Button("Simulate")) runProcSeedSweep(procVolume_, procSeedCount_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(
+                    "Evaluates this graph once per seed at FULL density - about\n"
+                    "%.0f ms each, so %d seeds costs roughly %.1f s. That is why\n"
+                    "it is a button and not a live readout.",
+                    procLastMs_, procSeedCount_,
+                    procLastMs_ * procSeedCount_ / 1000.0);
+            ImGui::SameLine();
+            if (procSeedPreview_ != 0) {
+                ImGui::TextColored(ImVec4(0.6f, 0.85f, 1.0f, 1.0f),
+                                   "viewport: seed %u", (unsigned)procSeedPreview_);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Back to the authored seed"))
+                    procSeedPreview_ = 0;
+            } else {
+                ImGui::TextDisabled("viewport: the authored seed (%u)",
+                                    (unsigned)g.seed);
+            }
+            if (g.seedMode == 1)
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.8f, 0.35f, 1.0f),
+                    "This volume rolls a new seed every run - the player gets one "
+                    "of these, not the authored one.");
+
+            const bool mine = procSeedTrialsFor_ == vol.id && !procSeedTrials_.empty();
+            if (!mine) {
+                ImGui::TextDisabled(
+                    "Press Simulate to see what other seeds would build.");
+            } else {
+                int minI = INT32_MAX, maxI = 0, minT = INT32_MAX, maxT = 0, over = 0;
+                for (const ProcSeedTrial& t : procSeedTrials_) {
+                    minI = std::min(minI, t.instances);
+                    maxI = std::max(maxI, t.instances);
+                    minT = std::min(minT, t.triangles);
+                    maxT = std::max(maxT, t.triangles);
+                    if (t.triangles > budget) ++over;
+                }
+                if (ImGui::BeginTable("procseeds", 5,
+                                      ImGuiTableFlags_RowBg |
+                                          ImGuiTableFlags_SizingStretchProp |
+                                          ImGuiTableFlags_ScrollY,
+                                      ImVec2(0, scaled(150.0f)))) {
+                    ImGui::TableSetupColumn("Seed");
+                    ImGui::TableSetupColumn("Instances");
+                    ImGui::TableSetupColumn("Triangles");
+                    ImGui::TableSetupColumn("Chunks");
+                    ImGui::TableSetupColumn("");
+                    ImGui::TableHeadersRow();
+                    for (size_t i = 0; i < procSeedTrials_.size(); ++i) {
+                        const ProcSeedTrial& t = procSeedTrials_[i];
+                        const bool authored = t.seed == g.seed;
+                        const bool shown = authored ? procSeedPreview_ == 0
+                                                    : procSeedPreview_ == t.seed;
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::PushID((int)i);
+                        char lab[64];
+                        std::snprintf(lab, sizeof(lab), "%u%s", (unsigned)t.seed,
+                                      authored ? " (authored)" : "");
+                        if (ImGui::Selectable(lab, shown,
+                                              ImGuiSelectableFlags_SpanAllColumns))
+                            procSeedPreview_ = authored ? 0 : t.seed;
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                            ImGui::SetTooltip(
+                                "Show this world in the viewport (%.0f ms to "
+                                "evaluate%s).",
+                                t.millis,
+                                t.warnings ? ", with warnings" : "");
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", t.instances);
+                        ImGui::TableNextColumn();
+                        if (t.triangles > budget)
+                            ImGui::TextColored(ImVec4(0.9f, 0.35f, 0.3f, 1.0f), "%d",
+                                               t.triangles);
+                        else
+                            ImGui::Text("%d", t.triangles);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%d", t.chunks);
+                        ImGui::TableNextColumn();
+                        if (!authored && ImGui::SmallButton("Use")) {
+                            g.seed = t.seed;
+                            procSeedPreview_ = 0;
+                            changed = true;
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::Text("%d seeds: %d-%d instances, %d-%d triangles",
+                            (int)procSeedTrials_.size(), minI, maxI, minT, maxT);
+                if (over > 0)
+                    ImGui::TextColored(ImVec4(0.9f, 0.35f, 0.3f, 1.0f),
+                                       "%d of %d seeds exceed the %d-triangle "
+                                       "budget - the console gets the worst one "
+                                       "eventually.",
+                                       over, (int)procSeedTrials_.size(), budget);
+                else
+                    ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f),
+                                       "every simulated seed fits the %d-triangle "
+                                       "budget.",
+                                       budget);
+            }
+            ImGui::Unindent(scaled(8.0f));
+            ImGui::TreePop();
+        }
+    } else if (procSeedPreview_ != 0) {
+        procSeedPreview_ = 0;  // a baked volume shows what it bakes
+    }
+
     // --- node canvas --------------------------------------------------------
     ImGui::Separator();
     if (procEditorCtx_) ImNodes::EditorContextSet((ImNodesEditorContext*)procEditorCtx_);
@@ -836,6 +1101,7 @@ void App::drawProceduralWindow() {
         // Variable-length tables: the asset pool and the curve's control points.
         if (t->rows == ProcRowKind::Assets) {
             ImGui::TextDisabled("Pool (model, weight, scale min/max)");
+            procRowsHelpTip(t->rows, scaled(320.0f));
             int removeRow = -1;
             for (size_t r = 0; r < n.rows.size(); ++r) {
                 ImGui::PushID((int)r);
@@ -857,14 +1123,17 @@ void App::drawProceduralWindow() {
                 ImGui::SetNextItemWidth(56.0f * zoom);
                 if (ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f"))
                     changed = true;
+                procPoolColTip(0);
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(52.0f * zoom);
                 if (ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "%.2f"))
                     changed = true;
+                procPoolColTip(1);
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(52.0f * zoom);
                 if (ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "%.2f"))
                     changed = true;
+                procPoolColTip(2);
                 ImGui::SameLine();
                 if (ImGui::SmallButton("x")) removeRow = (int)r;
                 ImGui::PopID();
@@ -888,6 +1157,7 @@ void App::drawProceduralWindow() {
             // rows identical is what lets one graph mix scattered models with
             // scattered rooms without a second mental model.
             ImGui::TextDisabled("Pool (prefab, weight, scale min/max)");
+            procRowsHelpTip(t->rows, scaled(320.0f));
             int removeRow = -1;
             for (size_t r = 0; r < n.rows.size(); ++r) {
                 ImGui::PushID((int)(3000 + r));
@@ -909,14 +1179,17 @@ void App::drawProceduralWindow() {
                 ImGui::SetNextItemWidth(56.0f * zoom);
                 if (ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f"))
                     changed = true;
+                procPoolColTip(0);
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(52.0f * zoom);
                 if (ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "%.2f"))
                     changed = true;
+                procPoolColTip(1);
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(52.0f * zoom);
                 if (ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "%.2f"))
                     changed = true;
+                procPoolColTip(2);
                 ImGui::SameLine();
                 if (ImGui::SmallButton("x")) removeRow = (int)r;
                 ImGui::PopID();
@@ -1085,12 +1358,9 @@ void App::drawProceduralWindow() {
             } else if (ImGui::GetTime() - procDescSince_ > 0.6) {
                 const ProcNode* hn = procgraph::node(g, hovered);
                 const ProcNodeType* ht = hn ? procNodeType(hn->type) : nullptr;
-                if (ht && ht->desc && *ht->desc) {
+                if (ht) {
                     ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(scaled(340.0f));
-                    ImGui::TextUnformatted(ht->title);
-                    ImGui::TextDisabled("%s", ht->desc);
-                    ImGui::PopTextWrapPos();
+                    procNodeDoc(*ht, scaled(360.0f));
                     ImGui::EndTooltip();
                 }
             }
@@ -1227,16 +1497,20 @@ void App::drawProceduralWindow() {
     }
 
     // Right-click a node: preview it / bypass it. Right-click the canvas: add.
+    // The target is remembered in procCtxNode_ and NOT in procDescNode_ - the
+    // latter is the hover tracker above, which resets to -1 as soon as the
+    // cursor sits on the popup instead of the node.
     int ctxNode = -1;
     if (editorHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        if (ImNodes::IsNodeHovered(&ctxNode))
+        if (ImNodes::IsNodeHovered(&ctxNode)) {
+            procCtxNode_ = ctxNode;
             ImGui::OpenPopup("##proc_node_ctx");
-        else
+        } else {
             ImGui::OpenPopup("##proc_add_node");
-        procDescNode_ = ctxNode;  // remember which node the popup belongs to
+        }
     }
     if (ImGui::BeginPopup("##proc_node_ctx")) {
-        ProcNode* n = procgraph::node(g, procDescNode_);
+        ProcNode* n = procgraph::node(g, procCtxNode_);
         if (!n) {
             ImGui::CloseCurrentPopup();
         } else {
@@ -1251,8 +1525,10 @@ void App::drawProceduralWindow() {
                 changed = true;
             }
             if (ImGui::MenuItem("Delete")) {
+                if (procPreviewNode_ == n->id) procPreviewNode_ = 0;
+                if (procCurveNode_ == n->id) procCurveNode_ = 0;
                 procgraph::removeNode(g, n->id);
-                if (procPreviewNode_ == procDescNode_) procPreviewNode_ = 0;
+                procCtxNode_ = -1;
                 changed = true;
             }
         }
@@ -1283,12 +1559,9 @@ void App::drawProceduralWindow() {
                         changed = true;
                     }
                 }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && t.desc &&
-                    *t.desc) {
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                     ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(scaled(340.0f));
-                    ImGui::TextUnformatted(t.desc);
-                    ImGui::PopTextWrapPos();
+                    procNodeDoc(t, scaled(360.0f));
                     ImGui::EndTooltip();
                 }
             }

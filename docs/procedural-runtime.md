@@ -87,6 +87,31 @@ comes from **regenerating on a player action** — a *Generate Volume* node fire
 from a button, where the player's own timing is the entropy. Both examples do
 exactly that (TRIANGLE).
 
+### The seed simulator
+
+Once a volume rolls its own seed, the number in the *Seed* box stops describing
+what a player will get, and the viewport is showing one draw out of many. The
+**Seed simulator** (the collapsed section under the tool row, runtime volumes
+only) is the answer to that: press *Simulate* and the editor evaluates the graph
+on N seeds — the authored one first, then the sequence *Reseed* itself hands
+out — and tabulates what each world costs.
+
+| | |
+|---|---|
+| a row | click it to show that world in the viewport; the rest of the scene stays on its own seeds |
+| *Use* | adopt that seed as the graph's, which is how you keep a layout you liked |
+| the summary | the instance and triangle SPREAD over the sweep, and how many seeds blow the Output node's triangle budget |
+
+That last line is the point of the feature. A runtime volume that fits the
+budget on the seed you happened to author with, and overruns it on one boot in
+eight, is a bug you would otherwise meet on the console. The simulated seed is a
+way of LOOKING at the graph, never an edit to it: it does not touch the `.tyra`,
+does not make a bake stale, and is dropped when you switch volumes.
+
+Cost is honest and stated in the tooltip — one trial is one full evaluation, so
+sixteen seeds is sixteen times the millisecond figure in the readout above. That
+is why it is a button and not a live number.
+
 ## Generate Volume
 
 The flow node that runs a runtime volume by name:

@@ -509,6 +509,13 @@ struct Ctx {
     const SceneObject& volObj;
     Volume vol;
     const ProcGraph& g;
+    // The seed every random draw derives from. Normally g.seed; the seed
+    // SIMULATOR (Options::seedOverride) substitutes another one so the editor
+    // can show what a runtime volume would build on a different boot without
+    // touching the authored graph. It is deliberately a Ctx field rather than
+    // reads of g.seed scattered over the node functions - one place to state
+    // "which world is this".
+    unsigned int seed = 1;
     const Options& opt;
     Cache* cache;
     Result* res;
@@ -790,14 +797,14 @@ Points genSurface(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
         float maskV = 1.0f;
         if (mask) {
             maskV = std::clamp(mask->sample(inst.pos[0], inst.pos[2]), 0.0f, 1.0f);
-            if (rand01(ctx.g.seed, n.id, key, 0) >= maskV) continue;
+            if (rand01(ctx.seed, n.id, key, 0) >= maskV) continue;
         }
         inst.key = key;
         out.pts.push_back(inst);
         ensureBaseAttrs(out);
         const size_t idx = out.pts.size() - 1;
         writeSurfaceAttrs(out, idx, nx, ny, nz);
-        out.attrs[procattr::kRandom][idx] = rand01(ctx.g.seed, n.id, key, 1);
+        out.attrs[procattr::kRandom][idx] = rand01(ctx.seed, n.id, key, 1);
         out.attrs[procattr::kSize][idx] = 1.0f;
         if (mask) {
             out.attrs[procattr::kMask].resize(out.pts.size(), 0.0f);
@@ -841,12 +848,12 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                                            (uint64_t)(uint32_t)ix);
                 // Progressive preview thins the lattice by a hashed coin flip,
                 // not by cutting rows - a coarse pass then covers the whole area.
-                if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac)
+                if (frac < 1.0f && rand01(ctx.seed, n.id, key, 7) >= frac)
                     continue;
                 const float jx =
-                    (rand01(ctx.g.seed, n.id, key, 2) - 0.5f) * jitter * spacing;
+                    (rand01(ctx.seed, n.id, key, 2) - 0.5f) * jitter * spacing;
                 const float jz =
-                    (rand01(ctx.g.seed, n.id, key, 3) - 0.5f) * jitter * spacing;
+                    (rand01(ctx.seed, n.id, key, 3) - 0.5f) * jitter * spacing;
                 const float lx =
                     -ctx.vol.sx * 0.5f + ((float)ix + 0.5f) * spacing + jx;
                 const float lz =
@@ -858,7 +865,7 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                 float maskV = 1.0f;
                 if (mask) {
                     maskV = std::clamp(mask->sample(wx, wz), 0.0f, 1.0f);
-                    if (rand01(ctx.g.seed, n.id, key, 0) >= maskV) continue;
+                    if (rand01(ctx.seed, n.id, key, 0) >= maskV) continue;
                 }
                 Instance inst;
                 inst.pos[0] = wx;
@@ -873,7 +880,7 @@ Points genGrid(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                 if (snap) terrainNormal(ctx.s, wx, wz, nrm);
                 writeSurfaceAttrs(out, idx, nrm[0], nrm[1], nrm[2]);
                 out.attrs[procattr::kRandom][idx] =
-                    rand01(ctx.g.seed, n.id, key, 1);
+                    rand01(ctx.seed, n.id, key, 1);
                 out.attrs[procattr::kSize][idx] = 1.0f;
                 if (mask) {
                     out.attrs[procattr::kMask].resize(out.pts.size(), 0.0f);
@@ -949,7 +956,7 @@ Points genBlocks(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
     for (int iz = 0; iz < nz; ++iz)
         for (int ix = 0; ix < nx; ++ix)
             h[(size_t)iz * nx + ix] =
-                (short)blockColumnHeight(ctx.g.seed, n.id, ix, iz, blockSz,
+                (short)blockColumnHeight(ctx.seed, n.id, ix, iz, blockSz,
                                          noiseScale, octaves, relief, levels,
                                          floorLayers, mask, ox, oz);
 
@@ -985,7 +992,7 @@ Points genBlocks(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                                            ((uint64_t)(uint32_t)iy << 34) ^
                                            ((uint64_t)(uint32_t)iz << 17) ^
                                            (uint64_t)(uint32_t)ix);
-                if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac)
+                if (frac < 1.0f && rand01(ctx.seed, n.id, key, 7) >= frac)
                     continue;
                 Instance inst;
                 inst.pos[0] = ox + ((float)ix + 0.5f) * blockSz;
@@ -999,7 +1006,7 @@ Points genBlocks(Ctx& ctx, const ProcNode& n, const Value& maskIn) {
                 const size_t idx = out.pts.size() - 1;
                 writeSurfaceAttrs(out, idx, 0.0f, 1.0f, 0.0f);
                 out.attrs[procattr::kRandom][idx] =
-                    rand01(ctx.g.seed, n.id, key, 1);
+                    rand01(ctx.seed, n.id, key, 1);
                 out.attrs[procattr::kSize][idx] = 1.0f;
                 out.attrs[procattr::kHeight].resize(out.pts.size(), 0.0f);
                 out.attrs[procattr::kHeight][idx] = inst.pos[1];
@@ -1036,7 +1043,7 @@ Points genVolume(Ctx& ctx, const ProcNode& n) {
         ensureBaseAttrs(out);
         const size_t idx = out.pts.size() - 1;
         writeSurfaceAttrs(out, idx, 0.0f, 1.0f, 0.0f);
-        out.attrs[procattr::kRandom][idx] = rand01(ctx.g.seed, n.id, key, 1);
+        out.attrs[procattr::kRandom][idx] = rand01(ctx.seed, n.id, key, 1);
         out.attrs[procattr::kSize][idx] = 1.0f;
     }
     return out;
@@ -1083,14 +1090,14 @@ Points genCurvePoints(Ctx& ctx, const ProcNode& n, const Value& curveIn) {
 
     for (int i = 0; i < count; ++i) {
         const uint64_t key = mix64(((uint64_t)(uint32_t)n.id << 40) ^ (uint64_t)i);
-        if (frac < 1.0f && rand01(ctx.g.seed, n.id, key, 7) >= frac) continue;
+        if (frac < 1.0f && rand01(ctx.seed, n.id, key, 7) >= frac) continue;
         float dist;
         if (fixedCount > 0)
             dist = total * ((float)i / (float)std::max(1, count - 1));
         else
             dist = (float)i * spacing;
         if (jitter > 0.0f)
-            dist += (rand01(ctx.g.seed, n.id, key, 4) - 0.5f) * jitter * spacing;
+            dist += (rand01(ctx.seed, n.id, key, 4) - 0.5f) * jitter * spacing;
         dist = std::clamp(dist, 0.0f, total);
         // Distance -> parameter, by walking the table.
         int lo = 0, hi = steps;
@@ -1128,7 +1135,7 @@ Points genCurvePoints(Ctx& ctx, const ProcNode& n, const Value& curveIn) {
         float nrm[3] = {0.0f, 1.0f, 0.0f};
         if (snap) terrainNormal(ctx.s, inst.pos[0], inst.pos[2], nrm);
         writeSurfaceAttrs(out, idx, nrm[0], nrm[1], nrm[2]);
-        out.attrs[procattr::kRandom][idx] = rand01(ctx.g.seed, n.id, key, 1);
+        out.attrs[procattr::kRandom][idx] = rand01(ctx.seed, n.id, key, 1);
         out.attrs[procattr::kSize][idx] = 1.0f;
         out.attrs[procattr::kCurveT].resize(out.pts.size(), 0.0f);
         out.attrs[procattr::kCurveT][idx] = u;
@@ -1171,7 +1178,7 @@ Points genPoint(Ctx& ctx, const ProcNode& n) {
     float nrm[3] = {0.0f, 1.0f, 0.0f};
     if (snap) terrainNormal(ctx.s, inst.pos[0], inst.pos[2], nrm);
     writeSurfaceAttrs(out, 0, nrm[0], nrm[1], nrm[2]);
-    out.attrs[procattr::kRandom][0] = rand01(ctx.g.seed, n.id, inst.key, 1);
+    out.attrs[procattr::kRandom][0] = rand01(ctx.seed, n.id, inst.key, 1);
     out.attrs[procattr::kSize][0] = 1.0f;
     return out;
 }
@@ -1319,7 +1326,7 @@ Mask genNoise(Ctx& ctx, const ProcNode& n) {
     // The noise seed folds the graph seed with the node id: reseeding the graph
     // moves every field, editing one node moves only its own.
     const uint32_t seed =
-        (uint32_t)(mix64(((uint64_t)ctx.g.seed << 32) ^ (uint64_t)(uint32_t)n.id) &
+        (uint32_t)(mix64(((uint64_t)ctx.seed << 32) ^ (uint64_t)(uint32_t)n.id) &
                    0xffffffffu);
     for (int z = 0; z < m.h; ++z) {
         for (int x = 0; x < m.w; ++x) {
@@ -1423,7 +1430,7 @@ Points filterRange(Ctx& ctx, const ProcNode& n, const Points& in) {
     for (size_t i = 0; i < out.pts.size(); ++i) {
         float p = band(a[i], lo, hi, falloff);
         if (inv) p = 1.0f - p;
-        keep[i] = rand01(ctx.g.seed, n.id, out.pts[i].key, 10) < p ? 1 : 0;
+        keep[i] = rand01(ctx.seed, n.id, out.pts[i].key, 10) < p ? 1 : 0;
     }
     out.compact(keep);
     return out;
@@ -1444,7 +1451,7 @@ Points filterMask(Ctx& ctx, const ProcNode& n, const Points& in, const Mask* m) 
         if (inv) v = 1.0f - v;
         out.attrs[procattr::kMask][i] = v;
         const float p = 1.0f - strength * (1.0f - v);
-        keep[i] = rand01(ctx.g.seed, n.id, out.pts[i].key, 11) < p ? 1 : 0;
+        keep[i] = rand01(ctx.seed, n.id, out.pts[i].key, 11) < p ? 1 : 0;
     }
     out.compact(keep);
     return out;
@@ -1549,7 +1556,7 @@ Points filterAvoid(Ctx& ctx, const ProcNode& n, const Points& in, const Curve* c
         else
             p = std::clamp((d - radius) / falloff, 0.0f, 1.0f);
         if (mode == 1) p = 1.0f - p;
-        keep[i] = rand01(ctx.g.seed, n.id, out.pts[i].key, 12) < p ? 1 : 0;
+        keep[i] = rand01(ctx.seed, n.id, out.pts[i].key, 12) < p ? 1 : 0;
     }
     out.compact(keep);
     return out;
@@ -1584,7 +1591,7 @@ Points pickAsset(Ctx& ctx, const ProcNode& n, const Points& in) {
     for (size_t i = 0; i < out.pts.size(); ++i) {
         // Weighted draw from the point's OWN stream: changing a weight moves
         // the boundary between species, it does not reshuffle the layout.
-        float r = rand01(ctx.g.seed, n.id, out.pts[i].key, 20) * total;
+        float r = rand01(ctx.seed, n.id, out.pts[i].key, 20) * total;
         size_t pickIdx = 0;
         for (size_t k = 0; k < rows.size(); ++k) {
             if (r < rows[k].weight) {
@@ -1595,7 +1602,7 @@ Points pickAsset(Ctx& ctx, const ProcNode& n, const Points& in) {
             pickIdx = k;
         }
         const Row& row = rows[pickIdx];
-        const float t = rand01(ctx.g.seed, n.id, out.pts[i].key, 21);
+        const float t = rand01(ctx.seed, n.id, out.pts[i].key, 21);
         const float size = row.smin + (row.smax - row.smin) * t;
         out.pts[i].asset = row.asset;
         out.pts[i].scale *= size;
@@ -1635,7 +1642,7 @@ Points pickPrefab(Ctx& ctx, const ProcNode& n, const Points& in) {
     }
     out.attrs[procattr::kSize].resize(out.pts.size(), 1.0f);
     for (size_t i = 0; i < out.pts.size(); ++i) {
-        float r = rand01(ctx.g.seed, n.id, out.pts[i].key, 22) * total;
+        float r = rand01(ctx.seed, n.id, out.pts[i].key, 22) * total;
         size_t pickIdx = 0;
         for (size_t k = 0; k < rows.size(); ++k) {
             if (r < rows[k].weight) {
@@ -1646,7 +1653,7 @@ Points pickPrefab(Ctx& ctx, const ProcNode& n, const Points& in) {
             pickIdx = k;
         }
         const Row& row = rows[pickIdx];
-        const float t = rand01(ctx.g.seed, n.id, out.pts[i].key, 23);
+        const float t = rand01(ctx.seed, n.id, out.pts[i].key, 23);
         const float size = row.smin + (row.smax - row.smin) * t;
         out.pts[i].prefab = row.prefab;
         out.pts[i].asset = -1;  // a point is one or the other
@@ -1670,7 +1677,7 @@ Points varyTransform(Ctx& ctx, const ProcNode& n, const Points& in) {
     for (size_t i = 0; i < out.pts.size(); ++i) {
         Instance& p = out.pts[i];
         const uint64_t k = p.key;
-        p.rot[1] += (rand01(ctx.g.seed, n.id, k, 30) - 0.5f) * yawRange;
+        p.rot[1] += (rand01(ctx.seed, n.id, k, 30) - 0.5f) * yawRange;
         if (align > 0.0f && nx && ny && nz) {
             // Lay the instance over toward the surface normal. Rotating around
             // the horizontal axis perpendicular to the slope direction is what
@@ -1683,16 +1690,16 @@ Points varyTransform(Ctx& ctx, const ProcNode& n, const Points& in) {
             p.rot[2] += -lean * std::sin((dirYaw - p.rot[1]) / kDeg);
         }
         if (tilt > 0.0f) {
-            p.rot[0] += (rand01(ctx.g.seed, n.id, k, 31) - 0.5f) * 2.0f * tilt;
-            p.rot[2] += (rand01(ctx.g.seed, n.id, k, 32) - 0.5f) * 2.0f * tilt;
+            p.rot[0] += (rand01(ctx.seed, n.id, k, 31) - 0.5f) * 2.0f * tilt;
+            p.rot[2] += (rand01(ctx.seed, n.id, k, 32) - 0.5f) * 2.0f * tilt;
         }
         if (smax > 0.0f && (smin != 1.0f || smax != 1.0f)) {
-            const float t = rand01(ctx.g.seed, n.id, k, 33);
+            const float t = rand01(ctx.seed, n.id, k, 33);
             p.scale *= smin + (smax - smin) * t;
         }
         if (jitter > 0.0f) {
-            p.pos[0] += (rand01(ctx.g.seed, n.id, k, 34) - 0.5f) * 2.0f * jitter;
-            p.pos[2] += (rand01(ctx.g.seed, n.id, k, 35) - 0.5f) * 2.0f * jitter;
+            p.pos[0] += (rand01(ctx.seed, n.id, k, 34) - 0.5f) * 2.0f * jitter;
+            p.pos[2] += (rand01(ctx.seed, n.id, k, 35) - 0.5f) * 2.0f * jitter;
         }
     }
     return out;
@@ -1748,7 +1755,7 @@ Value evalNode(Ctx& ctx, int nodeId) {
     --ctx.depth;
 
     uint64_t key = nodeParamHash(n);
-    key = hashCombine(key, ctx.g.seed);
+    key = hashCombine(key, ctx.seed);
     key = hashCombine(key, ctx.opt.contextSerial);
     key = hashFloat(key, ctx.opt.fraction);
     for (const Value& v : ins) key = hashCombine(key, v.hash);
@@ -1934,8 +1941,18 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
     res.prefabs = collectPrefabs(g);
     if (g.nodes.empty()) return res;
 
-    Ctx ctx{p,     s,        volume,      volumeOf(volume), g, opt, cache,
-            &res,  res.assets, res.prefabs, 0};
+    Ctx ctx{p,
+            s,
+            volume,
+            volumeOf(volume),
+            g,
+            opt.seedOverride ? opt.seedOverride : g.seed,
+            opt,
+            cache,
+            &res,
+            res.assets,
+            res.prefabs,
+            0};
 
     int target = opt.previewNode;
     if (target != 0 && !procgraph::node(g, target)) target = 0;
