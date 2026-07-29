@@ -3803,6 +3803,51 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     };
 
+    // One STATIC object drawn with a caller-supplied matrix: a primitive with
+    // its material tint/texture, or a .obj's parts. Everything that draws an
+    // object somewhere other than its own place in the scene goes through this
+    // - a mirror's reflected copy, and a prefab member inside a procedural
+    // instance. Deliberately the short path: no animation, no reflections, no
+    // projected decals, because neither caller can have them (merged prefab
+    // geometry has no runtime identity, and a mirror never lists an animated
+    // model).
+    auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
+                                bool asLines, float tintScale) {
+        aoReceive = t.type != PrimitiveType::Model;
+        const Mat4 mvp = mul(viewProj, model);
+        const ModelDraw* md = t.type == PrimitiveType::Model
+                                  ? modelDraw(t.modelPath, t.materialPath)
+                                  : nullptr;
+        if (md) {
+            for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
+                for (const ModelPart& part : md->parts) {
+                    const bool cutout = part.alpha && !asLines;
+                    if ((int)cutout != alphaPass) continue;
+                    // emissive is one-shot - draw() consumes it, so it has to be
+                    // set per part, inside the ordering loop
+                    for (int a = 0; a < 3; ++a)
+                        emissive[a] =
+                            asLines ? 0.0f : t.color[a] * tintScale * part.ke[a];
+                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0] * tintScale,
+                         t.color[1] * tintScale, t.color[2] * tintScale,
+                         asLines ? 0 : part.tex, asLines ? nullptr : &model, cutout);
+                }
+            return;
+        }
+        const MaterialDraw* mat =
+            t.type == PrimitiveType::Model ? nullptr : materialDraw(t.materialPath);
+        const float kr = mat ? mat->kd[0] : 1.0f;
+        const float kg = mat ? mat->kd[1] : 1.0f;
+        const float kb = mat ? mat->kd[2] : 1.0f;
+        for (int a = 0; a < 3; ++a)
+            emissive[a] = (asLines || !mat) ? 0.0f : t.color[a] * tintScale * mat->ke[a];
+        const uint32_t tex = (asLines || !mat) ? 0 : mat->tex;
+        const bool decalAlpha = t.type == PrimitiveType::Decal && tex && !asLines;
+        draw(*meshFor(t), GL_TRIANGLES, mvp, t.color[0] * kr * tintScale,
+             t.color[1] * kg * tintScale, t.color[2] * kb * tintScale, tex,
+             asLines ? nullptr : &model, decalAlpha);
+    };
+
     // One pass over terrain + objects, filled or as wireframe.
     // tintScale darkens the overlay wires in SolidWireframe mode.
     auto scenePass = [&](bool asLines, float tintScale) {
@@ -4030,6 +4075,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                              asLines ? nullptr : &model, cutout);
                     }
             }
+            // Prefab instances. A point from Pick Prefab carries no asset at
+            // all, so without this the whole cloud draws as NOTHING - which is
+            // exactly what a prefab-scattering graph used to look like in the
+            // editor while reporting hundreds of instances. The app expands each
+            // instance through prefab::instantiate (the same function Insert
+            // into scene and the runtime spawner use), so these are already
+            // world-space objects and the preview cannot drift from the world.
+            for (const SceneObject& m : scatter_.prefabObjects)
+                drawStaticObject(m, modelMatrix(m), asLines, tintScale);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);

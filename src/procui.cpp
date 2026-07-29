@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "prefab.hpp"
 #include "procbake.hpp"
 #include "procgen.hpp"
 #include "procgraph.hpp"
@@ -217,11 +218,17 @@ void App::updateProcPreview() {
                 merged.curve = r.curve;
             }
         }
-        // Asset indices are per volume - shift them as the lists concatenate.
+        // Asset AND prefab indices are per volume - shift both as the lists
+        // concatenate. Missing the prefab half meant two volumes' prefab pools
+        // aliased onto each other's names.
         const int base = (int)merged.assets.size();
+        const int pbase = (int)merged.prefabs.size();
         merged.assets.insert(merged.assets.end(), r.assets.begin(), r.assets.end());
+        merged.prefabs.insert(merged.prefabs.end(), r.prefabs.begin(),
+                              r.prefabs.end());
         for (procgen::Instance inst : r.instances) {
             if (inst.asset >= 0) inst.asset += base;
+            if (inst.prefab >= 0) inst.prefab += pbase;
             merged.instances.push_back(inst);
         }
         for (const std::string& w : r.warnings)
@@ -231,6 +238,45 @@ void App::updateProcPreview() {
         merged.overridesApplied += r.overridesApplied;
         merged.overridesOrphaned += r.overridesOrphaned;
     }
+    // Prefab instances have no mesh of their own - a Pick Prefab point carries a
+    // prefab index and no asset at all - so unless they are expanded here the
+    // viewport draws NOTHING for them while the readout cheerfully reports
+    // hundreds of instances. Expansion goes through prefab::instantiate, the
+    // same function Insert into scene and the runtime spawner use, so the
+    // preview cannot invent a placement the world would not produce.
+    //
+    // Capped: one prefab is tens of objects, so a few hundred points is already
+    // thousands of draws. Past the cap the preview is truncated and SAYS so -
+    // silently showing part of a world is the one outcome worse than showing
+    // none of it.
+    std::vector<SceneObject> prefabObjs;
+    {
+        const int kMaxPreviewObjects = 6000;
+        int placed = 0;
+        bool truncated = false;
+        for (const procgen::Instance& inst : merged.instances) {
+            if (inst.prefab < 0 || inst.prefab >= (int)merged.prefabs.size()) continue;
+            const Prefab* pf = prefab::find(project_, merged.prefabs[inst.prefab]);
+            if (!pf || pf->objects.empty()) continue;
+            if (placed + (int)pf->objects.size() > kMaxPreviewObjects) {
+                truncated = true;
+                break;
+            }
+            // Only yaw: that is all a prefab instance carries on the console
+            // (the spawner is a yaw plus a translation), so previewing the full
+            // Euler would show a world the game cannot build.
+            std::vector<SceneObject> objs =
+                prefab::instantiate(*pf, inst.pos[0], inst.pos[1], inst.pos[2],
+                                    inst.rot[1], inst.scale, "");
+            placed += (int)objs.size();
+            for (SceneObject& o : objs) prefabObjs.push_back(std::move(o));
+        }
+        if (truncated)
+            merged.warnings.push_back(
+                "prefab preview truncated at " + std::to_string(kMaxPreviewObjects) +
+                " objects - the console still builds them all");
+    }
+
     procResult_ = merged;
     procLastMs_ = ms;
     procNodesRun_ = nodesRun;
@@ -245,6 +291,7 @@ void App::updateProcPreview() {
     sp.version = procPreviewVersion_;
     sp.assets = merged.assets;
     sp.instances = merged.instances;
+    sp.prefabObjects = std::move(prefabObjs);
     sp.mask = merged.mask;
     sp.curve = merged.curve;
     // Handles: the control points of the curve node being edited, plus the

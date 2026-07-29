@@ -226,6 +226,12 @@ pool, a missing Output.
   points disappear.
 - **Bypass** passes a node's first input straight through: an instant A/B of one
   step.
+- **Prefab instances preview as their real geometry.** A *Pick Prefab* point
+  carries a prefab and no asset, so the viewport expands each instance through
+  the same `prefab::instantiate` that *Insert into scene* and the runtime
+  spawner use — what you see is what the console builds, and the triangle
+  budget counts each instance's mergeable members. (Past ~6000 preview objects
+  the expansion truncates and says so; the console still builds them all.)
 - **Seed** reshuffles everything; **Reseed** rolls a new one. A *runtime* volume
   also gets a [seed simulator](procedural-runtime.md#the-seed-simulator) —
   several seeds evaluated at once, so the spread rather than one draw.

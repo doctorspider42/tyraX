@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "meshlod.hpp"
+#include "prefab.hpp"
 
 namespace fs = std::filesystem;
 
@@ -157,12 +158,50 @@ Report estimate(const Project& p, const SceneObject& volume,
     const int detail = out ? procgraph::inum(*out, "detail") : 0;
 
     std::map<uint64_t, int> chunkIds;  // (asset, cell) -> triangles, for the count
+    int noContent = 0;
     for (const procgen::Instance& inst : r.instances) {
-        if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) continue;
-        auto mesh = sourceMesh(p, r.assets[inst.asset], detail);
-        if (!mesh) continue;
         const int cx = (int)std::floor(inst.pos[0] / cell);
         const int cz = (int)std::floor(inst.pos[2] / cell);
+        // A point carries an asset OR a prefab. Counting only the asset half
+        // made a prefab-scattering graph report zero triangles and "fits the
+        // budget" for a world of 27 rooms - a budget readout that is silent
+        // about the thing being placed is worse than none.
+        if (inst.prefab >= 0 && inst.prefab < (int)r.prefabs.size()) {
+            const Prefab* pf = prefab::find(p, r.prefabs[inst.prefab]);
+            if (!pf || pf->objects.empty()) {
+                ++noContent;
+                continue;
+            }
+            int tris = 0;
+            for (const SceneObject& m : pf->objects) {
+                // Only merged members land in the chunk geometry; the rest are
+                // spawned objects with their own submits, counted by the
+                // Prefabs window rather than by a triangle budget.
+                if (!prefab::memberMerges(m)) continue;
+                if (m.type == PrimitiveType::Model) {
+                    if (auto mesh = sourceMesh(p, m.modelPath, detail))
+                        tris += mesh->triangles();
+                } else {
+                    tris += primTriangleCount(m.type, m.primDetail);
+                }
+            }
+            const uint64_t key = 0x8000000000000000ULL ^
+                                 ((uint64_t)(uint32_t)inst.prefab << 40) ^
+                                 ((uint64_t)(uint32_t)cx << 20) ^ (uint32_t)cz;
+            chunkIds[key] += tris;
+            rep.triangles += tris;
+            ++rep.instances;
+            continue;
+        }
+        if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) {
+            ++noContent;
+            continue;
+        }
+        auto mesh = sourceMesh(p, r.assets[inst.asset], detail);
+        if (!mesh) {
+            ++noContent;
+            continue;
+        }
         const uint64_t key = ((uint64_t)(uint32_t)inst.asset << 40) ^
                              ((uint64_t)(uint32_t)cx << 20) ^ (uint32_t)cz;
         chunkIds[key] += mesh->triangles();
@@ -172,10 +211,11 @@ Report estimate(const Project& p, const SceneObject& volume,
     rep.chunks = (int)chunkIds.size();
     rep.vertexBytes = (size_t)rep.triangles * 3 * kBytesPerVertex;
     rep.overBudget = rep.triangles > budget;
-    if (rep.instances < (int)r.instances.size())
+    if (noContent > 0)
         rep.warnings.push_back(
-            "some instances have no asset assigned (add a Pick Asset node) or "
-            "their model file is missing");
+            std::to_string(noContent) +
+            " instance(s) have nothing to place - add a Pick Asset or Pick "
+            "Prefab node, or check that the model file still exists");
     return rep;
 }
 

@@ -14407,3 +14407,45 @@ Each finished feature lands as its own commit.
   cube's own prefab note now renders as two wrapped lines instead of one clipped
   one. Nothing here reaches the PS2 (`prefabSource` is editor-only and the
   simulator is a preview), so there is no console half to test.
+
+- (227) **A prefab-scattering graph previewed as empty ground.** Reported
+  straight after the entry above, by the obvious first move: open
+  `examples/cube`, open its only procedural volume, look. The readout said *27
+  instances*, the viewport showed a bare terrain, and the budget bar said *0 /
+  40000 triangles* for a world of 27 rooms.
+
+  One cause, three consumers. A point carries an asset **or** a prefab
+  (`Instance::asset` / `Instance::prefab`), and everything downstream had only
+  ever been taught about the asset half: `viewport.cpp`'s scatter loop skipped
+  `asset < 0`, `procbake::estimate` did the same and then blamed the author
+  ("some instances have no asset assigned - add a Pick Asset node") for a graph
+  that had a perfectly good Pick Prefab, and `updateProcPreview`'s multi-volume
+  merge rebased asset indices but not prefab ones, so two volumes' prefab pools
+  aliased. Pick Prefab shipped in (224) with its own preview never once looked
+  at - the runtime half was verified on the console, which is exactly where the
+  gap could hide.
+
+  The preview now expands each prefab instance through **`prefab::instantiate`**
+  - the same function *Insert into scene* and the runtime spawner use - into
+  world-space objects the viewport draws through a new shared
+  `drawStaticObject` (the mirror pass's `drawReflected` was already that
+  function; now there is one of it). Going through `instantiate` rather than
+  composing transforms in the viewport is the point: the preview cannot invent a
+  placement the world would not produce, and it silently inherits the
+  yaw-plus-translation-only convention the console has. Capped at 6000 preview
+  objects, and a truncated preview SAYS so - showing part of a world without
+  saying which part is worse than showing none of it. `estimate` counts each
+  instance's **mergeable** members (models via `sourceMesh`, primitives via the
+  existing `primTriangleCount`), so the budget bar and the seed simulator stop
+  reporting zero, and its warning now names both node types and only fires for
+  instances that really have nothing to place.
+
+  **Verified in the running editor** on an untouched copy of `examples/cube`:
+  the viewport draws the 3x3x3 lattice of coloured rooms with no bake and no
+  game, and the readout reads *27 instances | 14 chunks | 6480 triangles | ~759
+  KB* where it read zeros. The seed simulator's eight seeds now show 6480
+  triangles and 9-14 chunks each instead of 0/0. And the simulator's central
+  claim - that clicking a seed shows THAT world - is measured rather than
+  eyeballed: cropped to the viewport rect, the authored seed differs from two
+  others by 156k and 132k of 327k pixels, those two differ from each other by
+  154k, and a frame against itself differs by 0.

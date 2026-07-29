@@ -222,6 +222,12 @@ public:
         uint64_t version = 0;
         std::vector<std::string> assets;  // index = Instance::asset
         std::vector<procgen::Instance> instances;
+        // Prefab instances, already expanded into WORLD-SPACE objects by the
+        // app (prefab::instantiate - the same function Insert into scene and
+        // the runtime spawner use, so the preview cannot invent a placement the
+        // world would not produce). A Pick Prefab point carries no asset, so
+        // without these such an instance draws as nothing at all.
+        std::vector<SceneObject> prefabObjects;
         // An isolated node's own output, shown instead of instances: a mask
         // draped over the terrain, or a curve as a polyline (UX-01).
         std::shared_ptr<const procgen::Mask> mask;
