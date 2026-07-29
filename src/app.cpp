@@ -1825,6 +1825,7 @@ void App::updateProjectedDecals() {
             }
         }
         for (float h : sc.heights) mixf(h);  // terrain receiver
+        mix(sc.terrain.enabled ? 1u : 0u);   // ...which a removed terrain isn't
     }
 
     if (sig == projectedDecalsSig_) {
@@ -1884,6 +1885,7 @@ void App::updateNavOverlay() {
     mixf(project_.settings.navAgentRadius);
     mix((uint64_t)sc.terrain.width);
     mix((uint64_t)sc.terrain.depth);
+    mix(sc.terrain.enabled ? 1u : 0u);  // no terrain = nothing walkable at all
     mix(sc.objects.size());
     for (const SceneObject& o : sc.objects) {
         mix((uint64_t)o.type);
@@ -2836,7 +2838,12 @@ void App::drawViewportWindow() {
 
         // Terrain brushes stay with the tools (shortcuts 4/6). Grabbing either
         // one opens the Terrain Editor window - the tool's options live there.
+        // Both are dead in a scene with no terrain (docs/terrain.md): there is
+        // no ground to sculpt or paint, and the Terrain Editor is where it is
+        // created again.
+        const bool hasTerrain = project_.active().terrain.enabled;
         ImGui::SameLine(0.0f, 24.0f);
+        ImGui::BeginDisabled(!hasTerrain);
         if (sculptMode_)
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
@@ -2860,6 +2867,11 @@ void App::drawViewportWindow() {
             }
         }
         if (paintMode_) ImGui::PopStyleColor();
+        ImGui::EndDisabled();
+        if (!hasTerrain &&
+            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("This scene has no terrain - create it in the "
+                              "Terrain Editor");
 
         // Surface snapping: inserted / pasted objects rest on what is under
         // them. A machine-global preference, mirrored in the View menu.
@@ -3072,7 +3084,7 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmoOp_ = 0;
             if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmoOp_ = 1;
             if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmoOp_ = 2;
-            if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+            if (ImGui::IsKeyPressed(ImGuiKey_4) && hasTerrain) {
                 sculptMode_ = !sculptMode_;
                 if (sculptMode_) {
                     paintMode_ = false;
@@ -3100,7 +3112,7 @@ void App::drawViewportWindow() {
                                           ? Viewport::Projection::Perspective
                                           : Viewport::Projection::Ortho);
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_6)) {
+            if (ImGui::IsKeyPressed(ImGuiKey_6) && hasTerrain) {
                 paintMode_ = !paintMode_;
                 if (paintMode_) {
                     sculptMode_ = false;
@@ -3653,8 +3665,13 @@ void App::drawProjectWindow() {
 
     ImGui::Text("Terrain:");
     ImGui::SameLine(110);
-    ImGui::Text("%d x %d units (scene %s)", project_.active().terrain.width,
-                project_.active().terrain.depth, project_.active().name.c_str());
+    // Without a terrain the size is still the scene's world bounds, so it stays
+    // on this row - what changes is that there is no ground (docs/terrain.md).
+    ImGui::Text(project_.active().terrain.enabled
+                    ? "%d x %d units (scene %s)"
+                    : "none - %d x %d world (scene %s)",
+                project_.active().terrain.width, project_.active().terrain.depth,
+                project_.active().name.c_str());
 
     ImGui::Text("Target:");
     ImGui::SameLine(110);
@@ -4917,6 +4934,12 @@ aobake::ModelAabbFn App::placementModelAabb() {
 }
 
 placement::HeightFn App::placementHeight() const {
+    // No terrain, no ground sampler: placement then rests objects on other
+    // objects only, and an object over nothing keeps its height (placement.cpp
+    // treats an empty HeightFn as "no terrain under the footprint"). Handing it
+    // the viewport's y = 0 fallback instead would snap props onto a floor that
+    // does not exist (docs/terrain.md).
+    if (!project_.active().terrain.enabled) return {};
     return [this](float x, float z) { return viewport_.terrainHeight(x, z); };
 }
 
@@ -9503,8 +9526,16 @@ void App::drawNewSceneModal() {
         return;
 
     ImGui::InputText("Name", newSceneName_, sizeof(newSceneName_));
-    ImGui::DragInt("Terrain width", &newSceneWidth_, 1.0f, 8, 4096, "%d units");
-    ImGui::DragInt("Terrain depth", &newSceneDepth_, 1.0f, 8, 4096, "%d units");
+    ImGui::Checkbox("Create terrain", &newSceneTerrain_);
+    prefHelp(
+        "Off starts the scene with no ground at all - nothing is drawn and the\n"
+        "game has no floor here either, so its floors are the geometry you\n"
+        "place (docs/terrain.md). The size below stays the world bounds, and\n"
+        "the terrain can be created later in the Terrain Editor.");
+    ImGui::DragInt(newSceneTerrain_ ? "Terrain width" : "World width",
+                   &newSceneWidth_, 1.0f, 8, 4096, "%d units");
+    ImGui::DragInt(newSceneTerrain_ ? "Terrain depth" : "World depth",
+                   &newSceneDepth_, 1.0f, 8, 4096, "%d units");
     if (!newSceneError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newSceneError_.c_str());
 
@@ -9524,6 +9555,7 @@ void App::drawNewSceneModal() {
             sc.name = name;
             sc.terrain.width = newSceneWidth_;
             sc.terrain.depth = newSceneDepth_;
+            sc.terrain.enabled = newSceneTerrain_;
             project_.scenes.push_back(std::move(sc));
             project_.activeScene = (int)project_.scenes.size() - 1;
             clearSelection();
@@ -10116,9 +10148,21 @@ void App::drawNewProjectModal() {
             if (newUnitsPerMeter_ < 0.001f) newUnitsPerMeter_ = 0.001f;
         }
 
-        ImGui::SeparatorText("Terrain (flat)");
-        ImGui::InputInt("Width (units)", &newWidth_);
-        ImGui::InputInt("Depth (units)", &newDepth_);
+        ImGui::SeparatorText(newTerrain_ ? "Terrain (flat)" : "World size");
+        ImGui::Checkbox("Create terrain", &newTerrain_);
+        prefHelp(
+            "On: the scene starts with a flat ground plane you can sculpt and\n"
+            "paint (Terrain Editor).\n"
+            "Off: no ground at all - nothing is drawn and the game has no floor\n"
+            "either, so the player and the physics stand on the geometry you\n"
+            "place and fall through the void everywhere else. For interiors,\n"
+            "platformers and cutscene-only projects. The size below stays the\n"
+            "world bounds every walker is clamped to, and the terrain can be\n"
+            "created (or removed) later in the Terrain Editor.");
+        ImGui::InputInt(newTerrain_ ? "Width (units)" : "World width (units)",
+                        &newWidth_);
+        ImGui::InputInt(newTerrain_ ? "Depth (units)" : "World depth (units)",
+                        &newDepth_);
         if (newWidth_ < 1) newWidth_ = 1;
         if (newDepth_ < 1) newDepth_ = 1;
         if (newWidth_ > 4096) newWidth_ = 4096;
@@ -10158,10 +10202,19 @@ void App::drawNewProjectModal() {
 
         ImGui::TextDisabled("Creates: %s\\%s", newLocation_, newName_);
         ImGui::TextDisabled(
-            "Default scene \"main\" with a flat %d x %d terrain.%s", newWidth_, newDepth_,
+            newTerrain_ ? "Default scene \"main\" with a flat %d x %d terrain.%s"
+                        : "Default scene \"main\", %d x %d world, no terrain.%s",
+            newWidth_, newDepth_,
             newTemplate_ == 0   ? " Adds a player entity (FPP)."
             : newTemplate_ == 1 ? " Adds a player entity (third person)."
                                 : "");
+        // A player with no terrain has nothing to stand on until the first
+        // floor is placed - say so here rather than let it be discovered by
+        // falling through an empty world on the first build.
+        if (!newTerrain_ && newTemplate_ != 2)
+            ImGui::TextColored(ImVec4(0.9f, 0.75f, 0.35f, 1.0f),
+                               "The player starts in mid-air - place a floor "
+                               "(a Box, a model) under it.");
         // The build defaults a fresh project starts with - one line, because
         // nobody should have to discover why the FPS overlay is there or the
         // keyboard is not; the reasoning is in the tooltip.
@@ -10182,7 +10235,7 @@ void App::drawNewProjectModal() {
         ImGui::Separator();
         if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
             Project p;
-            TerrainConfig t{newWidth_, newDepth_};
+            TerrainConfig t{newWidth_, newDepth_, newTerrain_};
             if (newTemplate_ < 0 || newTemplate_ >= kNewPresetCount) newTemplate_ = 0;
             const char* preset = kNewPresets[newTemplate_].preset;
             std::string err =
@@ -10287,6 +10340,38 @@ void App::drawTerrainWindow() {
     }
 
     SceneData& sc = project_.active();
+
+    // Does this scene HAVE a terrain (docs/terrain.md)? This is the one control
+    // that stays live with the terrain removed - everything below edits a
+    // ground that would not exist. Removing keeps the heightmap, the paint and
+    // the layers in the project, so creating it again brings the scene back
+    // exactly as it was (and it is one undo step either way).
+    {
+        bool on = sc.terrain.enabled;
+        if (ImGui::Checkbox("Terrain in this scene", &on)) {
+            sc.terrain.enabled = on;
+            if (!on) sculptMode_ = paintMode_ = false;
+            applyProjectToViewport();
+            commitChange();
+            statusMessage_ = on ? "Created the terrain" : "Removed the terrain";
+        }
+        prefHelp(
+            "Off removes the ground completely: nothing is drawn here and the\n"
+            "generated game has no floor either - the player, the physics and\n"
+            "the AI stand on the geometry you place and fall through the void\n"
+            "everywhere else. The scene's size stays the world bounds every\n"
+            "walker is clamped to. The heightmap and the paint are kept, so\n"
+            "turning it back on restores the terrain you had.");
+    }
+    if (!sc.terrain.enabled) {
+        ImGui::Separator();
+        ImGui::TextWrapped(
+            "This scene has no terrain. Sculpting, painting, the terrain "
+            "material and the ground bakes (AO, GI, navigation) are all off; "
+            "floors are whatever geometry you place.");
+        ImGui::End();
+        return;
+    }
     const bool canPaint = !sc.terrainLayers.empty();
     if (!canPaint) paintMode_ = false;
 

@@ -1007,7 +1007,10 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         const SceneData& sc = p.scenes[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << sc.name
              << "\",\n      \"terrain\": { \"width\": " << sc.terrain.width
-             << ", \"depth\": " << sc.terrain.depth << " },\n      ";
+             << ", \"depth\": " << sc.terrain.depth
+             // Omitted at its default, like every other flag here: a project
+             // with no "enabled" key HAS a terrain (docs/terrain.md).
+             << (sc.terrain.enabled ? "" : ", \"enabled\": false") << " },\n      ";
         writeSceneVisuals(json, sc);
         if (!sc.layers.empty()) {
             json << ",\n      \"layers\": ";
@@ -2172,6 +2175,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
         if (const auto* t = js.find("terrain")) {
             if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
             if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
+            if (const auto* v = t->find("enabled")) sc.terrain.enabled = v->boolOr(true);
         }
         readSceneVisuals(js, sc);
         if (const auto* objs = js.find("objects");
@@ -4023,6 +4027,8 @@ std::string load(Project& out, const std::string& projectDir) {
                         sc.terrain.width = (int)v->numberOr(64);
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
+                    if (const auto* v = t->find("enabled"))
+                        sc.terrain.enabled = v->boolOr(true);
                 }
                 readSceneVisuals(js, sc);
                 out.scenes.push_back(std::move(sc));
@@ -4244,7 +4250,8 @@ std::string saveHistory(const Project& p, const History& h) {
             const SceneData& sc = s.scenes[k];
             json << (k ? ", " : "") << "{ \"name\": \"" << sc.name
                  << "\", \"terrain\": { \"width\": " << sc.terrain.width
-                 << ", \"depth\": " << sc.terrain.depth << " }, ";
+                 << ", \"depth\": " << sc.terrain.depth
+                 << (sc.terrain.enabled ? "" : ", \"enabled\": false") << " }, ";
             writeSceneVisuals(json, sc);
             if (!sc.layers.empty()) {
                 json << ", \"layers\": ";
@@ -4312,6 +4319,8 @@ std::string loadHistory(const Project& p, History& h) {
                         sc.terrain.width = (int)v->numberOr(64);
                     if (const auto* v = t->find("depth"))
                         sc.terrain.depth = (int)v->numberOr(64);
+                    if (const auto* v = t->find("enabled"))
+                        sc.terrain.enabled = v->boolOr(true);
                 }
                 readSceneVisuals(js, sc);
                 s.scenes.push_back(std::move(sc));

@@ -402,6 +402,46 @@ existing project's numbers are never touched — and the *New Project* modal's
 per-field prose belongs in a `prefHelp("...")` `(?)` tooltip, not in
 `TextDisabled` paragraphs that push the buttons off the screen.
 
+**The terrain is optional** (`TerrainConfig::enabled`, docs/terrain.md) and it
+is the reference point for "a subsystem a scene can be built without". The flag
+lives in `TerrainConfig`, so it travels through `project::create`'s existing
+`terrain` argument, the scene table's `"terrain"` object and `SceneData`'s
+`operator==` (undo) with no new plumbing — but *reading* it is spread by design,
+and the split is the thing to copy:
+- **One decision, made once, in the height sampler.** `terrainHeightAtScene`
+  returns `TERRAIN_VOID_Y` (a deep but FINITE -1e6) when the scene has no
+  terrain, and ~30 call sites in the generated game — the walkers, the physics
+  contact, the spring arm, the raycasts, `aoShadeMul`'s ground term, the blob
+  shadows' fade — become correct with no branch of their own: "there is no
+  floor" IS "the floor is unreachably low". Finite matters: every one of those
+  sites subtracts or compares heights, and an infinity would produce NaN
+  geometry rather than a skipped effect.
+- **Explicit `TERRAIN_ENABLED` only where a site BUILDS something** rather than
+  answering a question: `resetTerrainChunks` (no chunks at all, which is what
+  makes `renderTerrain` and the streaming pass no-ops), `setupLightPools` (a
+  ground pool needs a ground), the projected-shadow patch (skipped over the
+  void, or it draws geometry a million units down), the rain particle's fall
+  length, and the player spawn Y (the void would drop the player before the
+  first collision could catch them — the spawn point's own Y is used instead).
+- **The host bakes each read `sc.terrain.enabled` themselves** (`navmesh::bake`
+  returns an empty grid, `decalproj` drops the terrain receiver, `gibake` skips
+  the ground soup + the terrain lightmap and mixes the flag into its cache
+  signature, `aobake`'s atlas leaves the ground-contact term out, texbake skips
+  the ground textures/stochastic supertiles) — they already take
+  `(Project, SceneData)`, so gating inside is what keeps codegen and the
+  viewport agreeing for free. `collectTexturePaths` skipping a terrain-less
+  scene is what makes `TERRAIN_TEXTURES` -1 and the ground textures not ship.
+- **The editor's twin is `Viewport::terrain_.enabled`**: `buildTerrainMesh`
+  builds nothing (world axes still do), `terrainRaycast` misses, and the AO
+  ground-contact uniform is forced off — the shader's fallback is the y = 0
+  plane, which would darken every object against a floor that isn't there.
+  `App::placementHeight()` returns an EMPTY `placement::HeightFn` (placement.cpp
+  already reads that as "no terrain under the footprint") instead of the
+  viewport's 0.0 fallback.
+So: a new consumer of the terrain asks `sc.terrain.enabled` on the host and
+`TERRAIN_ENABLED` in a generated builder — but a new consumer of the terrain
+*height* needs nothing at all.
+
 **Inline text icons** (`{{cross}}` / `{{action:jump}}`, docs/text-icons.md).
 `Project::textIcons` (`TextIcon`: name + PNG + scale, seeded per pad button by
 `project::ensureTextIcons`, edited in *UI Editor > Button icons*). The parser is

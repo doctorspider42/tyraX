@@ -72,7 +72,7 @@ tyrax-editor binary lives.)
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
@@ -85,6 +85,15 @@ to see exactly what the game will compile.
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
   emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+- The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
+  in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
+  removed the scene has **no ground at all**: nothing is drawn and the game has
+  no floor, so the player, physics bodies and particles rest on the geometry the
+  scene places (a box, a plane, a model with collision) and fall through the
+  void anywhere else - and a Player or spawn point starts at its own authored
+  Y, not on a surface. The scene's width/depth still bound the world. Terrain
+  sculpting/painting, the ground bakes and **navigation AI** (the navmesh
+  rasterizes the ground, so agents have nowhere to walk) do not apply there.
 - An **area** is an invisible box (no geometry in the game). Other things
   reference one by name instead of carrying a distance: a streaming layer's
   auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the

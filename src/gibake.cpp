@@ -374,16 +374,24 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
     TexMeanCache texCache;
 
     // --- terrain ------------------------------------------------------------
-    s.heights = sc.heights;
-    s.hmW = sc.hmW;
-    s.hmD = sc.hmD;
+    // The extents describe the SCENE, not the ground, so they are set either
+    // way (the probe grid spans them). With the terrain removed the heightmap
+    // stays empty and no ground triangles are tessellated: nothing bounces off
+    // a floor that is not there, and the probe grid's lowest level falls back
+    // to the scene bounds (docs/terrain.md).
+    const bool hasTerrain = sc.terrain.enabled;
+    if (hasTerrain) {
+        s.heights = sc.heights;
+        s.hmW = sc.hmW;
+        s.hmD = sc.hmD;
+    }
     s.hmWidth = (float)sc.terrain.width;
     s.hmDepth = (float)sc.terrain.depth;
     s.terrainMinX = -s.hmWidth * 0.5f;
     s.terrainMaxX = s.hmWidth * 0.5f;
     s.terrainMinZ = -s.hmDepth * 0.5f;
     s.terrainMaxZ = s.hmDepth * 0.5f;
-    {
+    if (hasTerrain) {
         float albedo[3] = {0.35f, 0.45f, 0.3f};  // the checker greens' average
         if (!rs.terrainMaterial.empty()) {
             const MatInfo& mi =
@@ -794,14 +802,17 @@ ProbeGrid bakeProbes(const Scene& s, const Settings& st,
     // Level 0 sits half a step above the LOWEST ground in the grid, so a probe
     // never starts buried in a hill; the levels above stack from there.
     float lowest = 1e30f;
-    for (int j = 0; j < nz; ++j)
-        for (int i = 0; i < nx; ++i) {
-            const float x = minX + g.step[0] * i;
-            const float z = minZ + g.step[2] * j;
-            lowest = std::min(lowest,
-                              heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
-                                            s.hmDepth, x, z));
-        }
+    // No heightmap = no ground: the fallback below starts the levels at the
+    // bottom of the scene's own geometry instead of an imagined y = 0 floor.
+    if (s.hmW >= 2 && s.hmD >= 2)
+        for (int j = 0; j < nz; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const float x = minX + g.step[0] * i;
+                const float z = minZ + g.step[2] * j;
+                lowest = std::min(lowest,
+                                  heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
+                                                s.hmDepth, x, z));
+            }
     if (lowest > 1e29f) lowest = s.bmin[1];
     g.origin[1] = lowest + g.step[1] * 0.5f;
 
@@ -927,6 +938,7 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
     mix64(h, st.probes ? 1 : 0);
     mix64(h, sc.terrain.width);
     mix64(h, sc.terrain.depth);
+    mix64(h, sc.terrain.enabled ? 1 : 0);  // the ground is in or out of the bake
     mix64(h, sc.hmW);
     mix64(h, sc.hmD);
     for (float v : sc.heights) mixF(h, v);
@@ -1166,13 +1178,19 @@ Bake bakeScene(const Project& p, int sceneIndex,
             !mats.empty())
             terrainTextured = !mats.front().texture.empty();
     }
-    out.terrain = aobake::terrainAOMap(
-        sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-        (float)sc.terrain.depth, aobake::collectOccluders(sc.objects, aabbFn),
-        terrainTextured ? std::vector<aobake::Emitter>()
-                        : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-        rs.aoRadius, rs.aoStrength, rs.aoEnabled,
-        terrainTextured ? nullptr : &giLight);
+    // No terrain, no terrain lightmap - the image is what the ground pass
+    // samples, and there is no ground pass (docs/terrain.md).
+    out.terrain =
+        sc.terrain.enabled
+            ? aobake::terrainAOMap(
+                  sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                  (float)sc.terrain.depth,
+                  aobake::collectOccluders(sc.objects, aabbFn),
+                  terrainTextured ? std::vector<aobake::Emitter>()
+                                  : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
+                  rs.aoRadius, rs.aoStrength, rs.aoEnabled,
+                  terrainTextured ? nullptr : &giLight)
+            : aobake::AoImage();
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
     out.probes = bakeProbes(s, st, cancel, [&](float t) { step(0.70f, 0.3f, t); });

@@ -128,7 +128,7 @@ probe is still absent after a fetch.
 `TYRAX` below.)
 
 ```
-TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter]
+TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
@@ -150,10 +150,17 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   fixture either game template — the editor deliberately offers no way to
   switch afterwards.
   Defaults match the *New Project* dialog: 100x100 terrain, 1 unit = 1 m, the
-  **debug** profile with Live Link on, USB keyboard & mouse off. It echoes the
+  **debug** profile with Live Link on, USB keyboard & mouse off — except the
+  preset, which stays `empty` here while the dialog starts on `fpp`. It echoes the
   terrain size and world scale, so `--new` + a grep over the `.tyra` is the
   cheapest check that a new-project default landed (a fixture that needs the
   old release-profile behavior has to set it explicitly).
+  **`--no-terrain`** (accepted anywhere among the optional arguments) scaffolds a
+  scene with no ground at all (docs/terrain.md) — the fixture for the void-floor
+  behavior, and the fast way to check the terrain-less codegen: the `.tyra` gets
+  `"enabled": false` and `inc/scene_data.hpp` reads `TERRAIN_ENABLEDS = {false}`
+  with `TERRAIN_TEXTURES = {-1}`. Verifying it in PCSX2 needs a floor object in
+  the scene, or the player falls at boot — which is the feature, not a bug.
 - `--build` streams the whole Docker build log to stdout and returns a real
   exit code — the backbone of scripted e2e runs.
 - `--bake-gi` runs the whole global-illumination bake for every scene

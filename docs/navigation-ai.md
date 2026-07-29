@@ -28,6 +28,11 @@ At build time the editor rasterizes each scene into a walkable-cell bitmap
   *mesh* collision (ramps, stairs) never block — that mode exists to be
   walked on.
 
+Because walkability *is* the terrain surface here, a scene whose terrain was
+removed ([docs/terrain.md](terrain.md)) has **no walkable cells at all** and its
+agents hold still. A placed floor is something a player can stand on, not
+something the nav bake understands - pathfinding over one is not supported yet.
+
 Tuning lives in *Project > Preferences > AI navigation*: **Nav cell size**
 (default 1 world unit), **Max walkable slope** (default 40°) and **Agent
 radius** (default 0.4). The grid is capped at **128×128 cells** — larger maps

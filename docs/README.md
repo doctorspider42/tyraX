@@ -83,6 +83,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the Material Editor's live preview on your own .obj models, duplicating a
   material together with its textures, and painting color or tiled-pattern
   strokes straight onto the mesh through its UVs (the flat PNG is the bake).
+- [The terrain, and building without one](terrain.md) - the per-scene ground
+  plane is optional: the New Project / New scene "Create terrain" checkbox and
+  the Terrain Editor's toggle, what "removed" means in the editor and in the
+  game (no mesh, no ground textures, no lightmap - and no floor: things stand
+  on the geometry you place and fall through the void), what the scene size
+  still means, and the limits (navigation AI needs a terrain).
 - [Terrain painting](terrain-painting.md) - blending several terrain layers
   (grass/rock/path, each an `.mtl`) by painting their weights with a brush on
   the terrain in the Terrain Editor; two-pass GS splatting (vertex-alpha, full
