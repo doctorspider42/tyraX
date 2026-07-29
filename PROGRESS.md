@@ -14667,3 +14667,23 @@ Each finished feature lands as its own commit.
   `-not (...)` into a test on an array - i.e. a failed fetch reading as success.
   Every git call in `Get-PinnedCommit` is piped to `Out-Null` and the caller
   re-checks the probe file instead of trusting the return value.
+
+  **Follow-up in the same PR: the repo got its own license.** The audit above
+  turned up that TyraX had no `LICENSE` of its own - which formally means "all
+  rights reserved", an odd stance for something that reads as open source and
+  ships an Apache-2.0 engine inside it. Now **Apache-2.0**, matching the engine,
+  so the whole tree is under one set of terms with no compatibility question to
+  answer. `LICENSE` is the canonical text (verified byte-identical to the copy
+  recovered for `vendor/tyra` across all 186 lines of the license body; only the
+  appendix copyright line differs, filled in as "Copyright 2026 doctorspider42"
+  at the author's choice - the handle, not a legal name), plus a short `NOTICE`
+  recording the Tyra derivation, and a **License** section in the README.
+  The question that section had to answer out loud rather than leave implied:
+  **what license do generated games carry?** They are written from templates in
+  `src/templates.cpp`, so the generated sources begin life as a copy of
+  Apache-2.0 code and carry those terms - Apache-2.0 does not reach the user's
+  own game logic, art or audio, but it is not "your project, your terms" either.
+  Written down as the current state, with a note that an explicit exception is
+  what would change it. Not decided here: whether to grant one, and whether to
+  attach the Apache boilerplate header to `src/*.cpp` (recommended by the
+  license, not required, and a ~90-file sweep).

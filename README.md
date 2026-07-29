@@ -388,3 +388,23 @@ This project stands on the shoulders of the PS2 homebrew community:
   distributed, since there is no `vendor/` to look in then — are in
   [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
+## License
+
+TyraX is licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). Apache-2.0 was the natural choice rather than a deliberate
+one: the engine this editor is built around is already Apache-2.0, so matching
+it keeps the whole tree under a single set of terms with no compatibility
+question to answer.
+
+Third-party notices are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md);
+what may be added as a dependency, and on what conditions, is in the
+[Dependency policy](#dependency-policy) above.
+
+**Games you generate**: TyraX writes a project's C++ from templates that live in
+this repository (`src/templates.cpp`), so the generated sources start out as a
+copy of Apache-2.0-licensed code and carry those terms with them. In practice
+Apache-2.0 asks very little of you — keep the license and notice, state what you
+changed, don't use the project's name to endorse yours — and it does not reach
+your own game logic, art or audio. If you want generated projects released under
+terms of your own choosing instead, that needs an explicit exception added here
+by the copyright holder; until one exists, assume the above.

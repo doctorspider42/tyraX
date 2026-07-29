@@ -14,6 +14,8 @@ only moment anyone would notice.
 
 Attribution and links for the wider project live in the **Credits** section of
 [`README.md`](README.md); this file is the legal text those credits point at.
+TyraX's own license — Apache-2.0, the same terms as the engine — is in
+[`LICENSE`](LICENSE), with the summary notice in [`NOTICE`](NOTICE).
 
 ## Summary
 
