@@ -496,7 +496,7 @@ Notes:
   verify a zoom is not a screenshot but `dump` at two zoom levels: the node
   widgets ARE ordinary items, so their rects give you the scale factor and the
   offsets between them give you whether the layout stayed self-similar
-  (PROGRESS 232 measures both to under 0.1%).
+  (PROGRESS 233 measures both to under 0.1%).
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally

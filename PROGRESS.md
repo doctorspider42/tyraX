@@ -13317,7 +13317,7 @@ Each finished feature lands as its own commit.
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
-- (232) **Fix: the Flow Graph canvas was only half-zoomed - the node text never
+- (233) **Fix: the Flow Graph canvas was only half-zoomed - the node text never
   scaled, and nothing in it knew about the UI scale** (user: "Rozjeżdżają nam się
   trochę flow graphy, jak się je zoomuje/odzoomowuje. Może font też się powinien
   zmieniać?").

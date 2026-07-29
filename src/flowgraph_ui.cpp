@@ -727,7 +727,7 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::CreditsName) {
-            if (ImGui::BeginCombo("Credits", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Credits", n.str.empty() ? "<none>" : n.str.c_str())) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -740,7 +740,7 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.credits.empty())
                     ImGui::TextDisabled("Add rolls in\nTools > Credits Editor.");
-                ImGui::EndCombo();
+                endCombo();
             }
         } else if (t->strKind == FlowParamKind::MenuName) {
             if (beginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {

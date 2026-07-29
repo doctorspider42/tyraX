@@ -1059,7 +1059,7 @@ simply delegates are not.
   does not warn, and silently scales nothing. `PushFont(nullptr, sizePx)` sets the
   context-level `FontSizeBase` and children inherit it.
   Two consequences the Flow Graph's zoom is built around (`flowgraph_ui.cpp`,
-  PROGRESS 232), worth copying for any future zoomable view: **derive every
+  PROGRESS 233), worth copying for any future zoomable view: **derive every
   length from the rounded font pixel size, not from the zoom** (ImGui rounds font
   sizes, so text width is a staircase while a raw `zoom` multiplier is a straight
   line - snap the zoom to a whole font pixel and the view stays self-similar),
