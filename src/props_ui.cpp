@@ -76,6 +76,12 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Mirror: return "Mirror";
         case PrimitiveType::Portal: return "Portal";
         case PrimitiveType::Area: return "Area";
+        // The type is serialized as "scatter" (and the enum is Scatter), but
+        // the UI says PROCEDURAL: the object is the region a whole graph works
+        // in, and scattering is only one of the things that graph can do -
+        // naming it after one source node is what made people expect the
+        // object to choose the generation mode.
+        case PrimitiveType::Scatter: return "Procedural volume";
     }
     return "Object";
 }
@@ -266,6 +272,38 @@ void App::drawPropertiesWindow() {
                     if (l.streamArea == from) l.streamArea = o.name;
             }
         }
+    }
+
+    // Provenance. Stated once, right under the name, because "where did this
+    // come from" is the first thing asked about an object in a scene built out
+    // of prefabs - and because the answer includes what it is NOT (a live link
+    // back to the prefab).
+    if (!o.prefabSource.empty()) {
+        ImGui::TextDisabled("From prefab: %s", o.prefabSource.c_str());
+        ImGui::SameLine();
+        prefHelp(
+            "This object was stamped from that prefab and is an ordinary, "
+            "independent scene object now - editing the prefab later does not "
+            "change it, and editing it does not change the prefab. The Project "
+            "panel groups everything carrying this mark under one node.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open in Prefabs")) {
+            for (size_t pi = 0; pi < project_.prefabs.size(); ++pi)
+                if (project_.prefabs[pi].name == o.prefabSource)
+                    prefabSelected_ = (int)pi;
+            showPrefabs_ = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget")) {
+            // The escape hatch: a member reworked into something else should
+            // stop claiming a lineage it no longer has.
+            o.prefabSource.clear();
+            committed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Drop the prefab mark from this object - it leaves the group in\n"
+                "the Project panel and becomes a plain hand-authored object.");
     }
 
     // Streaming layer (Project panel > Layers). Shown as soon as the scene
@@ -475,17 +513,34 @@ void App::drawPropertiesWindow() {
     // Area: the transform IS the volume (scale = the box size), color tints
     // its wireframe. Nothing else applies - it has no geometry in the game.
     const bool isArea = o.type == PrimitiveType::Area;
+    // Scatter volume: position/scale ARE the region its graph works in, and
+    // the Y rotation yaws the footprint. Everything else about it lives in the
+    // graph (Tools > Procedural), so no game-state fields apply.
+    const bool isScatter = o.type == PrimitiveType::Scatter;
+    if (isScatter) {
+        ImGui::TextDisabled(
+            "Procedural region: position and scale are the box the graph fills.");
+        if (ImGui::Button("Open the graph")) {
+            showProcedural_ = true;
+            procVolume_ = selectedObject_;
+            procVolumeId_ = o.id;
+            procPositionsApplied_ = false;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d nodes, seed %u", (int)o.procGraph.nodes.size(),
+                            (unsigned)o.procGraph.seed);
+    }
 
     ImGui::DragFloat3("Position", o.position, 0.1f);
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
+        isScatter || (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
     if (isSolid || isEmpty || isDecal || isMirror || isPortal || isArea ||
-        o.type == PrimitiveType::Emitter) {
+        isScatter || o.type == PrimitiveType::Emitter) {
         ImGui::DragFloat3(isArea ? "Size" : "Scale", o.scale, 0.05f, 0.01f, 1000.0f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // How big that actually is. A primitive is a UNIT shape, so its scale
@@ -1603,6 +1658,23 @@ void App::drawMultiProperties() {
             tally += std::to_string(n) + " " + typeLabel((PrimitiveType)t);
         }
         ImGui::TextDisabled("%s", tally.c_str());
+    }
+    // Provenance, same as the single-object view - and this is the case that
+    // actually happens, because clicking a prefab group in the Project panel
+    // selects the whole instance at once.
+    {
+        std::string src = objs.front()->prefabSource;
+        for (auto* p : objs)
+            if (p->prefabSource != src) src.clear();
+        if (!src.empty()) {
+            ImGui::TextDisabled("All from prefab: %s", src.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Open in Prefabs")) {
+                for (size_t pi = 0; pi < project_.prefabs.size(); ++pi)
+                    if (project_.prefabs[pi].name == src) prefabSelected_ = (int)pi;
+                showPrefabs_ = true;
+            }
+        }
     }
     ImGui::Separator();
 

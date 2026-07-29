@@ -360,6 +360,19 @@ void App::rebuildAssetUsage() {
     if (!project_.settings.terrainMaterial.empty())
         note(project_.settings.terrainMaterial, 2, "project terrain material");
 
+    // Prefab members are real references: the asset ships because a prefab
+    // uses it, whether or not any scene has an instance placed today. No
+    // objectRefs - a prefab member is not a scene object, so the inspector's
+    // "select this" link has nothing to select.
+    for (const Prefab& pf : project_.prefabs)
+        for (const SceneObject& o : pf.objects) {
+            const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
+            if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
+            if (!o.materialPath.empty())
+                note(o.materialPath, 0, where + " (material)");
+            if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
+        }
+
     auto noteHud = [&](const HudImage& h, const std::string& where) {
         if (!h.imagePath.empty()) note(h.imagePath, 2, where);
     };
@@ -594,6 +607,14 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (TerrainLayer& l : scene.terrainLayers) swap(l.material);
     }
     swap(project_.settings.terrainMaterial);
+
+    // Prefab members store the same three asset paths a scene object does.
+    for (Prefab& pf : project_.prefabs)
+        for (SceneObject& o : pf.objects) {
+            swap(o.modelPath);
+            swap(o.materialPath);
+            swap(o.soundPath);
+        }
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);

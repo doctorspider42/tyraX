@@ -216,6 +216,17 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- Both `--build` and `--refresh-gen` also run the **procedural bake** first
+  (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
+  volumes are baked into their chunk meshes and the project is saved, printing
+  `procedural: baked N volume(s) -> ...`. So a headless build of a project with
+  a procedural volume MUTATES the `.tyra` (the chunk objects are real scene
+  objects) - expect that diff, and use it: the fastest way to test a graph
+  change is `--refresh-gen` + grep `inc/scene_data.hpp` for the
+  `<volume>#<asset>-x<i>z<j>` chunk objects. The graph model itself is
+  harness-testable (procgraph/procgen/procbake link without GUI, GL or
+  templates.cpp - see PROGRESS 171 for the property list that caught three real
+  bugs).
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -468,10 +479,10 @@ Notes:
 
   ```powershell
   build\tyrax-editor.exe --ui-script <projectDir> `
-      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+      'frames 20; click Tools; click "Remote Pad"; shot panel.png; quit'
   ```
 
-  `click|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
+  `click|rightclick|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -480,7 +491,9 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted with DOUBLE quotes, the only kind the tokenizer strips**, so
+  on PowerShell put the whole script in single quotes or the shell eats them and
+  a two-word target arrives as two tokens, `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
@@ -772,11 +785,16 @@ Notes:
   copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
   sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
   project has nothing to resolve against). Needs the build container up.
-- **Testing a crash is harder than it looks**: PCSX2 will not produce the
-  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
-  starts at 0) and a misaligned load went through unharmed. And installing the
-  EE crash handler wedges the game under PCSX2 (entry 194), so that path is a
-  hardware-only test today. What IS testable in the emulator: the report format
+- **Testing a crash is harder than it looks**: **PCSX2 cannot produce an EE
+  exception at all**, so catching one is a HARDWARE-ONLY test (entry 246).
+  Everything tried passed through unharmed there: a signed-overflow `add`, an
+  illegal opcode, a write to address 0 (main RAM starts at 0) and a misaligned
+  load. On a real console the reliable trigger is one line in a user-owned
+  script - `volatile int a = 0x7FFFFFFF, b = 1; asm volatile("add %0, %1, %2" :
+  "=r"(r) : "r"(a), "r"(b));` - which raises cause 12 and lands a real
+  `bin/crash.txt`; `--symbolize` then names the exact source line. (Installing
+  the handler no longer wedges anything - that was `ee_dbg_install(2)`, fixed in
+  246.) What IS testable in the emulator: the report format
   (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the

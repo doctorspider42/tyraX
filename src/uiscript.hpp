@@ -86,6 +86,7 @@ std::string dumpText();
 struct Step {
     enum Kind {
         Click,        // arg = target
+        RightClick,   // arg = target - the context-menu button
         DoubleClick,  // arg = target
         HoldClick,    // arg = target, seconds = how long to keep the button down
         Hover,        // arg = target

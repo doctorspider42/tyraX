@@ -101,6 +101,8 @@ static std::string strKindDesc(FlowParamKind k) {
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::PrefabName:
+            return "prefab name (see context; Tools > Prefabs)";
         case FlowParamKind::EventName:
             return "event name (free text - an event exists by being named; use "
                    "the SAME string on the Send Event and the On Event)";
@@ -378,6 +380,8 @@ std::string systemPrompt(const Project& p, int ownerIndex,
                      [](const AmbiencePreset& a) { return a.name; }));
     ctxLine("Sequences (cutscenes)",
             nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+    ctxLine("Prefabs (Spawn Prefab / Despawn Prefab)",
+            nameList(p.prefabs, [](const Prefab& pf) { return pf.name; }));
     ctxLine("Credits rolls",
             nameList(p.credits, [](const CreditsRoll& r) { return r.name; }));
 

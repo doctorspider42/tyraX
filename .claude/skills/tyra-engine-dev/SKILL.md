@@ -329,19 +329,34 @@ Three properties to preserve if you touch it:
   a trampoline and return. The report is written from the trampoline, where stdio
   and the IOP-served host: filesystem work again. File I/O inside the exception
   context is the classic way to turn a crash into a hang.
-- **Which causes may be hooked is not a matter of taste** (both measured):
-  hooking **cause 0 (Interrupt)** hijacks vblank/timer/DMA dispatch, so no
-  thread ever runs again — the game freezes with the last frame up and nothing in
-  the log; **cause 8 (Syscall)** and TLB refill / TLB modified (1, 2, 3) are how
-  ordinary memory traffic and every kernel service are *serviced*, not faults to
-  report. Hook genuine faults only: 4, 5, 6, 7, 9, 10, 11, 12, 13, 15.
+- **Install LEVEL 1 ONLY.** `ee_dbg_install(2)` never returns: it drops
+  interrupts and rewrites the error-level vector at 0x80000100 under the running
+  machine. That froze every debug build that turned the feature on, on hardware
+  and in PCSX2 alike, with nothing in the log. `ee_dbg_install(1)` returns fine
+  on the same boot. Level 2 is only NMI / cache error, so nothing is lost.
+- **What the install hooks is not up to your handler table**, and a hooked cause
+  with no handler is an infinite exception loop. From disassembling
+  `libeedebug.a` (the image ships no sources): `ee_dbg_install(1)` routes causes
+  **1..3** through `SetVTLBRefillHandler` and **4..7 + 10..13** through
+  `SetVCommonHandler` regardless of what you register, and its vector **always
+  ERETs** — it never chains to the kernel handler it saved (that copy is only for
+  `ee_dbg_remove`). So an unhandled hooked cause returns to the faulting
+  instruction with nothing serviced; fatal for a TLB refill, which is how a
+  mapped access is *completed*. The handler therefore hands causes 1..3 straight
+  back with `SetVTLBRefillHandler` after installing. Causes 0 (Interrupt), 8
+  (Syscall), 9, 14 and 15 are never routed by the install at all — which is why
+  narrowing the registered list alone never fixed anything.
+  (`ee_dbg_set_level2_handler` also bounds-checks `cause < 4`.)
+- **A crash takes the screen** (`init_scr`/`scr_printf`) before idling. An
+  assertion may halt quietly and let the editor surface it; an exception may not,
+  because a frozen last frame is indistinguishable from a hang.
 
-**Still unproven on hardware**: under PCSX2 the game dies the moment
-`ee_dbg_install()` runs (even with the narrow cause set), so the feature is
-behind an off-by-default project preference. PCSX2 also refuses to *produce* the
-exception — writing to address 0 does not fault on the PS2 (main RAM starts
-there) and a misaligned load went through — so the emulator cannot validate this
-path at all. A console pass is what unlocks making it the default.
+**Verified on hardware** (2026-07-29): a forced signed-overflow `add` produced
+`CRASH: Arithmetic overflow`, `bin/crash.txt` and a `--symbolize` hit on the
+exact source line. **PCSX2 cannot *produce* an EE exception at all** — a forced
+overflow, an illegal opcode, a write to address 0 (main RAM starts there) and a
+misaligned load all pass through unharmed — so catching is a hardware-only test,
+even though the old install hang reproduced in both.
 
 Related: the engine's error blocks now print `==============  TYRAX  =============`
 (`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
