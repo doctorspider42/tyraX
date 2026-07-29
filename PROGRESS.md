@@ -15078,3 +15078,40 @@ Each finished feature lands as its own commit.
   main's own `--new ... --no-terrain`: adding a procedural volume raises *"this
   scene has no terrain, so there is no surface to place on - turn Snap to
   surface off"* next to the ordinary empty-pool warnings.
+
+- (238) **The pool rows were unreadable, and there was no way to scatter a
+  primitive.** Both reported off one screenshot of a Pick Asset node reading
+  `(pick a` and `w 5 0.9 1.1 x`.
+
+  **Readability.** Node item width 140 -> 168, so an enum or an object-name
+  combo stops saying `(terra`. The pool row's asset combo now spans the node
+  (236) and shows the **basename** - `res/models/` is identical on every row and
+  was eating exactly the width the name needed - with the full path on hover.
+  The three numbers moved to a computed third-of-the-row each (67 instead of
+  56/52/52) and the scale fields read `x1.00` rather than a bare `1.00`, since
+  next to a weight a lone `0.90` says nothing about being a multiplier. The
+  numeric half of a row is now ONE function shared by the asset and prefab
+  pools, which were already meant to be the same shape.
+
+  **Scattering a primitive.** The answer is not a new node. A one-member prefab
+  already does exactly this - merged into the chunk bags, costed by the Prefabs
+  window, spawnable on the console - so the gap was that you had to know to go
+  and make one. A *Pick Prefab* row's picker now ends in **Capture from the
+  scene**: pick any scene object and it becomes an ordinary prefab named after
+  it, with the row pointed at it. A second "scatter a scene object" mechanism
+  would have been the same feature with its own bugs, its own runtime tables and
+  its own drift; this adds no code path at all below the picker. *Pick Asset*
+  stays `.obj`-only and says so, with its combo pointing at Pick Prefab - a node
+  that is never going to be the right place for a primitive should say where the
+  right place is rather than just refusing.
+
+  **Verified in the running editor.** A Box added through the Add menu, captured
+  with one object selected, and a pool row pointed at it: the viewport draws the
+  cube's lattice with grey scattered boxes where the red rooms were, and the
+  budget follows honestly - 6480 -> 3972 triangles, which is 12 per box against
+  ~240 per room. The widened rows are in the screenshot: `room-steel` reads in
+  full and `w 34 | x1.00 | x1.00 | x` are separated. What was NOT clicked is the
+  new combo entry itself - a `##`-labelled ImGui combo has no name for
+  `--ui-script` to target, so the capture was exercised through the identical
+  `prefab::capture` call the Prefabs window makes, and the picker section itself
+  is a human check.

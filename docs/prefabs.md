@@ -12,6 +12,12 @@ prefab is for and how it wants to be placed does not fit in fifty characters.
 The list shows the note as a tooltip, so a pool of a dozen prefabs is browsable
 without selecting each one.
 
+**A prefab of one object is a normal prefab**, and that is the answer to
+"how do I scatter a primitive": a *Pick Prefab* row's picker can capture any
+scene object under *Capture from the scene* without a trip to this window. The
+captured box, sphere or placed model then merges, costs and spawns exactly like
+a captured room does.
+
 Working demo: [examples/cube](../examples/cube) — four room prefabs stamped
 onto a 3×3×3 lattice on the console at boot.
 

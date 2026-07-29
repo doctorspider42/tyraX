@@ -435,8 +435,10 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "birch 25, dead 5) and a size inside the row's scale range. "
                  "The draw uses the point's own random stream, so changing a "
                  "weight shifts the proportions without reshuffling the "
-                 "layout. Models come from res/models - the Tree Generator is "
-                 "a good source."},
+                 "layout. The pool holds .obj files from res/models - the Tree "
+                 "Generator is a good source. To scatter a PRIMITIVE, or "
+                 "anything else already standing in the scene, use Pick Prefab: "
+                 "its pool can capture a scene object in one click."},
 
         {.key = "PickPrefab",
          .title = "Pick Prefab",
@@ -446,7 +448,10 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .rows = ProcRowKind::Prefabs,
          .desc = "Assigns each point one prefab from the pool below - the way to "
                  "scatter something BUILT rather than modelled: a room, a shack, "
-                 "a lamp post with its light and its script. A point carries a "
+                 "a lamp post with its light and its script. The pool can also "
+                 "CAPTURE a scene object (a box, a coloured primitive, a placed "
+                 "model) as a one-member prefab in one click, which is how you "
+                 "scatter something that is not a .obj file. A point carries a "
                  "prefab or a model, never both; whichever of these nodes runs "
                  "last wins. Costs one draw call per instance plus one spawn "
                  "slot per member that keeps an identity - Tools > Prefabs "

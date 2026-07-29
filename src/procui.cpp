@@ -422,7 +422,9 @@ static const char* procRowsHelp(ProcRowKind k) {
         case ProcRowKind::Prefabs:
             return "Pool rows: a prefab (Tools > Prefabs), its weight, and the "
                    "scale range one point may draw from. Weights are relative - "
-                   "34/26/26/14 is simply 'the first one a bit more often'.";
+                   "34/26/26/14 is simply 'the first one a bit more often'. The "
+                   "picker can also capture a scene object as a one-member "
+                   "prefab, which is how a primitive gets scattered.";
         case ProcRowKind::Points:
             return "Control points of the curve, in world XYZ. Edit in viewport "
                    "turns terrain clicks into new points.";
@@ -432,6 +434,14 @@ static const char* procRowsHelp(ProcRowKind k) {
         case ProcRowKind::None: break;
     }
     return nullptr;
+}
+
+// File name of an asset path. A pool row is a column of "res/models/..."
+// strings whose shared prefix is exactly the part that does not identify it,
+// and the node is the one place where width is scarce.
+static std::string baseNameOf(const std::string& path) {
+    const size_t slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
 // Hover help for the just-submitted rows header.
@@ -1033,7 +1043,38 @@ void App::drawProceduralWindow() {
         ImNodes::EndNodeTitleBar();
 
         ImGui::PushID(n.id);
-        ImGui::PushItemWidth(140.0f * zoom);
+        // Wide enough that an enum, an object name or a pool row READS. A node
+        // whose every combo says "(terra" or "(pick a" is a node you have to
+        // click to understand, and these are read far more often than edited.
+        const float itemW = 168.0f * zoom;
+        const float poolW = 236.0f * zoom;
+        ImGui::PushItemWidth(itemW);
+
+        // The numeric half of a pool row - weight and the scale range - shared
+        // by the asset and prefab pools, which are deliberately the same shape
+        // (one graph mixing scattered models with scattered rooms should not
+        // need two mental models). Returns true when the row was edited, and
+        // sets `remove` when its x was pressed.
+        auto poolNumbers = [&](ProcRow& row, bool& remove) {
+            bool hit = false;
+            const float bw = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float gap = ImGui::GetStyle().ItemSpacing.x;
+            const float cell = std::max(40.0f, (poolW - bw - gap * 3.0f) / 3.0f);
+            ImGui::SetNextItemWidth(cell);
+            hit |= ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f");
+            procPoolColTip(0);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(cell);
+            hit |= ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "x%.2f");
+            procPoolColTip(1);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(cell);
+            hit |= ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "x%.2f");
+            procPoolColTip(2);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) remove = true;
+            return hit;
+        };
 
         // Input pins.
         for (size_t i = 0; i < t->ins.size(); ++i) {
@@ -1172,8 +1213,11 @@ void App::drawProceduralWindow() {
             for (size_t r = 0; r < n.rows.size(); ++r) {
                 ImGui::PushID((int)r);
                 ProcRow& row = n.rows[r];
-                ImGui::SetNextItemWidth(150.0f * zoom);
-                const std::string label = row.s.empty() ? "(pick a model)" : row.s;
+                ImGui::SetNextItemWidth(poolW);
+                // The BASENAME, not the stored path: "res/models/" is the same
+                // on every row and eats the width the actual name needs.
+                const std::string label =
+                    row.s.empty() ? "(pick a model)" : baseNameOf(row.s);
                 if (ImGui::BeginCombo("##asset", label.c_str())) {
                     for (const std::string& m : models) {
                         const std::string rel = "res/models/" + m;
@@ -1184,24 +1228,19 @@ void App::drawProceduralWindow() {
                     }
                     if (models.empty())
                         ImGui::TextDisabled("no .obj files in res/models");
+                    // Where the other half of the answer lives. Asked as "you
+                    // cannot pick a primitive here" - true, and this node is
+                    // never going to be the place for it, so it points.
+                    ImGui::Separator();
+                    ImGui::TextDisabled("a primitive or anything else in the "
+                                        "scene?\nuse a Pick Prefab node");
                     ImGui::EndCombo();
                 }
-                ImGui::SetNextItemWidth(56.0f * zoom);
-                if (ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f"))
-                    changed = true;
-                procPoolColTip(0);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(52.0f * zoom);
-                if (ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "%.2f"))
-                    changed = true;
-                procPoolColTip(1);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(52.0f * zoom);
-                if (ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "%.2f"))
-                    changed = true;
-                procPoolColTip(2);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("x")) removeRow = (int)r;
+                if (!row.s.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("%s", row.s.c_str());
+                bool rm = false;
+                if (poolNumbers(row, rm)) changed = true;
+                if (rm) removeRow = (int)r;
                 ImGui::PopID();
             }
             if (removeRow >= 0) {
@@ -1228,7 +1267,7 @@ void App::drawProceduralWindow() {
             for (size_t r = 0; r < n.rows.size(); ++r) {
                 ImGui::PushID((int)(3000 + r));
                 ProcRow& row = n.rows[r];
-                ImGui::SetNextItemWidth(150.0f * zoom);
+                ImGui::SetNextItemWidth(poolW);
                 const std::string label =
                     row.s.empty() ? "(pick a prefab)" : row.s;
                 if (ImGui::BeginCombo("##prefab", label.c_str())) {
@@ -1239,25 +1278,46 @@ void App::drawProceduralWindow() {
                             changed = true;
                         }
                     if (project_.prefabs.empty())
-                        ImGui::TextDisabled("no prefabs - see Tools > Prefabs");
+                        ImGui::TextDisabled("no prefabs yet - pick from the scene "
+                                            "below, or Tools > Prefabs");
+                    // "You cannot scatter a primitive" - you can, and this is
+                    // where. Capturing ONE scene object makes an ordinary
+                    // one-member prefab, so a scattered box travels the exact
+                    // path a scattered room does: merged into the chunk bags,
+                    // costed by the Prefabs window, runnable on the console.
+                    // A second mechanism for "scatter a scene object" would be
+                    // the same feature with its own bugs.
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Capture from the scene");
+                    const std::vector<SceneObject>& objs = project_.objects();
+                    bool anyCapturable = false;
+                    for (size_t oi = 0; oi < objs.size(); ++oi) {
+                        const SceneObject& o = objs[oi];
+                        // Not a volume (it would scatter itself) and not this
+                        // bake's own output.
+                        if (o.type == PrimitiveType::Scatter) continue;
+                        if (!o.procSource.empty()) continue;
+                        anyCapturable = true;
+                        if (!ImGui::Selectable(o.name.c_str())) continue;
+                        Prefab np = prefab::capture(
+                            project_.active(), {(int)oi},
+                            prefab::uniqueName(project_, o.name));
+                        if (np.objects.empty()) continue;
+                        project_.prefabs.push_back(std::move(np));
+                        row.s = project_.prefabs.back().name;
+                        changed = true;
+                        statusMessage_ =
+                            "Captured \"" + o.name + "\" as the prefab \"" + row.s +
+                            "\" - the original object stays in the scene, delete "
+                            "it if it was only a template";
+                    }
+                    if (!anyCapturable)
+                        ImGui::TextDisabled("(nothing in the scene to capture)");
                     ImGui::EndCombo();
                 }
-                ImGui::SetNextItemWidth(56.0f * zoom);
-                if (ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f"))
-                    changed = true;
-                procPoolColTip(0);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(52.0f * zoom);
-                if (ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "%.2f"))
-                    changed = true;
-                procPoolColTip(1);
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(52.0f * zoom);
-                if (ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "%.2f"))
-                    changed = true;
-                procPoolColTip(2);
-                ImGui::SameLine();
-                if (ImGui::SmallButton("x")) removeRow = (int)r;
+                bool rm = false;
+                if (poolNumbers(row, rm)) changed = true;
+                if (rm) removeRow = (int)r;
                 ImGui::PopID();
             }
             if (removeRow >= 0) {

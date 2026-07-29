@@ -233,6 +233,15 @@ pool, a missing Output.
   points disappear.
 - **Bypass** passes a node's first input straight through: an instant A/B of one
   step.
+- **To scatter a primitive**, or anything else already standing in the scene,
+  open a *Pick Prefab* row's picker and choose it under **Capture from the
+  scene**. That makes an ordinary one-member prefab, so a scattered box travels
+  the exact path a scattered room does — merged into the chunk bags, costed by
+  the Prefabs window, runnable on the console. There is deliberately no second
+  "scatter a scene object" mechanism: it would be the same feature with its own
+  bugs. *Pick Asset* stays what it is — `.obj` files from `res/models`.
+  Capturing leaves the original object in the scene; delete it if it was only a
+  template.
 - **Prefab instances preview as their real geometry.** A *Pick Prefab* point
   carries a prefab and no asset, so the viewport expands each instance through
   the same `prefab::instantiate` that *Insert into scene* and the runtime
