@@ -30,10 +30,17 @@ build in — ps2link is a standalone program. The ELF is gitignored; the patch i
 what this repo maintains.
 
 You can tell our build apart on the console: the boot screen reads
-**“Welcome to TyraX ps2link (USB keyboard + mouse)”** instead of
-“Welcome to ps2link”.
+**“Welcome to TyraX ps2link r3 (USB keyboard + mouse)”** instead of
+“Welcome to ps2link”. The `r<n>` is bumped whenever the patch changes console
+behaviour — r1 was USB HID only, r2 added the hang/leak fixes, r3 silences the
+SPU2 — so a memory card can be identified without guessing.
 
 ## What the patch does
+
+Three groups: the USB HID stack it started as, a set of robustness fixes to
+upstream's error paths, and the SPU2 silencing.
+
+### 1. The USB HID stack
 
 Three mechanical edits to ps2link's `ee/` tree that bake the USB HID stack —
 `usbd` + `ps2kbd` + `ps2mouse`, shipped prebuilt in `$PS2SDK/iop/irx/` — into
@@ -67,6 +74,77 @@ ps2link (the `keepIopResident` path), so they're fine.
 > `ps2kbd`/`ps2mouse` only speak the USB HID **boot protocol**, which many
 > wireless/gaming devices don't expose — check yours in uLaunchELF first.
 
+### 2. Hang and leak fixes
+
+Upstream ps2link assumes the wire never misbehaves, and its error paths turn
+recoverable hiccups into a dead console. The full table — what was wrong, where,
+and why it mattered — is in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link).
+The short version, worst first:
+
+- **`pko_recv_bytes()` spun forever when the PC closed the connection.**
+  `recv()` returning 0 did `left -= 0`. It happens on every `ps2client` exit, and
+  it spins at IOP priority 9 while holding the `host:` semaphore, so everything
+  after it blocks permanently. This is the "it pierdoli and needs a reset" bug.
+- **`pko_accept_pkt()` left the byte stream out of frame** after any unexpected
+  reply, because it never consumed the packet's body.
+- **`pko_read_file()` trusted the PC's byte count** and wrote past the caller's
+  buffer.
+- **The IOP exception handler faulted on `strlen(NULL)`** for exactly the crashes
+  people care about, so a game crash reported nothing.
+- **`pkoExecEE()` zeroed `cmdThreadID`** (the wrong variable) on a failed launch,
+  after which ps2link answered no commands at all.
+- **`pkoReset()` waited on `SifIopSync()` inverted**, so every deploy's IOP reset
+  raced. `restartIOP()` next door had it right.
+- Busy-loops on failing `accept()`/`recvfrom()`, `host:` fd leaks in
+  `dumpmem`/`writemem`/`dumpreg`, a thread + semaphore leak on re-mount, and a
+  handful of unchecked wire values.
+
+The protocol is untouched, so `tools/ps2client` needs no matching change.
+
+### 3. Silencing the SPU2 on reset
+
+The SPU2 is a separate block from the IOP and **keeps its registers across an IOP
+reset**, so it carried on looping the dead game's voices and mixing whatever
+autodma had left in its input. That is the "sound goes haywire when ps2link
+restarts", and it hit every redeploy — not just *Stop*.
+
+`spu2Silence()` (in `iop/cmdHandler.c`) keys off all 24 voices on both cores,
+zeroes voice volumes, unroutes them from the dry and reverb mixes, clears `MMIX`
+so the autodma input is unrouted too, clears `CORE_ATTR` and zeroes the output
+volume block. It runs from `pkoReset()` *and* from ps2link.irx's `_start()`, so
+it covers both sides of the reset and an IOP reset that never went through
+`pkoReset()` at all. The boot log prints `SPU2 silenced` when it fires.
+
+It can't leave you with no audio: every write is a zero or a key-off (so it
+cannot set a bit that wasn't set), and every register it touches is one
+`libsd`'s init reprograms — so the next `audsrv_init()` restores all of it. That
+was verified by diffing the two register sets out of the disassembly rather than
+assumed; the one-liner to redo it is in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link).
+
+Consequence for the editor: *Stop on PS2* no longer deploys
+[`tools/silencer`](../silencer/) or sleeps ~7 s waiting for it. The tool stays in
+the tree as a manual fallback for consoles still on a pre-r3 ps2link.
+
+## Testing it without a console
+
+PCSX2 runs no ps2link, but the `host:` protocol code can be tested on the PC:
+
+```powershell
+tools/ps2link/test/run.ps1
+```
+
+`run.sh` on Linux. It compiles the **real** `build/iop/net_fio.c` against the
+stub IOP/lwip headers in `test/shim/` and drives it with a scripted fake socket,
+checking framing, EOF handling, short reads and the buffer clamps. `-Pristine` /
+`--pristine` runs the same tests against the untouched upstream file and
+**expects failure** — that A/B is what makes the suite worth anything, so if you
+change `net_fio.c`, keep both halves honest. Needs `build/` to exist (run
+`build.ps1` once) and a host `gcc`.
+
+Anything touching threads, the SIF or the GS is still hardware-only.
+
 ## Changing it
 
 Expect to. The loop:
@@ -87,6 +165,10 @@ Expect to. The loop:
 Keep the patch LF-only (`.gitattributes` enforces it): it is applied to a Unix
 checkout inside a Linux container, and a CRLF patch fails `git apply`. To move
 to a newer upstream, bump the commit in **both** `build.ps1` and `build.sh` and
-re-generate the patch against the new tree. If a change alters the boot banner,
-update [docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how
-anyone tells this build apart from a stock one.
+re-generate the patch against the new tree. If a change alters console
+behaviour, bump the `r<n>` in the banner and update
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how anyone
+tells builds apart, including which fixes a flashed card already has.
+
+Note that the pinned commit `0c6138c` **is** upstream's head, so there is no
+newer ps2link to pull these fixes from; they live here or nowhere.

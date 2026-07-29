@@ -430,41 +430,13 @@ void Runner::stopPs2(const Project& p) {
         if (!p.ps2LinkIp.empty()) {
             const std::string client = findPs2Client();
             exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset", "");
-            // The SPU2 keeps looping voices and the stalled autodma buffer
-            // independently of the IOP, so the reset alone leaves sfx
-            // playing. Run the silencer for a moment: it loads audsrv on
-            // the fresh IOP and audsrv_init() keys everything off.
-            const std::string silencer =
-                findTool((fs::path("silencer") / "silencer.elf").string());
-            if (!silencer.empty()) {
-                for (int i = 0; i < 12 && !cancelRequested_; i++) platform::sleepMs(250);
-                const std::string dir = fs::path(silencer).parent_path().string();
-                // Spawn the execee file server WITHOUT capturing its output.
-                // The silencer's file server never exits on its own, so a
-                // captured pipe would never reach EOF and exec()'s read loop
-                // would block forever - hanging Stop at "Executing file
-                // host:...elf" and leaving the build stuck Running. Launch it,
-                // give the silencer a few seconds to load audsrv and reset the
-                // SPU, then kill the file server ourselves.
-                appendLine("[editor] Silencing the SPU (host:silencer.elf)...");
-                const std::string cmd = platform::shellArg(client) + " -h " +
-                                        p.ps2LinkIp + " execee host:silencer.elf";
-                platform::Process::Options opts;
-                opts.cwd = dir;
-                if (auto proc = platform::Process::start(cmd, opts)) {
-                    for (int i = 0; i < 16 && !cancelRequested_; i++) platform::sleepMs(250);
-                    proc->kill();
-                } else {
-                    appendLine("[editor] Failed to start: " + cmd);
-                }
-                // Belt and suspenders: reap the just-killed server and any stray.
-                exec(platform::killByName({"ps2client"}), "");
-                appendLine("[editor] SPU silenced; ps2link is listening again.");
-            } else {
-                appendLine("[editor] ps2link reset - the console is listening "
-                           "again (tools/silencer/silencer.elf not found, so "
-                           "looping sounds keep playing until the next deploy).");
-            }
+            // The SPU2 keeps its registers - and so keeps looping voices and
+            // mixing the last autodma buffer - straight through the IOP reset.
+            // ps2link r3 silences it itself, on both sides of the reset (see
+            // spu2Silence() in tools/ps2link/tyrax.patch), so Stop is just the
+            // reset now. This used to execee host:silencer.elf and sleep 7
+            // seconds waiting for its audsrv_init() to key everything off.
+            appendLine("[editor] ps2link reset - the console is listening again.");
         }
         state_ = State::Success;
     });

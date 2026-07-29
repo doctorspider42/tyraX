@@ -662,7 +662,38 @@ Notes:
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
   `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
-  PCSX2 runs no ps2link. (Verified: a session
+  PCSX2 runs no ps2link.
+
+  **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
+  (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub
+  IOP/lwip headers in `test/shim/` and drives it with a scripted fake socket —
+  framing, EOF, short reads, buffer clamps. What makes it evidence rather than
+  decoration is the `-Pristine` / `--pristine` mode: the same tests against the
+  untouched upstream file, which must FAIL (it does, 7 of 18, three of them by
+  spinning past a 2000-call `recv()` ceiling). Use this layer for any change to
+  the `host:` protocol code before reaching for hardware; threads, the SIF and
+  the GS are still console-only. Note the `#include "net_fio.c"` trick — the
+  harness pulls the .c in so it can place `pko_fileio_sock`, which is static.
+
+  Since r2 of the patch, several "the console is hung, hit Reset" failures are
+  gone: a closed `ps2client` socket used to spin the IOP `host:` thread forever
+  while holding its semaphore, an unexpected reply desynced the stream for good,
+  and `pkoReset()` waited on an inverted `SifIopSync()` on every deploy. **r3**
+  adds `spu2Silence()`, so the SPU2 no longer drones the dead game's voices
+  through a reset — which means **"Stop on PS2" no longer deploys
+  `tools/silencer/silencer.elf` and no longer sleeps ~7 s**; if you are timing
+  Stop, that is why it got faster. The tool stays as a manual fallback for a
+  pre-r3 console. Check the boot banner reads `TyraX ps2link r3` and the log has
+  `SPU2 silenced` before blaming anything else. The
+  `dumpmem`/`scrdump` uselessness above is NOT explained by any of that and is
+  still open — r2 only stops the failure leaking a `host:` fd each attempt. (A
+  tempting theory, recorded so it is not re-tried: that the EE side passes
+  newlib `O_*` values where the wire wants `FIO_O_*` (`O_RDONLY` = 0, but
+  `FIO_O_RDONLY` = 1). It is wrong — the engine's asset loads use plain
+  `fopen("rb")` through the same path and work fine, so newlib values are what
+  this `host:` expects.)
+
+  (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
