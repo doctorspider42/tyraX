@@ -14114,12 +14114,22 @@ Each finished feature lands as its own commit.
   plane at y = 0" is the third run: with the only floor moved to y = -40.5 the
   frame comes back pixel-identical to the y = -0.5 one, i.e. the player fell
   40 units through nothing and landed on placed geometry (a y = 0 plane would
-  have left it standing with the box far below). Editor UI verified with the
-  `TYRAX_SHOT` self-capture (the GDI grab takes whatever window is on top):
-  viewport with no ground, greyed-out Sculpt/Paint, the Terrain Editor reduced to
-  its checkbox and explanation - and after flipping the flag back, the
-  checkerboard, the enabled tools and the full layer/variation/quality panel are
-  all back.
+  have left it standing with the box far below). Editor UI verified twice: first
+  with the `TYRAX_SHOT` self-capture (the GDI grab is useless here - it takes
+  whatever window is on top) showing the viewport with no ground, greyed-out
+  Sculpt/Paint and the Terrain Editor reduced to its checkbox; then, once entry
+  225's `--ui-script` landed on main mid-flight, by CLICKING it: 22 steps, exit 0
+  on a project WITH a terrain - `expect-checked "Terrain in this scene"` plus
+  Sculpt / + Add layer / Stochastic tiling present, click the checkbox, then
+  `expect-unchecked` and `expect-not` for all three, click again and they are all
+  back. That exercises the real UI path (commitChange + applyProjectToViewport)
+  instead of an edited `.tyra`, and its `shot` catches the terrain gone from the
+  viewport with the status bar reading "Removed the terrain". A second script
+  asserts the *New Project* dialog: `Create terrain` exists and is CHECKED by
+  default, unchecking it relabels the fields to `World width/depth (units)` and
+  raises the amber "the player starts in mid-air" line. Combos are the one thing
+  `dump` cannot name, so the new `FPP (first person)` preset default was read off
+  the capture rather than asserted.
   The committed `examples/` were deliberately NOT regenerated here: one
   `--refresh-gen` on the smallest of them produces ~2100 changed lines, of which
   this feature is ~20 - they have drifted behind codegen for a while, and folding
