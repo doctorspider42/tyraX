@@ -1,7 +1,9 @@
 #include "menubake.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 
@@ -1370,6 +1372,470 @@ bool bakeIconAtlasPNG(const Project& p, std::vector<unsigned char>& png) {
     stbi_write_png_to_func(pngWriteCallback, &png, layout.texW, layout.texH, 4,
                            rgba.data(), layout.texW * 4);
     return !png.empty();
+}
+
+// --- Credits rolls ----------------------------------------------------------
+
+namespace {
+
+RGBA rgbaOf(const float* c, unsigned char a = 255) {
+    auto to255 = [](float v) {
+        return (unsigned char)(v < 0 ? 0 : v > 1 ? 255 : v * 255.0f + 0.5f);
+    };
+    return RGBA{to255(c[0]), to255(c[1]), to255(c[2]), a};
+}
+
+// A block's presentation, resolved against the roll: size 0 means "the roll's
+// default for this KIND", an empty font means the roll's, no own color means
+// the roll's body (or heading) color.
+int creditsSizeOf(const CreditsRoll& r, const CreditsBlock& b) {
+    if (b.size > 0) return b.size;
+    const int s = b.kind == CreditsBlock::Heading ? r.headingSize : r.lineSize;
+    return s > 0 ? s : 16;
+}
+
+int creditsLineH(const CreditsRoll& r, int size) {
+    const int h = (int)(size * r.lineSpacing + 0.5f);
+    return h < size + 1 ? size + 1 : h;
+}
+
+// Greedy word wrap at `maxW` pixels, honoring explicit '\n'. A single word
+// wider than the column is left long rather than split mid-glyph - a name is
+// better overflowing than cut in half, and the editor flags the roll's width.
+std::vector<std::string> creditsWrap(Font& f, const Project& p,
+                                     const std::string& text, float size,
+                                     float maxW) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (start <= text.size()) {
+        const size_t nl = text.find('\n', start);
+        const std::string para =
+            text.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+        std::string line;
+        size_t i = 0;
+        while (i < para.size()) {
+            while (i < para.size() && para[i] == ' ') ++i;  // eat the separator
+            const size_t wordEnd = para.find(' ', i);
+            const std::string word =
+                para.substr(i, wordEnd == std::string::npos ? std::string::npos : wordEnd - i);
+            if (word.empty()) break;
+            const std::string cand = line.empty() ? word : line + " " + word;
+            if (!line.empty() && maxW > 0 &&
+                textWidth(f, cand, size, &p) > maxW) {
+                out.push_back(line);
+                line = word;
+            } else {
+                line = cand;
+            }
+            i = wordEnd == std::string::npos ? para.size() : wordEnd;
+        }
+        out.push_back(line);  // an empty paragraph is a deliberate blank line
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    return out;
+}
+
+// One block resolved to exactly what it draws and how tall it is. Computed ONCE
+// and read by both the layout pass and the raster pass - two independent
+// measurements of a wrapped paragraph is how a preview stops matching the bake.
+struct CreditsPlan {
+    Font* font = nullptr;
+    int size = 16;
+    int lineH = 17;
+    RGBA color{255, 255, 255, 255};
+    std::vector<std::string> lines;   // Heading/Line, or Pair's left column
+    std::vector<std::string> lines2;  // Pair's right column
+    int imgW = 0, imgH = 0;           // Image: on-canvas size
+    int h = 0;                        // height, trailing `space` included
+};
+
+std::vector<CreditsPlan> creditsPlan(const CreditsRoll& r, const Project& p,
+                                     Font* fallback, int contentW) {
+    std::vector<CreditsPlan> plans(r.blocks.size());
+    for (size_t i = 0; i < r.blocks.size(); ++i) {
+        const CreditsBlock& b = r.blocks[i];
+        CreditsPlan& pl = plans[i];
+        pl.font = b.font.empty() ? fallback : resolveFontNamed(p, b.font);
+        if (!pl.font) pl.font = fallback;
+        pl.size = creditsSizeOf(r, b);
+        pl.lineH = creditsLineH(r, pl.size);
+        pl.color = b.ownColor ? rgbaOf(b.color)
+                              : rgbaOf(b.kind == CreditsBlock::Heading
+                                           ? r.headingColor
+                                           : r.color);
+        const float space = b.space > 0.0f ? b.space : 0.0f;
+        switch (b.kind) {
+            case CreditsBlock::Heading:
+            case CreditsBlock::Line:
+                pl.lines = creditsWrap(*pl.font, p, b.text, (float)pl.size,
+                                       (float)contentW);
+                pl.h = (int)pl.lines.size() * pl.lineH + (int)space;
+                break;
+            case CreditsBlock::Pair: {
+                // The columns split the content width around the gap: a long
+                // role wraps inside its own column instead of running into the
+                // names.
+                const float half = (contentW - r.columnGap) * 0.5f;
+                pl.lines = creditsWrap(*pl.font, p, b.text, (float)pl.size, half);
+                pl.lines2 = creditsWrap(*pl.font, p, b.text2, (float)pl.size, half);
+                const size_t rows = pl.lines.size() > pl.lines2.size()
+                                        ? pl.lines.size()
+                                        : pl.lines2.size();
+                pl.h = (int)rows * pl.lineH + (int)space;
+                break;
+            }
+            case CreditsBlock::Image: {
+                int sw = 0, sh = 0, comp = 0;
+                if (!b.imagePath.empty() && !p.dir.empty() &&
+                    stbi_info(p.filePath(b.imagePath).c_str(), &sw, &sh, &comp) &&
+                    sw > 0 && sh > 0) {
+                    pl.imgW = (int)(contentW * b.scale + 0.5f);
+                    if (pl.imgW < 1) pl.imgW = 1;
+                    pl.imgH = (int)((float)pl.imgW * sh / sw + 0.5f);
+                    if (pl.imgH > kCreditsPageH) {  // never taller than a page
+                        pl.imgH = kCreditsPageH;
+                        pl.imgW = (int)((float)pl.imgH * sw / sh + 0.5f);
+                    }
+                }
+                pl.h = pl.imgH + (int)space;
+                break;
+            }
+            case CreditsBlock::Gap:
+                pl.h = space > 0.0f ? (int)space : pl.lineH;
+                break;
+            case CreditsBlock::Break:
+            default:
+                pl.h = 0;  // the page padding is decided by the layout pass
+                break;
+        }
+    }
+    return plans;
+}
+
+// Shared by creditsLayout() and the raster pass: assigns every block a strip
+// position. Scroll mode is one running cursor (a Break jumps to the next page
+// boundary); card mode gives each card its own page, vertically centered.
+CreditsLayout creditsPlace(const CreditsRoll& r,
+                           const std::vector<CreditsPlan>& plans) {
+    CreditsLayout l;
+    l.pageW = (r.pageW == 256 || r.pageW == 512) ? r.pageW : 512;
+    l.pageH = kCreditsPageH;
+    l.boxes.assign(r.blocks.size(), CreditsBlockBox{});
+    const int limit = kCreditsMaxPages * l.pageH;
+
+    if (r.mode == 1) {
+        // Cards: split at Break blocks, one page each, content centered.
+        size_t i = 0;
+        int page = 0;
+        while (i < r.blocks.size()) {
+            size_t end = i;
+            int cardH = 0;
+            while (end < r.blocks.size() && r.blocks[end].kind != CreditsBlock::Break) {
+                cardH += plans[end].h;
+                ++end;
+            }
+            if (end > i) {  // an empty card (two Breaks in a row) takes no page
+                const bool fits = page < kCreditsMaxPages;
+                int y = page * l.pageH + (cardH < l.pageH ? (l.pageH - cardH) / 2 : 0);
+                for (size_t k = i; k < end; ++k) {
+                    l.boxes[k].y = y;
+                    l.boxes[k].h = plans[k].h;
+                    l.boxes[k].clipped = !fits;
+                    y += plans[k].h;
+                }
+                if (fits) {
+                    l.cardPages.push_back(page);
+                    ++page;
+                } else {
+                    l.clipped = true;
+                }
+                if (cardH > l.pageH) l.clipped = true;  // taller than a screenful
+            }
+            i = end < r.blocks.size() ? end + 1 : end;
+        }
+        l.pageCount = page;
+        l.contentH = page * l.pageH;
+        return l;
+    }
+
+    int y = 0;
+    for (size_t i = 0; i < r.blocks.size(); ++i) {
+        if (r.blocks[i].kind == CreditsBlock::Break) {
+            l.boxes[i].y = y;
+            l.boxes[i].h = 0;
+            y = (y / l.pageH + 1) * l.pageH;  // start of the next page
+            continue;
+        }
+        l.boxes[i].y = y;
+        l.boxes[i].h = plans[i].h;
+        if (y + plans[i].h > limit) {
+            l.boxes[i].clipped = true;
+            l.clipped = true;
+        }
+        y += plans[i].h;
+    }
+    l.contentH = y > limit ? limit : y;
+    l.pageCount = (l.contentH + l.pageH - 1) / l.pageH;
+    if (l.pageCount < 1 && !r.blocks.empty()) l.pageCount = 1;
+    if (l.pageCount > kCreditsMaxPages) l.pageCount = kCreditsMaxPages;
+    return l;
+}
+
+}  // namespace
+
+std::string creditsPageFileName(const std::string& rollName, int page) {
+    return sanitizeName(rollName, "credits") + "-" + std::to_string(page) + ".png";
+}
+
+std::string creditsHintFileName(const std::string& rollName) {
+    return sanitizeName(rollName, "credits") + "-hint.png";
+}
+
+HudText creditsHintText(const CreditsRoll& r) {
+    HudText t;
+    t.name = "cr-hint-" + r.name;
+    t.text = r.skipHint;
+    t.size = r.hintSize > 0 ? r.hintSize : 14;
+    t.font = r.font;
+    t.shadow = true;
+    t.color[0] = r.color[0];
+    t.color[1] = r.color[1];
+    t.color[2] = r.color[2];
+    return t;
+}
+
+CreditsLayout creditsLayout(const CreditsRoll& r, const Project& p) {
+    Font* fallback = resolveFontNamed(p, r.font);
+    const int pageW = (r.pageW == 256 || r.pageW == 512) ? r.pageW : 512;
+    int contentW = pageW - 2 * (int)r.margin;
+    if (contentW < 32) contentW = 32;
+    if (!fallback) {
+        // No usable TTF: report the geometry the blocks would take with no
+        // wrapping rather than failing - the caller's bake reports the error.
+        CreditsLayout l;
+        l.pageW = pageW;
+        l.boxes.assign(r.blocks.size(), CreditsBlockBox{});
+        return l;
+    }
+    return creditsPlace(r, creditsPlan(r, p, fallback, contentW));
+}
+
+bool bakeCreditsStripRGBA(const CreditsRoll& r, const Project& p,
+                          std::vector<unsigned char>& out, CreditsLayout& layout) {
+    Font* fallback = resolveFontNamed(p, r.font);
+    if (!fallback) return false;
+
+    const int pageW = (r.pageW == 256 || r.pageW == 512) ? r.pageW : 512;
+    int contentW = pageW - 2 * (int)r.margin;
+    if (contentW < 32) contentW = 32;
+    const std::vector<CreditsPlan> plans = creditsPlan(r, p, fallback, contentW);
+    layout = creditsPlace(r, plans);
+    if (layout.pageCount < 1) {
+        out.clear();
+        return true;  // an empty roll bakes no pages, which is not an error
+    }
+
+    const int w = layout.pageW;
+    const int h = layout.pageH * layout.pageCount;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+    // Text antialiasing has to resolve against SOMETHING. Without a backdrop
+    // the pages are opaque plates of the roll's background color, which is
+    // what lets them ship 4-bit: the palette only has to hold the shades
+    // between the text and that background. With a backdrop the pages must
+    // stay transparent so it shows through, and the extra alpha is what a
+    // deeper palette pays for (docs/credits.md).
+    const bool opaque = r.bgImage.imagePath.empty();
+    if (opaque) canvas.fillRect(0, 0, w, h, rgbaOf(r.bgColor));
+
+    const int left = (int)r.margin;
+    const int right = w - (int)r.margin;
+    const RGBA shadow{0, 0, 0, 170};
+
+    // One line of text at an alignment, with the roll's drop shadow. Icons are
+    // skipped in the shadow pass: they carry their own colors, so a dark offset
+    // copy underneath only leaks a fringe (the HudText bake does the same).
+    auto line = [&](Font& f, const std::string& s, int size, int yTop, int align,
+                    RGBA color, int colLeft, int colRight) {
+        if (s.empty()) return;
+        float x = 0;
+        bool centered = false;
+        if (align == 0) {
+            x = (float)colLeft;
+        } else if (align == 2) {
+            x = (float)colRight - textWidth(f, s, (float)size, &p);
+        } else {
+            x = (colLeft + colRight) * 0.5f;
+            centered = true;
+        }
+        if (r.shadow)
+            drawText(canvas, f, x + 1, yTop + 1, s, (float)size, shadow, centered,
+                     &p, true);
+        drawText(canvas, f, x, yTop, s, (float)size, color, centered, &p);
+    };
+
+    for (size_t i = 0; i < r.blocks.size(); ++i) {
+        const CreditsBlock& b = r.blocks[i];
+        const CreditsPlan& pl = plans[i];
+        const CreditsBlockBox& box = layout.boxes[i];
+        if (box.clipped || !pl.font) continue;
+        switch (b.kind) {
+            case CreditsBlock::Heading:
+            case CreditsBlock::Line: {
+                int y = box.y;
+                for (const std::string& s : pl.lines) {
+                    line(*pl.font, s, pl.size, y, b.align, pl.color, left, right);
+                    y += pl.lineH;
+                }
+                break;
+            }
+            case CreditsBlock::Pair: {
+                // Role right-aligned against the gutter, names left-aligned
+                // after it: the classic two-column credit, and the columns stay
+                // legible however long either side gets.
+                const int mid = w / 2;
+                const int gap = (int)(r.columnGap * 0.5f);
+                int y = box.y;
+                for (const std::string& s : pl.lines) {
+                    line(*pl.font, s, pl.size, y, 2, pl.color, left, mid - gap);
+                    y += pl.lineH;
+                }
+                y = box.y;
+                for (const std::string& s : pl.lines2) {
+                    line(*pl.font, s, pl.size, y, 0, pl.color, mid + gap, right);
+                    y += pl.lineH;
+                }
+                break;
+            }
+            case CreditsBlock::Image: {
+                if (pl.imgW <= 0 || pl.imgH <= 0) break;
+                int sw = 0, sh = 0, comp = 0;
+                unsigned char* px =
+                    stbi_load(p.filePath(b.imagePath).c_str(), &sw, &sh, &comp, 4);
+                if (!px) break;
+                int x = (w - pl.imgW) / 2;
+                if (b.align == 0) x = left;
+                if (b.align == 2) x = right - pl.imgW;
+                drawImageScaled(canvas, px, sw, sh, x, box.y, pl.imgW, pl.imgH);
+                stbi_image_free(px);
+                break;
+            }
+            default:
+                break;  // Gap / Break are pure spacing
+        }
+    }
+    return true;
+}
+
+bool bakeCreditsPagesPNG(const CreditsRoll& r, const Project& p,
+                         std::vector<std::vector<unsigned char>>& pages,
+                         CreditsLayout& layout) {
+    pages.clear();
+    std::vector<unsigned char> strip;
+    if (!bakeCreditsStripRGBA(r, p, strip, layout)) return false;
+    const int w = layout.pageW, ph = layout.pageH;
+    std::vector<unsigned char> page((size_t)w * ph * 4, 0);
+    for (int k = 0; k < layout.pageCount; ++k) {
+        std::copy(strip.begin() + (size_t)k * w * ph * 4,
+                  strip.begin() + (size_t)(k + 1) * w * ph * 4, page.begin());
+        std::vector<unsigned char> png;
+        stbi_write_png_to_func(pngWriteCallback, &png, w, ph, 4, page.data(), w * 4);
+        if (png.empty()) return false;
+        pages.push_back(std::move(png));
+    }
+    return true;
+}
+
+std::vector<CreditsBlock> parseCreditsMarkup(const std::string& text) {
+    std::vector<CreditsBlock> out;
+    auto trim = [](std::string s) {
+        size_t a = 0, b = s.size();
+        while (a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\r')) ++a;
+        while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' || s[b - 1] == '\r')) --b;
+        return s.substr(a, b - a);
+    };
+
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        const size_t nl = text.find('\n', pos);
+        const std::string raw =
+            text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+        pos = nl == std::string::npos ? text.size() + 1 : nl + 1;
+        const std::string s = trim(raw);
+
+        if (s.empty()) {
+            // Consecutive blank lines collapse into one gap: a text file's
+            // paragraph spacing should not multiply into dead screens.
+            if (!out.empty() && out.back().kind != CreditsBlock::Gap) {
+                CreditsBlock g;
+                g.kind = CreditsBlock::Gap;
+                out.push_back(g);
+            }
+            continue;
+        }
+        if (s.rfind("//", 0) == 0) continue;  // a comment, not content
+        if (s == "---" || s == "***") {
+            CreditsBlock b;
+            b.kind = CreditsBlock::Break;
+            out.push_back(b);
+            continue;
+        }
+        if (s[0] == '#') {
+            CreditsBlock b;
+            b.kind = CreditsBlock::Heading;
+            b.text = trim(s.substr(s.rfind("##", 0) == 0 ? 2 : 1));
+            out.push_back(b);
+            continue;
+        }
+        if (s.rfind("[image", 0) == 0 && s.back() == ']') {
+            // [image <path> [scale]]
+            std::string body = trim(s.substr(6, s.size() - 7));
+            CreditsBlock b;
+            b.kind = CreditsBlock::Image;
+            const size_t sp = body.rfind(' ');
+            if (sp != std::string::npos) {
+                const std::string tail = trim(body.substr(sp + 1));
+                const float sc = (float)atof(tail.c_str());
+                if (sc > 0.0f && sc <= 1.0f && tail.find('/') == std::string::npos) {
+                    b.scale = sc;
+                    body = trim(body.substr(0, sp));
+                }
+            }
+            b.imagePath = body;
+            out.push_back(b);
+            continue;
+        }
+        if (s.size() > 1 && (s[0] == '>' || s[0] == '<' || s[0] == '|') &&
+            (s[1] == ' ' || s[1] == '\t')) {
+            CreditsBlock b;
+            b.kind = CreditsBlock::Line;
+            b.align = s[0] == '<' ? 0 : (s[0] == '|' ? 2 : 1);
+            b.text = trim(s.substr(1));
+            out.push_back(b);
+            continue;
+        }
+        // "Role: Name" is the credit line this format exists for. A colon
+        // inside a URL or a time ("http://", "12:00") is not one, so the left
+        // side has to look like a label: non-empty, no digits-only, and short.
+        const size_t colon = s.find(':');
+        if (colon != std::string::npos && colon > 0 && colon + 1 < s.size() &&
+            s[colon + 1] == ' ' && colon <= 40) {
+            CreditsBlock b;
+            b.kind = CreditsBlock::Pair;
+            b.text = trim(s.substr(0, colon));
+            b.text2 = trim(s.substr(colon + 1));
+            out.push_back(b);
+            continue;
+        }
+        CreditsBlock b;
+        b.kind = CreditsBlock::Line;
+        b.text = s;
+        out.push_back(b);
+    }
+    // A trailing gap is spacing nothing follows.
+    while (!out.empty() && out.back().kind == CreditsBlock::Gap) out.pop_back();
+    return out;
 }
 
 }  // namespace menubake

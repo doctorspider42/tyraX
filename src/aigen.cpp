@@ -92,6 +92,7 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AreaName:
             return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
+        case FlowParamKind::CreditsName: return "credits roll name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
         case FlowParamKind::InputActionName:
@@ -377,6 +378,8 @@ std::string systemPrompt(const Project& p, int ownerIndex,
                      [](const AmbiencePreset& a) { return a.name; }));
     ctxLine("Sequences (cutscenes)",
             nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+    ctxLine("Credits rolls",
+            nameList(p.credits, [](const CreditsRoll& r) { return r.name; }));
 
     o << "\nIf the request references something that does not exist in the "
          "project context, prefer the closest existing name; only invent "

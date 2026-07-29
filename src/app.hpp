@@ -20,6 +20,7 @@
 #include "phonecam.hpp"
 #include "gibake.hpp"
 #include "matbake.hpp"
+#include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "vucap.hpp"
@@ -1245,6 +1246,42 @@ private:
     int lsSelIdx_ = -1;
     float lsPreviewProgress_ = 0.65f;
     int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
+
+    // Credits Editor (Tools > Credits Editor, docs/credits.md): the selected
+    // roll and block, the preview's playhead, and the page textures the preview
+    // draws - the SAME baked pages the console gets, so what scrolls here is
+    // what scrolls there. crPreviewTex_ is keyed by a bake signature so an edit
+    // re-uploads and nothing else does.
+    bool showCreditsEditor_ = false;
+    int selectedCredits_ = -1;
+    int crSelBlock_ = -1;
+    float crPreviewTime_ = 0.0f;
+    bool crPreviewPlaying_ = false;
+    // The preview strip's share of the window height, dragged on the splitter
+    // above it and persisted in editor.ini (machine setting, like matEdSplit_).
+    float creditsSplit_ = 0.42f;
+    std::vector<unsigned int> crPreviewTex_;  // one GL texture per page
+    // What those textures were baked FROM: a copy of the roll (compared with
+    // its operator==, so a new field can never be forgotten here the way a
+    // hand-built signature string forgets one) plus the TTF paths behind its
+    // fonts - repointing a Font Manager entry changes the bake without touching
+    // the roll.
+    CreditsRoll crPreviewRoll_;
+    std::string crPreviewFonts_;
+    bool crPreviewValid_ = false;
+    int crPreviewPageW_ = 0, crPreviewPageH_ = 0;
+    menubake::CreditsLayout crLayout_;  // geometry of the previewed roll
+    // Rebuilds crPreviewTex_ from the current roll when its bake signature
+    // changed; returns false when the roll cannot be baked (no usable font).
+    bool creditsPreviewRefresh();
+    void creditsPreviewDrop();  // frees the page textures (roll switch / close)
+    // The roll's total running time in seconds, as the generated player will
+    // pace it - what the window reports next to the page count.
+    float creditsDuration(const CreditsRoll& r) const;
+    void drawCreditsWindow();
+    // Import a text file (docs/credits.md markup) into `r`, replacing its
+    // blocks. Returns an error message, or "" on success.
+    std::string creditsImportFile(CreditsRoll& r, const std::string& file);
 
     // Snapshots the track target's current static pose into a key at `time`
     // (replacing a key within 1/60 s). Used by the dopesheet buttons,

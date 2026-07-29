@@ -107,8 +107,15 @@ to see exactly what the game will compile.
   merge keys - never reference or reuse them.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
   HUD images/texts, color gradings, ambience presets, loading screens,
-  cutscene sequences and the **input map** (named input actions + binding
-  presets). `--dump` lists all of their names.
+  cutscene sequences, **credits rolls** and the **input map** (named input
+  actions + binding presets). `--dump` lists all of their names.
+- **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
+  of headings, role/name rows, lines, images and page breaks that scrolls (or
+  plays as cards) over music, is skippable, and finishes by resuming, switching
+  scene, opening a menu or firing a flow event. Started by a menu row (action
+  "Play credits") or the Play Credits node; a roll owns the screen and the pad
+  while it plays, so nothing else runs behind it. A long roll can also be
+  imported from a plain text file.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
   `{{action:jump}}` draws whatever that action is currently bound to. Works in
   HUD texts, menu titles/labels, option labels, loading screens and Display Text
