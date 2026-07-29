@@ -19,6 +19,12 @@ builds in Docker (PS2DEV toolchain) and runs in PCSX2.
 3. Game/scene data lives in `<name>.tyra` + `objects/<id>.json` (+
    `terrain-*.heights`), not in C++. `<name>.history` is disposable editor
    state. Assets live under `res/`.
+4. A scene's **terrain is optional** (`"terrain": { ..., "enabled": false }`).
+   With it removed the scene has no ground and the game has **no floor**: the
+   player, physics bodies and particles rest on the geometry the scene places
+   and fall through the void anywhere else, a Player/spawn point starts at its
+   own Y, and navigation AI has nothing to walk on. The scene's width/depth
+   still bound the world.
 
 ## Where your code goes
 

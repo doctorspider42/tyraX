@@ -17,6 +17,14 @@
 struct TerrainConfig {
     int width = 100;  // world units, X axis
     int depth = 100;  // world units, Z axis
+    // Does this scene HAVE a terrain at all (New Project > Create terrain, or
+    // the Terrain Editor's toggle)? False removes the ground completely: no
+    // mesh, no textures, no heightmap bakes, and the game has no floor either -
+    // the player and the physics stand on placed geometry and fall through the
+    // void everywhere else (docs/terrain.md). Width/depth stay meaningful, they
+    // are also the world bounds every walker is clamped to. Default true: a
+    // project saved before this key existed had a terrain.
+    bool enabled = true;
 };
 
 // One paintable terrain layer above the base (the scene's terrain material).
@@ -1543,6 +1551,7 @@ struct SceneData {
 inline bool operator==(const SceneData& a, const SceneData& b) {
     return a.name == b.name && a.objects == b.objects && a.layers == b.layers &&
            a.terrain.width == b.terrain.width && a.terrain.depth == b.terrain.depth &&
+           a.terrain.enabled == b.terrain.enabled &&
            a.heights == b.heights && a.hmW == b.hmW && a.hmD == b.hmD &&
            a.terrainLayers == b.terrainLayers && a.splat == b.splat &&
            a.splatW == b.splatW && a.splatD == b.splatD &&

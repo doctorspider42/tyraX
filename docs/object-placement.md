@@ -10,7 +10,10 @@ With **Surface snap** on (the button in the viewport's tool row, or
 *View > Placement > Snap to surface*), an object that enters the scene is
 placed so its underside touches the highest surface under its footprint:
 
-- the **terrain**, sampled with the same bilinear filter the game walks on, or
+- the **terrain**, sampled with the same bilinear filter the game walks on
+  (a scene whose terrain was removed — [docs/terrain.md](terrain.md) — has no
+  ground to rest on, so only the objects below count and an object over nothing
+  keeps its height), or
 - the **top of another object** whose ground footprint it overlaps.
 
 So inserting a box over a table puts the box *on* the table; inserting three

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "aigen.hpp"
 #include "aisupport.hpp"
@@ -230,20 +231,32 @@ static int debugStateFromCli(int argc, char** argv) {
 
 // Headless helper:
 //   tyrax-editor.exe --new <name> <parentDir> [width] [depth]
-//                    [empty|fpp|thirdperson] [unitsPerMeter]
+//                    [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --new <name> <parentDir> [width] [depth] "
-                     "[empty|fpp|thirdperson] [unitsPerMeter]\n");
+                     "[empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]\n");
         return 2;
     }
+    // --no-terrain is a FLAG among positional arguments (the dialog's "Create
+    // terrain" checkbox, docs/terrain.md), so it is accepted anywhere and
+    // pulled out before the rest is read by position.
+    std::vector<const char*> pos;  // pos[0] = argv[4], the first optional
+    bool noTerrain = false;
+    for (int i = 4; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--no-terrain") == 0)
+            noTerrain = true;
+        else
+            pos.push_back(argv[i]);
+    }
     TerrainConfig t;
-    if (argc > 4) t.width = std::atoi(argv[4]);
-    if (argc > 5) t.depth = std::atoi(argv[5]);
-    const char* preset = argc > 6 ? argv[6] : "empty";
+    t.enabled = !noTerrain;
+    if (pos.size() > 0) t.width = std::atoi(pos[0]);
+    if (pos.size() > 1) t.depth = std::atoi(pos[1]);
+    const char* preset = pos.size() > 2 ? pos[2] : "empty";
     // World scale (docs/world-scale.md); 1 unit = 1 m unless asked otherwise.
-    const float ups = argc > 7 ? (float)std::atof(argv[7]) : 1.0f;
+    const float ups = pos.size() > 3 ? (float)std::atof(pos[3]) : 1.0f;
 
     Project p;
     std::string err = project::create(p, argv[2], argv[3], t, preset, ups);
@@ -251,9 +264,14 @@ static int createFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    std::printf("created: %s (terrain %dx%d, %.3f units/m)\n", p.dir.c_str(),
-                p.scenes[0].terrain.width, p.scenes[0].terrain.depth,
-                p.settings.unitsPerMeter);
+    if (p.scenes[0].terrain.enabled)
+        std::printf("created: %s (terrain %dx%d, %.3f units/m)\n", p.dir.c_str(),
+                    p.scenes[0].terrain.width, p.scenes[0].terrain.depth,
+                    p.settings.unitsPerMeter);
+    else
+        std::printf("created: %s (no terrain, %dx%d world, %.3f units/m)\n",
+                    p.dir.c_str(), p.scenes[0].terrain.width,
+                    p.scenes[0].terrain.depth, p.settings.unitsPerMeter);
     return 0;
 }
 
@@ -417,7 +435,11 @@ static int dumpFromCli(int argc, char** argv) {
         const SceneData& sc = p.scenes[si];
         o << (si ? ", " : "") << "{ \"name\": \"" << cliJsonEsc(sc.name)
           << "\", \"terrain\": [" << sc.terrain.width << ", " << sc.terrain.depth
-          << "], \"layers\": [";
+          << "]";
+        // Only when the scene has no ground at all - an assistant reading this
+        // has to know nothing rests on the terrain here (docs/terrain.md).
+        if (!sc.terrain.enabled) o << ", \"terrainRemoved\": true";
+        o << ", \"layers\": [";
         for (size_t i = 0; i < sc.layers.size(); ++i)
             o << (i ? ", " : "") << "\"" << cliJsonEsc(sc.layers[i].name) << "\"";
         o << "], \"objects\": [";
@@ -1013,7 +1035,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
-            "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] [unitsPerMeter]\n"
+            "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
+            "[unitsPerMeter] [--no-terrain]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"

@@ -233,6 +233,11 @@ static std::vector<std::string> collectTexturePaths(const Project& p) {
         paths.push_back(t);
     };
     for (const SceneData& sc : p.scenes) {
+        // A scene with no terrain (docs/terrain.md) ships no ground textures:
+        // nothing draws them, and GS VRAM is 1.33 MB. textureIndexOf then
+        // answers -1 for that scene, which is the "no terrain texture" value
+        // the runtime already handles.
+        if (!sc.terrain.enabled) continue;
         const std::string baseTex =
             project::resolveTerrainMaterial(p, project::resolvedSettings(p, sc).terrainMaterial)
                 .texture;
@@ -6503,8 +6508,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     if (P.objIndex < 0) continue;
     P.x = SCENE_OBJECTS[P.objIndex].position[0];
     P.z = SCENE_OBJECTS[P.objIndex].position[2];
-    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
-                           : terrainHeightAt(P.x, P.z);
+    // Feet on the ground - unless the player flies, or the scene HAS no ground
+    // (docs/terrain.md), in which case the authored height is the only sensible
+    // start: the void answer would drop the player a million units below the
+    // world before the first frame's collision could catch them.
+    P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
+              ? SCENE_OBJECTS[P.objIndex].position[1]
+              : terrainHeightAt(P.x, P.z);
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -6818,7 +6828,12 @@ void TerrainGame::updateParticles() {
         } else if (kind == 4) {  // rain: fast streaks, die on the terrain
           const float fall = 14.0F + r2 * 6.0F;
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.6F, -fall, (r3 - 0.5F) * 0.6F, 0.0F);
-          float drop = by - terrainHeightAt(sx, sz);
+          // Fall distance = how far the ground is below the emitter. With no
+          // terrain (docs/terrain.md) that is the void, and a drop would live
+          // for hours - so the emitter's own height is the fall instead, which
+          // keeps the volume raining.
+          float drop = TERRAIN_ENABLED ? by - terrainHeightAt(sx, sz)
+                                       : d.scale[1];
           if (drop < 0.5F) drop = 0.5F;
           ps.maxLife[i] = drop / fall;
         } else if (kind == 5) {  // custom: cone jet, physics from the knobs
@@ -8164,6 +8179,10 @@ void TerrainGame::setupLightBeams() {
 void TerrainGame::setupLightPools() {
   lightPools.clear();
   if (!beamCoronaTex) return;
+  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
+  // there is nothing to drop it onto, so the scene simply has none - the beams,
+  // the coronas and the per-vertex light are unaffected.
+  if (!TERRAIN_ENABLED) return;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
   // follows the camera flashlight's terrain hit.
@@ -8880,6 +8899,10 @@ void TerrainGame::renderProjShadows() {
     // of folding down beside it - a shadow that floats a little, against one
     // that stands up in the air.
     const float baseY = projSurfaceAt(gx, gz);
+    // Nothing under the caster at all: with no terrain (docs/terrain.md) the
+    // surface answer is the void, and a patch built down there is geometry a
+    // million units from the scene. A caster over a hole simply casts nothing.
+    if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;
     const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
     auto patchY = [&](float px, float pz) {
       return onGeometry ? baseY : terrainHeightAt(px, pz);
@@ -13559,6 +13582,15 @@ void TerrainGame::buildHighlightApron(int index, float half) {
 // The pool never reallocates afterwards: chunk bags point into their own
 // slot's vectors, so slots must not move while chunks are alive.
 void TerrainGame::resetTerrainChunks() {
+  // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
+  // what makes renderTerrain and the streaming pass no-ops: every loop over
+  // them runs zero times.
+  if (!TERRAIN_ENABLED) {
+    terrainChunksX = terrainChunksZ = 0;
+    terrainChunks.clear();
+    terrainChunkSlot.clear();
+    return;
+  }
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
   terrainChunksX = (cellsX + TERRAIN_CHUNK_CELLS - 1) / TERRAIN_CHUNK_CELLS;
@@ -14393,15 +14425,19 @@ void TerrainGame::init() {
   if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
 
   // Player start: the first spawn point in the scene (if any)
+  float spawnY = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
       playerX = SCENE_OBJECTS[i].position[0];
       playerZ = SCENE_OBJECTS[i].position[2];
+      spawnY = SCENE_OBJECTS[i].position[1];
       yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
       break;
     }
   }
-  playerY = terrainHeightAt(playerX, playerZ);
+  // Feet on the ground - or at the spawn point's own height in a scene with no
+  // terrain, where there is no ground to stand on (docs/terrain.md).
+  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
 
   updatePlayer();
   buildScene();
@@ -14603,15 +14639,18 @@ void TerrainGame::loop() {
     playerZ = 0.0F;
     yaw = 0.0F;
     pitch = 0.0F;
+    float spawnY = 0.0F;
     for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
       if (SCENE_OBJECTS[i].type == 4) {
         playerX = SCENE_OBJECTS[i].position[0];
         playerZ = SCENE_OBJECTS[i].position[2];
+        spawnY = SCENE_OBJECTS[i].position[1];
         yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
         break;
       }
     }
-    playerY = terrainHeightAt(playerX, playerZ);
+    // The spawn point's own height in a scene with no terrain - see initScene.
+    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
     playerVelY = 0.0F;
   }
 
@@ -16816,8 +16855,11 @@ static std::string aoDataHeader(const Project& p) {
         // its RGB carries the baked emissive light, which is what puts the
         // pools and their shadows on the ground per pixel instead of per
         // ~2-metre vertex.
+        // ...and a scene with the terrain removed has no ground pass to sample
+        // it, so it gets no map at all (texbake makes the same call).
         const aobake::AoImage map =
-            gi.valid ? gi.terrain
+            !sc.terrain.enabled ? aobake::AoImage()
+            : gi.valid          ? gi.terrain
                      : aobake::terrainAOMap(
                            sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                            (float)sc.terrain.depth,
@@ -18312,10 +18354,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         return n < 0 ? 0 : (n > 128 ? 128 : n);
     };
 
+    // The terrain SIZE is also the scene's world bounds (every walker is
+    // clamped to it), so it is emitted whether or not the scene has a ground.
     sceneFloats("TERRAIN_WIDTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.width); });
     sceneFloats("TERRAIN_DEPTHS",
                 [&](int si) { return floatLit((float)p.scenes[si].terrain.depth); });
+    // Does the scene have a terrain at all (docs/terrain.md)? False means no
+    // ground mesh is built, no ground textures ship - and no floor: the height
+    // sampler answers TERRAIN_VOID_Y everywhere, so the player, the physics
+    // bodies and the particles rest on placed geometry only and fall through
+    // the void elsewhere. Deep but FINITE on purpose: every "is it below the
+    // ground" comparison and every height difference in the game keeps working
+    // (a shadow patch fades out, a raindrop's fall length is huge, a body never
+    // lands), and no arithmetic here ever sees an infinity.
+    out << "constexpr float TERRAIN_VOID_Y = -1000000.0F;\n";
+    sceneBools("TERRAIN_ENABLEDS",
+               [&](int si) { return p.scenes[si].terrain.enabled; });
     auto lightOf = [&](int si, int axis) {
         float lx = rs[si].lightDir[0], ly = rs[si].lightDir[1], lz = rs[si].lightDir[2];
         const float len = std::sqrt(lx * lx + ly * ly + lz * lz);
@@ -18675,6 +18730,7 @@ inline int everyFrames(float seconds) {
 #define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
@@ -24622,8 +24678,12 @@ static std::string terrainHeightsHeader(const Project& p) {
     std::vector<int> vws(sceneCount, 2), vds(sceneCount, 2);
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
-        const bool hasData =
-            sc.hmW >= 2 && sc.hmD >= 2 && (int)sc.heights.size() == sc.hmW * sc.hmD;
+        // A scene with no terrain (docs/terrain.md) keeps its heightmap in the
+        // project but ships the 2x2 placeholder: terrainHeightAtScene answers
+        // the void before it ever reads the table, and a 257x257 grid nobody
+        // samples is a quarter of a megabyte of EE RAM.
+        const bool hasData = sc.terrain.enabled && sc.hmW >= 2 && sc.hmD >= 2 &&
+                             (int)sc.heights.size() == sc.hmW * sc.hmD;
         if (hasData) vws[si] = sc.hmW, vds[si] = sc.hmD;
         out << "// scene \"" << sc.name << "\"\n"
             << "constexpr float HM_" << si << "_HEIGHTS[" << vws[si] * vds[si] << "] = {";
@@ -24673,7 +24733,7 @@ static std::string terrainHeightsHeader(const Project& p) {
     for (int si = 0; si < sceneCount; ++si) {
         const SceneData& sc = p.scenes[si];
         const int n = (int)sc.terrainLayers.size();
-        if (n == 0) continue;
+        if (n == 0 || !sc.terrain.enabled) continue;  // no ground, no splatting
         out << "constexpr unsigned char SPLAT_" << si << "_WEIGHTS["
             << vws[si] * vds[si] * n << "] = {";
         const bool match = sc.splatW == vws[si] && sc.splatD == vds[si] &&
@@ -24704,7 +24764,8 @@ static std::string terrainHeightsHeader(const Project& p) {
     }
     out << "inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si) {
-        const bool has = !p.scenes[si].terrainLayers.empty();
+        const bool has = !p.scenes[si].terrainLayers.empty() &&
+                         p.scenes[si].terrain.enabled;
         out << (si ? ", " : "");
         if (has)
             out << "SPLAT_" << si << "_WEIGHTS";
@@ -24713,8 +24774,16 @@ static std::string terrainHeightsHeader(const Project& p) {
     }
     out << "};\n\n"
            "/** Bilinear terrain height at world coordinates in a scene. The\n"
-           " * game maps terrainHeightAt(x, z) to the active scene. */\n"
+           " * game maps terrainHeightAt(x, z) to the active scene.\n"
+           " *\n"
+           " * A scene whose terrain was removed in the editor has NO ground\n"
+           " * (docs/terrain.md): this answers TERRAIN_VOID_Y everywhere, so\n"
+           " * every caller that treats it as the floor - the walkers, the\n"
+           " * physics bodies, the blob shadows, the camera spring arm, the\n"
+           " * raycasts - agrees that there is nothing to stand on, and the\n"
+           " * floors are whatever geometry the scene places. */\n"
            "inline float terrainHeightAtScene(int scene, float x, float z) {\n"
+           "  if (!TERRAIN_ENABLEDS[scene]) return TERRAIN_VOID_Y;\n"
            "  const float* hm = TERRAIN_HEIGHTS_TABLES[scene];\n"
            "  const int hw = HM_WS[scene];\n"
            "  const int hd = HM_DS[scene];\n"
@@ -25203,7 +25272,12 @@ NavAgent* navBegin(ScriptContext& ctx, int obj, unsigned char mode,
   a.pauseLeft = 0.0F;
   a.repathLeft = 0.0F;
   const float* p = ctx.objects[obj].data.position;
-  a.yOff = p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2]);
+  // Height above the ground - and in a scene with no terrain there is no
+  // ground, so the agent keeps its authored height (the nav grid is empty
+  // there anyway, so nothing moves: docs/terrain.md, docs/navigation-ai.md).
+  a.yOff = TERRAIN_ENABLEDS[ctx.scene]
+               ? p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2])
+               : p[1];
   return &a;
 }
 
@@ -25306,7 +25380,9 @@ void navMoveAgent(ScriptContext& ctx, int idx) {
     const float mv = step < dist ? step : dist;
     pos[0] += dx / dist * mv;
     pos[2] += dz / dist * mv;
-    pos[1] = terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff;
+    pos[1] = TERRAIN_ENABLEDS[ctx.scene]
+                 ? terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff
+                 : a.yOff;  // no ground to snap to - see navBegin
     // turn toward the motion (degrees, shortest arc)
     float desired = atan2f(dx, dz) * 180.0F / NAV_PI;
     float d = desired - o.data.rotation[1];
@@ -25553,7 +25629,11 @@ static std::string textureDataHeader(const Project& p) {
                                                         : maxLayers;
     out << "\nconstexpr int TERRAIN_LAYER_COUNTS[" << p.scenes.size() << "] = {";
     for (size_t si = 0; si < p.scenes.size(); ++si)
-        out << (si ? ", " : "") << p.scenes[si].terrainLayers.size();
+        // No terrain, no painted layers - the layers stay in the project (the
+        // terrain can be created again) but nothing ships (docs/terrain.md).
+        out << (si ? ", " : "")
+            << (p.scenes[si].terrain.enabled ? p.scenes[si].terrainLayers.size()
+                                             : (size_t)0);
     out << "};\n"
         << "constexpr int TERRAIN_MAX_LAYERS = " << (maxLayers > 0 ? maxLayers : 1)
         << ";\n";

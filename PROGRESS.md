@@ -13929,3 +13929,81 @@ Each finished feature lands as its own commit.
   dark on *Scene ambience*, light up independently when each is switched to
   *Neutral studio*, a named preset (`Default`, warm light) reads differently
   from neutral, and both selections survive a restart.
+
+- (224) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
+  terenu zupełnie", with the New Project dialog gaining the choice (default:
+  create one) and the FPP preset becoming that dialog's default preset. The flag
+  is one bool on `TerrainConfig`, which is exactly why it needed no new
+  plumbing: it rides `project::create`'s existing terrain argument, the scene
+  table's `"terrain"` object, `SceneData::operator==` (so removing/creating is
+  one undo step) and the history file. UI: the checkbox in *New Project* and
+  *+ Scene* (the width/depth labels turn into *World width/depth*, because the
+  size stays the world bounds every walker is clamped to), plus a **Terrain in
+  this scene** checkbox at the top of the Terrain Editor - the one control that
+  stays live with no terrain, since everything below it edits a ground that
+  would not exist. Removing keeps the heightmap, the paint and the layer list,
+  so creating it again restores the scene exactly.
+  What "removed" means was the actual design question, and the answer is the
+  honest one (the alternative - an invisible collision plane at y = 0 - was
+  offered and rejected): **there is no floor**. The trick that made it cheap is
+  a single decision in the generated height sampler - `terrainHeightAtScene`
+  answers `TERRAIN_VOID_Y` (-1e6, deep but deliberately FINITE) - after which
+  ~30 call sites in the game are correct with no branch of their own: the
+  walkers and the third-person avatar fall unless `collidePlayer` raises the
+  ground to a placed surface, physics bodies never contact ground, the camera
+  spring arm and the flare/flashlight marches stop hitting terrain, the AO
+  ground-contact term drops out (dy is a million), the blob shadows' own fade
+  skips them, and `emitDieGround` particles stop dying on nothing. Finite is
+  the load-bearing part: every one of those sites subtracts heights, and an
+  infinity would have produced NaN geometry instead of a skipped effect.
+  `TERRAIN_ENABLED` itself is only read where a site *builds* something rather
+  than asking a question - `resetTerrainChunks` (zero chunks, which is what
+  makes `renderTerrain` and the streaming pass no-ops), `setupLightPools` (a
+  ground pool needs a ground), the projected-shadow patch (skipped over the
+  void, or it draws a quad a million units down), the rain particle's fall
+  length (the void made a drop live for hours) and the player spawn Y (the void
+  would drop the player before the first frame's collision could catch them -
+  the spawn point's own Y is used instead).
+  Nothing ground-related ships: `collectTexturePaths` skips a terrain-less
+  scene (so `TERRAIN_TEXTURES` is -1 and the tiled textures cost no GS VRAM),
+  the layer count and splat table go to 0/nullptr, the heightmap ships as the
+  2x2 placeholder instead of up to 257^2 floats of EE RAM, and no terrain
+  lightmap is baked. The host bakes gate themselves on `sc.terrain.enabled`
+  (`navmesh::bake` returns an empty grid, `decalproj` drops the terrain
+  receiver, `gibake` skips the ground soup + the terrain lightmap and mixes the
+  flag into its cache signature, `aobake`'s atlas leaves the ground-contact
+  term out, texbake skips the ground textures and the stochastic supertiles) -
+  they already take `(Project, SceneData)`, which is what keeps codegen and the
+  viewport agreeing for free. Editor side: no chunk/grid/layer meshes (the world
+  axes stay - they are the origin gizmo), `terrainRaycast` misses, Sculpt/Paint
+  are disabled in the toolbar and on keys 4/6, the AO ground uniform is forced
+  off (its fallback is the y = 0 plane, which would darken every prop against a
+  floor that isn't there), and `App::placementHeight()` returns an EMPTY
+  `HeightFn` so surface snapping and `End` rest objects on other objects only.
+  One limit, written down rather than faked: **navigation AI needs a terrain** -
+  the navmesh is a rasterization of the ground surface, so a terrain-less scene
+  has no walkable cells and its agents hold still.
+  Verified end to end. Headless: `--new nt <dir> 60 60 fpp 1 --no-terrain`
+  writes `"enabled": false`, and the generated files read
+  `TERRAIN_ENABLEDS = {false}`, `TERRAIN_VOID_Y = -1000000.0F`, `HM_0_HEIGHTS[4]`
+  (vs `[1089]` for the same project with a terrain), `TEXTURE_COUNT = 0`,
+  `TERRAIN_TEXTURES = {-1}`, `TERRAIN_LAYER_COUNTS = {0}`. Both projects compile
+  clean in Docker with the PS2 toolchain (`-Wall`, Build OK), so the terrain path
+  is unregressed. In PCSX2: the terrain-less scene draws only the sky and the one
+  Box placed as a floor (the with-terrain twin draws the usual green
+  checkerboard), `bin/log.txt` has no assert and reports `Static batching: 1
+  objects in 1 batches`. The check that distinguishes "void" from "an invisible
+  plane at y = 0" is the third run: with the only floor moved to y = -40.5 the
+  frame comes back pixel-identical to the y = -0.5 one, i.e. the player fell
+  40 units through nothing and landed on placed geometry (a y = 0 plane would
+  have left it standing with the box far below). Editor UI verified with the
+  `TYRAX_SHOT` self-capture (the GDI grab takes whatever window is on top):
+  viewport with no ground, greyed-out Sculpt/Paint, the Terrain Editor reduced to
+  its checkbox and explanation - and after flipping the flag back, the
+  checkerboard, the enabled tools and the full layer/variation/quality panel are
+  all back.
+  The committed `examples/` were deliberately NOT regenerated here: one
+  `--refresh-gen` on the smallest of them produces ~2100 changed lines, of which
+  this feature is ~20 - they have drifted behind codegen for a while, and folding
+  that in would bury the change. Their next dedicated regenerate picks the flag
+  up (nothing in them turns the terrain off, so their behavior is unchanged).
