@@ -1156,10 +1156,16 @@ void App::drawProceduralWindow() {
                             n.strs[p.key] = "";
                             changed = true;
                         }
-                        for (const SceneObject& o : project_.objects()) {
+                        // ##id per entry: nothing stops two scene objects from
+                        // carrying the same name, and a Selectable's label is
+                        // its ImGui id.
+                        const std::vector<SceneObject>& objs = project_.objects();
+                        for (size_t oi = 0; oi < objs.size(); ++oi) {
+                            const SceneObject& o = objs[oi];
                             if (o.type == PrimitiveType::Scatter) continue;
                             if (!o.procSource.empty()) continue;
-                            if (ImGui::Selectable(o.name.c_str(), cur == o.name) &&
+                            const std::string id = o.name + "##o" + std::to_string(oi);
+                            if (ImGui::Selectable(id.c_str(), cur == o.name) &&
                                 cur != o.name) {
                                 n.strs[p.key] = o.name;
                                 changed = true;
@@ -1219,9 +1225,14 @@ void App::drawProceduralWindow() {
                 const std::string label =
                     row.s.empty() ? "(pick a model)" : baseNameOf(row.s);
                 if (ImGui::BeginCombo("##asset", label.c_str())) {
-                    for (const std::string& m : models) {
+                    for (size_t mi = 0; mi < models.size(); ++mi) {
+                        const std::string& m = models[mi];
                         const std::string rel = "res/models/" + m;
-                        if (ImGui::Selectable(m.c_str(), rel == row.s) && rel != row.s) {
+                        // ##id for the same reason the prefab picker needs one:
+                        // a Selectable's label is its id, and nothing here
+                        // guarantees two entries cannot read the same.
+                        const std::string id = m + "##m" + std::to_string(mi);
+                        if (ImGui::Selectable(id.c_str(), rel == row.s) && rel != row.s) {
                             row.s = rel;
                             changed = true;
                         }
@@ -1271,12 +1282,24 @@ void App::drawProceduralWindow() {
                 const std::string label =
                     row.s.empty() ? "(pick a prefab)" : row.s;
                 if (ImGui::BeginCombo("##prefab", label.c_str())) {
-                    for (const Prefab& pf : project_.prefabs)
-                        if (ImGui::Selectable(pf.name.c_str(), pf.name == row.s) &&
+                    // A Selectable's LABEL is its ImGui id, and this popup shows
+                    // two lists that overlap by construction: capturing "box-1"
+                    // creates a prefab called "box-1" while the object "box-1"
+                    // is still in the scene, so the very next open has the same
+                    // name in both halves. Every entry therefore carries an
+                    // explicit ##id (the displayed text stops at ##). The same
+                    // rule the Drone Generator's knobs learned - see
+                    // tyra-editor-dev.
+                    for (size_t pi = 0; pi < project_.prefabs.size(); ++pi) {
+                        const Prefab& pf = project_.prefabs[pi];
+                        const std::string id =
+                            pf.name + "##pf" + std::to_string(pi);
+                        if (ImGui::Selectable(id.c_str(), pf.name == row.s) &&
                             pf.name != row.s) {
                             row.s = pf.name;
                             changed = true;
                         }
+                    }
                     if (project_.prefabs.empty())
                         ImGui::TextDisabled("no prefabs yet - pick from the scene "
                                             "below, or Tools > Prefabs");
@@ -1298,7 +1321,13 @@ void App::drawProceduralWindow() {
                         if (o.type == PrimitiveType::Scatter) continue;
                         if (!o.procSource.empty()) continue;
                         anyCapturable = true;
-                        if (!ImGui::Selectable(o.name.c_str())) continue;
+                        // Type in the label as well as a unique id: with the
+                        // prefab list right above, "box-1" and "box-1" want
+                        // telling apart by eye, not only by the separator.
+                        const std::string id = o.name + "  (" +
+                                               primitiveTypeName(o.type) +
+                                               ")##cap" + std::to_string(oi);
+                        if (!ImGui::Selectable(id.c_str())) continue;
                         Prefab np = prefab::capture(
                             project_.active(), {(int)oi},
                             prefab::uniqueName(project_, o.name));

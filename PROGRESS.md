@@ -15115,3 +15115,32 @@ Each finished feature lands as its own commit.
   `--ui-script` to target, so the capture was exercised through the identical
   `prefab::capture` call the Prefabs window makes, and the picker section itself
   is a human check.
+
+- (239) **Fix: the prefab picker collided with itself.** Reported as an ImGui
+  "2 visible items with conflicting ID" banner when picking the same prefab
+  twice - and the diagnosis is worse than the report: it fires the moment you
+  use the *Capture from the scene* entry added in (238) at all.
+
+  A `Selectable`'s LABEL is its ImGui id, and that popup shows two lists.
+  Capturing the object `box-1` makes a prefab called `box-1` while the object is
+  still standing in the scene, so the very next open has `box-1` in both halves
+  - two visible items, one id. Exactly the rule the Drone Generator's knobs
+  learned in 210, in a shape nobody had met before: not two widgets that happen
+  to share a caption, but two LISTS whose contents overlap by construction.
+
+  Every entry now carries an explicit `##<prefix><index>` (`##pf`, `##cap`,
+  `##m`, `##o`) - the displayed text stops at `##`, so nothing moves - and the
+  capture entries also show the object's type the way the outliner does, since
+  a separator alone is thin grounds for telling two identical names apart. The
+  asset picker and the object-name parameter combo got the same treatment
+  defensively: neither can produce a duplicate today, and neither is worth
+  re-learning this from.
+
+  **Honest about the verification.** The fix is by construction (unique index
+  per entry, distinct prefixes per list) and the editor builds and passes the
+  25-step procedural regression with `expect-not "MESSAGE FROM DEAR IMGUI"` in
+  it - but that assertion never OPENS the picker, so it proves only that nothing
+  else conflicts. `--ui-script` cannot click a `##`-labelled combo (there is no
+  name to target) and ImGui's keyboard nav does not reach inside the imnodes
+  canvas, so the popup itself stays a human check. Worth knowing before the next
+  attempt to script one.
