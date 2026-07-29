@@ -26,6 +26,13 @@ struct RuntimeObject {
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
   float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Scripted continuous rotation (the Spin Object flow node), degrees per
+  // SECOND - authored units, so it is frame-rate independent and readable.
+  // Integrated by TerrainGame::updateSpinners(), which also puts the object on
+  // the per-object matrix path so a permanently turning prop costs one matrix
+  // refresh per frame instead of a world-space vertex re-bake. Independent of
+  // `spin` above: physics owns that one, this one survives sleep and settle.
+  float spinRate[3] = {0.0F, 0.0F, 0.0F};
   // Settle-flatten targets, latched once per settle so the chosen face
   // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
   // stays" when the roll lands on an even 90deg step.
@@ -76,6 +83,14 @@ struct ScriptContext {
   // sequence player writes cameraOverride = true + cameraEye/cameraAt every
   // frame such a cutscene is active; the game applies them to the frame camera
   // just before rendering, and the player writes false when the cutscene ends.
+  // Time machine (docs/time-machine.md): the walker's own motion, which lives
+  // in the game class rather than in the object table. Published every frame
+  // so a capture can see it; a restore writes them back next to ctx.teleport
+  // and the teleport branch picks them up - gated on teleportMotion, because
+  // an ordinary Spawn Player At must keep landing you standing still.
+  float playerVelY = 0.0F;
+  float playerBoom = 0.0F;
+  bool teleportMotion = false;
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
@@ -120,6 +135,14 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Dynamic point lights (Set Light flow node), indexed by scene-object
+  // index like `objects`. lightRequest[i]: -1 = leave, 0 = off, 1 = on.
+  // lightIntensity[i]: < 0 = leave, else a multiplier on the light's
+  // authored brightness. Only meaningful on Point Light objects with the
+  // 'Dynamic (live)' flag; the game applies and resets both every frame.
+  signed char* lightRequest = nullptr;
+  float* lightIntensity = nullptr;
+
   // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
   // Text node). Same request protocol as textRequest above, but the string is
   // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
@@ -137,13 +160,29 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
+  // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
+  // away - gravity, collision and the camera keep running, so a locked player
+  // still falls and is still framed. The game applies and resets it.
+  int lockInput = -1;
+
+  // Camera shake (Camera Shake flow node). shakeAmp < 0 = leave; else the
+  // amplitude in world units (0 stops it) held for shakeSec seconds. The game
+  // applies the request to its own decaying shake and resets shakeAmp. It
+  // perturbs whatever camera is in force, cutscene override included.
+  float shakeAmp = -1.0F;
+  float shakeSec = 0.0F;
+
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // flow nodes). fog / particles: -1 = leave, 0 = off, 1 = on. bloom / grain:
-  // -1 = leave, else a 0..128 fixed-point amount. The game applies and resets.
+  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
+  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
+  // 0..128 fixed-point amount. The game applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
   int particles = -1;
+  int flare = -1;
+  int godRays = -1;
 
   // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
   // restore the scene's authored setting (Tools > UI Editor), else a 0..128
@@ -209,6 +248,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // A flow event queued from OUTSIDE a menu row - today a credits roll whose
+  // finish action is "fire a flow event". updateGameMenu promotes it into
+  // menuEvent (the one place that clears it), so the trigger side needs to
+  // know only about menu events. -1 = none.
+  int pendingEvent = -1;
 
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset
@@ -273,6 +317,18 @@ struct ScriptContext {
   // (including 0) - the walker never clears it, so two producers would fight.
   float viewKickPitch = 0.0F;
   float viewKickYaw = 0.0F;
+  // Prefabs (docs/prefabs.md) and runtime procedural volumes
+  // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
+  // members merge into a shared geometry bag (ONE submit for the lot) and only
+  // the members that need an identity of their own take a clone slot. Returns
+  // an instance handle, or -1 when the instance pool is full. despawnPrefabs
+  // clears every live instance of a prefab (-1 = all of them).
+  int (*spawnPrefab)(int prefabIndex, float x, float y, float z, float yaw,
+                     float scale) = nullptr;
+  void (*despawnPrefabs)(int prefabIndex) = nullptr;
+  // Runs a runtime procedural volume. seed: 0 = the authored one, -1 = a fresh
+  // one, anything else = use it. clear = throw the generated geometry away.
+  void (*generateVolume)(int volumeIndex, int seed, bool clear) = nullptr;
 };
 
 /** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).

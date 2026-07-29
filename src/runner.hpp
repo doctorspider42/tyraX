@@ -1,11 +1,13 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "platform.hpp"
 #include "project.hpp"
 
 // Executes the Tyra build & run pipeline in a worker thread:
@@ -64,8 +66,8 @@ public:
 
 private:
     void appendLine(const std::string& line);
-    // Runs a command through cmd.exe in `cwd`, streams output to log.
-    // Returns process exit code, or -1 on spawn failure.
+    // Runs a command through the platform shell in `cwd`, streams output to
+    // log. Returns process exit code, or -1 on spawn failure.
     int exec(const std::string& cmdline, const std::string& cwd);
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
@@ -78,15 +80,23 @@ private:
     mutable std::mutex logMutex_;
     std::string log_;
 
-    // Cancel support: exec() parks the running child's HANDLE here so
-    // cancel() can terminate it; the mutex orders terminate vs CloseHandle.
+    // Cancel support: exec() parks the running child here so cancel() can
+    // terminate its whole tree; the mutex orders kill vs destruction.
     std::atomic<bool> cancelRequested_{false};
-    std::mutex execProcMutex_;
-    void* execProc_ = nullptr;  // HANDLE of the exec() child (guarded above)
+    mutable std::mutex execProcMutex_;
+    std::unique_ptr<platform::Process> execProc_;  // guarded above
 
     // The long-lived `ps2client execee` file server of the last PS2 deploy
     // (see buildAndRunPs2) and the thread pumping its output into the log.
-    void* ps2ClientProc_ = nullptr;  // HANDLE; void* keeps windows.h out of here
+    // Guarded by ps2ClientMutex_: the UI thread polls ps2ClientAlive() while
+    // the pump thread is inside readLine() and killPs2Client() may replace it.
+    // Basename of the emulator the last launch actually started, so Stop can
+    // reap it by name even when it is an AppImage or a distro build rather
+    // than the stock pcsx2-qt (see emulatorProcessNames in runner.cpp).
+    std::string lastEmulator_;
+
+    mutable std::mutex ps2ClientMutex_;
+    std::shared_ptr<platform::Process> ps2Client_;
     std::thread ps2Pump_;
     // Output lines received from ps2client since the last deploy. ps2link
     // commands are UDP fire-and-forget (reset/execee "succeed" against a dead

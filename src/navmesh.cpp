@@ -54,6 +54,7 @@ bool blocksNavigation(const SceneObject& o) {
         case PrimitiveType::Empty:
         case PrimitiveType::Decal:
         case PrimitiveType::Camera:
+        case PrimitiveType::Scatter:
         case PrimitiveType::Area:
             return false;  // markers / visual-only, collidePlayer's skip list
         default:
@@ -71,6 +72,12 @@ NavGrid bake(const Project& p, const SceneData& s) {
     const float width = (float)s.terrain.width;
     const float depth = (float)s.terrain.depth;
     if (width <= 0.0f || depth <= 0.0f) return g;
+    // Walkability IS the terrain surface here (slope + what blocks it), so a
+    // scene with the terrain removed has nowhere to walk and the grid stays
+    // empty - agents then hold still instead of pathing over a void. Standing
+    // on placed geometry is a player thing, not a nav one (docs/terrain.md,
+    // docs/navigation-ai.md).
+    if (!s.terrain.enabled) return g;
 
     float cell = p.settings.navCellSize;
     if (cell < 0.25f) cell = 0.25f;
@@ -101,7 +108,7 @@ NavGrid bake(const Project& p, const SceneData& s) {
             if (it == modelAabbs.end()) {
                 std::array<float, 6> box = {-0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f};
                 objparser::Model m;
-                if (objparser::load(p.dir + "\\" + o.modelPath, m))
+                if (objparser::load(p.filePath(o.modelPath), m))
                     box = {m.min[0], m.min[1], m.min[2], m.max[0], m.max[1], m.max[2]};
                 it = modelAabbs.emplace(o.modelPath, box).first;
             }

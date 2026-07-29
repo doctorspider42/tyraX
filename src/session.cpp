@@ -15,6 +15,7 @@
 #include <unordered_set>
 
 #include "json.hpp"
+#include "platform.hpp"
 
 namespace fs = std::filesystem;
 
@@ -116,10 +117,9 @@ struct MemoEntry {
 using HashMemo = std::unordered_map<std::string, MemoEntry>;  // key = absolute path
 
 fs::path hashMemoPath() {
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return {};
-    return fs::path(base) / "tyra-editor" / "hash-cache.json";
+    const fs::path base = platform::configDir();
+    if (base.empty()) return {};
+    return base / "hash-cache.json";
 }
 
 HashMemo loadHashMemo() {
@@ -244,10 +244,8 @@ constexpr double kPeerTimeoutSec = 15.0;
 }  // namespace
 
 std::string defaultCacheRoot() {
-    const char* base = getenv("LOCALAPPDATA");
-    if (!base || !*base) base = getenv("USERPROFILE");
-    if (!base || !*base) return "";
-    return (fs::path(base) / "tyra-editor" / "remote-cache").string();
+    const fs::path base = platform::configDir();
+    return base.empty() ? std::string() : (base / "remote-cache").string();
 }
 
 std::string newJoinCode() {

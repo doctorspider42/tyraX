@@ -15,6 +15,8 @@ struct SceneObjectData {
              //    via PORTALS below)
              // 17=area (invisible volume, no geometry/collision:
              //    layer zones, In Area triggers - pointInArea below)
+             // 18=scatter volume (procedural authoring region; its
+             //    instances are baked to static chunk meshes)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -53,11 +55,21 @@ struct SceneObjectData {
                      // (plain stereo, full volume, no distance/pan)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
+  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
+                     // Set Light / flicker work) instead of baked
+  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
+  int lightBeam;     // point lights: 0 none, 1 glow corona,
+                     // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int projShadow; // 1 = live projected silhouette shadow (the
+                  // per-object AO 'castShadow' is baked, not here)
+  int dynLit;     // 1 = lit by the LIT VU1 program from the probe
+                  // grid every frame instead of baked vertex colors
+                  // (docs/global-illumination.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -75,12 +87,6 @@ struct SceneObjectData {
   int batchStatic; // 1 = may merge into a combined static batch bag
                    // (build-time verdict: non-moving primitive with
                    // no physics/logic/graph refs/save-state/layer)
-  int damageable;  // 1 = takes weapon damage (docs/weapons.md);
-                   // 0 = scenery, bullets only leave an impact
-  float health;    // hit points at scene start (damageable only)
-  int deathAct;    // at 0 hp: 0 hide, 1 despawn, 2 stay, 3 knock over
-  int hitFx;       // impact burst override: 0 = the weapon decides,
-                   // 1 sparks, 2 blood, 3 dust, 4 none
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -188,8 +194,8 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[2] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, 0, 100.0F, 0, 0},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1, 0, 100.0F, 0, 0},  // box-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {2};
@@ -353,6 +359,10 @@ constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
@@ -373,6 +383,10 @@ constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {32.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {32.0F};
@@ -402,6 +416,12 @@ constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
+constexpr int FLARE_USED = 0;
+constexpr int BEAMS_USED = 0;
+constexpr int BLOB_SHADOWS = 0;
+constexpr int PROJ_SHADOWS_USED = 0;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
 constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
@@ -417,6 +437,7 @@ constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {0.0F};
 constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {0.0F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
+constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
@@ -502,6 +523,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
 #define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define SCENE_LAYER_STREAM_AREA SCENE_LAYER_STREAM_AREAS[g_activeScene]
+// Prefabs this scene can spawn (docs/prefabs.md) - the slice of
+// PREFAB_SCENE_LIST the asset residency keeps loaded.
+#define SCENE_PREFAB_FIRST PREFAB_SCENE_FIRST[g_activeScene]
+#define SCENE_PREFAB_COUNT PREFAB_SCENE_COUNT[g_activeScene]
+#define SCENE_PREFAB_LIST PREFAB_SCENE_LIST
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -546,6 +572,11 @@ inline int everyFrames(float seconds) {
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
+// Directional locomotion (face-camera / strafe mode).
+#define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
+#define PP_STRAFE_L_CLIP(pi) PP_TBL(pi, STRAFE_L_CLIPS)
+#define PP_STRAFE_R_CLIP(pi) PP_TBL(pi, STRAFE_R_CLIPS)
+#define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
@@ -588,6 +619,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_FLARE POSTFX_FLARES[g_activeScene]
+#define POSTFX_GODRAYS POSTFX_GODRAYS_ARR[g_activeScene]
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
@@ -606,6 +639,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

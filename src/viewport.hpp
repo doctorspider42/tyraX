@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "aobake.hpp"
+#include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
+#include "procgen.hpp"
 #include "project.hpp"
 
 // 3D preview of the project terrain and scene objects, rendered into an
@@ -92,7 +94,16 @@ public:
     // hands to the placement snapping and the occluder collection.
     bool modelLocalBounds(const SceneObject& o, float mn[3], float mx[3]);
 
-    float terrainHeight(float x, float z) const;  // bilinear, 0 when flat
+    // Bilinear terrain height; 0 when the terrain is flat. Also 0 with the
+    // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
+    // treat that as a floor ask the model, not this (App::placementHeight).
+    float terrainHeight(float x, float z) const;
+
+    // The camera ray through normalized image coords - the same one pick() and
+    // terrainRaycast() build. Exposed so the app can hit-test things the
+    // viewport does not own (procedural scatter instances live in the graph,
+    // not in the scene object list).
+    void cameraRay(float u, float v, float outOrigin[3], float outDir[3]) const;
 
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
@@ -101,6 +112,33 @@ public:
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
+
+    // Baked global illumination preview (docs/global-illumination.md). The
+    // editor must show the same light the console will, or authoring a bake is
+    // guesswork - so the scene's probe grid is uploaded as a 3D texture and the
+    // fragment shader evaluates it per pixel, REPLACING the ambient +
+    // directional shade exactly the way the generated game replaces it per
+    // vertex. An empty grid (no bake, or a stale one) restores the classic
+    // preview with one call.
+    //
+    // Where this preview is honest and where it is not: the game gives static
+    // untextured geometry a per-TEXEL lightmap, whose contact shadows are
+    // sharper than a 3-unit probe grid can be. Everything else - models,
+    // textured surfaces, physics bodies, characters - is probe-lit in the game
+    // too, and there this is exact.
+    void setGiProbes(const gibake::ProbeGrid& g);
+    void clearGiProbes() { setGiProbes(gibake::ProbeGrid()); }
+    bool giProbesLoaded() const { return giDim_[0] > 0; }
+
+    // The TERRAIN takes GI from the baked terrain lightmap, not from the probe
+    // grid - the same split the generated game makes (buildTerrainChunk's
+    // `terrainGi`). One probe sample every ~3 units over a broadly flat ground
+    // is nearly constant, so the probe route paints the whole terrain one
+    // colour; the map is per texel and is what the console actually reads.
+    // A TEXTURED terrain has no lit map (a flat additive term would blow out
+    // its dark texels) and stays on the probe route in both.
+    void setGiTerrain(const aobake::AoImage& img);
+    void clearGiTerrain() { setGiTerrain(aobake::AoImage()); }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -173,6 +211,41 @@ public:
     // so this can be called every frame cheaply; pass nullptr to hide.
     void setNavOverlay(const navmesh::NavGrid* grid, uint64_t version);
 
+    // Procedural scatter preview (docs/procedural-generation.md). The app
+    // evaluates every Scatter volume's graph (procgen, off the UI thread) and
+    // pushes the result in once per frame; the viewport draws the instances
+    // with the ordinary model path, so the preview is shaded exactly like the
+    // baked chunks that ship. `version` gates the overlay-mesh rebuilds (mask
+    // grid, curve polyline) - the instance list itself is cheap to re-walk.
+    //
+    // The baked chunk objects (SceneObject::procSource) are NOT drawn while a
+    // preview exists: they are build output of the same deterministic
+    // evaluation, and drawing both would double every tree.
+    struct ScatterPreview {
+        uint64_t version = 0;
+        std::vector<std::string> assets;  // index = Instance::asset
+        std::vector<procgen::Instance> instances;
+        // Prefab instances, already expanded into WORLD-SPACE objects by the
+        // app (prefab::instantiate - the same function Insert into scene and
+        // the runtime spawner use, so the preview cannot invent a placement the
+        // world would not produce). A Pick Prefab point carries no asset, so
+        // without these such an instance draws as nothing at all.
+        std::vector<SceneObject> prefabObjects;
+        // An isolated node's own output, shown instead of instances: a mask
+        // draped over the terrain, or a curve as a polyline (UX-01).
+        std::shared_ptr<const procgen::Mask> mask;
+        std::shared_ptr<const procgen::Curve> curve;
+        // Control points of the curve node being edited (world XYZ triples),
+        // drawn as grabbable handles; -1 = none highlighted.
+        std::vector<float> handles;
+        int activeHandle = -1;
+        // Instances above this are drawn as plain points instead of meshes -
+        // one GL draw per instance is fine for thousands, not for tens of
+        // thousands, and the author still needs to see the layout.
+        int proxyAbove = 4000;
+    };
+    void setScatterPreview(ScatterPreview p);
+
     // Projected-decal preview meshes, computed app-side (decalproj) because the
     // app owns the Project. Keyed by object id; each value is a world-space
     // triangle list, 5 floats/vertex (pos3 + uv2). The GL meshes are rebuilt
@@ -213,6 +286,24 @@ public:
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
     // (render() resizes the main one to the viewport every frame).
+    // Optional lighting override for the tool-window previews (Material /
+    // Animation Editor). A scene authored dark - low brightness, a night
+    // ambience - makes its previews unreadable too, because the previews shade
+    // with the scene's baked light on purpose (what you see is what ships).
+    // This lets a preview bake with different values instead: the panels offer
+    // the neutral studio default and every ambience preset in the project.
+    // It is a real re-bake of the preview's own vertex colors, not a post-hoc
+    // brightness scale, so the shading stays exactly what those light values
+    // would produce in-game.
+    struct PreviewLight {
+        bool on = false;  // false = follow the scene's resolved ambience
+        float dir[3] = {0.37f, 0.82f, 0.44f};
+        float ambient = 0.55f;
+        float diffuse = 0.45f;
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        float brightness = 1.0f;
+    };
+
     struct MatPreviewDesc {
         float kd[3] = {1.0f, 1.0f, 1.0f};  // staged tint of the selected entry
                                            // (channels may exceed 1 - brightness)
@@ -232,6 +323,7 @@ public:
         float zoom = 1.0f;        // dolly multiplier (1 = default framing)
         int displayMode = 0;      // 0 solid, 1 solid + wireframe overlay,
                                   // 2 UV checker (replaces every texture)
+        PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderMaterialPreview(int width, int height, const MatPreviewDesc& d);
 
@@ -283,6 +375,7 @@ public:
         float pitchDeg = 15.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier
         bool wireframe = false;   // overlay the triangles
+        PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
 
@@ -393,9 +486,32 @@ public:
     void resetView();
 
     // View/projection of the last render() call (column-major, OpenGL style) -
-    // used by the transform gizmo.
+    // used by the transform gizmo. The projection is in PANEL space: in the
+    // PS2 output mode it carries the letterbox scale, so the gizmo lands on
+    // the picture and not on the bars beside it.
     const float* viewMatrix() const { return viewM_; }
     const float* projMatrix() const { return projM_; }
+
+    // PS2 output emulation (docs/ps2-viewport.md): render the scene at the GS
+    // framebuffer size of the project's display mode and present it - nearest,
+    // letterboxed into the TV's display window - instead of drawing the scene
+    // at whatever shape the viewport happens to be docked to. Geometry comes
+    // from the app (the twin of Tyra's RendererSettings::updateGeometry); the
+    // viewport only consumes it, so a new engine display mode is one table
+    // entry there and nothing here.
+    struct Ps2Output {
+        bool on = false;
+        int bufW = 512;   // physical GS framebuffer, in GS pixels
+        int bufH = 448;   // half the logical height when field rendering
+        float projAspect = 512.0f / 448.0f;  // RendererSettings::aspectRatio
+        float tvAspect = 4.0f / 3.0f;        // shape of the display window
+        // The GS flicker filter (two read circuits, the second offset by one
+        // line): on for the Interlaced and Pal576i scan-outs, off for the DTV
+        // modes and field rendering - RendererCoreGS::presentFrameBuffer.
+        bool flicker = true;
+    };
+    void setPs2Output(const Ps2Output& o) { ps2_ = o; }
+    const Ps2Output& ps2Output() const { return ps2_; }
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
@@ -414,6 +530,7 @@ private:
 
     void ensureFramebuffer(int width, int height);
     void buildTerrainMesh();
+    void buildWorldAxes();  // origin gizmo; drawn with or without a terrain
     void buildPrimitiveMeshes();
     Mesh uploadMesh(const std::vector<float>& interleaved);  // pos3 + color3
     // pos3 + color4 + uv2 (the particle-shader layout) - terrain layer passes
@@ -430,6 +547,15 @@ private:
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+
+    // Scatter preview (see setScatterPreview): the pushed result plus the GL
+    // meshes for its mask / curve overlays, rebuilt only when version changes.
+    ScatterPreview scatter_;
+    uint64_t scatterVersion_ = 0;
+    bool scatterHasVersion_ = false;
+    Mesh scatterMaskMesh_;
+    Mesh scatterCurveMesh_;
+    Mesh scatterPointsMesh_;  // proxy dots for very large instance counts
 
     // Projected-decal GL meshes (see setProjectedDecals), keyed by object id;
     // rebuilt only when projectedDecalVersion_ changes.
@@ -464,6 +590,12 @@ private:
         float tanHalf = 0.4663f;  // perspective: tan(vertical fov / 2)
         float halfH = 1.0f;       // ortho: half the visible height (world units)
         float aspect = 1.0f;
+        // Letterbox: the fraction of the panel the picture covers, per axis
+        // (1,1 outside the PS2 output mode). Image coords passed to camRay and
+        // returned by projectToImage are PANEL coords, so both go through it -
+        // that is what keeps picking, the placement raycast and the measuring
+        // tape on the picture when it no longer fills the viewport.
+        float boxSx = 1.0f, boxSy = 1.0f;
     };
     CamView camView(int width, int height) const;
     // Ray through normalized image coords (u, v in [0,1], origin top-left).
@@ -526,6 +658,26 @@ private:
     int uAoSelfObj_ = -1, uAoGround_ = -1, uAoReceive_ = -1;
     int uAoPos_ = -1, uAoAx_ = -1, uAoAy_ = -1, uAoAz_ = -1, uAoObj_ = -1;
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
+    // Baked GI probe grid (see setGiProbes)
+    int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
+        uGiDim_ = -1, uGiScale_ = -1;
+    uint32_t giTex_ = 0;
+    float giOrigin_[3] = {0, 0, 0};
+    float giStep_[3] = {1, 1, 1};
+    int giDim_[3] = {0, 0, 0};
+    float giScale_ = 1.0f;
+    std::vector<uint8_t> giPixels_;  // staged until the GL context exists
+    // Baked terrain lightmap (see setGiTerrain). Sampled on the CPU while the
+    // terrain chunks are built, exactly where the generated game samples it -
+    // its shadeAt is this one's twin - so the ground's own tint survives (the
+    // terrain carries it in the vertex colour, which the probe route replaced
+    // wholesale). uGiSkipProbe_ then keeps the fragment shader off the probes
+    // for those draws.
+    int uGiSkipProbe_ = -1;
+    std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    int giTerrSize_ = 0;
+    bool giUploadPending_ = false;
+    void uploadGiProbes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;
@@ -693,12 +845,34 @@ private:
     bool usableHighlight_ = false;  // wire box on usable objects
     float usableHighlightCol_[3] = {1.0f, 0.85f, 0.15f};
 
+    // The RENDER target: the panel size normally, the GS framebuffer size in
+    // the PS2 output mode. Everything inside render() sizes itself from
+    // fbWidth_/fbHeight_, so the whole scene pass moves to GS resolution
+    // without knowing about it.
     uint32_t fbo_ = 0, colorTex_ = 0, depthRbo_ = 0;
     int fbWidth_ = 0, fbHeight_ = 0;
-    // Which framebuffer holds the image the last render() returned (fbo_, or
-    // gradeFbo_ when the grading pass ran) - the source grabPreviewRgb blits
-    // from, so the phone sees the graded picture too. 0 = nothing rendered yet.
+    // Which framebuffer holds the image the last render() returned (fbo_,
+    // gradeFbo_ when the grading pass ran, or outFbo_ in the PS2 output mode)
+    // and its size - the source grabPreviewRgb blits from, so the phone sees
+    // the graded picture too. 0 = nothing rendered yet.
     uint32_t lastImageFbo_ = 0;
+    int lastImageW_ = 0, lastImageH_ = 0;
+
+    // PS2 output mode: the panel-sized presentation target the GS image is
+    // scaled into (nearest, letterboxed into the display window), and the
+    // panel size itself - camView() needs it to work out the letterbox even
+    // though every render/pick call now passes the GS size around.
+    Ps2Output ps2_;
+    void ensureOutputFramebuffer(int width, int height);
+    uint32_t outFbo_ = 0, outTex_ = 0;
+    int outW_ = 0, outH_ = 0;
+    // How much of the panel the picture covers, per axis (1 = edge to edge).
+    // The letterbox is centred by construction, so it is a pure scale: the
+    // projection handed to the gizmo is multiplied by it, camRay divides by
+    // it, projectToImage multiplies again.
+    void ps2LetterBox(float& sx, float& sy) const;
+    uint32_t ps2Program_ = 0;
+    int uPs2Src_ = -1, uPs2Box_ = -1, uPs2Texel_ = -1, uPs2Flicker_ = -1;
 
     // Phone-camera readback target: a small RGBA8 framebuffer the viewport
     // image is blitted (and thus downscaled) into before glReadPixels.
@@ -711,6 +885,13 @@ private:
     void ensurePreviewBackdrop();  // lazily builds prevBg_ / prevFloor_
     uint32_t prevFbo_ = 0, prevTex_ = 0, prevDepth_ = 0;
     int prevW_ = 0, prevH_ = 0;
+    // Animation Editor preview target. Its own FBO on purpose: both tool
+    // windows can be open at once and size themselves independently, so
+    // sharing one target would resize it twice per frame and make each window
+    // show the other's last draw. Only the backdrop meshes are shared.
+    void ensureAnimFramebuffer(int width, int height);
+    uint32_t animFbo_ = 0, animTex_ = 0, animDepth_ = 0;
+    int animFbW_ = 0, animFbH_ = 0;
     Mesh prevBg_, prevFloor_;  // vertical gradient + checker floor (y = 0 local)
     uint32_t uvCheckerTex_ = 0;  // generated UV-checker (displayMode 2)
 
@@ -757,7 +938,9 @@ private:
         std::vector<float> tris;  // pos3 + uv2, flat triangle list
     };
     struct MatPrevModel {
-        std::string key;  // "<modelRel>|<mtlRel>", "" = nothing loaded
+        // "<modelRel>|<mtlRel>|<light>", "" = nothing loaded. The light rides
+        // along because the shade is baked into these vertex colors.
+        std::string key;
         bool ok = false;
         std::vector<MatPrevPart> parts;
         float center[3] = {0.0f, 0.0f, 0.0f};
@@ -766,7 +949,8 @@ private:
     };
     MatPrevModel matPrevModel_;
     const MatPrevModel* matPrevModelDraw(const std::string& modelRel,
-                                         const std::string& mtlRel);
+                                         const std::string& mtlRel,
+                                         const PreviewLight& light);
     // Bind-pose preview parts for an animated (.glb/.fbx) model.
     void buildMatPrevAnimated(const std::string& modelRel,
                               const std::string& mtlRel);
@@ -776,6 +960,20 @@ private:
     // first use from the same unit-mesh generators as box_/sphere_/... so the
     // paint raycast sees exactly the drawn geometry.
     std::vector<float> prevShapeTris_[4];
+
+    // Unit shapes re-baked for a PreviewLight override. box_/sphere_/... carry
+    // the scene's baked shade and are shared with the viewport, so an
+    // overridden material preview draws from these private copies instead.
+    // Rebuilt only when the override values change (`prevLightKey_`), not per
+    // frame - baking is the same cost as buildPrimitiveMeshes.
+    Mesh prevLitShape_[4];
+    std::string prevLightKey_;  // "" = no override baked yet
+    // Serialized PreviewLight - the shape cache key and part of the
+    // matPrevModel_ key (an override re-bakes the model's vertex colors too).
+    static std::string previewLightKey(const PreviewLight& l);
+    // Points the drawn mesh at the override copy when `l` is on, building it
+    // (and dropping a stale bake) on demand.
+    const Mesh& litShape(int shape, const PreviewLight& l);
 
     // Camera + geometry of the last renderMaterialPreview, consumed by
     // materialPreviewPick. Basis vectors are world-space, fov is vertical.

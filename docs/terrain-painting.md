@@ -12,7 +12,9 @@ to run out of texels.
 
 It lives in the **Terrain Editor** (*Tools > Terrain Editor*) - the one window
 for both terrain brushes: **Sculpt** (the heightmap brush) and **Paint** (this
-feature), switched by the two tool buttons at the top. The same toggles sit in
+feature), switched by the two tool buttons at the top. (Both need a terrain:
+a scene whose terrain was removed shows only the *Terrain in this scene*
+checkbox that brings it back - see [the terrain](terrain.md).) The same toggles sit in
 the viewport toolbar as *Sculpt (4)* and *Paint (6)*; grabbing either tool
 opens the window with its options. One brush is in hand at a time.
 

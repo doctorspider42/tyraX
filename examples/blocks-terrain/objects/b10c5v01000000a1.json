@@ -1,0 +1,468 @@
+{
+ "id": "b10c5v01000000a1",
+ "name": "world",
+ "type": "scatter",
+ "position": [
+  0,
+  8,
+  0
+ ],
+ "rotation": [
+  0,
+  0,
+  0
+ ],
+ "scale": [
+  66,
+  44,
+  66
+ ],
+ "color": [
+  0.4,
+  0.7,
+  1.0
+ ],
+ "physics": false,
+ "castShadow": false,
+ "collision": "none",
+ "procGraph": {
+  "seed": 7,
+  "nextId": 200,
+  "runtime": true,
+  "runAtStart": true,
+  "seedMode": 0,
+  "nodes": [
+   {
+    "id": 1,
+    "type": "BlocksFill",
+    "pos": [
+     40,
+     360
+    ],
+    "nums": {
+     "block": 1.5,
+     "levels": 14,
+     "floor": 3,
+     "scale": 26.0,
+     "octaves": 4,
+     "relief": 1.0,
+     "depth": 3,
+     "base": 0.0
+    }
+   },
+   {
+    "id": 10,
+    "type": "FilterRange",
+    "pos": [
+     320,
+     40
+    ],
+    "nums": {
+     "min": 0.0,
+     "max": 0.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "depth"
+    }
+   },
+   {
+    "id": 11,
+    "type": "FilterRange",
+    "pos": [
+     560,
+     40
+    ],
+    "nums": {
+     "min": 18.0,
+     "max": 999.0,
+     "falloff": 1.5
+    },
+    "strs": {
+     "attr": "height"
+    }
+   },
+   {
+    "id": 12,
+    "type": "PickAsset",
+    "pos": [
+     820,
+     40
+    ],
+    "rows": [
+     {
+      "s": "res/models/block-snow.obj",
+      "v": [
+       100,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 20,
+    "type": "FilterRange",
+    "pos": [
+     320,
+     180
+    ],
+    "nums": {
+     "min": 0.0,
+     "max": 0.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "depth"
+    }
+   },
+   {
+    "id": 21,
+    "type": "FilterRange",
+    "pos": [
+     560,
+     180
+    ],
+    "nums": {
+     "min": -99.0,
+     "max": 6.0,
+     "falloff": 1.5
+    },
+    "strs": {
+     "attr": "height"
+    }
+   },
+   {
+    "id": 22,
+    "type": "PickAsset",
+    "pos": [
+     820,
+     180
+    ],
+    "rows": [
+     {
+      "s": "res/models/block-sand.obj",
+      "v": [
+       100,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 30,
+    "type": "FilterRange",
+    "pos": [
+     320,
+     320
+    ],
+    "nums": {
+     "min": 0.0,
+     "max": 0.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "depth"
+    }
+   },
+   {
+    "id": 31,
+    "type": "FilterRange",
+    "pos": [
+     560,
+     320
+    ],
+    "nums": {
+     "min": 6.0,
+     "max": 18.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "height"
+    }
+   },
+   {
+    "id": 32,
+    "type": "PickAsset",
+    "pos": [
+     820,
+     320
+    ],
+    "rows": [
+     {
+      "s": "res/models/block-grass.obj",
+      "v": [
+       100,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 40,
+    "type": "FilterRange",
+    "pos": [
+     320,
+     460
+    ],
+    "nums": {
+     "min": 1.0,
+     "max": 1.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "depth"
+    }
+   },
+   {
+    "id": 41,
+    "type": "PickAsset",
+    "pos": [
+     820,
+     460
+    ],
+    "rows": [
+     {
+      "s": "res/models/block-dirt.obj",
+      "v": [
+       100,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 45,
+    "type": "FilterRange",
+    "pos": [
+     320,
+     600
+    ],
+    "nums": {
+     "min": 2.0,
+     "max": 99.0,
+     "falloff": 0.0
+    },
+    "strs": {
+     "attr": "depth"
+    }
+   },
+   {
+    "id": 46,
+    "type": "PickAsset",
+    "pos": [
+     820,
+     600
+    ],
+    "rows": [
+     {
+      "s": "res/models/block-stone.obj",
+      "v": [
+       100,
+       1,
+       1,
+       0
+      ]
+     }
+    ]
+   },
+   {
+    "id": 50,
+    "type": "Merge",
+    "pos": [
+     1080,
+     200
+    ]
+   },
+   {
+    "id": 51,
+    "type": "Merge",
+    "pos": [
+     1080,
+     480
+    ]
+   },
+   {
+    "id": 55,
+    "type": "Merge",
+    "pos": [
+     1300,
+     340
+    ]
+   },
+   {
+    "id": 60,
+    "type": "Output",
+    "pos": [
+     1560,
+     340
+    ],
+    "nums": {
+     "cell": 24.0,
+     "draw": 0.0,
+     "shadow": 0,
+     "collide": 0,
+     "detail": 0,
+     "budget": 90000,
+     "maxinst": 12000
+    }
+   }
+  ],
+  "links": [
+   {
+    "id": 100,
+    "from": 1,
+    "fromPin": 0,
+    "to": 10,
+    "toPin": 0
+   },
+   {
+    "id": 101,
+    "from": 10,
+    "fromPin": 0,
+    "to": 11,
+    "toPin": 0
+   },
+   {
+    "id": 102,
+    "from": 11,
+    "fromPin": 0,
+    "to": 12,
+    "toPin": 0
+   },
+   {
+    "id": 110,
+    "from": 1,
+    "fromPin": 0,
+    "to": 20,
+    "toPin": 0
+   },
+   {
+    "id": 111,
+    "from": 20,
+    "fromPin": 0,
+    "to": 21,
+    "toPin": 0
+   },
+   {
+    "id": 112,
+    "from": 21,
+    "fromPin": 0,
+    "to": 22,
+    "toPin": 0
+   },
+   {
+    "id": 120,
+    "from": 1,
+    "fromPin": 0,
+    "to": 30,
+    "toPin": 0
+   },
+   {
+    "id": 121,
+    "from": 30,
+    "fromPin": 0,
+    "to": 31,
+    "toPin": 0
+   },
+   {
+    "id": 122,
+    "from": 31,
+    "fromPin": 0,
+    "to": 32,
+    "toPin": 0
+   },
+   {
+    "id": 130,
+    "from": 1,
+    "fromPin": 0,
+    "to": 40,
+    "toPin": 0
+   },
+   {
+    "id": 131,
+    "from": 40,
+    "fromPin": 0,
+    "to": 41,
+    "toPin": 0
+   },
+   {
+    "id": 140,
+    "from": 1,
+    "fromPin": 0,
+    "to": 45,
+    "toPin": 0
+   },
+   {
+    "id": 141,
+    "from": 45,
+    "fromPin": 0,
+    "to": 46,
+    "toPin": 0
+   },
+   {
+    "id": 150,
+    "from": 12,
+    "fromPin": 0,
+    "to": 50,
+    "toPin": 0
+   },
+   {
+    "id": 151,
+    "from": 22,
+    "fromPin": 0,
+    "to": 50,
+    "toPin": 1
+   },
+   {
+    "id": 152,
+    "from": 32,
+    "fromPin": 0,
+    "to": 50,
+    "toPin": 2
+   },
+   {
+    "id": 160,
+    "from": 41,
+    "fromPin": 0,
+    "to": 51,
+    "toPin": 0
+   },
+   {
+    "id": 161,
+    "from": 46,
+    "fromPin": 0,
+    "to": 51,
+    "toPin": 1
+   },
+   {
+    "id": 170,
+    "from": 50,
+    "fromPin": 0,
+    "to": 55,
+    "toPin": 0
+   },
+   {
+    "id": 171,
+    "from": 51,
+    "fromPin": 0,
+    "to": 55,
+    "toPin": 1
+   },
+   {
+    "id": 180,
+    "from": 55,
+    "fromPin": 0,
+    "to": 60,
+    "toPin": 0
+   }
+  ]
+ }
+}

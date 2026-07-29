@@ -44,6 +44,12 @@ nodes live in `flow-nodes/`:
   On Button (Square) ──exec──▶ Spin By (crate-2, 45°)
   ```
 
+  It is kept here as the smallest possible inline-node example. For real work
+  the editor now has built-ins that do this and more: **Rotate Object By** (the
+  same nudge, any axis) and **Spin Object** (continuous rotation the game
+  integrates itself). Reach for a custom node when the editor has no built-in,
+  not to re-implement one.
+
 ## Reusing these nodes
 
 A node's identity is its **file name**. To use `Spin By` in another project,

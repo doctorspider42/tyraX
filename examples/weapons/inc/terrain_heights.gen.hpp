@@ -111,8 +111,16 @@ inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};
 
 /** Bilinear terrain height at world coordinates in a scene. The
- * game maps terrainHeightAt(x, z) to the active scene. */
+ * game maps terrainHeightAt(x, z) to the active scene.
+ *
+ * A scene whose terrain was removed in the editor has NO ground
+ * (docs/terrain.md): this answers TERRAIN_VOID_Y everywhere, so
+ * every caller that treats it as the floor - the walkers, the
+ * physics bodies, the blob shadows, the camera spring arm, the
+ * raycasts - agrees that there is nothing to stand on, and the
+ * floors are whatever geometry the scene places. */
 inline float terrainHeightAtScene(int scene, float x, float z) {
+  if (!TERRAIN_ENABLEDS[scene]) return TERRAIN_VOID_Y;
   const float* hm = TERRAIN_HEIGHTS_TABLES[scene];
   const int hw = HM_WS[scene];
   const int hd = HM_DS[scene];

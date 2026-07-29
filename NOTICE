@@ -1,0 +1,12 @@
+TyraX
+Copyright 2026 doctorspider42
+
+This product includes software developed as part of the Tyra engine
+(https://github.com/h4570/tyra) by Sandro Sobczynski (h4570) and contributors,
+licensed under the Apache License, Version 2.0. The fork lives in
+vendor/tyra/engine; every departure from upstream is marked "Modified by TyraX"
+in the sources.
+
+This product also includes software under the MIT, zlib/libpng, MIT-0 and
+public-domain licenses, and a module derived from PS2SDK under the Academic
+Free License v2.0. Full notices for all of them are in THIRD-PARTY-LICENSES.md.

@@ -23,6 +23,7 @@
 #include "./texture/renderer_core_texture.hpp"
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
+#include "./shadowmap/renderer_core_shadow_map.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
@@ -58,6 +59,10 @@ struct RendererCoreFog {
  */
 struct RendererCoreSpotLight {
   bool enabled = false;
+  // Omni (point) light: the cone term is saturated via the spot constants
+  // (zero direction + negative cutoff), so the SAME VU1/EE code path renders
+  // both shapes - no extra micro memory. Direction/cosCutoff are ignored.
+  bool point = false;
   Vec4 position = Vec4(0.0F, 0.0F, 0.0F, 1.0F);   // world space
   Vec4 direction = Vec4(0.0F, 0.0F, -1.0F, 0.0F); // world space, normalized
   Color color = Color(96.0F, 96.0F, 80.0F, 128.0F); // additive, 128 = +1.0
@@ -89,6 +94,10 @@ class RendererCore {
   /** Dynamic environment map for reflective materials (TyraX fork). */
   RendererCoreEnvMap envMap;
 
+  /** Projected silhouette shadows (TyraX fork; VRAM allocated lazily via
+   * shadowMap.allocate() - only shadow-using games pay for it). */
+  RendererCoreShadowMap shadowMap;
+
   /**
    * Camera-feed render target (TyraX fork, "texture feeds"): a second
    * env-map-style 128x128 VRAM target the game renders an arbitrary
@@ -108,6 +117,16 @@ class RendererCore {
 
   /** Dynamic spot light - the flashlight (TyraX fork). */
   RendererCoreSpotLight spot;
+
+  /**
+   * Scene dynamic lights (TyraX fork). The color VU1 programs evaluate ONE
+   * light per mesh, so the StaPip picks the strongest contributor per bag
+   * among the flashlight + these (see pickDynLight). Registered fresh every
+   * frame by the game (clearDynLights + addDynPointLight before rendering).
+   */
+  static constexpr u32 DYN_LIGHTS_MAX = 8;
+  RendererCoreSpotLight dynLights[DYN_LIGHTS_MAX];
+  u32 dynLightCount = 0;
 
   // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
   // of the async 3D stream otherwise - see Renderer2D::render). Reset by
@@ -157,6 +176,28 @@ class RendererCore {
 
   /** Disable the dynamic spot light. */
   void disableSpotLight() { spot.enabled = false; }
+
+  /** Drop all registered scene dynamic lights (TyraX fork). Call once per
+   * frame before re-adding - the registry is a per-frame snapshot. */
+  void clearDynLights() { dynLightCount = 0; }
+
+  /**
+   * Register a scene dynamic point (omni) light for this frame (TyraX
+   * fork). Additive on top of baked vertex colors, quadratic-ish distance
+   * falloff over `range`, color 128 = +1.0. Silently ignored past
+   * DYN_LIGHTS_MAX. Returns the slot index (or -1 when full).
+   */
+  int addDynPointLight(const Color& color, const Vec4& position,
+                       const float& range);
+
+  /**
+   * Pick the strongest dynamic light (flashlight or scene light) for a
+   * world-space bounding sphere (TyraX fork). Never null - with nothing
+   * registered it returns the flashlight state, disabled or not, which
+   * uploads zero colors and keeps the VU1 additive term a no-op.
+   */
+  const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
+                                            const float& worldRadius) const;
 
   /** Clear screen and update view frustum for frustum culling. NO 3D support */
   void beginFrame();

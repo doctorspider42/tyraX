@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,16 @@ struct BuiltinAsset {
 };
 const std::vector<BuiltinAsset>& saveMenuAssets();
 
+// True when any scene can show the sun lens flare (an authored per-scene
+// amount > 0, or a Set Flare flow node that could raise it at runtime).
+// Gates both the res/hud/flare-*.png bake (refreshGenerated) and the
+// game-side texture load (FLARE_USED in scene_data.hpp) - keep them equal.
+bool projectUsesFlare(const Project& p);
+
+// True when any scene has a Point Light with a visible beam (corona/cone).
+// Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
+bool projectUsesBeams(const Project& p);
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
@@ -84,6 +95,14 @@ std::string scriptStub(const Project& p, const std::string& className,
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.
+// A File::relativePath as a filesystem path. The generator writes '\\'
+// separators (and hundreds of call sites compare against literals spelled that
+// way), but a backslash is an ordinary FILENAME CHARACTER on POSIX - writing
+// one straight out produces a single file literally called "src\\gen\\x.cpp"
+// instead of the directory tree. Every place a relativePath meets the file
+// system goes through here.
+std::filesystem::path nativePath(const std::string& relativePath);
+
 bool matchesLegacy(const Project& p, const std::string& relativePath,
                    const std::string& content);
 

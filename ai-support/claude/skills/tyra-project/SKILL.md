@@ -9,7 +9,8 @@ description: How a TyraX-generated PS2 game project is structured - the project 
 
 ## What this project is
 
-A PlayStation 2 game authored in the TyraX editor (a Windows GUI app). The
+A PlayStation 2 game authored in the TyraX editor (a cross-platform GUI app -
+Windows and Linux). The
 editor edits a **data model** and generates the complete game from it on every
 build. Two kinds of files coexist here:
 
@@ -29,15 +30,20 @@ build. Two kinds of files coexist here:
 | `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs. Sub-folders are fine | Yes (import via the editor keeps references sane; move/rename in the editor's Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its .mtl) |
 | `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
 | `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
+| `res/audio/*.drone` | Patch for a track the editor's Drone Generator made (`key = value` text; editor-only, never ships) | Yes - re-render it in the editor (Tools > Drone Generator) after editing |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
-| `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources | Only after deleting the ownership marker line |
+| `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
+| `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |
+| `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
-| `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 | Rarely |
+| `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
+| `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
+| `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
 `Do not edit - regenerated on every build` means never touch it; `Delete this
@@ -53,8 +59,8 @@ The editor executable doubles as a headless tool. On this machine it is:
 {TYRAX_EXE}
 ```
 
-(Quote the path - it may contain spaces. If it moved, ask the user where
-tyrax-editor.exe lives.)
+(Quote the path - it may contain spaces. If it moved, ask the user where the
+tyrax-editor binary lives.)
 
 | Command | What it does |
 |---|---|
@@ -64,8 +70,9 @@ tyrax-editor.exe lives.)
 | `--apply-graph <projectDir> <object> <graph.json> [scene] [--append]` | Validate a graph JSON and write it into the object |
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
+| `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp]` | Create a fresh project |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
@@ -77,7 +84,17 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, areas,
+  procedural volumes...).
+- The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
+  in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
+  removed the scene has **no ground at all**: nothing is drawn and the game has
+  no floor, so the player, physics bodies and particles rest on the geometry the
+  scene places (a box, a plane, a model with collision) and fall through the
+  void anywhere else - and a Player or spawn point starts at its own authored
+  Y, not on a surface. The scene's width/depth still bound the world. Terrain
+  sculpting/painting, the ground bakes and **navigation AI** (the navmesh
+  rasterizes the ground, so agents have nowhere to walk) do not apply there.
 - An **area** is an invisible box (no geometry in the game). Other things
   reference one by name instead of carrying a distance: a streaming layer's
   auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
@@ -90,5 +107,47 @@ to see exactly what the game will compile.
   unique and stable. Object *ids* (`objects/<id>.json` filenames) are internal
   merge keys - never reference or reuse them.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts, color gradings, ambience presets, loading screens and
-  cutscene sequences. `--dump` lists all of their names.
+  HUD images/texts, color gradings, ambience presets, loading screens,
+  cutscene sequences, **credits rolls** and the **input map** (named input
+  actions + binding presets). `--dump` lists all of their names.
+- **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
+  of headings, role/name rows, lines, images and page breaks that scrolls (or
+  plays as cards) over music, is skippable, and finishes by resuming, switching
+  scene, opening a menu or firing a flow event. Started by a menu row (action
+  "Play credits") or the Play Credits node; a roll owns the screen and the pad
+  while it plays, so nothing else runs behind it. A long roll can also be
+  imported from a plain text file.
+- **Procedural volumes** (type `scatter` in the file - the display name changed,
+  the key did not) are procedural authoring regions: the object carries a node
+  graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
+  along a curve, or repeated exactly (Array / Radial Array) - and every build
+  bakes the result into merged static chunk meshes plus one generated Model
+  object per chunk. Those chunk objects carry `procSource` (the volume's id),
+  live in `res/models/.../procgen-*.obj` and are **rewritten wholesale by the
+  next bake** - never hand-edit them or reference them by name; edit the
+  volume's graph in the editor instead (*Tools > Procedural*). To give every
+  generated chunk a property (mesh LOD distance, baked lighting, reflections),
+  put an **ObjectSettings** node in the graph - a hand edit on one chunk does
+  not survive the next bake. A `--build` / `--refresh-gen` of such a project
+  rewrites the `.tyra`, which is expected.
+- A volume whose graph has `"runtime": true` is the other mode: the graph is
+  compiled into the game and evaluated on the console instead of baked, so it
+  produces NO chunk objects and no meshes at all. Only a subset of the node
+  library can run there (the editor lists what cannot, and codegen skips a
+  volume it cannot compile). The **Generate Volume** flow node re-runs one at
+  runtime with a fresh seed.
+- **Prefabs** are a project-wide list (`"prefabs"` in the `.tyra`): named groups
+  of scene objects - flow graphs included - stored in the prefab's own local
+  frame. Reference one BY NAME from a **Spawn Prefab** flow node or a **Pick
+  Prefab** procedural row; the editor's *Tools > Prefabs* window inserts copies
+  into a scene. An instance is not linked back to the prefab: inserted copies
+  are ordinary objects from then on.
+- **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
+  `{{action:jump}}` draws whatever that action is currently bound to. Works in
+  HUD texts, menu titles/labels, option labels, loading screens and Display Text
+  nodes; the pad set is seeded per project (Tools > UI Editor > Button icons).
+- **Buttons go through named input actions**, not raw pad buttons: the project's
+  Input Map binds each action ("jump", "sprint", "use", ...) to a pad button
+  and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
+  row lets the player override one at runtime (the override persists in a save
+  value). In graphs use the **On Action** trigger so logic follows the binding.
