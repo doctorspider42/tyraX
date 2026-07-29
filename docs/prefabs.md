@@ -113,18 +113,25 @@ colour x material, so the file carries one `usemtl` run per look, not one per
 member), and a member material's texture is copied next to the output, because
 the PS2 cannot walk `..`.
 
-There is no undo for a bake - it writes files, not scene edits - but it is
-repeatable (the prefab stays as the source; re-bake to update) and guarded:
-re-baking only ever overwrites a previous bake's output. If
-`res/models/<name>.obj` already exists and was **not** written by a bake, the
-bake refuses rather than clobber a hand-made model that happens to share the
-name. To take a bake back, delete the generated `.obj`/`.mtl` in the Asset
-Browser. Renaming a prefab points the next bake at a NEW file; the old one
-stays until you delete it.
+There is no Ctrl+Z for a bake - it writes files, not scene edits - but it is
+repeatable (the prefab stays as the source; re-bake to update), guarded, and
+takes itself back: re-baking only ever overwrites a previous bake's output,
+and if `res/models/<name>.obj` already exists and was **not** written by a
+bake, the bake refuses rather than clobber a hand-made model that happens to
+share the name. **Delete bake...** next to the *Baked:* line deletes the
+generated `.obj`/`.mtl` (and the derived `.tmdl`) after a confirm that counts
+who still draws from the file - objects and *Pick Asset* rows keep the path
+and would show as missing. Textures the bake copied in stay (they are copies
+of sources that still exist). Renaming a prefab points the next bake at a NEW
+file; the old one stays until you delete it.
 
-The green *Baked: ...* report stays on screen under **the prefab it belongs
-to** (skipped members are the part worth reading twice); switching to another
-prefab in the list does not carry it along.
+The window always says whether the selected prefab **is baked**: the green
+*Baked: res/models/<name>.obj* line is read from disk, so it survives an
+editor restart - only the triangle/material numbers and the skipped-member
+list belong to the session's fresh bake. No bake on disk reads *Not baked to
+a model*. The line is per prefab; switching in the list does not carry it
+along, and a file that merely shares the name (no bake marker in its first
+line) does not count as baked.
 
 ## Spawning at runtime
 

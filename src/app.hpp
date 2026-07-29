@@ -1134,6 +1134,12 @@ private:
     // "the last bake applied to all of them".
     prefab::BakeReport prefabBakeReport_;
     std::string prefabBakeFor_;
+    // The selected prefab's bake ON DISK ("" = not baked) - what makes the
+    // baked/not-baked readout survive a restart. Cached because the answer is
+    // a file read: recomputed when the (id, name) key changes and after a
+    // bake / Delete bake, never per frame.
+    std::string prefabBakeDiskKey_;
+    std::string prefabBakeDiskPath_;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and

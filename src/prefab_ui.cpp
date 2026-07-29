@@ -265,6 +265,7 @@ void App::drawPrefabsWindow() {
             for (const std::string& w : r.warnings) statusMessage_ += " | " + w;
             prefabBakeReport_ = r;
             prefabBakeFor_ = pf.id;
+            prefabBakeDiskKey_.clear();  // the on-disk readout just changed
         }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -333,21 +334,108 @@ void App::drawPrefabsWindow() {
         }
     }
 
-    // The last bake, kept on screen: a status line scrolls away, and the list
-    // of what could NOT be baked is the part worth reading twice. Only under
-    // the prefab it belongs to - drawn unconditionally it read as "the last
-    // bake applied to every prefab in the list".
-    if (!prefabBakeReport_.modelPath.empty() && prefabBakeFor_ == pf.id) {
+    // Baked or not - read from DISK, so the answer survives a restart (the
+    // green report line only lives for the session that clicked the button).
+    // Cached: the check is a file read, and the key covers a rename (the stem
+    // comes from the name, so a renamed prefab's bake is a different file).
+    {
+        const std::string key = pf.id + "|" + pf.name;
+        if (key != prefabBakeDiskKey_) {
+            prefabBakeDiskKey_ = key;
+            prefabBakeDiskPath_ = prefab::bakeOnDisk(project_, pf);
+        }
+    }
+    if (!prefabBakeDiskPath_.empty()) {
         ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "Baked: %s",
-                           prefabBakeReport_.modelPath.c_str());
+                           prefabBakeDiskPath_.c_str());
+        // The fresh bake's numbers, only under the prefab they belong to -
+        // drawn unconditionally they read as "the last bake applied to every
+        // prefab in the list".
+        const bool fresh = !prefabBakeReport_.modelPath.empty() &&
+                           prefabBakeFor_ == pf.id;
+        if (fresh) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%d tris, %d material(s))",
+                                prefabBakeReport_.triangles,
+                                prefabBakeReport_.materials);
+        }
         ImGui::SameLine();
-        ImGui::TextDisabled("(%d tris, %d material(s))", prefabBakeReport_.triangles,
-                            prefabBakeReport_.materials);
-        for (const std::string& s : prefabBakeReport_.skipped)
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "  not baked: %s",
-                               s.c_str());
-        for (const std::string& w : prefabBakeReport_.warnings)
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "  %s", w.c_str());
+        // The way BACK from a bake: it is file generation, not a scene edit,
+        // so Ctrl+Z cannot cover it - deleting the output is the undo, and it
+        // belongs here rather than in a dig through the Asset Browser.
+        if (ImGui::SmallButton("Delete bake...")) ImGui::OpenPopup("Delete Bake?");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(
+                "Deletes the generated .obj/.mtl - the undo for a bake, which\n"
+                "Ctrl+Z cannot cover (it writes files, not scene edits). The\n"
+                "prefab stays; re-bake to recreate the model.");
+        if (fresh) {
+            for (const std::string& s : prefabBakeReport_.skipped)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f),
+                                   "  not baked: %s", s.c_str());
+            for (const std::string& w : prefabBakeReport_.warnings)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "  %s",
+                                   w.c_str());
+        }
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (ImGui::BeginPopupModal("Delete Bake?", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Delete the baked model of \"%s\"?", pf.name.c_str());
+            ImGui::TextUnformatted(prefabBakeDiskPath_.c_str());
+            // Who still draws from that file - a Pick Asset row is the likely
+            // one, since scattering through it is the whole reason to bake.
+            {
+                int objUsers = 0, rowUsers = 0;
+                for (const SceneData& s : project_.scenes)
+                    for (const SceneObject& o : s.objects) {
+                        if (o.type == PrimitiveType::Model &&
+                            o.modelPath == prefabBakeDiskPath_)
+                            ++objUsers;
+                        for (const ProcNode& n : o.procGraph.nodes) {
+                            if (n.type != "PickAsset") continue;
+                            for (const ProcRow& r : n.rows)
+                                if (r.s == prefabBakeDiskPath_) ++rowUsers;
+                        }
+                    }
+                if (objUsers > 0 || rowUsers > 0)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.72f, 0.25f, 1.0f),
+                        "Used by %d object(s) and %d Pick Asset row(s) - they\n"
+                        "will show as missing until repointed.",
+                        objUsers, rowUsers);
+            }
+            ImGui::TextDisabled(
+                "The prefab itself stays; re-bake to recreate the model.");
+            ImGui::Separator();
+            if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
+                const std::string err = prefab::deleteBake(project_, pf);
+                if (!err.empty()) {
+                    statusMessage_ = "Delete bake failed: " + err;
+                } else {
+                    // The bookkeeping the Asset Browser's delete does for a
+                    // model: per-asset settings keyed by the path go with it.
+                    const std::string deleted = prefabBakeDiskPath_;
+                    project_.textureQuality.erase(deleted);
+                    project_.modelLods.erase(deleted);
+                    project_.modelUnitMeters.erase(deleted);
+                    modelInfoCache_.clear();
+                    viewport_.invalidateAssets();
+                    if (prefabBakeFor_ == pf.id) prefabBakeFor_.clear();
+                    prefabBakeDiskKey_.clear();
+                    saveAll(("Deleted " + deleted).c_str());
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(scaled(120), 0)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    } else {
+        ImGui::TextDisabled(
+            "Not baked to a model - Bake to model writes res/models/%s.obj.",
+            pf.name.c_str());
     }
 
     ImGui::Separator();

@@ -113,6 +113,20 @@ struct BakeReport {
 };
 BakeReport bakeToModel(const Project& p, const Prefab& pf);
 
+// The bake output this prefab owns on disk: "res/models/<stem>.obj" when the
+// file exists AND its first line is the bake's own marker - never a hand-made
+// model that happens to share the name. Empty = not baked. This is what makes
+// the window's baked/not-baked readout survive an editor restart (the
+// BakeReport above only lives for the session that clicked the button).
+std::string bakeOnDisk(const Project& p, const Prefab& pf);
+
+// Takes a bake back: deletes the owned .obj/.mtl pair (and the derived .tmdl,
+// which the next build would just regenerate). Marker-guarded like the bake
+// itself. Textures the bake copied in STAY - they are copies of sources that
+// still exist, and another asset may share them. Returns an error string,
+// empty on success.
+std::string deleteBake(const Project& p, const Prefab& pf);
+
 // Prefabs some scene can spawn: named by a Spawn Prefab flow node anywhere in
 // the scene, or by a Pick Prefab row in one of its procedural volumes. This is
 // what decides whose members' models/materials a scene has to ship, so it is

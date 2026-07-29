@@ -15326,3 +15326,43 @@ Each finished feature lands as its own commit.
   Cancel keeps the prefab, Delete removes it (`expect-not` on the list row)
   and the manifest ends with two prefabs. All asserted with `expect`/
   `expect-not` plus screenshots read back frame-by-frame.
+
+- (245) **The bake is visible and takes itself back: a persistent Baked/Not
+  baked readout per prefab, and a Delete bake... button.** Follow-up from the
+  same reporter, two asks in one: "if undoing a bake is deleting the model,
+  put that option on the prefab so I don't have to dig" and "sitting on a
+  selected prefab I'd like to SEE whether it is baked - the green line is
+  only there for a moment". Both were the same missing thing: the window only
+  knew about bakes made THIS session (`prefabBakeReport_`), so after a
+  restart a baked prefab and a never-baked one looked identical.
+
+  `prefab::bakeOnDisk` now answers "is this prefab baked" from the file
+  system - the stem's `.obj` exists AND carries the bake marker in its first
+  line, the same test the overwrite guard of (244) uses (shared as
+  `isBakeOutput`), so a hand-made model that merely shares the name is never
+  claimed as a bake. The window draws a green `Baked: res/models/<stem>.obj`
+  whenever that holds (the tris/materials numbers and the skipped list still
+  belong to the session's fresh bake only) and an explicit *Not baked to a
+  model* otherwise. Cached per (id, name) key - the answer is a file read,
+  and the name is in the key because a rename points at a different stem -
+  invalidated after a bake and after a delete, never polled per frame.
+
+  `prefab::deleteBake` is the way back: marker-guarded like the bake, removes
+  the `.obj`, the `.mtl` (only if the bake wrote it) and the derived `.tmdl`,
+  leaves copied-in textures (they are copies of sources that still exist).
+  The *Delete bake...* button sits on the Baked line behind a confirm modal
+  that counts who still draws from the file - scene objects by `modelPath`
+  and *Pick Asset* rows, the likely consumer since scattering through Pick
+  Asset is the whole reason to bake - and the per-asset settings keyed by the
+  path (textureQuality / modelLods / modelUnitMeters) go with it, the same
+  bookkeeping the Asset Browser's delete does.
+
+  **Verified** with a 21-step `--ui-script` run (exit 0) on the (244) scratch
+  project in a FRESH editor session - the readout showed `Baked:` +
+  *Delete bake...* for a prefab baked in the previous session (the restart
+  case, asserted with `expect` before any bake was clicked), Cancel kept the
+  files, Delete removed `.obj`+`.mtl` from disk (`expect-not` on the button,
+  screenshot shows *Not baked to a model*), and an immediate re-bake brought
+  the button back. Negative case: stripping the marker line off a baked
+  `.obj` flips its prefab to `expect-not "Delete bake"` - a file the bake
+  does not own is not offered for deletion.
