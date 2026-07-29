@@ -471,7 +471,7 @@ Notes:
       "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
   ```
 
-  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  `click|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -484,7 +484,19 @@ Notes:
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it.
+  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
+  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
+  shows the rect with an empty label - set the value another way and read the
+  result off a `shot`.
+
+  **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
+  exposes one): it holds the cursor on the target and injects one notch per
+  frame, and it is the only step that may resolve a bare WINDOW name, so
+  `wheel "Flow Graph" -6` scrolls over the middle of the canvas. The way to
+  verify a zoom is not a screenshot but `dump` at two zoom levels: the node
+  widgets ARE ordinary items, so their rects give you the scale factor and the
+  offsets between them give you whether the layout stayed self-similar
+  (PROGRESS 233 measures both to under 0.1%).
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally

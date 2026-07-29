@@ -1046,6 +1046,26 @@ simply delegates are not.
   `px * uiScaleApplied_`); negative/`-FLT_MIN`/fill widths and text-measured
   (`CalcTextSize`) sizes already track scale, leave those alone. Free functions
   that draw fixed-size widgets take a `scale` param (see `gradingWheel`).
+  **`ScaleAllSizes` also does not reach a third-party style struct** -
+  `ImNodesStyle` (grid spacing, node padding, pin radii, link thickness) is the
+  editor's, so the Flow Graph scales it itself; a new vendored widget library
+  with its own style struct owes the same.
+- **A zoomable canvas scales its font with `PushFont`, never
+  `SetWindowFontScale`.** The latter writes `window->FontWindowScale`, and since
+  ImGui 1.92 `UpdateCurrentFontSize()` reads that field for the CURRENT window
+  only - the `FontWindowScaleParents` it computes for children is dead code. So a
+  per-window font scale does not reach anything drawn inside a `BeginChild`,
+  which is where imnodes (and any canvas) puts its content: the call compiles,
+  does not warn, and silently scales nothing. `PushFont(nullptr, sizePx)` sets the
+  context-level `FontSizeBase` and children inherit it.
+  Two consequences the Flow Graph's zoom is built around (`flowgraph_ui.cpp`,
+  PROGRESS 233), worth copying for any future zoomable view: **derive every
+  length from the rounded font pixel size, not from the zoom** (ImGui rounds font
+  sizes, so text width is a staircase while a raw `zoom` multiplier is a straight
+  line - snap the zoom to a whole font pixel and the view stays self-similar),
+  and remember that a **stored node position is a distance between nodes**, so it
+  carries the SAME factor the node contents do - the UI scale included, or a 250%
+  editor draws grown nodes at un-grown spacing and they overlap.
 
 ## Building the editor
 
