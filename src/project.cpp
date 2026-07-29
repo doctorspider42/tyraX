@@ -891,6 +891,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"timeMachine\": "
          << (p.settings.timeMachine ? "true" : "false") << ",\n"
+         << "    \"remotePad\": " << (p.settings.remotePad ? "true" : "false")
+         << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -2965,6 +2967,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
         if (const auto* v = s->find("timeMachine"))
             st.timeMachine = v->boolOr(true);
+        if (const auto* v = s->find("remotePad")) st.remotePad = v->boolOr(true);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -4593,6 +4596,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\live_debug.gen.cpp" ||
             f.relativePath == "inc\\scripts\\live_debug.gen.hpp" ||
             f.relativePath == "src\\gen\\livedbg.sym" ||
+            f.relativePath == "src\\gen\\live_pad.gen.cpp" ||
+            f.relativePath == "inc\\live_pad.gen.hpp" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
