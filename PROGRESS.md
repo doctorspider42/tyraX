@@ -13929,3 +13929,121 @@ Each finished feature lands as its own commit.
   dark on *Scene ambience*, light up independently when each is switched to
   *Neutral studio*, a named preset (`Default`, warm light) reads differently
   from neutral, and both selections survive a restart.
+
+- (224) **Remote Pad - the editor (or a script) holds the running game's
+  controller.** Asked for as "there is no good way to control the game once it
+  boots in the emulator, find one so the features can actually be tested". The
+  honest diagnosis first: on Windows a background process cannot reliably give
+  PCSX2 the foreground (`SetForegroundWindow` silently fails, see entry 108's
+  notes), so every pad-driven check was a human clicking into the emulator - and
+  synthetic `PostMessage` keys only work while it HAS the focus, which a
+  screenshot-taking script then has to fight for. So instead of trying harder at
+  the emulator's window, the input now rides the channel the devkit already
+  owns: a fourth live layer, `bin/livepad.bin` over the same `host:` filesystem
+  the game loads its assets from. The editor writes a pad state, the game
+  overlays it on the physical pad through `Pad::injectVirtual`, and **nothing
+  needs the keyboard focus anywhere** - PCSX2 can sit behind the editor, and a
+  fully unattended test can drive the game and screenshot it in the same script.
+  Two front ends over one encoder (`src/livepad.hpp`, harness-testable like
+  livedbg/livetime): *Tools > Remote Pad*, a clickable DualShock with two stick
+  sliders and a "drive with the editor's keyboard" mode (WASD/arrows = left
+  stick, IJKL = right, Space = Cross, ... read only while that window is
+  focused); and `tyrax-editor --pad <project> "<script>"`, a tiny line language
+  (`press cross [s]` / `hold up` / `release all` / `stick l|r x y` / `wait s` /
+  `neutral` / `pad 1|2`, `;`-separated) that `parseScript` resolves into a flat
+  timeline of (state, seconds), so the language is checkable with no game and no
+  file system. Works on real hardware too (polled every 4th frame there - each
+  `fopen` is a network round-trip), and drives BOTH connectors, which finally
+  makes the two-player hot-join testable without a second physical pad.
+  Three decisions worth keeping: the file is absolute **state, not events**, so
+  a dropped poll cannot swallow a press and a doubled one cannot repeat it - the
+  cost being that a writer must keep refreshing it, and the game therefore
+  expires an overlay whose `seq` stopped moving for 120 frames (~2.4 s), which is
+  what stops a Ctrl+C'd script from leaving the player walking into a wall
+  forever; `injectVirtual` grew an overlay **slot** (`Pad::VIRT_SLOTS`, one
+  `virtPrev` each) because the USB keyboard/mouse fold already used it and two
+  sources sharing one click history each read as the other releasing everything,
+  i.e. every held button re-clicks every frame; and the tick sits at the top of
+  both game loops but **after** `pad2.update()`, since `update()` rebuilds the
+  pad from hardware and would throw an earlier overlay away.
+  Verified e2e in PCSX2 on an `fpp` fixture, entirely from a shell with the
+  emulator in the background and never focused - numbers rather than an
+  impression, because "the camera looks different" is not evidence: 3 s idle
+  changes **620 px** (all of them PCSX2's own status bar), a 1.5 s right-stick
+  hold **196918 px**, a 2.5 s left-stick walk **1402919 px**, and 4 s after the
+  script ends the frame is idle again at **1660 px** - which is what proves the
+  detach on exit actually releases rather than just stopping. The editor panel
+  was verified rendering (`TYRAX_SHOT` self-capture with `"pad"` pre-opened in
+  the layout) and driving the file at ~12 Hz with the attached flag set; its
+  buttons being CLICKED is still a hands-on check, since a synthetic click into
+  the editor is its own problem - the panel writes through the same
+  `livepad::write` the CLI does.
+  The zero-cost rule holds and was checked in both directions (entry 193's
+  lesson): the debug ELF's audit names `livepad.bin` among its findings, and a
+  release build of the same fixture comes back `Release audit: clean`. Getting
+  there caught a **real trap worth remembering**: `refreshGenerated`'s
+  "always overwritten" set is a hand-written path list, not a rule about the
+  `.gen.` suffix, so `live_pad.gen.cpp` was written once by `project::create`
+  and never refreshed - the release build happily compiled the full devkit
+  runtime because the file still held the settings the project was CREATED with.
+  It looks perfectly generated; only the audit saw it. That list, and the trap,
+  are now in the tyra-editor-dev skill.
+  The committed example projects are NOT regenerated here, for the same reason
+  the Live Debugger / Live Logic / time-machine entries did not: their generated
+  trees are already several layers behind (`examples/script-demo/src/gen/` has no
+  `live_debug.gen.cpp` at all), and a `--refresh-gen` sweep across ~20 examples
+  belongs in its own commit rather than inside a feature diff. Nothing breaks -
+  a build regenerates the whole tree, so the new include and the new file arrive
+  together.
+
+- (225) **UI scripting: the editor drives itself** (`--ui-script`,
+  docs/ui-scripting.md). The Remote Pad (224) fixed driving the GAME; this is the
+  same problem one level up, and it had the same shape: verifying a panel meant a
+  human clicking, because synthetic OS clicks need the window focus (which a
+  background process cannot reliably take on Windows) and pixel coordinates that
+  move with DPI, ui scale and docking. The way out was not a better clicker but
+  two things Dear ImGui already does and nobody here was using: it **announces
+  every widget it submits** - id, bounding box, label, and the checked / open /
+  inputable status flags - through four `extern` hook functions that exist purely
+  so an external test engine can implement them, and its **input is a queue**
+  (`io.AddMousePosEvent` and friends are how the GLFW backend feeds real events).
+  So `src/uiscript.cpp` implements those four functions and the editor knows what
+  is on screen by NAME; a script says `click "Remote Pad/Cross"`, nothing goes
+  near the OS, and the same script works at any scale or layout.
+  Deliberately **without vendoring imgui_test_engine** - we need none of it and
+  its licence is not ours to take on; `IMGUI_ENABLE_TEST_ENGINE` is `PUBLIC` on
+  the imgui target because it changes `ImGuiContext`'s layout, and collection is
+  gated on ImGui's own `TestEngineHookItems`, so an ordinary session pays one
+  never-taken branch per widget.
+  The language is `click / doubleclick / hold / hover / drag / key / text / wait /
+  frames / shot / dump / log / quit` plus `expect`, `expect-not`,
+  `expect-checked`, `expect-unchecked`; the exit code is 0 only if every step
+  passed, so a scripted GUI run gates a shell script like any test. Two design
+  points earn their keep immediately: **a step that names a target WAITS for it**
+  (a menu popup only exists a frame after the click that opened it, so sleeps and
+  timing luck disappear) and a failed lookup **prints what was on screen
+  instead** - a blank "not found" is the expensive part of UI automation. `dump`
+  is where a script starts: it lists every widget with its rect and state, which
+  is also how "not all modals close on escape - click their Cancel" was answered.
+  Verified by closing 224's own open question, since that is the check that
+  needed both: a script opens *Tools > Remote Pad* by name and holds the panel's
+  Cross button, while a separate process reads `bin/livepad.bin` - **38 samples
+  with the Cross bit set spanning 3.9 s of a 4.0 s hold, 41 distinct sequence
+  numbers (so the file was live, not stale), and flags back to 0 at the end**.
+  Neither window was ever focused. A second script covers a different corner:
+  File > New Project by name, `expect "New Project/Create"`, Cancel, `expect-not`
+  the same, `key f9` opens the Debugger, then a checkbox toggled and asserted with
+  `expect-checked` - and the negative test too (asserting checked on an unchecked
+  box fails with exit 1 and names the state, entry 193's lesson).
+  Two real bugs fell out of writing the tests, which is the argument for writing
+  them: `find()` used to fall back to the WINDOW item, so `click "Remote Pad"`
+  resolved to the window's own rect and pressed **whatever widget sat in its
+  middle** (R3, when asked to open a panel) - whole-window items are now excluded
+  for anything that clicks; and the editor exited without releasing the Remote
+  Pad, leaving `livepad.bin` saying "attached, Cross down" forever, which made the
+  first run of this very test read as a 12-second stuck button.
+  What it cannot reach, stated rather than fudged: anything not made of ImGui
+  widgets - the 3D viewport (one big item; `drag` inside it or work through the
+  Project panel's list), the imnodes flow canvas and the ImGuizmo gizmo.
+  `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
+  nothing a generated game project's assistant does needs it.

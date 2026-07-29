@@ -89,6 +89,8 @@ Two sibling skills cover the rest of the system:
 | `livelogic.cpp/.hpp` | ~700 | **Live Logic host side** (docs/live-logic.md) - the flow-graph HOT PATCHER: the editor compiles a graph itself so editing one no longer needs a Docker rebuild. `livelogic.hpp` is the single source of truth for the IR (`BlockKind`/`OpCode`/`CondOp`/`PosKind`, `Block`/`Instr`/`Program`, the caps) - **templates.cpp GENERATES the interpreter's enums and dispatch switch from it**, so the numbering cannot be restated by hand and a missing interpreter body becomes a `#error` in the generated file. `compile()` mirrors `flowGraphScript`'s resolution (resolveTarget / posExpr / boolInputsOr) but writes INDICES instead of C++ literals, linearizes exec chains into blocks (a `Delay` owns the block it arms) and allocates per-node state slots; `capability()` is the honest gate - the supported node set is explicit and anything else is reported per graph. `graphHash()` deliberately EXCLUDES node positions (dragging a node must not read as a logic change), and `builtListText()`/`loadBuiltList()` are the "what did the ELF compile" record that decides which graphs need patching. |
 | `livedbg.cpp/.hpp` | ~250 | **Live Debugger host side** (docs/live-debugger.md) - the flow-graph debugger's formats and history model. No GL, no ImGui, no project.hpp: the aobake/placement shape, harness-testable. Owns `Symbols` (`src/gen/livedbg.sym`: node key -> scene + object id + node id, the watch-variable list and the table hash), `Snapshot` (`bin/livedbg.bin`: cumulative hits per node, a ring of recent fires with their AGE in frames, watch values, halted flag, break key), `Command` (`bin/livedbg.cmd`: full breakpoint list, halt/step/step-until-fire, force-fire keys) and `Timeline`, the per-frame fire history the Debugger scrubs. **Every layout here has a twin in the generated runtime; the shared caps (`kMaxNodes`/`kMaxBreakpoints`/`kMaxForced`/`kMaxEvents`) are read by codegen from this header.** Torn writes are rejected by exact-size + footer-echo on both ends; commands apply only when `seq` changes (so a repeated Step must bump it). |
 | `livetime.cpp/.hpp` | ~180 | **Time machine host side** (docs/time-machine.md) - the state-rewind channel: `Snapshot` (`bin/livetime.bin` written by the game / `bin/livetime.rst` written by the editor) plus `History`, the capture ring. Same harness-testable shape as livedbg, and the same torn-write guard (exact size + a footer echoing `seq`). **The editor deliberately does not understand the payload** - what is in a capture is a codegen detail, so this stores bytes and hands the right ones back; the `layout` hash in the header is what stops a capture landing in a differently built world. `History` is bounded by a BYTE budget (a count would mean a tiny scene wastes it and a huge one blows it), keeps at least the newest capture whatever the budget, and CLEARS itself when a capture's frame goes backwards - that is a restarted game, not a rewind (a restore leaves the frame counter running forward on purpose, because it is the history's ordering key). It lives in RAM by design: the only disk footprint is the two fixed-size channel files. |
+| `livepad.cpp/.hpp` | ~330 | **Remote Pad host side** (docs/remote-pad.md) - the input direction of the host: channel, and the reason a pad-driven feature is testable at all without a human: the editor (or `--pad`) writes `bin/livepad.bin` and the game overlays it on the physical pad, so NOTHING needs the window focus. Same harness-testable shape as livedbg/livetime (no GL, no ImGui, no project.hpp) and the same torn-write guard. Three decisions to respect: the file is absolute STATE, not events (a dropped poll cannot swallow a press), which is why the game expires an overlay whose `seq` stopped moving for `kStaleFrames` and why every writer must keep refreshing at ~25 Hz; the button mask is indexed by `kPadButtonNames` (input.hpp), the same order codegen and the engine agree on; and `parseScript` resolves a pad script into a flat timeline of (state, seconds) `Step`s, so the language is checkable with no file system and no game - the CLI (`padFromCli` in main.cpp) and the panel (`App::remotePadTick`/`drawRemotePadWindow`, devkit_ui.cpp) share this one encoder. The game-side twin is `templates::livePadSource`. |
+| `uiscript.cpp/.hpp` | ~430 | **UI scripting host side** (docs/ui-scripting.md) - the answer to "how do I click something in the editor without a human", and the reason a panel change can be verified rather than eyeballed. Two halves. (1) The **item registry**: ImGui declares four `extern` hook functions under `IMGUI_ENABLE_TEST_ENGINE` (`ImGuiTestEngineHook_ItemAdd`/`ItemInfo`/`Log`/`FindItemDebugLabel`) purely so a test engine can implement them - **we implement them**, which buys label + rect + checked/open/inputable state for every widget, with no imgui_test_engine dependency (its licence is not ours to take on). The define is `PUBLIC` on the imgui target because it changes `ImGuiContext`'s layout, and collection is gated on ImGui's own `TestEngineHookItems`, so a normal session pays one never-taken branch per widget. (2) The **script**: `parseScript` -> `Step`s that `App::uiScriptTick` (devkit_ui.cpp) executes one at a time by injecting into `io.AddMousePosEvent`/`AddMouseButtonEvent`/`AddKeyEvent` - so nothing reaches the OS and no window needs focus. Two rules if you touch it: the tick must stay BETWEEN the GLFW backend's NewFrame and `ImGui::NewFrame` (it reads the map the last frame built and its event must be the last one queued), and `find(target, clickable)` must keep excluding whole-window items for anything that clicks - a bare window name otherwise resolves to the window's own rect and the "click" lands on whatever widget sits in its middle (it pressed R3 when asked to open a panel). |
 | `wire.cpp/.hpp` | ~700 | **The only place sockets live** (no project.hpp dependency — pure bytes). Frame codec `[u32 jsonLen][u32 binLen][json][bin]` LE with per-part caps + incremental `FrameDecoder`; `wire::Transport` interface (listen/connect/poll/send/kick, single-thread contract) with two impls, protocol code never seeing a socket: `makeTcpTransport()` (Winsock2 + WSAPoll) for LAN collaboration, and `makeWebSocketTransport()` — an RFC 6455 **server** (SHA-1 + base64 upgrade, unmasking, ping/pong, fragmentation) for the phone camera link, because WebSocket is what React Native and browsers have built in. The two share the accept/poll/send machinery: WebSocket is a per-connection `WsCodec` between the socket and the same `FrameDecoder`, one binary message = one `encodeFrame` image. Two contract differences to respect if you touch it: a WS peer is announced on **upgrade**, not accept (so an ordinary browser GET — which gets served an HTML page instead — never becomes a peer, and never produces an unmatched `Disconnected`), and a dying codec sets `closeAfterFlush` rather than dropping, or the served page is truncated. Also `fnv1a64`/`hashFile` (transfer-cache hashing) and `localIPv4()`. Binary payloads ride the raw trailer, never JSON (json.cpp collapses `\u`). |
 | `objparser.cpp` | 109 | Wavefront .obj importer for custom models. Editor-side only: the GAME never reads .obj, it reads the baked `.tmdl` (below). |
 | `tmdl.cpp/.hpp` | ~130 | **The binary static-model format the game ships** (docs/model-pipeline.md). Pure serialization, no project.hpp: `tmdl::Model{parts, min, max}` -> bytes, following the `.tskl` conventions (4-byte magic, `u32` version read as a range, packed little-endian, fixed NUL-padded strings, counts + inline arrays). Written by `templates::bakeStaticModels` (called from `refreshGenerated`, so `--refresh-gen` produces it without Docker), read by the engine's `TmdlLoader`, which returns the SAME `LeanObjMesh` the .obj loader does so the generated game keeps one geometry path. Everything the EE used to work out at load is resolved at bake: triangulation, flat normals, the V flip, material assignment incl. a per-object .mtl override, atlas UV rects folded into the UVs, bin-relative texture paths, and the LOD tiers. `texbake` then skips mirroring the source .obj and the Runner sweeps a superseded one out of `bin/`. **Both sides carry a "keep in sync" comment - the layout lives in two files.** |
@@ -136,6 +138,17 @@ and decides per file:
   take ownership of this file.`): `src/terrain_game.cpp`, `inc/terrain_game.hpp`,
   `inc/controls.hpp`, `inc/scripts/script.hpp`. Regenerated only while the marker
   line is intact; the user deletes the line to take over.
+
+**"Always overwritten" is a hand-written LIST inside `refreshGenerated`, not a
+rule about the suffix.** A new generated file added to `templates::generate()`
+and to nothing else is written **once, by `project::create`**, and then never
+refreshed again - so it keeps whatever the project's settings were at creation
+while every file around it follows edits. That is very hard to see, because the
+file looks perfectly generated: the Remote Pad's `live_pad.gen.cpp` shipped the
+full devkit runtime into a **release** build for exactly this reason, and the
+only thing that caught it was `--audit-release` (which is itself the argument for
+running the negative test). Add the path to that list in the same commit as the
+generator.
 
 Consequences: anything the game must know about the scene goes through codegen
 in `templates.cpp`, never by hand-editing a generated file; new generated files
@@ -593,6 +606,19 @@ CHECKED: `elfsym::auditRelease` scans the built ELF for the `TXDEVKIT-` markers
 and channel file names, `--audit-release` exits non-zero, and every release build
 runs it. **A new devkit layer must plant its own marker** or the audit cannot see
 it; a new instrumentation call must go through a generated header that no-ops.
+Two more steps that are easy to miss and both silently break the promise: the
+layer's file name goes in `kStringNeedles` (elfsym.cpp) next to the other
+channels, and its generated `.cpp`/`.hpp` must join `refreshGenerated`'s
+overwrite list (see rule 2) - the Remote Pad's runtime reached a RELEASE ELF
+because it was generated once at project creation and never refreshed. So run the
+audit in BOTH directions before believing it: `--audit-release` against the DEBUG
+ELF must FAIL and name your layer, and against a release build must come back
+clean. A layer the audit cannot see is indistinguishable from a layer that is
+not there. And a new channel file must be **deleted before launch** in BOTH of
+the Runner's clean-up blocks (`runner.cpp` has one for the PCSX2 path and one
+for the ps2link deploy): a leftover from the last session is applied on the first
+poll of the fresh boot, which for the Remote Pad meant a game that starts walking
+before anyone touches anything.
 
 **Live Debugger** (`App::livedbgTick` each frame from `drawUI`; docs in
 `docs/live-debugger.md`) - Live Link's reverse channel, on the same host: files.
@@ -621,6 +647,20 @@ should watch goes into the ONE watch array: flow variables via
 because that is the TU that owns them), then save values read straight off
 `ScriptContext` - the sym file's per-entry `kind` is what tells the editor which
 is which.
+
+**Remote Pad** (`App::remotePadTick` each frame from `drawUI`, docs in
+docs/remote-pad.md) - the fourth direction, and the only one carrying INPUT:
+debug profile + `ProjectSettings::remotePad`. `bin/livepad.bin` is absolute pad
+STATE, so both writers (the panel and `--pad`) must **keep rewriting it** - the
+game expires an overlay whose `seq` stopped moving, which is what stops a killed
+driver leaving a direction held. Two invariants if you touch it: the generated
+`livepad::tick` must stay at the TOP of both game loops but **after** each
+`Pad::update()` (update rebuilds the state from hardware and would discard an
+earlier overlay), and it uses `injectVirtual` **slot 1** because the USB
+keyboard/mouse fold owns slot 0 - the slot is what keeps the two sources' click
+edges apart, and sharing one makes every held button re-click every frame. The
+panel is deliberately the same encoder as the CLI (`livepad::write`), so a
+scripted test and a human clicking buttons cannot drift apart.
 ### 4. Never hand pixels straight to `glTexImage2D`
 Every RGBA texture upload in the editor goes through **`glUploadTexRgba(w, h,
 pixels)`** (`gl_loader.h`), which allocates the level empty and then fills it

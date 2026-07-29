@@ -9,8 +9,9 @@ game running on the console, and the game talks back.
 | [Live Debugger](live-debugger.md) | game → editor **+** commands back | what the graphs run, breakpoints, pause/step, watches, timers |
 | [Live Logic](live-logic.md) | editor → game | the flow-graph **program** itself, no rebuild |
 | [The time machine](time-machine.md) | both ways | the **world**: the game captures what it mutates, the editor pushes one back |
+| [Remote Pad](remote-pad.md) | editor → game | the **controller**: a clickable pad and a scriptable CLI, no window focus needed |
 
-All three ride one channel: the host filesystem the game already loads assets
+All of them ride one channel: the host filesystem the game already loads assets
 from (PCSX2's *Host Filesystem*, the ps2link file server on real hardware). No
 extra transport, no engine debug stub, no devkit hardware.
 
@@ -21,7 +22,8 @@ The devkit exists only in **debug** builds, and "only" means *literally* — not
 reads":
 
 - each generated runtime (`live_link.gen.cpp`, `live_debug.gen.cpp`,
-  `live_logic.gen.cpp`, `live_tex.gen.cpp`) becomes an **empty translation unit**;
+  `live_logic.gen.cpp`, `live_tex.gen.cpp`, `live_pad.gen.cpp`) becomes an
+  **empty translation unit**;
 - the generated headers keep the API but every entry point is an `inline` no-op,
   and the predicates (`livedbg::halted()`, `livelogic::patched()`) become
   compile-time `false`, so the calls in the game loop and in every compiled flow
@@ -66,7 +68,8 @@ foundation for reading named memory off a running game later.
 ## Turning it off while still in debug
 
 Each layer is its own project preference (*Project > Preferences > Build*, or the
-*Build* menu): **Live Link**, **Live Debugger**, **Live Logic**, **Time machine**.
+*Build* menu): **Live Link**, **Live Debugger**, **Live Logic**, **Time machine**,
+**Remote Pad**.
 Turning one off
 compiles it out of the debug build too — the same empty-TU path — which is the
 honest way to measure "what does my game do without the devkit" without

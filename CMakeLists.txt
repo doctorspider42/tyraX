@@ -73,6 +73,18 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw)
+# UI scripting (docs/ui-scripting.md): ImGui's test-engine hooks are how the
+# editor knows which widget is where, so a script can click by NAME. We
+# implement the four hook functions ourselves in src/uiscript.cpp - the
+# imgui_test_engine library is NOT vendored (its licence is not ours to take on),
+# and we need none of it.
+#
+# PUBLIC, and that is load-bearing: the define adds fields to ImGuiContext and
+# values to ImGuiItemStatusFlags_, so the library and every consumer must agree
+# or they disagree about the layout of a struct they both touch. ImGui only calls
+# the hooks when g.TestEngineHookItems is set, which happens only while a script
+# runs - so a normal session pays one never-taken branch per widget.
+target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_TEST_ENGINE)
 
 # --- Embedded AI-support skills (ai-support/ -> generated header) ---
 # The markdown under ai-support/ is the source of truth for the assistant
@@ -139,6 +151,7 @@ add_executable(tyrax-editor
     src/elfsym.cpp
     src/livedbg.cpp
     src/livelogic.cpp
+    src/livepad.cpp
     src/livetime.cpp
     src/vucap.cpp
     src/bvh.cpp
@@ -167,6 +180,7 @@ add_executable(tyrax-editor
     src/texbake.cpp
     src/tmdl.cpp
     src/treegen.cpp
+    src/uiscript.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

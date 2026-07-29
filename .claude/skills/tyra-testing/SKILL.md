@@ -5,11 +5,13 @@ description: >
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
   generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
-  reliable screenshots and synthetic keyboard/mouse via the bundled scripts —
-  GDI on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
+  reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
+  EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
+  needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
+  on Windows, mutter's D-Bus APIs on Wayland), and audio verification.
   Use this skill EVERY time you need to test a change, run the editor, build a
-  game, boot PCSX2, take a screenshot, drive the editor or the emulator without
-  a human, create a scratch project, or decide
+  game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
+  the emulator or the editor without a human, create a scratch project, or decide
   "how do I know this works?" — including before writing a PROGRESS.md entry or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
@@ -134,6 +136,8 @@ TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
+TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
+TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
@@ -296,7 +300,43 @@ Notes:
   project's *Keyboard & mouse controls* preference is on; `bin/log.txt` prints
   `KbdMouse: keyboard driver ready` / `mouse driver ready` when the game saw
   the devices. See `docs/keyboard-mouse.md`.)
-- **Synthetic input into PCSX2** (scripted keyboard/mouse tests). **On Linux
+- **Driving the game: use the Remote Pad, not the emulator's keyboard.**
+  `tyrax-editor --pad <projectDir> "<script>"` writes the pad state the running
+  game polls out of `bin/livepad.bin` (docs/remote-pad.md), so **no window needs
+  the focus on either OS** and the whole class of problems below stops applying.
+  It is the honest way to test anything pad-driven unattended:
+
+  ```powershell
+  build\tyrax-editor.exe --pad %TEMP%\tyra-editor-test\padtest `
+      "stick r 110 0; wait 1.5; stick r 0 0; stick l 0 -127; wait 2.5; neutral"
+  ```
+
+  `press cross [s]` / `hold up` / `release all` / `stick l|r <x> <y>` /
+  `wait <s>` / `neutral` / `pad 1|2`, separated by `;`. Needs a **debug** build
+  with the *Remote Pad* preference on (default) - the driver warns on stderr
+  when the project was built without the channel, which is the only way "nothing
+  happened" can mean "the game cannot hear you". Four things worth knowing:
+  a `hold` with no `wait` after it does nothing visible (the driver detaches on
+  exit and the game lets go - on purpose, so a killed script cannot leave a
+  direction held); the game reads **only the analog sticks**, so a held D-pad
+  `Up` changes nothing (that is the game, and it looks exactly like a broken
+  tool); the pad answers every 4th frame over ps2link instead of every frame;
+  and the state is dropped after ~2.4 s without a refresh, so a long hold needs
+  the driver to stay alive rather than one write. To hold something while
+  another tool works, run `--pad` in the background with a long enough `wait`.
+  Measured on the fpp fixture: 3 s idle changes 620 px (the PCSX2 status bar
+  only), a 1.5 s right-stick turn changes ~197k px, a 2.5 s forward walk ~1.4M -
+  and 4 s after the script the frame is idle again, which is what proves the
+  release actually happened.
+  When a script runs clean and the game ignores it, check in this order: is
+  `src/gen/live_pad.gen.cpp` the real runtime or the "nothing to compile here"
+  stub (that answers "was this ELF built with the channel" in one line), was the
+  game rebuilt since the preference changed (the poller is compiled in - a save
+  is not enough), and is `bin/livepad.bin` being written where the RUNNING ELF
+  lives (`Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'"` prints the
+  `-elf` path; a second fixture directory is the classic mix-up).
+- **Synthetic input into PCSX2** (the older, focus-dependent path - still the
+  only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
   through the compositor, so PCSX2 cannot tell the events from a real keyboard —
   click the render area once to focus it, then send pad keys, holding them with
@@ -403,16 +443,42 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
-  The editor can also **capture its own framebuffer**, on either OS and with no
+  **To DRIVE the editor, use `--ui-script`** (docs/ui-scripting.md) - the editor
+  runs for real and holds its own mouse and keyboard, naming WIDGETS instead of
+  pixels, with **no window focus needed on either OS**:
+
+  ```powershell
+  build\tyrax-editor.exe --ui-script <projectDir> `
+      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+  ```
+
+  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
+  code is 0 only if every step passed, so a scripted GUI run gates a shell
+  script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
+  it prints every widget on screen with its rect AND its checked/open state, so
+  you neither guess a label nor read a value off a screenshot. Four things that
+  save time: a step that names a target WAITS for it (menus need no sleeps, and a
+  timeout prints what was on screen instead), a target is `"Window/Label"` with
+  prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
+  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
+  (one big item: `drag` inside it, or work through the Project panel's list), the
+  imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
+  click their `Cancel`; `dump` shows it.
+
+  The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
   `TYRAX_SHOT_EVERY=<seconds>`, default 2) and it writes `<dir>/shotNN.png` every
   interval (`App::captureFrameIfRequested`). It reads what the editor DREW rather
   than what was presented, so it is the one path that survives the AMD present
-  quirk that leaves the window blank. It cannot click anything: to reach a panel
-  that needs a menu click, pre-open it by adding its key to the active layout's
-  `open` list in the project's `.tyra` (`kLayoutWindowKeys` in app.cpp has the
-  names — `"drone"`, `"tree"`, `"material"`, ...). PROGRESS 210/211 verified a
-  whole tool window this way, including reading values off the knobs.
+  quirk that leaves the window blank. It cannot click anything - before
+  `--ui-script` existed the way to reach a panel behind a menu was to pre-open it
+  by adding its key to the active layout's `open` list in the project's `.tyra`
+  (`kLayoutWindowKeys` in app.cpp has the names - `"drone"`, `"tree"`,
+  `"material"`, ...), which is how PROGRESS 210/211 verified whole tool windows.
+  That trick still works and is fine for a pure "does it render" check; anything
+  that needs a click or an assertion is now a UI script.
 
   For **editor viewport** work an **offscreen GL harness** (PROGRESS 208) is
   still the better instrument when you want numbers instead of a picture.
@@ -690,25 +756,71 @@ Notes:
   times proved music/sfx features before; a by-ear speaker check stays with the
   human.
 - **Two-player modes** (docs/multiplayer.md): the split/shared toggle is
-  testable with ONE keyboard: give the scene two Player objects and a pause
-  menu with the "Player count" option block, then drive pad 1 synthetically
-  (PostMessage on Windows, `wayland-control.py` on Linux —
-  Start=Return opens the menu, Cross=K cycles the row) and screenshot — the
-  frame visibly flips between full-screen and the top/bottom split (or the
-  pulled-back shared camera). Pad-2 hot-join (Start on pad 2) needs a second
-  pad configured in PCSX2's Pad2 slot — that part stays a hands-on test.
-- **Flow-graph / gameplay logic**: wire the behavior to an unattended trigger
-  (`On Start`, `Every N Seconds`) so it fires without a pad; note in
-  PROGRESS.md when the interactive path (pad buttons, mouse feel) still needs
-  a hands-on human test — that's the established convention.
+  testable with no controller at all through the Remote Pad - give the scene two
+  Player objects and a pause menu with the "Player count" option block, then
+  `--pad <dir> "press start; wait 0.5; press cross"` and screenshot: the frame
+  visibly flips between full-screen and the top/bottom split (or the pulled-back
+  shared camera). **Pad-2 hot-join is now scriptable too** (`pad 2; press
+  start`) - it no longer needs a second physical pad in PCSX2's Pad2 slot, since
+  the overlay is applied to the game's own second connector.
+- **Flow-graph / gameplay logic**: an `On Button` / `On Action` trigger is
+  reachable unattended now (`--pad <dir> "press cross"`), so prefer that over
+  rewiring the behavior to `On Start` / `Every N Seconds` just to test it. What
+  still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
+  own on-screen pad being CLICKED (the panel writes through the same
+  `livepad::write` the CLI does, but a synthetic click into the editor is its own
+  problem) - say so in PROGRESS.md, that's the established convention.
+
+### The unattended input test, end to end
+
+The whole recipe, on Windows, with nothing focused and no human. Every step is
+described above; this is the order that works, and the shape a PROGRESS entry
+about a pad-driven feature should be able to quote.
+
+```powershell
+$P = "$env:TEMP\tyra-editor-test\padtest"      # short path - PCSX2 needs it
+$S = "<scratchpad>"
+build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
+build\tyrax-editor.exe --build $P --run        # boot it
+Start-Sleep 22                                 # Tyra logo + splash + scene load
+$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
+Start-Sleep 3
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
+build\tyrax-editor.exe --pad $P "stick r 110 0; wait 1.5; neutral"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\turned.png"
+build\tyrax-editor.exe --pad $P "stick l 0 -127; wait 2.5; neutral"
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\walked.png"
+Start-Sleep 4
+powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle3.png"   # RELEASED
+```
+
+Then count changed pixels between the pairs with a few lines of PIL
+(`ImageChops.difference(...).get_flattened_data()`). Four things make this a real
+test rather than a screenshot:
+
+- **the idle pair is the control.** Without it "the picture changed" proves
+  nothing. Measured on this fixture: 3 s of idle changes ~600 px and every one of
+  them is inside PCSX2's own status bar (the FPS/EE numbers) - so anything in the
+  hundreds of thousands is unambiguously the game.
+- **turn before you walk.** A straight walk over the flat checkerboard maps the
+  repeating pattern onto itself and can change almost nothing; the yaw turn is
+  the loud signal (~197k px here, vs ~1.4M for a 2.5 s walk after it).
+- **the trailing idle shot proves the RELEASE.** Back to status-bar-only
+  (~1.6k px) is what shows the pad was let go rather than the input having simply
+  stopped arriving - the one failure mode a "did it move?" test cannot see.
+- **crop the status bar out** if you want a cleaner number: it is the only thing
+  moving in an idle frame, so its rows are pure noise for every comparison.
 
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
-| Editor UI / viewport | Layer 0 + run GUI + screenshot of the affected panel (`screenshot-window.ps1` on Windows, `wayland-control.py` on Linux — both can drive the UI too; `TYRAX_SHOT=<dir>` self-capture when neither can see the window) |
+| Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
+| Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

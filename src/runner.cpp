@@ -323,6 +323,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // and a stale livetime.bin would read as history that never happened.
     fs::remove(fs::path(p.dir) / "bin" / "livetime.bin", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "livetime.rst", logEc);
+    // Remote Pad (docs/remote-pad.md): a leftover state still says "attached"
+    // and still holds whatever was held when the last session ended, so the
+    // fresh boot would start walking before anyone touched anything.
+    fs::remove(fs::path(p.dir) / "bin" / "livepad.bin", logEc);
 
     // Without "Host Filesystem" the ELF boots but every host: fopen fails,
     // so Tyra asserts on the first asset load. PCSX2 rewrites its ini on
@@ -507,6 +511,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);
+    fs::remove(fs::path(binDir) / "livepad.bin", logEc);
 
     // ps2link passes execee arguments in a non-standard way that the game's
     // toolchain crt0 does not deliver, so "-ps2link" alone cannot be relied
