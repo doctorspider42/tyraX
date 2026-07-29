@@ -11160,8 +11160,7 @@ void App::drawPreferencesModal() {
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
     ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler (experimental)",
-                    &prefSettings_.eeCrashHandler);
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();
     prefHelp(
         "A real CPU exception (bad pointer, address error, reserved\n"
@@ -11174,9 +11173,13 @@ void App::drawPreferencesModal() {
         ""
         "backtrace - and the editor resolves those addresses to functions and\n"
         ""
-        "source lines. EXPERIMENTAL and off by default: under PCSX2 installing\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
         ""
-        "the handler wedges the game (measured), so this wants a real console.\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        ""
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        ""
+        "at all, so a report only ever appears on a real console.\n"
         ""
         "See docs/devkit.md.");
     prefHelp(

@@ -785,11 +785,16 @@ Notes:
   copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
   sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
   project has nothing to resolve against). Needs the build container up.
-- **Testing a crash is harder than it looks**: PCSX2 will not produce the
-  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
-  starts at 0) and a misaligned load went through unharmed. And installing the
-  EE crash handler wedges the game under PCSX2 (entry 194), so that path is a
-  hardware-only test today. What IS testable in the emulator: the report format
+- **Testing a crash is harder than it looks**: **PCSX2 cannot produce an EE
+  exception at all**, so catching one is a HARDWARE-ONLY test (entry 246).
+  Everything tried passed through unharmed there: a signed-overflow `add`, an
+  illegal opcode, a write to address 0 (main RAM starts at 0) and a misaligned
+  load. On a real console the reliable trigger is one line in a user-owned
+  script - `volatile int a = 0x7FFFFFFF, b = 1; asm volatile("add %0, %1, %2" :
+  "=r"(r) : "r"(a), "r"(b));` - which raises cause 12 and lands a real
+  `bin/crash.txt`; `--symbolize` then names the exact source line. (Installing
+  the handler no longer wedges anything - that was `ee_dbg_install(2)`, fixed in
+  246.) What IS testable in the emulator: the report format
   (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the

@@ -15615,3 +15615,54 @@ Each finished feature lands as its own commit.
   what would change it. Not decided here: whether to grant one, and whether to
   attach the Apache boilerplate header to `src/*.cpp` (recommended by the
   license, not required, and a ~90-file sweep).
+- (246) **The EE crash handler hung the game instead of reporting a crash -
+  `ee_dbg_install(2)` never returns.** Reported from a real console: a debug
+  build with the handler on froze on the LOADING screen, every boot. The
+  symptom lied convincingly - no `crash.txt`, no `log.txt` growth, no
+  `livedbg.bin`, and PCSX2 at **FPS 0 with EE ~11%**, i.e. the EE *idle*, not
+  spinning. Three independent reads pinned it before a single line was
+  changed: no `open name host:livedbg.cmd` ever appeared on the ps2link
+  console (the debugger polls that file immediately after the bootPhase block,
+  so the loop never left it); pad polling every 4 frames over ps2link let the
+  console log be COUNTED (9, 13, ... 33 - and a PAL `everyFrames(0.7)` hold
+  ends at 35); and `TYRA_LOG` breadcrumbs then walked it to
+  `livedbg::tickImpl` -> `CrashHandler::install`.
+
+  The cause is `ee_dbg_install(2)`. It drops interrupts and rewrites the
+  error-level vector at 0x80000100 under the running machine, and never comes
+  back; `ee_dbg_install(1)` returns fine on the same boot, both ways round.
+  **Fix: install level 1 only** - nothing is lost, because level 2 is the NMI
+  / cache-error vector while address error, bus error, reserved instruction,
+  overflow and trap all arrive on level 1.
+
+  Disassembling `libeedebug.a` (no sources in the image) also settled why the
+  careful cause list of (194) could never have helped, and left two facts
+  worth keeping: `ee_dbg_install(1)` hooks causes **1..3** via
+  `SetVTLBRefillHandler` and **4..7 + 10..13** via `SetVCommonHandler`
+  *whatever* you register, and its vector **always ERETs** - it never chains
+  to the kernel handler it saved (that copy exists only for `ee_dbg_remove`).
+  So a hooked cause with no handler is a latent infinite exception loop, which
+  is fatal for a TLB refill; the fix hands causes 1..3 straight back after the
+  install. (`ee_dbg_set_level2_handler` also bounds-checks `cause < 4`, so the
+  old 4..15 registrations were silently doing nothing.)
+
+  **Verified on real hardware, which is the only place it can be**: a forced
+  signed-overflow `add` produced `CRASH: Arithmetic overflow, excCode 12`,
+  `crash.txt` on the host, and `--symbolize` naming the exact source line
+  (`example_interaction.cpp:24`). Independently confirming (194)'s other
+  finding: **PCSX2 cannot produce EE exceptions at all** - the same forced
+  overflow AND an illegal opcode both executed as no-ops there, so
+  crash-CATCHING is hardware-only even though the hang reproduced in both.
+
+  Two follow-ups from the same session, both owner asks. A crash now **takes
+  the screen** (`init_scr`/`scr_printf`, the mechanism the opt-in assert
+  screen already uses): an exception is unrecoverable, and a frozen last frame
+  is indistinguishable from a hang - which is exactly what cost this evening.
+  Debug-only by construction, so a shipped game cannot show it: a release
+  build generates `live_debug.gen.cpp` as a stub, never calls `install()`,
+  links neither the TU nor `-leedebug`. And in the Debugger the crash block
+  grew a **Run again** button (same transport, no rebuild) while the resolved
+  backtrace moved into its own horizontally scrolling box - demangled C++
+  names run to hundreds of characters and were falling off the panel edge
+  (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
+  names"` + `shot`).

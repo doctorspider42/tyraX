@@ -1192,6 +1192,28 @@ void App::drawDebuggerWindow() {
                 "turns these\naddresses into functions and source lines.");
         ImGui::SameLine();
         if (ImGui::SmallButton("Copy report")) ImGui::SetClipboardText(dbgCrash_.raw.c_str());
+        // A crash is terminal - the game is idling on its crash screen and the
+        // only way on is to launch it again. Offer that HERE rather than making
+        // the reader go find F5/F6: same transport the crash came from (the PS2
+        // if its file server is still up, otherwise the emulator) and no
+        // rebuild, since nothing was edited.
+        ImGui::SameLine();
+        const bool crashBusy = runner_.busy();
+        const bool onPs2 = runner_.ps2ClientAlive();
+        ImGui::BeginDisabled(crashBusy);
+        if (ImGui::SmallButton(onPs2 ? "Run again on PS2" : "Run again")) {
+            dbgCrash_ = DbgCrash();
+            dbgCrashSize_ = 0;
+            if (onPs2)
+                runner_.buildAndRunPs2(projectForBuild(), false);
+            else
+                runner_.buildAndRun(projectForBuild(), false);
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Relaunches the SAME build (no rebuild) and clears this "
+                "report.\nRebuild first with F5 / F6 if you changed anything.");
         ImGui::SameLine();
         if (ImGui::SmallButton("Dismiss")) {
             dbgCrash_ = DbgCrash();
@@ -1199,15 +1221,33 @@ void App::drawDebuggerWindow() {
         }
         if (!dbgCrash_.namesError.empty())
             ImGui::TextDisabled("%s", dbgCrash_.namesError.c_str());
-        for (size_t i = 0; i < dbgCrash_.names.size(); ++i) {
-            const elfsym::Location& l = dbgCrash_.names[i];
-            const char* label = i == 0 ? "crash" : "called from";
-            if (l.func.empty()) continue;
-            ImGui::Text("%-11s %s", label, l.func.c_str());
-            if (!l.source.empty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", l.source.c_str());
+        if (!dbgCrash_.names.empty()) {
+            // A demangled C++ name carries its whole template expansion and runs
+            // to hundreds of characters, while the Debugger is a narrow docked
+            // panel - so the backtrace gets its OWN horizontally scrolling box
+            // instead of running off the right edge where it cannot be read.
+            // Wrapping was the other option and is worse here: one frame per
+            // line is what makes a backtrace scannable.
+            int rows = 0;
+            for (const elfsym::Location& l : dbgCrash_.names)
+                if (!l.func.empty()) ++rows;
+            if (rows > 8) rows = 8;
+            const float lineH = ImGui::GetTextLineHeightWithSpacing();
+            ImGui::BeginChild("##crashtrace",
+                              ImVec2(0.0f, lineH * ((float)rows + 0.6f)),
+                              ImGuiChildFlags_Borders,
+                              ImGuiWindowFlags_HorizontalScrollbar);
+            for (size_t i = 0; i < dbgCrash_.names.size(); ++i) {
+                const elfsym::Location& l = dbgCrash_.names[i];
+                const char* label = i == 0 ? "crash" : "called from";
+                if (l.func.empty()) continue;
+                ImGui::Text("%-11s %s", label, l.func.c_str());
+                if (!l.source.empty()) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", l.source.c_str());
+                }
             }
+            ImGui::EndChild();
         }
         // The post-mortem the devkit already has: what the graphs did just
         // before, and where the watched objects were.
