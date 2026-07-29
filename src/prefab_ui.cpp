@@ -245,6 +245,41 @@ void App::drawPrefabsWindow() {
         }
     }
     ImGui::SameLine();
+    // The escape hatch from the instance pool: a prefab instance costs a
+    // runtime record, a model costs none, so anything you want to scatter by
+    // the hundred wants to be a model. One way, and the prefab stays as source.
+    if (ImGui::Button("Bake to model")) {
+        const prefab::BakeReport r = prefab::bakeToModel(project_, pf);
+        if (!r.error.empty()) {
+            statusMessage_ = "Bake failed: " + r.error;
+        } else {
+            statusMessage_ = "Baked " + std::to_string(r.members) +
+                             " member(s) into " + r.modelPath + " - " +
+                             std::to_string(r.triangles) + " triangles, " +
+                             std::to_string(r.materials) + " material(s)";
+            if (!r.skipped.empty())
+                statusMessage_ += " | skipped " +
+                                  std::to_string(r.skipped.size()) + ": " +
+                                  r.skipped.front() +
+                                  (r.skipped.size() > 1 ? ", ..." : "");
+            for (const std::string& w : r.warnings) statusMessage_ += " | " + w;
+            prefabBakeReport_ = r;
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "Flattens the mergeable members into one res/models/<name>.obj (plus\n"
+            "a generated .mtl carrying their colours), so the prefab can be\n"
+            "scattered with Pick Asset instead of Pick Prefab.\n\n"
+            "Why you would: a prefab instance takes a record from the runtime\n"
+            "pool (%d of them exist), so a few dozen is the ceiling however\n"
+            "cheap each one is. A model costs NO record - it merges straight\n"
+            "into the chunk bags, so hundreds are fine.\n\n"
+            "One way, and the result is dumb geometry: no scripts, lights,\n"
+            "physics or per-member identity. The prefab stays put as the source;\n"
+            "members that cannot merge are listed rather than silently dropped.",
+            prefab::kMaxRuntimeInstances);
+    ImGui::SameLine();
     if (ImGui::Button("Delete")) {
         project_.prefabs.erase(project_.prefabs.begin() + prefabSelected_);
         if (prefabSelected_ >= (int)project_.prefabs.size())
@@ -253,6 +288,21 @@ void App::drawPrefabsWindow() {
         ImGui::EndChild();
         ImGui::End();
         return;
+    }
+
+    // The last bake, kept on screen: a status line scrolls away, and the list
+    // of what could NOT be baked is the part worth reading twice.
+    if (!prefabBakeReport_.modelPath.empty()) {
+        ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.5f, 1.0f), "Baked: %s",
+                           prefabBakeReport_.modelPath.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%d tris, %d material(s))", prefabBakeReport_.triangles,
+                            prefabBakeReport_.materials);
+        for (const std::string& s : prefabBakeReport_.skipped)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "  not baked: %s",
+                               s.c_str());
+        for (const std::string& w : prefabBakeReport_.warnings)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.25f, 1.0f), "  %s", w.c_str());
     }
 
     ImGui::Separator();

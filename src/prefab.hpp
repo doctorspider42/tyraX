@@ -86,6 +86,33 @@ std::string uniqueName(const Project& p, const std::string& wanted);
 // procedural Pick Prefab rows). Returns false when `to` is empty or taken.
 bool rename(Project& p, const std::string& from, const std::string& to);
 
+// --- bake to a model -------------------------------------------------------
+// Flattens a prefab's MERGEABLE members into one static `.obj` (+ a generated
+// `.mtl`) under res/models/, and returns what happened.
+//
+// Why this exists: a prefab instance costs a record from the runtime pool
+// (kMaxRuntimeInstances above), so scattering hundreds of them is not possible
+// however cheap each one is. The same shape baked to a model costs NOTHING per
+// instance - Pick Asset merges it straight into the chunk bags - so "assemble a
+// thing out of primitives, then scatter it by the hundred" goes through here.
+//
+// It is a ONE-WAY bake and the result is dumb geometry: no scripts, no lights,
+// no physics, no per-member identity, nothing addressable at runtime. The
+// prefab stays untouched as the source; this writes a new asset beside it.
+// Members that cannot merge are named in `skipped` rather than silently
+// dropped - a light or a scripted door has no representation in a .obj.
+struct BakeReport {
+    std::string modelPath;  // "res/models/<name>.obj" ("" = nothing written)
+    std::string mtlPath;
+    int members = 0;    // merged members that contributed geometry
+    int triangles = 0;
+    int materials = 0;  // newmtl entries written
+    std::vector<std::string> skipped;   // "<member> (why)"
+    std::vector<std::string> warnings;
+    std::string error;  // non-empty = nothing was written
+};
+BakeReport bakeToModel(const Project& p, const Prefab& pf);
+
 // Prefabs some scene can spawn: named by a Spawn Prefab flow node anywhere in
 // the scene, or by a Pick Prefab row in one of its procedural volumes. This is
 // what decides whose members' models/materials a scene has to ship, so it is

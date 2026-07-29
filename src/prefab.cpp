@@ -2,7 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <set>
+#include <sstream>
+
+#include "objparser.hpp"
+#include "primmesh.hpp"
 
 namespace prefab {
 
@@ -216,6 +223,276 @@ bool rename(Project& p, const std::string& from, const std::string& to) {
             }
         }
     return true;
+}
+
+namespace {
+
+namespace fs = std::filesystem;
+
+// Rz*Ry*Rx - the order Viewport::modelMatrix and procbake both use. A member
+// baked with any other order lands somewhere the editor never showed it.
+void rotateVec(const float in[3], const float rotDeg[3], float out[3]) {
+    const float rx = rotDeg[0] * kDeg, ry = rotDeg[1] * kDeg, rz = rotDeg[2] * kDeg;
+    float x = in[0], y = in[1], z = in[2];
+    float t = y * std::cos(rx) - z * std::sin(rx);
+    z = y * std::sin(rx) + z * std::cos(rx);
+    y = t;
+    t = x * std::cos(ry) + z * std::sin(ry);
+    z = -x * std::sin(ry) + z * std::cos(ry);
+    x = t;
+    t = x * std::cos(rz) - y * std::sin(rz);
+    y = x * std::sin(rz) + y * std::cos(rz);
+    x = t;
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
+// A file-name-safe stem, the rule procbake's stemOf follows.
+std::string safeStem(const std::string& in) {
+    std::string s;
+    for (char c : in)
+        s += (isalnum((unsigned char)c) || c == '-' || c == '_') ? c : '_';
+    return s.empty() ? std::string("prefab") : s;
+}
+
+// One material of the baked library: a colour, and optionally a texture that
+// already sits next to the output.
+struct BakedMat {
+    std::string name;
+    float kd[3] = {1, 1, 1};
+    std::string texture;  // file name, relative to the output directory
+};
+
+// The unit mesh of a primitive: pos(3) + normal(3) + uv(2) per vertex - the
+// same 8-float layout objparser uses, so one writer serves both.
+std::vector<float> unitMeshFor(const SceneObject& o) {
+    const int d = clampPrimDetail(o.type, o.primDetail);
+    switch (o.type) {
+        case PrimitiveType::Sphere: return primmesh::unitSphere(d);
+        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d);
+        case PrimitiveType::Cone: return primmesh::unitCone(d);
+        case PrimitiveType::Plane: return primmesh::unitPlane();
+        default: return primmesh::unitBox(d);
+    }
+}
+
+}  // namespace
+
+BakeReport bakeToModel(const Project& p, const Prefab& pf) {
+    BakeReport rep;
+    if (pf.objects.empty()) {
+        rep.error = "the prefab is empty";
+        return rep;
+    }
+
+    const std::string stem = safeStem(pf.name);
+    const fs::path outDir = fs::path(p.dir) / "res" / "models";
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+
+    // Triangles grouped by material, so the .obj carries one usemtl run per
+    // distinct look rather than one per member - that grouping is the whole
+    // point, since a submit costs the same whatever it contains.
+    std::vector<BakedMat> mats;
+    std::vector<std::vector<float>> tris;  // parallel to mats
+
+    auto materialSlot = [&](const SceneObject& o) -> int {
+        BakedMat m;
+        for (int a = 0; a < 3; ++a) m.kd[a] = o.color[a];
+        if (!o.materialPath.empty()) {
+            // The convention the viewport and the game share: a primitive takes
+            // the assigned library's FIRST entry as its Kd tint and map_Kd.
+            std::vector<objparser::MtlMaterial> lib;
+            const fs::path mtlAbs =
+                (fs::path(p.dir) / fs::path(o.materialPath)).lexically_normal();
+            if (objparser::loadMtl(mtlAbs.string(), lib) && !lib.empty()) {
+                for (int a = 0; a < 3; ++a) m.kd[a] *= lib[0].kd[a];
+                if (!lib[0].texture.empty()) {
+                    // The PS2 cannot walk "..", so a texture has to sit beside
+                    // the .mtl naming it - copy it in rather than write a path
+                    // that only resolves on a PC.
+                    const fs::path src =
+                        (mtlAbs.parent_path() / lib[0].texture).lexically_normal();
+                    const std::string file = src.filename().string();
+                    std::error_code cec;
+                    if (fs::exists(src, cec)) {
+                        const fs::path dst = outDir / file;
+                        if (fs::weakly_canonical(src, cec) !=
+                            fs::weakly_canonical(dst, cec))
+                            fs::copy_file(src, dst,
+                                          fs::copy_options::overwrite_existing, cec);
+                        m.texture = file;
+                    } else {
+                        rep.warnings.push_back("missing texture " + file);
+                    }
+                }
+            }
+        }
+        for (size_t i = 0; i < mats.size(); ++i) {
+            const BakedMat& e = mats[i];
+            if (e.texture == m.texture && e.kd[0] == m.kd[0] &&
+                e.kd[1] == m.kd[1] && e.kd[2] == m.kd[2])
+                return (int)i;
+        }
+        char nm[80];
+        std::snprintf(nm, sizeof(nm), "%s-m%d", stem.c_str(), (int)mats.size());
+        m.name = nm;
+        mats.push_back(m);
+        tris.emplace_back();
+        return (int)mats.size() - 1;
+    };
+
+    // Appends one member's triangles, transformed into the prefab's own frame.
+    auto addMesh = [&](const SceneObject& o, const std::vector<float>& verts,
+                       int slot) {
+        std::vector<float>& dst = tris[(size_t)slot];
+        const size_t n = verts.size() / 8;
+        for (size_t v = 0; v < n; ++v) {
+            const float* s = &verts[v * 8];
+            const float sc[3] = {s[0] * o.scale[0], s[1] * o.scale[1],
+                                 s[2] * o.scale[2]};
+            float rt[3];
+            rotateVec(sc, o.rotation, rt);
+            // Normals take the same rotation with the scale INVERTED first: a
+            // squashed box whose normals were merely rotated shades as though
+            // it had never been squashed.
+            const float ns[3] = {o.scale[0] != 0.0f ? s[3] / o.scale[0] : s[3],
+                                 o.scale[1] != 0.0f ? s[4] / o.scale[1] : s[4],
+                                 o.scale[2] != 0.0f ? s[5] / o.scale[2] : s[5]};
+            float nr[3];
+            rotateVec(ns, o.rotation, nr);
+            const float len =
+                std::sqrt(nr[0] * nr[0] + nr[1] * nr[1] + nr[2] * nr[2]);
+            const float inv = len > 1e-6f ? 1.0f / len : 1.0f;
+            dst.push_back(rt[0] + o.position[0]);
+            dst.push_back(rt[1] + o.position[1]);
+            dst.push_back(rt[2] + o.position[2]);
+            dst.push_back(nr[0] * inv);
+            dst.push_back(nr[1] * inv);
+            dst.push_back(nr[2] * inv);
+            dst.push_back(s[6]);
+            dst.push_back(s[7]);
+        }
+    };
+
+    for (const SceneObject& o : pf.objects) {
+        if (!memberMerges(o)) {
+            const char* why =
+                memberIsMarker(o)              ? "a marker, no geometry"
+                : !o.flowGraph.nodes.empty()   ? "has a flow graph"
+                : !o.scripts.empty()           ? "has a script"
+                : o.physics                    ? "is a physics body"
+                : (o.type == PrimitiveType::Model &&
+                   isAnimatedModelPath(o.modelPath))
+                                               ? "is an animated model"
+                                               : "keeps a runtime identity";
+            rep.skipped.push_back(o.name + " (" + why + ")");
+            continue;
+        }
+        if (o.type == PrimitiveType::Model) {
+            objparser::Model src;
+            const fs::path abs =
+                (fs::path(p.dir) / fs::path(o.modelPath)).lexically_normal();
+            if (!objparser::load(abs.string(), src, o.materialPath.empty()
+                                     ? std::string()
+                                     : (fs::path(p.dir) /
+                                        fs::path(o.materialPath))
+                                           .lexically_normal()
+                                           .string())) {
+                rep.skipped.push_back(o.name + " (could not read " + o.modelPath +
+                                      ")");
+                continue;
+            }
+            for (const objparser::Submesh& sm : src.submeshes) {
+                if (sm.verts.empty()) continue;
+                // The member's own colour tints its material, exactly as the
+                // viewport and the runtime multiply the two.
+                SceneObject tinted = o;
+                tinted.materialPath.clear();
+                for (int a = 0; a < 3; ++a) tinted.color[a] = o.color[a] * sm.kd[a];
+                const int slot = materialSlot(tinted);
+                if (!sm.texture.empty())
+                    rep.warnings.push_back(o.name +
+                                           ": a textured model part bakes as flat "
+                                           "colour");
+                addMesh(o, sm.verts, slot);
+            }
+            ++rep.members;
+            continue;
+        }
+        addMesh(o, unitMeshFor(o), materialSlot(o));
+        ++rep.members;
+    }
+
+    size_t total = 0;
+    for (const std::vector<float>& t : tris) total += t.size() / 24;
+    if (total == 0) {
+        rep.error =
+            "nothing mergeable here - every member keeps a runtime identity, so "
+            "there is no geometry to bake";
+        return rep;
+    }
+
+    std::ostringstream obj, mtl;
+    obj << "# Generated by TyraX from the prefab \"" << pf.name
+        << "\". Re-bake to update; edits here are lost.\n";
+    obj << "mtllib " << stem << ".mtl\n";
+    mtl << "# Generated by TyraX from the prefab \"" << pf.name << "\".\n";
+
+    char buf[192];
+    int base = 1;  // .obj indices are 1-based and file-global
+    for (size_t mi = 0; mi < mats.size(); ++mi) {
+        const std::vector<float>& t = tris[mi];
+        if (t.empty()) continue;
+        const BakedMat& m = mats[mi];
+        mtl << "newmtl " << m.name << "\n";
+        std::snprintf(buf, sizeof(buf), "Kd %.4f %.4f %.4f\n", m.kd[0], m.kd[1],
+                      m.kd[2]);
+        mtl << buf;
+        if (!m.texture.empty()) mtl << "map_Kd " << m.texture << "\n";
+        ++rep.materials;
+
+        std::ostringstream vs, ns, ts, faces;
+        const size_t verts = t.size() / 8;
+        for (size_t v = 0; v < verts; ++v) {
+            const float* q = &t[v * 8];
+            std::snprintf(buf, sizeof(buf), "v %.4f %.4f %.4f\n", q[0], q[1], q[2]);
+            vs << buf;
+            std::snprintf(buf, sizeof(buf), "vn %.4f %.4f %.4f\n", q[3], q[4], q[5]);
+            ns << buf;
+            // objparser flips V into image space on read, so write the
+            // file-space value back or a re-read would mirror the texture.
+            std::snprintf(buf, sizeof(buf), "vt %.5f %.5f\n", q[6], 1.0f - q[7]);
+            ts << buf;
+        }
+        obj << vs.str() << ns.str() << ts.str();
+        obj << "usemtl " << m.name << "\n";
+        for (size_t f = 0; f < verts / 3; ++f) {
+            const int a = base + (int)(f * 3);
+            std::snprintf(buf, sizeof(buf), "f %d/%d/%d %d/%d/%d %d/%d/%d\n", a, a,
+                          a, a + 1, a + 1, a + 1, a + 2, a + 2, a + 2);
+            faces << buf;
+        }
+        obj << faces.str();
+        base += (int)verts;
+        rep.triangles += (int)(verts / 3);
+    }
+
+    auto write = [&](const fs::path& path, const std::string& text) {
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return false;
+        f.write(text.data(), (std::streamsize)text.size());
+        return (bool)f;
+    };
+    if (!write(outDir / (stem + ".obj"), obj.str()) ||
+        !write(outDir / (stem + ".mtl"), mtl.str())) {
+        rep.error = "could not write res/models/" + stem + ".obj";
+        return rep;
+    }
+    rep.modelPath = "res/models/" + stem + ".obj";
+    rep.mtlPath = "res/models/" + stem + ".mtl";
+    return rep;
 }
 
 std::vector<std::string> referencedBy(const Project& p, const SceneData& s) {

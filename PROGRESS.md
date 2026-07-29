@@ -15247,3 +15247,46 @@ Each finished feature lands as its own commit.
   `--ui-script` cannot bring a tab forward (a tab's label is its window's name,
   which `find` excludes as a whole-window item). The pool CEILING itself was not
   re-measured on console; 48 is what the generated game has always used.
+
+- (243) **Bake a prefab to a model.** Asked for straight after (242) exposed the
+  48-instance ceiling: "can a prefab be saved as an .obj? then you could
+  assemble a thing out of a few primitives and not have to load them
+  separately". Yes - and it is the way out of that ceiling, not just a
+  convenience.
+
+  `prefab::bakeToModel` flattens the mergeable members into one
+  `res/models/<name>.obj` + a generated `.mtl`. Mostly assembly rather than
+  invention: `primmesh` already tessellates primitives host-side (decalproj and
+  gibake use it), `objparser` reads model members and standalone `.mtl`
+  libraries GUI-free, and procbake's merged-`.obj` writer was the shape to copy.
+  The genuinely new part is generating the material library, because a
+  primitive's colour lives on the OBJECT and a `.obj` has no per-vertex colour:
+  triangles are grouped by (colour x material) into one `newmtl` each, so the
+  file carries one `usemtl` run per look rather than one per member. A member
+  material's texture is COPIED next to the output - the PS2 cannot walk `..`,
+  so a path that only resolves on a PC is not an option.
+
+  Two details worth stating. Normals take the member's rotation with its scale
+  INVERTED first, or a squashed box shades as though it had never been squashed.
+  And the transform is `Rz*Ry*Rx`, the order `Viewport::modelMatrix` and
+  procbake already use - any other order bakes the thing somewhere the editor
+  never showed it.
+
+  The bake is one-way and says so: the result is dumb geometry, the prefab stays
+  as the source, and members that cannot merge are LISTED in the window (with
+  the reason) rather than silently dropped.
+
+  **Verified end to end, on the console.** Host: a harness over the GL-free
+  module (the property this module was built for) bakes the reporter's three
+  prefabs - `box-1.obj`, 1 member, 12 triangles, 1 material, `Kd 0.7402 0.0399
+  0.0399` matching the red box, and a bbox of 6.19 x 6.19 x 6.27 that agrees
+  with the window's "6.2 x 6.2 x 6.3 units" readout with Y starting at 0 (the
+  prefab-origin convention). Console: the same 9x9x8 grid that built **48 of
+  648** through Pick Prefab, re-pointed at the baked models through Pick Asset,
+  logs `Procedural procedural-1: 648 instances` - all of them - and renders a
+  full field of red/green/blue boxes at **50.17 FPS**, the PAL cap, with EE 39 %
+  / VU 5 % / GS 8 %. Docker build clean.
+
+  Not covered: the window's own button was clicked only in as much as the code
+  path is shared with the harness - the Prefabs window sits behind another dock
+  tab in that project and `--ui-script` cannot bring a tab forward.

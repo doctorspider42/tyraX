@@ -30,6 +30,7 @@
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
+#include "prefab.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
@@ -1127,6 +1128,9 @@ private:
     char prefabNotesBuf_[1024] = {};
     bool prefabNotesEditing_ = false;
     bool prefabNotesFocus_ = false;
+    // The last "Bake to model" result, kept on screen: what could NOT be baked
+    // is the half worth reading, and a status line scrolls away.
+    prefab::BakeReport prefabBakeReport_;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and

@@ -89,6 +89,30 @@ per-instance identity: no runtime moving, hiding, recolouring or scripting.
 
 ---
 
+## Bake to model
+
+*Tools > Prefabs > **Bake to model*** flattens the mergeable members into one
+`res/models/<name>.obj` plus a generated `.mtl` carrying their colours, and the
+prefab stays put as the source.
+
+Why you would, and it is the whole reason this exists: **a prefab instance costs
+a record from the runtime pool** (`prefab::kMaxRuntimeInstances`, 48), so a few
+dozen is the ceiling however cheap each one is. A **model costs none** - *Pick
+Asset* merges it straight into the chunk bags. Assembling a shape out of
+primitives and then scattering it by the hundred goes through here.
+
+Measured on the console: the same 9x9x8 grid that built **48 of 648** through
+*Pick Prefab* builds **648 of 648** as a baked model, at the 50 FPS PAL cap
+(EE 39 %, VU 5 %, GS 8 %).
+
+It is a **one-way** bake and the result is dumb geometry - no scripts, lights,
+physics or per-member identity. Members that cannot merge are listed in the
+window rather than silently dropped: a light or a scripted door has no
+representation in a `.obj`. Colours become `newmtl` entries (one per distinct
+colour x material, so the file carries one `usemtl` run per look, not one per
+member), and a member material's texture is copied next to the output, because
+the PS2 cannot walk `..`.
+
 ## Spawning at runtime
 
 **Spawn Prefab** (flow node) builds one instance at a linked position with a yaw
