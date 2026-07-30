@@ -491,9 +491,14 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`) — **quoted with DOUBLE quotes, the only kind the tokenizer strips**, so
-  on PowerShell put the whole script in single quotes or the shell eats them and
-  a two-word target arrives as two tokens, `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted, with either `"` or `'`** (so on PowerShell wrap the whole
+  script in one kind and use the other inside; an unquoted two-word target
+  arrives as two tokens and fails). Quoting also makes the target OPAQUE, which
+  is the part worth remembering: a `#` or `;` inside quotes is an ordinary
+  character, so a name straight out of `dump` — ImGui child regions are
+  registered as `Project/##objects_DC0BCE04`, `#` and all — can be pasted into a
+  script verbatim, and a window name containing `/` resolves because every split
+  point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
