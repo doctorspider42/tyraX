@@ -1,6 +1,8 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 
+#include "mocap.hpp"
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -24,6 +26,7 @@
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
+#include "gltfwrite.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
@@ -812,12 +815,15 @@ void App::drawUI() {
     drawPrefabsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    drawCharacterGeneratorWindow();
+    drawMocapWindow();
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
     drawSessionWindow();
+    drawPhoneLinkWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
     drawPreferencesModal();
@@ -1443,6 +1449,15 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip(
                     "Ambient / drone music generator: audition a patch live,\n"
                     "render it into res/audio as a looping background track.");
+            if (ImGui::MenuItem("Character Generator...")) {
+                showCharGenerator_ = true;
+                charPreviewDirty_ = true;
+            }
+            if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
+            if (ImGui::MenuItem("Phone Link...")) showPhoneLinkWindow_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Host the session a phone joins - one link,\n"
+                                  "shared by the camera and by body capture.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
             ImGui::Separator();
             // Lives in the Ambience Editor now; the menu item still works
@@ -4028,6 +4043,9 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "prefabs") return &showPrefabs_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
+    if (key == "chargen") return &showCharGenerator_;
+    if (key == "mocap") return &showMocap_;
+    if (key == "phonelink") return &showPhoneLinkWindow_;
     if (key == "debugger") return &showDebugger_;
     if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
@@ -4047,10 +4065,10 @@ bool* App::showFlagForKey(const std::string& key) {
 // keys by name (project.cpp writes them as a JSON string array), so the order
 // is cosmetic - append rather than insert to keep saved files diff-friendly.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
-    "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
-    "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad",      "proc",     "prefabs"};
+    "cutscene", "material", "terrain", "ui", "fonts", "menus",
+    "grading", "ambience", "loading", "disc", "anim", "tree",
+    "debugger", "phonecam", "assets", "gibake", "input", "drone",
+    "pad", "proc", "prefabs", "chargen", "mocap", "phonelink"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -4092,9 +4110,46 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Cutscene Director", bottom);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
+        // The phone that records a camera move has to be paired from somewhere,
+        // and it is not worth hunting for - it shares the left column with the
+        // scene tree rather than taking space from the dopesheet.
+        ImGui::DockBuilderDockWindow("Phone Link", left);
+        ImGui::DockBuilderDockWindow("Phone Camera", left);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         ImGui::DockBuilderDockWindow("Viewport", center);
         pendingFocusWindow_ = "Cutscene Director";
+        break;
+    }
+    case LayoutRecipe::Mocap: {
+        // The Mocap window carries its OWN 3D preview of the character being
+        // driven, so it belongs in the middle where the Viewport would be - not
+        // in a side column, which was the first attempt and squeezed the one
+        // thing you actually watch. It tabs with Viewport and Flow Graph and
+        // comes up focused.
+        //
+        // Phone Link is the opposite shape: controls and a status line, nothing
+        // to look at. A narrow full-height column on the right suits it, and
+        // keeps address and pairing code visible the whole session instead of
+        // behind a tab.
+        //
+        // Output along the bottom because the useful diagnostics during a
+        // session - what a take stored, why a joint is not driven - are printed
+        // rather than drawn.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.22f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", left);
+        ImGui::DockBuilderDockWindow("Phone Link", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Mocap", center);
+        pendingFocusWindow_ = "Mocap";
         break;
     }
     case LayoutRecipe::Material: {
@@ -12294,3 +12349,1561 @@ void App::openProjectDialog() {
         platform::errorBox("Open Project", err);
     }
 }
+
+// --- Character Generator + Mocap ------------------------------------------
+// Merged in from the character-generator branch. main split app.cpp into
+// per-window TUs (hud_ui.cpp, cutscene_ui.cpp) while this was out; these two
+// windows are the obvious next candidates for that treatment.
+
+void App::rebuildCharacterPreview() {
+    charPreviewDirty_ = false;
+    charWarnings_.clear();
+    charBuildError_.clear();
+    charPrevTris_.clear();
+    charPrevTex_.clear();
+    ++charPreviewVersion_;
+
+    if (!chargen::build(charParams_, charSkel_, charWarnings_, charBuildError_)) {
+        charSkel_ = glbparser::Skel();
+        return;
+    }
+    if (charSkel_.parts.empty()) return;
+
+    // One decoded texture per part. Decoding the already-downscaled PNGs costs
+    // about a millisecond each - cheap enough to avoid a second copy of the
+    // pixels crossing the API.
+    charPrevTex_.resize(charSkel_.parts.size());
+    for (size_t i = 0; i < charSkel_.parts.size(); ++i) {
+        const int img = charSkel_.parts[i].image;
+        if (img < 0 || img >= (int)charSkel_.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(charSkel_.images[img].png.data(),
+                                                  (int)charSkel_.images[img].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (!px) continue;
+        charPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        charPrevTex_[i].w = w;
+        charPrevTex_[i].h = h;
+        stbi_image_free(px);
+    }
+    if (charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+    refreshCharacterPose();
+}
+
+void App::refreshCharacterPose() {
+    if (charSkel_.parts.empty()) {
+        charPrevTris_.clear();
+        return;
+    }
+    // The preview takes one interleaved array; the Skel keeps the attributes
+    // apart because that is what both the .glb writer and the .tskl bake want.
+    // Skinning it here is the host twin of what the console does on VU0 - at
+    // 4380 vertices it is far cheaper than the upload that follows.
+    const int clip = charParams_.animations && charClip_ >= 0 &&
+                             charClip_ < (int)charSkel_.clips.size()
+                         ? charClip_
+                         : -1;
+    charanim::poseMesh(charSkel_, clip, charAnimTime_, charPrevTris_);
+    ++charPreviewVersion_;
+}
+
+// Tools > Character Generator: a rigged, skinned human built from the
+// MakeHuman CC0 data set (docs/character-generator.md). The macro sliders are
+// MakeHuman's own, the body comes out at the PS2's budget (1460 triangles, 23
+// Mixamo-named bones), and "Add to scene" writes a plain .glb - from there it
+// is an ordinary animated model with nothing downstream aware it was
+// generated.
+void App::drawCharacterGeneratorWindow() {
+    if (!showCharGenerator_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(600.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
+        ImGui::End();
+        return;
+    }
+
+    if (!chargen::dataAvailable()) {
+        ImGui::TextWrapped(
+            "The MakeHuman CC0 data set is not installed.\n\n"
+            "It is not part of the repository (about 45 MB of base mesh, morph targets, rig and "
+            "skins), so setup.ps1 fetches it into vendor/mh-assets. Run setup.ps1 in the editor "
+            "repository and reopen this window.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Everything it downloads is CC0 - see README.md > Credits.");
+        ImGui::End();
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    chargen::Params& p = charParams_;
+    bool dirty = false;
+
+    // ---- left: parameter panel ---------------------------------------------
+    ImGui::BeginChild("charparams", ImVec2(scaled(330.0f), 0), true);
+
+    const std::vector<chargen::Preset>& presets = chargen::presets();
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", presets[charPreset_].name)) {
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (ImGui::Selectable(presets[i].name, charPreset_ == i)) {
+                charPreset_ = i;
+                const int keepSkin = p.skin;
+                const int keepTex = p.textureSize;
+                p = presets[i].params;
+                p.skin = keepSkin;  // a preset is a body, not a skin
+                p.textureSize = keepTex;
+                dirty = true;
+            }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::CollapsingHeader("Body", ImGuiTreeNodeFlags_DefaultOpen)) {
+        dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = female, 1 = male");
+        dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "MakeHuman's age scale: 0 = baby (1 year), 0.19 = child (10),\n"
+                "0.5 = young adult (25), 1 = old (90).");
+        dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Scales the finished body, feet on y = 0.\n"
+                "MakeHuman's height targets are a separate 144-file set the\n"
+                "editor does not ship - see docs/character-generator.md.");
+    }
+
+    if (ImGui::CollapsingHeader("Ethnicity", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // The three normalize to 1 inside the generator, so a slider raised
+        // here simply takes share from the others.
+        dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Caucasian", &p.caucasian, 0.0f, 1.0f, "%.2f");
+        if (ImGui::SmallButton("Even mix")) {
+            p.african = p.asian = p.caucasian = 1.0f / 3.0f;
+            dirty = true;
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Skin", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const std::vector<std::string>& list = chargen::skins();
+        const char* current = p.skin >= 0 && p.skin < (int)list.size() ? list[p.skin].c_str()
+                                                                      : "(none)";
+        ImGui::SetNextItemWidth(scaled(220.0f));
+        if (ImGui::BeginCombo("Texture", current)) {
+            if (ImGui::Selectable("(none)", p.skin < 0)) {
+                p.skin = -1;
+                dirty = true;
+            }
+            for (int i = 0; i < (int)list.size(); ++i)
+                if (ImGui::Selectable(list[i].c_str(), p.skin == i)) {
+                    p.skin = i;
+                    dirty = true;
+                }
+            ImGui::EndCombo();
+        }
+        const int sizes[] = {64, 128, 256};
+        int sizeIdx = p.textureSize >= 256 ? 2 : (p.textureSize >= 128 ? 1 : 0);
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::Combo("Size", &sizeIdx, "64\0" "128\0" "256\0")) {
+            p.textureSize = sizes[sizeIdx];
+            dirty = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Baked into the .glb. GS VRAM is ~1.33 MB with no eviction,\n"
+                "so a crowd wants 64 or 128 (see docs/gs-vram.md).");
+    }
+
+    if (ImGui::CollapsingHeader("Wardrobe", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Each garment is its own mesh part with its own texture, and the body
+        // it covers is dropped rather than left to poke through.
+        auto slot = [&](const char* label, const std::vector<std::string>& list, int& index) {
+            const char* current =
+                index >= 0 && index < (int)list.size() ? list[index].c_str() : "(none)";
+            ImGui::SetNextItemWidth(scaled(200.0f));
+            if (ImGui::BeginCombo(label, current)) {
+                if (ImGui::Selectable("(none)", index < 0)) {
+                    index = -1;
+                    dirty = true;
+                }
+                for (int i = 0; i < (int)list.size(); ++i)
+                    if (ImGui::Selectable(list[i].c_str(), index == i)) {
+                        index = i;
+                        dirty = true;
+                    }
+                ImGui::EndCombo();
+            }
+        };
+        slot("Clothes", chargen::clothesList(), p.clothes);
+        slot("Shoes", chargen::shoesList(), p.shoes);
+        slot("Hair", chargen::hairList(), p.hair);
+        ImGui::SetNextItemWidth(scaled(200.0f));
+        if (ImGui::Combo("Detail", &p.clothingDetail, "Low\0" "Medium\0" "High\0"))
+            dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Triangle budget per garment (~500 / 1100 / 2200).\n"
+                "The source meshes are 3.5k-16k triangles - built for offline\n"
+                "rendering - and they start tearing below about 1000, so Low\n"
+                "is for crowds, not for a hero.");
+        if (chargen::clothesList().empty())
+            ImGui::TextDisabled("No wardrobe installed - re-run setup.ps1.");
+    }
+
+    if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Checkbox("Procedural clips", &p.animations)) dirty = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Generate idle / walk / run / jump on the rig.\n"
+                "Those are the clip names the generated game's third-person\n"
+                "locomotion looks for, so a character used as a Player avatar\n"
+                "walks and runs with no further setup.");
+        ImGui::BeginDisabled(!p.animations);
+        charanim::Params& a = p.anim;
+        dirty |= ImGui::SliderFloat("Walk cycle", &a.walkSeconds, 0.5f, 2.0f, "%.2f s");
+        dirty |= ImGui::SliderFloat("Run cycle", &a.runSeconds, 0.3f, 1.2f, "%.2f s");
+        dirty |= ImGui::SliderFloat("Stride", &a.stride, 0.3f, 1.8f, "%.2f");
+        dirty |= ImGui::SliderFloat("Arm swing", &a.armSwing, 0.0f, 2.0f, "%.2f");
+        dirty |= ImGui::SliderFloat("Posture", &a.posture, -1.0f, 1.0f, "%.2f");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 slouched ... +1 upright");
+        dirty |= ImGui::SliderFloat("Idle motion", &a.idleMotion, 0.0f, 2.0f, "%.2f");
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        // An imported library replaces the procedural clips. Any rig whose
+        // bones carry Mixamo names works - which is the whole reason the
+        // generated rig carries them.
+        if (ImGui::Button("Import clips...")) {
+            const std::string file = pickPath(PickKind::ObjModel);
+            if (!file.empty()) {
+                p.animSource = file;
+                dirty = true;
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Retarget a .glb/.fbx animation library (Mixamo and anything\n"
+                "else that names its bones the same way) onto this character.\n"
+                "Replaces the procedural clips.");
+        if (!p.animSource.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear##animsrc")) {
+                p.animSource.clear();
+                dirty = true;
+            }
+            const size_t slash = p.animSource.find_last_of("/\\");
+            ImGui::TextWrapped(
+                "%s", slash == std::string::npos ? p.animSource.c_str()
+                                                 : p.animSource.c_str() + slash + 1);
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::SliderFloat("Key rate", &p.retarget.fps, 8.0f, 30.0f, "%.0f fps"))
+                dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Mixamo exports a key per frame for every bone; the EE\n"
+                    "evaluates those, so resampling is most of the saving.");
+            if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Strip horizontal root motion - the game moves the character.");
+            if (ImGui::Checkbox("Feet on the floor", &p.retarget.ground.enabled)) dirty = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Plant a standing foot and level its sole.\n"
+                    "Rotations alone do not know where the floor is: a source rig\n"
+                    "of different proportions puts the foot through it or above it,\n"
+                    "and a source that never solves the ankle (ARKit does not)\n"
+                    "points the toe at whatever the shin is doing.");
+        }
+    }
+
+    ImGui::Separator();
+    if (!charBuildError_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", charBuildError_.c_str());
+    } else if (!charSkel_.parts.empty()) {
+        ImGui::Text("%d triangles, %d bones, %d texture%s",
+                    charSkel_.totalVertexCount() / 3, (int)charSkel_.palette.size(),
+                    (int)charSkel_.images.size(), charSkel_.images.size() == 1 ? "" : "s");
+        if (charSkel_.parts.size() > 1) {
+            // Worth breaking out: a garment can easily outweigh the body.
+            std::string per;
+            for (const glbparser::SkelPart& sp : charSkel_.parts) {
+                const size_t colon = sp.material.find(':');
+                per += (per.empty() ? "" : ", ") +
+                       (colon == std::string::npos ? sp.material : sp.material.substr(colon + 1)) +
+                       " " + std::to_string(sp.vertexCount / 3);
+            }
+            ImGui::TextDisabled("%s", per.c_str());
+        }
+        ImGui::Text("~%d KB of PS2 RAM", (int)(charSkel_.ps2Bytes() / 1024));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Model data plus one instance's skinned output buffers.\n"
+                "Each texture is a separate GS VRAM allocation - the budget\n"
+                "is ~1.33 MB with no eviction (docs/gs-vram.md).");
+    }
+    for (const std::string& w : charWarnings_)
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", w.c_str());
+    ImGui::EndChild();
+
+    // ---- right: live preview ------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const bool hasClips = charParams_.animations && !charSkel_.clips.empty();
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (hasClips ? 3.0f : 2.0f) +
+                         scaled(8.0f);
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y - footer);
+
+    if (charGenSpin_) charGenAngle_ += io.DeltaTime * 26.0f;
+
+    // Clip playback. Posing is a few hundred microseconds; the version bump it
+    // does is what makes the viewport re-upload the skinned mesh.
+    if (hasClips) {
+        if (charClip_ < 0 || charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        if (charPlaying_) {
+            charAnimTime_ += io.DeltaTime;
+            if (charAnimTime_ > duration) charAnimTime_ = std::fmod(charAnimTime_, duration);
+            refreshCharacterPose();
+        }
+    }
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = charPreviewVersion_;
+    for (size_t i = 0; i < charPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &charPrevTris_[i];
+        if (i < charPrevTex_.size() && !charPrevTex_[i].rgba.empty()) {
+            dp.rgba = charPrevTex_[i].rgba.data();
+            dp.texW = charPrevTex_[i].w;
+            dp.texH = charPrevTex_[i].h;
+        }
+        // chargen tags the alpha-tested parts by material prefix.
+        dp.cutout = i < charSkel_.parts.size() &&
+                    charSkel_.parts[i].material.rfind("hair:", 0) == 0;
+    }
+    for (int i = 0; i < 3; ++i) desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f;
+    desc.minY = charSkel_.min[1];
+    const float dx = charSkel_.max[0] - charSkel_.min[0];
+    const float dy = charSkel_.max[1] - charSkel_.min[1];
+    const float dz = charSkel_.max[2] - charSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = charGenAngle_;
+    desc.pitchDeg = charGenPitch_;
+    desc.zoom = charGenZoom_;
+    desc.displayMode = charGenDisplayMode_;
+
+    const uint32_t tex = charPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##char_prev_in", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            charGenZoom_ = std::clamp(charGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            charGenAngle_ += io.MouseDelta.x * 0.5f;
+            charGenPitch_ = std::clamp(charGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+            charGenSpin_ = false;  // grabbing the camera stops the turntable
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+    }
+
+    if (hasClips) {
+        ImGui::SetNextItemWidth(scaled(110.0f));
+        if (ImGui::BeginCombo("##charclip", charSkel_.clips[charClip_].name.c_str())) {
+            for (int i = 0; i < (int)charSkel_.clips.size(); ++i)
+                if (ImGui::Selectable(charSkel_.clips[i].name.c_str(), charClip_ == i)) {
+                    charClip_ = i;
+                    charAnimTime_ = 0.0f;
+                    refreshCharacterPose();
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(charPlaying_ ? "Pause" : "Play")) charPlaying_ = !charPlaying_;
+        ImGui::SameLine();
+        const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::SliderFloat("##charscrub", &charAnimTime_, 0.0f, duration, "%.2f s")) {
+            charPlaying_ = false;
+            refreshCharacterPose();
+        }
+    }
+
+    ImGui::Checkbox("Spin", &charGenSpin_);
+    ImGui::SameLine();
+    bool wire = charGenDisplayMode_ == 1;
+    if (ImGui::Checkbox("Wireframe", &wire)) charGenDisplayMode_ = wire ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset view")) {
+        charGenAngle_ = 20.0f;
+        charGenPitch_ = 6.0f;
+        charGenZoom_ = 1.0f;
+    }
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    ImGui::InputText("Name", charName_, sizeof(charName_));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Add to scene")) addCharacterToScene();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Write the .glb into res/models/characters and drop a\n"
+                          "Model object into the current scene.");
+    ImGui::EndGroup();
+
+    if (dirty) charPreviewDirty_ = true;
+    if (charPreviewDirty_) rebuildCharacterPreview();
+
+    ImGui::End();
+}
+
+// "Add to scene" from the Character Generator. Same shape as addTreeToScene:
+// a distinct asset file per generated character so two of them never overwrite
+// each other, then the ordinary Model insert path.
+void App::addCharacterToScene() {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "character";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string rel, err;
+    if (!chargen::writeAsset(project_.dir, name, charSkel_, &rel, &err)) {
+        statusMessage_ = "Character export failed: " + err;
+        return;
+    }
+    addModelObject(rel);  // creates the Model object + commitChange()
+    const int tris = charSkel_.totalVertexCount() / 3;
+    statusMessage_ =
+        "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
+        std::to_string((int)charSkel_.palette.size()) + " bones)";
+}
+
+void App::mocapRebind() {
+    // A rebind changes the SOURCE, and the recording buffers are laid out with
+    // the source's joint count as their stride - so frames already captured are
+    // not comparable with the ones that follow. A phone reconnecting mid-take
+    // sends a fresh `bodyrest`, which lands here, so this is a live path and not
+    // a theoretical one. Left alone it had two outcomes, both silent: the stride
+    // changed and writeTake rejected the whole take as inconsistent (every
+    // recorded frame discarded), or the new skeleton happened to have the same
+    // joint count and the file was written mixing frames from two different rest
+    // poses under one rest-pose header. Stop the recording and say so instead.
+    std::string stopped;
+    if (mocapRecording_) {
+        const size_t frames = mocapRecTimes_.size();
+        mocapRecording_ = false;
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+        mocapRecRoot_.clear();
+        stopped = "recording stopped: the capture source changed (" +
+                  std::to_string(frames) +
+                  " frames discarded - they were captured against the previous "
+                  "rest pose). ";
+    }
+    mocapBind_ = charanim::LiveRetarget();
+    mocapNote_ = stopped;  // "" in the ordinary case, as before
+    mocapTime_ = 0.0f;
+    if (mocapModel_.empty()) return;
+
+    std::string err;
+    glbparser::Skel character;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, character, err)) {
+        mocapNote_ += "character: " + err;
+        return;
+    }
+    mocapSkel_ = std::move(character);
+    // The character is posed by its node transforms from now on, so the clips
+    // it shipped with are not in the way - but keep them, the take is recorded
+    // separately and the asset on disk is untouched.
+
+    const glbparser::Skel* source = nullptr;
+    glbparser::Skel liveRig;
+    glbparser::Skel calibratedFile;
+    if (mocapSourceKind_ == 1) {
+        source = &mocapSource_;
+        // Calibration was live-only, which left the one case a T-pose take
+        // exists FOR unable to use it. Same rule as the live rig: replace the
+        // rest ROTATIONS, keep the bone offsets.
+        if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+            calibratedFile = mocapSource_;
+            for (size_t i = 0; i < calibratedFile.nodes.size(); ++i)
+                std::memcpy(calibratedFile.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+            source = &calibratedFile;
+            mocapCalibrated_ = true;
+        } else {
+            mocapCalibrated_ = false;
+        }
+    } else if (mocapSourceKind_ == 2) {
+        const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+        if (!sk.valid()) {
+            mocapNote_ += "waiting for the phone's skeleton";
+            return;
+        }
+        // Claimed before it is used, not after: a skeleton this build REJECTS
+        // has still been dealt with, and leaving it unclaimed would retry - and
+        // reprint - the same failure every frame.
+        mocapLiveSkelSeq_ = phoneCam_.bodySkeletonSeq();
+        // The pose every later frame is measured AGAINST. By default that is
+        // ARKit's neutral skeleton - a nominal T-pose out of a catalogue, not
+        // this person in these proportions - and everything the performer
+        // differs from it by becomes a constant error in every single frame.
+        // Calibrating replaces the assumption with a measurement: the performer
+        // stands in a T-pose, that frame is captured, and the delta is taken
+        // from there. Only the ROTATIONS are replaced; the bone offsets stay,
+        // because limbs do not change length between the catalogue and the room.
+        const bool calibrated =
+            mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
+        if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(),
+                                calibrated ? mocapCalibRot_.data() : sk.restRot.data(),
+                                liveRig, err)) {
+            mocapNote_ += "live skeleton: " + err;
+            return;
+        }
+        source = &liveRig;
+        mocapLiveHips_ = -1;
+        for (size_t i = 0; i < liveRig.nodes.size(); ++i)
+            if (liveRig.nodes[i].name == "mixamorig:Hips") mocapLiveHips_ = (int)i;
+        mocapHaveHeadingBase_ = false;
+        mocapCalibrated_ = calibrated;
+        mocapLiveJoints_ = sk.joints;
+        mocapLiveParents_ = sk.parents;
+        mocapLiveRestRot_ = sk.restRot;
+        mocapVisionTracker_.reset();
+    }
+    if (!source || source->nodes.empty()) return;
+
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
+    mocapBind_ = charanim::prepareLive(*source, mocapSkel_, opts, notes);
+    for (const std::string& n : notes) mocapNote_ = n;
+    if (!mocapBind_.valid() && mocapNote_.empty())
+        mocapNote_ = "the character and the performer share no bones";
+
+    // One decoded texture per part, exactly like the Character Generator's
+    // preview - the puppet is drawn by the same path.
+    mocapPrevTex_.assign(mocapSkel_.parts.size(), {});
+    for (size_t i = 0; i < mocapSkel_.parts.size(); ++i) {
+        const int img = mocapSkel_.parts[i].image;
+        if (img < 0 || img >= (int)mocapSkel_.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(mocapSkel_.images[img].png.data(),
+                                                  (int)mocapSkel_.images[img].png.size(), &w, &h,
+                                                  &comp, 4);
+        if (!px) continue;
+        mocapPrevTex_[i].rgba.assign(px, px + (size_t)w * h * 4);
+        mocapPrevTex_[i].w = w;
+        mocapPrevTex_[i].h = h;
+        stbi_image_free(px);
+    }
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+}
+
+// Everything a jump invalidates, forgotten together. Called by the window's
+// button and by the phone's - one implementation, so the two cannot drift.
+void App::mocapZero() {
+    charanim::resetLiveOrigin(mocapBind_);
+    mocapHaveHeadingBase_ = false;
+    mocapFilter_.reset();
+    mocapVisionTracker_.reset();
+}
+
+// Euler angles out of a quaternion, degrees - for SHOWING a rotation, not for
+// computing with one. Reading "yaw 40, pitch -5" tells an operator whether a
+// head turned; reading four quaternion components tells nobody anything.
+static void eulerDegrees(const float* q, float* out) {
+    const float x = q[0], y = q[1], z = q[2], w = q[3];
+    const float sinp = 2.0f * (w * x - y * z);
+    out[1] = std::asin(sinp > 1 ? 1 : (sinp < -1 ? -1 : sinp)) * 57.2957795f;   // pitch
+    out[0] = std::atan2(2.0f * (w * y + x * z), 1 - 2 * (x * x + y * y)) * 57.2957795f;
+    out[2] = std::atan2(2.0f * (w * z + x * y), 1 - 2 * (x * x + z * z)) * 57.2957795f;
+}
+
+// What the solve actually produced for the three joints Vision drives, in
+// degrees, straight off the frame it just wrote.
+void App::mocapReadVisionResult() {
+    const char* want[3] = {"head_joint", "left_hand_joint", "right_hand_joint"};
+    float* dst[3] = {mocapVisionSolvedHead_, mocapVisionSolvedWrist_[0],
+                     mocapVisionSolvedWrist_[1]};
+    for (int i = 0; i < 3; ++i) {
+        for (size_t j = 0; j < mocapLiveJoints_.size(); ++j) {
+            if (mocapLiveJoints_[j] != want[i]) continue;
+            if ((j + 1) * 4 <= mocapFrameRot_.size())
+                eulerDegrees(&mocapFrameRot_[j * 4], dst[i]);
+            break;
+        }
+    }
+}
+
+// One line per frame, appended. A session read off a screen is a session
+// nobody can go back over; a file can be looked at afterwards, by somebody who
+// was not in the room.
+void App::mocapLogVisionFrame(float t) {
+    if (mocapVisionLogPath_.empty()) return;
+    std::ofstream f(mocapVisionLogPath_, std::ios::app);
+    if (!f) return;
+    const phonecam::BodyFrame& v = mocapVisionLast_;
+    f << "{\"t\":" << t << ",\"driven\":" << mocapVisionDriven_
+      << ",\"aspect\":" << v.imageAspect;
+    if (v.haveCameraRot)
+        f << ",\"cam\":[" << v.cameraRot[0] << "," << v.cameraRot[1] << ","
+          << v.cameraRot[2] << "," << v.cameraRot[3] << "]";
+    if (v.haveFace)
+        f << ",\"face\":[" << v.face[0] << "," << v.face[1] << "," << v.face[2] << "]";
+    const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+    const char* names[2] = {"hl", "hr"};
+    for (int i = 0; i < 2; ++i) {
+        if (!hands[i]->have) continue;
+        f << ",\"" << names[i] << "\":[" << hands[i]->confidence;
+        for (int k = 0; k < 10; ++k) f << "," << hands[i]->pts[k];
+        f << "],\"" << names[i] << "thumb\":" << (hands[i]->haveThumb ? 1 : 0);
+    }
+    f << ",\"solvedHead\":[" << mocapVisionSolvedHead_[0] << ","
+      << mocapVisionSolvedHead_[1] << "," << mocapVisionSolvedHead_[2] << "]}\n";
+}
+
+// Bake the source's motion onto the chosen model, as a clip inside its own
+// .glb.
+//
+// Without this the feature stopped one step short of useful: recording wrote a
+// .tmocap and the only way onto a character was the Character Generator's
+// "Import clips...", which rebuilds a GENERATED character from its sliders. A
+// model already in the scene - the very one being posed in this window - had no
+// route at all.
+//
+// The model is re-read from disk rather than reusing the posed copy on screen:
+// `mocapSkel_` has had live rotations written into its nodes, and baking that
+// would fold the current frame into the rest pose.
+void App::mocapBakeClip() {
+    if (mocapModel_.empty() || mocapSourceKind_ != 1 || mocapSource_.clips.empty()) {
+        mocapNote_ = "open a take first - a live stream has to be recorded before it can be baked";
+        return;
+    }
+    std::string err;
+    glbparser::Skel model;
+    const std::string full = project_.dir + "\\" + mocapModel_;
+    if (!animimport::parseSkel(full, model, err)) {
+        mocapNote_ = "character: " + err;
+        return;
+    }
+
+    // The same source the window is previewing, calibration included - what you
+    // watched is what gets written.
+    const glbparser::Skel* source = &mocapSource_;
+    glbparser::Skel calibrated;
+    if (mocapHaveCalib_ && mocapCalibRot_.size() == mocapSource_.nodes.size() * 4) {
+        calibrated = mocapSource_;
+        for (size_t i = 0; i < calibrated.nodes.size(); ++i)
+            std::memcpy(calibrated.nodes[i].r, &mocapCalibRot_[i * 4], 16);
+        source = &calibrated;
+    }
+
+    // Keep whatever clips the model already has: a character usually arrives
+    // with idle/walk/run/jump and a take is one more, not a replacement.
+    std::vector<glbparser::SkelClip> existing = model.clips;
+    std::vector<std::string> notes;
+    charanim::RetargetOptions opts;
+    opts.ground.enabled = mocapGround_;
+    if (charanim::retarget(*source, model, opts, notes) == 0) {
+        for (const std::string& n : notes) mocapNote_ = n;
+        if (mocapNote_.empty()) mocapNote_ = "nothing to bake";
+        return;
+    }
+    // retarget() REPLACES the clip list, so put the old ones back underneath and
+    // give the new one a name that says where it came from.
+    std::vector<glbparser::SkelClip> baked = std::move(model.clips);
+    for (glbparser::SkelClip& c : baked) {
+        std::string name = mocapName_[0] ? std::string(mocapName_) : c.name;
+        for (int n = 2;; ++n) {
+            bool clash = false;
+            for (const glbparser::SkelClip& e : existing)
+                if (e.name == name) clash = true;
+            if (!clash) break;
+            name = (mocapName_[0] ? std::string(mocapName_) : c.name) + "-" + std::to_string(n);
+        }
+        c.name = name;
+        existing.push_back(std::move(c));
+    }
+    model.clips = std::move(existing);
+
+    if (!gltfwrite::writeGlbFile(full, model, "TyraX Mocap", err)) {
+        mocapNote_ = "could not write the model: " + err;
+        return;
+    }
+    mocapNote_ = "baked " + std::to_string(baked.size()) + " clip(s) into " + mocapModel_ +
+                 " - rename them in Tools > Animation Editor";
+    // The scene's copy is stale now; a rebind re-reads it so the preview and the
+    // file agree again.
+    mocapRebind();
+}
+
+// Arm the capture. Nobody can press a button and be in a T-pose at the same
+// instant, so with a delay set this fires later and the operator gets to walk
+// into frame - which is the only way one person can do this alone.
+void App::mocapArmCalibration() {
+    if (mocapCalibDelay_ <= 0) {
+        mocapCalibrateFromPhone();
+        return;
+    }
+    mocapCalibAt_ = ImGui::GetTime() + (double)mocapCalibDelay_;
+    mocapNote_ = "calibrating in " + std::to_string(mocapCalibDelay_) + " s - get into the pose";
+}
+
+// Capture the performer's own rest pose from the newest frame and rebuild the
+// binding on it. Also the heading zero: they are facing the camera right now.
+void App::mocapCalibrateFromPhone() {
+    mocapCalibAt_ = -1.0;
+    // A recorded take calibrates on the frame under the playhead - which is the
+    // whole point of recording somebody standing in a T-pose. Same idea as the
+    // live path, different place to read the frame from.
+    if (mocapSourceKind_ == 1) {
+        if (mocapSource_.clips.empty() || mocapSource_.nodes.empty()) {
+            mocapNote_ = "open a take first";
+            return;
+        }
+        const glbparser::SkelClip& clip = mocapSource_.clips[0];
+        mocapCalibRot_.assign(mocapSource_.nodes.size() * 4, 0.0f);
+        for (size_t i = 0; i < mocapSource_.nodes.size(); ++i)
+            std::memcpy(&mocapCalibRot_[i * 4], mocapSource_.nodes[i].r, 16);
+        for (const glbparser::SkelChannel& ch : clip.channels) {
+            if (ch.path != 1 || ch.node < 0 || ch.node >= (int)mocapSource_.nodes.size()) continue;
+            if (ch.times.empty()) continue;
+            size_t hi = 0;
+            while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+            if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+            const size_t lo = hi ? hi - 1 : 0;
+            const float a = ch.times[hi] > ch.times[lo]
+                                ? (mocapTime_ - ch.times[lo]) / (ch.times[hi] - ch.times[lo])
+                                : 0.0f;
+            float v[4];
+            for (int k = 0; k < 4; ++k)
+                v[k] = ch.values[lo * 4 + k] * (1 - a) + ch.values[hi * 4 + k] * a;
+            const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+            for (int k = 0; k < 4; ++k) v[k] /= (l > 1e-8f ? l : 1.0f);
+            std::memcpy(&mocapCalibRot_[(size_t)ch.node * 4], v, 16);
+        }
+        mocapHaveCalib_ = true;
+        mocapRebind();
+        mocapNote_ = "calibrated on this frame of the take";
+        return;
+    }
+    if (!phoneCam_.hasBodySkeleton() || mocapLastFrameRot_.empty()) {
+        mocapNote_ = "nothing to calibrate on yet - no body in frame";
+        return;
+    }
+    mocapCalibRot_ = mocapLastFrameRot_;
+    mocapHaveCalib_ = true;
+    mocapRebind();
+    mocapZero();
+    mocapNote_ = "calibrated from the phone";
+}
+
+void App::mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
+                          const float* rootRot, const phonecam::BodyFrame* vision) {
+    if (!mocapBind_.valid() || !rot) return;
+    const int joints = mocapBind_.sourceNodeCount();
+    // The newest frame, raw, so Calibrate has something to capture. Raw and not
+    // the composed one: a calibration pose with a heading baked in would make
+    // the performer's starting direction part of the rest pose itself.
+    mocapLastFrameRot_.assign(rot, rot + (size_t)joints * 4);
+
+    // The body's HEADING rides the anchor, not the hips joint - ARKit holds the
+    // hips joint's own rotation constant to the last bit while a performer turns
+    // a full circle. Composing it in here is what lets the character turn round;
+    // everything below the hips inherits it when the source globals compose.
+    // The file path does the same thing when it decodes a take, so both feeds
+    // hand applyLive the same meaning.
+    const float* src = rot;
+    if (rootRot && mocapLiveHips_ >= 0 && mocapLiveHips_ < joints) {
+        mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+        // Against the FIRST heading seen, not against ARKit's world - whose zero
+        // is wherever the phone pointed when the session started, so an absolute
+        // heading faces the character in an arbitrary direction. The hips
+        // translation is rebased the same way, one layer down.
+        if (!mocapHaveHeadingBase_) {
+            mocapHeadingBase_[0] = -rootRot[0];
+            mocapHeadingBase_[1] = -rootRot[1];
+            mocapHeadingBase_[2] = -rootRot[2];
+            mocapHeadingBase_[3] = rootRot[3];
+            mocapHaveHeadingBase_ = true;
+        }
+        // rootRot * conj(base), not conj(base) * rootRot: left-multiplying would
+        // express the turn in the FIRST FRAME'S anchor basis, and ARKit's anchor
+        // basis is not the world's. The character's bind is in world space, so
+        // that mismatch tumbles the body instead of turning it.
+        const float* a = rootRot;
+        const float* h = mocapHeadingBase_;
+        const float rel[4] = {a[3] * h[0] + a[0] * h[3] + a[1] * h[2] - a[2] * h[1],
+                              a[3] * h[1] - a[0] * h[2] + a[1] * h[3] + a[2] * h[0],
+                              a[3] * h[2] + a[0] * h[1] - a[1] * h[0] + a[2] * h[3],
+                              a[3] * h[3] - a[0] * h[0] - a[1] * h[1] - a[2] * h[2]};
+        const float* c = rel;
+        const float* b = &mocapFrameRot_[(size_t)mocapLiveHips_ * 4];
+        const float w[4] = {c[3] * b[0] + c[0] * b[3] + c[1] * b[2] - c[2] * b[1],
+                            c[3] * b[1] - c[0] * b[2] + c[1] * b[3] + c[2] * b[0],
+                            c[3] * b[2] + c[0] * b[1] - c[1] * b[0] + c[2] * b[3],
+                            c[3] * b[3] - c[0] * b[0] - c[1] * b[1] - c[2] * b[2]};
+        std::memcpy(&mocapFrameRot_[(size_t)mocapLiveHips_ * 4], w, sizeof(w));
+        src = mocapFrameRot_.data();
+    }
+
+    // The shake, before anything reads the pose. Monocular tracking
+    // re-estimates every joint each frame, so a performer standing perfectly
+    // still arrives shimmering - and the retarget would faithfully pass that on
+    // to the character. Filtering here rather than after means the heading
+    // (already composed onto the hips) is smoothed with everything else.
+    if (mocapFilterEnabled_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        posefilter::Params fp = mocapFilter_.params();
+        fp.enabled = true;
+        mocapFilter_.configure(fp);
+        mocapFilter_.apply(mocapFrameRot_.data(), (size_t)joints, t);
+    }
+
+    // What ARKit does not solve, Vision might. This overwrites exactly the
+    // joints the body tracker leaves frozen - the head and the two wrists - in
+    // the SOURCE frame, before any retargeting happens, so everything
+    // downstream stays unaware that a second framework was involved.
+    if (vision && mocapVision_) {
+        if (src != mocapFrameRot_.data()) {
+            mocapFrameRot_.assign(rot, rot + (size_t)joints * 4);
+            src = mocapFrameRot_.data();
+        }
+        visionpose::Observation obs;
+        obs.haveCamera = vision->haveCameraRot;
+        std::memcpy(obs.cameraRot, vision->cameraRot, sizeof(obs.cameraRot));
+        obs.haveFace = vision->haveFace;
+        obs.faceYaw = vision->face[0];
+        obs.facePitch = vision->face[1];
+        obs.faceRoll = vision->face[2];
+        const phonecam::BodyFrame::HandObs* in[2] = {&vision->handLeft, &vision->handRight};
+        visionpose::Observation::Hand* out[2] = {&obs.left, &obs.right};
+        // Vision's frame into the solver's: origin bottom-left to top-left, and
+        // the vertical un-stretched. Both axes arrive normalized to [0, 1]
+        // independently, so on a 4:3 capture every vertical distance is a third
+        // too large - which would tilt every direction the solver reads and put
+        // a confident, wrong number on the wrist.
+        const float aspect = vision->imageAspect > 0.01f ? vision->imageAspect : 1.0f;
+        auto convert = [aspect](const float* src, float* dst) {
+            dst[0] = src[0];
+            dst[1] = (1.0f - src[1]) / aspect;
+        };
+        for (int side = 0; side < 2; ++side) {
+            out[side]->have = in[side]->have;
+            out[side]->confidence = in[side]->confidence;
+            out[side]->haveThumb = in[side]->haveThumb;
+            convert(in[side]->pts + 0, out[side]->wrist);
+            convert(in[side]->pts + 2, out[side]->indexMcp);
+            convert(in[side]->pts + 4, out[side]->middleMcp);
+            convert(in[side]->pts + 6, out[side]->littleMcp);
+            convert(in[side]->pts + 8, out[side]->thumbMcp);
+        }
+        mocapVisionNotes_.clear();
+        mocapVisionLast_ = *vision;
+        mocapHaveVisionLast_ = true;
+        mocapVisionDriven_ = visionpose::applyToFrame(
+            obs, mocapLiveJoints_, mocapLiveParents_, mocapLiveRestRot_.data(),
+            visionpose::Limits(), mocapFrameRot_.data(), &mocapVisionTracker_,
+            &mocapVisionNotes_);
+        mocapReadVisionResult();
+        if (mocapVisionLog_) mocapLogVisionFrame(t);
+    }
+
+    charanim::applyLive(mocapBind_, src, haveHips ? hips : nullptr, mocapSkel_, t);
+    charanim::poseMesh(mocapSkel_, -1, 0.0f, mocapPrevTris_);
+    ++mocapPrevVersion_;
+
+    if (!mocapRecording_) return;
+    mocapRecTimes_.push_back(t);
+    // What goes in the file, and the two halves pull opposite ways.
+    //
+    // The Vision solve SHOULD be stored: it is part of acquiring the pose, not
+    // of moving it onto a character, so a take without it would silently lose
+    // the head and wrists when re-imported.
+    //
+    // The heading must NOT be, and this is where it went wrong: it is composed
+    // into the hips rotation for the preview, while the file ALSO carries the
+    // anchor in its own slot - so storing the composed frame wrote the heading
+    // twice and the loader applied it twice. Measured on a take that produced
+    // it, `hips_joint` swung 160.9 degrees; ARKit never moves that joint at all,
+    // by a single float bit, in any raw recording. A body given its own heading
+    // twice does not lean, it tumbles.
+    //
+    // So: the frame as improved, with the hips rotation put back to raw.
+    mocapRecFrame_.assign(joints * 4, 0.0f);
+    const float* improved = src ? src : rot;
+    std::memcpy(mocapRecFrame_.data(), improved, (size_t)joints * 4 * sizeof(float));
+    if (mocapLiveHips_ >= 0 && mocapLiveHips_ < joints)
+        std::memcpy(&mocapRecFrame_[(size_t)mocapLiveHips_ * 4], rot + mocapLiveHips_ * 4,
+                    4 * sizeof(float));
+    mocapRecRot_.insert(mocapRecRot_.end(), mocapRecFrame_.begin(), mocapRecFrame_.end());
+    for (int k = 0; k < 3; ++k) mocapRecHips_.push_back(haveHips ? hips[k] : 0.0f);
+    const float ident[4] = {0, 0, 0, 1};
+    const float* rr = rootRot ? rootRot : ident;
+    mocapRecRoot_.insert(mocapRecRoot_.end(), rr, rr + 4);
+}
+
+void App::mocapStopRecording() {
+    mocapRecording_ = false;
+    if (mocapRecTimes_.size() < 2) {
+        mocapNote_ = "nothing recorded";
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
+        return;
+    }
+    const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
+    if (!sk.valid()) {
+        mocapNote_ = "the performer's skeleton is gone - cannot write the take";
+        return;
+    }
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(project_.dir) / "res" / "mocap";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    std::string base = sanitizeAssetName(mocapName_);
+    if (base.empty()) base = "take";
+    std::string name = base;
+    for (int n = 2; fs::exists(dir / (name + ".tmocap")); ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string err;
+    // The take carries the rest pose it was CAPTURED against, which is the
+    // calibrated one when a session was calibrated. The format has always had
+    // the slot; it was being handed ARKit's neutral figure regardless, so a take
+    // recorded during a properly calibrated session came back leaning like a
+    // famous tower the moment it was re-opened - the calibration lived in the
+    // session and died with it. Writing it here means a take decodes to exactly
+    // what was on screen while it was recorded.
+    const bool calib = mocapHaveCalib_ && mocapCalibRot_.size() == sk.joints.size() * 4;
+    if (!mocap::writeTake((dir / (name + ".tmocap")).string(), sk.joints, sk.parents,
+                          sk.restPos.data(),
+                          calib ? mocapCalibRot_.data() : sk.restRot.data(), mocapRecTimes_,
+                          mocapRecRot_, mocapRecHips_, mocapRecRoot_, err)) {
+        mocapNote_ = "take: " + err;
+    } else {
+        mocapLastTakePath_ = (dir / (name + ".tmocap")).string();
+        mocapNote_ = std::string(calib ? "wrote a CALIBRATED " : "wrote an UNCALIBRATED ") +
+                     "res/mocap/" + name + ".tmocap (" +
+                     std::to_string(mocapRecTimes_.size()) + " frames, " +
+                     std::to_string((int)(mocapRecTimes_.back() - mocapRecTimes_.front())) +
+                     " s) - Open take... it, then Add as a clip";
+    }
+    mocapRecTimes_.clear();
+    mocapRecRot_.clear();
+    mocapRecHips_.clear();
+    mocapRecRoot_.clear();
+}
+
+// Tools > Mocap: a performer drives a character in the editor, live off the
+// phone link or played back from a recorded take. Both go through the same
+// charanim::applyLive, so the file source is not a toy - it is how the whole
+// path is exercised without a phone in the room.
+void App::drawMocapWindow() {
+    if (!showMocap_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(760.0f), scaled(560.0f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Mocap", &showMocap_)) {
+        ImGui::End();
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+
+    ImGui::BeginChild("mocapleft", ImVec2(scaled(300.0f), 0), true);
+
+    // --- the character being puppeted ---------------------------------------
+    ImGui::TextDisabled("CHARACTER");
+    const std::vector<std::string> models = listAnimatedModelFiles();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##mocapmodel",
+                          mocapModel_.empty() ? "(pick an animated model)"
+                                              : mocapModel_.c_str())) {
+        for (const std::string& m : models) {
+            const std::string rel = "res/models/" + m;
+            if (ImGui::Selectable(rel.c_str(), rel == mocapModel_)) {
+                mocapModel_ = rel;
+                mocapRebind();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (models.empty())
+        ImGui::TextDisabled("None - generate one in Tools > Character Generator.");
+
+    // --- where the motion comes from ----------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("SOURCE");
+    int kind = mocapSourceKind_;
+    if (ImGui::RadioButton("Recorded take", &kind, 1)) {
+        mocapSourceKind_ = 1;
+        mocapRebind();
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Live phone", &kind, 2)) {
+        mocapSourceKind_ = 2;
+        mocapRebind();
+    }
+
+    if (mocapSourceKind_ == 1) {
+        if (ImGui::Button("Open take...")) {
+            const std::string file = pickPath(PickKind::ObjModel);
+            if (!file.empty()) {
+                std::string err;
+                if (!mocap::load(file, mocapSource_, err)) {
+                    mocapNote_ = err;
+                } else {
+                    mocapTake_ = file;
+                    mocapRebind();
+                    mocapPlaying_ = true;
+                    // The reader says which mapped bones the take never moves.
+                    // Showing it is the difference between a user concluding the
+                    // retarget is broken and a user knowing ARKit did not solve
+                    // a wrist.
+                    for (const std::string& w : mocapSource_.warnings) mocapNote_ = w;
+                }
+            }
+        }
+        if (!mocapTake_.empty()) {
+            const size_t slash = mocapTake_.find_last_of("/\\");
+            ImGui::TextWrapped("%s", slash == std::string::npos ? mocapTake_.c_str()
+                                                                : mocapTake_.c_str() + slash + 1);
+            if (!mocapSource_.clips.empty()) {
+                const glbparser::SkelClip& c = mocapSource_.clips[0];
+                ImGui::Text("%d joints, %.2f s", (int)mocapSource_.nodes.size(), c.duration);
+                if (ImGui::Button(mocapPlaying_ ? "Pause" : "Play"))
+                    mocapPlaying_ = !mocapPlaying_;
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::SliderFloat("##mocapscrub", &mocapTime_, 0.0f,
+                                       std::max(0.01f, c.duration), "%.2f s"))
+                    mocapPlaying_ = false;
+            }
+        }
+    } else if (mocapSourceKind_ == 2) {
+        const bool linked = phoneCam_.connected();
+        // The link is shared infrastructure and belongs to neither feature, so
+        // this is a status line and a way in, not a second set of controls.
+        drawPhoneLinkSummary();
+        if (!linked)
+            ImGui::TextDisabled("Nothing paired yet - start the link, then type\n"
+                                "its address and code into the app.");
+        else if (!phoneCam_.hasBodySkeleton())
+            ImGui::TextDisabled("Connected, but this app is not sending a body.");
+        else
+            ImGui::Text("%llu frames received",
+                        (unsigned long long)phoneCam_.bodyFrameCount());
+        // Two unrelated things that used to sit side by side looking like a
+        // pair. Zeroing is about WHERE the origin is; Rebind is about WHO
+        // drives whom. The first is what an operator reaches for constantly, so
+        // it leads and is named for what it promises rather than what it clears.
+        if (ImGui::Checkbox("Feet on the floor", &mocapGround_)) mocapRebind();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Plant a standing foot and level its sole. ARKit never solves\n"
+                "the ankle, so without this the foot follows the shin rigidly\n"
+                "and a lifted knee comes with a pointed toe.");
+        if (ImGui::Checkbox("Smooth the shake", &mocapFilterEnabled_)) mocapFilter_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Monocular tracking re-estimates every joint each frame, so a\n"
+                "performer standing perfectly still arrives shimmering.\n"
+                "The cutoff rises with speed: a still hand is filtered hard,\n"
+                "a thrown punch is barely touched.");
+        if (ImGui::Checkbox("Head and hands from Vision", &mocapVision_))
+            mocapVisionTracker_.reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "ARKit reports the head and both wrists and solves neither.\n"
+                "The phone's Vision pass sees them; the geometry is done here.\n"
+                "Needs a face or a hand big enough in frame - step closer and\n"
+                "the wrists come alive.");
+        if (mocapVision_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%d driven", mocapVisionDriven_);
+            if (ImGui::IsItemHovered() && !mocapVisionNotes_.empty()) {
+                ImGui::BeginTooltip();
+                for (const std::string& n : mocapVisionNotes_) ImGui::TextUnformatted(n.c_str());
+                ImGui::EndTooltip();
+            }
+        }
+        // The numbers, because three very different faults look identical on a
+        // character: Vision finding nothing, Vision found and the geometry
+        // wrong, geometry right and an axis convention flipped. Each is a
+        // different week of work and only these tell them apart.
+        if (mocapVision_ && ImGui::TreeNode("What Vision is seeing")) {
+            const phonecam::BodyFrame& v = mocapVisionLast_;
+            if (!mocapHaveVisionLast_) {
+                ImGui::TextDisabled("no frame carrying Vision data yet");
+            } else {
+                ImGui::Text("camera pose: %s", v.haveCameraRot ? "yes" : "MISSING");
+                ImGui::Text("image aspect: %.3f", v.imageAspect);
+                if (v.haveFace)
+                    ImGui::Text("face seen: yaw %.0f  pitch %.0f  roll %.0f",
+                                v.face[0] * 57.29578f, v.face[1] * 57.29578f,
+                                v.face[2] * 57.29578f);
+                else
+                    ImGui::TextDisabled("face: not detected");
+                ImGui::Text("head solved: yaw %.0f  pitch %.0f  roll %.0f",
+                            mocapVisionSolvedHead_[0], mocapVisionSolvedHead_[1],
+                            mocapVisionSolvedHead_[2]);
+                const phonecam::BodyFrame::HandObs* hands[2] = {&v.handLeft, &v.handRight};
+                const char* side[2] = {"left ", "right"};
+                for (int i = 0; i < 2; ++i) {
+                    if (!hands[i]->have) {
+                        ImGui::TextDisabled("%s hand: not detected", side[i]);
+                        continue;
+                    }
+                    // The palm's size on screen decides whether any of this can
+                    // work: below a few per cent of the frame the landmarks are
+                    // noise and the solve is guessing.
+                    const float dx = hands[i]->pts[4] - hands[i]->pts[0];
+                    const float dy = hands[i]->pts[5] - hands[i]->pts[1];
+                    const float span = std::sqrt(dx * dx + dy * dy) * 100.0f;
+                    ImGui::Text("%s hand: conf %.2f  palm %.1f%% of frame  thumb %s",
+                                side[i], hands[i]->confidence, span,
+                                hands[i]->haveThumb ? "yes" : "no");
+                    ImGui::Text("      solved: bend %.0f  dev %.0f  twist %.0f",
+                                mocapVisionSolvedWrist_[i][1], mocapVisionSolvedWrist_[i][2],
+                                mocapVisionSolvedWrist_[i][0]);
+                }
+            }
+            if (ImGui::Checkbox("Log every frame to a file", &mocapVisionLog_) &&
+                mocapVisionLog_) {
+                mocapVisionLogPath_ =
+                    (std::filesystem::path(project_.dir) / "vision-log.jsonl").string();
+                std::ofstream(mocapVisionLogPath_, std::ios::trunc);
+                mocapNote_ = "logging to " + mocapVisionLogPath_;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Writes vision-log.jsonl in the project folder - one\n"
+                                  "line per frame, raw. A session read off a screen is\n"
+                                  "gone; a file can be gone over afterwards.");
+            ImGui::TreePop();
+        }
+    }
+
+    // Calibrating is the FIRST thing an operator does and the thing that
+    // decides whether any of the rest is usable, so it leads.
+    // Deliberately NOT gated on a valid binding: calibrating is what makes a
+    // good binding possible, so requiring one first is backwards.
+    const bool canCalibrate = mocapSourceKind_ == 1
+                                  ? !mocapSource_.clips.empty()
+                                  : (phoneCam_.hasBodySkeleton() && !mocapLastFrameRot_.empty());
+    ImGui::BeginDisabled(!canCalibrate);
+    const bool counting = mocapCalibAt_ > 0.0;
+    char label[64];
+    if (counting)
+        std::snprintf(label, sizeof(label), "Calibrating in %.0f...",
+                      std::ceil(mocapCalibAt_ - ImGui::GetTime()));
+    else
+        std::snprintf(label, sizeof(label), "%s (T-pose)",
+                      mocapCalibrated_ ? "Re-calibrate" : "Calibrate");
+    if (ImGui::Button(label, ImVec2(scaled(180), 0))) {
+        if (counting) {
+            mocapCalibAt_ = -1.0;      // pressed again = cancel
+            mocapNote_ = "calibration cancelled";
+        } else {
+            mocapArmCalibration();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(90));
+    const char* kDelays[] = {"no delay", "3 s", "5 s", "10 s"};
+    const int kSeconds[] = {0, 3, 5, 10};
+    int delayIdx = 1;
+    for (int i = 0; i < 4; ++i)
+        if (kSeconds[i] == mocapCalibDelay_) delayIdx = i;
+    if (ImGui::Combo("##calibdelay", &delayIdx, kDelays, 4))
+        mocapCalibDelay_ = kSeconds[delayIdx];
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("How long after pressing before the pose is taken.\n"
+                          "Nobody can press a button and be in a T-pose at the\n"
+                          "same instant, and with the phone on a tripod this is\n"
+                          "the only way to do it alone.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Have the performer stand in a T-pose facing you, then press.\n\n"
+            "Every frame is a delta from a REST POSE. Without this that pose\n"
+            "is ARKit's neutral skeleton - a nominal figure out of a\n"
+            "catalogue - and everything this person differs from it by\n"
+            "becomes a constant error in every frame. Calibrating measures\n"
+            "it instead: their proportions, their stance, their height.\n\n"
+            "It is also the heading zero, so they end up facing the way the\n"
+            "character does.");
+    if (mocapHaveCalib_) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Forget")) {
+            mocapHaveCalib_ = false;
+            mocapCalibRot_.clear();
+            mocapRebind();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Go back to ARKit's neutral skeleton as the rest pose.");
+    }
+    ImGui::TextDisabled("%s", mocapCalibrated_ ? "rest pose: this performer"
+                                               : "rest pose: ARKit's neutral figure");
+
+    // A jump is not a movement, so everything that smooths across frames is
+    // told at once - mocapZero is that one place.
+    if (ImGui::Button("Zero here", ImVec2(scaled(110), 0))) mocapZero();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "\"The performer is facing me, right now.\"\n\n"
+            "Everything after this is measured from this instant: they turn,\n"
+            "the character turns; they walk across the room, it walks across\n"
+            "the room. The link otherwise takes its zero from the FIRST frame\n"
+            "it sees - whatever they happened to be doing when tracking\n"
+            "caught them - so this is how you pick that moment yourself.\n\n"
+            "Also use it whenever the stream jumps rather than moves: tracking\n"
+            "lost and regained, or somebody else stepping in.");
+    ImGui::SameLine();
+    if (ImGui::Button("Rebind", ImVec2(scaled(90), 0))) mocapRebind();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Rebuild which bone drives which - joint matching,\n"
+                          "rest poses, the height ratio. Needed after changing\n"
+                          "the character, not for changing where they are.");
+
+    // The countdown, fired from the window's own frame so it ticks whether it
+    // was armed from here or from the phone.
+    if (mocapCalibAt_ > 0.0 && ImGui::GetTime() >= mocapCalibAt_) mocapCalibrateFromPhone();
+
+    // --- onto the character ---------------------------------------------------
+    // The step that was missing: a take on disk is not an animation until it is
+    // a clip inside a model.
+    ImGui::Spacing();
+    ImGui::TextDisabled("BAKE ONTO THE CHARACTER");
+    const bool canBake = !mocapModel_.empty() && mocapSourceKind_ == 1 &&
+                         !mocapSource_.clips.empty();
+    ImGui::BeginDisabled(!canBake);
+    if (ImGui::Button("Add as a clip", ImVec2(scaled(140), 0))) mocapBakeClip();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Retargets the open take onto this model and writes it back into\n"
+            "the model's own .glb, beside the clips it already has.\n\n"
+            "A live stream has to be recorded first - Record below writes a\n"
+            ".tmocap into res/mocap, and Open take... reads it back.\n\n"
+            "Rename the result in Tools > Animation Editor, which retargets\n"
+            "every reference for you.");
+    if (!canBake)
+        ImGui::TextDisabled("%s", mocapModel_.empty() ? "pick a character first"
+                                                      : "open a recorded take to bake");
+
+    // --- recording ------------------------------------------------------------
+    ImGui::Spacing();
+    ImGui::TextDisabled("RECORD");
+    const bool canRecord = mocapSourceKind_ == 2 && mocapBind_.valid();
+    ImGui::BeginDisabled(!canRecord);
+    if (!mocapRecording_) {
+        if (ImGui::Button("Record")) {
+            mocapRecTimes_.clear();
+            mocapRecRot_.clear();
+            mocapRecHips_.clear();
+            mocapRecRoot_.clear();
+    mocapRecRoot_.clear();
+        mocapRecRoot_.clear();
+            mocapRecording_ = true;
+            mocapNote_.clear();
+        }
+    } else if (ImGui::Button("Stop")) {
+        mocapStopRecording();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    ImGui::InputText("##mocapname", mocapName_, sizeof(mocapName_));
+    if (mocapRecording_)
+        ImGui::Text("%d frames", (int)mocapRecTimes_.size());
+    else if (!canRecord)
+        ImGui::TextDisabled("Recording needs the live phone source -\na file is already a take.");
+
+    if (!mocapNote_.empty()) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", mocapNote_.c_str());
+    }
+    if (mocapBind_.valid())
+        ImGui::TextDisabled("driving %d bones", mocapBind_.matchedBones());
+    ImGui::EndChild();
+
+    // --- the puppet ----------------------------------------------------------
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
+    const int ph = (int)std::max(64.0f, ImGui::GetContentRegionAvail().y -
+                                            ImGui::GetFrameHeightWithSpacing());
+
+    // Pull whatever the source has for this frame. Both sources end in
+    // mocapApplyFrame - the file one is not a simulation of the live path, it
+    // IS the live path with a different feed.
+    //
+    // The live link is handled OUTSIDE the "is anything bound" check, and that
+    // is the whole point: it used to sit inside, which meant the code that
+    // CREATES the binding only ran once a binding existed. A phone connecting
+    // after the character was picked therefore did nothing - no preview, and
+    // Calibrate greyed out for good, because the newest frame it captures was
+    // only kept in there too.
+    if (mocapSourceKind_ == 2) {
+        // A phone connects, reconnects, or is swapped for another at moments
+        // nothing announces. Binding on sight is the difference between the
+        // window working and the window needing a button pressed.
+        if (phoneCam_.hasBodySkeleton() && phoneCam_.bodySkeletonSeq() != mocapLiveSkelSeq_)
+            mocapRebind();
+        // Every frame since the last repaint: the newest is the live pose, and
+        // a recording keeps all of them so no motion is lost between two frames
+        // of UI. The newest is kept even when nothing is bound - that is what
+        // Calibrate captures, and needing a working binding before you may
+        // calibrate is backwards.
+        for (const phonecam::BodyFrame& f : phoneCam_.drainBodyFrames()) {
+            mocapLastFrameRot_.assign(f.rot.begin(), f.rot.end());
+            if (!mocapBind_.valid()) continue;
+            if ((int)f.rot.size() / 4 != mocapBind_.sourceNodeCount()) continue;
+            mocapApplyFrame(f.rot.data(), f.hips, f.haveHips, (float)f.t,
+                            f.haveRootRot ? f.rootRot : nullptr, &f);
+        }
+    }
+
+    if (mocapBind_.valid()) {
+        if (mocapSourceKind_ == 1 && !mocapSource_.clips.empty()) {
+            const glbparser::SkelClip& clip = mocapSource_.clips[0];
+            if (mocapPlaying_) {
+                mocapTime_ += io.DeltaTime;
+                if (mocapTime_ > clip.duration) mocapTime_ = 0.0f;
+            }
+            const size_t nodes = mocapSource_.nodes.size();
+            std::vector<float> rot(nodes * 4);
+            for (size_t i = 0; i < nodes; ++i) std::memcpy(&rot[i * 4], mocapSource_.nodes[i].r, 16);
+            float hips[3] = {0, 0, 0};
+            bool haveHips = false;
+            int hipsNode = -1;
+            for (size_t i = 0; i < nodes; ++i)
+                if (mocapSource_.nodes[i].name == "mixamorig:Hips") hipsNode = (int)i;
+            for (const glbparser::SkelChannel& ch : clip.channels) {
+                if (ch.node < 0 || ch.node >= (int)nodes || ch.times.empty()) continue;
+                size_t hi = 0;
+                while (hi < ch.times.size() && ch.times[hi] < mocapTime_) ++hi;
+                const size_t lo = hi == 0 ? 0 : hi - 1;
+                if (hi >= ch.times.size()) hi = ch.times.size() - 1;
+                const float t0 = ch.times[lo], t1 = ch.times[hi];
+                const float f = t1 > t0 ? (mocapTime_ - t0) / (t1 - t0) : 0.0f;
+                const int comps = ch.path == 1 ? 4 : 3;
+                float v[4] = {0, 0, 0, 1};
+                for (int c = 0; c < comps; ++c)
+                    v[c] = ch.values[lo * comps + c] * (1 - f) + ch.values[hi * comps + c] * f;
+                if (ch.path == 1) {
+                    const float len = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]);
+                    if (len > 1e-8f)
+                        for (int c = 0; c < 4; ++c) v[c] /= len;
+                    std::memcpy(&rot[(size_t)ch.node * 4], v, 16);
+                } else if (ch.node == hipsNode) {
+                    std::memcpy(hips, v, 12);
+                    haveHips = true;
+                }
+            }
+            mocapApplyFrame(rot.data(), hips, haveHips, mocapTime_);
+        }
+    }
+
+    Viewport::CharPreviewDesc desc;
+    desc.version = mocapPrevVersion_;
+    for (size_t i = 0; i < mocapPrevTris_.size() && desc.partCount < desc.kMaxParts; ++i) {
+        Viewport::CharPreviewDesc::Part& dp = desc.parts[desc.partCount++];
+        dp.tris = &mocapPrevTris_[i];
+        if (i < mocapPrevTex_.size() && !mocapPrevTex_[i].rgba.empty()) {
+            dp.rgba = mocapPrevTex_[i].rgba.data();
+            dp.texW = mocapPrevTex_[i].w;
+            dp.texH = mocapPrevTex_[i].h;
+        }
+        dp.cutout = i < mocapSkel_.parts.size() &&
+                    mocapSkel_.parts[i].material.rfind("hair:", 0) == 0;
+    }
+    for (int i = 0; i < 3; ++i) desc.center[i] = (mocapSkel_.min[i] + mocapSkel_.max[i]) * 0.5f;
+    desc.minY = mocapSkel_.min[1];
+    const float dx = mocapSkel_.max[0] - mocapSkel_.min[0];
+    const float dy = mocapSkel_.max[1] - mocapSkel_.min[1];
+    const float dz = mocapSkel_.max[2] - mocapSkel_.min[2];
+    desc.radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+    desc.angleDeg = mocapAngle_;
+    desc.pitchDeg = mocapPitch_;
+    desc.zoom = mocapZoom_;
+
+    const uint32_t tex =
+        mocapPrevTris_.empty() ? 0 : viewport_.renderCharacterPreview(pw, ph, desc);
+    if (tex) {
+        const ImVec2 imgPos = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2((float)pw, (float)ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        ImGui::SetCursorScreenPos(imgPos);
+        ImGui::InvisibleButton("##mocap_prev", ImVec2((float)pw, (float)ph),
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
+            mocapZoom_ = std::clamp(mocapZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
+        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+            mocapAngle_ += io.MouseDelta.x * 0.5f;
+            mocapPitch_ = std::clamp(mocapPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+        }
+    } else {
+        ImGui::Dummy(ImVec2((float)pw, (float)ph));
+        ImGui::TextDisabled("Pick a character and a source.");
+    }
+    ImGui::EndGroup();
+
+    ImGui::End();
+}
+
+
+// Tools > Phone Link: hosting the session a phone joins, and nothing else.
+//
+// The link is shared infrastructure. Two features ride on it - the camera
+// viewfinder and body capture - and they are separate apps on the phone, but
+// one server, one port and one pairing code here, because two links would mean
+// two codes to type and a fight over 7798.
+//
+// It used to live inside the Phone Camera window, which made pairing a mocap
+// session mean opening a window whose other four sections are about preview
+// JPEG quality and which Camera entity to record into. Shared infrastructure
+// belongs to neither of its consumers.
+void App::drawPhoneLinkWindow() {
+    if (!showPhoneLinkWindow_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(420), scaled(400)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Phone Link", &showPhoneLinkWindow_)) {
+        ImGui::End();
+        return;
+    }
+
+    const bool up = phoneCam_.listening();
+    const bool live = phoneCam_.connected();
+    const phonecam::DeviceInfo dev = phoneCam_.device();
+
+    // --- state line ---------------------------------------------------------
+    if (phoneCam_.state() == phonecam::Link::State::Error) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Error");
+        ImGui::TextWrapped("%s", phoneCam_.errorText().c_str());
+    } else if (live) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "Connected");
+        ImGui::SameLine();
+        ImGui::Text("- %s", dev.name.c_str());
+    } else if (up) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "Waiting for a phone");
+    } else {
+        ImGui::TextDisabled("Not hosting");
+    }
+
+    if (!up) {
+        if (ImGui::Button("Start link", ImVec2(scaled(120), 0))) startPhoneCam();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80.0f));
+        if (ImGui::InputInt("Port", &phoneCamPort_, 0, 0))
+            phoneCamPort_ = std::clamp(phoneCamPort_, 1024, 65535);
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Require code", &phoneCamRequireCode_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Off accepts any device on this network - fine at a\n"
+                              "desk of your own, wrong in a shared office.");
+    } else {
+        if (ImGui::Button("Stop link", ImVec2(scaled(120), 0))) stopPhoneCam();
+        if (live) {
+            ImGui::SameLine();
+            if (ImGui::Button("Disconnect")) phoneCam_.disconnectDevice();
+        }
+    }
+
+    // --- what to type into the phone ---------------------------------------
+    if (up) {
+        ImGui::SeparatorText("Connect the phone to");
+        const std::vector<std::string> ips = wire::localIPv4();
+        if (ips.empty()) {
+            ImGui::TextDisabled("No LAN address found - is this machine on Wi-Fi?");
+        }
+        for (const std::string& ip : ips) {
+            const std::string addr = ip + ":" + std::to_string(phoneCam_.port());
+            ImGui::PushID(ip.c_str());
+            ImGui::Text("%s", addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy")) ImGui::SetClipboardText(addr.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Copy URL"))
+                ImGui::SetClipboardText(("http://" + addr).c_str());
+            ImGui::PopID();
+        }
+        if (phoneCamRequireCode_) {
+            ImGui::Text("Pairing code: %s", phoneCamCode_.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("New code")) {
+                phoneCamCode_ = phonecam::newPairCode();
+                saveGlobalConfig();
+                statusMessage_ =
+                    "New pairing code - restart the link for it to take effect";
+            }
+        }
+        ImGui::TextDisabled("The phone app is github.com/doctorspider42/tyrax-cam\n"
+                            "(sideloaded). Opening the http:// address in any\n"
+                            "browser gives a test client that shows the same\n"
+                            "stream and can fake a pose.");
+    }
+
+    // --- the connected device ----------------------------------------------
+    if (live) {
+        ImGui::SeparatorText("Device");
+        if (!dev.model.empty()) ImGui::Text("Model: %s", dev.model.c_str());
+        if (!dev.client.empty()) ImGui::Text("App: %s", dev.client.c_str());
+        if (!dev.address.empty()) ImGui::Text("Address: %s", dev.address.c_str());
+        ImGui::Text("Tracking: %s",
+                    dev.sixDof ? "6DoF (position + rotation)" : "rotation only");
+        if (!dev.sixDof && ImGui::IsItemHovered())
+            ImGui::SetTooltip("This device reports no world position, so the camera\n"
+                              "turns in place instead of walking.");
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("What is using it");
+    // Which consumer a device drives is decided by the app it runs, not here -
+    // the phone says at hello. This is the readout, not a switch.
+    if (live) {
+        ImGui::BulletText("Camera: %s",
+                          phoneDrive_ ? "driving the viewport" : "connected, not driving");
+        ImGui::BulletText("Mocap: %s", phoneCam_.hasBodySkeleton()
+                                           ? "sending a body"
+                                           : "this app is not sending a body");
+    } else {
+        ImGui::TextDisabled("Nothing connected. Tools > Phone Camera for the\n"
+                            "viewfinder, Tools > Mocap for body capture.");
+    }
+    ImGui::End();
+}
+
+// One line, for a window that CONSUMES the link rather than owning it: is
+// anything connected, and a way to get to the controls.
+void App::drawPhoneLinkSummary() {
+    const bool live = phoneCam_.connected();
+    if (live) {
+        const phonecam::DeviceInfo dev = phoneCam_.device();
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.5f, 1.0f), "%s",
+                           dev.name.empty() ? "phone connected" : dev.name.c_str());
+    } else if (phoneCam_.listening()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.3f, 1.0f), "waiting for a phone");
+    } else {
+        ImGui::TextDisabled("link not started");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Phone Link...")) showPhoneLinkWindow_ = true;
+}
+

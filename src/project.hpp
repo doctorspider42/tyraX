@@ -1639,7 +1639,8 @@ inline bool operator==(const CreditsRoll& a, const CreditsRoll& b) {
 struct WindowLayout {
     std::string name;
     std::string ini;                       // ImGui docking dump; empty = use recipe
-    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material
+    int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material,
+                                           // 3 debugger, 4 procedural, 5 mocap
     std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
 };
 
@@ -1651,7 +1652,11 @@ enum class LayoutRecipe {
     Director = 1,
     Material = 2,
     Debugger = 3,
-    Procedural = 4
+    Procedural = 4,
+    // 5, not 3 and not 4: main's Debugger took 3 and its Procedural layout took
+    // 4 while this branch was out, and the id is written into every .tyra file.
+    // Whoever lands second renumbers, or old projects open the wrong layout.
+    Mocap = 5
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives

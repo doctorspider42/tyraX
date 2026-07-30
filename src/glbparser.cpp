@@ -266,6 +266,7 @@ struct Node {
     bool hasMatrix = false;
     M16 matrix = identity();
     int mesh = -1, skin = -1;
+    std::string name;
     std::vector<int> children;
 };
 
@@ -458,6 +459,7 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
             }
             node.mesh = intOr(&n, "mesh", -1);
             node.skin = intOr(&n, "skin", -1);
+            if (const json::Value* nm = n.find("name")) node.name = nm->stringOr("");
             if (const json::Value* ch = n.find("children");
                 ch && ch->type == json::Value::Type::Array)
                 for (const json::Value& c : ch->arr)
@@ -1046,6 +1048,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     for (size_t i = 0; i < P.nodes.size(); ++i) {
         const Node& src = P.nodes[i];
         SkelNode& dst = out.nodes[i];
+        dst.name = src.name;
         dst.parent = P.parent[i];
         dst.hasMatrix = src.hasMatrix;
         std::memcpy(dst.matrix, src.matrix.m, sizeof(dst.matrix));

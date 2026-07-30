@@ -2184,6 +2184,34 @@ void Viewport::ensureTreeFramebuffer(int width, int height) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+void Viewport::ensureCharFramebuffer(int width, int height) {
+    if (charFbo_ && width == charFbW_ && height == charFbH_) return;
+    charFbW_ = width;
+    charFbH_ = height;
+
+    if (!charFbo_) glGenFramebuffers(1, &charFbo_);
+    if (!charTex_) glGenTextures(1, &charTex_);
+    if (!charDepth_) glGenRenderbuffers(1, &charDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, charTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, charDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, charFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           charTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, charDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "character preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 namespace {
 
 // Forward euler rotation (X, then Y, then Z) - matches the generated game's
@@ -4868,7 +4896,66 @@ uint32_t Viewport::renderTreePreview(int width, int height,
         refresh(treePrevLeafTex_, d.leafRgba, d.leafW, d.leafH);
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, treeFbo_);
+    const PreviewDraw draws[2] = {{&treePrevBark_, treePrevBarkTex_, false},
+                                  {&treePrevLeaves_, treePrevLeafTex_, true}};
+    drawToolPreview(treeFbo_, width, height, draws, 2, d.center, d.minY, d.radius, d.angleDeg,
+                    d.pitchDeg, d.zoom, d.displayMode);
+    return treeTex_;
+}
+
+uint32_t Viewport::renderCharacterPreview(int width, int height, const CharPreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensureCharFramebuffer(width, height);
+    ensurePreviewBackdrop();
+
+    if (!charPrevHasVersion_ || charPrevVersion_ != d.version) {
+        charPrevHasVersion_ = true;
+        charPrevVersion_ = d.version;
+        for (int i = 0; i < CharPreviewDesc::kMaxParts; ++i) {
+            destroyMesh(charPrevMesh_[i]);
+            const CharPreviewDesc::Part& p = d.parts[i];
+            if (i >= d.partCount || !p.tris || p.tris->empty()) continue;
+            // Same shade bake as the tree preview: the vertex colors carry the
+            // directional light so the preview matches what the .glb will look
+            // like once it is a scene object.
+            std::vector<float> il;
+            il.reserve(p.tris->size());
+            for (size_t k = 0; k + 7 < p.tris->size(); k += 8) {
+                const Vec3 s =
+                    shadeOf(normalize({(*p.tris)[k + 3], (*p.tris)[k + 4], (*p.tris)[k + 5]}));
+                il.insert(il.end(), {(*p.tris)[k], (*p.tris)[k + 1], (*p.tris)[k + 2], s.x, s.y,
+                                     s.z, (*p.tris)[k + 6], (*p.tris)[k + 7]});
+            }
+            charPrevMesh_[i] = uploadMesh(il);
+            if (p.rgba && p.texW > 0 && p.texH > 0) {
+                if (!charPrevTex_[i]) {
+                    GLuint id = 0;
+                    glGenTextures(1, &id);
+                    charPrevTex_[i] = id;
+                }
+                glBindTexture(GL_TEXTURE_2D, charPrevTex_[i]);
+                glUploadTexRgba(p.texW, p.texH, p.rgba);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+        }
+    }
+
+    PreviewDraw draws[CharPreviewDesc::kMaxParts];
+    int count = 0;
+    for (int i = 0; i < d.partCount && i < CharPreviewDesc::kMaxParts; ++i)
+        draws[count++] = {&charPrevMesh_[i], d.parts[i].rgba ? charPrevTex_[i] : 0,
+                          d.parts[i].cutout};
+    drawToolPreview(charFbo_, width, height, draws, count, d.center, d.minY, d.radius, d.angleDeg,
+                    d.pitchDeg, d.zoom, d.displayMode);
+    return charTex_;
+}
+
+void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const PreviewDraw* draws,
+                               int count, const float center3[3], float minY, float radiusIn,
+                               float angleDeg, float pitchDeg, float zoomIn, int displayMode) {
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
@@ -4905,15 +4992,15 @@ uint32_t Viewport::renderTreePreview(int width, int height,
 
     // camera framing from the mesh AABB (the model branch of the material
     // preview, with a slightly lower default pivot so the trunk base shows)
-    const Vec3 center{d.center[0], d.center[1], d.center[2]};
-    float radius = d.radius < 0.01f ? 0.01f : d.radius;
+    const Vec3 center{center3[0], center3[1], center3[2]};
+    float radius = radiusIn < 0.01f ? 0.01f : radiusIn;
     float baseDist = radius * 2.4f;
-    float zoom = d.zoom < 0.05f ? 0.05f : (d.zoom > 16.0f ? 16.0f : d.zoom);
+    float zoom = zoomIn < 0.05f ? 0.05f : (zoomIn > 16.0f ? 16.0f : zoomIn);
     const float dist = baseDist / zoom;
-    float pitch = d.pitchDeg;
+    float pitch = pitchDeg;
     if (pitch < -30.0f) pitch = -30.0f;
     if (pitch > 85.0f) pitch = 85.0f;
-    const float a = d.angleDeg * kPi / 180.0f;
+    const float a = angleDeg * kPi / 180.0f;
     const float p = pitch * kPi / 180.0f;
     const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
                    center.y + dist * std::sin(p),
@@ -4927,31 +5014,34 @@ uint32_t Viewport::renderTreePreview(int width, int height,
     const Mat4 viewProj = mul(proj, view);
 
     {
-        const Mat4 floorM = mul(translation(center.x, d.minY - radius * 0.002f,
+        const Mat4 floorM = mul(translation(center.x, minY - radius * 0.002f,
                                             center.z),
                                 scaleM(radius, 1.0f, radius));
         draw(prevFloor_, mul(viewProj, floorM), 1.0f, 1.0f, 1.0f, 0, false);
     }
 
-    if (d.displayMode == 1) {
+    if (displayMode == 1) {
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
     }
-    draw(treePrevBark_, viewProj, 1.0f, 1.0f, 1.0f, treePrevBarkTex_, false);
-    // leaves last: the alpha-cutout shader path discards transparent texels
-    draw(treePrevLeaves_, viewProj, 1.0f, 1.0f, 1.0f, treePrevLeafTex_, true);
-    if (d.displayMode == 1) {
+    for (int i = 0; i < count; ++i)
+        if (draws[i].mesh && !draws[i].cutout)
+            draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, false);
+    // cutouts last: the alpha-cutout shader path discards transparent texels
+    for (int i = 0; i < count; ++i)
+        if (draws[i].mesh && draws[i].cutout)
+            draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, true);
+    if (displayMode == 1) {
         glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        draw(treePrevBark_, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
-        draw(treePrevLeaves_, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
+        for (int i = 0; i < count; ++i)
+            if (draws[i].mesh) draw(*draws[i].mesh, viewProj, 0.05f, 0.05f, 0.06f, 0, false);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     glUniform1i(uAlpha_, 0);
     glBindVertexArray(0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    return treeTex_;
 }
 
 std::vector<std::string> Viewport::animClipNames(const std::string& modelRel,

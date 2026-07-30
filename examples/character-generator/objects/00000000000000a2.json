@@ -1,0 +1,1 @@
+{ "id": "00000000000000a2", "name": "dockhand", "type": "model", "position": [4.5, 0, 10], "rotation": [0, 155, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/dockhand.glb", "anim": { "clip": "idle", "autoplay": true, "loop": true, "speed": 1 } }

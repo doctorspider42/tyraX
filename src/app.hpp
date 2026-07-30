@@ -15,11 +15,14 @@
 #include "aigen.hpp"
 #include "audiopreview.hpp"
 #include "camtake.hpp"
+#include "chargen.hpp"
 #include "dronegen.hpp"
+#include "gibake.hpp"
 #include "history.hpp"
 #include "phonecam.hpp"
-#include "gibake.hpp"
+#include "posefilter.hpp"
 #include "procbake.hpp"
+#include "visionpose.hpp"
 #include "matbake.hpp"
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "isoexport.hpp"
@@ -667,6 +670,40 @@ private:
     // so scrubbing stays cheap, and the release settles once.
     void droneSeek(double sec, bool settle = true);
 
+    // Tools > Character Generator: a rigged, skinned, PS2-budget human built
+    // from the MakeHuman CC0 data (chargen, docs/character-generator.md).
+    // "Add to scene" writes the .glb into res/models/characters and drops in a
+    // Model object - from there it is an ordinary animated model.
+    void drawCharacterGeneratorWindow();
+    // (Re)builds charSkel_ + the skin texture from charParams_ (the expensive
+    // half) and then poses it.
+    void rebuildCharacterPreview();
+    // Skins charSkel_ at charAnimTime_ of the selected clip into the preview's
+    // interleaved array and bumps charPreviewVersion_ so the viewport
+    // re-uploads. Cheap enough to run every frame while a clip plays.
+    void refreshCharacterPose();
+    void addCharacterToScene();
+    // Tools > Mocap (docs/character-generator.md): a performer's motion driving
+    // a character in the editor as it arrives. The source is either a recorded
+    // `.tmocap` played back or the live phone link - deliberately the same
+    // code path, because a stream that only works when a phone is present is a
+    // stream nobody can debug.
+    void drawMocapWindow();
+    // Binds the chosen character to the current source and starts from scratch.
+    void mocapRebind();
+    // One frame in: retarget it onto the character, and append it to the take
+    // when recording.
+    void mocapApplyFrame(const float* rot, const float* hips, bool haveHips, float t,
+                         const float* rootRot = nullptr,
+                         const phonecam::BodyFrame* vision = nullptr);
+    void mocapStopRecording();
+    // The two a performer triggers from the phone as well as from here.
+    void mocapZero();
+    void mocapBakeClip();
+    void mocapReadVisionResult();
+    void mocapLogVisionFrame(float t);
+    void mocapArmCalibration();
+    void mocapCalibrateFromPhone();
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
@@ -862,6 +899,9 @@ private:
     void phoneCamTick();
     void startPhoneCam();
     void stopPhoneCam();
+    void drawPhoneLinkWindow();
+    // One status line + a way in, for a window that consumes the link.
+    void drawPhoneLinkSummary();
     void drawPhoneCamWindow();
     // Streams the frame the viewport just rendered. Called from
     // drawViewportWindow right after render(), so the phone sees exactly the
@@ -1347,6 +1387,115 @@ private:
     std::string droneWriteMsg_;    // "Filter cutoff @ 0:12.4" - write feedback
     char droneLaneFilter_[48] = "";  // search box of the "add lane" picker
 
+
+    // Character Generator (Tools > Character Generator). charSkel_ is the
+    // built character; charPrevTris_/charPrevRgba_ are the same thing in the
+    // interleaved form the viewport preview takes, rebuilt together so one
+    // version stamp covers both.
+    bool showCharGenerator_ = false;
+    chargen::Params charParams_;
+    int charPreset_ = 0;
+    glbparser::Skel charSkel_;
+    // One entry per generated part (body, clothes, shoes, hair): the posed
+    // triangles and the decoded texture that goes with them.
+    std::vector<std::vector<float>> charPrevTris_;  // pos3 + normal3 + uv2
+    struct CharPrevTex {
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+    };
+    std::vector<CharPrevTex> charPrevTex_;
+    std::string charBuildError_;
+    std::vector<std::string> charWarnings_;
+    uint64_t charPreviewVersion_ = 0;
+    bool charPreviewDirty_ = true;
+    char charName_[64] = "character";
+    // Clip playback in the preview: which generated clip, where in it, and
+    // whether it is running. Editor state only - it never reaches the asset.
+    int charClip_ = 0;
+    float charAnimTime_ = 0.0f;
+    bool charPlaying_ = true;
+    // Mocap (Tools > Mocap). mocapSkel_ is the character being puppeted - its
+    // NODE transforms are overwritten every frame, which is what
+    // charanim::poseMesh reads when no clip is playing.
+    bool showMocap_ = false;
+    std::string mocapModel_;          // project-relative .glb driving the puppet
+    glbparser::Skel mocapSkel_;
+    charanim::LiveRetarget mocapBind_;
+    glbparser::Skel mocapSource_;     // file playback: the take as a source rig
+    int mocapSourceKind_ = 0;         // 0 none, 1 file, 2 live link
+    uint64_t mocapLiveSkelSeq_ = 0;   // the phone skeleton mocapBind_ was built from
+    int mocapLiveHips_ = -1;          // where the heading is composed in
+    bool mocapGround_ = true;         // plant the feet on the floor
+    bool mocapVision_ = true;         // drive head/wrists from the phone's Vision pass
+    visionpose::Tracker mocapVisionTracker_;
+    // The heading the stream started at; every later one is measured
+    // against it, exactly as the hips translation is.
+    float mocapHeadingBase_[4] = {0, 0, 0, 1};
+    bool mocapHaveHeadingBase_ = false;
+    // The performer's OWN rest pose, captured from a live frame while they
+    // stand in a T-pose. Replaces ARKit's neutral skeleton as the thing every
+    // later frame is a delta from - see mocapRebind.
+    std::vector<float> mocapCalibRot_;
+    bool mocapHaveCalib_ = false;
+    bool mocapCalibrated_ = false;   // did the live rig actually use it?
+    // Nobody can press a button and be in a T-pose at the same time, so the
+    // capture can be armed and fire on a countdown. Seconds, and the wall
+    // clock it fires at (<0 = not armed).
+    int mocapCalibDelay_ = 3;
+    double mocapCalibAt_ = -1.0;
+    std::vector<float> mocapLastFrameRot_;  // newest raw frame, for calibrating
+    bool mocapFilterEnabled_ = true;
+    posefilter::PoseFilter mocapFilter_;
+    // The live skeleton's names and tree, taken once at bind. Reading them
+    // from the link per frame copies 91 strings under a mutex, 30 times a
+    // second, for data that cannot change without a rebind.
+    std::vector<std::string> mocapLiveJoints_;
+    std::vector<int> mocapLiveParents_;
+    std::vector<float> mocapLiveRestRot_;
+    std::vector<std::string> mocapVisionNotes_;
+    int mocapVisionDriven_ = 0;
+    // The last raw observation, kept purely so the window can SHOW it. Three
+    // very different faults look identical on a character - Vision finding
+    // nothing, Vision found and the geometry wrong, geometry right and an axis
+    // convention flipped - and each is a different month of work. Numbers on
+    // screen tell them apart in a minute.
+    phonecam::BodyFrame mocapVisionLast_;
+    bool mocapHaveVisionLast_ = false;
+    float mocapVisionSolvedHead_[3] = {0, 0, 0};   // yaw, pitch, roll, degrees
+    float mocapVisionSolvedWrist_[2][3] = {{0, 0, 0}, {0, 0, 0}};
+    // Appends every observation to a file so a session can be picked apart
+    // offline instead of read off a screen.
+    // Where the last recording landed, so the window can offer to open it
+    // instead of leaving the operator to find it.
+    std::string mocapLastTakePath_;
+    bool mocapVisionLog_ = false;
+    std::string mocapVisionLogPath_;
+    std::vector<float> mocapFrameRot_;  // scratch: source rotations + the heading
+    std::string mocapTake_;           // the file being played back
+    float mocapTime_ = 0.0f;
+    bool mocapPlaying_ = false;
+    std::string mocapNote_;
+    std::vector<std::vector<float>> mocapPrevTris_;
+    std::vector<CharPrevTex> mocapPrevTex_;
+    uint64_t mocapPrevVersion_ = 0;
+    // Face-on, unlike the Character Generator's three-quarter view. There you
+    // are judging a silhouette; here you are watching somebody who is standing
+    // square to a camera, and the point is to compare them with the character.
+    // A quarter turn between the two is exactly the confusion to avoid.
+    float mocapAngle_ = 0.0f, mocapPitch_ = 6.0f, mocapZoom_ = 1.0f;
+    // Recording buffers the SOURCE frames, not the retargeted pose: a take is
+    // reusable on any character, a baked pose is not.
+    bool mocapRecording_ = false;
+    std::vector<float> mocapRecTimes_;
+    std::vector<float> mocapRecRot_;   // frames * joints * 4
+    std::vector<float> mocapRecHips_;
+    std::vector<float> mocapRecRoot_;
+    std::vector<float> mocapRecFrame_;   // scratch: what one recorded frame stores  // frames * 3
+    char mocapName_[64] = "take";
+
+    float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
+    bool charGenSpin_ = false;
+    int charGenDisplayMode_ = 0;
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
@@ -1514,6 +1663,7 @@ private:
 
     // --- Phone camera link state (see the method block above) ---------------
     phonecam::Link phoneCam_;
+    bool showPhoneLinkWindow_ = false;
     bool showPhoneCamWindow_ = false;
     // Machine-global settings (editor.ini).
     phonecam::PreviewPrefs phoneCamPrefs_;

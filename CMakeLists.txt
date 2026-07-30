@@ -136,6 +136,8 @@ add_executable(tyrax-editor
     src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/charanim.cpp
+    src/chargen.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
@@ -150,6 +152,11 @@ add_executable(tyrax-editor
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
+    src/gltfwrite.cpp
+    src/mhdata.cpp
+    src/mocap.cpp
+    src/posefilter.cpp
+    src/visionpose.cpp
     src/json.cpp
     src/elfsym.cpp
     src/livedbg.cpp

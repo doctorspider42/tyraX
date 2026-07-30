@@ -211,6 +211,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   Cutscene Director camera track: the canonical take space, the mapping and
   decimation controls in the import modal, and the acquisition/bake split the
   live link below plugs into.
+- [Character generator](character-generator.md) - the *Tools > Character
+  Generator* window: how a handful of macro sliders become a rigged, skinned
+  1460-triangle human, where the MakeHuman CC0 data comes from and what is in
+  it, the three tricks that make it fit a PS2 (corner-blended macro targets, a
+  proxy body riding the reference mesh, a rig re-derived from the morph), the
+  Mixamo-named bone list, and what is deliberately not there yet.
 - [Phone camera (live viewfinder)](phone-camera.md) - the companion iOS app as
   a viewfinder: the editor hosts a LAN link, the phone shows a live JPEG stream
   of the viewport and its ARKit pose drives that camera, and the Cutscene

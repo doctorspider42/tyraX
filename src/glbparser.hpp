@@ -93,6 +93,12 @@ std::string writeTanm(const Baked& baked,
 
 // One node of the glTF hierarchy with its bind-pose local transform.
 struct SkelNode {
+    // The authored node/bone name. Nothing on the PS2 side needs it (channels
+    // and the palette address nodes by index, and .tskl does not store it),
+    // but it is what identifies a bone to everything OUTSIDE this pipeline -
+    // Blender when the user opens a generated .glb, and any future retarget
+    // that matches a Mixamo rig by name. gltfwrite round-trips it.
+    std::string name;
     int parent = -1;
     bool hasMatrix = false;  // matrix nodes are never animated (glTF spec)
     float matrix[16] = {};

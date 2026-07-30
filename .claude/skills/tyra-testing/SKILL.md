@@ -120,6 +120,22 @@ should always equal the SHA in `deps.sh` — if it does not, that checkout
 predates the pinning and is stale. Fix it by deleting the directory and
 re-running setup, not by pulling in it.
 
+`setup.ps1`/`setup.sh` also fetch ~45 MB of MakeHuman **CC0 data** into
+`vendor/mh-assets` for the Character Generator (`$MhFiles`/`$MhAssets` in
+`deps.ps1`, `tyrax_mh_files`/`MH_ASSETS_DIR` in `deps.sh` — the usual paired
+lists, and both must describe the same 138 files). It is data, not sources, so
+`build.ps1`/`build.sh` never block on it and the editor compiles without it —
+the window just explains how to get it. A `chargen` harness or a Character
+Generator test therefore needs setup to have run at least once; the harness
+resolves the directory relative to the exe, or from `vendor/mh-assets` when run
+from a repo root.
+
+To check the two lists still agree after touching either, dump and diff them
+rather than eyeballing: `bash -c '. ./deps.sh; tyrax_mh_files; printf "%s\n"
+"${MH_FILES[@]}"' | sort` against the same projection of `$MhFiles` from
+`deps.ps1`. They drifted once already — the Linux list was missing entirely,
+so the Character Generator was quietly Windows-only.
+
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
 corrupt checkout — that path simply isn't on disk yet. The build script

@@ -39,11 +39,13 @@ inline std::string pickPath(PickKind kind) {
                                       {{"Tyra project (*.tyra)", {"*.tyra"}}, kAll});
         case PickKind::ObjModel:
             return platform::pickFile(
-                "Import 3D model (.glb/.fbx = animated)",
-                {{"3D model (*.obj, *.glb, *.fbx)", {"*.obj", "*.glb", "*.fbx"}},
+                "Import 3D model (.glb/.fbx = animated, .tmocap = phone take)",
+                {{"3D model or take (*.obj, *.glb, *.fbx, *.tmocap)",
+                  {"*.obj", "*.glb", "*.fbx", "*.tmocap"}},
                  {"Wavefront model (*.obj)", {"*.obj"}},
                  {"Animated glTF binary (*.glb)", {"*.glb"}},
                  {"Animated FBX (*.fbx)", {"*.fbx"}},
+                 {"Phone mocap take (*.tmocap)", {"*.tmocap"}},
                  kAll});
         case PickKind::Mtl:
             return platform::pickFile("Import material library",

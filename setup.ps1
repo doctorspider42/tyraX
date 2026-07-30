@@ -77,6 +77,38 @@ foreach ($h in $StbHeaders) {
     }
 }
 
+# MakeHuman CC0 data (Character Generator). ~110 small files plus six large
+# skin textures, so this is the one fetch worth reporting progress on. Each
+# file is checked individually: an interrupted run resumes where it stopped
+# instead of re-downloading 40 MB.
+# The list is checked file by file rather than gated on a probe: it GROWS as
+# the generator gains assets, so an existing install has to pick up what is new
+# instead of being declared complete because base.obj happens to be there.
+$missing = @($MhAssets.Files | Where-Object { -not (Test-Path (Join-Path $MhAssets.Dir $_.Path)) })
+if ($missing.Count -eq 0) {
+    Write-Host "OK: $($MhAssets.Dir) already present ($($MhAssets.Files.Count) files)"
+} else {
+    Write-Host "Fetching MakeHuman CC0 data into $($MhAssets.Dir) ($($missing.Count) files, ~80 MB for a full set)"
+    # Invoke-WebRequest's own progress bar costs more than the download on a
+    # list this long - it re-renders per read on Windows PowerShell 5.1.
+    $prevProgress = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $done = 0
+        foreach ($f in $missing) {
+            $dest = Join-Path $MhAssets.Dir $f.Path
+            $done++
+            New-Item -ItemType Directory -Force (Split-Path $dest) | Out-Null
+            if ($done % 10 -eq 0) { Write-Host "  $done/$($missing.Count) $($f.Path)" }
+            # A partial file must not look like a finished one to the next run.
+            $tmp = "$dest.part"
+            Invoke-WebRequest -Uri $f.Url -OutFile $tmp
+            Move-Item -Force $tmp $dest
+        }
+    } finally { $ProgressPreference = $prevProgress }
+    Write-Host "  done ($($missing.Count) files)"
+}
+
 foreach ($t in $Ps2Tools) {
     if (Test-Path $t.Probe) {
         Write-Host "OK: $($t.Dir) already present"

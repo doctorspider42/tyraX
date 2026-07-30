@@ -1,0 +1,18 @@
+# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+
+# Baked model output - the .glb/.obj next to it is the source, these are
+# regenerated on every build (docs/model-pipeline.md).
+/models/*.tskl
+/models/*.tanm
+/models/*.tmdl
+
+# Baked model output at ANY depth, and the Character Generator's
+# folder - only the .glb is a source there, and it EMBEDS its
+# textures (docs/character-generator.md).
+*.tskl
+*.tanm
+*.tmdl
+/models/characters/*.png

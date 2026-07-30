@@ -2172,14 +2172,21 @@ void seedBuiltinLayouts(Project& p) {
     // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
     // time each is shown (see WindowLayout / LayoutRecipe).
     p.windowLayouts.push_back({"Default", "", (int)LayoutRecipe::Default, {}});
+    // The link comes up with the Director too: recording a camera move is the
+    // other thing a paired phone does, and hunting for the window that hosts it
+    // is the same annoyance either way.
     p.windowLayouts.push_back(
-        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene", "phonecam", "phonelink"}});
     p.windowLayouts.push_back(
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
     p.windowLayouts.push_back(
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     p.windowLayouts.push_back(
         {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
+    // Everything a capture session needs and nothing else: the character being
+    // driven, and the link driving it.
+    p.windowLayouts.push_back(
+        {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     p.activeLayout = 0;
 }
 
@@ -4650,6 +4657,27 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = root.find("activeLayout"))
             out.activeLayout = (int)v->numberOr(0);
+        // A project saved before a built-in layout existed has no way to learn
+        // about it: `seedBuiltinLayouts` only runs for new projects, so without
+        // this the Mocap arrangement would be visible to nobody who already had
+        // a project open. Appended rather than merged, so a renamed or rearranged
+        // layout of the user's own is never touched. Delete it and it comes back
+        // next load - the cost of having no schema version to remember by, and
+        // cheaper than the feature being invisible.
+        // A project saved while Mocap still carried recipe 3 would now open that
+        // layout as the Debugger, main having taken 3 first. The name is the
+        // only evidence left of what it was meant to be, and it is enough:
+        // nothing else writes a layout called Mocap.
+        for (WindowLayout& L : out.windowLayouts)
+            if (L.name == "Mocap" && L.recipe == (int)LayoutRecipe::Debugger)
+                L.recipe = (int)LayoutRecipe::Mocap;
+
+        bool haveMocap = false;
+        for (const WindowLayout& L : out.windowLayouts)
+            if (L.recipe == (int)LayoutRecipe::Mocap) haveMocap = true;
+        if (!haveMocap)
+            out.windowLayouts.push_back(
+                {"Mocap", "", (int)LayoutRecipe::Mocap, {"mocap", "phonelink"}});
     } else {
         seedBuiltinLayouts(out);
         if (const auto* v = root.find("layout")) {
@@ -5155,6 +5183,31 @@ std::string refreshGenerated(const Project& p) {
             }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
+        }
+    }
+
+    // Migration: the bake rules used to be anchored to /models/, but the
+    // Character Generator writes into models/characters/ - so an older
+    // project would start tracking a megabyte of .tskl per character, plus
+    // the textures the bake unpacks from the .glb that already embeds them.
+    {
+        const fs::path ignore = fs::path(p.dir) / "res" / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            if (content.str().find("/models/characters/*.png") == std::string::npos) {
+                std::string text = content.str();
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked model output at ANY depth, and the Character "
+                    "Generator's\n# folder - only the .glb is a source there, and it "
+                    "EMBEDS its\n# textures (docs/character-generator.md).\n"
+                    "*.tskl\n*.tanm\n*.tmdl\n/models/characters/*.png\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
         }
     }
 

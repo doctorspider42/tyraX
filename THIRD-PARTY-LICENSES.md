@@ -31,6 +31,7 @@ TyraX's own license — Apache-2.0, the same terms as the engine — is in
 | [miniaudio](https://github.com/mackron/miniaudio) | `9634bedb` | Public domain **or** MIT-0 | No — fetched |
 | [ps2client](https://github.com/ps2dev/ps2client) | v1.3.0 | no explicit license — see below | **Yes** (Windows binary only) |
 | [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | see `vendor/tyra/audsrv-pan` | Academic Free License v2.0 | **Yes** (prebuilt module) |
+| [MakeHuman](http://www.makehumancommunity.org/) **data** | `master` (see `deps.ps1` / `deps.sh`) | CC0 1.0 (assets only — the *program* is AGPL and unused) | No — fetched into `vendor/mh-assets` |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
@@ -323,14 +324,53 @@ is at <https://opensource.org/license/afl-2-0-php> and in the PS2SDK repository.
 
 ---
 
+## MakeHuman community data — CC0 1.0 (assets only)
+
+The *Character Generator* (`src/chargen.cpp`, docs/character-generator.md) is
+built on the MakeHuman community's **CC0** data set: the hm08 base mesh, the
+macro morph targets, the `proxy741` low-poly proxy, the default skeleton and its
+vertex weights, and a curated set of skins, clothes and hair. The exact file
+list is in [`deps.ps1`](deps.ps1) / [`deps.sh`](deps.sh), which fetch it into
+`vendor/mh-assets` (git-ignored, ~40 MB).
+
+**The distinction that matters here: the data is CC0, the MakeHuman *program* is
+AGPL-3.0, and none of the program is used.** TyraX implements the morph
+blending, the proxy fit, the bone collapse and the glTF export itself. Nothing
+from the `makehuman` application's source tree is read, linked, copied or
+translated — only files from its `data/` directory and from the separate
+`makehuman-assets` repository, both of which carry the CC0 release.
+
+Those assets were relicensed to CC0 in 2020 by Data Collection AB, Joel Palmius
+and Jonas Hauquier, with original work by Manuel Bastioni. Upstream ships the
+release text as `LICENSE.txt` in `makehuman-assets`; the dependency lists fetch
+it alongside the data as `vendor/mh-assets/LICENSE-CC0.txt`, so a checkout that
+has the data also has its licence.
+
+CC0 is a public-domain dedication and **requires no attribution**. The credit in
+[`README.md`](README.md) is given anyway, because this feature would not exist
+without that data set — not because a licence compels it.
+
+One consequence worth stating for anyone shipping a game: a character exported
+by the generator is a derivative of CC0 data, so it carries no third-party
+obligation of its own. What the exported `.glb` and the generated project *do*
+carry is TyraX's own Apache-2.0 terms on the template code — see the **License**
+section of [`README.md`](README.md).
+
+---
+
 ## A note on assets
 
-Everything above is **code**. Assets are a separate problem and the rules are
-not the same: a permissive code license on a project says nothing about the
-license on the models, textures or sounds it ships, and asset collections are
-routinely *mixed* — most files under one license, a long tail under another.
+Everything above is **code**, except the MakeHuman entry directly above. Assets
+are a separate problem and the rules are not the same: a permissive code license
+on a project says nothing about the license on the models, textures or sounds it
+ships, and asset collections are routinely *mixed* — most files under one
+license, a long tail under another. MakeHuman is the exact illustration: its
+assets are CC0 while the application around them is AGPL.
 
-TyraX ships no third-party assets today. The policy for adding any is in the
-"Dependency policy" section of [`README.md`](README.md); the short version is
-that an asset pack has to be verified file-by-file, not project-by-project,
-before anything from it is committed here.
+TyraX **commits** no third-party assets — the MakeHuman set is an optional
+fetch into a git-ignored directory, and the editor builds and runs without it
+(the Character Generator window explains how to get it rather than failing).
+The policy for adding any is in the "Dependency policy" section of
+[`README.md`](README.md); the short version is that an asset pack has to be
+verified file-by-file, not project-by-project, before anything from it is
+committed here.
