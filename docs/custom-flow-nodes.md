@@ -57,9 +57,11 @@ ctx.objects[{obj}].dirty = true;
 |-------------|-----------------------------------------------------------------|----------------|
 | `title`     | Display name in the add-menu and node title bar                 | the file name  |
 | `category`  | Add-menu submenu                                                 | `Custom`       |
-| `desc`      | One-line behavior description — shown as the node's tooltip in the editor and fed to the AI flow-graph generator's catalog, so the node documents itself | *(empty)*      |
+| `desc`      | What the NODE does — shown as the node's tooltip in the editor and fed to the AI flow-graph generator's catalog, so the node documents itself | *(empty)*      |
 | `string`    | The string param: `none`, `text`, or `object`                   | `none`         |
 | `num0`…`num3` | Labels for up to four numeric params (define them in order)   | *(no params)*  |
+| `tip0`…`tip3` | What each numeric param DOES — one line, shown when the cursor rests on that widget inside the node, and listed under `desc` in the node's own tooltip | *(empty)*   |
+| `tip_string` | The same for the string param                                  | *(empty)*      |
 | `in`        | Extra input pins: any of `object position bool text`            | *(none)*       |
 | `out`       | Output pins: any of `object position bool text`                 | *(none)*       |
 | `exec_out`  | `true` = a follow-up exec output that fires downstream after the node runs | `false` |
@@ -68,7 +70,16 @@ ctx.objects[{obj}].dirty = true;
 Every custom node is an **action**: it has a `> do` exec input and runs when a
 trigger (or another node's exec output) fires it. `string = object` and
 `in = object` both give the node its object input (the "target"). Numeric params
-must be contiguous from `num0`.
+must be contiguous from `num0`; their **tips are not** — `tip2` without `tip0`
+is fine, and a `tipN` with no matching `numN` is simply dropped.
+
+**Write the tips.** `desc` explains the node, a tip explains the knob, and the
+two answer different questions: someone hovering a drag labelled `Amount` wants
+to know what the number means and what 0 does, not what the node is for. A
+custom node's parameters are the ones a reader has the least chance of guessing,
+since they are one project's idea — so a knob without a tip is the half of the
+help they are actually looking at. The built-in registry holds itself to the
+same rule (`FlowNodeType::numTips` in `src/flowgraph.hpp`).
 
 ### Inline C++ body
 

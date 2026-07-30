@@ -73,6 +73,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_TEXTURE0 0x84C0
 #define GL_TEXTURE1 0x84C1
 #define GL_TEXTURE2 0x84C2
+#define GL_TEXTURE3 0x84C3
+#define GL_TEXTURE_3D 0x806F
+#define GL_TEXTURE_WRAP_R 0x8072
 #define GL_RED 0x1903
 #define GL_R32F 0x822E
 #define GL_RGB 0x1907
@@ -99,6 +102,8 @@ typedef ptrdiff_t GLintptr;
     X(void, ActiveTexture, GLenum) \
     X(void, TexImage2D, GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
     X(void, TexSubImage2D, GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, const void*) \
+    X(void, TexImage3D, GLenum, GLint, GLint, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const void*) \
+    X(void, TexSubImage3D, GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const void*) \
     X(void, CopyTexImage2D, GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint) \
     X(void, TexParameteri, GLenum, GLenum, GLint) \
     X(void, DrawArrays, GLenum, GLint, GLsizei) \
@@ -121,9 +126,11 @@ typedef ptrdiff_t GLintptr;
     X(void, Uniform4f, GLint, GLfloat, GLfloat, GLfloat, GLfloat) \
     X(void, Uniform4fv, GLint, GLsizei, const GLfloat*) \
     X(void, Uniform3f, GLint, GLfloat, GLfloat, GLfloat) \
+    X(void, Uniform2f, GLint, GLfloat, GLfloat) \
     X(void, Uniform1f, GLint, GLfloat) \
     X(void, Uniform1fv, GLint, GLsizei, const GLfloat*) \
     X(void, Uniform1i, GLint, GLint) \
+    X(void, Uniform3i, GLint, GLint, GLint, GLint) \
     X(void, Uniform1iv, GLint, GLsizei, const GLint*) \
     X(void, GenVertexArrays, GLsizei, GLuint*) \
     X(void, DeleteVertexArrays, GLsizei, const GLuint*) \

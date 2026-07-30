@@ -1,22 +1,29 @@
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
+#include "gibake.hpp"
 #include "livedbg.hpp"
+#include "livepad.hpp"
+#include "uiscript.hpp"
 #include "vucap.hpp"
 #include "app.hpp"
 #include "platform.hpp"
+#include "procbake.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -227,21 +234,33 @@ static int debugStateFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
-//   tyrax-editor.exe --new <name> <parentDir> [width] [depth] [empty|fpp]
-//                    [unitsPerMeter]
+//   tyrax-editor.exe --new <name> <parentDir> [width] [depth]
+//                    [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 static int createFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --new <name> <parentDir> [width] [depth] "
-                     "[empty|fpp] [unitsPerMeter]\n");
+                     "[empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]\n");
         return 2;
     }
+    // --no-terrain is a FLAG among positional arguments (the dialog's "Create
+    // terrain" checkbox, docs/terrain.md), so it is accepted anywhere and
+    // pulled out before the rest is read by position.
+    std::vector<const char*> pos;  // pos[0] = argv[4], the first optional
+    bool noTerrain = false;
+    for (int i = 4; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--no-terrain") == 0)
+            noTerrain = true;
+        else
+            pos.push_back(argv[i]);
+    }
     TerrainConfig t;
-    if (argc > 4) t.width = std::atoi(argv[4]);
-    if (argc > 5) t.depth = std::atoi(argv[5]);
-    const char* preset = argc > 6 ? argv[6] : "empty";
+    t.enabled = !noTerrain;
+    if (pos.size() > 0) t.width = std::atoi(pos[0]);
+    if (pos.size() > 1) t.depth = std::atoi(pos[1]);
+    const char* preset = pos.size() > 2 ? pos[2] : "empty";
     // World scale (docs/world-scale.md); 1 unit = 1 m unless asked otherwise.
-    const float ups = argc > 7 ? (float)std::atof(argv[7]) : 1.0f;
+    const float ups = pos.size() > 3 ? (float)std::atof(pos[3]) : 1.0f;
 
     Project p;
     std::string err = project::create(p, argv[2], argv[3], t, preset, ups);
@@ -249,13 +268,35 @@ static int createFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    std::printf("created: %s (terrain %dx%d, %.3f units/m)\n", p.dir.c_str(),
-                p.scenes[0].terrain.width, p.scenes[0].terrain.depth,
-                p.settings.unitsPerMeter);
+    if (p.scenes[0].terrain.enabled)
+        std::printf("created: %s (terrain %dx%d, %.3f units/m)\n", p.dir.c_str(),
+                    p.scenes[0].terrain.width, p.scenes[0].terrain.depth,
+                    p.settings.unitsPerMeter);
+    else
+        std::printf("created: %s (no terrain, %dx%d world, %.3f units/m)\n",
+                    p.dir.c_str(), p.scenes[0].terrain.width,
+                    p.scenes[0].terrain.depth, p.settings.unitsPerMeter);
     return 0;
 }
 
 // Headless helper: tyrax-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
+// Bakes every stale Scatter volume into its chunk meshes and saves the result
+// (docs/procedural-generation.md). The GUI does this in App::projectForBuild;
+// the headless paths need their own call, or an agent-driven build would ship
+// whatever the last GUI session happened to bake - or nothing at all.
+static void bakeProcedural(Project& p) {
+    if (!procbake::anyStale(p)) return;
+    const procbake::Report rep = procbake::bakeAll(p, false);
+    std::printf("procedural: baked %d volume(s) -> %d chunks, %d instances, "
+                "%d triangles\n",
+                rep.volumes, rep.chunks, rep.instances, rep.triangles);
+    for (const std::string& w : rep.warnings)
+        std::printf("procedural: %s\n", w.c_str());
+    if (std::string err = project::save(p); !err.empty())
+        std::fprintf(stderr, "warning: could not save the baked scene: %s\n",
+                     err.c_str());
+}
+
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -272,6 +313,7 @@ static int buildFromCli(int argc, char** argv) {
         return 1;
     }
     if (runPs2 && argc > 4) p.ps2LinkIp = argv[4];
+    bakeProcedural(p);
 
     Runner runner;
     if (runPs2)
@@ -415,7 +457,11 @@ static int dumpFromCli(int argc, char** argv) {
         const SceneData& sc = p.scenes[si];
         o << (si ? ", " : "") << "{ \"name\": \"" << cliJsonEsc(sc.name)
           << "\", \"terrain\": [" << sc.terrain.width << ", " << sc.terrain.depth
-          << "], \"layers\": [";
+          << "]";
+        // Only when the scene has no ground at all - an assistant reading this
+        // has to know nothing rests on the terrain here (docs/terrain.md).
+        if (!sc.terrain.enabled) o << ", \"terrainRemoved\": true";
+        o << ", \"layers\": [";
         for (size_t i = 0; i < sc.layers.size(); ++i)
             o << (i ? ", " : "") << "\"" << cliJsonEsc(sc.layers[i].name) << "\"";
         o << "], \"objects\": [";
@@ -464,6 +510,7 @@ static int dumpFromCli(int argc, char** argv) {
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });
     names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
+    names("credits", p.credits, [](const CreditsRoll& r) { return r.name; });
     // Input actions / binding presets: what On Action and Set Input Preset
     // reference (docs/input-bindings.md).
     names("inputActions", p.input.actions,
@@ -565,11 +612,60 @@ static int refreshGenFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    bakeProcedural(p);
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// Bakes global illumination for every scene (docs/global-illumination.md) into
+// .res-baked/gi/, then refreshes the generated files so the probe table and
+// the lightmap flags follow immediately. The GUI's Tools > Bake Global
+// Illumination runs the same gibake::bakeScene on a worker thread; this is the
+// headless twin - it is what a build server or a test harness uses, and it is
+// how the bake gets verified without clicking anything.
+static int bakeGiFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (!p.settings.giEnabled) {
+        std::fprintf(stderr,
+                     "error: global illumination is off for this project "
+                     "(Preferences > Lighting)\n");
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr);
+        if (!b.valid) {
+            std::fprintf(stderr, "error: bake failed for scene %d\n", si);
+            return 1;
+        }
+        if (!gibake::write(gibake::cachePath(p, si), b)) {
+            std::fprintf(stderr, "error: cannot write the bake for scene %d\n", si);
+            return 1;
+        }
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        std::printf("baked GI: %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs\n",
+                    p.scenes[si].name.c_str(), b.atlas.size, b.terrain.size,
+                    b.probes.dim[0], b.probes.dim[1], b.probes.dim[2], secs);
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     return 0;
 }
 
@@ -773,6 +869,220 @@ static int symbolizeFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
+//   tyrax-editor.exe --pad <projectDir> "<script>" [more...]
+//   tyrax-editor.exe --pad <projectDir> --file <script.pad>
+//   tyrax-editor.exe --pad <projectDir> --stdin
+//
+// Holds the controller for a running game (docs/remote-pad.md). This is the
+// unattended half of the Remote Pad: it writes bin/livepad.bin, which the game
+// polls over the same host: filesystem it loads assets from - so no window
+// needs the keyboard focus, which on Windows is the difference between an input
+// test that can be scripted and one that needs a human in front of PCSX2.
+//
+// The script language is livepad::parseScript. Note that a `hold` with no
+// `wait` after it does nothing visible: the driver detaches when it exits and
+// the game lets go, on purpose - a killed driver must not leave the player
+// walking into a wall.
+static int padFromCli(int argc, char** argv) {
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --pad <projectDir> \"<script>\" "
+                     "[more...]\n"
+                     "       tyrax-editor --pad <projectDir> --file "
+                     "<script.pad>\n"
+                     "       tyrax-editor --pad <projectDir> --stdin\n"
+                     "\n"
+                     "script: press cross [s] | hold up | release up|all |\n"
+                     "        stick l|r <x> <y> | wait <s> | neutral | pad 1|2\n"
+                     "        (separated by ';' or newlines, '#' comments)\n"
+                     "example: --pad myproj \"stick l 0 -127; wait 2; neutral\"\n");
+        return 2;
+    };
+    if (argc < 3) return usage();
+    Project p;
+    const std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+
+    std::string text;
+    auto append = [&text](const std::string& s) {
+        if (!text.empty()) text += "\n";
+        text += s;
+    };
+    for (int i = 3; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--stdin") {
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        if (a == "--file") {
+            if (i + 1 >= argc) return usage();
+            std::ifstream f(argv[++i]);
+            if (!f) {
+                std::fprintf(stderr, "error: cannot read %s\n", argv[i]);
+                return 1;
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        append(a);
+    }
+    if (text.empty()) return usage();
+
+    std::vector<livepad::Step> steps;
+    std::string perr;
+    if (!livepad::parseScript(text, steps, perr)) {
+        std::fprintf(stderr, "error: %s\n", perr.c_str());
+        return 2;
+    }
+    if (steps.empty()) {
+        std::fprintf(stderr, "error: nothing to do\n");
+        return 2;
+    }
+    // The commonest reason "nothing happened": the game was never built with
+    // the channel in it. Say so up front rather than letting the run look fine.
+    if (p.settings.buildProfile != "debug")
+        std::fprintf(stderr,
+                     "warning: this project's build profile is \"%s\" - a "
+                     "release build carries no Remote Pad, so the running game "
+                     "will ignore this.\n",
+                     p.settings.buildProfile.c_str());
+    else if (!p.settings.remotePad)
+        std::fprintf(stderr,
+                     "warning: the \"Remote Pad\" preference is off for this "
+                     "project - the game was built without the channel and "
+                     "will ignore this.\n");
+
+    const std::string path =
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string();
+    // Seed the sequence from the clock: a second driver run must never reuse a
+    // number the still-running game already saw, or its first state reads as
+    // "nothing changed" and the staleness watchdog starts counting.
+    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    bool failed = false;
+    auto push = [&](const livepad::State& s, bool attached) {
+        const std::string e = livepad::write(path, s, ++seq, attached);
+        if (e.empty()) return true;
+        std::fprintf(stderr, "error: %s\n", e.c_str());
+        failed = true;
+        return false;
+    };
+
+    const auto t0 = std::chrono::steady_clock::now();
+    for (const livepad::Step& st : steps) {
+        std::printf("[pad] %s\n", st.source.c_str());
+        std::fflush(stdout);
+        if (!push(st.state, true)) break;
+        if (st.seconds <= 0.0) continue;
+        // Keep refreshing while we hold: the seq is what tells the game we are
+        // still here (see livepad::kStaleFrames), and a state written once
+        // would expire mid-hold on a long wait.
+        const auto until = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
+        while (std::chrono::steady_clock::now() < until) {
+            platform::sleepMs(40);
+            if (!push(st.state, true)) break;
+        }
+        if (failed) break;
+    }
+    // Detach: neutral AND flagged gone, so the game drops the overlay on its
+    // next poll instead of holding the last state for the watchdog's two
+    // seconds.
+    push(livepad::State(), false);
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+            .count();
+    if (!failed)
+        std::printf("[pad] done - %zu step(s) in %.1fs, pad released\n",
+                    steps.size(), secs);
+    return failed ? 1 : 0;
+}
+
+// Scripted GUI run:
+//   tyrax-editor.exe --ui-script [projectDir] "<script>" [more...]
+//   tyrax-editor.exe --ui-script [projectDir] --file <script.ui>
+//
+// Drives the EDITOR without a human (docs/ui-scripting.md). Unlike every other
+// entry point here this one RUNS THE GUI - it just holds the mouse and keyboard
+// itself, by injecting into ImGui's event queue and resolving targets by widget
+// name. Exit code 0 = every step succeeded.
+static int uiScriptFromCli(int argc, char** argv) {
+    auto usage = [] {
+        std::fprintf(
+            stderr,
+            "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
+            "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
+            "\n"
+            "script: click|rightclick|hover|doubleclick|expect|expect-not <target>\n"
+            "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
+            "        key <chord> | text <string> | wait <s> | frames <n>\n"
+            "        shot <file.png> | dump | log <text> | quit\n"
+            "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
+            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
+            " shot pad.png\"\n"
+            "hint:    a script of just \"dump\" lists every widget on screen\n");
+        return 2;
+    };
+    if (argc < 3) return usage();
+
+    // The project directory is optional (a script may only need the welcome
+    // screen), so it is "the first argument, if it looks like a directory".
+    int i = 2;
+    std::string projectDir;
+    if (std::filesystem::is_directory(argv[i]) ||
+        std::filesystem::path(argv[i]).extension() == ".tyra") {
+        projectDir = argv[i];
+        ++i;
+    }
+    std::string text;
+    auto append = [&text](const std::string& s) {
+        if (!text.empty()) text += "\n";
+        text += s;
+    };
+    for (; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--file") {
+            if (i + 1 >= argc) return usage();
+            std::ifstream f(argv[++i]);
+            if (!f) {
+                std::fprintf(stderr, "error: cannot read %s\n", argv[i]);
+                return 1;
+            }
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        if (a == "--stdin") {
+            std::ostringstream ss;
+            ss << std::cin.rdbuf();
+            append(ss.str());
+            continue;
+        }
+        append(a);
+    }
+    if (text.empty()) return usage();
+
+    std::vector<uiscript::Step> steps;
+    std::string err;
+    if (!uiscript::parseScript(text, steps, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 2;
+    }
+    App app;
+    app.setUiScript(steps);
+    return app.run(projectDir);
+}
+
+// Headless helper:
 //   tyrax-editor.exe --dump-vucap <projectDir>
 //
 // Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
@@ -942,6 +1252,10 @@ int main(int argc, char** argv) {
         return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
         return auditReleaseFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--pad") == 0)
+        return padFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
+        return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
@@ -954,6 +1268,8 @@ int main(int argc, char** argv) {
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
+        return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
@@ -961,7 +1277,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
-            "  --new <name> <parentDir> [w] [d] [empty|fpp] [unitsPerMeter]\n"
+            "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
+            "[unitsPerMeter] [--no-terrain]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
@@ -969,8 +1286,14 @@ int main(int argc, char** argv) {
             "on this machine right now\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
             "capture\n"
+            "  --pad <projectDir> \"<script>\"           drive the running "
+            "game's controller (docs/remote-pad.md)\n"
+            "  --ui-script [projectDir] \"<script>\"     drive the EDITOR's own "
+            "UI (docs/ui-scripting.md)\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
+            "  --bake-gi <projectDir>                  bake global "
+            "illumination + light probes\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

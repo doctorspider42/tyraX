@@ -1,0 +1,1 @@
+{ "id": "lga4lamp00000001", "name": "lamp-baked", "type": "point-light", "position": [10, 2.6, 13], "rotation": [0, 0, 0], "scale": [0.4, 0.4, 0.4], "color": [0.4, 0.6, 1], "physics": false, "light": { "brightness": 1.5, "radius": 8, "dynamic": false, "flicker": 0, "beam": 1 } }

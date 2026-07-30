@@ -7,6 +7,7 @@
       "category = ${3:Custom}",
       "string = ${4|none,object,text|}",
       "num0 = ${5:Amount}",
+      "tip0 = ${6:What that number means, and what 0 does}",
       "---",
       "ctx.objects[{obj}].data.position[1] += {num0};",
       "ctx.objects[{obj}].dirty = true;$0"
@@ -43,8 +44,16 @@
   },
   "num param": {
     "prefix": "num",
-    "body": "num${1|0,1,2,3|} = ${2:Label}",
-    "description": "A numeric parameter (define num0..num3 in order)."
+    "body": [
+      "num${1|0,1,2,3|} = ${2:Label}",
+      "tip${1} = ${3:What that number means, and what 0 does}"
+    ],
+    "description": "A numeric parameter and its hover tip (define num0..num3 in order)."
+  },
+  "string param tip": {
+    "prefix": "tip_string",
+    "body": "tip_string = ${1:What that string is for}",
+    "description": "Hover help for the string param."
   },
   "in pins": {
     "prefix": "in",

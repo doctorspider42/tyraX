@@ -11,6 +11,7 @@
 #include <stb_image.h>
 
 #include "aobake.hpp"    // model AO sidecars (<model>.aov)
+#include "gibake.hpp"    // the baked global-illumination cache
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "objparser.hpp"
 #include "pngquant.hpp"
@@ -250,6 +251,21 @@ std::string bake(const Project& p,
     for (const GameFont& gf : p.fonts)
         fontQuant["res/fonts/" + menubake::atlasFileName(gf.name)] = gf.quant;
 
+    // Credits pages (res/credits/pages/<roll>-<k>.png, baked by refreshGenerated):
+    // like a font atlas, the roll carries its own depth (CreditsRoll::quant)
+    // instead of following the project default. It has to: a page is a
+    // half-screen 512x256 texture and a roll is a dozen of them, so full color
+    // would spend the whole ~1.33 MB GS budget on credits (docs/credits.md).
+    // The skip-hint sprite is left alone - it is one small transparent text.
+    std::map<std::string, std::string> creditsQuant;
+    for (const CreditsRoll& r : p.credits) {
+        const menubake::CreditsLayout l = menubake::creditsLayout(r, p);
+        for (int k = 0; k < l.pageCount; ++k)
+            creditsQuant[std::string(menubake::kCreditsBakeDir) + "/" +
+                         menubake::creditsPageFileName(r.name, k)] =
+                r.quant;
+    }
+
     // --- mirror res/ into .res-baked/ --------------------------------------
     // Editor-only assets never ship: paint brushes (res/brushes), the Material
     // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
@@ -265,6 +281,9 @@ std::string bake(const Project& p,
         // "<model>.uvs" replacement-UV sidecars (animated-model unwrap) are
         // folded into the baked .tskl - the file itself never ships
         if (lowerExt(rel) == ".uvs") return true;
+        // "<track>.drone" patches (Drone Generator) describe how a WAV was
+        // generated; the game only ever streams the WAV.
+        if (lowerExt(rel) == ".drone") return true;
         const std::string top = rel.begin()->generic_string();
         if (top == "fonts") {
             const std::string ext = lowerExt(rel);
@@ -372,6 +391,12 @@ std::string bake(const Project& p,
                 q = it->second;
             }
         }
+        if (top == "credits" && lowerExt(e.path()) == ".png") {
+            if (auto it = creditsQuant.find(relRes); it != creditsQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
         const int colors = quantizable ? colorsOf(q) : 0;
 
         // Scene textures must be PS2-valid (power-of-two, max 512 per axis -
@@ -440,9 +465,13 @@ std::string bake(const Project& p,
         const fs::path rel = fs::relative(e.path(), baked, ec);
         // stoch/ holds generated supertiles with no res/ source - regenerated
         // wholesale below, so leave them out of the vanished-source sweep.
-        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too.
+        // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too, and
+        // gi/ holds the global-illumination bake cache - written by an
+        // explicit bake, never by a build, so a build must not sweep it away.
         const std::string top0 = rel.begin()->generic_string();
-        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas") continue;
+        if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
+            top0 == "gi")
+            continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
         if (rel.filename().string().rfind("tyra-atlas-", 0) == 0) continue;
@@ -593,16 +622,29 @@ std::string bake(const Project& p,
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const SceneData& sc = p.scenes[si];
             const ProjectSettings srs = project::resolvedSettings(p, sc);
+            // Baked global illumination, when the scene has a fresh one
+            // (docs/global-illumination.md). Pixels and rects must come from
+            // ONE bake or the UVs point at the wrong texels - codegen reads
+            // the same cache, so a stale one falls both sides back together.
+            const gibake::Bake gi = gibake::load(p, (int)si);
             // Neither image is gated on the AO preference: both carry baked
-            // emissive light as well, so a scene can have glowing lamps and
-            // no ambient occlusion at all.
+            // light as well, so a scene can have glowing lamps and no ambient
+            // occlusion at all.
             {
-                const aobake::AoImage map = aobake::terrainAOMap(
-                    sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
-                    (float)sc.terrain.depth,
-                    aobake::collectOccluders(sc.objects, aabbFn),
-                    aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-                    srs.aoRadius, srs.aoStrength, srs.aoEnabled);
+                // A scene with the terrain removed ships no ground lightmap -
+                // nothing draws the ground pass that would sample it
+                // (docs/terrain.md). Codegen makes the same call.
+                const aobake::AoImage map =
+                    !sc.terrain.enabled ? aobake::AoImage()
+                    : gi.valid          ? gi.terrain
+                             : aobake::terrainAOMap(
+                                   sc.heights, sc.hmW, sc.hmD,
+                                   (float)sc.terrain.width,
+                                   (float)sc.terrain.depth,
+                                   aobake::collectOccluders(sc.objects, aabbFn),
+                                   aobake::collectEmitters(p.dir, sc.objects,
+                                                           aabbFn),
+                                   srs.aoRadius, srs.aoStrength, srs.aoEnabled);
                 if (map.size > 0 &&
                     writeAlphaPng(
                         baked / "aomap" / ("scene" + std::to_string(si) + ".png"),
@@ -610,7 +652,8 @@ std::string bake(const Project& p,
                     ++aoTexCount;
             }
             const aobake::SceneLightAtlas atlas =
-                aobake::bakeSceneLightAtlas(p, sc, aabbFn);
+                gi.valid ? gi.atlas
+                         : aobake::bakeSceneLightAtlas(p, sc, aabbFn);
             if (atlas.size > 0 &&
                 writeAlphaPng(
                     baked / "aoatlas" / ("scene" + std::to_string(si) + ".png"),
@@ -655,6 +698,7 @@ std::string bake(const Project& p,
                 log("[editor] stochastic tiling: " + srcRel + ": " + err);
         };
         for (const SceneData& sc : p.scenes) {
+            if (!sc.terrain.enabled) continue;  // no ground, no ground textures
             if (sc.terrainBaseStochastic)
                 genStoch(project::resolveTerrainMaterial(
                              p, project::resolvedSettings(p, sc).terrainMaterial)

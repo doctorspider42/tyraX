@@ -59,10 +59,11 @@ void Engine::initAll(const EngineOptions& options) {
   // No keyboard/mouse under ps2link by default: USB drivers cannot be added
   // safely to a ps2link that is already running (its IOP is never reset, and
   // ps2kbd/ps2mouse need a usbd that a network-booted ps2link does not carry).
-  // The experimental loadUsbKbdMouseUnderPs2Link override targets the custom
-  // TyraX ps2link (tools/ps2link-usbhid), which bakes usbd + ps2kbd + ps2mouse
-  // into its OWN boot: we then reuse that resident stack and load nothing of
-  // our own - a second usbd would wedge it.
+  // The loadUsbKbdMouseUnderPs2Link override targets the TyraX ps2link
+  // (tools/ps2link), which bakes usbd + ps2kbd + ps2mouse into its OWN boot:
+  // we then reuse that resident stack and load nothing of our own - a second
+  // usbd would wedge it. The editor deploys to no other ps2link, so it turns
+  // the override on by default (docs/ps2link-setup.md).
   const bool underPs2Link = IrxLoader::keepIopResident;
   const bool withKbdMouse =
       options.loadUsbKbdMouse &&

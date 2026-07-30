@@ -92,14 +92,29 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AreaName:
             return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
+        case FlowParamKind::CreditsName: return "credits roll name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
+        // Display Text's font. It was the one strKind with no entry here, so
+        // its str slot reached the model as "no string param" while the node's
+        // prose talked about "the font named str".
+        case FlowParamKind::FontName:
+            return "font name (see context; Tools > Font Manager; \"\" = the "
+                   "project's first font)";
         case FlowParamKind::InputActionName:
             return "input action name (see context; Tools > Input Map)";
         case FlowParamKind::KeyName:
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::PrefabName:
+            return "prefab name (see context; Tools > Prefabs)";
+        case FlowParamKind::EventName:
+            return "event name (free text - an event exists by being named; use "
+                   "the SAME string on the Send Event and the On Event)";
+        case FlowParamKind::ScreenFxName:
+            return "custom screen-effect key, \"custom:<file-stem>\" (only "
+                   "effects PLACED in the screen stack can be driven)";
         default: return "";
     }
 }
@@ -119,14 +134,41 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
             // "pin", so the catalog has to name them - otherwise every graph the
             // model writes lands on pin 0 (show / set) whatever it meant.
             std::string s = "exec pins";
-            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e)
+            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e) {
                 s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
                      flowExecInLabel(t, e);
+                // What the branch DOES lives in the pin's tip now (it used to be
+                // inline in `desc`), so the catalog has to carry it or the model
+                // sees three pin names and no idea which one it wants.
+                if (const char* tip = flowExecInTip(t, e); *tip) {
+                    std::string g(tip);
+                    while (!g.empty() && (g.back() == '.' || g.back() == ' '))
+                        g.pop_back();
+                    s += " (" + g + ")";
+                }
+            }
             in.push_back(s);
         } else {
             in.push_back("exec");
         }
-        if (t.execThrough) out.push_back("exec (fires later - see doc)");
+        // Exec OUTPUTS: a flow-control node's branches are only reachable
+        // through a link's "fpin", so the catalog has to name them for the same
+        // reason it names the input pins - otherwise every graph the model
+        // writes leaves pin 0 ("true", "1", "A") whatever it meant.
+        const int eo = flowExecOutCount(t);
+        if (eo > 1) {
+            std::string s = "exec out pins";
+            for (int e = 0; e < eo; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecOutLabel(t, e);
+            out.push_back(s);
+        } else if (eo == 1) {
+            // A single output still has to be NAMED, or a node whose whole
+            // point is "and then this runs" (Tween's finished, Do Once's then)
+            // reads in the catalog as having no exec output at all.
+            out.push_back(std::string("exec \"") + flowExecOutLabel(t, 0) +
+                          "\" (fires later - see doc)");
+        }
     }
     if (t.idIn) in.push_back("object");
     if (t.idOut) out.push_back("object");
@@ -148,16 +190,37 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     };
     o << "Inputs: " << (in.empty() ? "none" : join(in))
       << ". Outputs: " << (out.empty() ? "none" : join(out)) << ".";
-    // params
+    // Params. The per-parameter MEANING lives in FlowNodeType::numTips /
+    // strTip / str2Tip (it used to be spelled out inline in `desc`, which made
+    // hovering a node in the editor a wall of prose - see flowgraph.hpp). The
+    // registry is still the single source, so the catalog reads the tips from
+    // exactly where the editor's tooltips read them: drop them here and the
+    // generator loses everything it knew about what a parameter is FOR.
+    // A tip is written as prose ending in a full stop; inside a parenthesised
+    // gloss that reads as ".)." - so drop the terminal one here rather than
+    // asking every registry entry to be punctuated for this one consumer.
+    auto gloss = [](const char* tip) {
+        std::string s = tip ? tip : "";
+        while (!s.empty() && (s.back() == '.' || s.back() == ' ')) s.pop_back();
+        return s.empty() ? s : " (" + s + ")";
+    };
     const std::string sd = strKindDesc(t.strKind);
-    if (!sd.empty()) o << " str = " << sd << ".";
+    // The tip is emitted even when the KIND has no standard description - a node
+    // whose str is free text still says what that text is for.
+    if (!sd.empty() || (t.strTip && *t.strTip))
+        o << " str = " << (sd.empty() ? "free text" : sd) << gloss(t.strTip)
+          << ".";
+    if (t.str2Tip && *t.str2Tip)
+        o << " str2 = " << flowStr2Label(t) << gloss(t.str2Tip) << ".";
     if (t.numKind == FlowParamKind::Color) {
-        o << " num[0..2] = RGB color, each 0..1.";
+        o << " num[0..2] = RGB color, each 0..1" << gloss(t.numTips[0]) << ".";
     } else if (t.numCount > 0) {
         o << " num params:";
-        for (int i = 0; i < t.numCount && i < 4; ++i)
-            o << " num[" << i << "]="
-              << (t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "value");
+        for (int i = 0; i < t.numCount && i < 4; ++i) {
+            o << (i ? "; " : " ") << "num[" << i << "]="
+              << (t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "value")
+              << gloss(flowNumTip(t, i));
+        }
         o << ".";
     }
     if (t.desc && *t.desc) o << " " << t.desc;
@@ -207,6 +270,8 @@ static std::string graphPromptJson(const FlowGraph& fg) {
         // to silently rewrite every hide/toggle/add link to pin 0 when the
         // model edited an existing graph.
         if (l.toPin) o << ", \"pin\": " << l.toPin;
+        // ...and which branch of a flow-control node it LEAVES.
+        if (l.fromPin) o << ", \"fpin\": " << l.fromPin;
         o << " }";
     }
     o << "] }";
@@ -253,14 +318,24 @@ std::string systemPrompt(const Project& p, int ownerIndex,
          "An exec link may carry \"pin\": N to fire a specific labeled exec "
          "input of a merged node (the catalog lists them, e.g. Set Int has "
          "0=set, 1=add). Omit it for the node's first pin.\n"
+         "It may also carry \"fpin\": N to LEAVE a specific labeled exec output "
+         "of a flow-control node (the catalog lists those too, e.g. Branch has "
+         "0=true, 1=false; Sequence 0..3). Omit it for the node's first "
+         "output.\n"
          "\n"
          "SEMANTICS:\n"
          "- Triggers fire their exec output; every action wired from it runs "
-         "that frame. Ordinary actions have NO exec output - to run several "
+         "that frame. Most actions have NO exec output - to run several "
          "actions, wire EACH of them directly from the trigger (they run in "
-         "link order). The only exec outputs besides triggers are the 'fires "
-         "later' ones (Delay's after-timeout, Raycast's after-cast) - use "
-         "Delay to sequence actions over time.\n"
+         "link order). The exceptions are the 'fires later' outputs (Delay's "
+         "after-timeout, Raycast's after-cast) and the Flow category, whose "
+         "nodes decide which of their own outputs continues.\n"
+         "- Use the Flow nodes instead of inventing patterns for control flow: "
+         "Branch for if/else on a bool, Sequence when the ORDER of several "
+         "actions matters, Do Once to make a repeating trigger fire a one-shot, "
+         "Cooldown to rate-limit one, Gate for an on/off valve, Switch Number "
+         "to dispatch a state machine, Timer/Tween for anything that plays out "
+         "over time. Tween's number output animates any number input.\n"
          "- Nodes with an object input resolve their target in this order: "
          "incoming object link, then their \"str\" object name, then the "
          "graph's owner object (self). An empty str on an object param means "
@@ -342,6 +417,10 @@ std::string systemPrompt(const Project& p, int ownerIndex,
                      [](const AmbiencePreset& a) { return a.name; }));
     ctxLine("Sequences (cutscenes)",
             nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+    ctxLine("Prefabs (Spawn Prefab / Despawn Prefab)",
+            nameList(p.prefabs, [](const Prefab& pf) { return pf.name; }));
+    ctxLine("Credits rolls",
+            nameList(p.credits, [](const CreditsRoll& r) { return r.name; }));
 
     o << "\nIf the request references something that does not exist in the "
          "project context, prefer the closest existing name; only invent "
@@ -477,6 +556,7 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
                                         : FlowLinkExec;
             }
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
+            if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
             // Same validity rules the graph editor prunes by.
             const FlowNodeType* from = typeOf(l.fromNode);
             const FlowNodeType* to = typeOf(l.toNode);
@@ -484,12 +564,12 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
             if (ok) {
                 switch (l.kind) {
                     case FlowLinkExec:
-                        ok = (from->trigger || from->execThrough) && !to->trigger &&
-                             !to->pure;
-                        // A pin the target does not have would fire nothing at
+                        // A pin either end does not have would fire nothing at
                         // all, which reads as "the node was ignored".
-                        ok = ok && l.toPin >= 0 &&
-                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount);
+                        ok = !to->trigger && !to->pure && l.toPin >= 0 &&
+                             l.toPin < (to->execInCount < 1 ? 1 : to->execInCount) &&
+                             l.fromPin >= 0 &&
+                             l.fromPin < flowExecOutCount(*from);
                         break;
                     case FlowLinkObject: ok = from->idOut && to->idIn; break;
                     case FlowLinkPos: ok = from->posOut && to->posIn; break;

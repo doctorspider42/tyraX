@@ -19,6 +19,12 @@ builds in Docker (PS2DEV toolchain) and runs in PCSX2.
 3. Game/scene data lives in `<name>.tyra` + `objects/<id>.json` (+
    `terrain-*.heights`), not in C++. `<name>.history` is disposable editor
    state. Assets live under `res/`.
+4. A scene's **terrain is optional** (`"terrain": { ..., "enabled": false }`).
+   With it removed the scene has no ground and the game has **no floor**: the
+   player, physics bodies and particles rest on the geometry the scene places
+   and fall through the void anywhere else, a Player/spawn point starts at its
+   own Y, and navigation AI has nothing to walk on. The scene's width/depth
+   still bound the world.
 
 ## Where your code goes
 
@@ -61,7 +67,17 @@ The editor executable on this machine: `{TYRAX_EXE}`
   (fast codegen check; dangling references appear as `unknown ...` comments in
   `flow_graph.gen.cpp`)
 - `--build <projectDir> [--run]` - full Docker build (+ PCSX2 launch)
+- `--bake-gi <projectDir>` - bake global illumination + light probes
+  (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
+  a scene falls its lighting back to classic shading until you re-bake)
 - `--resave <projectDir>` - load + save with validation/migrations
+- `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
+  `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with
+  no window focus anywhere: `press cross [s]`, `hold up`, `release all`,
+  `stick l|r <x> <y>` (-127..127), `wait <s>`, `neutral`, `pad 1|2`, separated
+  by `;`. Debug builds with the *Remote Pad* preference on (default). The
+  walkers read the analog sticks, not the D-pad, and a `hold` needs a `wait`
+  after it (the driver releases the pad when it exits).
 
 ## Building and debugging
 

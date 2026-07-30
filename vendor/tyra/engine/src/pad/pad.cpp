@@ -33,6 +33,7 @@ Pad::Pad() {
   ready = false;
   connected = false;
   oldPad = 0;
+  for (int i = 0; i < VIRT_SLOTS; ++i) virtPrev[i] = PadButtons{};
   resetJoys();
 }
 
@@ -53,7 +54,7 @@ void Pad::ensurePadmanInit() {
 
 void Pad::init() {
   this->oldPad = 0;
-  this->virtPrev = PadButtons{};
+  for (int i = 0; i < VIRT_SLOTS; ++i) this->virtPrev[i] = PadButtons{};
   ensurePadmanInit();
   this->port = 0;  // 0 -> Connector 1, 1 -> Connector 2
   this->slot = 0;  // Always zero if not using multitap
@@ -321,7 +322,9 @@ void Pad::handlePressedButtons() {
  * hardware state. OR-merges held buttons into pressed, derives click edges
  * from the previous overlay, and offsets the stick axes. */
 void Pad::injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
-                        s16 rightJoyH, s16 rightJoyV) {
+                        s16 rightJoyH, s16 rightJoyV, u8 slot) {
+  if (slot >= VIRT_SLOTS) slot = 0;
+  PadButtons& virtPrev = this->virtPrev[slot];
   auto btn = [](u8& pressedBit, u8& clickedBit, const u8& now, const u8& was) {
     if (now) {
       pressedBit = 1;

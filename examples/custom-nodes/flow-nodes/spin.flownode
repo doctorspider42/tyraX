@@ -1,9 +1,17 @@
 # Inline custom node (no C++ file needed): a few lines with {placeholders}
 # substituted at build. Adds {num0} degrees to the target object's yaw.
+#
+# `desc` says what the NODE does; `tip0` / `tip_string` say what each PARAMETER
+# does. The editor shows desc when you hover the node and a tip when you hover
+# that widget, and both go into the AI generator's catalog - so writing them is
+# how a project's own node stops needing a person to explain it.
 title = Spin By
 category = Custom
+desc = Turns an object a fixed number of degrees about the world Y axis, once per exec. A one-shot: for something that turns continuously use the built-in Spin Object, which the game integrates itself.
 string = object
+tip_string = The object to turn. Empty = the object owning this graph.
 num0 = Degrees
+tip0 = How far to turn, in degrees. Negative turns the other way; each exec adds to the last, so firing it twice turns twice as far.
 ---
 ctx.objects[{obj}].data.rotation[1] += {num0};
 ctx.objects[{obj}].dirty = true;

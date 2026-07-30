@@ -1,0 +1,1 @@
+{ "id": "gi01floor00000001", "name": "floor", "type": "box", "position": [0, -0.2, 0], "rotation": [0, 0, 0], "scale": [16, 0.5, 16], "color": [0.88, 0.86, 0.82], "physics": false }
