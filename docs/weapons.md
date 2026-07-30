@@ -39,16 +39,24 @@ the viewport while you position it.
 
 **Damage** is per hit — and per *pellet*, so a shotgun's real output is
 Damage × Pellets at point blank. **Falloff** is the fraction of it lost at
-maximum range (0 = a hit is a hit at any distance). **Impulse** is a physics
-shove into a rigid body that is hit.
+maximum range (0 = a hit is a hit at any distance), measured over the
+weapon's own *Range* — so a rifle that reaches 120 units does not lose half
+its damage at 40 the way a pistol would. For a **projectile** the distance
+that counts is the ground the projectile actually covered, not the range it
+was capable of: a grenade that goes off at your feet does full damage.
+**Impulse** is a physics shove into a rigid body that is hit.
 
 **Firing**: rate in shots per second, *Automatic* (hold the button) vs one
 shot per press, *Spread* (the shot's cone half-angle), *Pellets*, *Recoil*
 in degrees of view kick, *Rumble*.
 
-**Ammunition**: *Magazine* (0 = no magazine at all, never reloads), *Reserve*
-spare rounds (-1 = bottomless) and *Reload time*. Firing dry plays the empty
-sound and starts a reload by itself.
+**Ammunition**: *Magazine* (0 = no magazine at all, never reloads, capped at
+999), *Reserve* spare rounds (-1 = bottomless, otherwise up to 9999) and
+*Reload time*. Firing dry plays the empty sound and starts a reload by
+itself. Both counts reach the console as 16-bit values, which is where those
+caps come from; the project loader clamps them to the same ranges the Weapon
+Editor offers, so a hand-edited `project.json` cannot wrap a magazine
+negative.
 
 **Projectile** settings (kind 1) and **Swing** settings (kind 2) appear only
 for the kind that reads them.

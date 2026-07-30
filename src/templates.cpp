@@ -29638,6 +29638,11 @@ unsigned int firedAcc = 0, firedPub = 0;
 struct WpnProj {
   float px, py, pz, vx, vy, vz;
   float life;
+  // Distance flown so far. A projectile's damage falloff has to be measured
+  // over the ground it actually covered - passing the weapon's full range
+  // instead (which is what this used to do) charged every grenade the maximum
+  // falloff penalty even when it went off at the thrower's feet.
+  float travel;
   short weapon, owner;
 };
 WpnProj projs[WPN_MAX_PROJ];
@@ -29974,6 +29979,7 @@ void wpnLaunchProj(ScriptContext& ctx, int obj, int wi, const float* org,
   pr.vz = dir[2] * w.projSpeed;
   pr.weapon = (short)wi;
   pr.owner = (short)obj;
+  pr.travel = 0.0F;
   pr.life = w.projSpeed > 0.01F ? w.range / w.projSpeed : 3.0F;
 }
 
@@ -30212,6 +30218,7 @@ void wpnTickProjectiles(ScriptContext& ctx) {
     }
     if (!landed && pr.life > 0.0F) {
       pr.px = nx, pr.py = ny, pr.pz = nz;
+      pr.travel += len;
       // The projectile IS a particle: re-seeding a one-frame burst every
       // frame gives it a body and a fading trail for no extra render code.
       if (ctx.spawnFx) {
@@ -30224,7 +30231,10 @@ void wpnTickProjectiles(ScriptContext& ctx) {
     const float d[3] = {len > 0.0001F ? seg[0] / len : 0.0F,
                         len > 0.0001F ? seg[1] / len : -1.0F,
                         len > 0.0001F ? seg[2] / len : 0.0F};
-    if (landed) wpnLand(ctx, w, pr.weapon, pr.owner, hitObj, hp, d, w.range);
+    // The falloff distance is everything the shot flew, including this last
+    // partial step up to the impact point.
+    if (landed)
+      wpnLand(ctx, w, pr.weapon, pr.owner, hitObj, hp, d, pr.travel + dist);
     pr.life = 0.0F;
   }
 }

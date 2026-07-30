@@ -731,11 +731,66 @@ Each finished feature lands as its own commit.
      zoom fix, so 232/233 appear twice. All kept.
      And once more for the weapons/combat batch: it was written against 179 and
      numbered 180-182, and was RENUMBERED to 247-249 when it met main here.
-     Continue from 250. -->
+     Then main took 247 as well, for the flow-graph per-parameter tooltips, so
+     247 appears TWICE (the weapons entry and the tooltip entry). Both kept.
+     Continue from 251. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
+
+- (250) **Review pass on the weapons branch before it lands: two damage bugs,
+  and four ways a weapon reference could go stale.** Found by reading the
+  branch's own diff against main, not by a report.
+
+  The damage arithmetic had one real defect and one near miss. `falloff` is
+  documented and sliders as "the FRACTION of the damage lost at maximum
+  range", 0..1 - but `readWeaponsSection` read it with no clamp while
+  clamping every risky neighbour (`kind`, `fireRate`, `pellets`, `magSize`).
+  A value above 1 makes `dmg *= 1 - falloff * t` go **negative**, and the
+  runtime treats negative damage as a heal (that is how the Apply Damage
+  node's "heal" exec works), so a long-range hit would have *healed* the
+  target. Clamped, along with `damage` (same reasoning) and the upper bounds
+  on `magSize`/`reserve` - both reach the console as `short`, so a five-digit
+  magazine from a hand-edited file wrapped negative and left the weapon
+  permanently dry-clicking.
+
+  The second: **projectiles always paid the maximum falloff penalty.**
+  `wpnTickProjectiles` passed `w.range` as the impact distance, so
+  `t = dist / range` was always 1 - a grenade going off at the thrower's feet
+  lost exactly as much damage as one at the edge of its range. Projectiles
+  now carry a `travel` accumulator and the falloff is measured over the
+  ground actually covered. Hitscan was already correct.
+
+  The stale-reference set is all one shape: a weapon is referenced **by
+  name**, and not every referrer was being followed. `renameWeaponRefs` and
+  the delete button walked `scenes` only - but a `Prefab` holds real
+  `SceneObject`s, serialized through the same `objectJson`/`readObjectsArray`,
+  so prefab members carry loadouts and `WeaponName` flow nodes too, and
+  nothing in the Properties panel would ever show you the dangling name.
+  Delete also left flow nodes naming the weapon alone, and codegen resolves a
+  dead name to `-1`, which the runtime reads as "any weapon / the equipped
+  one" - so `Has Weapon "Shotgun"` quietly became `Has Weapon <anything>`.
+  Both paths now cover prefabs, and delete clears the node strings.
+
+  Two more caps that only failed inside Docker: **Duplicate** bypassed the
+  32-weapon ceiling that `+ Weapon` enforces (the generated code
+  `static_assert`s on it, because the carried set is a 32-bit mask), and so
+  did the load path, which is what a hand-edited file or a collaboration peer
+  arrives through. Plus: `weapongen::writeAssets` wrote the `.mtl` before the
+  `.obj` and returned on an `.obj` failure, leaving an orphan `.mtl` - and the
+  caller's name-uniquing loop only probes for the `.obj`, so a retry reused
+  the base name and overwrote the orphan instead of stepping past it. The
+  Wavefront sibling pair is now all-or-nothing.
+
+  **Verified** (Layer 2): editor builds clean, Release and Dev, exit 0; the
+  `examples/weapons` project builds in Docker to a linked ELF, exit 0, with
+  `weapons.gen.cpp` compiling on the PS2 toolchain and the release audit
+  clean. **Not** verified on hardware: nothing here was watched in PCSX2, so
+  the projectile-falloff change in particular still owes a human a
+  "grenade at your feet hurts, grenade at range hurts less" pad test. Docs:
+  `docs/weapons.md` (the falloff paragraph now states the projectile rule,
+  and the ammunition paragraph states where the caps come from).
 
 - (249) **Viewmodel animation: procedural motion with presets, or your own
   clips.** Same user, after (248): "dodaj jeszcze opcje animacji dla tych

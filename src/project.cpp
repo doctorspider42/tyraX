@@ -3303,8 +3303,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* wp = jo.find("weapons");
             wp && wp->type == json::Value::Type::Array) {
+            // Deduped on the way in, the way the Properties list does when you
+            // add one: the same weapon twice would emit two OBJECT_WEAPONS
+            // rows for one loadout slot.
             for (const auto& s : wp->arr)
-                if (s.type == json::Value::Type::String && !s.str.empty())
+                if (s.type == json::Value::Type::String && !s.str.empty() &&
+                    std::find(o.weapons.begin(), o.weapons.end(), s.str) ==
+                        o.weapons.end())
                     o.weapons.push_back(s.str);
         }
         if (const auto* af = jo.find("autoFire");
@@ -4513,8 +4518,18 @@ static void readWeaponsSection(const json::Value& root, Project& out) {
         if (const auto* v = jw.find("kind")) w.kind = (int)v->numberOr(0.0);
         if (w.kind < 0 || w.kind > 2) w.kind = 0;
         if (const auto* v = jw.find("damage")) w.damage = (float)v->numberOr(25.0);
+        // Negative damage would HEAL whatever it hit (wpnDamage treats a
+        // negative amount as a heal, which is what the Apply Damage node's
+        // "heal" exec uses), so a hand-edited file must not be able to smuggle
+        // one in through a weapon.
+        if (w.damage < 0.0f) w.damage = 0.0f;
         if (const auto* v = jw.find("range")) w.range = (float)v->numberOr(60.0);
         if (const auto* v = jw.find("falloff")) w.falloff = (float)v->numberOr(0.0);
+        // Falloff is "the FRACTION of the damage lost at maximum range", so
+        // anything above 1 makes a long shot heal the target. The Weapon
+        // Editor's slider is 0..1; the loader has to agree with it.
+        if (w.falloff < 0.0f) w.falloff = 0.0f;
+        if (w.falloff > 1.0f) w.falloff = 1.0f;
         if (const auto* v = jw.find("impulse")) w.impulse = (float)v->numberOr(0.0);
         if (const auto* v = jw.find("fireRate")) w.fireRate = (float)v->numberOr(4.0);
         if (w.fireRate < 0.05f) w.fireRate = 0.05f;
@@ -4527,7 +4542,14 @@ static void readWeaponsSection(const json::Value& root, Project& out) {
         if (const auto* v = jw.find("rumble")) w.rumble = (float)v->numberOr(0.3);
         if (const auto* v = jw.find("magSize")) w.magSize = (int)v->numberOr(12.0);
         if (w.magSize < 0) w.magSize = 0;
+        // Both counts reach the console as `short` (WpnActor::mag / ::spare),
+        // so the upper bounds are not cosmetic: a five-digit magazine would
+        // wrap negative there and leave the weapon permanently dry-clicking.
+        // These are the Weapon Editor's own ranges.
+        if (w.magSize > 999) w.magSize = 999;
         if (const auto* v = jw.find("reserve")) w.reserve = (int)v->numberOr(60.0);
+        if (w.reserve < -1) w.reserve = -1;  // -1 = bottomless, the sentinel
+        if (w.reserve > 9999) w.reserve = 9999;
         if (const auto* v = jw.find("reloadTime"))
             w.reloadTime = (float)v->numberOr(1.2);
         if (const auto* v = jw.find("projSpeed"))
@@ -4587,6 +4609,12 @@ static void readWeaponsSection(const json::Value& root, Project& out) {
         if (const auto* v = jw.find("reloadSound")) w.reloadSound = v->stringOr("");
         if (const auto* v = jw.find("emptySound")) w.emptySound = v->stringOr("");
         if (const auto* v = jw.find("impactSound")) w.impactSound = v->stringOr("");
+        // 32 is the hard ceiling - the runtime's carried-weapon set is a
+        // 32-bit mask and the generated code static_asserts on it. The Weapon
+        // Editor refuses to add a 33rd, but a hand-edited file or a
+        // collaboration peer reaches this path instead, and the failure would
+        // otherwise not surface until a Docker build.
+        if (out.weapons.size() >= 32) break;
         out.weapons.push_back(std::move(w));
     }
 }

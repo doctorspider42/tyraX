@@ -17,6 +17,7 @@
 #include "app.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -99,18 +100,31 @@ bool App::weaponCombo(const char* label, std::string& weaponRef,
 
 // A weapon is referenced by NAME from two places, and both must follow a
 // rename or the reference silently becomes a dangling one that codegen drops.
+//
+// PREFAB members count. A Prefab holds real SceneObjects, serialized through
+// the very same objectJson/readObjectsArray as a scene's, so a prefab member
+// carries a loadout and a flow graph exactly like any other object - and
+// nothing in the Properties panel would ever show you the dangling name.
+static void retargetWeaponInObjects(std::vector<SceneObject>& objs,
+                                    const std::string& from,
+                                    const std::string& to) {
+    for (SceneObject& o : objs) {
+        for (std::string& w : o.weapons)
+            if (w == from) w = to;
+        for (FlowNode& n : o.flowGraph.nodes) {
+            const FlowNodeType* t = flowNodeType(n.type);
+            if (t && t->strKind == FlowParamKind::WeaponName && n.str == from)
+                n.str = to;
+        }
+    }
+}
+
 void App::renameWeaponRefs(const std::string& from, const std::string& to) {
     if (from.empty() || from == to) return;
     for (SceneData& sc : project_.scenes)
-        for (SceneObject& o : sc.objects) {
-            for (std::string& w : o.weapons)
-                if (w == from) w = to;
-            for (FlowNode& n : o.flowGraph.nodes) {
-                const FlowNodeType* t = flowNodeType(n.type);
-                if (t && t->strKind == FlowParamKind::WeaponName && n.str == from)
-                    n.str = to;
-            }
-        }
+        retargetWeaponInObjects(sc.objects, from, to);
+    for (Prefab& pf : project_.prefabs)
+        retargetWeaponInObjects(pf.objects, from, to);
 }
 
 // "Create viewmodel": generates the .obj/.mtl, drops a Model object into the
@@ -239,27 +253,48 @@ void App::drawWeaponEditorWindow() {
     ImGui::SameLine();
     if (ImGui::Button("Duplicate") && weaponSel_ >= 0 &&
         weaponSel_ < (int)project_.weapons.size()) {
-        WeaponDef w = project_.weapons[weaponSel_];
-        std::string name = w.name + " copy";
-        for (int n = 2; project_.findWeapon(name); ++n)
-            name = w.name + " copy " + std::to_string(n);
-        w.name = name;
-        project_.weapons.push_back(w);
-        weaponSel_ = (int)project_.weapons.size() - 1;
-        changed = true;
+        // The same 32-weapon ceiling "+ Weapon" enforces above. Without this
+        // the copy goes in regardless and the project only fails much later,
+        // inside Docker, on the generated static_assert.
+        if (project_.weapons.size() >= 32) {
+            statusMessage_ = "A project can define at most 32 weapons";
+        } else {
+            WeaponDef w = project_.weapons[weaponSel_];
+            std::string name = w.name + " copy";
+            for (int n = 2; project_.findWeapon(name); ++n)
+                name = w.name + " copy " + std::to_string(n);
+            w.name = name;
+            project_.weapons.push_back(w);
+            weaponSel_ = (int)project_.weapons.size() - 1;
+            changed = true;
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("Delete") && weaponSel_ >= 0 &&
         weaponSel_ < (int)project_.weapons.size()) {
         // Loadout entries pointing at the deleted weapon go with it -
         // codegen would drop them anyway, and a stale name in the Properties
-        // list reads as a bug.
+        // list reads as a bug. Prefab members carry loadouts too (see
+        // retargetWeaponInObjects), and flow nodes naming the weapon have to
+        // be cleared as well: left alone, codegen resolves the dead name to
+        // -1, which the runtime reads as "any weapon / the equipped one" - so
+        // `Has Weapon "Shotgun"` would quietly become `Has Weapon <anything>`.
         const std::string gone = project_.weapons[weaponSel_].name;
-        for (SceneData& sc : project_.scenes)
-            for (SceneObject& o : sc.objects)
+        auto dropWeapon = [&](std::vector<SceneObject>& objs) {
+            for (SceneObject& o : objs) {
                 o.weapons.erase(
                     std::remove(o.weapons.begin(), o.weapons.end(), gone),
                     o.weapons.end());
+                for (FlowNode& n : o.flowGraph.nodes) {
+                    const FlowNodeType* t = flowNodeType(n.type);
+                    if (t && t->strKind == FlowParamKind::WeaponName &&
+                        n.str == gone)
+                        n.str.clear();
+                }
+            }
+        };
+        for (SceneData& sc : project_.scenes) dropWeapon(sc.objects);
+        for (Prefab& pf : project_.prefabs) dropWeapon(pf.objects);
         project_.weapons.erase(project_.weapons.begin() + weaponSel_);
         if (weaponSel_ >= (int)project_.weapons.size())
             weaponSel_ = (int)project_.weapons.size() - 1;
