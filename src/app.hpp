@@ -2028,6 +2028,11 @@ private:
     bool openPreferencesPopup_ = false;
     TerrainConfig prefTerrain_;
     ProjectSettings prefSettings_;
+    // The title id as TYPED. It cannot be edited straight into prefSettings_:
+    // project::normalizeTitleId rejects every intermediate state on the way to a
+    // valid id (a half-typed "SLU" is not one), so the raw text is staged here
+    // and folded back when the field loses focus.
+    char prefTitleIdBuf_[32] = {};
 
     // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
     // Machine-global settings, mirror of globalEmulatorPath_ / globalPs2Ip_.

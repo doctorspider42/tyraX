@@ -35,6 +35,26 @@ then `docker compose exec` + `make` - but the CLI wrapper handles staging,
 asset conversion (WAV→ADPCM, texture quantization, menu baking) and the ELF
 copy-back, so prefer it.
 
+## Shipping a disc image
+
+```
+"{TYRAX_EXE}" --export-iso <projectDir>
+```
+
+Writes `<projectDir>/<name>.iso`, a bootable disc image, out of an
+already-built `bin/` (no Docker). It is the shipping form of the game: a real
+console has no `host:` filesystem, so the ISO is what boots from a DVD-R, from a
+USB drive through Open PS2 Loader, or in PCSX2 via *System > Start File* — with
+assets read from `cdrom0:` instead of a development machine.
+
+The boot file on the disc is named after the project's **Title ID**
+(`settings.titleId` in the `.tyra`, edited in *Project > Preferences > Build*),
+which is how retail discs work — `SYSTEM.CNF` points `BOOT2` at
+`cdrom0:\TYRA_141.83;1`. The same ID derives the memory card save folder
+(`SAVE_MC_DIR` in `inc/save_system.gen.hpp`), so **changing it orphans saves
+already written under the old one** — set it once, early. A project with no
+title ID keeps the ELF's own boot name and a `TYRA-<NAME>` save folder.
+
 ## Logs and crash dumps
 
 - **Game log**: `bin/log.txt` - everything the game prints (`TYRA_LOG`, flow

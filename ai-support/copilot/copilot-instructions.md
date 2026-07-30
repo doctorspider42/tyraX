@@ -70,6 +70,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--bake-gi <projectDir>` - bake global illumination + light probes
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)
+- `--export-iso <projectDir>` - write the bootable disc image from `bin/`
+  (needs a build first; the boot file is named after the project's Title ID,
+  which also derives the memory card save folder)
 - `--resave <projectDir>` - load + save with validation/migrations
 - `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
   `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with

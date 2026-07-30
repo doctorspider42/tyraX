@@ -30375,18 +30375,13 @@ static std::string menuDataHeader(const Project& p) {
     return out.str();
 }
 
-// Memory card directory for this game's saves ("TYRA-" + sanitized project
-// name; libmc paths are card-root-relative, so no mc0: prefix. Card names
-// allow up to 31 chars, keep well under).
-static std::string saveGameDir(const Project& p) {
-    std::string id;
-    for (char c : p.name) {
-        if (isalnum((unsigned char)c)) id += (char)toupper((unsigned char)c);
-        if (id.size() >= 16) break;
-    }
-    if (id.empty()) id = "GAME";
-    return "/TYRA-" + id;
-}
+// Memory card directory for this game's saves - derived from the project's
+// title id ("BASLUS-21345", retail's own derivation), or the pre-title-id
+// "TYRA-<NAME>" when it has none. libmc paths are card-root-relative, so no
+// mc0: prefix. Lives in project.cpp because the editor reports it too (the
+// Disc Layout window and the Build preferences), and two derivations of a
+// path already written to somebody's memory card would be one too many.
+static std::string saveGameDir(const Project& p) { return project::saveGameDirName(p); }
 
 // inc/save_system.gen.hpp - memory card save slots (fixed-size payload)
 static std::string saveSystemHeader(const Project& p) {

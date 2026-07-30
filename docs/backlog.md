@@ -22,6 +22,17 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Finish the retail-disc conventions** (docs/disc-image.md; the title ID half
+  is done - the boot file is named after it, the memory card folder derives from
+  it, and PCSX2 now reads a real serial off a TyraX disc). Two left, both
+  invisible in an emulator and visible on hardware: **`icon.sys` + a save icon**
+  (the folder is named correctly now, but the console's memory card browser shows
+  a generic entry where retail shows a 3D icon and a title - the icon model and
+  its `icon.sys` would be generated next to the save folder), and a
+  **UDF/ISO9660 bridge filesystem** (retail PS2 DVDs carry both; a CD-sized
+  ISO9660 image boots on hardware as-is, but nothing past CD size has been
+  verified on a real console from our writer - measure before designing).
+
 - **Finish opt-in dynamic lighting per object** (branch
   `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
   surrounding design). An object may opt into being lit by the LIT VU1 program

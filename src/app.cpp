@@ -906,6 +906,8 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
             prefTerrain_ = project_.active().terrain;
             prefSettings_ = project_.settings;
+            std::snprintf(prefTitleIdBuf_, sizeof(prefTitleIdBuf_), "%s",
+                          prefSettings_.titleId.c_str());
             openPreferencesPopup_ = true;
         }
         if (!io.WantTextInput) {
@@ -1300,6 +1302,8 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
                 prefTerrain_ = project_.active().terrain;
                 prefSettings_ = project_.settings;
+                std::snprintf(prefTitleIdBuf_, sizeof(prefTitleIdBuf_), "%s",
+                              prefSettings_.titleId.c_str());
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
@@ -10359,6 +10363,21 @@ void App::drawDiscLayoutWindow() {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "- does not fit this disc!");
     }
+    // The disc's identity, resolved the same way the export resolves it - the
+    // one place the boot name and the save folder are visible together.
+    ImGui::TextDisabled("Boots %s;1 (SYSTEM.CNF), saves in mc0:%s",
+                        project::discBootFileName(project_).c_str(),
+                        project::saveGameDirName(project_).c_str());
+    if (project_.settings.titleId.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "- no Title ID");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Without one the boot file keeps the ELF's own name, which no\n"
+                "retail disc does, and the save folder follows the PROJECT NAME\n"
+                "(so renaming the project orphans saves). Assign one in\n"
+                "Project > Preferences > Build.");
+    }
     if (!discPlanWarnings_.empty()) {
         if (ImGui::CollapsingHeader("Name warnings"))
             ImGui::TextWrapped("%s", discPlanWarnings_.c_str());
@@ -11330,6 +11349,67 @@ void App::drawPreferencesModal() {
     const char* profileNames[] = {"Release", "Debug"};
     if (ImGui::Combo("Profile", &profile, profileNames, 2))
         prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+
+    // --- Title id --------------------------------------------------------
+    ImGui::SetNextItemWidth(scaled(140));
+    ImGui::InputTextWithHint("Title ID", "TYRA_000.00", prefTitleIdBuf_,
+                             sizeof(prefTitleIdBuf_));
+    // Fold the typed text in only when the field is done being typed into -
+    // normalizing per keystroke would reject every prefix of a valid id. A
+    // well-formed id is echoed back in its canonical spelling ("slus21345" ->
+    // "SLUS_213.45"), so the field agrees with what was stored; a MALFORMED one
+    // is deliberately left as typed, next to the warning that says why.
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        prefSettings_.titleId = project::normalizeTitleId(prefTitleIdBuf_);
+        if (!prefSettings_.titleId.empty())
+            std::snprintf(prefTitleIdBuf_, sizeof(prefTitleIdBuf_), "%s",
+                          prefSettings_.titleId.c_str());
+    }
+    prefHelp(
+        "The game's product code, the way a retail disc carries SLUS_213.45.\n"
+        "Two things read it: an exported disc image names its boot file after\n"
+        "it (SYSTEM.CNF points BOOT2 there), and the memory card save folder\n"
+        "is derived from it - BASLUS-21345 style. OPL and PCSX2 also key\n"
+        "per-game configuration and cover art on it.\n\n"
+        "Shape is four letters, three digits, two digits; separators are\n"
+        "filled in for you. The suggested TYRA_ prefix is not a console\n"
+        "publisher code on purpose - see the warning if you type one.\n\n"
+        "CHANGING IT MOVES THE SAVE FOLDER: saves already written to a\n"
+        "memory card under the old id stay there and the game will not see\n"
+        "them. It is otherwise the STABLE half of a project's identity -\n"
+        "unlike the project name, renaming the project leaves it alone.");
+    ImGui::SameLine();
+    if (ImGui::Button("Suggest")) {
+        prefSettings_.titleId = project::defaultTitleId(project_.projectId);
+        std::snprintf(prefTitleIdBuf_, sizeof(prefTitleIdBuf_), "%s",
+                      prefSettings_.titleId.c_str());
+    }
+    {
+        // Preview the TYPED text, not the applied field: an id still being
+        // typed (or wrong) must say so rather than look accepted, and a preview
+        // of the saved project would answer for the id being replaced.
+        const std::string typed = project::normalizeTitleId(prefTitleIdBuf_);
+        const ImVec4 warn(1.0f, 0.75f, 0.35f, 1.0f);
+        if (prefTitleIdBuf_[0] == '\0') {
+            ImGui::TextDisabled(
+                "No title id: a disc boots %s and saves land in mc0:%s",
+                project::discBootFileName("", project_.elfName()).c_str(),
+                project::saveGameDirName("", project_.name).c_str());
+        } else if (typed.empty()) {
+            ImGui::TextColored(warn,
+                               "Not a title id - four letters then five digits "
+                               "(SLUS_213.45). Ignored until fixed.");
+        } else {
+            ImGui::TextDisabled("Disc boots %s;1, saves in mc0:%s", typed.c_str(),
+                                project::saveGameDirName(typed, project_.name).c_str());
+            const std::string clash = project::titleIdCollisionWarning(typed);
+            if (!clash.empty()) {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + scaled(420));
+                ImGui::TextColored(warn, "%s", clash.c_str());
+                ImGui::PopTextWrapPos();
+            }
+        }
+    }
     ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
     prefHelp(
         "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"

@@ -74,6 +74,7 @@ tyrax-editor binary lives.)
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
+| `--export-iso <projectDir>` | Write the bootable disc image from `bin/` (build first). The boot file is named after the project's **Title ID** (`settings.titleId`, "AAAA_NNN.NN"), which also derives the memory card save folder - so changing that field moves existing saves. Logs the boot name, the save folder and the full disc layout |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read
