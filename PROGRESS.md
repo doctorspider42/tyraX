@@ -15136,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15670,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15748,196 +15803,85 @@ Each finished feature lands as its own commit.
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
 
-- (253) **ps2link r2: the hangs that made a network session need a console
-  Reset.** Asked as "obczaj naszą wersję ps2link (...) on często potrafi
-  pierdolnąć i trzeba restować, może ma jakiś memory leak". Read the whole pinned
-  tree (4.1k lines across `ee/` and `iop/`) rather than guessing, and the answer
-  turned out to be the opposite of the premise: there is **no unbounded memory
-  leak** - the IOP is fully reset on every deploy, so nothing accumulates across
-  sessions - but there are **six ways to wedge the console dead**, all in error
-  paths upstream never exercised. Worst first:
-
-  - **`pko_recv_bytes()` spun forever on `recv() == 0`.** An orderly close - what
-    happens every single time `ps2client` exits or the editor is closed
-    mid-session - did `left -= 0` and looped. At IOP priority 9. **Holding the
-    `host:` semaphore.** So every later file access blocked permanently: the
-    game freezes with the picture still up and only Reset gets you out. If one
-    thing here is *the* bug being complained about, it is this one.
-  - **`pko_accept_pkt()` desynced the stream permanently.** An unexpected or
-    over-long reply was abandoned without consuming its body, so those bytes
-    were parsed as the next reply's header, and every reply after that was
-    garbage. Now drained; a `len` below the header size drops the connection
-    instead of computing `hlen - sizeof(hdr)` as a huge unsigned.
-  - **`pko_read_file()` trusted the PC's byte count** and fed it to the receive
-    loop unclamped, writing past the caller's buffer - IOP corruption with no
-    trail back to the cause. Now clamped and drained.
-  - **The IOP exception handler faulted on `strlen(NULL)`.**
-    `ExceptionGetModuleName()` returns NULL when the faulting PC is outside every
-    loaded module's `.text`, which is exactly what a jump through a bad pointer
-    does, i.e. the commonest crash there is. So the IOP died *while reporting* a
-    crash and told you nothing at all. Its frame `memcpy` also over-read 136
-    bytes past the 156-byte frame and over-wrote its target by 4 - harmless only
-    because `#define BUFFER_SIZE sizeof(...) + 4 + 4 + 128` without parentheses
-    made `BUFFER_SIZE / 4` allocate 196 words instead of 73. Both fixed; the
-    parens are now in, so the buffer is exactly the size the layout needs (and
-    492 bytes of IOP RAM come back).
-  - **`pkoExecEE()` zeroed the wrong variable.** A failed `StartThread` set
-    `cmdThreadID = 0` instead of `userThreadID` - and `cmdThreadID` is the thread
-    the SIF DMA handler wakes, so from then on every packet went to
-    `iWakeupThread(0)` and ps2link answered *nothing*. `initCmdRpc()` had the
-    mirror-image slip, deleting thread 0 and leaking the real one.
-  - **`pkoReset()` waited on `SifIopSync()` inverted** - `while (SifIopSync());`
-    fell straight through on the first (still-resetting) call, so
-    `SifInitRpc`/`SifLoadFileExit`/`ExecPS2` all ran against a half-reset IOP.
-    **Every deploy goes through this function.** Confirmed against three
-    independent references before touching it: `restartIOP()` twenty lines up in
-    the same repo, `vendor/tyra/.../irx_loader.cpp:56`, and ps2sdk's own
-    `samples/network/tcpip-basic` - all `while (!SifIopSync())`.
-
-  Plus: busy-loops on a persistently failing `accept()`/`recvfrom()` (100 ms
-  backoff now - lwip running out of TCP PCBs after a burst of deploys was enough
-  to starve the IOP), three `socket`/`bind`/`listen` error paths that returned
-  from a thread entry point without `ExitDeleteThread()`, `host:` fd leaks on
-  every `dumpmem`/`writemem`/`dumpreg` failure, `writemem` copying the requested
-  length rather than what `read()` returned, `gsexec` DMA-ing a packet-supplied
-  qword count out of a buffer it had filled only 128 bytes of, `execiop` with
-  `argc == 0` wrapping an unsigned loop bound into a 4-billion-iteration
-  `strlen()` walk, a thread+semaphore leak on re-mount (`DelDrv` never runs
-  `fsysDestroy`), the EE exception-name table indexed 0..31 when it holds 14
-  entries, and the register dump's `unsigned int regs[REGALL_SIZE]` - a byte
-  count used as an element count. That last one is a trap worth recording: the
-  tidy-looking fix (`/4`) would **introduce** a stack overflow, because
-  `REGALL_SIZE` is 508 bytes but the `REGVU0`/`REGVU1` asm stores 896 into that
-  same buffer, so the 4x over-allocation was load-bearing. Sized for the real
-  worst case instead - and given `__attribute__((aligned(16)))`, which the asm
-  needed all along: `sqc2`/`sq` reach this buffer, and the R5900 **masks** the
-  low 4 bits of an `lq`/`sq` address rather than faulting, so on a merely
-  4-byte-aligned array every store lands up to 12 bytes below where it was
-  aimed - off the front of the buffer. Resizing the array is exactly the kind
-  of edit that would have changed its stack offset and turned that from latent
-  into real. Found on review of the merged branch; no `r`-number bump, because
-  `dumpreg` produces nothing usable either way (see the rough-edges section in
-  docs/ps2link-setup.md) and nothing else on the console behaves differently.
-
-  Nothing here touches the wire protocol, so `tools/ps2client` is unchanged and
-  an old ps2client still talks to it. The boot banner is now **`TyraX ps2link
-  r2`** so a flashed memory card can be identified - r1 is USB-HID-only.
-
-  **Verified** without a console, which ps2link has never been before: PCSX2 runs
-  no ps2link, so the `host:` protocol code used to be flash-it-and-see. New
-  `tools/ps2link/test/` compiles the **real** patched `iop/net_fio.c` against stub
-  IOP/lwip headers and drives it with a scripted fake socket (the
-  `#include "net_fio.c"` trick, so the test can place the `static`
-  `pko_fileio_sock`). 18 checks pass. What makes that evidence and not decoration
-  is the A/B: `run.sh --pristine` points the same tests at the untouched upstream
-  file and **7 fail**, three of them by blowing a 2000-call `recv()` ceiling the
-  harness added precisely so a spin shows up as a failure instead of a hung test
-  run. Both runners (`run.ps1`/`run.sh`, platform pair) refuse to pass if the
-  pristine half stops failing. Beyond that: clean `-Wall -Werror` builds of both
-  the EE and IOP halves in `ps2dev/ps2dev:latest`, and a from-scratch
-  `build.ps1 -Clean` (fresh clone, patch applies cleanly to all 10 files, 284980
-  bytes) with `r2` confirmed present in the shipped ELF's strings (285108 bytes
-  after the final round).
-
-  **Not verified, and it cannot be from here**: none of this has run on the
-  console. Everything thread-, SIF- or GS-related is reasoning plus a compiler.
-  Two things were deliberately **not** changed, for the same reason: the
-  `pkoSendSifCmd()` DMA-reuse race (the fix is a bounded `sceSifDmaStat()` spin,
-  but it would run inside the IOP exception handler, where ps2sdk's own header
-  warns you are in a bad state - not worth doing blind), and the `host:` write
-  chunking, where throughput is protocol-bound at one round-trip per 1446 bytes
-  and raising it means breaking the format on both sides. Also still unexplained:
-  the long-standing `dumpmem`/`scrdump` uselessness (PROGRESS/tyra-testing). r2
-  only stops it leaking an fd per attempt. One tempting theory was chased and
-  **disproved** - that the EE side passes newlib `O_*` values where the wire
-  wants `FIO_O_*` (`O_RDONLY` is 0, `FIO_O_RDONLY` is 1, and `_open`'s
-  disassembly shows no translation) - except the engine's asset loads use plain
-  `fopen("rb")` through the very same path and work, so newlib values are what
-  this `host:` expects and the flags are not the bug. Recorded so it is not
-  re-tried.
-
-  Upstream note: the pinned `0c6138c` **is** ps2dev/ps2link's head, so there was
-  no newer release to take these from - they live in `tyrax.patch` or nowhere.
-  Docs: README (console paragraph + `tools/` structure line),
-  docs/ps2link-setup.md (the fix table, the `r<n>` banner, four new
-  troubleshooting rows, the harness, a "known remaining rough edges" section),
-  tools/ps2link/README.md, tyra-testing.
-
-- (254) **ps2link r3: the SPU2 shuts up by itself now, so the silencer ELF is off
-  the hot path.** Follow-up to 253, asked as "jak się zrobi restart tego ps2link
-  to dźwięk dostaje pierdolca (...) załatwiamy to teraz tak na szpetnie puszczając
-  silence.elf, ale może da się temu ukrócić łeb". Root cause: **the SPU2 is a
-  separate block from the IOP core and keeps its register state across an IOP
-  reset.** So the dead game's keyed voices keep looping and its last autodma
-  buffer keeps being mixed, straight through the reset, with no software left
-  anywhere that knows about it. The old workaround was to `execee`
-  `host:silencer.elf` *afterwards* purely to get an `audsrv_init()` to run - which
-  cost **7 s of `sleepMs` in `Runner::stopPs2`** plus a spawn/kill dance around a
-  file server that never exits on its own, and only ever covered *Stop*: a plain
-  F6 redeploy got no silencer at all and just droned until the new game's audsrv
-  came up.
-
-  New `spu2Silence()` in `iop/cmdHandler.c` does it on the IOP, where the
-  registers actually live: key off all 24 voices on both cores, zero their
-  volumes (a keyed-off voice still bleeds through its ADSR release), zero
-  VMIXL/VMIXR/VMIXEL/VMIXER so nothing is routed to the dry or reverb mixes,
-  clear `MMIX` - that is the core *input*, i.e. the autodma stream, and the half
-  that a voices-only fix would miss - zero the output volume block, and clear
-  `CORE_ATTR` **last**. The order is deliberate: ATTR carries the DMA-mode,
-  reverb-enable and IRQ-enable bits, so clearing it first risks the core ignoring
-  everything written after it - a silence that silently does not happen. Every
-  write that has to land does so while the core is still in its normal running
-  state. Called from **both sides of the reset**: `pkoReset()` while
-  ps2link still owns the IOP, and ps2link.irx's `_start()` when it comes back up.
-  The second call is not belt-and-braces padding - it closes two real holes: the
-  dying game has a few ms after the first call in which it could key a voice, and
-  an IOP reset triggered by anything other than `pkoReset()` (a game resetting
-  it, a crash) never went through that path at all. `_start()` also prints
-  `SPU2 silenced`, which is the on-hardware confirmation that this build is the
-  one doing it.
-
-  `Runner::stopPs2` loses the whole silencer block (~30 lines and the 7 s).
-  Uses ps2sdk's own `spu2regs.h` macros throughout rather than hand-computed
-  addresses - deliberate, because the one bit of arithmetic that could silently
-  be wrong is that core 1's volume block is at **+40 bytes**, not +0x400 like
-  every other core-1 register.
-
-  **Verified** (as far as it can be without a console): clean `-Wall -Werror`
-  build of both halves, `build.ps1 -Clean` from a fresh clone applying to 12
-  files, `r3` and `SPU2 silenced` both present in the shipped ELF's strings, the
-  editor rebuilds clean after the runner change, and entry 234's `net_fio`
-  harness still passes 18/18 on the r3 tree (7/18 on pristine). The
-  interesting one is the **safety** check, because the way this change could go
-  wrong is not "it fails to silence" but "it leaves the next game mute": every
-  register `spu2Silence()` writes must be one that `libsd`'s init (what
-  `audsrv_init()` ends up calling) reprograms. Checked by extracting the halfword
-  stores from `mipsel-none-elf-objdump -d $PS2SDK/iop/irx/libsd.irx` and from the
-  compiled `spu2Silence` in `build/iop/obj/cmdHandler.o`, then mapping both onto
-  the register map. libsd writes VMIXL/VMIXEL/VMIXR/VMIXER, MMIX, CORE_ATTR, KON,
-  KOFF, TSA, STD, per-voice VOLL/VOLR/PITCH/ADSR and the entire SD_P volume block
-  including MVOLL/MVOLR - for **both** cores. `spu2Silence` writes 0x19a, 0x1a4,
-  0x1a6, the voice VOLL/VOLR block (the compiler even folded the loop bound to
-  0x180 = 24 x 16, confirming the voice count), 0x188-0x198, 0x760-0x76e and the
-  core-1 mirrors 0x59a, 0x5a4, 0x5a6, 0x400-0x57e, 0x588-0x598 and
-  **0x788-0x796** - that last range confirming the +40 stride came out right.
-  Set-differenced rather than eyeballed: **42 addresses written, all 42 inside
-  libsd's 78, difference empty.** Containment holds, so audsrv restores the lot.
-
-  Also deliberately **not** done: touching the IOP DMA channels (`SD_DMA_*`).
-  `MMIX = 0` already unroutes the autodma input from the output mix, so a
-  transfer still in flight is inaudible and dies with the reset a moment later -
-  no reason to poke a live DMA controller for nothing. And every write in the
-  routine is a zero or a key-off *by design*, so it can never set a bit that was
-  not already set, which is what rules out tripping some undocumented
-  reset/enable line on hardware I cannot test against.
-
-  **Not verified**: none of it has run on a console. The premise (SPU2 survives
-  the IOP reset) is not mine - it is the observed behaviour that made the
-  silencer necessary in the first place - but the register semantics are
-  reasoning plus a disassembly. `tools/silencer` therefore stays in the tree,
-  documented in its own header and Makefile as a manual fallback, and
-  docs/ps2link-setup.md gains a troubleshooting row for the failure mode that
-  would matter ("no sound at all in a game, on r3 only") with "flash r2 while it
-  is diagnosed" as the out. Docs: README, docs/ps2link-setup.md (new r3 section,
-  the banner, the Stop paragraph, two rows), tools/ps2link/README.md,
-  tools/silencer/{main.c,Makefile}, tyra-testing.
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
