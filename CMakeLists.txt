@@ -190,6 +190,7 @@ add_executable(tyrax-editor
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
+    src/theme.cpp
     src/tmdl.cpp
     src/treegen.cpp
     src/uiscript.cpp
