@@ -734,88 +734,6 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
-- (210) **The VU framework: a VU1 microprogram written in C++, and a host
-  simulator that runs it.** VU1 was the last hand-carved part of the engine -
-  twenty near-identical `.vclpp` files around one skeleton, each with an EE-side
-  twin whose unpack layout, `maxVertCount` and NLOOP offset had to be kept in
-  step by hand, and no way to test any of it short of a Docker build plus a
-  PCSX2 boot. Four host-only modules in `src/` (`vuir`, `vuasm`, `vusim`,
-  `vugen` - no GL, no `project.hpp`, the aobake/livedbg shape) and three CLI
-  commands. See `docs/vu-framework.md`.
-  - **`vusim` runs a microprogram on the host**: 1024 quadwords of VU1 data
-    memory, masked fields, ACC, Q/I, the clip-flag shift register, 16-bit
-    integer wrapping. It ends a run with the same `std::vector<uint32_t>` memory
-    image `vucap::Capture::vuMem` carries, decoded by the SAME
-    `vucap::scanGifPackets` - which is why that scanner was lifted out of
-    `vucap.cpp`'s `decodeVuMem` into the public API. A simulated run and a
-    console capture are now directly comparable; do not grow a second decoder.
-  - **`vuasm` parses the handwritten programs** (the vclpp layer - `#include`,
-    `#define`, `#macro`/`Name{ }` - plus VCL syntax). All 25 `.vclpp` files the
-    engine ships parse with zero diagnostics, including the five
-    Sutherland-Hodgman clip programs and the VU0 raytracer kernel.
-  - **`vugen` is the C++ DSL and the generator.** It emits VCL, not microcode -
-    so `vcl` still does the register allocation and the dual-issue scheduling,
-    which is the entire reason a generated program is as fast as a handwritten
-    one. One `Desc` produces the `.vclpp`, the EE-side program class, the tag
-    block size and the GS register list, so those cannot drift apart.
-  - **Verified by equivalence, not by inspection**: `--vu-check` runs the
-    handwritten and the generated program on identical randomized input and
-    diffs every quadword of the staged GIF packet. All five `as_is` variants
-    (c/tc/d/td/tce) come out **bit-identical over 60 trials each**, including
-    `ftoi4` rounding, clamped colours and the packed fog coefficient. Runs in
-    milliseconds, needs no PS2.
-  - Two things the assembler will not tell you are reported: **Q clobbering**
-    (a `div`/`rsqrt` overwritten before anything read it - the matcap gotcha
-    from `tyra_macros.i`) and quadword addresses outside VU1 data memory.
-  - The **micro-memory budget** is printed as a RANGE (`342..681 slots` for the
-    generated set against the 2042 usable below the draw-finish helper), because
-    `vcl` pairs an upper and a lower op into one slot when it can and the exact
-    size is only knowable after it runs. A single number would be a guess
-    dressed as a measurement.
-  - Two claims in the tree turned out not to hold, and are corrected rather than
-    propagated. The `tyra_macros.i` warning that a `;` comment inside a `#macro`
-    body makes vclpp swallow the expansion is **not** a general rule -
-    `vcl_sml.i`'s `VertexPersCorr` carries a commented-out line and is used by
-    every transforming program that ships. And the naive host reference in
-    `vucap.cpp` (`screen = scale * (ndc + 1)`) is off by one LSB from what the
-    program computes, because `ScaleVertexToGSFormat` accumulates
-    `scale + v * scale` through the ACC - the simulator reproduces the
-    program's arithmetic order and the difference showed up immediately.
-  - **Verification**: `tyrax-editor --vu-check` - 25/25 parsed, 5/5 bit-identical,
-    budget clean. Host only: **nothing in `vendor/tyra` was replaced**, and no
-    generated microcode has been built in Docker or run on hardware. Adopting a
-    generated program is the next step and needs the full e2e pass, which is why
-    `--vu-emit` writes to a directory you name instead of into the engine tree.
-  - **Review fixes on top of the above**, in two groups.
-    *The simulator was too kind to a program.* The VU FPU is not IEEE-754 - it
-    has no infinities and no NaN, an overflowing result saturates to
-    `0x7F7FFFFF` and a denormal is zero - and the simulator was using host
-    floats raw, so an overflow became an `inf` the console can never hold and
-    the next subtraction turned it into a `nan`. Every float the machine writes
-    now goes through `vuFloat()`; `ftoi0`/`ftoi4` saturate instead of invoking
-    C++'s undefined out-of-range conversion (`1e30` used to come out as
-    `INT32_MIN`, i.e. a far-right vertex landing far left); divide-by-zero
-    yields the saturated value signed by BOTH operands and `0/0` is no longer
-    zero. The flip side is that the move family must NOT be clamped, because it
-    carries integer payloads - `mr32` is now a raw field rotation like `move`,
-    not arithmetic. Measured by linking a probe against the editor's own
-    `vusim`/`vuasm`/`vuir` objects: 4 of 8 hardware behaviours diverged before,
-    0 after, and the plain-arithmetic control (`1.5 * 4.0`) is untouched.
-    *The generated EE side had the input layout wrong.* The per-vertex block
-    layout was spelled out three times - the microprogram's pointer arithmetic,
-    the equivalence harness, and the emitted
-    `addProgramQBufferDataToPacket` - and the third had drifted: the emitted
-    `c` put its colour block one `qbuffer->size` too far, and the emitted `td`
-    unpacked normals **on top of** the ST block. `--vu-check` cannot see either,
-    because it stages VU1 memory itself and only diffs the microprogram's GS
-    output - so "bit-identical" was true and the EE half was still broken. The
-    layout now lives once in `attrBlocks()` and the stream count derives from
-    it; all five emitted classes now match the pointer arithmetic in their own
-    microprogram (`d` and `td` deliberately omit the colour unpack the
-    handwritten files do, because those programs stage their GIF packet right
-    after the normals and never read a colour stream). Latent, not shipped:
-    nothing in `vendor/tyra` uses the generated files yet.
-
 - (227) **`examples/procedural`: the whole node library in one map** (owner:
   "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").
   Six volumes over a 140x140 terrain shaped to give the terrain-reading nodes
@@ -15218,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15752,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15829,3 +15802,86 @@ Each finished feature lands as its own commit.
   test; the add-menu tooltip still cannot be scripted (it hangs off a
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
+
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
