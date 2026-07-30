@@ -1,0 +1,1 @@
+{ "id": "dddd000000000007", "name": "rt-mirror", "type": "mirror", "position": [0, 2.6, 9], "rotation": [0, 180, 0], "scale": [8, 4.5, 1], "color": [1, 1, 1], "physics": false, "mirror": { "opacity": 0.35, "reflectPlayer": true, "raytraced": true, "rtSize": 128, "objects": ["crate", "ball-red", "ball-green", "ball-blue"] } }

@@ -1,0 +1,1 @@
+{ "id": "daf2a96c32c9edd8", "name": "pillar-196", "type": "cylinder", "position": [-435.307, 11.599, 171.188], "rotation": [0, 171.5, 0], "scale": [0.83, 4.29, 0.83], "color": [0.556, 0.519, 0.35], "physics": false, "collision": "none", "detail": 8, "drawDistance": 60 }

@@ -1,0 +1,1 @@
+{ "id": "cccc000000000005", "name": "ball-sun", "type": "sphere", "position": [2.1, 1.2, -1.8], "rotation": [0, 0, 0], "scale": [1.6, 1.6, 1.6], "color": [1, 0.85, 0.2], "physics": false, "reflected": true }

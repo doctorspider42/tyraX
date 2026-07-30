@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Wellington Carvalho <wellcoj@gmail.com>
-# Modified by TyraX: keepIopResident flag (run under ps2link)
+# Modified by TyraX: keepIopResident flag (run under ps2link);
+#                    USB keyboard/mouse driver loading (ps2kbd, ps2mouse)
 */
 
 #pragma once
@@ -27,7 +28,8 @@ class IrxLoader {
   // The generated games set it when started with a "-ps2link" argument.
   static bool keepIopResident;
 
-  void loadAll(const bool& withUsb, const bool& isLoggingToFile);
+  void loadAll(const bool& withUsb, const bool& withKbdMouse,
+               const bool& isLoggingToFile);
 
  private:
   static bool isLoaded;
@@ -36,7 +38,9 @@ class IrxLoader {
   void loadPadman(const bool& verbose);
   void loadLibsd(const bool& verbose);
   void loadIO(const bool& verbose);
-  void loadUsbModules(const bool& verbose);
+  void loadUsbd(const bool& verbose);
+  void loadUsbMassModules(const bool& verbose);
+  void loadKbdMouseModules(const bool& verbose);
   void loadAudsrv(const bool& verbose);
 
   int applyRpcPatches();

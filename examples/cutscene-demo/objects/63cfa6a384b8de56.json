@@ -1,0 +1,1 @@
+{ "id": "63cfa6a384b8de56", "name": "cam-wide", "type": "camera", "position": [-14, 6, 16], "rotation": [13, 135, 0], "scale": [1, 1, 1], "color": [0.35, 0.75, 1], "physics": false, "camera": { "fov": 65, "feed": false, "feedTerrain": true, "feedObjects": [] } }

@@ -1,0 +1,1 @@
+{ "id": "s505wobblerdeep0001", "name": "s5-wobbler-deep", "type": "model", "position": [0, 0.9, -66], "rotation": [0, 0, 0], "scale": [1.5, 1.5, 1.5], "color": [0.92, 0.94, 0.95], "physics": false, "collision": "none", "model": "res/models/wobbler.glb", "anim": { "clip": "Twist", "autoplay": true, "loop": true, "speed": 0.6 } }

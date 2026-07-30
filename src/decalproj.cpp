@@ -135,7 +135,7 @@ void addObjectReceiver(std::vector<Tri>& out, const Project& p, const SceneObjec
     if (o.type == PrimitiveType::Model) {
         if (o.modelPath.empty() || isAnimatedModelPath(o.modelPath)) return;  // .obj only
         objparser::Model m;
-        if (!objparser::load(p.dir + "\\" + o.modelPath, m)) return;
+        if (!objparser::load(p.filePath(o.modelPath), m)) return;
         for (const objparser::Submesh& s : m.submeshes)
             addLocalMesh(out, s.verts, x, box);
         return;
@@ -168,6 +168,7 @@ void addQuadTri(std::vector<Tri>& out, V3 a, V3 b, V3 c, const Aabb& box) {
 void addTerrainReceiver(std::vector<Tri>& out, const SceneData& s, const Aabb& box) {
     const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
     if (w <= 0.0f || d <= 0.0f) return;
+    if (!s.terrain.enabled) return;  // no ground to project onto (docs/terrain.md)
     if (s.hmW < 2 || s.hmD < 2 || (int)s.heights.size() != s.hmW * s.hmD) {
         // Flat terrain at y=0: one footprint quad clamped to the terrain extent
         // (the per-triangle overlap test drops it when the projector misses y=0).

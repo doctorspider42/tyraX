@@ -1,0 +1,1 @@
+{ "id": "cccc000000000013", "name": "pillar4", "type": "box", "position": [5, 1.4, 5], "rotation": [0, 0, 0], "scale": [0.9, 2.8, 0.9], "color": [1, 1, 1], "physics": false, "material": "res/materials/pillar.mtl" }

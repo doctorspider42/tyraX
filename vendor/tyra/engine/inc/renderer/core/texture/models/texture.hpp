@@ -45,6 +45,14 @@ class Texture {
    */
   texbuffer_t* vramResident = nullptr;
 
+  /**
+   * Modified by TyraX: the full path the texture was loaded from (as passed
+   * to TextureRepository::add; "" for procedurally built textures). `name`
+   * keeps only the basename, which is ambiguous across directories - the
+   * texture hot-reload poller (docs/live-link.md) matches on this instead.
+   */
+  std::string sourcePath;
+
   /** Array of texture links with sprites/meshes */
   std::vector<TextureLink> links;
 

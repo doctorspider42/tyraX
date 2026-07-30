@@ -17,6 +17,7 @@ Sprite::Sprite() {
   id = generateUniqueId();
   flipHorizontal = false;
   flipVertical = false;
+  additive = false;  // Modified by TyraX (see sprite.hpp)
   size.set(32.0F, 32.0F);
   position.set(100.0F, 100.0F);
   offset.set(0.0F, 0.0F);

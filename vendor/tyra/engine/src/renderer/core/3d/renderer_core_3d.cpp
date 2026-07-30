@@ -20,9 +20,13 @@ RendererCore3D::~RendererCore3D() {}
 
 void RendererCore3D::update() { is3DSupportEnabled = false; }
 
+// Modified by TyraX: honour CameraInfo3D::up in the view matrix, so a camera can
+// roll about its view axis (cutscene Dutch angles). The frustum below already
+// culled against `up`; only this was dropping it. `up` is never null - it
+// defaults to (0, 1, 0) - so every existing caller gets a bit-identical matrix.
 void RendererCore3D::update(const CameraInfo3D& cameraInfo) {
   frustumPlanes.update(cameraInfo, fov);
-  M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt);
+  M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt, *cameraInfo.up);
   viewProj = projection * view;
   is3DSupportEnabled = true;
 }
@@ -55,8 +59,12 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
+  // Modified by TyraX: the height passed here only sets the RASTER scale of
+  // the projection (the world-space frustum comes from fov + aspectRatio),
+  // so field rendering (InterlacedField) squeezes the scene into the
+  // half-height buffer by building the projection at the render height.
   projection = M4x4::perspective(
-      fov, settings->getWidth(), settings->getHeight(),
+      fov, settings->getWidth(), settings->getRenderHeightF(),
       settings->getProjectionScale(), settings->getAspectRatio(),
       settings->getNear(), settings->getFar());
 }
@@ -80,6 +88,21 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
   viewProj = projection * view;
   const float planesFov = envFov * 1.4F > 170.0F ? 170.0F : envFov * 1.4F;
   frustumPlanes.update(CameraInfo3D(&pos, &look), planesFov);
+}
+
+// Modified by TyraX: portal through-view camera. The projection is left
+// untouched (the destination renders in-place into the real framebuffer,
+// so the frustum SHAPE is the screen's own); only the view swaps and the
+// frustum planes follow the virtual camera - exact planes, no widening.
+void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
+  savedView = view;
+  savedProjection = projection;
+  savedViewProj = viewProj;
+  Vec4 pos = position;
+  Vec4 look = lookAt;
+  M4x4::lookAt(&view, pos, look);
+  viewProj = projection * view;
+  frustumPlanes.update(CameraInfo3D(&pos, &look), fov);
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {

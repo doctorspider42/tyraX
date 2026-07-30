@@ -1,0 +1,1 @@
+{ "id": "58d095aed5da3a8f", "name": "ball-sun-copy", "type": "sphere", "position": [1.54559, 0.576821, 2.78913], "rotation": [0, -0, 0], "scale": [1.2, 1.2, 1.2], "color": [0.72549, 0.0924645, 0.0924645], "physics": true, "physMass": 1, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true, "physSleep": 3, "pickable": true, "pickThrow": true, "reflected": true }

@@ -22,14 +22,22 @@ const SPEC = {
     keys: {
       title: { doc: "Display name in the add-menu and node title bar. Defaults to the file name.", kind: "text" },
       category: { doc: "Add-menu submenu the node appears under. Defaults to `Custom`.", kind: "text" },
+      desc: { doc: "What the NODE does - the node's tooltip in the editor and its entry in the AI flow-graph generator's catalog. Say what a parameter does in its own `tipN` instead.", kind: "text" },
+      tip_string: { doc: "What the STRING param does - one line, shown when the cursor rests on that widget inside the node.", kind: "text" },
       string: { doc: "The string param: `none`, `text`, or `object` (gives the node its target object input).", kind: "enum", values: ["none", "text", "object"] },
       in: { doc: "Extra input pins: any space-separated set of `object position bool text`.", kind: "pins" },
       out: { doc: "Output pins: any of `object position bool text`. Requires `call = fn`.", kind: "pins" },
       exec_out: { doc: "`true` adds a follow-up exec output that fires downstream after the node runs.", kind: "bool" },
       call: { doc: "Name of a C++ function in `inc/scripts/flow_nodes.hpp` to run. Omit for an inline body.", kind: "text" },
     },
-    // indexed families: `num0`..`num3`.
-    indexed: [{ base: "num", max: 3, doc: "Label for a numeric param. Define num0..num3 contiguously from num0." }],
+    // indexed families: `num0`..`num3` (+ their `tip0`..`tip3`). A tip is
+    // OPTIONAL and independent of the label run - `sparse` skips the
+    // contiguity rule - but it needs the param it documents to exist, which
+    // `needs` checks.
+    indexed: [
+      { base: "num", max: 3, doc: "Label for a numeric param. Define num0..num3 contiguously from num0." },
+      { base: "tip", max: 3, sparse: true, needs: "num", doc: "What that numeric param DOES - one line, shown when the cursor rests on the widget inside the node, and listed under `desc` in the node's tooltip. Write one: `desc` explains the node, a tip explains the knob." },
+    ],
     placeholders: {
       obj: "Resolved target object index (the object pin/dropdown, or self).",
       self: "Index of the object that owns this graph.",
@@ -150,15 +158,20 @@ function refreshDiagnostics(doc, collection) {
     }
   }
 
-  // Indexed families must be contiguous from 0.
+  // Indexed families must be contiguous from 0 — except a `sparse` one (tips),
+  // which instead has to name a param that exists.
   for (const fam of spec.indexed) {
     const present = [];
     for (let i = 0; i <= fam.max; i++) if (p.definedKeys.has(fam.base + i)) present.push(i);
-    for (const i of present)
-      if (i > 0 && !p.definedKeys.has(fam.base + (i - 1))) {
-        const h = p.header.find((x) => x.key === fam.base + i);
-        if (h) warn(h.keyRange, `\`${fam.base}${i}\` defined but \`${fam.base}${i - 1}\` is missing — params must be contiguous from ${fam.base}0.`);
+    for (const i of present) {
+      const h = p.header.find((x) => x.key === fam.base + i);
+      if (!h) continue;
+      if (fam.needs && !p.definedKeys.has(fam.needs + i)) {
+        warn(h.keyRange, `\`${fam.base}${i}\` documents \`${fam.needs}${i}\`, which is not defined — the editor drops it.`);
+      } else if (!fam.sparse && i > 0 && !p.definedKeys.has(fam.base + (i - 1))) {
+        warn(h.keyRange, `\`${fam.base}${i}\` defined but \`${fam.base}${i - 1}\` is missing — params must be contiguous from ${fam.base}0.`);
       }
+    }
   }
 
   // Body / separator rules.
@@ -284,9 +297,14 @@ function provideCompletions(doc, position) {
       items.push(it);
     }
     for (const fam of spec.indexed) {
-      // suggest the next contiguous index
+      // suggest the next contiguous index - or, for a family that documents
+      // another one (tipN -> numN), the first param that has no tip yet.
       let next = 0;
-      while (next <= fam.max && used.has(fam.base + next)) next++;
+      if (fam.needs) {
+        while (next <= fam.max && (used.has(fam.base + next) || !used.has(fam.needs + next))) next++;
+      } else {
+        while (next <= fam.max && used.has(fam.base + next)) next++;
+      }
       if (next <= fam.max) {
         const it = new vscode.CompletionItem(fam.base + next, vscode.CompletionItemKind.Property);
         it.documentation = new vscode.MarkdownString(fam.doc);

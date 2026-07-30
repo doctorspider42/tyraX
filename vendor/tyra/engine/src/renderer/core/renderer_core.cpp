@@ -32,6 +32,21 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   postFx.init(&settings, &gs);
   // Same rule for the dynamic env map's render target (TyraX fork).
   envMap.init(&settings, &gs, &sync, &path1);
+  // Projected shadows: wiring only - VRAM is allocated lazily when the game
+  // calls shadowMap.allocate() (init() also re-places the buffers after a
+  // display-mode VRAM reset if they were on).
+  shadowMap.init(&settings, &gs, &sync, &path1);
+  // Camera-feed render target (TyraX fork, "texture feeds"): a second
+  // instance of the same redirect bracket, permanently allocated below
+  // every texture for the same FIFO-free reason. Costs 128 KB of VRAM
+  // whether the game uses feeds or not. Clamp: feeds sample through plain
+  // surface UVs and the default Repeat bleeds the opposite edge rows into
+  // the screen border.
+  camFeed.init(&settings, &gs, &sync, &path1);
+  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                        TextureWrap::Clamp);
+  // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
+  splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -59,6 +74,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
+    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+    camFeed.init(&settings, &gs, &sync, &path1);
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).
@@ -114,6 +131,67 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
   const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
   spot.cosCutoff = cosf(halfAngle);
   spot.softness = softness < 1.0F ? 1.0F : softness;
+  spot.point = false;
+}
+
+// Modified by TyraX: scene dynamic lights - a per-frame registry the StaPip
+// picks ONE light per mesh from (the color programs have a single light slot).
+int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
+                                   const float& range) {
+  TYRA_ASSERT(range > 0.0F, "Dynamic point light range must be positive!");
+  if (dynLightCount >= DYN_LIGHTS_MAX) return -1;
+  auto& l = dynLights[dynLightCount];
+  l.enabled = true;
+  l.point = true;
+  l.position = position;
+  l.position.w = 1.0F;
+  l.color = color;
+  l.range = range;
+  return static_cast<int>(dynLightCount++);
+}
+
+const RendererCoreSpotLight* RendererCore::pickDynLight(
+    const Vec4& worldCenter, const float& worldRadius) const {
+  // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
+  // a big mesh near a torch competes fairly with the camera flashlight.
+  const RendererCoreSpotLight* best = &spot;
+  float bestScore = -1.0F;
+
+  const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
+  u32 count = 0;
+  if (spot.enabled) candidates[count++] = &spot;
+  for (u32 i = 0; i < dynLightCount; i++) candidates[count++] = &dynLights[i];
+
+  for (u32 i = 0; i < count; i++) {
+    const auto* l = candidates[i];
+    const float dx = l->position.x - worldCenter.x;
+    const float dy = l->position.y - worldCenter.y;
+    const float dz = l->position.z - worldCenter.z;
+    float d = sqrtf(dx * dx + dy * dy + dz * dz) - worldRadius;
+    if (d < 0.0F) d = 0.0F;
+    if (d >= l->range) continue;
+    const float att = 1.0F - d / l->range;
+    float score =
+        (l->color.r + l->color.g + l->color.b) * (1.0F / 3.0F) * att * att;
+    if (!l->point) {
+      // Spot cone: down-rank when the whole sphere sits outside the cone
+      // (approximate - sin(angle) ~ radius/distance). Never zero: an aimed
+      // flashlight sweeping onto a mesh must not pop a torch off mid-swing
+      // when both scores are close.
+      const float dist = d + worldRadius;
+      if (dist > 1e-4F) {
+        const float cosAng = -(dx * l->direction.x + dy * l->direction.y +
+                               dz * l->direction.z) /
+                             dist;
+        if (cosAng + worldRadius / dist < l->cosCutoff) score *= 0.05F;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = l;
+    }
+  }
+  return best;
 }
 
 void RendererCore::beginFrame() {
@@ -163,6 +241,20 @@ void RendererCore::applyCustomPostFx(RendererCorePostFx::CustomFxBuild build,
   postFx.applyCustom(build, user);
 }
 
+// Modified by TyraX: portal through-view bracket. Mid-frame: drain PATH1
+// (scissor/z-mask are global GS state) but do NOT latch postFxDrained -
+// the frame submits more 3D after this.
+void RendererCore::portalViewBegin(int x0, int y0, int x1, int y1) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskBegin(x0, y0, x1, y1);
+}
+
+void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
+                                 u8 clearR, u8 clearG, u8 clearB) {
+  if (path1.isVU1Configured()) sync.align3D();
+  postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -177,6 +269,7 @@ void RendererCore::endFrame() {
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
   applyPostFx();
+  texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();
 }

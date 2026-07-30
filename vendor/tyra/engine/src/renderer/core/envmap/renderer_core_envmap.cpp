@@ -35,8 +35,8 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
   path1 = t_path1;
 
   // The target sits right above the frame/z/post-fx buffers, below every
-  // texture - the FIFO vram.free() of texture eviction can never rewind
-  // past a texture address, so this allocation is permanent. The dedicated
+  // texture: allocateBuffer() puts it in the permanent region under the
+  // texture heap's floor, which texture eviction cannot reach. The dedicated
   // z-buffer lets "reflected" scene objects occlude each other in the map.
   vramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
   zVramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
@@ -142,7 +142,9 @@ void RendererCoreEnvMap::end() {
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
   const int w = static_cast<int>(settings->getWidth());
-  const int h = static_cast<int>(settings->getHeight());
+  // Physical buffer height (half the logical one in InterlacedField) - this
+  // restores the screen FRAME/SCISSOR/XYOFFSET after the env pass.
+  const int h = static_cast<int>(settings->getRenderHeightF());
 
   packet2_reset(endPacket, false);
   qword_t* q = endPacket->base;

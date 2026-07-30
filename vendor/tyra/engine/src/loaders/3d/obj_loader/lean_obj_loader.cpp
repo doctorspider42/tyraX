@@ -14,6 +14,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <map>
 #include <sstream>
 
@@ -38,13 +39,18 @@ bool readWholeFile(const std::string& fullPath, std::string& out) {
 
 struct MtlEntry {
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // Ke: emission. TyraX reads it as a per-channel brightness FLOOR baked into
+  // the vertex colors, so the material keeps its color in a pitch-black scene
+  // (docs/emissive-materials.md). {0,0,0} = matte.
+  float ke[3] = {0.0F, 0.0F, 0.0F};
   std::string texture;
   std::string reflTexture;
   float reflStrength = 0.0F;
   bool reflRounded = false;
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};  // "# tyra-uvrect" (atlasing)
 };
 
-/** newmtl/Kd/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
+/** newmtl/Kd/Ke/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
  * line; refl's -mm gain option carries the reflection strength; the TyraX
  * "-rounded" flag switches the env pass to centroid-radial normals).
  * order (optional) records material names in file order. */
@@ -63,6 +69,9 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
     } else if (tag == "Kd" && !current.empty()) {
       MtlEntry& m = out[current];
       ss >> m.kd[0] >> m.kd[1] >> m.kd[2];
+    } else if (tag == "Ke" && !current.empty()) {
+      MtlEntry& m = out[current];
+      ss >> m.ke[0] >> m.ke[1] >> m.ke[2];
     } else if (tag == "map_Kd" && !current.empty()) {
       std::string tok, last;
       while (ss >> tok) last = tok;
@@ -92,6 +101,17 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
       m.reflTexture = last;
       if (m.reflStrength <= 0.0F && !m.reflTexture.empty())
         m.reflStrength = 0.5F;  // refl without -mm: sensible default
+    } else if (tag == "#" && !current.empty()) {
+      // Modified by TyraX: "# tyra-uvrect u0 v0 du dv" - the editor's
+      // texture-atlas bake writes it right after an atlased map_Kd; the
+      // material's 0..1 UVs map onto that sub-rectangle of the (shared)
+      // page texture. Other comments fall through untouched.
+      std::string what;
+      ss >> what;
+      if (what == "tyra-uvrect") {
+        MtlEntry& m = out[current];
+        ss >> m.uvRect[0] >> m.uvRect[1] >> m.uvRect[2] >> m.uvRect[3];
+      }
     }
   }
 }
@@ -116,9 +136,11 @@ std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     m.kd[0] = materials[name].kd[0];
     m.kd[1] = materials[name].kd[1];
     m.kd[2] = materials[name].kd[2];
+    for (int i = 0; i < 3; ++i) m.ke[i] = materials[name].ke[i];
     m.reflTextureName = materials[name].reflTexture;
     m.reflStrength = materials[name].reflStrength;
     m.reflRounded = materials[name].reflRounded;
+    for (int i = 0; i < 4; ++i) m.uvRect[i] = materials[name].uvRect[i];
     result.push_back(m);
   }
   return result;
@@ -142,6 +164,25 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
   std::vector<float> positions;  // x,y,z triples
   std::vector<float> texcoords;  // u,v pairs
   std::map<std::string, MtlEntry> materials;
+
+  // Optional TyraX baked-AO sidecar: "<model>.aov" (single extension - safe
+  // for ISO9660 names) = "TXAO" magic + u32 LE count + one visibility byte
+  // per obj `v` entry (255 = open sky). Missing file = the project has no
+  // ambient occlusion - stay quiet.
+  std::vector<u8> aoTable;
+  {
+    std::string stem = relativePath;
+    const size_t dot = stem.find_last_of('.');
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+    std::string aoText;
+    if (readWholeFile(FileUtils::fromCwd(stem + ".aov"), aoText) &&
+        aoText.size() >= 8 && aoText.compare(0, 4, "TXAO") == 0) {
+      u32 count = 0;
+      memcpy(&count, aoText.data() + 4, 4);
+      if (aoText.size() >= 8 + (size_t)count)
+        aoTable.assign(aoText.begin() + 8, aoText.begin() + 8 + count);
+    }
+  }
 
   if (!overrideMtl.empty()) {
     // A material override replaces the model's own libraries entirely -
@@ -176,17 +217,19 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       m.kd[0] = mtl->second.kd[0];
       m.kd[1] = mtl->second.kd[1];
       m.kd[2] = mtl->second.kd[2];
+      for (int i = 0; i < 3; ++i) m.ke[i] = mtl->second.ke[i];
       m.textureName = mtl->second.texture;
       m.reflTextureName = mtl->second.reflTexture;
       m.reflStrength = mtl->second.reflStrength;
       m.reflRounded = mtl->second.reflRounded;
+      for (int i = 0; i < 4; ++i) m.uvRect[i] = mtl->second.uvRect[i];
     }
     result->materials.push_back(m);
     materialIndex[name] = (int)result->materials.size() - 1;
     return (int)result->materials.size() - 1;
   };
 
-  auto vertexAt = [&](int objIndex, float* xyz) {
+  auto vertexAt = [&](int objIndex, float* xyz, int& resolved) {
     // obj indices are 1-based; negative = relative to the end
     const int count = (int)positions.size() / 3;
     int i = objIndex > 0 ? objIndex - 1 : count + objIndex;
@@ -194,6 +237,7 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
     xyz[0] = positions[i * 3];
     xyz[1] = positions[i * 3 + 1];
     xyz[2] = positions[i * 3 + 2];
+    resolved = i;
     return true;
   };
   auto uvAt = [&](int objIndex, float* uv) {
@@ -270,11 +314,13 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
 
       if (current < 0) current = materialFor("");
       std::vector<float>& out = result->materials[current].vertices;
+      std::vector<u8>& outAo = result->materials[current].vertexAo;
 
       for (size_t k = 2; k < vIdx.size(); ++k) {
         float a[3], b[3], c[3];
-        if (!vertexAt(vIdx[0], a) || !vertexAt(vIdx[k - 1], b) ||
-            !vertexAt(vIdx[k], c))
+        int ia, ib, ic;
+        if (!vertexAt(vIdx[0], a, ia) || !vertexAt(vIdx[k - 1], b, ib) ||
+            !vertexAt(vIdx[k], c, ic))
           continue;
         float uva[2], uvb[2], uvc[2];
         uvAt(tIdx[0], uva);
@@ -300,6 +346,11 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
 
         const float* pts[3] = {a, b, c};
         const float* uvs[3] = {uva, uvb, uvc};
+        const int ids[3] = {ia, ib, ic};
+        // Modified by TyraX: atlased materials map their 0..1 UVs onto a
+        // sub-rectangle of the shared page ("# tyra-uvrect", identity when
+        // no atlas is in play).
+        const float* rc = result->materials[current].uvRect;
         for (int i = 0; i < 3; ++i) {
           grow(pts[i]);
           out.push_back(pts[i][0]);
@@ -308,8 +359,11 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
           out.push_back(nx);
           out.push_back(ny);
           out.push_back(nz);
-          out.push_back(uvs[i][0]);
-          out.push_back(uvs[i][1]);
+          out.push_back(rc[0] + uvs[i][0] * rc[2]);
+          out.push_back(rc[1] + uvs[i][1] * rc[3]);
+          if (!aoTable.empty())
+            outAo.push_back(ids[i] < (int)aoTable.size() ? aoTable[ids[i]]
+                                                         : 255);
         }
       }
     }

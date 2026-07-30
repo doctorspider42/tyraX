@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Wellington Carvalho <wellcoj@gmail.com>
-# Modified by TyraX: keepIopResident flag (run under ps2link)
+# Modified by TyraX: keepIopResident flag (run under ps2link);
+#                    USB keyboard/mouse driver loading (ps2kbd, ps2mouse)
 */
 
 #include "irx/irx_loader.hpp"
@@ -35,6 +36,8 @@ EXTERN_IRX(bdm_irx);
 EXTERN_IRX(bdmfs_fatfs_irx);
 EXTERN_IRX(usbd_irx);
 EXTERN_IRX(usbmass_bd_irx);
+EXTERN_IRX(ps2kbd_irx);
+EXTERN_IRX(ps2mouse_irx);
 
 namespace Tyra {
 
@@ -61,7 +64,8 @@ IrxLoader::IrxLoader() {
 
 IrxLoader::~IrxLoader() {}
 
-void IrxLoader::loadAll(const bool& withUsb, const bool& isLoggingToFile) {
+void IrxLoader::loadAll(const bool& withUsb, const bool& withKbdMouse,
+                        const bool& isLoggingToFile) {
   if (isLoaded) {
     TYRA_LOG("IRX modules already loaded!");
     return;
@@ -78,9 +82,18 @@ void IrxLoader::loadAll(const bool& withUsb, const bool& isLoggingToFile) {
   loadPadman(!isLoggingToFile);
   loadLibsd(!isLoggingToFile);
 
-  if (withUsb) {
-    loadUsbModules(!isLoggingToFile);
-  }
+  // usbd: load it whenever any USB path is active. Under ps2link this loads a
+  // usbd onto the live IOP, which is correct for a NETWORK-booted ps2link
+  // (SMAP/dev9 - no usbd resident; the experimental keyboard/mouse override
+  // rides this path) but conflicts with a USB-booted ps2link that already has
+  // one. That is why the override is opt-in and documented as network-deploy
+  // only. A usbd MUST be present here: without it ps2kbd/ps2mouse self-unload
+  // and PS2MouseInit then spins forever binding an RPC server that is gone
+  // (the "usbkbd unknown / open -19 then freeze" seen on a network ps2link
+  // when we tried to reuse a resident usbd that did not exist).
+  if (withUsb || withKbdMouse) loadUsbd(!isLoggingToFile);
+  if (withUsb) loadUsbMassModules(!isLoggingToFile);
+  if (withKbdMouse) loadKbdMouseModules(!isLoggingToFile);
 
   loadAudsrv(true);
 
@@ -149,13 +162,20 @@ void IrxLoader::loadIO(const bool& verbose) {
 
 }
 
-void IrxLoader::loadUsbModules(const bool& verbose) {
-  if (verbose) TYRA_LOG("IRX: Loading usb modules...");
+void IrxLoader::loadUsbd(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usbd...");
 
   int ret;
-
   SifExecModuleBuffer(&usbd_irx, size_usbd_irx, 0, nullptr, &ret);
   TYRA_ASSERT(ret >= 0, "Failed to load module: usbd_irx");
+
+  if (verbose) TYRA_LOG("IRX: usbd loaded!");
+}
+
+void IrxLoader::loadUsbMassModules(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usb mass storage modules...");
+
+  int ret;
 
   SifExecModuleBuffer(&bdm_irx, size_bdm_irx, 0, nullptr, &ret);
   TYRA_ASSERT(ret >= 0, "Failed to load module: bdm_irx");
@@ -168,7 +188,31 @@ void IrxLoader::loadUsbModules(const bool& verbose) {
 
   waitUntilUsbDeviceIsReady();
 
-  if (verbose) TYRA_LOG("IRX: Usb modules loaded!");
+  if (verbose) TYRA_LOG("IRX: Usb mass storage modules loaded!");
+}
+
+void IrxLoader::loadKbdMouseModules(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usb keyboard/mouse modules...");
+
+  int ret;
+
+  SifExecModuleBuffer(&ps2kbd_irx, size_ps2kbd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2kbd_irx");
+
+  SifExecModuleBuffer(&ps2mouse_irx, size_ps2mouse_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2mouse_irx");
+
+  // USB HID enumeration is asynchronous and takes real time on hardware: usbd
+  // has to reset the port, read descriptors and hand the device to ps2kbd /
+  // ps2mouse before the first PS2KbdInit/PS2MouseInit (in KbdMouse::init) can
+  // see it. PCSX2 presents the emulated devices instantly, so this only
+  // matters on a real console - without it the drivers come up with no device
+  // attached and every read returns empty. (Mass storage has its own poll
+  // loop in waitUntilUsbDeviceIsReady; HID exposes no mass:-style device node
+  // to stat, so settle on a fixed delay.)
+  delay(5);
+
+  if (verbose) TYRA_LOG("IRX: Usb keyboard/mouse modules loaded!");
 }
 
 void IrxLoader::loadAudsrv(const bool& verbose) {

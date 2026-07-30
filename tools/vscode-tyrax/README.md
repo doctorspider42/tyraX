@@ -36,7 +36,7 @@ Install 'code' command in PATH*).
 To install it by hand:
 
 ```sh
-code --install-extension tools/vscode-tyrax/tyrax-flownode-0.1.0.vsix --force
+code --install-extension tools/vscode-tyrax/tyrax-flownode-0.2.0.vsix --force
 ```
 
 The committed `.vsix` is not rebuilt automatically — regenerate it after any

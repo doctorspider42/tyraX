@@ -29,6 +29,9 @@ class Sprite {
   Color color;
   SpriteMode mode;
   bool flipHorizontal, flipVertical;
+  // Modified by TyraX: additive blend (Cs*As + Cd) instead of alpha-over -
+  // for light-like overlays (lens flares, glows) that must never darken.
+  bool additive;
 
  private:
   void setDefaultColor();

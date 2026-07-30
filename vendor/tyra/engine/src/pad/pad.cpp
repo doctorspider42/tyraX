@@ -7,7 +7,14 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: injectVirtual - overlay keyboard/mouse input on the pad
+# Modified by TyraX: optional second pad (port parametric, non-blocking,
+# hot-join) for two-player games. padInit() is called once globally.
+# Modified by TyraX: handlePressedButtons() also reports L3/R3/Start/Select
+# (they have no pressure value, so they live only in the digital mask).
 */
+
+// Modified by TyraX: setActuators() - runtime DualShock vibration control.
 
 #include <tamtypes.h>
 #include <loadfile.h>
@@ -20,7 +27,15 @@
 namespace Tyra {
 
 /** Init vars, load modules, opens pad port and initializes pad */
-Pad::Pad() {}
+Pad::Pad() {
+  optional = false;
+  opened = false;
+  ready = false;
+  connected = false;
+  oldPad = 0;
+  for (int i = 0; i < VIRT_SLOTS; ++i) virtPrev[i] = PadButtons{};
+  resetJoys();
+}
 
 Pad::~Pad() {}
 
@@ -28,9 +43,19 @@ Pad::~Pad() {}
 // Methods
 // ----
 
+/** padInit initializes the whole padman library, not a port - it must run
+ * exactly once no matter how many Pad instances open ports. */
+void Pad::ensurePadmanInit() {
+  static bool done = false;
+  if (done) return;
+  padInit(0);
+  done = true;
+}
+
 void Pad::init() {
   this->oldPad = 0;
-  padInit(0);
+  for (int i = 0; i < VIRT_SLOTS; ++i) this->virtPrev[i] = PadButtons{};
+  ensurePadmanInit();
   this->port = 0;  // 0 -> Connector 1, 1 -> Connector 2
   this->slot = 0;  // Always zero if not using multitap
 
@@ -38,6 +63,22 @@ void Pad::init() {
   TYRA_ASSERT(this->ret != 0,
               "padPortOpen failed! padPortOpen returned: ", this->ret);
   TYRA_ASSERT(this->initPad(), "initPad failed!");
+  this->opened = true;
+  this->ready = true;
+  this->connected = true;
+}
+
+void Pad::initOptional(const int& t_port, const int& t_slot) {
+  this->oldPad = 0;
+  ensurePadmanInit();
+  this->optional = true;
+  this->port = t_port;
+  this->slot = t_slot;
+  this->ret = padPortOpen(this->port, this->slot, padBuf);
+  this->opened = this->ret != 0;
+  if (!this->opened)
+    printf("Pad(%d, %d) padPortOpen failed (%d) - will retry\n", this->port,
+           this->slot, this->ret);
 }
 
 /** Wait when pad will be ready (stable and ready) */
@@ -62,6 +103,17 @@ int Pad::waitPadReady() {
 
   delete[] stateString;
   return 0;
+}
+
+/** Like waitPadReady, but gives up instead of spinning forever - an optional
+ * pad can be unplugged in the middle of its mode setup. */
+int Pad::waitPadReadyBounded() {
+  for (int i = 0; i < 200000; i++) {
+    int state = padGetState(this->port, this->slot);
+    if (state == PAD_STATE_STABLE || state == PAD_STATE_FINDCTP1) return 0;
+    if (state == PAD_STATE_DISCONN) return -1;
+  }
+  return -1;
 }
 
 /** Initializes and checks type of pad */
@@ -118,16 +170,79 @@ int Pad::initPad() {
   return 1;
 }
 
+/** initPad without the DualShock asserts and with bounded waits, so an
+ * absent/odd controller on an optional port degrades instead of halting.
+ * Returns 1 when the mode setup completed. */
+int Pad::initPadSoft() {
+  if (this->waitPadReadyBounded() != 0) return 0;
+  int modes = padInfoMode(this->port, this->slot, PAD_MODETABLE, -1);
+  if (modes > 0) {
+    padSetMainMode(this->port, this->slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
+    if (this->waitPadReadyBounded() != 0) return 0;
+    padEnterPressMode(this->port, this->slot);
+    if (this->waitPadReadyBounded() != 0) return 0;
+    this->actuators = padInfoAct(this->port, this->slot, -1, 0);
+    if (this->actuators != 0) {
+      this->actAlign[0] = 0;
+      this->actAlign[1] = 1;
+      this->actAlign[2] = 0xff;
+      this->actAlign[3] = 0xff;
+      this->actAlign[4] = 0xff;
+      this->actAlign[5] = 0xff;
+      padSetActAlign(this->port, this->slot, actAlign);
+      if (this->waitPadReadyBounded() != 0) return 0;
+    }
+  }
+  TYRA_LOG("Optional pad initialized (port ", this->port, ")");
+  return 1;
+}
+
+/** Drives the vibration motors via act-direct (slots set up in initPad).
+ * padSetActDirect copies the buffer into its own RPC command, so a local is
+ * fine. Called only when the requested state changes, never per frame. */
+void Pad::setActuators(const bool& smallMotor, const u8& bigPower) {
+  if (this->actuators == 0) return;
+  char actDirect[6] = {0, 0, 0, 0, 0, 0};
+  actDirect[0] = smallMotor ? 1 : 0;         // small engine: on/off
+  actDirect[1] = static_cast<char>(bigPower);  // big engine: 0-255
+  padSetActDirect(this->port, this->slot, actDirect);
+}
+
 /** Updates state of joys/buttons. Called by engine */
 void Pad::update() {
-  int x = 0;
-  this->ret = padGetState(this->port, this->slot);
-  while ((this->ret != PAD_STATE_STABLE) && (this->ret != PAD_STATE_FINDCTP1)) {
-    if (this->ret == PAD_STATE_DISCONN)
-      printf("Pad(%d, %d) is disconnected\n", this->port, this->slot);
+  if (this->optional) {
+    if (!this->opened) {
+      this->ret = padPortOpen(this->port, this->slot, padBuf);
+      this->opened = this->ret != 0;
+      if (!this->opened) return;
+    }
+    int state = padGetState(this->port, this->slot);
+    if (state != PAD_STATE_STABLE && state != PAD_STATE_FINDCTP1) {
+      // No controller (or mid-plug): report a centered, silent pad and keep
+      // polling - this is what makes mid-game hot-join work.
+      this->connected = false;
+      this->ready = false;
+      this->oldPad = 0;
+      this->reset();
+      this->resetJoys();
+      return;
+    }
+    if (!this->ready) {
+      this->ready = this->initPadSoft() != 0;
+      if (!this->ready) return;
+    }
+    this->connected = true;
+  } else {
+    int x = 0;
     this->ret = padGetState(this->port, this->slot);
+    while ((this->ret != PAD_STATE_STABLE) &&
+           (this->ret != PAD_STATE_FINDCTP1)) {
+      if (this->ret == PAD_STATE_DISCONN)
+        printf("Pad(%d, %d) is disconnected\n", this->port, this->slot);
+      this->ret = padGetState(this->port, this->slot);
+    }
+    if (x == 1) TYRA_LOG("Pad: OK!\n");
   }
-  if (x == 1) TYRA_LOG("Pad: OK!\n");
 
   this->ret = padRead(this->port, this->slot, &this->buttons);
 
@@ -191,6 +306,65 @@ void Pad::handlePressedButtons() {
   if (this->buttons.l2_p) this->pressed.L2 = 1;
   if (this->buttons.r1_p) this->pressed.R1 = 1;
   if (this->buttons.r2_p) this->pressed.R2 = 1;
+  // Modified by TyraX: L3/R3/Start/Select were missing from `pressed` entirely.
+  // The reads above use the PRESSURE fields (buttons.*_p), which the DualShock
+  // only reports for those twelve - the stick clicks and Start/Select have no
+  // analog value, so they exist solely in the digital mask. getClicked() always
+  // had all sixteen (it reads newPad), so binding an action to L3 looked like it
+  // worked - the press was seen once - and then nothing ever held it down.
+  if (this->padData & PAD_L3) this->pressed.L3 = 1;
+  if (this->padData & PAD_R3) this->pressed.R3 = 1;
+  if (this->padData & PAD_START) this->pressed.Start = 1;
+  if (this->padData & PAD_SELECT) this->pressed.Select = 1;
+}
+
+/** TyraX: overlay virtual (keyboard/mouse) input on the freshly polled
+ * hardware state. OR-merges held buttons into pressed, derives click edges
+ * from the previous overlay, and offsets the stick axes. */
+void Pad::injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
+                        s16 rightJoyH, s16 rightJoyV, u8 slot) {
+  if (slot >= VIRT_SLOTS) slot = 0;
+  PadButtons& virtPrev = this->virtPrev[slot];
+  auto btn = [](u8& pressedBit, u8& clickedBit, const u8& now, const u8& was) {
+    if (now) {
+      pressedBit = 1;
+      if (!was) clickedBit = 1;
+    }
+  };
+  btn(pressed.Cross, clicked.Cross, held.Cross, virtPrev.Cross);
+  btn(pressed.Square, clicked.Square, held.Square, virtPrev.Square);
+  btn(pressed.Triangle, clicked.Triangle, held.Triangle, virtPrev.Triangle);
+  btn(pressed.Circle, clicked.Circle, held.Circle, virtPrev.Circle);
+  btn(pressed.DpadUp, clicked.DpadUp, held.DpadUp, virtPrev.DpadUp);
+  btn(pressed.DpadDown, clicked.DpadDown, held.DpadDown, virtPrev.DpadDown);
+  btn(pressed.DpadLeft, clicked.DpadLeft, held.DpadLeft, virtPrev.DpadLeft);
+  btn(pressed.DpadRight, clicked.DpadRight, held.DpadRight,
+      virtPrev.DpadRight);
+  btn(pressed.L1, clicked.L1, held.L1, virtPrev.L1);
+  btn(pressed.L2, clicked.L2, held.L2, virtPrev.L2);
+  btn(pressed.L3, clicked.L3, held.L3, virtPrev.L3);
+  btn(pressed.R1, clicked.R1, held.R1, virtPrev.R1);
+  btn(pressed.R2, clicked.R2, held.R2, virtPrev.R2);
+  btn(pressed.R3, clicked.R3, held.R3, virtPrev.R3);
+  btn(pressed.Start, clicked.Start, held.Start, virtPrev.Start);
+  btn(pressed.Select, clicked.Select, held.Select, virtPrev.Select);
+  virtPrev = held;
+
+  auto axis = [](u8& value, const s16& add) {
+    if (!add) return;
+    int merged = static_cast<int>(value) + add;
+    if (merged < 0) merged = 0;
+    if (merged > 255) merged = 255;
+    value = static_cast<u8>(merged);
+  };
+  axis(leftJoyPad.h, leftJoyH);
+  axis(leftJoyPad.v, leftJoyV);
+  axis(rightJoyPad.h, rightJoyH);
+  axis(rightJoyPad.v, rightJoyV);
+  leftJoyPad.isCentered = leftJoyPad.h == 127 && leftJoyPad.v == 127;
+  leftJoyPad.isMoved = !leftJoyPad.isCentered;
+  rightJoyPad.isCentered = rightJoyPad.h == 127 && rightJoyPad.v == 127;
+  rightJoyPad.isMoved = !rightJoyPad.isCentered;
 }
 
 /** Resets state of joys/buttons */
@@ -224,6 +398,19 @@ void Pad::reset() {
   this->pressed.L2 = 0;
   this->pressed.R1 = 0;
   this->pressed.R2 = 0;
+}
+
+/** Center both sticks - the resting state a game must see for a pad that has
+ * no controller attached (fresh Pad members are otherwise uninitialized). */
+void Pad::resetJoys() {
+  this->leftJoyPad.h = 127;
+  this->leftJoyPad.v = 127;
+  this->leftJoyPad.isCentered = 1;
+  this->leftJoyPad.isMoved = 0;
+  this->rightJoyPad.h = 127;
+  this->rightJoyPad.v = 127;
+  this->rightJoyPad.isCentered = 1;
+  this->rightJoyPad.isMoved = 0;
 }
 
 }  // Namespace Tyra

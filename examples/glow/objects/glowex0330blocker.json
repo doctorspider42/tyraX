@@ -1,0 +1,1 @@
+{ "id": "glowex0330blocker", "name": "s3-shadow-wall", "type": "box", "position": [5, 1.5, 6], "rotation": [0, 0, 0], "scale": [0.5, 3, 4], "color": [1, 1, 1], "physics": false, "material": "res/materials/concrete.mtl" }
