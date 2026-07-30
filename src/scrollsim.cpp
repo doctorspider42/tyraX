@@ -149,6 +149,15 @@ std::vector<Placement> placements(const std::vector<SceneObject>& objects,
     const float span = cells * pat;
     const float wmin = windowMin(scroller), wmax = windowMax(scroller);
     const std::vector<float> base = baseOffsets(objects, scroller);
+    // Fold the scroll distance into one period before using it. The layout is
+    // periodic in beltScroll with period `span`, so this changes nothing that
+    // is drawn - but it keeps the value small, and float precision is the
+    // whole point: a belt that has been running for hours arrives here with a
+    // beltScroll big enough that `nominal - wmin` quantizes to a step coarser
+    // than one frame's movement, and the belt visibly stutters and eventually
+    // freezes. The generated ScrollerDirector folds its own accumulator the
+    // same way (grep sc_wrapU / "Keep the accumulator bounded").
+    if (span > 1e-6f) beltScroll -= span * std::floor(beltScroll / span);
     for (size_t j = 0; j < segs.size(); ++j) {
         const float segLen = segmentLength(objects, scroller, segs[j]);
         for (int m = 0; m < cells; ++m) {

@@ -103,6 +103,16 @@ both the editor preview and the build:
   advances each belt by the real frame time, wraps every clone with the same
   `wrapU` formula, slides it along the axis and hides the templates. A clone's
   geometry is only re-baked when it actually moves.
+- **The scroll accumulator is folded back into one belt period every frame**, in
+  the runtime *and* in `scrollsim::placements`. The layout is periodic, so this
+  changes nothing you can see — it is what makes "endless" literally true. A
+  raw accumulator grows without bound, and a `float` carries only 24 bits of
+  mantissa: left running long enough, one frame's movement becomes smaller than
+  the spacing between representable numbers at that magnitude, and the belt
+  would first stutter in visible jumps and then stop dead. Nothing accumulates
+  per-frame anywhere else in the feature, and the director allocates nothing —
+  the clone tables are fixed-size and baked, so a belt costs no heap traffic on
+  the console no matter how long it runs.
 
 The editor viewport reads the identical `scrollsim` code to draw the animated,
 semi-transparent **ghost belt** — so what you preview is exactly what ships.

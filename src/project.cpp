@@ -5150,6 +5150,14 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
             f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
             f.relativePath == "src\\gen\\sequences.gen.cpp" ||
+            // Endless-scroller runtime. MUST be here, not only in the --new
+            // scaffold: flow_graph.gen.cpp includes scroller.gen.hpp
+            // unconditionally, so a project scaffolded before this feature
+            // existed (i.e. every project already on disk) regenerates that
+            // include and then fails to compile with "scripts/scroller.gen.hpp:
+            // No such file or directory" unless the pair is refreshed too.
+            f.relativePath == "inc\\scripts\\scroller.gen.hpp" ||
+            f.relativePath == "src\\gen\\scroller.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\font_data.gen.hpp" ||

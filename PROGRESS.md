@@ -15833,3 +15833,57 @@ all real, distinct features; both sets are kept as written.)
   16 to 19 — `Portal` (16), `Area` (17) and `Scatter` (18) claimed the numbers
   in between while this branch sat. Entry renumbered from (113) for the same
   reason.)*
+
+- (249) **Endless scroller: post-merge review fixes.** Four real defects found
+  reviewing (248) against today's main, all verified by building the generated
+  game on the PS2 toolchain rather than by reading.
+  (a) **The belt was not actually endless.** `ScrollerDirector` accumulated
+  `scroll_ += speed * dt` without bound. The wrap it feeds is periodic, so the
+  accumulator only ever needed one period - but a `float` has 24 mantissa bits,
+  so after long enough the per-frame step (~0.14 units at 7 u/s) falls below the
+  representable spacing at that magnitude and the belt stutters in visible jumps
+  and then freezes. Both twins now fold the value into `[0, span)` every frame:
+  `scrollsim::placements` on the host and the generated director on the EE. The
+  fold is provably invisible (the layout is periodic in it), which is why it is
+  the right fix rather than a wider accumulator.
+  (b) **Flow-node control could be silently discarded.** `reset()` ran from the
+  director's first `update()` and overwrote `running_`/`speed_` with the
+  authored autostart values - so a *Start / Stop / Set Scroller Speed* node
+  firing in an `On Start` handler was lost whenever the flow graph's script
+  happened to update before the director's (script order is static-init order
+  across translation units, i.e. not something either side controls). Belts are
+  now armed in the CONSTRUCTOR; `update()` only re-arms on a genuine scene
+  change.
+  (c) **Every pre-existing project failed to build.** `scroller.gen.hpp/.cpp`
+  were registered only in the `--new` scaffold list, not in
+  `project::refreshGenerated`'s regenerate list, while `flow_graph.gen.cpp`
+  includes `scripts/scroller.gen.hpp` unconditionally. So any project scaffolded
+  before this feature - which is every project on disk, including all committed
+  `examples/` - regenerated that include and then died with
+  `fatal error: scripts/scroller.gen.hpp: No such file or directory`.
+  Reproduced by deleting the pair and rebuilding (exit 1, that exact error),
+  then fixed and re-verified (exit 0, full ELF).
+  (d) **The example could not link.** `examples/endless-scroller` still carried
+  its six generated `.cpp` files under `src/scripts/`, the path main abandoned
+  for `src/gen/`. `Makefile.base` discovers sources with
+  `find src -name *.cpp`, so after a refresh both copies compile and every
+  generated symbol is defined twice. The stale six are deleted; the example's
+  remaining generated files self-heal on the next build, and it still wants a
+  dedicated regeneration pass (the repo's standing rule for `examples/`).
+  Also folded in while merging: the belt marker was missing from
+  `blocksNavigation` (navmesh.cpp), so it would have been a navmesh blocker, and
+  *Set Scroller Speed* declared a number input pin that codegen ignored - it now
+  reads `numOperand`, so a wired number really does override the typed param
+  (proven: a `Number` node of -13.25 emits `scroller::setSpeed(0, 4, -13.25F)`
+  instead of the typed -9.5).
+  **Verified**: editor build exit 0; `--resave` round-trips a scroller with two
+  segments, an explicit and an auto length and a deliberately dangling member
+  name; codegen inspected by machine rather than by eye - `SceneObjectData`
+  declares 64 scalar slots and all 29 emitted rows carry exactly 64 (the
+  struct/row 1:1 rule), the 24 baked clones match the hand-computed
+  `ceil(52/10)+2 = 8` cells x 3 resolvable members, authored indices 0-4 are
+  untouched, and every clone row carries `batchStatic = 0` (a static-batched
+  object is merged into a shared mesh and cannot be repositioned, so batching one
+  would have silently frozen the belt); full Docker build to a 2.8 MB ELF, exit
+  0. **Not verified**: nothing here booted in PCSX2 - the drift fix is the kind
+  that only shows after hours of running, and (a)/(b) both want a hands-on pass.

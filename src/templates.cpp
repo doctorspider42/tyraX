@@ -21662,17 +21662,25 @@ class ScrollerDirector : public Script {
   float lastU_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
   int scene_ = -1;
 
-  void reset(int sceneIndex) {
+  // Arm every belt to its authored state. Called from the CONSTRUCTOR (not
+  // from the first update) so a Start / Stop / Set Scroller Speed node firing
+  // in an On Start handler is not silently overwritten: script update order is
+  // static-initialization order across translation units, so the flow graph
+  // can perfectly well run before this director's first frame.
+  void seed() {
     for (int i = 0; i < SCROLLER_COUNT; ++i) {
       scroll_[i] = 0.0F;
       speed_[i] = SCROLLERS[i].speed;
       running_[i] = SCROLLERS[i].autostart != 0;
     }
-    for (int i = 0; i < SCROLLER_CLONE_COUNT; ++i) lastU_[i] = 1e30F;  // force place
-    scene_ = sceneIndex;
+    forcePlace();
+  }
+  void forcePlace() {
+    for (int i = 0; i < SCROLLER_CLONE_COUNT; ++i) lastU_[i] = 1e30F;
   }
 
  public:
+  ScrollerDirector() { seed(); }
   int find(int scene, int object) const {
     for (int i = 0; i < SCROLLER_COUNT; ++i)
       if (SCROLLERS[i].scene == scene && SCROLLERS[i].object == object) return i;
@@ -21689,7 +21697,15 @@ class ScrollerDirector : public Script {
 
   void update(ScriptContext& ctx) override {
     if (SCROLLER_CLONE_COUNT == 0) return;  // no belts baked
-    if (ctx.scene != scene_) reset(ctx.scene);
+    if (ctx.scene != scene_) {
+      // A real scene CHANGE re-arms the belts (a scene load resets runtime
+      // state everywhere else too). The very first frame does not: the
+      // constructor already seeded, and re-seeding here would undo any flow
+      // node that ran before this director's first update.
+      if (scene_ != -1) seed();
+      scene_ = ctx.scene;
+      forcePlace();
+    }
     // Keep the authored member templates dormant (no render/collision/logic).
     for (int i = 0; i < SCROLLER_HIDDEN_COUNT; ++i) {
       const ScrollerHidden& h = SCROLLER_HIDDEN[i];
@@ -21699,7 +21715,18 @@ class ScrollerDirector : public Script {
     // Advance the belts running in this scene.
     for (int i = 0; i < SCROLLER_COUNT; ++i) {
       if (SCROLLERS[i].scene != ctx.scene) continue;
-      if (running_[i]) scroll_[i] += speed_[i] * g_frameDt;
+      if (!running_[i]) continue;
+      scroll_[i] += speed_[i] * g_frameDt;
+      // Keep the accumulator bounded. sc_wrapU below is periodic in scroll_
+      // with period `span`, so folding it back is invisible - but it is what
+      // makes an ENDLESS belt actually endless. A raw accumulator grows
+      // without limit, and a float only has 24 bits of mantissa: at 7 units/s
+      // the per-frame step is ~0.14, and once scroll_ passes ~1e6 that step is
+      // coarser than the float's spacing there, so the belt first stutters in
+      // visible jumps and then stops moving at all. Twin: the same fold at the
+      // top of scrollsim::placements.
+      const float span = SCROLLERS[i].span;
+      if (span > 1e-6F) scroll_[i] -= span * floorf(scroll_[i] / span);
     }
     // Place every clone: wrap its phase into the window and slide along the axis.
     for (int c = 0; c < SCROLLER_CLONE_COUNT; ++c) {
