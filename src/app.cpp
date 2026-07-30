@@ -128,6 +128,10 @@ struct EditorConfig {
     // hold. Machine-global because it is a memory budget for THIS PC, not a
     // property of the game - and it is a ceiling, not an allocation.
     int timeMachineBudgetMb = 128;
+    // Interface theme (docs/editor-theme.md), stored as theme::Info::key so a
+    // reordered enum cannot repaint everyone's editor. An unknown key (a
+    // config written by a newer build) falls back to the default theme.
+    std::string theme;
     // Viewport output mode (docs/ps2-viewport.md): false = the editor's own
     // free-aspect image, true = the scene rasterized at the GS framebuffer
     // size of the project's display mode and shown the way a TV shows it.
@@ -212,6 +216,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeBothRegions", v)) cfg.safeBothRegions = toI(v, 0) != 0;
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
+        else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
@@ -277,6 +282,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeBothRegions=" << (cfg.safeBothRegions ? 1 : 0) << "\n"
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
+      << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
@@ -467,10 +473,11 @@ int App::run(const std::string& initialProjectDir) {
     // The window layout lives inside the project's .tyra file, not a global
     // imgui.ini - we load/save it via ImGui's in-memory settings API.
     io.IniFilename = nullptr;
-    ImGui::StyleColorsDark();
-    // Capture the unscaled style before any DPI scaling is applied - every
-    // scale change resets to this reference so repeated changes don't compound.
-    baseStyle_ = ImGui::GetStyle();
+    // The interface font: a proportional face changes every frame height the
+    // style metrics are authored against, so it is loaded before the theme.
+    // The theme itself is applied further down, once the ImNodes context it
+    // also tints exists and the editor config has been read.
+    loadUiFont();
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
@@ -489,6 +496,7 @@ int App::run(const std::string& initialProjectDir) {
     // rasterized dynamically in this ImGui, so scaling stays crisp.
     {
         const EditorConfig cfg = loadEditorConfig();
+        theme_ = theme::fromKey(cfg.theme);
         uiScaleUser_ = cfg.uiScale;
         nav_ = cfg.nav;
         globalEmulatorPath_ = cfg.emulatorPath;
@@ -528,7 +536,9 @@ int App::run(const std::string& initialProjectDir) {
             recentProjects_.push_back(r);
         }
     }
-    applyUiScale();
+    // Colours + style metrics + the scale over them, in that order (applyTheme
+    // ends in applyUiScale).
+    applyTheme();
 
     // Drag & drop from Explorer: the dialog-free import path (PNGs land in
     // res/hud and attach to the selected menu when the Menu Editor is open).
@@ -931,6 +941,11 @@ void App::applyUiScale() {
     style = baseStyle_;           // reset to the unscaled reference...
     style.ScaleAllSizes(scale);   // ...then scale spacing/padding/borders
     style.FontScaleMain = scale;  // dynamic fonts re-rasterize at the new size
+    // ImGuiStyle's constructor leaves FontSizeBase at 0 ("ask the font atlas on
+    // the first frame"), and baseStyle_ carries that zero - so restore the size
+    // loadUiFont() picked. Left at 0 when no system face resolved, which is
+    // exactly what makes ImGui fall back to the built-in font's own size.
+    style.FontSizeBase = uiFontSize_;
     if (uiScaleApplied_ != scale) {
         // The Flow Graph canvas lays its nodes out in scaled grid space (see
         // drawFlowGraphWindow), so the positions it pushed into imnodes belong
@@ -958,8 +973,9 @@ void App::saveGlobalConfig() {
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
-                      safeArea_.opacity, timeBudgetMb_, viewportPs2_,
-                      runOnPs2_, std::move(recent)});
+                      safeArea_.opacity, timeBudgetMb_,
+                      theme::info(theme_).key, viewportPs2_, runOnPs2_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -968,8 +984,55 @@ void App::setUiScale(float userScale) {
     saveGlobalConfig();
 }
 
+// The interface font (docs/editor-theme.md). ImGui's built-in bitmap face is
+// the loudest "this is a debug overlay" signal the editor gives off, so the
+// first system UI font this machine has is loaded over it. Called once, before
+// the first frame; fonts are rasterized dynamically in this ImGui, so the UI
+// scale re-bakes the glyphs on its own and there is no atlas to rebuild here.
+void App::loadUiFont() {
+    // 15 px against ProggyClean's 13: a proportional face needs the extra pixel
+    // to read as well at the same nominal size, and the whole UI is authored in
+    // scaled() multiples of it rather than in absolute rows.
+    constexpr float kUiFontSize = 15.0f;
+    for (const platform::SystemFont& f : platform::uiFontFiles()) {
+        const std::string path = platform::systemFontPath(f.file);
+        if (path.empty()) continue;
+        if (!ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), kUiFontSize))
+            continue;  // present but unreadable - try the next face
+        uiFontSize_ = kUiFontSize;
+        uiFontLabel_ = f.label;
+        return;
+    }
+    // Nothing resolved: the built-in font stays, and uiFontSize_ 0 leaves
+    // FontSizeBase alone so ImGui keeps that font's own size.
+    std::printf("[ui] no system UI font found - using the built-in font\n");
+}
+
+// Colours + metrics + the DPI scale over them. One function because baseStyle_
+// IS the themed style: the scale path resets to it every time, so a theme that
+// only wrote ImGui::GetStyle() would be undone by the next zoom step.
+void App::applyTheme() {
+    ImGuiStyle themed;  // fresh ImGui defaults for everything the theme leaves
+    theme::apply(theme_, themed);
+    baseStyle_ = themed;
+    theme::applyImNodes();  // the two node canvases follow the palette
+    applyUiScale();
+}
+
+void App::setTheme(theme::Id id) {
+    theme_ = id;
+    applyTheme();
+    saveGlobalConfig();
+}
+
 void App::drawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
+        // Wordmark: the accent colour, once, where every application puts its
+        // name. It is not a menu (no popup, no hover highlight) - it is what
+        // turns a bare row of menus into the top of a product.
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(4.0f));
+        ImGui::TextColored(theme::semantics().accent, "TyraX");
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(6.0f));
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
@@ -1055,6 +1118,20 @@ void App::drawMenuBar() {
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+            // Theme next to the interface scale: both are "how the editor
+            // looks on THIS machine", both live in editor.ini, and a picker
+            // buried in Preferences is one nobody finds. Also in
+            // Edit > Preferences > Appearance.
+            if (ImGui::BeginMenu("Theme")) {
+                for (int i = 0; i < (int)theme::Id::Count; ++i) {
+                    const theme::Info& ti = theme::info((theme::Id)i);
+                    if (ImGui::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
+                        setTheme((theme::Id)i);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
+                }
+                ImGui::EndMenu();
+            }
 
             ImGui::Separator();
             ImGui::TextDisabled("Viewport output");
@@ -1385,6 +1462,19 @@ void App::drawMenuBar() {
             ImGui::SameLine(ImGui::GetWindowWidth() - w - 16.0f);
             ImGui::TextDisabled("%s", statusMessage_.c_str());
         }
+        // A hairline along the bottom edge of the bar, in the accent colour.
+        // The menu bar and the dockspace under it are both dark surfaces with
+        // no border between them, so without this the whole top of the window
+        // reads as one undifferentiated block.
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetWindowPos();
+            const float y = p.y + ImGui::GetWindowHeight() - scaled(1.0f);
+            dl->AddRectFilled(
+                ImVec2(p.x, y),
+                ImVec2(p.x + ImGui::GetWindowWidth(), y + scaled(1.0f)),
+                ImGui::GetColorU32(theme::semantics().accentMuted));
+        }
         ImGui::EndMainMenuBar();
     }
 }
@@ -1413,7 +1503,16 @@ void App::drawToolbar() {
     const bool ps2Ready = !project_.ps2LinkIp.empty();
     const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
     const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
-    const ImU32 colStop = IM_COL32(225, 95, 85, 255);
+    // The chips say what a state MEANS, so they read their colours from the
+    // theme (theme.hpp) instead of naming one: green/amber/red hardcoded here
+    // is green/amber/red in a violet editor. colInfo is the accent - "the
+    // other run target", "a live channel" - which every theme keeps distinct
+    // from ok/warn/danger.
+    const theme::Semantics& sem = theme::semantics();
+    const ImU32 colOk = ImGui::GetColorU32(sem.ok);
+    const ImU32 colWarn = ImGui::GetColorU32(sem.warn);
+    const ImU32 colInfo = ImGui::GetColorU32(sem.accent);
+    const ImU32 colStop = ImGui::GetColorU32(sem.danger);
     const float h = ImGui::GetFrameHeight();
     const float round = ImGui::GetStyle().FrameRounding;
     const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
@@ -1433,10 +1532,18 @@ void App::drawToolbar() {
             ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
         const bool held = enabled && ImGui::IsItemActive();
         const bool clicked = enabled && ImGui::IsItemClicked();
-        if (enabled && hovered)
+        // The highlight fades in and out instead of snapping: sweeping the
+        // cursor along a row of icons is the most common thing anyone does with
+        // this bar, and a hard rectangle appearing under each one in turn is
+        // the difference between a toolbar and a debug overlay. Held buttons
+        // jump straight to the active fill - a press must feel immediate.
+        const float hoverT =
+            theme::hoverAnim(ImGui::GetItemID(), enabled && hovered, 12.0f);
+        if (held || hoverT > 0.0f)
             dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + h),
                               ImGui::GetColorU32(held ? ImGuiCol_ButtonActive
-                                                      : ImGuiCol_ButtonHovered),
+                                                      : ImGuiCol_ButtonHovered,
+                                                 held ? 1.0f : hoverT),
                               round);
         const float pad = h * 0.28f;
         // Square glyph rect regardless of button width (carets are narrower).
@@ -1450,6 +1557,18 @@ void App::drawToolbar() {
     auto iconButton = [&](const char* id, float lead, bool enabled,
                           const char* tip, auto&& paint) -> bool {
         return button(id, lead, h, enabled, tip, paint);
+    };
+
+    // The status chips (LIVE / DBG / LOGIC / SESSION) all draw their own dot +
+    // label, so they need the icon buttons' faded highlight spelled out once
+    // rather than four times. Call right after the chip's InvisibleButton.
+    auto chipHover = [&](ImDrawList* dl, ImVec2 p, float chipW) {
+        const float t =
+            theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        if (t > 0.0f)
+            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered, t),
+                              round);
     };
 
     // One stroke weight for every outlined glyph - that, plus the shared glyph
@@ -1494,7 +1613,7 @@ void App::drawToolbar() {
                          : "Save (Ctrl+S)",
             [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
                 const ImU32 c = !en      ? colDim
-                                : dirty_ ? IM_COL32(240, 175, 70, 255)
+                                : dirty_ ? colWarn
                                          : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
                 const float cut = w * 0.30f;  // clipped top-right corner
@@ -1534,11 +1653,11 @@ void App::drawToolbar() {
 
     // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
     // ONE pair for both targets; the dropdown picks which machine it drives and
-    // the Play glyph's color says so (green = emulator, blue = real PS2).
+    // the Play glyph's color says so (the theme's "ok" = the emulator, its
+    // accent = the real console; every theme keeps those two apart).
     const bool targetReady = !runOnPs2_ || ps2Ready;
     const bool debugProfile = project_.settings.buildProfile == "debug";
-    const ImU32 colTarget = runOnPs2_ ? IM_COL32(80, 160, 245, 255)
-                                      : IM_COL32(95, 200, 115, 255);
+    const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
     const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
     // Debug is Run plus opening the Debugger panel. It needs the debug build
     // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
@@ -1615,14 +1734,14 @@ void App::drawToolbar() {
         if (on) {
             switch (liveLinkState_) {
                 case LiveLinkState::Live:
-                    c = IM_COL32(95, 200, 115, 255);
+                    c = colOk;
                     label = "LIVE";
                     tip = "Live Link: object edits (move/rotate/scale/recolor,"
                           " add/delete) stream\ninto the running game. Click "
                           "to turn off (project setting).";
                     break;
                 case LiveLinkState::RebuildNeeded:
-                    c = IM_COL32(240, 175, 70, 255);
+                    c = colWarn;
                     label = "LIVE (rebuild)";
                     tip = "Live Link: the scene changed in a way the session "
                           "can't absorb (model/\nmaterial swaps, lights, "
@@ -1648,11 +1767,7 @@ void App::drawToolbar() {
             project_.settings.liveLink = !on;
             commitChange();
         }
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW,
-                                        p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered),
-                              round);
+        chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1675,7 +1790,7 @@ void App::drawToolbar() {
             "Debugger panel (F9).";
         switch (dbgState_) {
             case DbgState::Running:
-                c = IM_COL32(95, 200, 115, 255);
+                c = colOk;
                 std::snprintf(label, sizeof(label), "DBG %.0f fps", dbgFps_);
                 tip = "Live Debugger: the running game is reporting every "
                       "flow-graph node it\n"
@@ -1692,7 +1807,7 @@ void App::drawToolbar() {
                       "open the Debugger panel.";
                 break;
             case DbgState::Stale:
-                c = IM_COL32(240, 175, 70, 255);
+                c = colWarn;
                 std::snprintf(label, sizeof(label), "DBG (rebuild)");
                 tip = "Live Debugger: the running game was built from "
                       "different graphs, so node\n"
@@ -1709,9 +1824,7 @@ void App::drawToolbar() {
         const float chipW = dotR * 2.0f + 4.0f + textW;
         if (ImGui::InvisibleButton("##tb_livedbg", ImVec2(chipW, h)))
             showDebugger_ = true;
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+        chipHover(dl, p, chipW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1735,8 +1848,8 @@ void App::drawToolbar() {
         else
             std::snprintf(label, sizeof(label), "LOGIC (%d)",
                           liveLogicPatchCount_);
-        const ImU32 c = blocked ? IM_COL32(240, 175, 70, 255)
-                                : IM_COL32(110, 190, 245, 255);
+        const ImU32 c = blocked ? colWarn
+                                : colInfo;
         const char* tip =
             blocked ? "Live Logic: an edited graph uses nodes the interpreter "
                       "cannot run\n(audio, AI, animation, spawning, runtime "
@@ -1752,9 +1865,7 @@ void App::drawToolbar() {
         const float chipW = dotR * 2.0f + 4.0f + textW;
         if (ImGui::InvisibleButton("##tb_livelogic", ImVec2(chipW, h)))
             showDebugger_ = true;
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+        chipHover(dl, p, chipW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1770,21 +1881,21 @@ void App::drawToolbar() {
         if (st != session::Session::State::Idle &&
             st != session::Session::State::Error) {
             char label[32] = "SESSION";
-            ImU32 c = IM_COL32(240, 175, 70, 255);
+            ImU32 c = colWarn;
             const char* tip = "Connecting...";
             switch (st) {
                 case session::Session::State::Listening: {
                     const int others = (int)sessionPeers_.size() - 1;
                     std::snprintf(label, sizeof(label), "SESSION (%d)",
                                   others < 0 ? 0 : others);
-                    c = IM_COL32(95, 200, 115, 255);
+                    c = colOk;
                     tip = "Hosting a live session - click for peers / kick / "
                           "close.";
                     break;
                 }
                 case session::Session::State::Live:
                     std::snprintf(label, sizeof(label), "JOINED");
-                    c = IM_COL32(80, 160, 245, 255);
+                    c = colInfo;
                     tip = "Joined a live session - the host owns saving. Click "
                           "for the Session window.";
                     break;
@@ -1801,9 +1912,7 @@ void App::drawToolbar() {
             if (ImGui::InvisibleButton("##tb_session",
                                        ImVec2(dotR * 2.0f + 4.0f + textW, h)))
                 showSessionWindow_ = true;
-            if (ImGui::IsItemHovered())
-                dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW, p.y + h),
-                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+            chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
             dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
             dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                                p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -11663,6 +11772,27 @@ void App::drawEditorPreferencesModal() {
         "Settings for this editor installation - shared by every project and\n"
         "stored outside the .tyra file (in editor.ini, next to the other machine "
         "settings).");
+
+    // Appearance applies IMMEDIATELY and saves itself, unlike the staged text
+    // fields below: a theme you cannot see until you press Save is a theme you
+    // cannot choose. Same reasoning as the Navigation modal.
+    ImGui::SeparatorText("Appearance");
+    if (ImGui::BeginCombo("Theme", theme::info(theme_).label)) {
+        for (int i = 0; i < (int)theme::Id::Count; ++i) {
+            const theme::Info& ti = theme::info((theme::Id)i);
+            if (ImGui::Selectable(ti.label, theme_ == (theme::Id)i))
+                setTheme((theme::Id)i);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::TextDisabled("%s", theme::info(theme_).desc);
+    ImGui::TextDisabled(
+        "Interface font: %s (the first UI face found on this machine).\n"
+        "Scale lives in View > Interface scale - currently %d%%%s.",
+        uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
+        (int)std::lround(uiScaleApplied_ * 100.0f),
+        uiScaleUser_ == 0.0f ? " (auto)" : "");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,
