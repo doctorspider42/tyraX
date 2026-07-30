@@ -22,5 +22,8 @@ INCDEP      := -I$(INCDIR)
 
 include ../Makefile.base
 
-$(TARGET): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)
+# Modified by TyraX: `| directories` order-only prerequisite - this rule
+# overrides Makefile.base's link rule, so it needs the same -j guard (bin/ is
+# created by `directories`, which runs under the parallel `resources` goal).
+$(TARGET): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS) | directories
 	$(AR) rcs $(TARGETDIR)/$(TARGET) $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)

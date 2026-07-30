@@ -330,16 +330,6 @@ INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 include /tyra/Makefile.base
 )";
 
-static const char* TPL_DOCKERFILE = R"(# syntax=docker/dockerfile:1
-FROM h4570/tyra
-
-RUN apt-get update
-RUN apt-get install git -y
-
-WORKDIR /src
-CMD ["/bin/bash"]
-)";
-
 // Per-project container (no fixed container_name - avoids conflicts between
 // projects). The Tyra engine sources are maintained inside the editor repo
 // (vendor/tyra) and bind-mounted read-only; the shared volume holds the
@@ -349,6 +339,12 @@ CMD ["/bin/bash"]
 // checkouts (git worktrees, second clones) get their own - two checkouts
 // sharing a volume rsync their diverging engines over each other on every
 // build, endlessly rebuilding libtyra and racing mid-compile.
+//
+// The stock image is used directly. Projects used to carry a Dockerfile that
+// derived a per-project image from it purely to `apt-get install git`, which
+// nothing in the build ever ran; `docker compose up --build` then cost ~4 s per
+// build re-resolving that image (vs 0.3 s for a plain `up`). A project made
+// before this keeps a stale Dockerfile on disk - unreferenced, safe to delete.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
@@ -359,9 +355,9 @@ services:
     environment:
       TERM: xterm-256color
     network_mode: host
-    build:
-      context: ./
-      dockerfile: Dockerfile
+    image: h4570/tyra
+    working_dir: /src
+    command: ["sleep", "infinity"]
     tty: true
     volumes:
       - tyra-game-volume:/src
@@ -31106,7 +31102,6 @@ std::vector<File> generate(const Project& p) {
 
     return {
         {"Makefile", fill(TPL_MAKEFILE)},
-        {"Dockerfile", fill(TPL_DOCKERFILE)},
         {"docker-compose.yml", fill(TPL_COMPOSE)},
         {"src\\main.cpp", fill(TPL_MAIN_CPP)},
         {"src\\terrain_game.cpp", gameCpp},

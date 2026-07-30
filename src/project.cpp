@@ -100,10 +100,27 @@ namespace project {
 static std::string writeFile(const fs::path& path, const std::string& content) {
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
-    std::ofstream f(path, std::ios::binary);
-    if (!f) return "Cannot write file: " + path.string();
-    f << content;
-    f.close();
+    // A byte-identical rewrite is skipped, and that is what makes an
+    // incremental build incremental. refreshGenerated() runs at the start of
+    // EVERY build and rewrites every editor-owned file unconditionally, so
+    // their mtimes moved every time; the Runner's rsync propagates mtimes into
+    // the container even when it has no bytes to send, and `make` then found
+    // every source newer than its object and recompiled the whole game. In
+    // other words: before this, no build was ever incremental (measured on
+    // examples/showcase - a second build with nothing changed still spent 70 s
+    // recompiling all 15 translation units).
+    bool identical = false;
+    if (std::ifstream existing(path, std::ios::binary); existing) {
+        std::stringstream current;
+        current << existing.rdbuf();
+        identical = current.str() == content;
+    }
+    if (!identical) {
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return "Cannot write file: " + path.string();
+        f << content;
+        f.close();
+    }
     // A generated shell script has to be runnable, and the file mode is not
     // something the templates can express. Harmless on Windows, where the
     // execute bits are not part of the permission model.
@@ -5032,12 +5049,12 @@ std::string refreshGenerated(const Project& p) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
-        // The Makefile is fully generated (no ownership marker, like the
-        // Dockerfile): it carries the build-profile flags now - -g and
+        // The Makefile is fully generated (no ownership marker, like
+        // docker-compose.yml): it carries the build-profile flags now - -g and
         // -leedebug for the crash reporter in debug, neither in release -
         // so it MUST refresh with the project, not just at creation.
         if (f.relativePath == "Makefile" ||
-            f.relativePath == "Dockerfile" || f.relativePath == "docker-compose.yml" ||
+            f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
