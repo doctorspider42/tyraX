@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: per-bag fogDisabled flag (GS hardware fog opt-out)
+# and per-bag additive blend equation (additiveBlendFix, reflective materials)
 */
 
 #pragma once
@@ -34,6 +35,8 @@ class PipelineInfoBag {
     frustumCulling = PipelineInfoBagFrustumCulling_None;
     zTestType = PipelineZTest_Standard;
     fogDisabled = false;
+    additiveBlendFix = 0;
+    dynLightPick = true;
   }
   ~PipelineInfoBag() {}
 
@@ -67,6 +70,29 @@ class PipelineInfoBag {
    * fog end distance and would otherwise be painted solid fog color).
    */
   bool fogDisabled;
+
+  /**
+   * 0 = the standard alpha-over blend equation (Cs-Cd)*As/128 + Cd.
+   * 1..255 = draw this bag with the additive equation Cs*FIX/128 + Cd,
+   * FIX = this value (128 = +1.0) - the spherical-environment-map pass of
+   * reflective materials and the additive scene-lightmap pass of emissive
+   * materials. The equation travels IN-BAND with the mesh's tags
+   * (sendObjectData uploads the ALPHA A+D qword and every program emits it),
+   * so there is no pipeline barrier and no per-bag cost beyond the extra
+   * draw. Consumed by the static pipeline only (StaPipCore::render).
+   */
+  u8 additiveBlendFix;
+
+  /**
+   * Modified by TyraX: opt-out from the per-bag scene-dynamic-light pick
+   * (RendererCore::pickDynLight). The color programs light each mesh with
+   * ONE light, so a mesh split into several bags (terrain chunks) shows a
+   * hard seam wherever neighboring bags pick different lights - such bags
+   * set this false and keep only the global flashlight state, while the
+   * game paints the scene lights' ground pools as smooth additive patches
+   * instead. Also for bags a nearby light must never tint (the sky dome).
+   */
+  bool dynLightPick;
 };
 
 }  // namespace Tyra

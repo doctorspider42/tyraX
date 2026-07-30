@@ -19,3 +19,7 @@ examples/** text=auto eol=lf
 *.tyra text eol=lf
 *.heights text eol=lf
 *.flownode text eol=lf
+
+# The TyraX ps2link patch is applied to a Unix (Linux-container) checkout of
+# ps2link; a CRLF patch fails `git apply`. Keep it (and the tool sources) LF.
+tools/ps2link/** text=auto eol=lf

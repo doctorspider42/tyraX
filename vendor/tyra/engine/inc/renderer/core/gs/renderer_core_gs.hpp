@@ -41,6 +41,16 @@ class RendererCoreGS {
   /** Set the GS FOGCOL register (TyraX fork, hardware fog). */
   void setFogColor(const u8& r, const u8& g, const u8& b);
 
+  /**
+   * Set the GS ALPHA_1 register - the context-0 blend equation - via PATH3
+   * (TyraX fork, reflective materials). The caller must drain in-flight
+   * PATH1 rendering first (RendererCoreSync::align3D), or the new equation
+   * applies to triangles already queued. Pass a GS_SET_ALPHA(...) value;
+   * restore GS_SET_ALPHA(0, 1, 0, 1, 0) (the draw_setup_environment default)
+   * when done.
+   */
+  void setAlpha(const u64& alpha);
+
   /** The buffer currently being drawn to (TyraX fork, for post fx). */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
 
@@ -52,6 +62,9 @@ class RendererCoreGS {
   framebuffer_t frameBuffers[2];
   packet2_t* flipPacket;
   packet2_t* zTestPacket;
+  // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
+  // runs per reflective mesh per frame - no per-call heap churn).
+  packet2_t* alphaPacket;
   u8 context;
   u8 currentField;
 

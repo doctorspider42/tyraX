@@ -8,7 +8,8 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
-// Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData.
+// Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
+// alpha-test AFAIL fixed to ATEST_KEEP_ALL (cutout texels write no z).
 
 #include "renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
 #include "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
@@ -146,11 +147,14 @@ void DynPipRenderer::sendObjectData(
                       DRAW_ENABLE, rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     } else {
+      // AFAIL=ATEST_KEEP_ALL so a transparent texel writes neither colour nor
+      // z - the static pipeline's twin, see stapip_qbuffer_renderer.cpp for
+      // why the ps2sdk constant names read backwards.
       packet2_add_2x_s64(
           objectDataPacket,
-          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
-                      ATEST_KEEP_FRAMEBUFFER, DRAW_DISABLE, DRAW_DISABLE,
-                      DRAW_ENABLE, rendererCore->gs.zBuffer.method),
+          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
+                      DRAW_DISABLE, DRAW_DISABLE, DRAW_ENABLE,
+                      rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     }
 

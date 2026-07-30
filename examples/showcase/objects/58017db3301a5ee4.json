@@ -1,0 +1,1 @@
+{ "id": "58017db3301a5ee4", "name": "fireflies", "type": "emitter", "position": [2, 2.93, -8], "rotation": [0, 0, 0], "scale": [10, 1, 10], "color": [0.7, 1, 0.6], "physics": false, "layer": "crystals", "emitter": { "kind": "sparks", "count": 30, "size": 0.1, "enabled": true, "followPlayer": false } }

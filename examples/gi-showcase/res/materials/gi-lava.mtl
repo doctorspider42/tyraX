@@ -1,0 +1,10 @@
+# Station 4's plate. A real area light: "# tyra-glow-light" is what says it
+# lights the room, and under global illumination the bake traces its actual
+# geometry - so the post in front of it throws a soft-edged shadow and the
+# alcove walls pick up its colour by bounce, not by a falloff formula.
+newmtl gi-lava
+# tyra-brightness 1
+Kd 1.0000 0.4200 0.0600
+# tyra-glow 1 1 0.42 0.06 0.25
+# tyra-glow-light 14 2.1
+Ke 1.2500 0.6700 0.3100

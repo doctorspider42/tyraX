@@ -367,15 +367,21 @@ bool loadCamTakeAuto(const std::string& path, CamTake& out, std::string& error) 
 
 // --- take -> keys --------------------------------------------------------------
 
-std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping& map,
-                                      CamTakeBakeStats* stats) {
-    std::vector<SeqCameraKey> keys;
-    if (stats) *stats = CamTakeBakeStats{};
-    const int n = (int)take.samples.size();
-    if (stats) stats->sampleCount = n;
-    if (n == 0) return keys;
+float camSampleRollDeg(const CamTakeSample& s) {
+    // The device's own axes in world space: it looks down local -Z with local +Y
+    // up, so its tilt about the lens is the angle between that up and the level
+    // up for the same view direction.
+    const float minusZ[3] = {0.0f, 0.0f, -1.0f};
+    const float plusY[3] = {0.0f, 1.0f, 0.0f};
+    float fwd[3], up[3];
+    quatRotate(s.quat, minusZ, fwd);
+    quatRotate(s.quat, plusY, up);
+    return seqRollFromUp(fwd, up);
+}
 
-    // 1) map every sample into the scene: eye + look-at + rebased time
+void mapCamSample(const CamTakeSample& s, const CamTakeMapping& map,
+                  const float anchor[3], float outEye[3], float outTarget[3],
+                  float* outRoll) {
     const float yaw = map.yawDeg * kPi / 180.0f;
     const float cy = std::cos(yaw), sy = std::sin(yaw);
     auto yawRot = [&](const float v[3], float o[3]) {
@@ -383,30 +389,68 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
         o[1] = v[1];
         o[2] = -v[0] * sy + v[2] * cy;
     };
+    const float rel[3] = {s.pos[0] - anchor[0], s.pos[1] - anchor[1],
+                          s.pos[2] - anchor[2]};
+    float relY[3];
+    yawRot(rel, relY);
+    for (int c = 0; c < 3; ++c) outEye[c] = map.origin[c] + relY[c] * map.scale;
+    const float minusZ[3] = {0.0f, 0.0f, -1.0f};
+    float fwd[3], fwdY[3];
+    quatRotate(s.quat, minusZ, fwd);
+    yawRot(fwd, fwdY);
+    for (int c = 0; c < 3; ++c)
+        outTarget[c] = outEye[c] + fwdY[c] * (kCamTakeLookDist * map.scale);
+    if (outRoll) {
+        float r = (camSampleRollDeg(s) - map.anchorRoll) * map.rollScale;
+        while (r > 180.0f) r -= 360.0f;
+        while (r < -180.0f) r += 360.0f;
+        *outRoll = r;
+    }
+}
+
+void camTakeAnchor(const CamTake& take, const CamTakeMapping& map, float out[3]) {
+    if (map.hasAnchor) {
+        for (int c = 0; c < 3; ++c) out[c] = map.anchor[c];
+    } else if (!take.samples.empty()) {
+        for (int c = 0; c < 3; ++c) out[c] = take.samples.front().pos[c];
+    } else {
+        out[0] = out[1] = out[2] = 0.0f;
+    }
+}
+
+std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping& map,
+                                      CamTakeBakeStats* stats) {
+    std::vector<SeqCameraKey> keys;
+    if (stats) *stats = CamTakeBakeStats{};
+    int n = (int)take.samples.size();
+    if (stats) stats->sampleCount = n;
+    if (n == 0) return keys;
+
+    // 1) map every sample into the scene: eye + look-at + rebased time
     struct Pt {
         float t;
         float eye[3];
         float at[3];
+        float roll;
     };
     std::vector<Pt> pts(n);
     const CamTakeSample& first = take.samples[0];
+    float anchor[3];
+    camTakeAnchor(take, map, anchor);
     float fovSum = 0.0f;
     int fovCount = 0;
     for (int i = 0; i < n; ++i) {
         const CamTakeSample& s = take.samples[i];
         Pt& p = pts[i];
         p.t = (float)(s.t - first.t) + map.timeOffset;
-        const float rel[3] = {s.pos[0] - first.pos[0], s.pos[1] - first.pos[1],
-                              s.pos[2] - first.pos[2]};
-        float relY[3];
-        yawRot(rel, relY);
-        for (int c = 0; c < 3; ++c) p.eye[c] = map.origin[c] + relY[c] * map.scale;
-        const float minusZ[3] = {0.0f, 0.0f, -1.0f};
-        float fwd[3], fwdY[3];
-        quatRotate(s.quat, minusZ, fwd);
-        yawRot(fwd, fwdY);
-        for (int c = 0; c < 3; ++c)
-            p.at[c] = p.eye[c] + fwdY[c] * (kCamTakeLookDist * map.scale);
+        mapCamSample(s, map, anchor, p.eye, p.at, &p.roll);
+        // Unwrap against the previous sample: roll comes back in (-180, 180], so
+        // a tilt drifting across the wrap would otherwise make the interpolation
+        // spin the long way round - the same trap the Euler bake hits.
+        if (i > 0) {
+            while (p.roll - pts[i - 1].roll > 180.0f) p.roll -= 360.0f;
+            while (p.roll - pts[i - 1].roll < -180.0f) p.roll += 360.0f;
+        }
         if (s.fovDeg > 0.0f) {
             fovSum += s.fovDeg;
             ++fovCount;
@@ -414,12 +458,56 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
     }
     const float fov = fovCount > 0 ? fovSum / (float)fovCount : 60.0f;
 
+    // 1b) live recording: resample the mapped curve at the requested keyframe
+    // density before anything else, and skip the decimator entirely. Sampling
+    // linearly between the two neighbouring samples is exactly what the PS2
+    // player does between keys, so a density at or above the phone's stream
+    // rate is lossless and one below it is an honest average.
+    if (map.keyRate > 0.0f && n >= 2) {
+        const float t0 = pts.front().t, t1 = pts.back().t;
+        // Hard cap on the emitted key count: these tables are compiled into
+        // sequences.gen.cpp and shipped in the ELF, so a long take at a high
+        // density must degrade to a coarser one, not to an unbuildable game.
+        float step = 1.0f / map.keyRate;
+        if ((t1 - t0) / step > (float)(kCamTakeMaxKeys - 1))
+            step = (t1 - t0) / (float)(kCamTakeMaxKeys - 1);
+        std::vector<Pt> res;
+        res.reserve((size_t)((t1 - t0) / step) + 2);
+        int i = 0;
+        auto emit = [&](float t) {
+            while (i + 2 < n && pts[i + 1].t <= t) ++i;
+            const float span = pts[i + 1].t - pts[i].t;
+            const float u = span > 1e-6f ? (t - pts[i].t) / span : 0.0f;
+            Pt p;
+            p.t = t;
+            for (int c = 0; c < 3; ++c) {
+                p.eye[c] = pts[i].eye[c] + (pts[i + 1].eye[c] - pts[i].eye[c]) * u;
+                p.at[c] = pts[i].at[c] + (pts[i + 1].at[c] - pts[i].at[c]) * u;
+            }
+            p.roll = pts[i].roll + (pts[i + 1].roll - pts[i].roll) * u;
+            res.push_back(p);
+        };
+        // Times come from the STEP INDEX, never from an accumulator: `t += step`
+        // drifts, and a final clamp to t1 after an undershooting last step emits
+        // two keys at the same time - which the PS2 player reads as a zero-length
+        // segment.
+        const int steps = (int)std::floor((t1 - t0) / step + 1e-4f);
+        for (int j = 0; j <= steps; ++j) emit(t0 + (float)j * step);
+        if (res.back().t < t1 - 1e-4f) emit(t1);  // land on the real last sample
+        pts = std::move(res);
+        n = (int)pts.size();
+    }
+
     // 2) decimate: time-parameterized RDP over the (eye, at) curve. Error of a
     // dropped sample = how far the PS2's linear eye/target interpolation
     // between the kept neighbours would land from the true sample.
     std::vector<char> keep(n, 0);
     keep[0] = keep[n - 1] = 1;
-    if (map.tolerance > 0.0f && n > 2) {
+    // A fixed-rate resample already IS the key list - decimating it would undo
+    // the density the user asked for.
+    if (map.keyRate > 0.0f) {
+        std::fill(keep.begin(), keep.end(), 1);
+    } else if (map.tolerance > 0.0f && n > 2) {
         std::vector<std::pair<int, int>> stack{{0, n - 1}};
         while (!stack.empty()) {
             const auto [i0, i1] = stack.back();
@@ -467,6 +555,7 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
         }
         k.fov = fov;
         k.shake = 0.0f;
+        k.roll = pts[i].roll;
         k.easing = 0;
         k.camera.clear();
         keys.push_back(std::move(k));
@@ -479,10 +568,14 @@ std::vector<SeqCameraKey> bakeCamTake(const CamTake& take, const CamTakeMapping&
     return keys;
 }
 
-float camTakeInitialYawDeg(const CamTake& take) {
-    if (take.samples.empty()) return 0.0f;
+float camSampleYawDeg(const CamTakeSample& s) {
     const float minusZ[3] = {0.0f, 0.0f, -1.0f};
     float fwd[3];
-    quatRotate(take.samples.front().quat, minusZ, fwd);
+    quatRotate(s.quat, minusZ, fwd);
     return std::atan2(fwd[0], fwd[2]) * 180.0f / 3.14159265f;
+}
+
+float camTakeInitialYawDeg(const CamTake& take) {
+    if (take.samples.empty()) return 0.0f;
+    return camSampleYawDeg(take.samples.front());
 }

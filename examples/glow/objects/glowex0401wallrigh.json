@@ -1,0 +1,1 @@
+{ "id": "glowex0401wallrigh", "name": "s4-wall-right", "type": "box", "position": [5, 2.5, 20], "rotation": [0, 0, 0], "scale": [1, 5, 18], "color": [1, 1, 1], "physics": false, "material": "res/materials/concrete.mtl" }

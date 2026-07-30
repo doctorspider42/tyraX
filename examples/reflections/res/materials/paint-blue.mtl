@@ -1,0 +1,4 @@
+newmtl paint-blue
+# tyra-brightness 1
+Kd 0.0800 0.1000 0.6000
+refl -type sphere -mm 0 0.55 @sky

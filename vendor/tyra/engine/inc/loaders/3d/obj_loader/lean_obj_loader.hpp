@@ -18,14 +18,50 @@
 namespace Tyra {
 
 /**
+ * One decimated variant of a part's mesh (same layout, fewer triangles),
+ * rendered instead of the full mesh beyond a distance. Only the binary .tmdl
+ * format carries these (TmdlLoader); an .obj never has any.
+ */
+struct LeanObjLod {
+  std::vector<float> vertices;  // flat triangle list, 8 floats per vertex
+  std::vector<u8> vertexAo;     // empty, or one byte per vertex
+};
+
+/**
  * One draw batch of a model: all triangles that share a material.
  * Vertices are a flat triangle list, 8 floats each (x, y, z, nx, ny, nz, u, v).
+ *
+ * Shared by both static-model loaders: LeanObjLoader (ASCII .obj) and
+ * TmdlLoader (the baked binary .tmdl), so the game builds its parts through
+ * one code path regardless of which format shipped.
  */
 struct LeanObjMaterial {
   std::string name;         // usemtl name ("" = no material)
   std::string textureName;  // map_Kd, relative to the .obj directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};  // diffuse color 0..1
+  // Ke: emission - a per-channel brightness floor the consumer must never
+  // shade below (TyraX emissive materials). {0,0,0} = matte.
+  float ke[3] = {0.0F, 0.0F, 0.0F};
+  // refl: spherical environment map ("" = not reflective) + strength 0..1;
+  // rounded = env normals radiate from the part centroid ("-rounded" flag)
+  std::string reflTextureName;
+  float reflStrength = 0.0F;
+  bool reflRounded = false;
+  // "# tyra-uvrect u0 v0 du dv" (texture atlasing): the sub-rectangle of the
+  // texture this material's UVs map onto. The loader already multiplied the
+  // emitted vertex UVs through it; exposed for diagnostics. {0,0,1,1} = the
+  // whole texture (no atlas).
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
   std::vector<float> vertices;
+  // Baked ambient-occlusion visibility per emitted vertex (255 = open sky),
+  // parallel to vertices (one byte per 8 floats). Filled only when a
+  // "<model>.aov" sidecar exists next to the model (TyraX bakes one when
+  // the project enables ambient occlusion); empty otherwise.
+  std::vector<u8> vertexAo;
+  // Distance LOD tiers, coarsest last (empty = none). Filled only by
+  // TmdlLoader - the build bakes them into the .tmdl when the project's mesh
+  // LOD distance is on.
+  std::vector<LeanObjLod> lods;
 };
 
 struct LeanObjMesh {
@@ -44,6 +80,18 @@ struct LeanMtlMaterial {
   std::string name;
   std::string textureName;  // map_Kd, relative to the .mtl directory ("" = none)
   float kd[3] = {1.0F, 1.0F, 1.0F};
+  // Ke: emission - a per-channel brightness floor (see LeanObjMaterial).
+  float ke[3] = {0.0F, 0.0F, 0.0F};
+  // refl: spherical environment map ("" = not reflective) + strength 0..1;
+  // rounded = env normals radiate from the part centroid ("-rounded" flag)
+  std::string reflTextureName;
+  float reflStrength = 0.0F;
+  bool reflRounded = false;
+  // "# tyra-uvrect u0 v0 du dv" (texture atlasing): the sub-rectangle of
+  // textureName this material's 0..1 UVs must map onto - consumers that
+  // generate their own UVs (the game's primitive builders) multiply through
+  // it. {0,0,1,1} = the whole texture (no atlas).
+  float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
 };
 
 /**
@@ -58,7 +106,10 @@ struct LeanMtlMaterial {
  *   coordinate to image space - the exact semantics of the TyraX
  *   viewport parser (src/objparser.cpp there; keep both in sync), so a scene
  *   previews identically in the editor and on the console,
- * - reads files sequentially into memory (no fseek - unreliable on host fs).
+ * - reads files sequentially into memory (no fseek - unreliable on host fs),
+ * - picks up an optional "<model>.aov" sidecar (TyraX baked ambient
+ *   occlusion: "TXAO" + u32 LE count + one visibility byte per obj `v`
+ *   entry) into LeanObjMaterial::vertexAo; a missing sidecar is not an error.
  */
 class LeanObjLoader {
  public:
@@ -74,7 +125,7 @@ class LeanObjLoader {
                                            const std::string& overrideMtl = "");
 
   /**
-   * Parses a standalone .mtl library (newmtl/Kd/map_Kd), file order.
+   * Parses a standalone .mtl library (newmtl/Kd/map_Kd/refl), file order.
    * @return materials, empty when the file is missing or defines none
    */
   static std::vector<LeanMtlMaterial> loadMtl(const std::string& relativePath);

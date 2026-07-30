@@ -57,6 +57,20 @@ whatever the change affected.
   boots (see `tyra-testing`). Don't force one for a small tweak; do offer it
   whenever a feature is big enough that a user would want to see it in action.
 
+- **`ai-support/`** — the assistant guides installed into generated projects
+  ("Add AI support"; embedded into the exe at build). They document the
+  generated-project layout, the ownership markers, the flow-graph model and
+  the editor CLI — when any of those change, update the affected files under
+  `ai-support/` too (see `docs/ai-support.md`).
+
+- **The platform twin** — not a doc, but it belongs on this checklist because
+  it is missed the same way: several files in this repo exist once per platform
+  (`deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`, `build.ps1`/`build.sh`, the
+  `if(WIN32)`/`else()` halves of `CMakeLists.txt`, the `#ifdef _WIN32`/`#else`
+  halves of `src/platform.cpp`). If your change touched one member of a pair,
+  it must touch the other **in the same commit**. The inventory and the two
+  traps are in `tyra-editor-dev` ("Platform parity").
+
 - **`CLAUDE.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).
 

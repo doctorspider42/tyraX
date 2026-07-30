@@ -72,6 +72,8 @@
     LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; Modified by TyraX: spot light (flashlight)
@@ -99,7 +101,7 @@ setDestAddrMultiColor:
     iadd    destAddress,        colorData,      vertexCount
 setDestAddr:
 
-    StoreTyraGifTagsTexture{ gifSetTag, lodGifTag, texBufferClutGifTag, primTag, testsTag, destAddress }
+    StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     iaddiu  outCount,       vi00,           0
     iadd    vertexCounter,  vi00,           vertexCount
@@ -130,6 +132,17 @@ processing:
         CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
         CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
         CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
+
+        ; Ceiling before the clipper interpolates - see the same block in
+        ; stapip_clip_c_vu1.vclpp (unclamped saturated colors made lit
+        ; objects brighten at screen edges; upper bound only, micro memory
+        ; has no room for the floor the emitter already applies).
+        loi         255
+        mini.xyz    color1,     color1,     i
+        loi         255
+        mini.xyz    color2,     color2,     i
+        loi         255
+        mini.xyz    color3,     color3,     i
 
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
@@ -284,9 +297,19 @@ fanLoop:
         iaddiu  fanNext,    fanPtr,     3
         ibeq    fanNext,    srcEnd,     triNext
 
-        EmitClipVertexTC{ srcBase, destAddress, scale, fogParams }
-        EmitClipVertexTC{ fanPtr,  destAddress, scale, fogParams }
-        EmitClipVertexTC{ fanNext, destAddress, scale, fogParams }
+        ; one shared emitter instance - the corner pointer rotates
+        ; srcBase -> fanPtr -> fanNext across three iterations. Saves ~2/3
+        ; of the emit code vs three inlined copies: the freed micro memory
+        ; is what lets cull_tce join the VU1-clipping program set.
+        iadd    emitPtr,    srcBase,    vi00
+        iadd    emitNxt,    fanPtr,     vi00
+        iaddiu  emitCnt,    vi00,       3
+fanEmitLoop:
+        EmitClipVertexTC{ emitPtr, destAddress, scale, fogParams }
+        iadd    emitPtr,    emitNxt,    vi00
+        iadd    emitNxt,    fanNext,    vi00
+        iaddi   emitCnt,    emitCnt,    -1
+        ibgtz   emitCnt,    fanEmitLoop
         iaddiu  outCount,   outCount,   3
 
         iadd    fanPtr,     fanNext,    vi00
@@ -300,7 +323,7 @@ triNext:
         ibgtz   vertexCounter,  triLoop
 
     ; rebuild the kick address and patch the prim giftag NLOOP (the
-    ; texture tag block is 7 qwords; the prim tag sits at +6)
+    ; texture tag block is 9 qwords (incl. ALPHA); the prim tag sits at +8)
     xtop    buffer
     iaddiu  vertexData, buffer,     VU1_STAPIP_VERT_DATA_ADDR
     ilw.w   vertexCount, 0(buffer)
@@ -314,7 +337,7 @@ kickMulti:
 kickPatch:
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000
-    isw.x   vertMask,   6(vertexData)
+    isw.x   vertMask,   8(vertexData)
 
     xgkick vertexData ; dispatch to the GS rasterizer.
 

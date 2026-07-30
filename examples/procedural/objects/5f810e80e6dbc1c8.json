@@ -1,0 +1,1 @@
+{ "id": "5f810e80e6dbc1c8", "name": "forest#pine-xm1z0", "type": "model", "position": [-35, 0, 35], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/procgen-7f3a1c02-pine-xm1z0.obj", "meshLod": 55, "procSource": "7f3a1c02d1e04a91" }

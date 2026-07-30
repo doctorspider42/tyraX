@@ -10,12 +10,14 @@
 
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // per-mesh object-space spot light (flashlight) upload for the color VU1
-// programs + EE clipper.
+// programs + EE clipper; alpha-test AFAIL fixed to ATEST_KEEP_ALL (see
+// sendObjectData) so cutout textures stop stamping the z buffer.
 
 #include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
 #include "packet2/packet2_tyra_utils.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
 
 // #define TYRA_QBUFF_RENDERER_VERBOSE_LOG 1
 
@@ -58,13 +60,18 @@ StaPipQBufferRenderer::StaPipQBufferRenderer() {
 
   qbuffersPacketSize = 4 * buffersCount;
   programsPacket = nullptr;
+  billboardProgramsPacket = nullptr;
 }
 
 void StaPipQBufferRenderer::allocateOnUse() {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
   // Modified by TyraX: +6 qwords for the spot light unpack, +16 for the
   // VU1 clipping constants + plane table.
-  objectDataPacket = packet2_create(42, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Modified by TyraX: 42 -> 48 - the per-mesh ALPHA qword and the env
+  // (matcap) camera basis added two unpack blocks to sendObjectData.
+  // Modified by TyraX: 48 -> 52 - the billboard basis unpack (2 qwords
+  // + headers).
+  objectDataPacket = packet2_create(52, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
 
   packets = new packet2_t*[2];
   for (u16 i = 0; i < 2; i++)
@@ -96,6 +103,7 @@ void StaPipQBufferRenderer::deallocateOnUse() {
 
 StaPipQBufferRenderer::~StaPipQBufferRenderer() {
   if (programsPacket) packet2_free(programsPacket);
+  if (billboardProgramsPacket) packet2_free(billboardProgramsPacket);
 }
 
 void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
@@ -197,8 +205,33 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   out.color[1] = spot.color.g;
   out.color[2] = spot.color.b;
   out.invRange2 = 1.0F / objRange2;
+
+  // Point (omni) light through the SAME spot constants: zero direction makes
+  // the axial term t = max(0, d.dir) collapse to 0, so the cone factor
+  // becomes (0 - cosCut2*dist2)*invSoft = dist2 * invSoft with cosCut2 = -1.
+  // invSoft is sized to saturate that to 1 within ~1% of the range - the
+  // radial falloff alone shapes the light. No VU1 change, no micro memory.
+  if (spot.point) {
+    out.direction.x = 0.0F;
+    out.direction.y = 0.0F;
+    out.direction.z = 0.0F;
+    out.cosCut2 = -1.0F;
+    out.invSoft = 1.0e4F / objRange2;
+    return out;
+  }
+
   out.cosCut2 = spot.cosCutoff * spot.cosCutoff;
-  const float coneBase = objRange2 * (1.0F - out.cosCut2);
+  // The VU1/EE cone term is clamp01((t^2 - cosCut2*dist2) * invSoft). Its
+  // SIGN is the exact angular cutoff and is distance-independent, but its
+  // MAGNITUDE scales with dist2 - so sizing invSoft off the full range
+  // (objRange2 * (1 - cosCut2)) made the beam ramp up across the whole
+  // range: dim on everything close to the lamp, fully bright only near its
+  // far end. On the camera flashlight that reads as "it doesn't light what
+  // I'm looking at". Saturate at a fraction of the range instead; the
+  // cutoff ANGLE is unchanged, the edge just gets crisper.
+  constexpr float kFullBrightAt = 0.18F;  // of the range, on the axis
+  const float coneBase =
+      objRange2 * kFullBrightAt * kFullBrightAt * (1.0F - out.cosCut2);
   out.invSoft = coneBase > 1e-10F ? spot.softness / coneBase : 0.0F;
   return out;
 }
@@ -223,13 +256,16 @@ void StaPipQBufferRenderer::sendObjectData(
                                      4, false);
   }
 
-  // Modified by TyraX: spot light (flashlight) for the color programs.
+  // Modified by TyraX: dynamic light for the color programs - the per-bag
+  // pick from StaPipCore (flashlight or the strongest scene point light),
+  // falling back to the global flashlight state when no pick was made.
   // The dir-lights addresses are free when the bag has no lighting - the
   // C/TC programs read the three spot quads from there. Always uploaded
   // (the programs always compute; a zero color makes it a no-op) and the
   // same numbers go to the EE clipper for the as_is path.
   if (!bag->lighting) {
-    const auto meshSpot = buildSpotForBag(rendererCore->spot, bag->info->model);
+    const auto& light = bagLight ? *bagLight : rendererCore->spot;
+    const auto meshSpot = buildSpotForBag(light, bag->info->model);
     clipper.setSpot(meshSpot);
 
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, false);
@@ -321,11 +357,20 @@ void StaPipQBufferRenderer::sendObjectData(
                       DRAW_ENABLE, rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     } else {
+      // Cutout alpha: texels with alpha 0 fail the test and must write
+      // NOTHING. Upstream passed ATEST_KEEP_FRAMEBUFFER, whose ps2sdk name
+      // reads backwards - it is AFAIL=ZB_ONLY (2), "keep the framebuffer,
+      // update z". So every transparent texel stamped the z buffer while
+      // drawing no colour, and the invisible part of an alpha-cutout card
+      // (foliage, decals, grates) occluded whatever was drawn behind it
+      // later. ATEST_KEEP_ALL (0) leaves both buffers alone, which is what a
+      // cutout means. Opaque geometry carries alpha 0x80 and never fails the
+      // test, so nothing else changes.
       packet2_add_2x_s64(
           objectDataPacket,
-          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
-                      ATEST_KEEP_FRAMEBUFFER, DRAW_DISABLE, DRAW_DISABLE,
-                      DRAW_ENABLE, rendererCore->gs.zBuffer.method),
+          GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
+                      DRAW_DISABLE, DRAW_DISABLE, DRAW_ENABLE,
+                      rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     }
 
@@ -337,6 +382,67 @@ void StaPipQBufferRenderer::sendObjectData(
     }
   }
   packet2_utils_vu_close_unpack(objectDataPacket);
+
+  // Modified by TyraX: particle billboard camera basis (right, up - world
+  // space). Reuses the lights-matrix area like the env basis; billboard
+  // bags never carry lighting (asserted in StaPipCore::render). Swapping
+  // this basis and re-rendering the same bag draws the same centers for
+  // another view (e.g. a portal's virtual camera).
+  if (bag->billboard != nullptr) {
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_BILLBOARD_BASIS_ADDR,
+                                 false);
+    {
+      packet2_add_float(objectDataPacket, bag->billboard->right.x);
+      packet2_add_float(objectDataPacket, bag->billboard->right.y);
+      packet2_add_float(objectDataPacket, bag->billboard->right.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, bag->billboard->up.x);
+      packet2_add_float(objectDataPacket, bag->billboard->up.y);
+      packet2_add_float(objectDataPacket, bag->billboard->up.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
+  // Modified by TyraX: env (matcap) camera basis for the TCE programs -
+  // right, up and the ST constants (see CalculateTyraEnvStq in
+  // tyra_macros.i). Reuses the lights-matrix area; env bags never carry
+  // lighting (asserted in StaPipCore::render).
+  if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
+    const Vec4& r = bag->texture->envRight;
+    const Vec4& u = bag->texture->envUp;
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ENV_BASIS_ADDR, false);
+    {
+      packet2_add_float(objectDataPacket, r.x);
+      packet2_add_float(objectDataPacket, r.y);
+      packet2_add_float(objectDataPacket, r.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, u.x);
+      packet2_add_float(objectDataPacket, u.y);
+      packet2_add_float(objectDataPacket, u.z);
+      packet2_add_float(objectDataPacket, 0.0F);
+      // constants: (0.5, -0.5, 1.0, 0.5) - scale.x, scale.y, q, bias
+      packet2_add_float(objectDataPacket, 0.5F);
+      packet2_add_float(objectDataPacket, -0.5F);
+      packet2_add_float(objectDataPacket, 1.0F);
+      packet2_add_float(objectDataPacket, 0.5F);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
+
+  // Modified by TyraX: per-mesh GS blend equation, emitted in-band with the
+  // other tags by every program (StoreTyraGifTags*Alpha) - no FINISH barrier
+  // to switch it. Default alpha-over; the reflective-material env pass sets
+  // additiveBlendFix for Cv = Cs*FIX/128 + Cd.
+  {
+    const u8 fix = bag->info->additiveBlendFix;
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_ALPHA_ADDR, false);
+    packet2_add_2x_s64(objectDataPacket,
+                       fix != 0 ? GS_SET_ALPHA(0, 2, 2, 1, fix)
+                                : GS_SET_ALPHA(0, 1, 0, 1, 0),
+                       GS_REG_ALPHA);
+    packet2_utils_vu_close_unpack(objectDataPacket);
+  }
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
@@ -372,7 +478,16 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
   // as_is is only ever fed by the retired EE clipper path).
-  VU1Program** programs = new VU1Program*[8];
+  // The env (matcap) variants ride along in both sets: cull_tce +
+  // as_is_tce with the EE clipper, cull_tce + clip_tce in VU1-clipping
+  // mode. The vu1 set only fits because the five clip programs share one
+  // rotating fan emitter (see fanEmitLoop in the .vclpp files) - three
+  // inlined emit copies per program measured 2162 instructions against
+  // the 2042 ceiling. Check the micro-memory budget with nm after
+  // touching any program - the createProgramsCache overflow assert is
+  // compiled out in release.
+  const u32 count = 10;
+  VU1Program** programs = new VU1Program*[count];
   programs[0] = repository.getProgram(StaPipCullColor);
   programs[1] =
       repository.getProgram(vu1Clipping ? StaPipClipColor : StaPipAsIsColor);
@@ -385,8 +500,21 @@ void StaPipQBufferRenderer::setProgramsCache() {
   programs[6] = repository.getProgram(StaPipCullTextureColor);
   programs[7] = repository.getProgram(vu1Clipping ? StaPipClipTextureColor
                                                   : StaPipAsIsTextureColor);
-  programsPacket = path1->createProgramsCache(programs, 8, 0);
+  programs[8] = repository.getProgram(StaPipCullTextureEnv);
+  programs[9] = repository.getProgram(vu1Clipping ? StaPipClipTextureEnv
+                                                  : StaPipAsIsTextureEnv);
+  programsPacket = path1->createProgramsCache(programs, count, 0);
   delete[] programs;
+
+  // Modified by TyraX: the billboard family lives in its own small packet,
+  // swapped in on demand (ensureProgramSet) - the resident set above has no
+  // spare micro memory for it. Built once; independent of the clipping mode.
+  if (billboardProgramsPacket == nullptr) {
+    VU1Program* billboardPrograms[2];
+    billboardPrograms[0] = repository.getProgram(StaPipBillboardColor);
+    billboardPrograms[1] = repository.getProgram(StaPipBillboardTexture);
+    billboardProgramsPacket = path1->createProgramsCache(billboardPrograms, 2, 0);
+  }
 }
 
 void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
@@ -405,6 +533,22 @@ void StaPipQBufferRenderer::uploadPrograms() {
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  billboardSetActive = false;  // Modified by TyraX: main set is resident now
+}
+
+// Modified by TyraX: swap between the resident program set and the
+// billboard set (both packets are prebuilt - this is one VIF1 MPG upload,
+// the VIF stalls it until VU1 halts, so it is safe mid-frame).
+void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
+  if (billboardSetActive == billboard) return;
+  billboardSetActive = billboard;
+
+  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  dma_channel_send_packet2(
+      billboard ? billboardProgramsPacket : programsPacket, DMA_CHANNEL_VIF1,
+      true);
+  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  clearLastProgramName();
 }
 
 void StaPipQBufferRenderer::setDoubleBuffer() {
@@ -601,9 +745,29 @@ void StaPipQBufferRenderer::sendPacket() {
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
+  // TyraX: the VU1 packet tap (docs/devkit.md). Null in any build whose devkit
+  // layer does not exist, so this is one load + branch per bag flush and the
+  // capture code is not linked at all.
+  if (g_vuPacketHook)
+    g_vuPacketHook(currentPacket->base, packet2_get_qw_count(currentPacket),
+                   "");  // the program is in the packet's MSCAL address
+
   // dma_wait_fast(); // This have no impact on performance
 
   dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+
+  // TyraX: with a VU1 memory hook installed (a devkit capture is in flight),
+  // wait for the transfer AND for VU1 to finish its microprogram, then hand the
+  // whole of VU1 data memory over. This stalls the pipeline on purpose - it runs
+  // for the one frame a capture was armed for, never otherwise.
+  if (g_vuMemHook) {
+    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+    // VIF1_STAT: VPS (bits 0-1) = VIF status, VEW (bit 2) = waiting for VU1.
+    volatile u32* const vif1Stat = (volatile u32*)0x10003c00;
+    for (int spin = 0; spin < 2000000 && (*vif1Stat & 0x7) != 0; ++spin) {
+    }
+    g_vuMemHook((const void*)0x1100c000, 1024 * 16);
+  }
 
   // Switch packet, so we can proceed during DMA transfer
   context = !context;
@@ -621,10 +785,19 @@ StaPipVU1Program* StaPipQBufferRenderer::getAsIsProgramByBag(
     const StaPipBag* bag) {
   auto programType = getDrawProgramTypeByBag(bag);
 
+  // Modified by TyraX: billboard bags always use the billboard programs
+  // (per-quad culling happens on VU1; there is no as_is/clip variant).
+  if (programType == StaPipVU1BillboardTexture)
+    return getProgramByName(StaPipBillboardTexture);
+  else if (programType == StaPipVU1BillboardColor)
+    return getProgramByName(StaPipBillboardColor);
+
   if (programType == StaPipVU1TextureDirLights)
     return getProgramByName(StaPipAsIsTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipAsIsDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipAsIsTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipAsIsTextureColor);
   else
@@ -636,10 +809,18 @@ StaPipVU1Program* StaPipQBufferRenderer::getClipProgramByBag(
     const StaPipBag* bag) {
   auto programType = getDrawProgramTypeByBag(bag);
 
+  // Modified by TyraX: billboard bags always use the billboard programs.
+  if (programType == StaPipVU1BillboardTexture)
+    return getProgramByName(StaPipBillboardTexture);
+  else if (programType == StaPipVU1BillboardColor)
+    return getProgramByName(StaPipBillboardColor);
+
   if (programType == StaPipVU1TextureDirLights)
     return getProgramByName(StaPipClipTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipClipDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipClipTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipClipTextureColor);
   else
@@ -665,10 +846,18 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByParams(
 
 StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByType(
     const StaPipProgramType& programType) {
+  // Modified by TyraX: billboard bags always use the billboard programs.
+  if (programType == StaPipVU1BillboardTexture)
+    return getProgramByName(StaPipBillboardTexture);
+  else if (programType == StaPipVU1BillboardColor)
+    return getProgramByName(StaPipBillboardColor);
+
   if (programType == StaPipVU1TextureDirLights)
     return getProgramByName(StaPipCullTextureDirLights);
   else if (programType == StaPipVU1DirLights)
     return getProgramByName(StaPipCullDirLights);
+  else if (programType == StaPipVU1TextureEnvColor)  // TyraX: env (matcap)
+    return getProgramByName(StaPipCullTextureEnv);
   else if (programType == StaPipVU1TextureColor)
     return getProgramByName(StaPipCullTextureColor);
   else
@@ -677,6 +866,16 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByType(
 
 StaPipProgramType StaPipQBufferRenderer::getDrawProgramTypeByBag(
     const StaPipBag* bag) const {
+  // Modified by TyraX: particle billboards - the vertex slot carries
+  // centers, the ST slot the per-particle basis weights. The texture bag is
+  // always present (params channel); a real image selects the T variant.
+  if (bag->billboard != nullptr)
+    return bag->texture->texture != nullptr ? StaPipVU1BillboardTexture
+                                            : StaPipVU1BillboardColor;
+  // Modified by TyraX: env (matcap) - the ST slot carries normals, the
+  // texture ST is computed on VU1. Lighting is unsupported with env.
+  if (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
+    return StaPipVU1TextureEnvColor;
   auto isLightingEnabled = bag->lighting != nullptr;
   auto isTextureEnabled = bag->texture != nullptr;
   return getDrawProgramTypeByParams(isLightingEnabled, isTextureEnabled);

@@ -56,6 +56,24 @@ class CollisionMesh {
    */
   bool resolveSphere(Vec4* center, float radius, float maxNormalY) const;
 
+  /**
+   * Same, but "steep" is judged against an explicit up direction given in
+   * MESH-LOCAL space (unit length). Callers whose mesh is rotated in the
+   * world pass world-up transformed into local space - otherwise a mesh
+   * lying on its side has world-walls whose LOCAL normal reads as a
+   * walkable floor and the sphere walks straight through them.
+   *
+   * With `prev` (the query's pre-move position, mesh-local) the push is
+   * SIDE-AWARE: the sphere is ejected to prev's side of each face. The
+   * plain push moves along (center - closest), which for a center that
+   * stepped PAST a face plane points INTO the volume - a fast walker
+   * (step > radius) crossing a wall got sucked inside instead of blocked.
+   * Steps that crossed a face this move are caught within an extra 0.6
+   * capture band beyond the radius.
+   */
+  bool resolveSphere(Vec4* center, float radius, float maxNormalY,
+                     const Vec4& upLocal, const Vec4* prev = nullptr) const;
+
  private:
   static constexpr u32 kTriFloats = 12;  // a[3], b[3], c[3], normal[3]
   static constexpr int kMaxGrid = 32;

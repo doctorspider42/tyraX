@@ -1,0 +1,1 @@
+{ "id": "glowex0312pillar", "name": "s3-pillar-lit-2", "type": "box", "position": [6, 1.8, -2], "rotation": [0, 0, 0], "scale": [1.2, 3.6, 1.2], "color": [1, 1, 1], "physics": false, "material": "res/materials/concrete.mtl" }

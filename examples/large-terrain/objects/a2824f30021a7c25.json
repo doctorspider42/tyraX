@@ -1,0 +1,1 @@
+{ "id": "a2824f30021a7c25", "name": "rock-384", "type": "box", "position": [187.302, 1.863, 394.427], "rotation": [0, 219.1, 0], "scale": [3.13, 1.91, 2.7], "color": [0.468, 0.468, 0.492], "physics": false, "collision": "none", "drawDistance": 60 }
