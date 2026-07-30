@@ -15082,7 +15082,6 @@ Each finished feature lands as its own commit.
   `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
   nothing a generated game project's assistant does needs it.
 
-<<<<<<< HEAD
 - (232) **Runtime procedural generation + prefabs** - the two halves of "build
   the world while the game runs". Until now a Procedural volume was baked: the
   editor evaluated the graph and wrote finished chunk meshes, and the console
@@ -15346,7 +15345,6 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
-=======
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15434,7 +15432,6 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
->>>>>>> origin/main
 
 - (237) **Merge fallout: a procedural volume scattered onto a terrain that no
   longer exists.** Found while merging main's *optional terrain* (236) into the
