@@ -15793,3 +15793,41 @@ Each finished feature lands as its own commit.
   The `editor.ini` the run wrote its two scratch entries into was restored
   afterwards - the recent list is machine-global, so a test that leaves entries
   in it is a test that edits the user's editor.
+
+- (249) **Close Project review fallout: the Drone Generator outlived the close.**
+  Found reviewing (248) against current main, and it is the exact bug class that
+  entry's own design notes warn about - state that outlives the project - in the
+  one subsystem whose guard does not catch it. `closeProject()` leans on every
+  per-frame channel standing down at `if (!hasProject_)`, which all of them do,
+  including main's newer `livetimeTick`. But `droneTickRender()` is called from
+  `drawDroneGeneratorWindow()` **above** that window's `!hasProject_` return, on
+  purpose, so an offline render survives closing the window. That means after a
+  close it still completes, and its completion path appends the rendered track
+  to `project_.music` and calls `saveAll()` - writing into the empty `Project`
+  the close just installed, or into whichever project is opened next. A drone
+  **audition** had the mirror-image problem: its Stop button lives in a window
+  that hides on `!hasProject_`, so the sound played on over the welcome screen
+  with nothing left to stop it. Both now stand down in `closeProject`, in the
+  same order `App::run`'s shutdown path documents and for the same reason: the
+  audio device first (its callback holds the `LiveSynth`), then cancel + join
+  the render thread (`dronegen::render` polls the cancel flag through its
+  progress callback, so the join is bounded). Also `glbInfoCache_`, which every
+  other eviction site clears together with `modelInfoCache_` and which the close
+  was clearing only half of.
+  **Verified** in the running editor with `--ui-script` on scratch projects,
+  which is also how the merge itself was checked: the File menu still reads
+  New / Open / Recent Projects / Save / Close Project / Exit after 35 commits of
+  main; the submenu lists 10 entries (the cap), newest first, with `Clear list`
+  under a separator; a project deleted off disk renders as `p177e  (missing)`
+  and the menu neither crashes nor hangs; Close Project on a clean project lands
+  on the welcome screen (`New project...` / `Open project...` present); and the
+  dirty guard holds - add an Empty (which saves its `objects/*.json`), Edit >
+  Undo (which commits without writing), Close Project -> the *Unsaved Changes*
+  modal with *Don't Save* / *Cancel*, 18/18 script steps green.
+  Not verified: the drone paths themselves are not reachable from `--ui-script`
+  without a sound card and a multi-second render, so the two teardown calls are
+  read-and-reasoned, not exercised - a human should start a render, close the
+  project mid-render, and confirm no track appears in the next project opened.
+  The `editor.ini` the runs wrote scratch entries into was restored afterwards -
+  the recent list is machine-global, so a test that leaves entries in it is a
+  test that edits the user's editor.

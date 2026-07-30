@@ -4464,6 +4464,25 @@ void App::closeProject() {
     // A build has no UI left once the toolbar goes away (Stop lives there), so
     // it would run to completion with no way to cancel it.
     if (runner_.busy()) runner_.cancel();
+    // The Drone Generator, in the same order the shutdown path uses (audio
+    // first: the device callback holds the LiveSynth, and the render thread
+    // writes into droneRenderResult_). The audition has to stop because its
+    // window - and with it Stop - hides on !hasProject_, so a drone would play
+    // on over the welcome screen with no control left. The offline render has
+    // to be cancelled because droneTickRender() deliberately runs BEFORE that
+    // same guard (so a render survives closing the window), and its completion
+    // path appends the track to project_.music and calls saveAll() - after a
+    // close that writes into an empty Project, or into whichever project is
+    // opened next.
+    if (droneAuditioning_) droneStop();
+    if (droneRendering_) {
+        droneRenderCancel_.store(true);
+        if (droneRenderThread_.joinable()) droneRenderThread_.join();
+        droneRendering_ = false;
+        droneRenderDone_.store(false);
+        droneRenderResult_ = dronegen::RenderResult();
+        droneStatus_ = "Render cancelled - the project was closed.";
+    }
     if (session_.active()) {
         session_.close();
         peerPresence_.clear();
@@ -4484,6 +4503,7 @@ void App::closeProject() {
     layerRamCache_.clear();
     wavIssueCache_.clear();
     modelInfoCache_.clear();
+    glbInfoCache_.clear();  // always invalidated with modelInfoCache_
     // The error catcher tails the open project's logs; the next open baselines
     // it again (attachProject). The runner log survives the close, so its size
     // has to stay honest or the next poll reads a shrink that never happened.
