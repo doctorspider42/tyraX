@@ -1296,6 +1296,9 @@ void Viewport::shutdown() {
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
     destroyMesh(portalArrow_);
+    destroyMesh(scatterMaskMesh_);
+    destroyMesh(scatterCurveMesh_);
+    destroyMesh(scatterPointsMesh_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(prevBg_);
@@ -1594,6 +1597,10 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
     destroyMesh(portalArrow_);
+    destroyMesh(scatterMaskMesh_);
+    destroyMesh(scatterCurveMesh_);
+    destroyMesh(scatterPointsMesh_);
+    scatterHasVersion_ = false;  // overlays are gone - rebuild on the next push
     box_ = uploadMesh(unitBox());
     sphere_ = uploadMesh(unitSphere());
     cylinder_ = uploadMesh(unitCylinder());
@@ -2245,6 +2252,31 @@ float rayUnitBox(Vec3 o, Vec3 d) {
 
 }  // namespace
 
+void Viewport::cameraRay(float u, float v, float outOrigin[3],
+                         float outDir[3]) const {
+    const Vec3 tgt{target_[0], target_[1], target_[2]};
+    const Vec3 eye{tgt.x + distance_ * std::cos(pitch_) * std::cos(yaw_),
+                   tgt.y + distance_ * std::sin(pitch_),
+                   tgt.z + distance_ * std::cos(pitch_) * std::sin(yaw_)};
+    const Vec3 fwd = normalize(sub(tgt, eye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const float aspect =
+        fbHeight_ > 0 ? (float)fbWidth_ / (float)fbHeight_ : 1.0f;
+    const float th = std::tan(50.0f * kPi / 180.0f * 0.5f);
+    const float ndcX = u * 2.0f - 1.0f;
+    const float ndcY = 1.0f - v * 2.0f;
+    const Vec3 dir = normalize({fwd.x + right.x * ndcX * th * aspect + up.x * ndcY * th,
+                                fwd.y + right.y * ndcX * th * aspect + up.y * ndcY * th,
+                                fwd.z + right.z * ndcX * th * aspect + up.z * ndcY * th});
+    outOrigin[0] = eye.x;
+    outOrigin[1] = eye.y;
+    outOrigin[2] = eye.z;
+    outDir[0] = dir.x;
+    outDir[1] = dir.y;
+    outDir[2] = dir.z;
+}
+
 int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
     if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
 
@@ -2264,6 +2296,12 @@ int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) co
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
+        // A scatter volume's box is typically map-sized: letting it win picks
+        // would make every click inside it select the volume instead of the
+        // props. Select it from the outliner or the Procedural window (the
+        // gizmo still works once it is selected). Its baked chunks are build
+        // output and are not drawn at all, so they are not clickable either.
+        if (o.type == PrimitiveType::Scatter || !o.procSource.empty()) continue;
         // Transform the ray into the object's unit-box space
         Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
                                 o.rotation);
@@ -2545,6 +2583,93 @@ void Viewport::setNavOverlay(const navmesh::NavGrid* grid, uint64_t version) {
             put(x0, z0); put(x1, z1); put(x0, z1);
         }
     navOverlayMesh_ = uploadMesh(v);
+}
+
+void Viewport::setScatterPreview(ScatterPreview p) {
+    const bool rebuild = !scatterHasVersion_ || p.version != scatterVersion_;
+    scatter_ = std::move(p);
+    if (!rebuild) return;
+    scatterVersion_ = scatter_.version;
+    scatterHasVersion_ = true;
+    destroyMesh(scatterMaskMesh_);
+    destroyMesh(scatterCurveMesh_);
+    destroyMesh(scatterPointsMesh_);
+
+    // Mask overlay: one quad per texel draped on the terrain, tinted from cool
+    // (0) to warm (1) with the value ALSO in the alpha, so an empty mask fades
+    // out instead of covering the ground in flat blue.
+    if (scatter_.mask && scatter_.mask->w > 1 && scatter_.mask->h > 1) {
+        const procgen::Mask& m = *scatter_.mask;
+        const int step = m.w > 128 ? m.w / 128 : 1;  // cap the overlay mesh
+        const float dx = m.sizeX / (float)(m.w - 1) * (float)step;
+        const float dz = m.sizeZ / (float)(m.h - 1) * (float)step;
+        std::vector<float> v;
+        for (int z = 0; z + step < m.h; z += step)
+            for (int x = 0; x + step < m.w; x += step) {
+                const float x0 = m.originX + m.sizeX * ((float)x / (float)(m.w - 1));
+                const float z0 = m.originZ + m.sizeZ * ((float)z / (float)(m.h - 1));
+                // The value shows as a cool-to-warm ramp AND as brightness, so
+                // an empty mask reads as dark ground rather than flat blue (the
+                // scene shader has no per-vertex alpha - the pass draws with one
+                // flat opacity).
+                auto put = [&](float wx, float wz, float val) {
+                    const float r = (0.15f + 0.85f * val) * (0.25f + 0.75f * val);
+                    const float g = (0.35f + 0.55f * val) * (0.25f + 0.75f * val);
+                    const float b = (0.85f - 0.55f * val) * (0.25f + 0.75f * val);
+                    v.insert(v.end(),
+                             {wx, terrainHeight(wx, wz) + 0.12f, wz, r, g, b, 0.0f, 0.0f});
+                };
+                const float v00 = m.v[(size_t)z * m.w + x];
+                const float v10 = m.v[(size_t)z * m.w + x + step];
+                const float v11 = m.v[(size_t)(z + step) * m.w + x + step];
+                const float v01 = m.v[(size_t)(z + step) * m.w + x];
+                put(x0, z0, v00);
+                put(x0 + dx, z0, v10);
+                put(x0 + dx, z0 + dz, v11);
+                put(x0, z0, v00);
+                put(x0 + dx, z0 + dz, v11);
+                put(x0, z0 + dz, v01);
+            }
+        scatterMaskMesh_ = uploadMesh(v);
+    }
+
+    if (scatter_.curve && scatter_.curve->count() >= 2) {
+        const procgen::Curve& c = *scatter_.curve;
+        const int steps = std::max(32, c.count() * 24);
+        std::vector<float> v;
+        float prev[3];
+        c.at(0.0f, prev);
+        for (int i = 1; i <= steps; ++i) {
+            float cur[3];
+            c.at((float)i / (float)steps, cur);
+            v.insert(v.end(), {prev[0], prev[1] + 0.15f, prev[2], 1.0f, 0.85f,
+                               0.25f, 0.0f, 0.0f});
+            v.insert(v.end(), {cur[0], cur[1] + 0.15f, cur[2], 1.0f, 0.85f, 0.25f,
+                               0.0f, 0.0f});
+            prev[0] = cur[0];
+            prev[1] = cur[1];
+            prev[2] = cur[2];
+        }
+        scatterCurveMesh_ = uploadMesh(v);
+    }
+
+    // Proxy dots for counts past proxyAbove: crossed line pairs (a GL point
+    // would be one pixel), so a 40 000-instance layout still previews at speed.
+    if ((int)scatter_.instances.size() > scatter_.proxyAbove) {
+        std::vector<float> v;
+        v.reserve(scatter_.instances.size() * 4 * 8);
+        for (const procgen::Instance& i : scatter_.instances) {
+            const float s = 0.35f * (i.scale > 0.01f ? i.scale : 1.0f);
+            auto put = [&](float x, float y, float z) {
+                v.insert(v.end(), {x, y, z, 0.45f, 0.9f, 0.5f, 0.0f, 0.0f});
+            };
+            put(i.pos[0] - s, i.pos[1] + 0.05f, i.pos[2]);
+            put(i.pos[0] + s, i.pos[1] + 0.05f, i.pos[2]);
+            put(i.pos[0], i.pos[1] + 0.05f, i.pos[2] - s);
+            put(i.pos[0], i.pos[1] + 0.05f, i.pos[2] + s);
+        }
+        scatterPointsMesh_ = uploadMesh(v);
+    }
 }
 
 void Viewport::setTerrainMaterial(const std::string& texRelPath, const float kd[3],
@@ -3707,6 +3832,51 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     };
 
+    // One STATIC object drawn with a caller-supplied matrix: a primitive with
+    // its material tint/texture, or a .obj's parts. Everything that draws an
+    // object somewhere other than its own place in the scene goes through this
+    // - a mirror's reflected copy, and a prefab member inside a procedural
+    // instance. Deliberately the short path: no animation, no reflections, no
+    // projected decals, because neither caller can have them (merged prefab
+    // geometry has no runtime identity, and a mirror never lists an animated
+    // model).
+    auto drawStaticObject = [&](const SceneObject& t, const Mat4& model,
+                                bool asLines, float tintScale) {
+        aoReceive = t.type != PrimitiveType::Model;
+        const Mat4 mvp = mul(viewProj, model);
+        const ModelDraw* md = t.type == PrimitiveType::Model
+                                  ? modelDraw(t.modelPath, t.materialPath)
+                                  : nullptr;
+        if (md) {
+            for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
+                for (const ModelPart& part : md->parts) {
+                    const bool cutout = part.alpha && !asLines;
+                    if ((int)cutout != alphaPass) continue;
+                    // emissive is one-shot - draw() consumes it, so it has to be
+                    // set per part, inside the ordering loop
+                    for (int a = 0; a < 3; ++a)
+                        emissive[a] =
+                            asLines ? 0.0f : t.color[a] * tintScale * part.ke[a];
+                    draw(part.mesh, GL_TRIANGLES, mvp, t.color[0] * tintScale,
+                         t.color[1] * tintScale, t.color[2] * tintScale,
+                         asLines ? 0 : part.tex, asLines ? nullptr : &model, cutout);
+                }
+            return;
+        }
+        const MaterialDraw* mat =
+            t.type == PrimitiveType::Model ? nullptr : materialDraw(t.materialPath);
+        const float kr = mat ? mat->kd[0] : 1.0f;
+        const float kg = mat ? mat->kd[1] : 1.0f;
+        const float kb = mat ? mat->kd[2] : 1.0f;
+        for (int a = 0; a < 3; ++a)
+            emissive[a] = (asLines || !mat) ? 0.0f : t.color[a] * tintScale * mat->ke[a];
+        const uint32_t tex = (asLines || !mat) ? 0 : mat->tex;
+        const bool decalAlpha = t.type == PrimitiveType::Decal && tex && !asLines;
+        draw(*meshFor(t), GL_TRIANGLES, mvp, t.color[0] * kr * tintScale,
+             t.color[1] * kg * tintScale, t.color[2] * kb * tintScale, tex,
+             asLines ? nullptr : &model, decalAlpha);
+    };
+
     // One pass over terrain + objects, filled or as wireframe.
     // tintScale darkens the overlay wires in SolidWireframe mode.
     auto scenePass = [&](bool asLines, float tintScale) {
@@ -3758,6 +3928,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];
+            // Baked scatter chunks are build output of the graph the preview
+            // below draws live from the same deterministic evaluation - drawing
+            // both would double every instance. A Scatter volume itself is an
+            // authoring region: a wire box, never geometry.
+            if (!o.procSource.empty()) continue;
+            if (o.type == PrimitiveType::Scatter) {
+                if (!asLines)
+                    draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), 0.4f,
+                         0.85f, 0.55f);
+                continue;
+            }
             aoSelfObj = (int)oi;  // an object never occludes itself
             aoGroundOn = true;
             // models don't receive AO (matches the game - see modelDraw note)
@@ -3888,6 +4069,50 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                  mat ? mat->reflStrength : 0.0f,
                  (asLines || !mat) ? false : mat->reflSky,
                  mat ? mat->reflRounded : false, o.position);
+        }
+        // Procedural scatter preview: one draw per instance part through the
+        // ordinary model path, so the preview is shaded exactly like the static
+        // chunks the build bakes out of the same instances. Beyond proxyAbove
+        // the instances show as dots (see setScatterPreview) - one GL draw each
+        // is fine for thousands, not for tens of thousands.
+        if (!scatter_.instances.empty() &&
+            (int)scatter_.instances.size() <= scatter_.proxyAbove) {
+            aoSelfObj = -1;
+            aoGroundOn = true;
+            aoReceive = false;  // models receive no baked AO, in game either
+            const float d2r = kPi / 180.0f;
+            for (const procgen::Instance& inst : scatter_.instances) {
+                if (inst.asset < 0 || inst.asset >= (int)scatter_.assets.size())
+                    continue;
+                const ModelDraw* md = modelDraw(scatter_.assets[inst.asset], "");
+                if (!md) continue;
+                const float s = inst.scale > 0.0001f ? inst.scale : 1.0f;
+                Mat4 model = scaleM(s, s, s);
+                model = mul(rotX(inst.rot[0] * d2r), model);
+                model = mul(rotY(inst.rot[1] * d2r), model);
+                model = mul(rotZ(inst.rot[2] * d2r), model);
+                model = mul(translation(inst.pos[0], inst.pos[1], inst.pos[2]), model);
+                const Mat4 mvp = mul(viewProj, model);
+                for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
+                    for (const ModelPart& part : md->parts) {
+                        const bool cutout = part.alpha && !asLines;
+                        if ((int)cutout != alphaPass) continue;
+                        for (int a = 0; a < 3; ++a)
+                            emissive[a] = asLines ? 0.0f : tintScale * part.ke[a];
+                        draw(part.mesh, GL_TRIANGLES, mvp, tintScale, tintScale,
+                             tintScale, asLines ? 0 : part.tex,
+                             asLines ? nullptr : &model, cutout);
+                    }
+            }
+            // Prefab instances. A point from Pick Prefab carries no asset at
+            // all, so without this the whole cloud draws as NOTHING - which is
+            // exactly what a prefab-scattering graph used to look like in the
+            // editor while reporting hundreds of instances. The app expands each
+            // instance through prefab::instantiate (the same function Insert
+            // into scene and the runtime spawner use), so these are already
+            // world-space objects and the preview cannot drift from the world.
+            for (const SceneObject& m : scatter_.prefabObjects)
+                drawStaticObject(m, modelMatrix(m), asLines, tintScale);
         }
         if (!asLines) glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -4067,6 +4292,24 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     if (navOverlayOn_ && navOverlayMesh_.vertexCount)
         draw(navOverlayMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
              nullptr, false, 0.4f);
+
+    // Scatter overlays: an isolated mask draped on the ground, the curve being
+    // edited, its control-point handles, and the proxy dots for huge counts.
+    if (scatterMaskMesh_.vertexCount)
+        draw(scatterMaskMesh_, GL_TRIANGLES, viewProj, 1.0f, 1.0f, 1.0f, 0,
+             nullptr, false, 0.55f);
+    if (scatterPointsMesh_.vertexCount)
+        draw(scatterPointsMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    if (scatterCurveMesh_.vertexCount)
+        draw(scatterCurveMesh_, GL_LINES, viewProj, 1.0f, 1.0f, 1.0f);
+    for (size_t h = 0; h * 3 + 2 < scatter_.handles.size(); ++h) {
+        const float* hp = &scatter_.handles[h * 3];
+        const bool active = (int)h == scatter_.activeHandle;
+        const float r = active ? 0.9f : 0.55f;
+        const Mat4 m = mul(translation(hp[0], hp[1], hp[2]), scaleM(r, r, r));
+        draw(wireSphere_, GL_LINES, mul(viewProj, m), active ? 1.0f : 0.9f,
+             active ? 0.95f : 0.7f, active ? 0.4f : 0.2f);
+    }
 
     // Areas (docs/areas.md): the invisible trigger/selection volume, drawn as
     // the wireframe of its box in the object color - the object's whole

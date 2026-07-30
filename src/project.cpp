@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -40,6 +41,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Mirror: return "mirror";
         case PrimitiveType::Portal: return "portal";
         case PrimitiveType::Area: return "area";
+        case PrimitiveType::Scatter: return "scatter";
     }
     return "box";
 }
@@ -62,6 +64,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
     if (s == "area") return PrimitiveType::Area;
+    if (s == "scatter") return PrimitiveType::Scatter;
     return PrimitiveType::Box;
 }
 
@@ -199,6 +202,193 @@ static std::string flowGraphJson(const FlowGraph& fg) {
 // Public wrapper (project.hpp) - the whole file already sits in namespace
 // project, flowGraphJson above is the private serializer.
 std::string flowGraphToJson(const FlowGraph& fg) { return flowGraphJson(fg); }
+
+// 64-bit values that must survive JSON round-tripping exactly (point-override
+// keys, bake hashes) travel as 16 hex digits: a JSON number would silently
+// lose the low bits past 2^53.
+static std::string hex64(uint64_t v) {
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)v);
+    return buf;
+}
+
+static uint64_t parseHex64(const std::string& s) {
+    uint64_t v = 0;
+    for (char c : s) {
+        int d;
+        if (c >= '0' && c <= '9')
+            d = c - '0';
+        else if (c >= 'a' && c <= 'f')
+            d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F')
+            d = c - 'A' + 10;
+        else
+            continue;
+        v = (v << 4) | (uint64_t)d;
+    }
+    return v;
+}
+
+// "procGraph": { seed, nextId, baked, nodes, links, overrides } - the
+// procedural graph of a Scatter object. Parameters are written as the maps
+// they are, so a node only carries what was actually set and a new parameter
+// on an existing node type reads as its registry default in old projects.
+static std::string procGraphJson(const ProcGraph& g) {
+    std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
+                       ", \"nextId\": " + std::to_string(g.nextId);
+    if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
+    // Runtime mode (docs/procedural-runtime.md). Omitted while off, so every
+    // project authored before it round-trips byte-identically.
+    if (g.runtime) {
+        json += ", \"runtime\": true";
+        if (!g.runAtStart) json += ", \"runAtStart\": false";
+        if (g.seedMode) json += ", \"seedMode\": " + std::to_string(g.seedMode);
+    }
+    json += ", \"nodes\": [";
+    for (size_t i = 0; i < g.nodes.size(); ++i) {
+        const ProcNode& n = g.nodes[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(n.id) +
+                ", \"type\": \"" + n.type + "\", \"pos\": [" + fmtFloat(n.pos[0]) +
+                ", " + fmtFloat(n.pos[1]) + "]";
+        if (n.bypass) json += ", \"bypass\": true";
+        if (!n.nums.empty()) {
+            json += ", \"nums\": {";
+            bool first = true;
+            for (const auto& kv : n.nums) {
+                json += std::string(first ? "" : ", ") + "\"" + jsonEscape(kv.first) +
+                        "\": " + fmtFloat(kv.second);
+                first = false;
+            }
+            json += "}";
+        }
+        if (!n.strs.empty()) {
+            json += ", \"strs\": {";
+            bool first = true;
+            for (const auto& kv : n.strs) {
+                json += std::string(first ? "" : ", ") + "\"" + jsonEscape(kv.first) +
+                        "\": \"" + jsonEscape(kv.second) + "\"";
+                first = false;
+            }
+            json += "}";
+        }
+        if (!n.rows.empty()) {
+            json += ", \"rows\": [";
+            for (size_t r = 0; r < n.rows.size(); ++r) {
+                const ProcRow& row = n.rows[r];
+                json += std::string(r ? ", " : "") + "{ \"s\": \"" +
+                        jsonEscape(row.s) + "\", \"v\": [" + fmtFloat(row.v[0]) +
+                        ", " + fmtFloat(row.v[1]) + ", " + fmtFloat(row.v[2]) +
+                        ", " + fmtFloat(row.v[3]) + "] }";
+            }
+            json += "]";
+        }
+        json += " }";
+    }
+    json += "], \"links\": [";
+    for (size_t i = 0; i < g.links.size(); ++i) {
+        const ProcLink& l = g.links[i];
+        json += std::string(i ? ", " : "") + "{ \"id\": " + std::to_string(l.id) +
+                ", \"from\": " + std::to_string(l.fromNode) +
+                ", \"fromPin\": " + std::to_string(l.fromPin) +
+                ", \"to\": " + std::to_string(l.toNode) +
+                ", \"toPin\": " + std::to_string(l.toPin) + " }";
+    }
+    json += "]";
+    if (!g.overrides.empty()) {
+        json += ", \"overrides\": [";
+        for (size_t i = 0; i < g.overrides.size(); ++i) {
+            const ProcOverride& o = g.overrides[i];
+            // The key is a 64-bit hash: written as hex text because JSON
+            // numbers lose the low bits past 2^53.
+            json += std::string(i ? ", " : "") + "{ \"key\": \"" + hex64(o.key) + "\"";
+            if (o.removed) json += ", \"removed\": true";
+            if (o.offset[0] || o.offset[1] || o.offset[2])
+                json += ", \"offset\": " + fmtVec3(o.offset);
+            if (o.rotate[0] || o.rotate[1] || o.rotate[2])
+                json += ", \"rotate\": " + fmtVec3(o.rotate);
+            if (o.scale != 1.0f) json += ", \"scale\": " + fmtFloat(o.scale);
+            if (o.asset >= 0) json += ", \"asset\": " + std::to_string(o.asset);
+            json += " }";
+        }
+        json += "]";
+    }
+    return json + " }";
+}
+
+static void readProcGraph(const json::Value& jg, ProcGraph& g) {
+    if (const auto* v = jg.find("seed")) g.seed = (uint32_t)v->numberOr(1);
+    if (const auto* v = jg.find("nextId")) g.nextId = (int)v->numberOr(1);
+    if (const auto* v = jg.find("baked")) g.bakedHash = parseHex64(v->stringOr(""));
+    if (const auto* v = jg.find("runtime")) g.runtime = v->boolOr(false);
+    if (const auto* v = jg.find("runAtStart")) g.runAtStart = v->boolOr(true);
+    if (const auto* v = jg.find("seedMode")) g.seedMode = (int)v->numberOr(0);
+    if (const auto* nodes = jg.find("nodes");
+        nodes && nodes->type == json::Value::Type::Array) {
+        for (const auto& jn : nodes->arr) {
+            ProcNode n;
+            if (const auto* v = jn.find("id")) n.id = (int)v->numberOr(0);
+            if (const auto* v = jn.find("type")) n.type = v->stringOr("");
+            if (const auto* v = jn.find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                n.pos[0] = (float)v->arr[0].numberOr(0);
+                n.pos[1] = (float)v->arr[1].numberOr(0);
+            }
+            if (const auto* v = jn.find("bypass"))
+                n.bypass = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jn.find("nums");
+                v && v->type == json::Value::Type::Object)
+                for (const auto& kv : v->obj) n.nums[kv.first] = (float)kv.second.numberOr(0);
+            if (const auto* v = jn.find("strs");
+                v && v->type == json::Value::Type::Object)
+                for (const auto& kv : v->obj) n.strs[kv.first] = kv.second.stringOr("");
+            if (const auto* v = jn.find("rows");
+                v && v->type == json::Value::Type::Array)
+                for (const auto& jr : v->arr) {
+                    ProcRow row;
+                    if (const auto* s = jr.find("s")) row.s = s->stringOr("");
+                    if (const auto* a = jr.find("v");
+                        a && a->type == json::Value::Type::Array)
+                        for (size_t i = 0; i < 4 && i < a->arr.size(); ++i)
+                            row.v[i] = (float)a->arr[i].numberOr(0);
+                    n.rows.push_back(std::move(row));
+                }
+            // Unknown node types are dropped (a graph from a newer editor, or
+            // a retired type) - the links to them go with them below.
+            if (n.id > 0 && procNodeType(n.type)) g.nodes.push_back(std::move(n));
+        }
+    }
+    if (const auto* links = jg.find("links");
+        links && links->type == json::Value::Type::Array) {
+        for (const auto& jl : links->arr) {
+            ProcLink l;
+            if (const auto* v = jl.find("id")) l.id = (int)v->numberOr(0);
+            if (const auto* v = jl.find("from")) l.fromNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("fromPin")) l.fromPin = (int)v->numberOr(0);
+            if (const auto* v = jl.find("to")) l.toNode = (int)v->numberOr(0);
+            if (const auto* v = jl.find("toPin")) l.toPin = (int)v->numberOr(0);
+            const bool ends = procgraph::node(g, l.fromNode) && procgraph::node(g, l.toNode);
+            if (l.id > 0 && ends) g.links.push_back(l);
+        }
+    }
+    if (const auto* ovr = jg.find("overrides");
+        ovr && ovr->type == json::Value::Type::Array) {
+        for (const auto& jo : ovr->arr) {
+            ProcOverride o;
+            if (const auto* v = jo.find("key")) o.key = parseHex64(v->stringOr(""));
+            if (const auto* v = jo.find("removed"))
+                o.removed = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jo.find("offset")) readVec3(v, o.offset);
+            if (const auto* v = jo.find("rotate")) readVec3(v, o.rotate);
+            if (const auto* v = jo.find("scale")) o.scale = (float)v->numberOr(1.0);
+            if (const auto* v = jo.find("asset")) o.asset = (int)v->numberOr(-1);
+            if (o.key) g.overrides.push_back(o);
+        }
+    }
+    // Keep nextId ahead of everything actually in the graph: a hand-edited or
+    // truncated file must not hand out an id that is already taken.
+    for (const ProcNode& n : g.nodes) g.nextId = std::max(g.nextId, n.id + 1);
+    for (const ProcLink& l : g.links) g.nextId = std::max(g.nextId, l.id + 1);
+}
 
 // Pre-Font-Manager projects stored a raw TTF path on every text and menu
 // ("res/fonts/x.ttf", "impact.ttf"). Those fields now name a Project::fonts
@@ -501,6 +691,11 @@ std::string objectJson(const SceneObject& o) {
         json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
+    if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.procSource.empty())
+        json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
+    if (!o.prefabSource.empty())
+        json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
     return json + " }";
 }
 
@@ -1326,6 +1521,80 @@ static void writeSplashSection(std::ostream& json, const Project& p) {
     json << (p.splashScreens.empty() ? "]" : "\n  ]");
 }
 
+// Credits rolls (Tools > Credits Editor). Blocks are written as a flat array in
+// flow order; every presentation field that means "inherit the roll's" (size 0,
+// empty font, no own color) is omitted so a roll restyled at the top stays one
+// edit here too.
+static void writeCreditsSection(std::ostream& json, const Project& p) {
+    json << "\"credits\": [";
+    for (size_t i = 0; i < p.credits.size(); ++i) {
+        const CreditsRoll& r = p.credits[i];
+        const HudImage& bg = r.bgImage;
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(r.name)
+             << "\", \"bgColor\": " << fmtVec3(r.bgColor)
+             << ", \"color\": " << fmtVec3(r.color)
+             << ", \"headingColor\": " << fmtVec3(r.headingColor)
+             << (r.font.empty() ? "" : ", \"font\": \"" + jsonEscape(r.font) + "\"")
+             << ", \"headingSize\": " << r.headingSize
+             << ", \"lineSize\": " << r.lineSize
+             << ", \"shadow\": " << (r.shadow ? "true" : "false")
+             << ", \"pageW\": " << r.pageW << ", \"margin\": " << fmtFloat(r.margin)
+             << ", \"columnGap\": " << fmtFloat(r.columnGap)
+             << ", \"lineSpacing\": " << fmtFloat(r.lineSpacing)
+             << ",\n      \"mode\": " << r.mode << ", \"speed\": " << fmtFloat(r.speed)
+             << ", \"cardSeconds\": " << fmtFloat(r.cardSeconds)
+             << ", \"startDelay\": " << fmtFloat(r.startDelay)
+             << ", \"endHold\": " << fmtFloat(r.endHold)
+             << ", \"fadeIn\": " << fmtFloat(r.fadeIn)
+             << ", \"fadeOut\": " << fmtFloat(r.fadeOut)
+             << ", \"quant\": \"" << r.quant << "\"";
+        if (!r.music.empty())
+            json << ",\n      \"music\": \"" << jsonEscape(r.music)
+                 << "\", \"musicLoop\": " << (r.musicLoop ? "true" : "false")
+                 << ", \"musicStopAtEnd\": " << (r.musicStopAtEnd ? "true" : "false")
+                 << ", \"musicVolume\": " << r.musicVolume;
+        json << ",\n      \"skippable\": " << (r.skippable ? "true" : "false")
+             << ", \"skipAfter\": " << fmtFloat(r.skipAfter)
+             << (r.skipAction.empty()
+                     ? ""
+                     : ", \"skipAction\": \"" + jsonEscape(r.skipAction) + "\"")
+             << ", \"showSkipHint\": " << (r.showSkipHint ? "true" : "false")
+             << ", \"skipHint\": \"" << jsonEscape(r.skipHint)
+             << "\", \"hintPos\": [" << fmtFloat(r.hintPos[0]) << ", "
+             << fmtFloat(r.hintPos[1]) << "], \"hintSize\": " << r.hintSize
+             << ",\n      \"finish\": " << r.finish << ", \"finishParam\": \""
+             << jsonEscape(r.finishParam) << "\"";
+        if (!r.source.empty())
+            json << ", \"source\": \"" << jsonEscape(r.source) << "\"";
+        if (!bg.imagePath.empty())
+            json << ",\n      \"bgImage\": { \"image\": \"" << bg.imagePath
+                 << "\", \"pos\": [" << fmtFloat(bg.pos[0]) << ", "
+                 << fmtFloat(bg.pos[1]) << "], \"size\": [" << fmtFloat(bg.size[0])
+                 << ", " << fmtFloat(bg.size[1]) << "], \"texW\": " << bg.texW
+                 << ", \"texH\": " << bg.texH << ", \"texQuant\": \""
+                 << bg.texQuant << "\" }";
+        json << ",\n      \"blocks\": [";
+        for (size_t k = 0; k < r.blocks.size(); ++k) {
+            const CreditsBlock& b = r.blocks[k];
+            json << (k ? ",\n        " : "\n        ") << "{ \"kind\": " << b.kind;
+            if (!b.text.empty()) json << ", \"text\": \"" << jsonEscape(b.text) << "\"";
+            if (!b.text2.empty())
+                json << ", \"text2\": \"" << jsonEscape(b.text2) << "\"";
+            if (!b.imagePath.empty())
+                json << ", \"image\": \"" << b.imagePath << "\"";
+            if (b.size) json << ", \"size\": " << b.size;
+            if (!b.font.empty()) json << ", \"font\": \"" << jsonEscape(b.font) << "\"";
+            if (b.ownColor) json << ", \"color\": " << fmtVec3(b.color);
+            if (b.align != 1) json << ", \"align\": " << b.align;
+            if (b.space != 0.0f) json << ", \"space\": " << fmtFloat(b.space);
+            if (b.kind == CreditsBlock::Image) json << ", \"scale\": " << fmtFloat(b.scale);
+            json << " }";
+        }
+        json << (r.blocks.empty() ? "]" : "\n      ]") << " }";
+    }
+    json << (p.credits.empty() ? "]" : "\n  ]");
+}
+
 static void writeSequencesSection(std::ostream& json, const Project& p) {
     json << "\"sequences\": [";
     for (size_t i = 0; i < p.sequences.size(); ++i) {
@@ -1383,7 +1652,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video", "rebind"};
+                                         "apply-video", "rebind", "credits"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1424,7 +1693,8 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         json << ",\n      \"entries\": [";
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
-            const int a = (en.action >= 0 && en.action <= 10) ? en.action : 0;
+            const int a =
+                (en.action >= 0 && en.action <= MenuEntry::PlayCredits) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
@@ -1560,6 +1830,53 @@ static void readInputSection(const json::Value& root, Project& out) {
         out.input.activePreset = 0;
 }
 
+static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out);
+
+// Prefabs (Tools > Prefabs, docs/prefabs.md). Members are ordinary scene
+// objects written with the SAME objectJson the scenes use - a prefab is a piece
+// of scene, and giving it its own lighter member format would mean two writers
+// to keep in step every time an object grows a field. Conditional: a project
+// with no prefabs emits nothing.
+static void writePrefabsSection(std::ostream& json, const Project& p) {
+    if (p.prefabs.empty()) return;
+    json << "\"prefabs\": [";
+    for (size_t i = 0; i < p.prefabs.size(); ++i) {
+        const Prefab& pf = p.prefabs[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(pf.id)
+             << "\", \"name\": \"" << jsonEscape(pf.name) << "\"";
+        if (!pf.notes.empty())
+            json << ", \"notes\": \"" << jsonEscape(pf.notes) << "\"";
+        json << ", \"objects\": [";
+        for (size_t k = 0; k < pf.objects.size(); ++k)
+            json << (k ? ",\n      " : "\n      ") << objectJson(pf.objects[k]);
+        if (!pf.objects.empty()) json << "\n    ";
+        json << "] }";
+    }
+    json << "\n  ]";
+}
+
+static void readPrefabsSection(const json::Value& root, Project& out) {
+    out.prefabs.clear();
+    const json::Value* arr = root.find("prefabs");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        Prefab pf;
+        if (const json::Value* v = e.find("id")) pf.id = v->stringOr("");
+        if (const json::Value* v = e.find("name")) pf.name = v->stringOr("");
+        if (const json::Value* v = e.find("notes")) pf.notes = v->stringOr("");
+        if (pf.name.empty()) continue;
+        if (pf.id.empty()) pf.id = project::newObjectId();
+        if (const json::Value* objs = e.find("objects"))
+            if (objs->type == json::Value::Type::Array)
+                readObjectsArray(*objs, pf.objects);
+        // A member must never carry an object id: two instances of one prefab
+        // would then share an identity, and the .tyra's per-object files are
+        // keyed on exactly that.
+        for (SceneObject& o : pf.objects) o.id.clear();
+        out.prefabs.push_back(std::move(pf));
+    }
+}
+
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
 // untouched project emits nothing, so the key only appears once the user has
 // actually changed a clip.
@@ -1599,11 +1916,13 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Ambience: writeAmbienceSection(ss, p); break;
         case Section::LoadingScreens: writeLoadingScreensSection(ss, p); break;
         case Section::Splash: writeSplashSection(ss, p); break;
+        case Section::Credits: writeCreditsSection(ss, p); break;
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
+        case Section::Prefabs: writePrefabsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -1620,11 +1939,13 @@ const char* sectionName(Section s) {
         case Section::Ambience: return "ambience";
         case Section::LoadingScreens: return "loadingScreens";
         case Section::Splash: return "splash";
+        case Section::Credits: return "credits";
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
+        case Section::Prefabs: return "prefabs";
     }
     return "unknown";
 }
@@ -1857,6 +2178,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
     p.windowLayouts.push_back(
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
+    p.windowLayouts.push_back(
+        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
     p.activeLayout = 0;
 }
 
@@ -2878,6 +3201,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.scripts.push_back(s.str);
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
+        if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
+        if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
+        if (const auto* v = jo.find("prefabSource"))
+            o.prefabSource = v->stringOr("");
         out.push_back(std::move(o));
     }
 }
@@ -3688,6 +4015,118 @@ static void readSplashSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readCreditsSection(const json::Value& root, Project& out) {
+    out.credits.clear();
+    const auto* rolls = root.find("credits");
+    if (!rolls || rolls->type != json::Value::Type::Array) return;
+    for (const auto& jr : rolls->arr) {
+        CreditsRoll r;
+        if (const auto* v = jr.find("name")) r.name = v->stringOr("credits");
+        readVec3(jr.find("bgColor"), r.bgColor);
+        readVec3(jr.find("color"), r.color);
+        readVec3(jr.find("headingColor"), r.headingColor);
+        if (const auto* v = jr.find("font")) r.font = v->stringOr("");
+        if (const auto* v = jr.find("headingSize")) r.headingSize = (int)v->numberOr(22);
+        if (const auto* v = jr.find("lineSize")) r.lineSize = (int)v->numberOr(16);
+        if (const auto* v = jr.find("shadow")) r.shadow = v->boolOr(true);
+        if (const auto* v = jr.find("pageW")) r.pageW = (int)v->numberOr(512);
+        if (r.pageW != 256 && r.pageW != 512) r.pageW = 512;
+        if (const auto* v = jr.find("margin")) r.margin = (float)v->numberOr(40.0);
+        if (const auto* v = jr.find("columnGap")) r.columnGap = (float)v->numberOr(24.0);
+        if (const auto* v = jr.find("lineSpacing"))
+            r.lineSpacing = (float)v->numberOr(1.25);
+        if (r.lineSpacing < 0.8f) r.lineSpacing = 0.8f;
+        if (const auto* v = jr.find("mode")) r.mode = (int)v->numberOr(0);
+        if (r.mode < 0 || r.mode > 1) r.mode = 0;
+        if (const auto* v = jr.find("speed")) r.speed = (float)v->numberOr(34.0);
+        if (r.speed < 1.0f) r.speed = 1.0f;
+        if (const auto* v = jr.find("cardSeconds"))
+            r.cardSeconds = (float)v->numberOr(4.0);
+        if (r.cardSeconds < 0.5f) r.cardSeconds = 0.5f;
+        if (const auto* v = jr.find("startDelay")) r.startDelay = (float)v->numberOr(0.8);
+        if (const auto* v = jr.find("endHold")) r.endHold = (float)v->numberOr(2.0);
+        if (const auto* v = jr.find("fadeIn")) r.fadeIn = (float)v->numberOr(0.6);
+        if (const auto* v = jr.find("fadeOut")) r.fadeOut = (float)v->numberOr(1.2);
+        if (r.startDelay < 0.0f) r.startDelay = 0.0f;
+        if (r.endHold < 0.0f) r.endHold = 0.0f;
+        if (r.fadeIn < 0.0f) r.fadeIn = 0.0f;
+        if (r.fadeOut < 0.0f) r.fadeOut = 0.0f;
+        if (const auto* v = jr.find("quant")) {
+            const std::string q = v->stringOr("");
+            r.quant = (q == "none" || q == "8bit" || q == "4bit") ? q : "4bit";
+        }
+        if (const auto* v = jr.find("music")) r.music = v->stringOr("");
+        if (const auto* v = jr.find("musicLoop")) r.musicLoop = v->boolOr(true);
+        if (const auto* v = jr.find("musicStopAtEnd"))
+            r.musicStopAtEnd = v->boolOr(true);
+        if (const auto* v = jr.find("musicVolume"))
+            r.musicVolume = (int)v->numberOr(100);
+        if (r.musicVolume < 0) r.musicVolume = 0;
+        if (r.musicVolume > 100) r.musicVolume = 100;
+        if (const auto* v = jr.find("skippable")) r.skippable = v->boolOr(true);
+        if (const auto* v = jr.find("skipAction")) r.skipAction = v->stringOr("");
+        if (const auto* v = jr.find("skipAfter")) r.skipAfter = (float)v->numberOr(1.0);
+        if (r.skipAfter < 0.0f) r.skipAfter = 0.0f;
+        if (const auto* v = jr.find("showSkipHint")) r.showSkipHint = v->boolOr(true);
+        if (const auto* v = jr.find("skipHint")) r.skipHint = v->stringOr("");
+        if (const auto* v = jr.find("hintPos");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            r.hintPos[0] = (float)v->arr[0].numberOr(0.5);
+            r.hintPos[1] = (float)v->arr[1].numberOr(0.93);
+        }
+        if (const auto* v = jr.find("hintSize")) r.hintSize = (int)v->numberOr(14);
+        if (const auto* v = jr.find("finish")) r.finish = (int)v->numberOr(0);
+        if (r.finish < 0 || r.finish > CreditsRoll::Hold) r.finish = CreditsRoll::Resume;
+        if (const auto* v = jr.find("finishParam")) r.finishParam = v->stringOr("");
+        if (const auto* v = jr.find("source")) r.source = v->stringOr("");
+        if (const auto* im = jr.find("bgImage")) {
+            HudImage& bg = r.bgImage;
+            if (const auto* v = im->find("image")) bg.imagePath = v->stringOr("");
+            if (const auto* v = im->find("pos");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                bg.pos[0] = (float)v->arr[0].numberOr(0.5);
+                bg.pos[1] = (float)v->arr[1].numberOr(0.5);
+            }
+            if (const auto* v = im->find("size");
+                v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                bg.size[0] = (float)v->arr[0].numberOr(512.0);
+                bg.size[1] = (float)v->arr[1].numberOr(448.0);
+            }
+            if (const auto* v = im->find("texW")) bg.texW = (int)v->numberOr(0);
+            if (const auto* v = im->find("texH")) bg.texH = (int)v->numberOr(0);
+            if (const auto* v = im->find("texQuant")) {
+                const std::string q = v->stringOr("");
+                bg.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+            }
+        }
+        if (const auto* jb = jr.find("blocks");
+            jb && jb->type == json::Value::Type::Array) {
+            for (const auto& jbl : jb->arr) {
+                CreditsBlock b;
+                if (const auto* v = jbl.find("kind")) b.kind = (int)v->numberOr(1);
+                if (b.kind < 0 || b.kind > CreditsBlock::Break) b.kind = CreditsBlock::Line;
+                if (const auto* v = jbl.find("text")) b.text = v->stringOr("");
+                if (const auto* v = jbl.find("text2")) b.text2 = v->stringOr("");
+                if (const auto* v = jbl.find("image")) b.imagePath = v->stringOr("");
+                if (const auto* v = jbl.find("size")) b.size = (int)v->numberOr(0);
+                if (const auto* v = jbl.find("font")) b.font = v->stringOr("");
+                if (const auto* v = jbl.find("color")) {
+                    readVec3(v, b.color);
+                    b.ownColor = true;
+                }
+                if (const auto* v = jbl.find("align")) b.align = (int)v->numberOr(1);
+                if (b.align < 0 || b.align > 2) b.align = 1;
+                if (const auto* v = jbl.find("space")) b.space = (float)v->numberOr(0.0);
+                if (const auto* v = jbl.find("scale")) b.scale = (float)v->numberOr(1.0);
+                if (b.scale < 0.05f) b.scale = 0.05f;
+                if (b.scale > 1.0f) b.scale = 1.0f;
+                r.blocks.push_back(std::move(b));
+            }
+        }
+        out.credits.push_back(std::move(r));
+    }
+}
+
 static void readSequencesSection(const json::Value& root, Project& out) {
     out.sequences.clear();
     if (const auto* seqs = root.find("sequences");
@@ -3846,6 +4285,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "choice"    ? MenuEntry::Choice
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
                                     : a == "rebind"    ? MenuEntry::RebindKey
+                                    : a == "credits"   ? MenuEntry::PlayCredits
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -3947,6 +4387,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Ambience: readAmbienceSection(root, p); break;
         case Section::LoadingScreens: readLoadingScreensSection(root, p); break;
         case Section::Splash: readSplashSection(root, p); break;
+        case Section::Credits: readCreditsSection(root, p); break;
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
@@ -3957,6 +4398,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             readInputSection(root, p);
             ensureInputActions(p);
             break;
+        case Section::Prefabs: readPrefabsSection(root, p); break;
     }
     return true;
 }
@@ -4086,9 +4528,13 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readSplashSection(root, out);
 
+    readCreditsSection(root, out);
+
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+
+    readPrefabsSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -4224,6 +4670,9 @@ std::string load(Project& out, const std::string& projectDir) {
         if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
             out.windowLayouts.push_back(
                 {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
+            out.windowLayouts.push_back(
+                {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -4614,6 +5063,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\font_data.gen.hpp" ||
             f.relativePath == "inc\\loading_data.gen.hpp" ||
+            f.relativePath == "inc\\credits_data.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\credits.gen.hpp" ||
+            f.relativePath == "src\\gen\\credits.gen.cpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
@@ -4622,6 +5074,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
+            f.relativePath == "inc\\prefab_data.gen.hpp" ||
+            f.relativePath == "inc\\procedural.gen.hpp" ||
+            f.relativePath == "src\\gen\\procedural.gen.cpp" ||
             f.relativePath == "inc\\save_system.gen.hpp" ||
             f.relativePath == "src\\save_system.gen.cpp" ||
             f.relativePath == "inc\\menu_data.gen.hpp" ||
@@ -4677,15 +5132,29 @@ std::string refreshGenerated(const Project& p) {
             std::stringstream content;
             content << in.rdbuf();
             in.close();
-            if (content.str().find("/models/*.tmdl") == std::string::npos) {
-                std::string text = content.str();
+            std::string text = content.str();
+            bool grew = false;
+            if (text.find("/models/*.tmdl") == std::string::npos) {
                 if (!text.empty() && text.back() != '\n') text += '\n';
                 text +=
                     "\n# Baked static-model output (the .obj next to it is the "
                     "source;\n# regenerated on every build - "
                     "docs/model-pipeline.md).\n/models/*.tmdl\n";
-                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+                grew = true;
             }
+            // Same migration for the credits page strips: the roll lives in the
+            // .tyra, these are only its pixels (docs/credits.md).
+            if (text.find("/credits/pages/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked credits page strips - regenerated on every build "
+                    "(docs/credits.md).\n# The images an Image block points at "
+                    "live in res/credits/ and stay checked in.\n"
+                    "/credits/pages/\n";
+                grew = true;
+            }
+            if (grew)
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
         }
     }
 
@@ -4867,6 +5336,52 @@ std::string refreshGenerated(const Project& p) {
             if (!vf) return "Cannot write menu value strip: " + vpath.string();
             vf.write(reinterpret_cast<const char*>(strip.data()),
                      (std::streamsize)strip.size());
+        }
+    }
+
+    // Credits rolls: the whole roll baked into res/credits/pages/<name>-<k>.png
+    // page strips (+ the skip-hint sprite), derived from project data like the
+    // menu panels above, so ALWAYS rebaked. That folder is then swept of
+    // anything no roll claims - a shortened roll or a deleted one would
+    // otherwise keep shipping pages the game never draws. The sweep is why the
+    // bake has a folder of its OWN: a roll's Image blocks point at ordinary
+    // assets in res/credits/, and those must survive a build.
+    if (!p.credits.empty()) {
+        const fs::path dir = fs::path(p.dir) / "res" / "credits" / "pages";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        std::set<std::string> expected;
+        for (const CreditsRoll& r : p.credits) {
+            std::vector<std::vector<unsigned char>> pages;
+            menubake::CreditsLayout layout;
+            if (!menubake::bakeCreditsPagesPNG(r, p, pages, layout))
+                return "Credits bake failed (no usable TTF font found)";
+            for (size_t k = 0; k < pages.size(); ++k) {
+                const std::string file = menubake::creditsPageFileName(r.name, (int)k);
+                std::ofstream f(dir / file, std::ios::binary);
+                if (!f) return "Cannot write credits page: " + (dir / file).string();
+                f.write(reinterpret_cast<const char*>(pages[k].data()),
+                        (std::streamsize)pages[k].size());
+                expected.insert(file);
+            }
+            if (!r.showSkipHint || !r.skippable || r.skipHint.empty()) continue;
+            std::vector<unsigned char> png;
+            const HudText hint = menubake::creditsHintText(r);
+            if (!menubake::bakeTextPNG(hint, p, png))
+                return "Credits skip hint bake failed (no usable TTF font found)";
+            const std::string file = menubake::creditsHintFileName(r.name);
+            std::ofstream f(dir / file, std::ios::binary);
+            if (!f) return "Cannot write credits hint: " + (dir / file).string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+            expected.insert(file);
+        }
+        for (const auto& e : fs::directory_iterator(dir, ec)) {
+            if (!e.is_regular_file()) continue;
+            const std::string name = e.path().filename().string();
+            if (name.size() > 4 && name.rfind(".png") == name.size() - 4 &&
+                !expected.count(name))
+                fs::remove(e.path(), ec);
         }
     }
 

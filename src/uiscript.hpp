@@ -86,10 +86,13 @@ std::string dumpText();
 struct Step {
     enum Kind {
         Click,        // arg = target
+        RightClick,   // arg = target - the context-menu button
         DoubleClick,  // arg = target
         HoldClick,    // arg = target, seconds = how long to keep the button down
         Hover,        // arg = target
         Drag,         // arg = target, dx/dy = pixels to drag by
+        Wheel,        // arg = target, dy = wheel notches (the only way to reach
+                      // a canvas zoom, which is not a widget)
         Key,          // arg = chord ("ctrl+n", "f9", "escape")
         Text,         // arg = characters to type into the focused item
         Wait,         // seconds

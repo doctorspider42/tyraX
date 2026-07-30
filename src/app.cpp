@@ -89,6 +89,11 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Credits Editor: the preview strip's share of the window HEIGHT
+    // (0.15..0.75), set by dragging the splitter above it. Same reasoning as
+    // matEdSplit - how much room a preview deserves is a property of the
+    // monitor and of what you are doing, not of the project.
+    float creditsSplit = 0.42f;
     // Lighting the Material / Animation Editor previews bake with: "" = the
     // scene's ambience, "*" = the neutral studio default, anything else = an
     // ambience preset name. A view preference of this machine, not project
@@ -185,6 +190,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("creditsSplit", v))
+            cfg.creditsSplit = toF(v, cfg.creditsSplit);
         else if (match("matEdLight", v)) cfg.matEdLight = v;
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
@@ -249,6 +256,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "creditsSplit=" << cfg.creditsSplit << "\n"
       << "matEdLight=" << cfg.matEdLight << "\n"
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
@@ -466,6 +474,14 @@ int App::run(const std::string& initialProjectDir) {
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
     ImNodes::CreateContext();
+    // One EDITOR context per canvas. imnodes keeps panning/zoom/selection in
+    // the editor context, so the Flow Graph and the Procedural graph would
+    // otherwise shove each other around; and the context must never be left
+    // unset - EditorContextSet(nullptr) makes the next BeginNodeEditor
+    // dereference null (a startup crash when both windows are open, found the
+    // hard way).
+    flowEditorCtx_ = (void*)ImNodes::EditorContextCreate();
+    procEditorCtx_ = (void*)ImNodes::EditorContextCreate();
 
     // Scale the UI for the display: the saved override if any, else auto-match
     // the monitor's content scale (a 4K laptop reports e.g. 2.0). Fonts are
@@ -482,6 +498,7 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        creditsSplit_ = cfg.creditsSplit;
         matEdLight_ = cfg.matEdLight;
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
@@ -627,6 +644,9 @@ int App::run(const std::string& initialProjectDir) {
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
+    if (flowEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)flowEditorCtx_);
+    if (procEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)procEditorCtx_);
+    flowEditorCtx_ = procEditorCtx_ = nullptr;
     ImNodes::DestroyContext();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -778,9 +798,12 @@ void App::drawUI() {
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
+    drawProceduralWindow();
+    drawPrefabsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
+    drawCreditsWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
@@ -831,15 +854,15 @@ void App::drawUI() {
     if (hasProject_ && !runner_.busy()) {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
         if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
-            runner_.buildAndRun(project_, true);
+            runner_.buildAndRun(projectForBuild(), true);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
             runner_.runEmulatorOnly(project_);
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
-            runner_.buildAndRunPs2(project_, true);
+            runner_.buildAndRunPs2(projectForBuild(), true);
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
-            runner_.buildAndRunPs2(project_, false);
+            runner_.buildAndRunPs2(projectForBuild(), false);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
-            runner_.buildAndRun(project_, false);
+            runner_.buildAndRun(projectForBuild(), false);
     }
     // Debugger shortcuts (docs/live-debugger.md). F9 opens the panel; the
     // transport keys only mean something while a game is reporting, and they
@@ -907,6 +930,13 @@ void App::applyUiScale() {
     style = baseStyle_;           // reset to the unscaled reference...
     style.ScaleAllSizes(scale);   // ...then scale spacing/padding/borders
     style.FontScaleMain = scale;  // dynamic fonts re-rasterize at the new size
+    if (uiScaleApplied_ != scale) {
+        // The Flow Graph canvas lays its nodes out in scaled grid space (see
+        // drawFlowGraphWindow), so the positions it pushed into imnodes belong
+        // to the old scale - re-push them or the graph draws at the new node
+        // size with the old spacing.
+        flowPositionsApplied_ = false;
+    }
     uiScaleApplied_ = scale;
 }
 
@@ -921,7 +951,7 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, matEdLight_, animEdLight_,
+                      matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
                       placementSnap_, showAxisGizmo_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
@@ -1150,6 +1180,16 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
+                                hasProject_))
+                showProcPreview_ = !showProcPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw what the procedural volumes generate. Turn it off to "
+                    "work on\nwhat is underneath - a finished forest hides the "
+                    "ground it grows on.\nThe graph keeps being evaluated, so "
+                    "the budget readout and the seed\nsimulator stay live; only "
+                    "the geometry goes.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -1187,7 +1227,7 @@ void App::drawMenuBar() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
-                runner_.exportIso(project_);
+                runner_.exportIso(projectForBuild());
             if (ImGui::MenuItem("Disc Layout...")) {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
@@ -1198,17 +1238,17 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("Build", hasProject_)) {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
-                runner_.buildAndRun(project_, false);
+                runner_.buildAndRun(projectForBuild(), false);
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(project_, true);
+                runner_.buildAndRun(projectForBuild(), true);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
                 runner_.runEmulatorOnly(project_);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(project_, true);
+                runner_.buildAndRunPs2(projectForBuild(), true);
             if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(project_, false);
+                runner_.buildAndRunPs2(projectForBuild(), false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
             if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
@@ -1301,6 +1341,12 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "End credits: headings, role/name pairs, images and page\n"
+                    "breaks, imported from a text file if you like, scrolling\n"
+                    "over music with a skip button and somewhere to go after.");
             ImGui::Separator();
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
             if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
@@ -1315,6 +1361,13 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable groups of objects - a hut, a room, a lamp post\n"
+                    "with its light and its script. Stamp them by hand, scatter\n"
+                    "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1346,8 +1399,8 @@ void App::drawMenuBar() {
 // button, its dropdown and anything else that grows later cannot disagree
 // about what "Run" means.
 void App::runSelectedTarget(bool build) {
-    if (runOnPs2_) runner_.buildAndRunPs2(project_, build);
-    else if (build) runner_.buildAndRun(project_, true);
+    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
+    else if (build) runner_.buildAndRun(projectForBuild(), true);
     else runner_.runEmulatorOnly(project_);
 }
 
@@ -1483,7 +1536,7 @@ void App::drawToolbar() {
                        dl->AddLine(mid, ur, c, stroke);  // meeting at the front
                        dl->AddLine(mid, bot, c, stroke); // corner
                    }))
-        runner_.buildAndRun(project_, false);
+        runner_.buildAndRun(projectForBuild(), false);
 
     // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
     // ONE pair for both targets; the dropdown picks which machine it drives and
@@ -2157,6 +2210,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
         // under us, and resolving it is a handful of comparisons.
@@ -2664,9 +2718,80 @@ void App::drawViewportWindow() {
             }
         }
 
+        // Procedural tools take the click while they are armed (Tools >
+        // Procedural): editing a curve's control points, or picking an
+        // instance for a manual override.
+        bool procClick = false;
+        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+            (procCurveNode_ != 0 || procOverrideMode_) &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            if (procCurveNode_ != 0 && procVolume_ >= 0 &&
+                procVolume_ < (int)project_.objects().size()) {
+                float wx = 0.0f, wz = 0.0f;
+                if (viewport_.terrainRaycast(u, v, wx, wz)) {
+                    ProcNode* cn = procgraph::node(
+                        project_.objects()[procVolume_].procGraph, procCurveNode_);
+                    if (cn) {
+                        const float wy = viewport_.terrainHeight(wx, wz);
+                        if (procCurvePoint_ >= 0 &&
+                            procCurvePoint_ < (int)cn->rows.size()) {
+                            ProcRow& row = cn->rows[procCurvePoint_];
+                            row.v[0] = wx;
+                            row.v[1] = wy;
+                            row.v[2] = wz;
+                        } else {
+                            ProcRow row;
+                            row.v[0] = wx;
+                            row.v[1] = wy;
+                            row.v[2] = wz;
+                            cn->rows.push_back(row);
+                        }
+                        commitChange();
+                        procClick = true;
+                    }
+                }
+            } else if (procOverrideMode_ && procVolume_ >= 0 &&
+                       procVolume_ < (int)project_.objects().size()) {
+                const int hit = pickProcInstance(u, v);
+                ProcGraph& pg = project_.objects()[procVolume_].procGraph;
+                if (hit >= 0) {
+                    const uint64_t key = procResult_.instances[hit].key;
+                    if (io.KeyCtrl) {  // ctrl+click deletes the instance
+                        procOverrideFor(pg, key).removed = true;
+                        procSelInstance_ = 0;
+                        commitChange();
+                    } else {
+                        procSelInstance_ = key;
+                    }
+                    procClick = true;
+                } else if (procSelInstance_) {
+                    // Clicking the ground with an instance selected moves it
+                    // there: the offset is stored relative to whatever the
+                    // graph generated, so re-evaluation keeps the placement.
+                    float wx = 0.0f, wz = 0.0f;
+                    if (viewport_.terrainRaycast(u, v, wx, wz)) {
+                        const procgen::Instance* sel = nullptr;
+                        for (const procgen::Instance& inst : procResult_.instances)
+                            if (inst.key == procSelInstance_) sel = &inst;
+                        if (sel) {
+                            ProcOverride& ov = procOverrideFor(pg, procSelInstance_);
+                            ov.offset[0] += wx - sel->pos[0];
+                            ov.offset[2] += wz - sel->pos[2];
+                            ov.offset[1] += viewport_.terrainHeight(wx, wz) - sel->pos[1];
+                            commitChange();
+                            procClick = true;
+                        }
+                    }
+                }
+            }
+        }
+
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
-        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+        if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
@@ -3787,9 +3912,12 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
+    if (key == "credits") return &showCreditsEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "proc") return &showProcedural_;
+    if (key == "prefabs") return &showPrefabs_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
@@ -3814,7 +3942,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad"};
+    "pad",      "proc",     "prefabs"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -3891,6 +4019,37 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         pendingFocusWindow_ = "Flow Graph";
+        break;
+    }
+    case LayoutRecipe::Procedural: {
+        // Scattering desk. The graph and the viewport are used TOGETHER - you
+        // drag a density slider and watch the world change - so neither may
+        // hide the other: the graph takes the bottom half (it is wide and
+        // short, like the dopesheet) and the viewport keeps the middle.
+        // Properties gets the right column because a volume's own BOX is the
+        // region the graph fills, which makes its transform a graph parameter
+        // in everything but name.
+        //
+        // Prefabs is a bottom TAB rather than a side panel on purpose: it is
+        // consulted (what does one instance cost, which members merge) rather
+        // than watched, and its member table needs real width - in a 0.22 side
+        // column every column of it truncates to three characters, while the
+        // bottom dock hands it the whole window when you switch to it.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.20f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.46f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Prefabs", bottom);
+        ImGui::DockBuilderDockWindow("Procedural", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Procedural";
         break;
     }
     case LayoutRecipe::Default:
@@ -5022,6 +5181,34 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
 
 void App::deleteSelectedObjects() {
     if (selection_.empty()) return;
+    // A scatter volume owns its baked chunk objects and their mesh files, so
+    // deleting one must take those with it. That erases objects, which shifts
+    // every index in the selection - so when a volume is involved the whole
+    // deletion switches to ids (stable by construction) instead of indices.
+    std::vector<std::string> volumeIds, deleteIds;
+    bool byId = true;
+    for (int i : selection_) {
+        if (i < 0 || i >= (int)project_.objects().size()) continue;
+        const SceneObject& o = project_.objects()[i];
+        if (o.id.empty()) byId = false;
+        deleteIds.push_back(o.id);
+        if (o.type == PrimitiveType::Scatter) volumeIds.push_back(o.id);
+    }
+    if (!volumeIds.empty() && byId) {
+        for (const std::string& v : volumeIds)
+            procbake::clearVolume(project_, project_.active(), v);
+        std::vector<SceneObject>& objs = project_.objects();
+        objs.erase(std::remove_if(objs.begin(), objs.end(),
+                                  [&](const SceneObject& o) {
+                                      return std::find(deleteIds.begin(),
+                                                       deleteIds.end(),
+                                                       o.id) != deleteIds.end();
+                                  }),
+                   objs.end());
+        clearSelection();
+        commitChange();
+        return;
+    }
     // Erase high indices first so earlier ones stay valid.
     std::vector<int> idx = selection_;
     std::sort(idx.begin(), idx.end(), [](int a, int b) { return a > b; });
@@ -6479,6 +6666,16 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Point light")) addPointLight();
         ImGui::EndMenu();
     }
+    // Procedural authoring region: the box a node graph fills - by scattering,
+    // by exact repetition, or both - which the build bakes into ordinary static
+    // chunk meshes. This menu item and Tools > Procedural > New volume are the
+    // same verb; both land in the graph editor with the volume selected.
+    if (ImGui::MenuItem("Procedural volume...")) addScatterVolume();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "A region filled by a node graph (Tools > Procedural): forests,\n"
+            "rock fields, a colonnade around a plaza. Adding one opens the\n"
+            "graph editor - the object itself is just the box it works in.");
 }
 
 void App::drawSceneSection() {
@@ -6514,10 +6711,15 @@ void App::drawSceneSection() {
         // One object row: Selectable with the existing multi-select clicks and
         // hidden dimming, doubling as a drag source for layer reassignment.
         // Ctrl/Shift+click extends the selection; plain click replaces it.
-        auto objectRow = [&](int i) {
+        auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
+            // Inside a prefab group the provenance is already stated by the
+            // group header; outside one (a member dragged onto another layer,
+            // or a copy pasted somewhere else) the row has to say it itself.
+            const bool tag = !o.prefabSource.empty() && !inPrefabGroup;
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (tag ? "  [" + o.prefabSource + "]" : "") +
                                 (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
             if (hidden)
@@ -6568,10 +6770,85 @@ void App::drawSceneSection() {
             ImGui::EndDragDropTarget();
         };
 
+        // Objects stamped from a prefab collapse into one node per prefab -
+        // the same shape as the layer groups above them, and for the same
+        // reason: twenty slabs that arrived together are one thing in the
+        // author's head and twenty rows in a flat list. The group sits at the
+        // position of its FIRST member, so the list keeps scene order instead
+        // of quietly sorting itself, and it starts CLOSED (collapsing them is
+        // the point - a scene of 27 prefab rooms is otherwise 500 rows). Click
+        // the label to select the whole instance, the arrow to open it.
+        auto selectAll = [&](const std::vector<int>& ms) {
+            clearSelection();
+            for (int j : ms) toggleSelect(j);
+        };
+        auto emitRows = [&](const std::vector<int>& idxs) {
+            std::vector<std::string> done;
+            for (int i : idxs) {
+                const std::string src = project_.objects()[i].prefabSource;
+                if (src.empty()) {
+                    objectRow(i);
+                    continue;
+                }
+                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
+                done.push_back(src);
+                std::vector<int> members;
+                for (int j : idxs)
+                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                bool allSel = true;
+                for (int j : members) allSel &= isSelected(j);
+                ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
+                                            ImGuiTreeNodeFlags_OpenOnArrow |
+                                            ImGuiTreeNodeFlags_OpenOnDoubleClick;
+                if (allSel) pflags |= ImGuiTreeNodeFlags_Selected;
+                const std::string header = src + "  (" +
+                                           std::to_string(members.size()) +
+                                           ")##pfgrp" + std::to_string(i);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.80f, 0.96f, 1.0f));
+                const bool open = ImGui::TreeNodeEx(header.c_str(), pflags);
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                    if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)
+                        for (int j : members) { if (!isSelected(j)) toggleSelect(j); }
+                    else
+                        selectAll(members);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(
+                        "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
+                        "These are ordinary objects - editing the prefab does not\n"
+                        "reach back into them.\n"
+                        "Click to select all %d, the arrow to list them.",
+                        src.c_str(), (int)members.size());
+                // A closed group would otherwise make its members undraggable,
+                // so the header is a drag source for the whole instance.
+                if (grouped && ImGui::BeginDragDropSource()) {
+                    if (!allSel) selectAll(members);
+                    const int first = members.front();
+                    ImGui::SetDragDropPayload("SCENE_OBJECT", &first, sizeof(int));
+                    ImGui::Text("Move %d objects (%s)", (int)members.size(),
+                                src.c_str());
+                    ImGui::EndDragDropSource();
+                }
+                if (open) {
+                    for (int j : members) objectRow(j, true);
+                    ImGui::TreePop();
+                }
+            }
+        };
+
+        // Indices of the scene's objects, in order, that pass `keep`.
+        auto indicesWhere = [&](auto keep) {
+            std::vector<int> out;
+            for (int i = 0; i < (int)project_.objects().size(); ++i)
+                if (keep(project_.objects()[i])) out.push_back(i);
+            return out;
+        };
+
         ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
                           ImGuiChildFlags_Borders);
         if (!grouped) {
-            for (int i = 0; i < (int)project_.objects().size(); ++i) objectRow(i);
+            emitRows(indicesWhere([](const SceneObject&) { return true; }));
         } else {
             const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
                                               ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -6590,8 +6867,9 @@ void App::drawSceneSection() {
                 if (!l.editorVisible) ImGui::PopStyleColor();
                 dropTarget(l.name);
                 if (open) {
-                    for (int i = 0; i < (int)project_.objects().size(); ++i)
-                        if (project_.objects()[i].layer == l.name) objectRow(i);
+                    emitRows(indicesWhere([&](const SceneObject& o) {
+                        return o.layer == l.name;
+                    }));
                     ImGui::TreePop();
                 }
             }
@@ -6605,10 +6883,9 @@ void App::drawSceneSection() {
             const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
             dropTarget("");
             if (open) {
-                for (int i = 0; i < (int)project_.objects().size(); ++i) {
-                    const SceneObject& o = project_.objects()[i];
-                    if (o.layer.empty() || !layerExists(o.layer)) objectRow(i);
-                }
+                emitRows(indicesWhere([&](const SceneObject& o) {
+                    return o.layer.empty() || !layerExists(o.layer);
+                }));
                 ImGui::TreePop();
             }
         }
@@ -8670,7 +8947,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode",  "Rebind key"};
+        "Choice",         "Apply video mode",  "Rebind key",     "Play credits"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -8702,7 +8979,8 @@ void App::drawMenusWindow() {
         changed |= textTokenPicker("labeltok", en.label);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames,
+                         IM_ARRAYSIZE(kActionNames))) {
             en.param.clear();
             en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
@@ -8767,6 +9045,14 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::PlayCredits) {
+            paramCombo("##credits", "<roll>", project_.credits,
+                       [](const CreditsRoll& r) -> const std::string& { return r.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Credits roll to play (Tools > Credits Editor). The menu\n"
+                    "closes first; where the player ends up afterwards is the\n"
+                    "roll's own finish action.");
         } else if (en.action == MenuEntry::RebindKey) {
             // Two references: WHICH action to rebind, and the save value the
             // player's override is persisted in (docs/input-bindings.md).
@@ -9915,7 +10201,7 @@ void App::drawDiscLayoutWindow() {
     if (ImGui::Button("Refresh")) discPlanDirty_ = true;
     ImGui::SameLine();
     ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Export ISO")) runner_.exportIso(project_);
+    if (ImGui::Button("Export ISO")) runner_.exportIso(projectForBuild());
     ImGui::EndDisabled();
     if (discPlan_.manualOrder) {
         ImGui::SameLine();
@@ -11003,8 +11289,7 @@ void App::drawPreferencesModal() {
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
     ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler (experimental)",
-                    &prefSettings_.eeCrashHandler);
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();
     prefHelp(
         "A real CPU exception (bad pointer, address error, reserved\n"
@@ -11017,9 +11302,13 @@ void App::drawPreferencesModal() {
         ""
         "backtrace - and the editor resolves those addresses to functions and\n"
         ""
-        "source lines. EXPERIMENTAL and off by default: under PCSX2 installing\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
         ""
-        "the handler wedges the game (measured), so this wants a real console.\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        ""
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        ""
+        "at all, so a report only ever appears on a real console.\n"
         ""
         "See docs/devkit.md.");
     prefHelp(

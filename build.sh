@@ -75,9 +75,9 @@ fi
 # clone, and just as often in an older worktree after merging a branch that
 # added a dependency.
 probe_missing() {
-    local out=() d url branch dir probe build
+    local out=() d url mirror commit ref dir probe build
     for d in "${VENDOR_DEPS[@]}"; do
-        IFS='|' read -r url branch dir probe build <<<"$d"
+        IFS='|' read -r url mirror commit ref dir probe build <<<"$d"
         [ "$build" = "1" ] || continue
         [ -e "$probe" ] || out+=("$dir")
     done

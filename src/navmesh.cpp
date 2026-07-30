@@ -54,6 +54,7 @@ bool blocksNavigation(const SceneObject& o) {
         case PrimitiveType::Empty:
         case PrimitiveType::Decal:
         case PrimitiveType::Camera:
+        case PrimitiveType::Scatter:
         case PrimitiveType::Area:
             return false;  // markers / visual-only, collidePlayer's skip list
         default:

@@ -213,6 +213,17 @@ void App::scanAssetTree() {
             generated.insert("res/hud/" + menubake::textFileName(t.name));
     for (const GameFont& f : project_.fonts)
         generated.insert("res/fonts/" + menubake::atlasFileName(f.name));
+    // Credits pages: the whole res/credits/pages folder is the bake's own (the
+    // build sweeps it), so every PNG in it is generated whether or not a roll
+    // still claims it - which is also how a leftover from a deleted roll shows
+    // up as removable-by-the-build rather than as a user asset.
+    {
+        const std::string bakeDir = std::string(menubake::kCreditsBakeDir) + "/";
+        for (const auto& e :
+             fs::directory_iterator(fs::path(project_.dir) / "res" / "credits" / "pages", ec))
+            if (e.is_regular_file())
+                generated.insert(bakeDir + e.path().filename().generic_string());
+    }
 
     for (fs::recursive_directory_iterator it(root, ec), end; it != end;
          it.increment(ec)) {
@@ -349,6 +360,19 @@ void App::rebuildAssetUsage() {
     if (!project_.settings.terrainMaterial.empty())
         note(project_.settings.terrainMaterial, 2, "project terrain material");
 
+    // Prefab members are real references: the asset ships because a prefab
+    // uses it, whether or not any scene has an instance placed today. No
+    // objectRefs - a prefab member is not a scene object, so the inspector's
+    // "select this" link has nothing to select.
+    for (const Prefab& pf : project_.prefabs)
+        for (const SceneObject& o : pf.objects) {
+            const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
+            if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
+            if (!o.materialPath.empty())
+                note(o.materialPath, 0, where + " (material)");
+            if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
+        }
+
     auto noteHud = [&](const HudImage& h, const std::string& where) {
         if (!h.imagePath.empty()) note(h.imagePath, 2, where);
     };
@@ -362,6 +386,13 @@ void App::rebuildAssetUsage() {
     }
     for (const SplashScreen& s : project_.splashScreens)
         noteHud(s.image, "boot splash \"" + s.name + "\"");
+    for (const CreditsRoll& r : project_.credits) {
+        noteHud(r.bgImage, "credits backdrop \"" + r.name + "\"");
+        if (!r.music.empty()) note(r.music, 1, "credits music \"" + r.name + "\"");
+        for (const CreditsBlock& b : r.blocks)
+            if (!b.imagePath.empty())
+                note(b.imagePath, 2, "credits \"" + r.name + "\"");
+    }
     for (const GameMenu& m : project_.menus)
         for (const MenuImage& img : m.images)
             note(img.path, 2, "menu \"" + m.name + "\"");
@@ -577,6 +608,14 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     }
     swap(project_.settings.terrainMaterial);
 
+    // Prefab members store the same three asset paths a scene object does.
+    for (Prefab& pf : project_.prefabs)
+        for (SceneObject& o : pf.objects) {
+            swap(o.modelPath);
+            swap(o.materialPath);
+            swap(o.soundPath);
+        }
+
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);
     for (LoadingScreenDef& ls : project_.loadingScreens) {
@@ -584,6 +623,12 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (LoadingBar& b : ls.bars) swap(b.segImage.imagePath);
     }
     for (SplashScreen& s : project_.splashScreens) swap(s.image.imagePath);
+    for (CreditsRoll& r : project_.credits) {
+        swap(r.bgImage.imagePath);
+        swap(r.music);
+        swap(r.source);  // the text file the roll was imported from
+        for (CreditsBlock& b : r.blocks) swap(b.imagePath);
+    }
     for (GameMenu& m : project_.menus)
         for (MenuImage& img : m.images) swap(img.path);
     for (GameFont& f : project_.fonts) swap(f.fontPath);

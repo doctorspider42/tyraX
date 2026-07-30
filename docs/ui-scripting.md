@@ -48,10 +48,12 @@ the window as a prefix — so `click "Remote/Cross"` is fine.
 | Command | What it does |
 |---|---|
 | `click <target>` | hover, press, release — over three frames, like a real cursor |
+| `rightclick <target>` | the context-menu button, same three frames - how a right-click menu is reached at all |
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |
 | `hover <target>` | move the cursor onto it and leave it there |
 | `drag <target> <dx> <dy>` | press on it and slide by that many pixels |
+| `wheel <target> <notches>` | scroll over it, one notch per frame (negative = down/out) |
 | `key <chord>` | `ctrl+n`, `f9`, `escape`, `shift+tab`, … |
 | `text <string>` | type into whatever has keyboard focus |
 | `wait <seconds>` / `frames <n>` | let the editor run |
@@ -116,10 +118,22 @@ hold, and clears when the editor exits. Neither window was ever focused.
   object. Picking an object is a `drag`/`click` at an offset, or better, do it
   through the Project panel's list, which *is* widgets.
 - Same for the flow-graph canvas (imnodes) and the gizmo (ImGuizmo): they draw
-  themselves rather than submitting named items.
+  themselves rather than submitting named items. The widgets *inside* a node
+  (its combos, drags, checkboxes) are ordinary items, so they show up in `dump`
+  and are what a script measures a canvas change by.
+- `wheel` is the one step allowed to resolve a **bare window name**, because a
+  canvas exposes no item to aim at: `wheel "Flow Graph" -6` scrolls six notches
+  out over the middle of the window, which is how the flow-graph zoom is tested.
+  Every step that ends in a click still excludes whole-window items, or a bare
+  window name would "click" whatever sits in its centre.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
+- **A combo's dropdown cannot be opened by name.** ImGui reports a label only for
+  the widgets that call its item-info hook, and `BeginCombo` is not one of them —
+  `dump` shows the combo's rect with no label. Pick the value another way (the
+  Project panel's object list, a `Selected object`-style button, or editing the
+  `.tyra` in a scratch copy) and read the result off a `shot`.
 - Labels are what the code passes to ImGui, minus anything after `##`. Two
   widgets with the same label in the same window are ambiguous — the first one
   wins (which is also an argument for the `##scope` suffixes the codebase already

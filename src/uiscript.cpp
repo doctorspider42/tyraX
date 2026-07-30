@@ -255,11 +255,14 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
         s.source = line;
         auto needArg = [&](size_t count) { return tok.size() == count; };
 
-        if (cmd == "click" || cmd == "doubleclick" || cmd == "hover" ||
+        if (cmd == "click" || cmd == "rightclick" || cmd == "right-click" ||
+            cmd == "doubleclick" || cmd == "hover" ||
             cmd == "expect" || cmd == "expect-not" || cmd == "expectnot" ||
             cmd == "expect-checked" || cmd == "expect-unchecked") {
             if (!needArg(2)) return fail(cmd + " needs one target");
             s.kind = cmd == "click"             ? Step::Click
+                     : cmd == "rightclick"      ? Step::RightClick
+                     : cmd == "right-click"     ? Step::RightClick
                      : cmd == "doubleclick"     ? Step::DoubleClick
                      : cmd == "hover"           ? Step::Hover
                      : cmd == "expect"          ? Step::Expect
@@ -283,6 +286,13 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             s.kind = Step::Drag;
             s.arg = tok[1];
             s.dx = (float)dx;
+            s.dy = (float)dy;
+        } else if (cmd == "wheel" || cmd == "scroll") {
+            if (!needArg(3)) return fail("wheel needs a target and notches");
+            double dy = 0;
+            if (!toNumber(tok[2], dy)) return fail("wheel notches must be a number");
+            s.kind = Step::Wheel;
+            s.arg = tok[1];
             s.dy = (float)dy;
         } else if (cmd == "key") {
             if (!needArg(2)) return fail("key needs a chord, e.g. ctrl+n");

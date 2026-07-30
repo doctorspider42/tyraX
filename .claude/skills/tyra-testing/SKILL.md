@@ -107,10 +107,18 @@ missing `vendor/` header, check WHICH script ran before suspecting the code.
 **Third-party dependencies live in exactly one list per platform: `deps.ps1`
 and `deps.sh`.** `setup.ps1`/`setup.sh` fetch from them and `build.ps1`/
 `build.sh` probe them before configuring, so adding a dependency **to both** is
-all it takes — the build guard picks it up for free and `git clone`s it on the
+all it takes — the build guard picks it up for free and fetches it on the
 next build. Add one anywhere else, or to only one of the two, and you recreate
 the bug this arrangement exists to prevent: the lists used to drift, and a
 worktree that predated a new dependency reached cmake with the sources missing.
+
+Each entry is fetched at a **pinned commit**, not a branch (`git init` + `git
+fetch --depth 1 <url> <sha>`, since `git clone --branch` refuses a SHA), with a
+fallback to our mirror fork. This is what makes a build reproducible, so when
+you are chasing "it worked yesterday", `git -C vendor/<dep> rev-parse HEAD`
+should always equal the SHA in `deps.sh` — if it does not, that checkout
+predates the pinning and is stale. Fix it by deleting the directory and
+re-running setup, not by pulling in it.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
@@ -192,7 +200,11 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   whenever the thing you are measuring is an asset. It also runs the **asset bakes that live
   inside refreshGenerated**: animated models into `res/models/*.tskl` and
   static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
-  its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model
+  its problems as `[anim bake]` / `[model bake]` lines on stdout, plus the
+  **credits page strips** (docs/credits.md) into `res/credits/<roll>-<k>.png` -
+  so a roll's typography and page count are checkable with no Docker and no GUI:
+  refresh, stitch the pages back into one image and look at it, and read
+  `CREDITS_PAGE_TOTAL` / `contentH` out of `inc/credits_data.gen.hpp`. So a model
   format / LOD change is verifiable headlessly: refresh, then read the file's
   bytes (a few lines of Python on the layout in `src/tmdl.hpp` /
   `glbparser.cpp` tell you the tier vertex counts). Note the texture bake
@@ -204,6 +216,17 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- Both `--build` and `--refresh-gen` also run the **procedural bake** first
+  (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
+  volumes are baked into their chunk meshes and the project is saved, printing
+  `procedural: baked N volume(s) -> ...`. So a headless build of a project with
+  a procedural volume MUTATES the `.tyra` (the chunk objects are real scene
+  objects) - expect that diff, and use it: the fastest way to test a graph
+  change is `--refresh-gen` + grep `inc/scene_data.hpp` for the
+  `<volume>#<asset>-x<i>z<j>` chunk objects. The graph model itself is
+  harness-testable (procgraph/procgen/procbake link without GUI, GL or
+  templates.cpp - see PROGRESS 171 for the property list that caught three real
+  bugs).
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -456,10 +479,10 @@ Notes:
 
   ```powershell
   build\tyrax-editor.exe --ui-script <projectDir> `
-      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+      'frames 20; click Tools; click "Remote Pad"; shot panel.png; quit'
   ```
 
-  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  `click|rightclick|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -468,11 +491,45 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted with DOUBLE quotes, the only kind the tokenizer strips**, so
+  on PowerShell put the whole script in single quotes or the shell eats them and
+  a two-word target arrives as two tokens, `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it.
+  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
+  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
+  shows the rect with an empty label - set the value another way and read the
+  result off a `shot`.
+
+  **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
+  exposes one): it holds the cursor on the target and injects one notch per
+  frame, and it is the only step that may resolve a bare WINDOW name, so
+  `wheel "Flow Graph" -6` scrolls over the middle of the canvas. The way to
+  verify a zoom is not a screenshot but `dump` at two zoom levels: the node
+  widgets ARE ordinary items, so their rects give you the scale factor and the
+  offsets between them give you whether the layout stayed self-similar
+  (PROGRESS 233 measures both to under 0.1%).
+
+  Two things about the node canvases specifically (PROGRESS 247, which needed a
+  screenshot of a node tooltip). **A node's param widgets register only while
+  its window is the FRONT tab.** Behind another tab the window is drawn with
+  `SkipItems`, so `dump` lists the node rects (unlabelled - imnodes gives them
+  no label) and *nothing inside them*, which reads exactly like "the canvas is
+  unreachable". The Flow Graph ships docked behind Viewport in the Default
+  layout, and dropping a window from the layout's `open` list does NOT help -
+  Viewport is not optional and is not in that list. Set `"activeLayout"` in the
+  project's `.tyra` to a layout whose recipe FOCUSES the window instead
+  (`LayoutRecipe::Debugger` = index 3 focuses Flow Graph; `Procedural` focuses
+  Procedural), then everything inside the nodes is nameable as
+  `"Flow Graph/<Param>"`. **And `wheel` parks the cursor**, which is how you
+  reach a tooltip that hangs off no widget at all: it holds the mouse at the
+  target's centre while the notches arrive and ImGui keeps that position
+  afterwards, so `wheel "Flow Graph" 1; wait 1.6; shot x.png` screenshots
+  whatever the canvas shows for the point under the window's middle - put the
+  node there (screen = canvas origin + model position x nodeScale, both readable
+  off one `dump`) and you have the node-hover tooltip. What stays out of reach
+  is the **add menu**, which needs a right-click on empty canvas.
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
@@ -748,11 +805,16 @@ Notes:
   copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
   sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
   project has nothing to resolve against). Needs the build container up.
-- **Testing a crash is harder than it looks**: PCSX2 will not produce the
-  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
-  starts at 0) and a misaligned load went through unharmed. And installing the
-  EE crash handler wedges the game under PCSX2 (entry 194), so that path is a
-  hardware-only test today. What IS testable in the emulator: the report format
+- **Testing a crash is harder than it looks**: **PCSX2 cannot produce an EE
+  exception at all**, so catching one is a HARDWARE-ONLY test (entry 246).
+  Everything tried passed through unharmed there: a signed-overflow `add`, an
+  illegal opcode, a write to address 0 (main RAM starts at 0) and a misaligned
+  load. On a real console the reliable trigger is one line in a user-owned
+  script - `volatile int a = 0x7FFFFFFF, b = 1; asm volatile("add %0, %1, %2" :
+  "=r"(r) : "r"(a), "r"(b));` - which raises cause 12 and lands a real
+  `bin/crash.txt`; `--symbolize` then names the exact source line. (Installing
+  the handler no longer wedges anything - that was `ee_dbg_install(2)`, fixed in
+  246.) What IS testable in the emulator: the report format
   (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the

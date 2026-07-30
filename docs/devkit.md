@@ -147,7 +147,7 @@ very different visibility:
 | | before | now |
 |---|---|---|
 | `TYRA_ASSERT` / recovered asset error | delimited block in the log, editor dialog | same, and the banner is **TYRAX** |
-| a real EE exception (bad pointer, address error, reserved instruction) | **nothing** - the game just stops | crash report + symbolized backtrace (experimental, below) |
+| a real EE exception (bad pointer, address error, reserved instruction) | **nothing** - the game just stops | crash report + symbolized backtrace, and the crash says so on screen (below) |
 | a hang | **nothing** | the editor notices the heartbeat stopped and shows the post-mortem |
 
 ### The heartbeat, and the post-mortem
@@ -161,7 +161,7 @@ watched objects' last positions, the armed timers. That is the difference betwee
 
 This part needs nothing from the game and works on hardware and in PCSX2 alike.
 
-### The EE crash handler (experimental, opt-in)
+### The EE crash handler (opt-in)
 
 *Project > Preferences > Build > "EE crash handler"*, **off by default**.
 
@@ -172,8 +172,16 @@ plausible return addresses off the stack for a backtrace, then **redirects the
 frame's EPC at a trampoline and returns** - so the report is written from
 ordinary context, where stdio and the host: filesystem work again. Doing file
 I/O inside the exception context instead is the classic way to turn a crash into
-a hang. The game then halts quietly with the last frame on screen, exactly like
-a failed assertion.
+a hang.
+
+The game then **takes the screen** (`init_scr`/`scr_printf`, the same kernel
+debug console the opt-in assert screen uses) and idles there. This is the one
+place where a quiet halt is wrong: an assertion is a message and can be left to
+the editor, but a CPU exception is unrecoverable, and a frozen last frame is
+indistinguishable from a hang - which is exactly how one of these once cost an
+evening of "why is my game stuck on the loading screen". A player can never see
+it: a release build generates the devkit TU as a stub, never calls `install()`,
+and links neither the handler nor `-leedebug`.
 
 The report is `bin/crash.txt`: decoded cause (`Cause.ExcCode` -> "Address error
 on store"), EPC, BadVAddr, all 32 GPRs, and the backtrace candidates. The editor
@@ -188,23 +196,40 @@ address becomes `TerrainGame::renderOnePortalView(int)` at
 tyrax-editor --symbolize <projectDir> 0x00120000 0x00180000
 ```
 
-**Why it is opt-in.** Measured under PCSX2: `ee_dbg_install()` wedges the game
-the moment the handlers go in - the loop stops, nothing more reaches the log and
-the devkit heartbeat dies on the first frame. Narrowing the hooked causes did not
-help, so it is the install itself, in the emulator. Two traps were found and
-fixed along the way and they are worth knowing before touching this code:
+**`ee_dbg_install(2)` never returns** - it drops interrupts and rewrites the
+error-level vector at 0x80000100 under the running machine. That is what used to
+freeze a debug build on whatever frame was up, with nothing in the log, on real
+hardware and in PCSX2 alike. `ee_dbg_install(1)` returns fine on the same boot,
+so the handler installs **level 1 only**; nothing is lost, because level 2 is the
+NMI / cache-error vector while address error, bus error, reserved instruction,
+overflow and trap all arrive on level 1.
 
-- **never hook cause 0 (Interrupt)** - that hijacks vblank/timer/DMA dispatch, so
-  no thread ever runs again;
-- **never hook cause 8 (Syscall)**, nor TLB refill (2, 3) / TLB modified (1) -
-  those are how ordinary memory traffic and every kernel service are *serviced*,
-  not faults to report.
+Three facts about `libeedebug` are in no header, and are worth knowing before
+touching this code (they came out of disassembling the archive):
 
-The handler now hooks only genuine faults (4, 5, 6, 7, 9, 10, 11, 12, 13, 15).
-It still needs a pass on real hardware before it can be the default; until then
-the preference exists so nobody's debug build changes behaviour by surprise.
-Since installation is also what LINKS the handler out of `libtyra.a`, a project
-that leaves it off carries none of it - and neither does any release build.
+- `ee_dbg_install(1)` hooks causes **1..3** via `SetVTLBRefillHandler` and
+  **4..7 + 10..13** via `SetVCommonHandler` - **whatever** handler table you
+  register. Causes 0, 8, 9, 14 and 15 are never routed at all, which is why
+  narrowing the registered list cannot by itself keep a cause away from it.
+- its exception vector **always ERETs** and never chains to the kernel handler it
+  saved (that copy exists only so `ee_dbg_remove` can put it back). A hooked
+  cause with **no** handler therefore returns to the faulting instruction with
+  nothing serviced: harmless for a fault we report, fatal for a TLB refill, which
+  is how a mapped access is *completed*. Hence the handler hands causes 1..3
+  straight back to the kernel after the install.
+- `ee_dbg_set_level2_handler` bounds-checks `cause < 4`, so registering 4..15
+  there was silently doing nothing.
+
+The handler hooks genuine faults (4, 5, 6, 7, 9, 10, 11, 12, 13, 15) and is
+verified on real hardware: a forced signed-overflow `add` produced
+`CRASH: Arithmetic overflow`, `bin/crash.txt`, and `--symbolize` naming the exact
+source line. **PCSX2 cannot produce EE exceptions at all** - the same forced
+overflow and an illegal opcode both execute as no-ops there - so the report is a
+hardware-only sight even though the feature is now harmless everywhere.
+
+It stays **opt-in** so nobody's debug build changes behaviour by surprise. Since
+installation is also what LINKS the handler out of `libtyra.a`, a project that
+leaves it off carries none of it - and neither does any release build.
 
 ## Seeing what VU1 was fed
 
