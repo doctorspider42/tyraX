@@ -326,9 +326,15 @@ int applyToFrame(const Observation& o, const std::vector<std::string>& jointName
 
     // --- the head -----------------------------------------------------------
     const int head = findJoint(jointNames, "head_joint");
-    if (head >= 0 && parents[head] >= 0) {
+    // The upper bound is not belt-and-braces: `parents` is handed here straight
+    // off the wire (App::mocapLiveParents_ <- phonecam's `bodyrest`, which only
+    // size-checks the array), so a phone claiming parent 9999 for the head used
+    // to index `global` past its end. mocap::buildSource sanitizes the file
+    // path's parents, which is why this went unnoticed on the live one.
+    const int headPar = head >= 0 && head < (int)n ? parents[head] : -1;
+    if (head >= 0 && headPar >= 0 && headPar < (int)n) {
         float local[4];
-        if (solveHead(o, &global[parents[head]].x, limits, local)) {
+        if (solveHead(o, &global[headPar].x, limits, local)) {
             Q q = normalized(fromArray(local));
             if (tracker) {
                 if (tracker->haveHead)

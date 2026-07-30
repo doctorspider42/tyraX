@@ -741,6 +741,85 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (255) **Second review pass on the Character Generator branch: what a
+  malformed input file could do.** (251) covered the platform and licensing
+  debt; this one reads the same diff asking only "where does data from outside
+  the program get believed?". Six places, and the first three were memory
+  safety rather than robustness.
+
+  **A fetched OBJ could write past the end of a heap array.** Face indices from
+  `loadBaseMesh` reached four consumers in `chargen.cpp` - the body and garment
+  normal accumulators and the two vertex expanders - and every one of them
+  indexed the vertex array **raw**. The meshes are third-party files pulled over
+  the network by `setup.ps1`/`setup.sh`, so a truncated or tampered download was
+  a heap write, not a bad render. Validated once now, where the indices enter
+  the program, and the file is **rejected** rather than clamped: a proxy mesh
+  whose faces do not match its vertices is not something a body can be fitted
+  to, and silently repointing a corner at vertex 0 would deform the character
+  in a way nobody could trace back. A missing UV (`f 1//2`) stays legal.
+
+  **A proxy's delete-range was expanded before anything checked it.**
+  `0 - 2000000000` in a `.mhclo` pushed two billion ints before the base mesh's
+  actual vertex count was ever consulted. Bounded by what the reference mesh
+  can contain.
+
+  **A mocap take's header was believed.** `frameCount` and `duration` came
+  straight out of the file and drove a `reserve` and the sample-time loop; a
+  hand-edited 100-byte take claiming `0xFFFFFFFF` frames asked for roughly 17 GB
+  per channel across up to 4096 channels, throwing `bad_alloc` out of a loader
+  whose callers do not catch. A frame is a fixed size, so the file itself gives
+  the bound - remaining bytes divided by frame stride - and an implausible
+  duration is refused too.
+
+  **A single NaN from the phone would break the whole session, not one frame.**
+  The normalization helpers downstream guard the zero-length case (`len < 1e-12`),
+  which is *false* for NaN, so a NaN quaternion divided through into the node
+  transforms and then survived in `PoseFilter::Joint::value` until `reset()`.
+  Frames are now rejected at the one place wire data becomes floats.
+
+  **`fitProxy` pulled vertices toward the origin.** Skipping an out-of-range
+  barycentric reference dropped its weight on the floor, so the remaining
+  weights summed to less than 1 and the vertex was dragged toward `(0,0,0)` by
+  the shortfall - the collapsing-mesh look, on positions rather than skinning.
+  Renormalized over the references that survive.
+
+  **`twoBoneIk` divided by zero on a degenerate limb**, and `findRig` will
+  happily produce coincident hip/knee/ankle nodes on an imported rig, so the
+  NaN had a real route out through the node transforms.
+
+  **A rebind mid-recording silently ruined the take.** The recording buffers use
+  the source's joint count as their stride, and a phone reconnecting mid-take
+  sends a fresh `bodyrest` straight into `mocapRebind()`. Either the stride
+  changed and `writeTake` later rejected every recorded frame, or the new
+  skeleton happened to have the same joint count and the file was written mixing
+  frames from two different rest poses under one rest-pose header. It now stops
+  the recording and says how many frames it discarded.
+
+  **The PS2 budget was informational only.** Nothing clamped the total: each
+  garment is decimated against its own slot budget with no view of the sum, and
+  the body's 1460 triangles are simply whatever `proxy741.obj` contains. A
+  dressed character on *High* lands several times over the figure the docs and
+  the UI quote, and the readout looked identical whether you were inside the
+  budget or four times outside it. Now warns past ~3000 - a warning and not a
+  refusal, because which garment to thin is an authoring decision. While
+  measuring this, found and documented a real discrepancy rather than papering
+  over it: for a closed garment the budget behaves as a **vertex** count
+  (`decimateSkinned` forwards it to `meshlod::decimate`, whose target is welded
+  vertices), while hair's `thinCards` really does count triangles - two
+  readings ten lines apart in `chargen.cpp`, still unreconciled.
+
+  **One block was already dead.** The ARKit double-heading detection in
+  `mocap::load` sat *after* `rot` was moved into the clip, so it read
+  moved-from husks: `worst` was always 0, the warning never fired, and the
+  repair wrote into channels nothing would ever read again. Moved above the
+  move, where it does what its comment claims.
+
+  **Verified:** editor builds Dev, exit 0. No Docker build - nothing here
+  touches codegen. **Not** verified: none of it ran in PCSX2 or on Linux, and
+  the malformed-input paths are argued from the code plus a compiler, not
+  driven with actual corrupt files - a fuzz pass over `loadBaseMesh`,
+  `loadProxy` and `mocap::load` is the honest next step and is not done.
+
 - (251) **Review pass on the Character Generator branch: the CC0 paperwork, and
   a feature that was quietly Windows-only.** Found by reading the branch's diff
   against main before it lands, not by a report.

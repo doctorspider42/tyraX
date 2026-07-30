@@ -782,6 +782,12 @@ void twoBoneIk(const Vec& root, const Vec& target, const Vec& pole, float upperL
                float lowerLen, float maxReach, const Vec& upperDirNow, const Vec& lowerDirNow,
                Quat& upperWorld, Quat& lowerWorld) {
     const float reach = (upperLen + lowerLen) * maxReach;
+    // A degenerate limb has nothing to solve, and solving it anyway divides by
+    // zero: `clamped` is bounded ABOVE by `reach`, so two zero-length bones make
+    // it 0 and the `along` term below divides by `2 * clamped`. findRig will
+    // happily produce coincident hip/knee/ankle nodes on an imported rig, and
+    // the resulting NaN would propagate out through the node transforms.
+    if (!(reach > 1e-5f)) return;
     Vec toTarget{target[0] - root[0], target[1] - root[1], target[2] - root[2]};
     float d = std::sqrt(toTarget[0] * toTarget[0] + toTarget[1] * toTarget[1] +
                         toTarget[2] * toTarget[2]);

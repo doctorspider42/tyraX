@@ -12660,8 +12660,30 @@ void App::addCharacterToScene() {
 }
 
 void App::mocapRebind() {
+    // A rebind changes the SOURCE, and the recording buffers are laid out with
+    // the source's joint count as their stride - so frames already captured are
+    // not comparable with the ones that follow. A phone reconnecting mid-take
+    // sends a fresh `bodyrest`, which lands here, so this is a live path and not
+    // a theoretical one. Left alone it had two outcomes, both silent: the stride
+    // changed and writeTake rejected the whole take as inconsistent (every
+    // recorded frame discarded), or the new skeleton happened to have the same
+    // joint count and the file was written mixing frames from two different rest
+    // poses under one rest-pose header. Stop the recording and say so instead.
+    std::string stopped;
+    if (mocapRecording_) {
+        const size_t frames = mocapRecTimes_.size();
+        mocapRecording_ = false;
+        mocapRecTimes_.clear();
+        mocapRecRot_.clear();
+        mocapRecHips_.clear();
+        mocapRecRoot_.clear();
+        stopped = "recording stopped: the capture source changed (" +
+                  std::to_string(frames) +
+                  " frames discarded - they were captured against the previous "
+                  "rest pose). ";
+    }
     mocapBind_ = charanim::LiveRetarget();
-    mocapNote_.clear();
+    mocapNote_ = stopped;  // "" in the ordinary case, as before
     mocapTime_ = 0.0f;
     if (mocapModel_.empty()) return;
 
@@ -12669,7 +12691,7 @@ void App::mocapRebind() {
     glbparser::Skel character;
     const std::string full = project_.dir + "\\" + mocapModel_;
     if (!animimport::parseSkel(full, character, err)) {
-        mocapNote_ = "character: " + err;
+        mocapNote_ += "character: " + err;
         return;
     }
     mocapSkel_ = std::move(character);
@@ -12697,7 +12719,7 @@ void App::mocapRebind() {
     } else if (mocapSourceKind_ == 2) {
         const phonecam::BodySkeleton sk = phoneCam_.bodySkeleton();
         if (!sk.valid()) {
-            mocapNote_ = "waiting for the phone's skeleton";
+            mocapNote_ += "waiting for the phone's skeleton";
             return;
         }
         // Claimed before it is used, not after: a skeleton this build REJECTS
@@ -12717,7 +12739,7 @@ void App::mocapRebind() {
         if (!mocap::buildSource(sk.joints, sk.parents, sk.restPos.data(),
                                 calibrated ? mocapCalibRot_.data() : sk.restRot.data(),
                                 liveRig, err)) {
-            mocapNote_ = "live skeleton: " + err;
+            mocapNote_ += "live skeleton: " + err;
             return;
         }
         source = &liveRig;

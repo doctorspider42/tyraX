@@ -147,11 +147,29 @@ out with its faces. A shirt-and-trousers pass takes the body from 1460 to about
 Three things about the source assets shape what the generator does with them:
 
 **They are 3.5k-16k triangles.** These are offline-render meshes. The *Detail*
-setting decimates each garment to a budget (~500 / 1100 / 2200 triangles), and
-the slots do not share it equally - a suit is most of the silhouette, shoes are
-two small blocks at the bottom of the screen. Measured: the suits stop
-simplifying around 1000 triangles and start tearing holes instead, so *Low* is
-for crowds, not for a hero.
+setting decimates each garment to a budget (~500 / 1100 / 2200), and the slots
+do not share it equally - a suit is most of the silhouette, shoes are two small
+blocks at the bottom of the screen. Measured: the suits stop simplifying around
+1000 triangles and start tearing holes instead, so *Low* is for crowds, not for
+a hero.
+
+Two caveats on those numbers, both real:
+
+- **For a closed garment the budget behaves as a VERTEX count, not a triangle
+  count.** `decimateSkinned` forwards it to `meshlod::decimate`, whose target is
+  welded vertices, so a garment asked for 1100 lands nearer 2200 triangles.
+  Hair is the exception - `thinCards` really does count triangles. The two
+  readings sit ten lines apart in `chargen.cpp` and have not been reconciled;
+  treat the table above as the *hair* budget and roughly double it for
+  everything else.
+- **Nothing clamps the total.** Each slot is decimated against its own budget
+  with no view of the sum, and the body's 1460 is simply whatever `proxy741.obj`
+  contains. A dressed character on *High* is comfortably over 3000 triangles.
+  The generator now **warns** when the finished character passes ~3000 rather
+  than only showing the count, because the readout looked the same whether you
+  were inside the budget or several times outside it. It is a warning and not a
+  refusal: which garment to thin, or whether to spend it on a hero character, is
+  yours to decide.
 
 **Hair does not decimate at all.** It is a pile of separate quads with a uv
 seam around every one, and the quadric collapse locks seam and border vertices

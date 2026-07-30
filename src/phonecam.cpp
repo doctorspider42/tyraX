@@ -59,6 +59,15 @@ bool readVec(const json::Value& v, const char* key, float* out, int n) {
     return true;
 }
 
+// Nothing downstream of the link screens for NaN/Inf: the normalization helpers
+// guard the ZERO-length case, which a NaN passes straight through. So the check
+// belongs here, at the one place wire data becomes floats.
+bool allFinite(const float* v, size_t n) {
+    for (size_t i = 0; i < n; ++i)
+        if (!std::isfinite(v[i])) return false;
+    return true;
+}
+
 }  // namespace
 
 std::string newPairCode() {
@@ -415,6 +424,19 @@ void Link::workerMain() {
                 f.haveRootRot = readVec(msg, "r", f.rootRot, 4);
                 f.haveCameraRot = readVec(msg, "cq", f.cameraRot, 4);
                 f.haveFace = readVec(msg, "fa", f.face, 3);
+                // Reject the frame outright if anything on it is not finite.
+                // The zero-length guards downstream (charanim::normalized,
+                // posefilter::normalize4) test `len < 1e-12`, which is FALSE for
+                // NaN - so a single NaN quaternion divides through, lands in the
+                // node transforms, and in PoseFilter::Joint::value it then
+                // survives every later frame until reset(). One bad packet would
+                // break the session, not the frame.
+                if (!allFinite(f.rot.data(), f.rot.size()) ||
+                    (f.haveHips && !allFinite(f.hips, 3)) ||
+                    (f.haveRootRot && !allFinite(f.rootRot, 4)) ||
+                    (f.haveCameraRot && !allFinite(f.cameraRot, 4)) ||
+                    (f.haveFace && !allFinite(f.face, 3)))
+                    continue;
                 if (const json::Value* v = msg.find("ia")) {
                     const float a = (float)v->numberOr(1.0);
                     if (a > 0.01f) f.imageAspect = a;

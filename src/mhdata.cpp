@@ -109,6 +109,45 @@ bool loadBaseMesh(const std::string& path, BaseMesh& out, std::string& error) {
         error = path + ": no geometry (expected an OBJ with v/f lines)";
         return false;
     }
+
+    // Every face index is validated HERE, once, because this is the only place
+    // they enter the program - and because four separate consumers in
+    // chargen.cpp (the body and garment normal accumulators, and the body and
+    // garment vertex expanders) index vertex arrays with them RAW. An OBJ is a
+    // third-party file fetched over the network at setup time, so an index past
+    // the end of `pos` was a heap write, not a bad render. Rejecting the file is
+    // right rather than clamping: a proxy mesh whose faces do not match its
+    // vertices is not a mesh we can fit anything to, and silently repointing a
+    // corner at vertex 0 would deform the body in a way nobody could trace.
+    const int nv = out.vertCount();
+    const int nt = (int)out.uv.size() / 2;
+    for (size_t i = 0; i < out.faces.size(); ++i) {
+        const BaseMesh::Face& f = out.faces[i];
+        for (int c = 0; c < f.n; ++c) {
+            if (f.v[c] < 0 || f.v[c] >= nv) {
+                error = path + ": face " + std::to_string(i) + " references vertex " +
+                        std::to_string(f.v[c] + 1) + ", but the file has " +
+                        std::to_string(nv);
+                return false;
+            }
+            // A missing texture coordinate is legal in OBJ (`f 1//2`), and
+            // parseCorner reports it as 0 -> -1 here. Only a PRESENT but
+            // out-of-range one is an error; the consumers already treat -1 as
+            // "no UV".
+            if (f.t[c] >= nt) {
+                error = path + ": face " + std::to_string(i) +
+                        " references texture coordinate " +
+                        std::to_string(f.t[c] + 1) + ", but the file has " +
+                        std::to_string(nt);
+                return false;
+            }
+            if (f.t[c] < -1) {
+                error = path + ": face " + std::to_string(i) +
+                        " has a malformed texture coordinate index";
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -221,7 +260,15 @@ bool loadProxy(const std::string& path, Proxy& out, std::string& error) {
                 }
                 const int v = std::atoi(tok.c_str());
                 if (range && pending >= 0) {
-                    for (int i = pending; i <= v; ++i) out.deleteVerts.push_back(i);
+                    // The range end comes straight out of the file, and this
+                    // loop used to expand whatever it said: "0 - 2000000000"
+                    // pushed two billion ints before anything looked at the
+                    // base mesh's actual vertex count. A delete list can only
+                    // ever name vertices of the hm08 reference mesh, so anything
+                    // past kMaxDeleteVert is a malformed file, not a big model.
+                    constexpr int kMaxDeleteVert = 1 << 20;
+                    const int hi = v > kMaxDeleteVert ? kMaxDeleteVert : v;
+                    for (int i = pending; i <= hi; ++i) out.deleteVerts.push_back(i);
                     range = false;
                     pending = -1;
                 } else {
@@ -288,10 +335,23 @@ std::vector<float> fitProxy(const Proxy& proxy, const std::vector<float>& basePo
 
     for (int i = 0; i < n; ++i) {
         float p[3] = {0, 0, 0};
+        // The three barycentric weights are meant to sum to 1. Skipping an
+        // out-of-range reference used to drop its weight on the floor, so the
+        // remaining sum was < 1 and the vertex was pulled toward the ORIGIN by
+        // the shortfall - the classic collapsing-mesh look, on positions rather
+        // than on skinning. Renormalize over the references that survived, and
+        // fall back to leaving the vertex at the origin only when none did (in
+        // which case there is genuinely nothing to place it against).
+        float wsum = 0.0f;
+        for (int k = 0; k < 3; ++k) {
+            const int v = proxy.ref[i * 3 + k];
+            if (v >= 0 && v < baseVerts) wsum += proxy.weight[i * 3 + k];
+        }
+        const float wnorm = (wsum > 1e-6f) ? 1.0f / wsum : 0.0f;
         for (int k = 0; k < 3; ++k) {
             const int v = proxy.ref[i * 3 + k];
             if (v < 0 || v >= baseVerts) continue;
-            const float w = proxy.weight[i * 3 + k];
+            const float w = proxy.weight[i * 3 + k] * wnorm;
             p[0] += basePos[v * 3 + 0] * w;
             p[1] += basePos[v * 3 + 1] * w;
             p[2] += basePos[v * 3 + 2] * w;

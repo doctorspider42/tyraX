@@ -1111,6 +1111,34 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         }
     }
 
+    // --- the PS2 budget -----------------------------------------------------
+    // Nothing above CLAMPS the total: the body is 1460 triangles only because
+    // proxy741.obj happens to be that size, and each garment is decimated to its
+    // own slot budget with no view of the sum. A dressed character on High detail
+    // therefore lands several times over the figure the docs and the UI quote,
+    // and until now the only feedback was an informational triangle readout that
+    // looks identical whether you are inside the budget or four times outside it.
+    //
+    // A warning, not a clamp: which garment to thin, or whether to accept the
+    // cost for a hero character, is an authoring decision. Silence was the bug.
+    {
+        size_t tris = 0;
+        for (const glbparser::SkelPart& built : out.parts) tris += built.vertexCount / 3;
+        // The documented budget for one on-screen character, doubled to leave
+        // room for clothes and hair before anyone is told off.
+        constexpr size_t kSoftCeiling = 3000;
+        if (tris > kSoftCeiling) {
+            char buf[224];
+            std::snprintf(buf, sizeof(buf),
+                          "this character is %zu triangles, over the ~%zu the PS2 budget "
+                          "assumes for one on-screen figure - lower Detail, or drop a "
+                          "garment, before using several of these at once "
+                          "(docs/character-generator.md)",
+                          tris, kSoftCeiling);
+            warnings.push_back(buf);
+        }
+    }
+
     // --- bounds -------------------------------------------------------------
     // Over every part: hair reaches above the skull and shoes below the sole.
     for (int k = 0; k < 3; ++k) {

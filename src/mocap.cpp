@@ -374,6 +374,33 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
     for (uint32_t i = 0; i < jointCount; ++i)
         if (out.nodes[i].name == "mixamorig:Hips") hips = (int)i;
 
+    // frameCount and duration are believed from the header below this point -
+    // the reserve loop acts on the first and charanim::sampleTimes on the
+    // second - so both have to be checked against reality FIRST. jointCount was
+    // already capped above; these two were not, and a hand-edited 100-byte file
+    // claiming 0xFFFFFFFF frames asked for ~17 GB per channel across up to 4096
+    // channels, throwing bad_alloc out of a loader whose callers do not catch.
+    //
+    // A frame is a fixed size, so the file itself says how many there can be:
+    // 4 bytes of timestamp + a 64-byte root matrix + one 64-byte matrix per
+    // joint. r.p is sitting on the first frame here (the joint table and the
+    // rest pose have been consumed), so the remaining bytes are the bound.
+    const size_t frameBytes = 4 + 64 + (size_t)jointCount * 64;
+    const size_t remaining = (size_t)(r.end - r.p);
+    if ((size_t)frameCount > remaining / frameBytes) {
+        error = "take header claims " + std::to_string(frameCount) +
+                " frames but the file only holds " +
+                std::to_string(remaining / frameBytes);
+        return false;
+    }
+    // Duration only has to be sane enough not to turn into an allocation: it is
+    // resampled per clip, and an hour of capture is already absurd.
+    if (!(duration > 0.0f) || !std::isfinite(duration) || duration > 3600.0f) {
+        error = "take header has an implausible duration (" +
+                std::to_string(duration) + " s)";
+        return false;
+    }
+
     glbparser::SkelClip clip;
     clip.name = stem(path);
     clip.duration = duration;
@@ -483,14 +510,6 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
                                "parent bone rigidly");
     }
 
-    for (glbparser::SkelChannel& ch : rot) clip.channels.push_back(std::move(ch));
-    if (hips >= 0 && !hipsMove.times.empty()) clip.channels.push_back(std::move(hipsMove));
-    out.clips.push_back(std::move(clip));
-
-    if (hips < 0)
-        out.warnings.push_back(
-            "take has no hips_joint - it will not retarget (is it really an ARKit body take?)");
-
     // ARKit does not move hips_joint. Not "hardly" - measured across whole
     // takes in which the performer walked and turned a full circle, its own
     // rotation is constant to the last float bit, because the body's heading
@@ -499,6 +518,11 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
     // the heading too, the loader is about to apply it twice. That does not
     // lean a character, it tumbles it. Say so rather than let it be rediscovered
     // from a screenshot.
+    //
+    // This runs BEFORE `rot` is moved into the clip below. It used to sit after
+    // the move, reading and repairing channels that had already been emptied by
+    // it - so `worst` was always 0, the detection never fired, and the repair
+    // wrote into husks that nothing would ever read. The whole block was dead.
     if (hips >= 0 && hips < (int)rot.size()) {
         const glbparser::SkelChannel& ch = rot[hips];
         float worst = 0.0f;
@@ -532,6 +556,14 @@ bool load(const std::string& path, glbparser::Skel& out, std::string& error) {
             out.warnings.push_back(buf);
         }
     }
+
+    for (glbparser::SkelChannel& ch : rot) clip.channels.push_back(std::move(ch));
+    if (hips >= 0 && !hipsMove.times.empty()) clip.channels.push_back(std::move(hipsMove));
+    out.clips.push_back(std::move(clip));
+
+    if (hips < 0)
+        out.warnings.push_back(
+            "take has no hips_joint - it will not retarget (is it really an ARKit body take?)");
     return true;
 }
 
