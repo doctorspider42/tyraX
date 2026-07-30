@@ -122,6 +122,41 @@ for h in "${STB_HEADERS[@]}"; do
     fi
 done
 
+# MakeHuman CC0 data (Character Generator) - the twin of setup.ps1's $MhAssets
+# block. ~110 small files plus six large skin textures, so this is the one fetch
+# worth reporting progress on. Each file is checked individually: an interrupted
+# run resumes where it stopped instead of re-downloading 40 MB.
+# The list is checked file by file rather than gated on a probe: it GROWS as the
+# generator gains assets, so an existing install has to pick up what is new
+# instead of being declared complete because base.obj happens to be there.
+tyrax_mh_files
+mh_missing=()
+for f in "${MH_FILES[@]}"; do
+    IFS='|' read -r url path <<<"$f"
+    [ -e "$MH_ASSETS_DIR/$path" ] || mh_missing+=("$f")
+done
+if [ "${#mh_missing[@]}" -eq 0 ]; then
+    echo "OK: $MH_ASSETS_DIR already present (${#MH_FILES[@]} files)"
+else
+    echo "Fetching MakeHuman CC0 data into $MH_ASSETS_DIR (${#mh_missing[@]} files, ~80 MB for a full set)"
+    done_n=0
+    for f in "${mh_missing[@]}"; do
+        IFS='|' read -r url path <<<"$f"
+        dest="$MH_ASSETS_DIR/$path"
+        done_n=$((done_n + 1))
+        mkdir -p "$(dirname "$dest")"
+        [ $((done_n % 10)) -eq 0 ] && echo "  $done_n/${#mh_missing[@]} $path"
+        # A partial file must not look like a finished one to the next run.
+        if fetch "$url" "$dest.part"; then
+            mv -f "$dest.part" "$dest"
+        else
+            rm -f "$dest.part"
+            echo "  WARNING: could not fetch $path - re-run setup.sh to retry" >&2
+        fi
+    done
+    echo "  done (${#mh_missing[@]} files)"
+fi
+
 for t in "${PS2_TOOLS[@]}"; do
     IFS='|' read -r url dir probe <<<"$t"
     if [ -e "$probe" ]; then

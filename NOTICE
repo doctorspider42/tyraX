@@ -10,3 +10,9 @@ in the sources.
 This product also includes software under the MIT, zlib/libpng, MIT-0 and
 public-domain licenses, and a module derived from PS2SDK under the Academic
 Free License v2.0. Full notices for all of them are in THIRD-PARTY-LICENSES.md.
+
+The Character Generator reads the MakeHuman community's CC0 1.0 data set (base
+mesh, morph targets, proxy, skeleton, vertex weights, skins, clothes and hair),
+fetched on demand into vendor/mh-assets and not redistributed here. The data is
+CC0 and requires no attribution; the MakeHuman program itself is AGPL-3.0 and no
+part of it is used. See THIRD-PARTY-LICENSES.md.

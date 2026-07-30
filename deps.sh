@@ -47,6 +47,93 @@ VENDOR_DEPS=(
 # to prevent.
 STB_HEADERS=(stb_image.h stb_truetype.h stb_image_write.h)
 
+# MakeHuman CC0 data for the Character Generator (docs/character-generator.md).
+# The POSIX twin of deps.ps1's $MhFiles/$MhAssets - keep the two lists in step.
+#
+# DATA ONLY - the MakeHuman *program* is AGPL and none of it is used here; the
+# base mesh, targets, proxy meshes, rig, vertex weights and skins were
+# explicitly released as CC0 in 2020 (each file carries the release notice in
+# its own header, and the assets repository ships the CC0 text, fetched below as
+# LICENSE-CC0.txt). Credits live in README.md and THIRD-PARTY-LICENSES.md; keep
+# them in sync when this list grows.
+#
+# Fetched file-by-file rather than cloned: the two upstream repositories are
+# several GB and the editor needs ~110 of their files. The download is about
+# 40 MB, all of it git-ignored under vendor/. Not compiled into the editor, so
+# build.sh never blocks on it - the Character Generator window explains how to
+# get the data when it is missing.
+MH_RAW='https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data'
+MH_ASSET_RAW='https://raw.githubusercontent.com/makehumancommunity/makehuman-assets/master/base'
+# The skin and clothing textures are stored in Git LFS, so raw.githubusercontent
+# serves a 132-byte pointer file instead of the PNG - media.githubusercontent
+# serves the real bytes.
+MH_ASSET_LFS='https://media.githubusercontent.com/media/makehumancommunity/makehuman-assets/master/base'
+
+MH_ASSETS_DIR='vendor/mh-assets'
+MH_ASSETS_PROBE='vendor/mh-assets/base.obj'
+
+# Populates MH_FILES with "url|path" entries. A function rather than a literal
+# array because most of the list is combinatorial (see the target sets below),
+# exactly as deps.ps1 builds it with nested foreach.
+tyrax_mh_files() {
+    MH_FILES=(
+        "$MH_RAW/3dobjs/base.obj|base.obj"
+        "$MH_RAW/rigs/default.mhskel|default.mhskel"
+        "$MH_RAW/rigs/default_weights.mhw|default_weights.mhw"
+        "$MH_ASSET_RAW/proxymeshes/proxy741/proxy741.obj|proxy741.obj"
+        "$MH_ASSET_RAW/proxymeshes/proxy741/proxy741.proxy|proxy741.proxy"
+        "https://raw.githubusercontent.com/makehumancommunity/makehuman-assets/master/LICENSE.txt|LICENSE-CC0.txt"
+    )
+    # The macro target set: every combination the macro sliders blend between.
+    # "<ethnicity>-<gender>-<age>" carries the facial/skeletal character, and
+    # "universal-<gender>-<age>-<muscle>-<weight>" the build. Height and body
+    # proportions have their own 144-file sets upstream; the generator scales
+    # for height instead, so they are deliberately not fetched (see the docs).
+    for e in african asian caucasian; do
+        for g in female male; do
+            for a in baby child young old; do
+                MH_FILES+=("$MH_RAW/targets/macrodetails/$e-$g-$a.target|targets/$e-$g-$a.target")
+            done
+        done
+    done
+    for g in female male; do
+        for a in baby child young old; do
+            for m in minmuscle averagemuscle maxmuscle; do
+                for w in minweight averageweight maxweight; do
+                    n="universal-$g-$a-$m-$w.target"
+                    MH_FILES+=("$MH_RAW/targets/macrodetails/$n|targets/$n")
+                done
+            done
+        done
+    done
+    # Skins (2048x2048 diffuse maps, downscaled to 256 at generate time). Six
+    # of the 22 upstream textures, chosen to span age x tone x gender plus the
+    # two clothed "special suit" ones.
+    for s in young_lightskinned_female_diffuse young_lightskinned_male_diffuse \
+             young_darkskinned_female_diffuse young_darkskinned_male_diffuse \
+             young_caucasian_female_special_suit young_caucasian_male_special_suit; do
+        MH_FILES+=("$MH_ASSET_LFS/skins/textures/$s.png|skins/$s.png")
+    done
+    # Clothes and hair. These are `.mhclo` files - the SAME barycentric binding
+    # format as the body proxy, which is why a shirt fits a generated body with
+    # no extra machinery. Each asset is a manifest + a mesh + a 2048-square
+    # diffuse map (Git LFS again). A curated handful rather than the full
+    # wardrobe: the textures dominate the download.
+    for c in male_casualsuit01 male_worksuit01 male_elegantsuit01 \
+             female_casualsuit01 female_elegantsuit01 shoes01; do
+        for ext in mhclo obj; do
+            MH_FILES+=("$MH_ASSET_RAW/clothes/$c/$c.$ext|clothes/$c.$ext")
+        done
+        MH_FILES+=("$MH_ASSET_LFS/clothes/$c/${c}_diffuse.png|clothes/${c}_diffuse.png")
+    done
+    for h in short01 bob01 long01 ponytail01; do
+        for ext in mhclo obj; do
+            MH_FILES+=("$MH_ASSET_RAW/hair/$h/$h.$ext|hair/$h.$ext")
+        done
+        MH_FILES+=("$MH_ASSET_LFS/hair/$h/${h}_diffuse.png|hair/${h}_diffuse.png")
+    done
+}
+
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client talks
 # to a console running the TyraX ps2link. The Runner looks for it in
 # tools/ps2client/bin. Not needed to build the editor, so build.sh never blocks

@@ -741,6 +741,53 @@ Each finished feature lands as its own commit.
 
 ## Also done after the marathon
 
+- (251) **Review pass on the Character Generator branch: the CC0 paperwork, and
+  a feature that was quietly Windows-only.** Found by reading the branch's diff
+  against main before it lands, not by a report.
+
+  **The Character Generator did not work on Linux at all**, and nothing said
+  so. `deps.ps1` carried the whole 138-file MakeHuman list and `setup.ps1`
+  fetched it; `deps.sh` and `setup.sh` had **no MakeHuman entry whatsoever**.
+  This is the exact failure the paired-list rule exists to prevent, and it is
+  the largest single instance of it so far - not a missing flag but a missing
+  feature, on the platform the author does not use. `deps.sh` now has the twin
+  (`tyrax_mh_files`, populated combinatorially the way deps.ps1 builds
+  `$MhFiles` with nested foreach) and `setup.sh` the twin fetch loop, with the
+  same resume-per-file behavior. Verified the two lists are byte-identical by
+  dumping both and diffing: 138 entries each, no duplicates, same URLs and same
+  destination paths - the recipe for that check is now in the tyra-testing
+  skill, because eyeballing two 90-line generators is not a check.
+
+  **The licensing paperwork was missing**, and one existing sentence had become
+  false. `THIRD-PARTY-LICENSES.md` said "TyraX ships no third-party assets
+  today" and had no MakeHuman row; `NOTICE` did not mention the data at all.
+  Both now do. Being precise about what is and is not an obligation: CC0 is a
+  public-domain dedication and requires **no** attribution, so the credit is
+  courtesy, not compliance - but the repo's own dependency policy (README rule
+  4, added by main in the meantime) requires an asset pack's status to be
+  documented file-by-file, and the genuinely load-bearing fact is the split
+  MakeHuman has: **the data is CC0 while the program around it is AGPL-3.0**.
+  That distinction is now stated where someone would look before adding to the
+  fetch list, along with the note that the fetched `LICENSE-CC0.txt` puts the
+  release text next to the data. Also corrected: the fetch is not "shipped" -
+  it is an optional download into a git-ignored directory, and the editor
+  builds and runs without it.
+
+  Also checked and deliberately NOT changed: the branch does **not** add a
+  second phone transport (one `wire::makeWebSocketTransport`, in
+  `phonecam.cpp`, with `body: true` at hello distinguishing the mocap app from
+  the camera app - one port, one pairing code), and characters correctly go out
+  as `.glb` into the existing animated pipeline rather than `.tmdl`, which is
+  the STATIC model format and wrong for a skinned rig.
+
+  **Verified** (Layer 2): editor builds clean, Release and Dev, exit 0; a
+  fresh third-person scratch project builds in Docker to a linked ELF, exit 0.
+  Both `deps.sh` and `setup.sh` pass `bash -n`. **Not** verified: nothing here
+  was run on Linux (only one platform's compiler runs at a time) and nothing
+  was run in PCSX2, so the Linux fetch owes a human one `./setup.sh` on a Linux
+  box. Docs: `THIRD-PARTY-LICENSES.md`, `NOTICE`, `README.md`,
+  `docs/character-generator.md`, tyra-testing skill.
+
 - (200) **Retargeting onto a rig somebody else made.** Owner asked whether a
   take captured for a generated character could drive a Mixamo model too, or
   whether he was out of luck - and whether calibration might rescue it.

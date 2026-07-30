@@ -32,8 +32,9 @@ proxy meshes, rig, vertex weights and skins were explicitly released as CC0 in
 that building your own character generator on them is fine. Credits are in
 [README.md](../README.md#credits).
 
-`setup.ps1` fetches about 80 MB into `vendor/mh-assets` (git-ignored, listed in
-`deps.ps1`):
+`setup.ps1` / `setup.sh` fetch about 80 MB into `vendor/mh-assets`
+(git-ignored, listed in `deps.ps1` and `deps.sh` - the two lists must describe
+the same files; see the tyra-testing skill for the one-liner that diffs them):
 
 | File | What it is |
 |---|---|
