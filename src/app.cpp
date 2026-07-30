@@ -1035,6 +1035,8 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+            drawRecentProjectsMenu();
+            ImGui::Separator();
             const bool sessionClient =
                 session_.role() == session::Session::Role::Client;
             if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
@@ -1044,6 +1046,11 @@ void App::drawMenuBar() {
                     "You joined this project as a session participant -\n"
                     "the HOST owns saving and committing. Leave the session\n"
                     "to keep your local copy and save it yourself.");
+            // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
+            // W that flies the viewport camera, and this throws the project out
+            // of the editor.
+            if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
+                requestCloseProject();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
@@ -2168,16 +2175,10 @@ void App::drawWelcomeScreen() {
     // An open wins over a drop in the same frame (they can't both be clicked,
     // but the drop would shift the index the open reads).
     if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
-    if (openIndex >= 0) {
-        const std::string dir = recentProjects_[openIndex].dir;
-        const std::string err = openProjectAt(dir);
-        if (!err.empty()) {
-            // Moved/deleted since it was probed: say so and mark the row, but
-            // keep it - the user decides whether it is worth forgetting.
-            probeRecentProject(recentProjects_[openIndex]);
-            platform::errorBox("Open Project", err);
-        }
-    }
+    // Nothing is open here, so there is never anything to discard - straight to
+    // the shared open path (which reports a folder that vanished since it was
+    // probed and re-marks the row).
+    if (openIndex >= 0) openRecentProject(recentProjects_[openIndex].dir);
 }
 
 void App::drawViewportWindow() {
@@ -4453,6 +4454,66 @@ void App::forgetRecentProject(int index) {
     saveGlobalConfig();  // the list only ever lives in editor.ini
 }
 
+void App::openRecentProject(const std::string& dir) {
+    const std::string err = openProjectAt(dir);
+    if (err.empty()) return;
+    // Moved or deleted since it was probed (the probe runs at startup, not per
+    // frame): re-probe so the entry shows as missing, say what went wrong, and
+    // KEEP it - whether a project on an unplugged drive is worth forgetting is
+    // the user's call.
+    const std::string key = recentProjectKey(dir);
+    for (RecentProject& r : recentProjects_)
+        if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+    platform::errorBox("Open Project", err);
+}
+
+void App::requestOpenRecent(const std::string& dir) {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::OpenRecent;
+        pendingRecentDir_ = dir;
+        openDiscardPopup_ = true;
+    } else {
+        openRecentProject(dir);
+    }
+}
+
+// File > Recent Projects: the same list the welcome screen draws, reachable
+// while a project is open - "switch back to yesterday's project" is otherwise
+// close-then-file-dialog. Entries stay clickable when they probed as missing:
+// the probe is from startup, and the drive may well be back.
+void App::drawRecentProjectsMenu() {
+    if (!ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) return;
+
+    // Resolved after the loop: opening (or clearing) rewrites recentProjects_,
+    // which we are iterating.
+    std::string pick;
+    bool clear = false;
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i);
+        // Two projects can share a name, so the full folder rides in the
+        // tooltip rather than in the label - a path in a menu item makes the
+        // whole menu as wide as the deepest project on the machine.
+        const std::string label = r.valid ? r.name : r.name + "  (missing)";
+        if (ImGui::MenuItem(label.c_str())) pick = r.dir;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Clear list")) clear = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Forgets the shortcuts only - nothing on disk is touched");
+    ImGui::EndMenu();
+
+    if (!pick.empty()) requestOpenRecent(pick);
+    else if (clear) {
+        recentProjects_.clear();
+        saveGlobalConfig();  // the list only ever lives in editor.ini
+    }
+}
+
 std::string App::openProjectAt(const std::string& dir) {
     Project p;
     std::string err = project::load(p, dir);
@@ -4484,6 +4545,85 @@ void App::requestNewProject() {
     }
 }
 
+void App::requestCloseProject() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::Close;
+        openDiscardPopup_ = true;
+    } else {
+        closeProject();
+    }
+}
+
+// Back to the screen the editor boots on: the project is released and the
+// Viewport draws the welcome screen (New / Open / recent projects) again. The
+// unsaved-edit guard already ran in requestCloseProject().
+//
+// Most of the teardown is free: the per-frame channels (Live Link, the
+// debugger, Live Logic, the Remote Pad) and every tool window stand down on
+// their own the moment hasProject_ is false. What is left is the state that
+// would otherwise outlive the project - worker threads still writing into it,
+// and the disk-derived caches a DIFFERENT project must not inherit.
+void App::closeProject() {
+    if (!hasProject_) return;
+
+    // Stopping the link also stops a recording in progress, which bakes its
+    // keys into the sequence first - so a close never silently eats a take.
+    if (phoneCam_.listening()) stopPhoneCam();
+    if (giBaker_.running()) giBaker_.cancel();
+    // A build has no UI left once the toolbar goes away (Stop lives there), so
+    // it would run to completion with no way to cancel it.
+    if (runner_.busy()) runner_.cancel();
+    // The Drone Generator, in the same order the shutdown path uses (audio
+    // first: the device callback holds the LiveSynth, and the render thread
+    // writes into droneRenderResult_). The audition has to stop because its
+    // window - and with it Stop - hides on !hasProject_, so a drone would play
+    // on over the welcome screen with no control left. The offline render has
+    // to be cancelled because droneTickRender() deliberately runs BEFORE that
+    // same guard (so a render survives closing the window), and its completion
+    // path appends the track to project_.music and calls saveAll() - after a
+    // close that writes into an empty Project, or into whichever project is
+    // opened next.
+    if (droneAuditioning_) droneStop();
+    if (droneRendering_) {
+        droneRenderCancel_.store(true);
+        if (droneRenderThread_.joinable()) droneRenderThread_.join();
+        droneRendering_ = false;
+        droneRenderDone_.store(false);
+        droneRenderResult_ = dronegen::RenderResult();
+        droneStatus_ = "Render cancelled - the project was closed.";
+    }
+    if (session_.active()) {
+        session_.close();
+        peerPresence_.clear();
+        viewport_.setPeerSelections({});
+    }
+
+    project_ = Project();  // one empty scene - objects() stays safe to call
+    hasProject_ = false;
+    dirty_ = false;
+    history_.reset({project_.scenes});
+    clearSelection();
+    pastePending_ = false;
+    pasteStaged_.clear();
+    flowGraphObject_ = -1;
+    flowPositionsApplied_ = false;
+    // Every one of these is keyed by a project-relative path.
+    viewport_.invalidateAssets();
+    layerRamCache_.clear();
+    wavIssueCache_.clear();
+    modelInfoCache_.clear();
+    glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    // The error catcher tails the open project's logs; the next open baselines
+    // it again (attachProject). The runner log survives the close, so its size
+    // has to stay honest or the next poll reads a shrink that never happened.
+    errorSeenSig_.clear();
+    errorGameLogSize_ = 0;
+    errorRunnerLogSize_ = runner_.log().size();
+    openErrorPopup_ = false;
+    statusMessage_ = "Project closed";
+    updateWindowTitle();
+}
+
 void App::performPendingAction() {
     const PendingAction action = pendingAction_;
     pendingAction_ = PendingAction::None;
@@ -4495,8 +4635,17 @@ void App::performPendingAction() {
         case PendingAction::Open:
             openProjectDialog();
             break;
+        case PendingAction::OpenRecent: {
+            const std::string dir = std::move(pendingRecentDir_);
+            pendingRecentDir_.clear();
+            openRecentProject(dir);
+            break;
+        }
         case PendingAction::New:
             openNewProjectPopup_ = true;
+            break;
+        case PendingAction::Close:
+            closeProject();
             break;
         case PendingAction::JoinSession:
             openJoinSessionPopup_ = true;
