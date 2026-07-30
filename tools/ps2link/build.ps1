@@ -8,8 +8,19 @@
 #
 #   ./build.ps1              # build -> tools/ps2link/ps2link.elf
 #   ./build.ps1 -Clean       # nuke the work tree first
+#   ./build.ps1 -LoadHigh    # -> tools/ps2link/ps2link-loadhigh.elf
+#
+# -LoadHigh links ps2link at 0x01ee8000 (top of RAM) instead of the default
+# 0x00094000. The default sits in the "BIOS unused" window below the 0x00100000
+# a game loads at - out of the game's way, but right on top of a launcher that
+# keeps its own code down there: FreeMcBoot's main menu / shortcuts hand over
+# to a low-memory loader, and loading over it is a black screen with no network
+# (uLaunchELF, which does not, boots the same ELF fine). The high build swaps
+# the problem: it is clear of every launcher, but a game that allocates its way
+# past ~31 MB would overwrite it instead. The boot screen prints the address it
+# actually loaded at, so there is never any doubt which one is flashed.
 
-param([switch]$Clean)
+param([switch]$Clean, [switch]$LoadHigh)
 
 # NOTE: no ErrorActionPreference='Stop' - git and docker write progress to
 # stderr, which Stop would treat as fatal. We check $LASTEXITCODE instead.
@@ -56,18 +67,19 @@ Write-Host "== Building in $image (this pulls the image on first run) =="
 # make ee builds the unpacked ELF (no ps2-packer needed). apk adds make/git the
 # minimal ps2dev image lacks. Non-login shell so the image's toolchain PATH stays.
 $mount = ($work -replace '\\', '/') + ':/work'
-docker run --rm -v $mount $image sh -c @'
+$high = if ($LoadHigh) { '1' } else { '0' }
+docker run --rm -v $mount -e LOADHIGH=$high $image sh -c @'
 set -e
 apk add --no-cache make git >/dev/null 2>&1 || true
 cd /work
 make clean >/dev/null 2>&1 || true
-make ee
+make ee LOADHIGH=$LOADHIGH
 '@
 Invoke-Checked 'docker build'
 
 $elf = Join-Path $work 'ee/ps2link.elf'
 if (-not (Test-Path $elf)) { throw "expected $elf, not produced" }
-$out = Join-Path $here 'ps2link.elf'
+$out = Join-Path $here $(if ($LoadHigh) { 'ps2link-loadhigh.elf' } else { 'ps2link.elf' })
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
 Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."

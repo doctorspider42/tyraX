@@ -65,7 +65,7 @@ recoverable hiccup into "the console is dead, hit Reset":
 | `iop/cmdHandler.c` | same busy-loop on a failing `recvfrom()`; `execiop` with `argc == 0` wrapped an unsigned bound and walked `strlen()` across IOP RAM. |
 | `iop/excepHandler.c` | `strlen(NULL)` whenever the faulting PC was outside every loaded module — i.e. the commonest crash of all — so the IOP died *reporting* a crash and told you nothing. The frame `memcpy` also over-read 136 bytes and only fit because an operator-precedence slip over-allocated the buffer 2.7×. |
 | `ee/cmdHandler.c` `pkoExecEE()` | a failed thread start zeroed **`cmdThreadID`** — the wrong variable, and the one the SIF DMA handler wakes. After that ps2link answered no command at all. |
-| `ee/cmdHandler.c` `pkoReset()` | `while (SifIopSync());` — **inverted**. It fell through on the first (still-resetting) call, so the reload ran against a half-reset IOP. Every deploy goes through here. The correct idiom is the one `restartIOP()` in the same tree already used. |
+| `ee/cmdHandler.c` `pkoReset()` | ~~`while (SifIopSync());` — **inverted**~~. **This one was wrong and r4 undid it.** `SifIopSync()` returns a single bit (BOOTEND), so upstream's loop waits for the reset to be *taken* while `restartIOP()`'s waits for the boot to *finish* — two phases, not a typo. "Correcting" one into the other left the loop waiting for a bit that was still set from the previous boot, i.e. waiting for nothing. r4 does both waits, in order. |
 | `ee/cmdHandler.c` | `dumpmem`/`writemem`/`dumpreg` returned on failure without `close()`, leaking a `host:` fd on both sides; `writemem` copied the requested length rather than what `read()` delivered; `gsexec` DMA'd a packet-supplied qword count out of a buffer it had only filled 128 bytes of. |
 | `ee/cmdHandler.c` `pkoDumpReg()` | `unsigned int regs[REGALL_SIZE]` used a byte count as an element count. Do **not** "fix" that with `/4`: `REGALL_SIZE` is 508 bytes while the `REGVU0`/`REGVU1` asm stores 896 into the same buffer, so the 4× over-allocation was load-bearing — it is sized for the real worst case instead, and marked `aligned(16)`, because `sqc2`/`sq` reach it and the R5900 masks the low 4 bits of an `lq`/`sq` address rather than faulting. |
 | `ee/excepHandler.c` | the exception-name table has 14 entries and was indexed with a 0..31 code, so half the codes printed whatever followed it — a second fault while reporting the first. |
@@ -105,6 +105,43 @@ and no longer sleeps ~7 s waiting for it; Stop is now just the reset.
 [`tools/silencer`](../tools/silencer/) stays in the tree as a manual fallback for
 a console still running a pre-r3 ps2link.
 
+**Stopping a running game (r4)** — *Stop on PS2* never actually worked against a
+game on hardware, and it failed in two independent ways. Both are fixed, both
+were measured on a real console.
+
+*The command did not arrive.* ps2link's IOP-side command listener ran at
+priority 60 while the `host:` file server ran at 9, and IOP scheduling is
+strictly priority-based. A game of ours polls `host:` every frame (Remote Pad,
+Live Link, the time machine, the live texture channel — around ten opens per
+frame), which keeps the file server permanently runnable, and the listener
+never got a slot: three resets over 20 s went unanswered, while the same
+command against an idle ps2link was answered instantly. The listener now takes
+`USER_HIGHEST_PRIORITY` (9) and the file server sits one below it. Note 9 is
+the highest a user thread may have — 8 makes `CreateThread` fail, which ps2link
+used to report only through `dbgprintf`, i.e. not at all in a release build.
+That now goes through `printf`.
+
+*ps2link did not come back.* Killing the game's thread stops the CPU, not the
+hardware: the DMAC, both VUs, VIF0/1, the GIF and the IPU were left mid-chain,
+and the game's `libeedebug` crash handler still owned the EE exception vectors.
+`pkoReset()` now quiesces the peripherals (`ResetEE`), re-arms the SIF0 chain
+that goes down with them, and takes the vectors back before restarting.
+
+The restart itself hid the subtlest bug of the lot. `SifIopSync()` returns a
+single bit — BOOTEND — so `while (SifIopSync())` waits for the reset to be
+*taken* and `while (!SifIopSync())` waits for the boot to *finish*: different
+phases, not a typo, and r2 "corrected" the first into the second. Upstream got
+away with it because `ExecPS2()` followed and the fresh image's `SifInitRpc()`
+does its own waiting. Both waits now run, in order. And the restart stays an
+`ExecPS2()`: three attempts at re-arming ps2link in place each survived exactly
+one Stop and wedged on the second, because ps2sdk keeps its "SIF is
+initialized" flags in `.bss` and only a re-executed image gets them cleared by
+crt0.
+
+Verified on the console: four Run → Stop cycles back to back with no power
+cycle, the game dying on every Stop and the next deploy booting into a clean
+IOP.
+
 None of this changes the protocol, so it needs no `ps2client` change and an old
 `ps2client` still talks to it.
 
@@ -113,6 +150,19 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
 1. Copy `ps2link.elf` onto the memory card as **`PS2LINK.ELF`** (uLaunchELF over
    USB or the network, a PS2 memory-card manager on the PC, whatever your
    FMCB setup already uses to install homebrew).
+
+   > **Launch it from uLaunchELF.** ps2link links itself at `0x00094000` — in
+   > the "BIOS unused" window *below* the `0x00100000` a game loads at, which is
+   > what keeps it alive underneath the running game. That is also where a
+   > launcher's own resident loader lives, so booting `PS2LINK.ELF` straight
+   > from **FreeMcBoot's main menu or an FMCB shortcut gives a black screen and
+   > a console that answers nothing on the network** — the load overwrote the
+   > code doing the loading. uLaunchELF boots the same file fine. If you want it
+   > on a shortcut anyway, build the high variant — `build.ps1 -LoadHigh` /
+   > `build.sh --load-high` links at `0x01ee8000`, clear of every launcher, at
+   > the price of being in reach of a game that allocates past ~31 MB. The boot
+   > screen prints `ps2link loaded at 0x...`, so you can always see which one is
+   > on the card.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:
@@ -127,7 +177,7 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r3 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r4 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -228,10 +278,19 @@ Differences on real hardware:
   is still opt-in and unproven on hardware; the heartbeat post-mortem needs
   nothing from the game and works here.
 
-**Stop on PS2** kills the file server and sends `reset`. That is all it does now:
-ps2link r3 silences the SPU2 itself (see above), so the old dance — execee
-`host:silencer.elf`, sleep ~7 s while its `audsrv_init()` keyed the voices off,
-kill its file server — is gone, along with the 7 s.
+**Stop on PS2** kills the file server and sends `reset` — the file server
+first, both because the game polling `host:` every frame is what the command
+has to cut through and because the port is then free for the `ps2client listen`
+the editor runs as a witness. The reset is fire-and-forget UDP, so the editor
+watches that listener for the console's own log and repeats the command up to
+three times; if nothing ever comes back it says the console is hung instead of
+reporting success it cannot know. ps2link r3 silences the SPU2 itself (see
+above), so the old dance — execee `host:silencer.elf`, sleep ~7 s while its
+`audsrv_init()` keyed the voices off, kill its file server — is gone, along
+with the 7 s. A deploy waits ~10 s after the reset: ps2link reboots the IOP,
+restarts its own image and reloads every IRX before it listens again, and
+landing a game in the middle of that gets a frozen Tyra logo waiting on a pad
+whose driver has not finished its handshake.
 
 ## When it does not work
 
@@ -240,7 +299,9 @@ kill its file server — is gone, along with the 7 s.
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
 | `[editor] No response from <ip> within 15s` | The commands went out and nothing came back. Check the IP against the console's `Net config:` line, then the PC firewall (inbound **UDP 18194** for `ps2client` — without it the game may actually be running with its log going nowhere). |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
-| Boot banner is below `r3` | r1 = keyboard/mouse only; r2 = plus the hang fixes but the SPU2 still drones after a reset. Reflash. |
+| Boot banner is below `r4` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console. Reflash. |
+| Stop leaves the console frozen on the game, or on a black screen | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
+| Stop works once and the next one wedges | Also r4 - and if you see it ON r4, it is a new bug: say so, that pattern was ps2sdk's `.bss` state and the restart no longer depends on it. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |

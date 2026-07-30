@@ -22,6 +22,15 @@ tools/ps2link/build.ps1
 Linux: `tools/ps2link/build.sh`. `-Clean` / `--clean` throws the work tree
 away first.
 
+`-LoadHigh` / `--load-high` builds the same thing linked at `0x01ee8000`
+instead of the default `0x00094000`, as **`ps2link-loadhigh.elf`**. The default
+address is the "BIOS unused" window below the `0x00100000` a game loads at —
+which is exactly where a launcher's own resident loader sits, so the default
+build black-screens when booted from FreeMcBoot's menu or a shortcut (it works
+from uLaunchELF, which loads elsewhere). The high build is clear of every
+launcher but within reach of a game that allocates past ~31 MB. The boot screen
+prints the address, so the flashed card identifies itself.
+
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
 toolchain image and write **`ps2link.elf`** here (~280 KB). It builds with the
@@ -30,15 +39,17 @@ build in — ps2link is a standalone program. The ELF is gitignored; the patch i
 what this repo maintains.
 
 You can tell our build apart on the console: the boot screen reads
-**“Welcome to TyraX ps2link r3 (USB keyboard + mouse)”** instead of
+**“Welcome to TyraX ps2link r4 (USB keyboard + mouse)”** instead of
 “Welcome to ps2link”. The `r<n>` is bumped whenever the patch changes console
 behaviour — r1 was USB HID only, r2 added the hang/leak fixes, r3 silences the
-SPU2 — so a memory card can be identified without guessing.
+SPU2, r4 makes stopping a running game work — so a memory card can be
+identified without guessing.
 
 ## What the patch does
 
-Three groups: the USB HID stack it started as, a set of robustness fixes to
-upstream's error paths, and the SPU2 silencing.
+Four groups: the USB HID stack it started as, a set of robustness fixes to
+upstream's error paths, the SPU2 silencing, and making the reset command work
+against a running game.
 
 ### 1. The USB HID stack
 
@@ -94,8 +105,9 @@ The short version, worst first:
   people care about, so a game crash reported nothing.
 - **`pkoExecEE()` zeroed `cmdThreadID`** (the wrong variable) on a failed launch,
   after which ps2link answered no commands at all.
-- **`pkoReset()` waited on `SifIopSync()` inverted**, so every deploy's IOP reset
-  raced. `restartIOP()` next door had it right.
+- **`pkoReset()` was thought to wait on `SifIopSync()` inverted** — it was not,
+  and r4 undid that "fix": the two loops in the tree wait for opposite edges of
+  the same bit on purpose (see group 4).
 - Busy-loops on failing `accept()`/`recvfrom()`, `host:` fd leaks in
   `dumpmem`/`writemem`/`dumpreg`, a thread + semaphore leak on re-mount, and a
   handful of unchecked wire values.
@@ -126,6 +138,25 @@ assumed; the one-liner to redo it is in
 Consequence for the editor: *Stop on PS2* no longer deploys
 [`tools/silencer`](../silencer/) or sleeps ~7 s waiting for it. The tool stays in
 the tree as a manual fallback for consoles still on a pre-r3 ps2link.
+
+### 4. Stopping a running game (r4)
+
+*Stop on PS2* had never worked against a game on hardware. Two independent
+faults, both measured on a console, both covered in detail in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link):
+
+- **the command never arrived** — the IOP command listener ran at priority 60,
+  *below* the `host:` file server at 9, and a game of ours polls `host:` about
+  ten times a frame. It now takes `USER_HIGHEST_PRIORITY` (9, the highest a
+  user thread may have) and the file server sits one below;
+- **ps2link never came back** — killing the game's thread leaves the DMAC, the
+  VUs, VIF, GIF and IPU running and the EE exception vectors owned by the
+  game's `libeedebug` handler. `pkoReset()` now quiesces them, re-arms the SIF0
+  chain, takes the vectors back, waits for *both* edges of `SifIopSync()`
+  (BOOTEND clearing, then setting) and re-execs the image, which is the only
+  way to get ps2sdk's `.bss`-resident state cleared.
+
+Verified: four Run → Stop cycles back to back, no power cycle.
 
 ## Testing it without a console
 

@@ -13,10 +13,19 @@ index 2eb1e7e..444074e 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..83e8f93 100644
+index 08f9b19..7885620 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
-@@ -153,6 +153,9 @@ pkoExecEE(pko_pkt_execee_req *cmd)
+@@ -15,6 +15,8 @@
+ #include <sifrpc.h>
+ #include <loadfile.h>
+ #include <iopcontrol.h>
++#include <sbv_patches.h>
++#include <iopheap.h>
+ #include <debug.h>
+ #include <startup.h>
+ #include <ee_regs.h>
+@@ -153,6 +155,9 @@ pkoExecEE(pko_pkt_execee_req *cmd)
  
      dbgprintf("EE: Executing file %s...\n", cmd->argv);
      memcpy(path, cmd->argv, PKO_MAX_PATH);
@@ -26,7 +35,7 @@ index 08f9b19..83e8f93 100644
  
      scr_printf("Executing file %s...\n", path);
  
-@@ -175,8 +178,13 @@ pkoExecEE(pko_pkt_execee_req *cmd)
+@@ -175,8 +180,13 @@ pkoExecEE(pko_pkt_execee_req *cmd)
      ret = StartThread(userThreadID, &userArgs);
      if (ret < 0) {
          printf("EE: Start user thread failed %d\n", ret);
@@ -41,7 +50,7 @@ index 08f9b19..83e8f93 100644
          return -1;
      }
      return ret;
-@@ -189,6 +197,7 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
+@@ -189,6 +199,7 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
  {
      int fd;
      int len;
@@ -49,7 +58,7 @@ index 08f9b19..83e8f93 100644
      fd = open((const char *)cmd->file, O_RDONLY);
      if (fd < 0) {
          return fd;
-@@ -196,11 +205,24 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
+@@ -196,11 +207,24 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
      len = read(fd, dataBuffer, 128);
      close(fd);
  
@@ -75,7 +84,7 @@ index 08f9b19..83e8f93 100644
      // stop/reset dma02
  
      // dmasend via GIF channel
-@@ -212,7 +234,7 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
+@@ -212,7 +236,7 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
          "sw     $10, -24560($8);"
          "ori    $9, $0, 0x101;"
          "sw     $9, -24576($8);"
@@ -84,7 +93,7 @@ index 08f9b19..83e8f93 100644
  
      // dmawait for GIF channel
      asm __volatile__(
-@@ -243,27 +265,34 @@ pkoDumpMem(pko_pkt_mem_io *cmd)
+@@ -243,27 +267,34 @@ pkoDumpMem(pko_pkt_mem_io *cmd)
      scr_printf("dump mem from 0x%x, size %d\n",
                 ntohl(cmd->offset), ntohl(cmd->size));
      memcpy(path, cmd->argv, PKO_MAX_PATH);
@@ -134,7 +143,7 @@ index 08f9b19..83e8f93 100644
      }
      close(fd);
      return ret;
-@@ -282,27 +311,35 @@ pkoWriteMem(pko_pkt_mem_io *cmd)
+@@ -282,27 +313,35 @@ pkoWriteMem(pko_pkt_mem_io *cmd)
      scr_printf("write mem to 0x%x, size %d\n",
                 ntohl(cmd->offset), ntohl(cmd->size));
      memcpy(path, cmd->argv, PKO_MAX_PATH);
@@ -186,7 +195,7 @@ index 08f9b19..83e8f93 100644
      }
      close(fd);
      return ret;
-@@ -364,7 +401,20 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
+@@ -364,7 +403,20 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
          sizeof(gsregs) + sizeof(sifregs) + sizeof(fiforegs) +
          sizeof(gifregs) + sizeof(vif0regs) + sizeof(vif1regs) +
          sizeof(ipuregs);
@@ -208,7 +217,7 @@ index 08f9b19..83e8f93 100644
  
      size = 0;
      j = 0;
-@@ -610,16 +654,26 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
+@@ -610,16 +662,26 @@ pkoDumpReg(pko_pkt_dump_regs *cmd)
              }
              size = REGALL_SIZE;
              break;
@@ -241,7 +250,22 @@ index 08f9b19..83e8f93 100644
      }
      close(fd);
      return ret;
-@@ -793,8 +847,10 @@ int initCmdRpc(void)
+@@ -718,9 +780,13 @@ static int cmdThread(void *arg)
+ 
+         switch (cmd) {
+             case PKO_RESET_CMD:
++                /* TyraX: `done = 1` here, because pkoReset() used to end in
++                 * ExecPS2() and never return - the exit was unreachable
++                 * bookkeeping. It re-arms ps2link in place now, so this thread
++                 * IS the listener that has to keep listening; retiring it left
++                 * the console reachable but deaf. */
+                 pkoReset();
+                 ret = 0;
+-                done = 1;
+                 break;
+             case PKO_NETDUMP_CMD:
+                 excepscrdump = 0;
+@@ -793,8 +859,10 @@ int initCmdRpc(void)
      ret = StartThread(cmdThreadID, 0);
      if (ret < 0) {
          printf("EE: initCmdRpc startThread failed %d\n", ret);
@@ -253,22 +277,153 @@ index 08f9b19..83e8f93 100644
          return -1;
      }
  
-@@ -833,8 +889,14 @@ void pkoReset(void)
-     SifInitRpc(0);
+@@ -815,15 +883,16 @@ int initCmdRpc(void)
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////
+-void pkoReset(void)
++/* TyraX: the tail of the original pkoReset(), kept for the one caller that
++ * genuinely needs it - main()'s initial boot. Re-executing the image is how
++ * ps2link ends up as the EE program proper: when it is loaded over the network
++ * by another ps2link it starts life as that one's user thread, and without
++ * this the two images would both sit there answering commands. Nothing has
++ * run on the hardware at that point, so the re-exec is safe here; issuing it
++ * to stop a game is what wedged the console (see pkoReset below). */
++void pkoRestartImage(void)
+ {
+     char *argv[1];
+-    // Check if user thread is running, if so kill it
+-    if (userThreadID) {
+-        TerminateThread(userThreadID);
+-        DeleteThread(userThreadID);
+-    }
+-    userThreadID = 0;
+ 
+     if (sif0HandlerId >= 0) {
+         DisableDmac(DMAC_SIF0);
+@@ -834,8 +903,12 @@ void pkoReset(void)
      SifExitRpc();
  
-+    /* TyraX: the wait was `while (SifIopSync());`, i.e. inverted. SifIopSync()
-+     * returns non-zero once the IOP is BACK, so that loop fell straight
-+     * through on the first (still-resetting) call and everything below ran
-+     * against a half-reset IOP. Every deploy goes through here, which is why
-+     * "Run on PS2" intermittently died on a black screen. The correct idiom is
-+     * the one restartIOP() in ps2link.c already uses. */
      SifIopReset(NULL, 0);
--    while (SifIopSync())
-+    while (!SifIopSync())
++    /* TyraX: wait for the reset to be taken, then for the IOP to be back -
++     * see pkoReset() for why one loop cannot mean both. */
+     while (SifIopSync())
          ;
++    while (!SifIopSync())
++        ;
  
      SifInitRpc(0);
+     SifExitRpc();
+@@ -845,3 +918,94 @@ void pkoReset(void)
+ 
+     ExecPS2(&__start, 0, 1, argv);
+ }
++
++void pkoReset(void)
++{
++    char *argv[1];
++
++    // Check if user thread is running, if so kill it
++    if (userThreadID) {
++        TerminateThread(userThreadID);
++        DeleteThread(userThreadID);
++    }
++    userThreadID = 0;
++
++    /* TyraX: take the screen back from the program we just killed. */
++    init_scr();
++    scr_printf("\n\nps2link: program stopped\n");
++
++    /* TyraX: TerminateThread stops the CPU, not the hardware. The game owned
++     * the DMAC, both VUs, VIF0/1, the GIF and the IPU, and a transfer left
++     * mid-chain keeps running with nobody to service it. */
++    ResetEE(INIT_DMAC | INIT_VU1 | INIT_VIF1 | INIT_GIF | INIT_VU0 | INIT_VIF0 |
++            INIT_IPU);
++
++    /* INIT_DMAC took SIF0 - the IOP -> EE command channel - down with it, and
++     * no SifInitRpc() will put it back (ps2sdk guards that init as done).
++     * Re-arm the chain exactly the way initCmdRpc() does, minus the handler,
++     * which is still installed: nothing here is torn down, so nothing here
++     * needs rebuilding. */
++    FlushCache(0);
++    if (_lw(A_EE_D_STAT) & STAT_SIF0)
++        _sw(STAT_SIF0, A_EE_D_STAT);
++    if (!(_lw(A_EE_D5_CHCR) & EE_CHCR_STR))
++        SifSetDChain();
++    EnableDmac(DMAC_SIF0);
++
++    /* The game overwrote the EE exception vectors with its own crash handler
++     * (Tyra links libeedebug) and that code is now dead memory. Take them
++     * back before anything can fault into them. */
++    installExceptionHandlers();
++
++    /* TyraX: reboot the IOP, because the next deploy needs a clean one. The
++     * game loads its own modules onto whatever IOP it finds (padman, libsd,
++     * audsrv...), and a second copy cannot register: measured on the console,
++     * the second deploy printed "freepad: RegisterLibraryEntries failed" and
++     * then hung on the Tyra loading screen waiting for a pad that would never
++     * answer.
++     *
++     * The sequence matters and this is the canonical one. ps2link's own
++     * restartIOP() is missing the last two steps, and without them the RPC
++     * clients for iopheap and loadfile keep pointing into the IOP that just
++     * went away - the modules below then load through stale bindings. It
++     * survives one round and poisons the next: the second reset could not even
++     * send its command, and the console sat on "rebooting the IOP..." for
++     * good. Drop the bindings before, rebuild them after. */
++    scr_printf("ps2link: rebooting the IOP...\n");
++    SifLoadFileExit();
++    SifExitIopHeap();
++
++    while (!SifIopReset(NULL, 0)) {
++    }
++    /* TyraX: BOTH edges, and in this order. SifIopSync() is a single bit -
++     * BOOTEND, bit 18 of SMFLAG, confirmed from the disassembly - so one loop
++     * can only ever wait for one of two different things. Upstream's
++     * `while (SifIopSync())` waits for the bit to CLEAR: the reset has been
++     * taken. Our r2 patch "corrected" that to `while (!SifIopSync())`, reading
++     * it as a typo against restartIOP() next door - but that one waits for the
++     * bit to SET, i.e. for the boot to FINISH, and starting from a bit that is
++     * still set from the previous boot it falls straight through and waits for
++     * nothing at all. Upstream got away with it because ExecPS2() followed and
++     * the fresh image's SifInitRpc() does its own waiting; re-arming in place
++     * there is no fresh image, and ps2sdk's init is a guarded no-op, so
++     * everything below ran against an IOP still in the middle of rebooting.
++     * That is the console sitting on "rebooting the IOP..." for good. Wait for
++     * the reset to be taken, then for the IOP to come back. */
++    while (SifIopSync()) {
++    }
++    while (!SifIopSync()) {
++    }
++
++    /* TyraX: and now hand over to a freshly started image. Everything above is
++     * what makes this survive: the hardware is quiesced, the exception vectors
++     * are ours again, and the IOP has actually finished rebooting. What we
++     * cannot fix from here is ps2sdk's own state - its "SIF is initialized"
++     * flags live in .bss, and only a re-executed image gets them cleared by
++     * crt0. Re-arming in place therefore worked exactly once, three different
++     * ways, and wedged on the second Stop every time. crt0 clears .bss for
++     * free, so let it: from here on every Stop is bit-for-bit the boot path
++     * that has always worked. */
++    scr_printf("ps2link: IOP is back, restarting ps2link\n");
++    argv[0] = elfName;
++    ExecPS2(&__start, 0, 1, argv);
++}
+diff --git a/ee/cmdHandler.h b/ee/cmdHandler.h
+index c860132..7fda5a4 100644
+--- a/ee/cmdHandler.h
++++ b/ee/cmdHandler.h
+@@ -12,6 +12,10 @@
+ 
+ int initCmdRpc(void);
+ void pkoReset(void);
++/* TyraX: the initial boot's re-exec, split out of pkoReset(). It is how a
++ * ps2link loaded over the network takes the EE over from the ps2link that
++ * loaded it; the reset command must NOT go through it (see cmdHandler.c). */
++void pkoRestartImage(void);
+ 
+ extern int userThreadID;
+ extern int excepscrdump;
 diff --git a/ee/excepHandler.c b/ee/excepHandler.c
 index eaa1d7d..3ae7128 100644
 --- a/ee/excepHandler.c
@@ -335,10 +490,28 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..c266244 100644
+index d566140..9f99760 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
-@@ -176,13 +176,32 @@ static void loadModules(void)
+@@ -42,7 +42,7 @@ int if_conf_len __attribute__((section(".data"))) = 0;
+ 
+ ////////////////////////////////////////////////////////////////////////
+ 
+-static void printIpConfig(void)
++void printIpConfig(void)
+ {
+     int i;
+     int t;
+@@ -141,7 +141,7 @@ static void pkoLoadModule(char *path, int argc, char *argv)
+ 
+ ////////////////////////////////////////////////////////////////////////
+ // Load all the irx modules we need
+-static void loadModules(void)
++void loadModules(void)
+ {
+     int ret;
+ 
+@@ -176,18 +176,38 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -366,13 +539,20 @@ index d566140..c266244 100644
 +    /* TyraX: the r-number is how you tell a flashed build apart. Bump it
 +     * whenever tyrax.patch changes behaviour, and say so in
 +     * docs/ps2link-setup.md - r1 was USB HID only, r2 added the host:/reset
-+     * hardening, r3 silences the SPU2 on reset. */
-+    scr_printf("Welcome to TyraX ps2link r3 (USB keyboard + mouse)\n");
++     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
++     * host: file server and quiesces the EE peripherals before restarting. */
++    scr_printf("Welcome to TyraX ps2link r4 (USB keyboard + mouse)\n");
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
      scr_printf("Initializing...\n");
  }
-@@ -211,7 +230,9 @@ void _libcglue_rtc_update() {}
+ 
+-static void restartIOP()
++void restartIOP()
+ {
+     dbgscr_printf("reset iop\n");
+ 
+@@ -211,22 +231,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers
@@ -383,8 +563,58 @@ index d566140..c266244 100644
  
  int main(int argc, char *argv[])
  {
++    /* TyraX: the screen first, before anything that can block. Coming back
++     * from a reset there is no tty and no network until loadModules() below,
++     * so every line between here and "Ready with ..." is the only evidence of
++     * how far this got. Cheap, and it makes a wedged restart legible instead
++     * of a black screen. */
++    init_scr();
++    scr_printf("\n\nps2link: image started, initializing SIF...\n");
+     SifInitRpc(0);
++    scr_printf("ps2link: SIF up\n");
+     init_scr();
+ 
+     printWelcomeInfo();
+     if (if_conf_len == 0) {
+-        scr_printf("Initial boot, will load config then reset\n");
++        /* TyraX: this called pkoReset(), which no longer re-execs the image -
++         * it re-arms ps2link in place, which is right for a reset command and
++         * wrong here. The initial boot really does want the re-exec: it is
++         * what makes ps2link the EE program when another ps2link loaded it
++         * over the network (otherwise both images stay resident and both
++         * answer commands - measured, and it eats every deploy). */
++        scr_printf("Initial boot, will load config then restart\n");
+         getIpConfig();
+-        pkoReset(); // Will restart execution
++        pkoRestartImage(); // Will restart execution
+     }
+ 
+     installExceptionHandlers();
++    scr_printf("ps2link: exception handlers installed\n");
+     restartIOP();
++    scr_printf("ps2link: IOP restarted, loading modules\n");
+ 
+     strcpy(elfName, argv[0]);
+     dbgscr_printf("argv[0] is %s\n", elfName);   
+diff --git a/ee/ps2link.h b/ee/ps2link.h
+index bf6fb39..5007150 100644
+--- a/ee/ps2link.h
++++ b/ee/ps2link.h
+@@ -12,4 +12,11 @@
+ 
+ extern char elfName[];
+ 
++/* TyraX: pkoReset() re-arms ps2link in place instead of re-execing the whole
++ * EE image (see ee/cmdHandler.c), so it needs the three steps main() uses to
++ * bring the console up. */
++void restartIOP(void);
++void loadModules(void);
++void printIpConfig(void);
++
+ #endif /* PS2LINK_H */
+\ No newline at end of file
 diff --git a/iop/cmdHandler.c b/iop/cmdHandler.c
-index ea7e38f..27016ad 100644
+index ea7e38f..7968dec 100644
 --- a/iop/cmdHandler.c
 +++ b/iop/cmdHandler.c
 @@ -19,6 +19,8 @@
@@ -509,19 +739,31 @@ index ea7e38f..27016ad 100644
          printf("arg %d: %s (%d)\n", i, &args[arglen], arglen);
          arglen += strlen(&args[arglen]) + 1;
      }
-@@ -196,6 +294,11 @@ pkoReset(char *buf, int len)
+@@ -196,11 +294,18 @@ pkoReset(char *buf, int len)
          return;
      }
  
+-    printf("unmounting\n");
+-    fsysUnmount();
+-    printf("unmounted\n");
+-    DelDrv("tty");
+-
 +    /* TyraX: before anything else, while we still own the IOP. The SPU2
 +     * survives the reset the EE is about to perform, so if the dead game's
 +     * voices are not stopped here they keep playing straight through it. */
 +    spu2Silence();
 +
-     printf("unmounting\n");
-     fsysUnmount();
-     printf("unmounted\n");
-@@ -252,10 +355,15 @@ cmdListener(int sock)
++    /* TyraX: this used to fsysUnmount() and DelDrv("tty") here, because the EE
++     * was about to reboot the IOP out from under both. It does not any more -
++     * a reset stops the running program and leaves ps2link armed (see
++     * ee/cmdHandler.c) - so tearing them down would only cost us the host:
++     * mount and the console log that the NEXT deploy needs. It was a race
++     * besides: a game of ours polls host: every frame, and this ran while
++     * those transfers were in flight. */
+     pkoSendSifCmd(PKO_RPC_RESET, buf, len);
+ };
+ 
+@@ -252,10 +357,15 @@ cmdListener(int sock)
          dbgprintf("IOP cmd: received packet (%d)\n", len);
  
          if (len < 0) {
@@ -539,6 +781,47 @@ index ea7e38f..27016ad 100644
              continue;
          }
  
+@@ -376,17 +486,37 @@ int cmdHandlerInit(void)
+     thread.option = 0;
+     thread.thread = (void *)cmdThread;
+     thread.stacksize = 0x800;
+-    thread.priority = 60; //0x1e;
++    /* TyraX: was 60, i.e. BELOW the host: file server (which this patch moves
++     * to 10 - see iop/net_fsys.c). IOP scheduling is strictly priority-based,
++     * so a game that keeps host: busy starved this thread completely and the
++     * console answered no commands at all: "reset" from a running game was
++     * simply never processed, while the very same command against an idle
++     * ps2link worked instantly. Measured with a game polling ~10 host: files
++     * per frame - three resets over 20 s, no reply, and the console had to be
++     * power-cycled. A control channel must preempt bulk I/O, so this thread
++     * takes USER_HIGHEST_PRIORITY and the file server sits one step below it.
++     * (9 is the highest a user thread may have: an earlier attempt at 8 made
++     * CreateThread fail and ps2link came up with no command listener at all -
++     * it answered ping and nothing else.) The thread spends its life blocked
++     * in recvfrom(), so the file server loses nothing. */
++    thread.priority = USER_HIGHEST_PRIORITY;
+ 
+     pid = CreateThread(&thread);
+     if (pid >= 0) {
+         int ret;
+         ret = StartThread(pid, 0);
+         if (ret < 0) {
+-            dbgprintf("IOP cmd: Could not start thread\n");
++            /* TyraX: dbgprintf, so in a release build this failed in complete
++             * silence - and losing this thread means ps2link boots, answers
++             * ping, serves nothing and takes no commands, with no way left to
++             * ask it what happened. Say it out loud. */
++            printf("IOP cmd: could not start the command thread (%d)\n", ret);
++            DeleteThread(pid);
+         }
+     } else {
+-        dbgprintf("IOP cmd: Could not create thread\n");
++        printf("IOP cmd: could not create the command thread (%d) - ps2link "
++               "will not answer any command\n",
++               pid);
+     }
+     return 0;
+ }
 diff --git a/iop/cmdHandler.h b/iop/cmdHandler.h
 index b00b000..cbf9380 100644
 --- a/iop/cmdHandler.h
@@ -923,10 +1206,10 @@ index f6c1f4a..71c377d 100644
      disconnect(sock);
  
 diff --git a/iop/net_fsys.c b/iop/net_fsys.c
-index a84f223..27a4a27 100644
+index a84f223..14f43dd 100644
 --- a/iop/net_fsys.c
 +++ b/iop/net_fsys.c
-@@ -58,6 +58,15 @@ static void fsysInit(iop_device_t *driver)
+@@ -58,13 +58,27 @@ static void fsysInit(iop_device_t *driver)
  
      dbgprintf("initializing %s\n", driver->name);
  
@@ -942,7 +1225,20 @@ index a84f223..27a4a27 100644
      // Start socket server thread
  
      mythread.attr = 0x02000000;              // attr
-@@ -72,9 +81,14 @@ static void fsysInit(iop_device_t *driver)
+     mythread.option = 0;                     // option
+     mythread.thread = (void *)pko_file_serv; // entry
+     mythread.stacksize = 0x800;
+-    mythread.priority = 9; // We really should choose prio w more effort
++    /* TyraX: was 9 (USER_HIGHEST_PRIORITY). One step down, so the command
++     * listener in iop/cmdHandler.c can sit above it: a game hammering host:
++     * kept this thread runnable permanently and no command reached the
++     * console. Nothing else on ps2link's IOP runs anywhere near this, so the
++     * demotion costs file throughput nothing. */
++    mythread.priority = USER_HIGHEST_PRIORITY + 1;
+ 
+     pid = CreateThread(&mythread);
+ 
+@@ -72,9 +86,14 @@ static void fsysInit(iop_device_t *driver)
          int i;
          if ((i = StartThread(pid, NULL)) < 0) {
              printf("StartThread failed (%d)\n", i);
@@ -957,7 +1253,7 @@ index a84f223..27a4a27 100644
      }
  
      fsys_pid = pid;
-@@ -89,6 +103,7 @@ static int fsysDestroy(void)
+@@ -89,6 +108,7 @@ static int fsysDestroy(void)
      //    ExitDeleteThread(fsys_pid);
      SignalSema(fsys_sema);
      DeleteSema(fsys_sema);
@@ -965,7 +1261,7 @@ index a84f223..27a4a27 100644
      return 0;
  }
  
-@@ -331,11 +346,20 @@ int fsysMount(void)
+@@ -331,11 +351,20 @@ int fsysMount(void)
  {
      iop_sema_t sema_info;
  

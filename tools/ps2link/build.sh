@@ -8,16 +8,29 @@
 #
 #   ./build.sh           # build -> tools/ps2link/ps2link.elf
 #   ./build.sh --clean   # nuke the work tree first
+#   ./build.sh --load-high   # -> tools/ps2link/ps2link-loadhigh.elf
+#
+# --load-high links ps2link at 0x01ee8000 (top of RAM) instead of the default
+# 0x00094000. The default sits in the "BIOS unused" window below the 0x00100000
+# a game loads at - out of the game's way, but right on top of a launcher that
+# keeps its own code down there: FreeMcBoot's main menu / shortcuts hand over
+# to a low-memory loader, and loading over it is a black screen with no network
+# (uLaunchELF, which does not, boots the same ELF fine). The high build swaps
+# the problem: it is clear of every launcher, but a game that allocates its way
+# past ~31 MB would overwrite it instead. The boot screen prints the address it
+# actually loaded at, so there is never any doubt which one is flashed.
 #
 # Flash the result onto the console's memory card - see docs/ps2link-setup.md.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 CLEAN=0
+LOADHIGH=0
 for arg in "$@"; do
     case "$arg" in
         --clean|-Clean) CLEAN=1 ;;
-        *) echo "Unknown option: $arg (expected --clean)" >&2; exit 2 ;;
+        --load-high|-LoadHigh) LOADHIGH=1 ;;
+        *) echo "Unknown option: $arg (expected --clean or --load-high)" >&2; exit 2 ;;
     esac
 done
 
@@ -61,19 +74,21 @@ git -C "$work" apply --verbose "$patch"
 echo "== Building in $image (this pulls the image on first run) =="
 # make ee builds the unpacked ELF (no ps2-packer needed). apk adds make/git the
 # minimal ps2dev image lacks. Non-login shell so the image's toolchain PATH stays.
-docker run --rm -v "$work:/work" "$image" sh -c '
+docker run --rm -v "$work:/work" -e "LOADHIGH=$LOADHIGH" "$image" sh -c '
 set -e
 apk add --no-cache make git >/dev/null 2>&1 || true
 cd /work
 make clean >/dev/null 2>&1 || true
-make ee
+make ee LOADHIGH=$LOADHIGH
 '
 
 elf="$work/ee/ps2link.elf"
 [ -f "$elf" ] || { echo "expected $elf, not produced" >&2; exit 1; }
-cp -f "$elf" "$here/ps2link.elf"
+out="$here/ps2link.elf"
+[ "$LOADHIGH" = 1 ] && out="$here/ps2link-loadhigh.elf"
+cp -f "$elf" "$out"
 # The container builds as root; hand the artifact back to the invoking user so
 # the next build (and copying it onto a memory card) needs no sudo.
-chmod u+rw "$here/ps2link.elf" 2>/dev/null || true
-echo "== OK: $here/ps2link.elf ($(stat -c%s "$here/ps2link.elf") bytes) =="
+chmod u+rw "$out" 2>/dev/null || true
+echo "== OK: $out ($(stat -c%s "$out") bytes) =="
 echo "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
