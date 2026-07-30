@@ -57,7 +57,7 @@ Two sibling skills cover the rest of the system:
 | `app.cpp/.hpp` | ~11700 (.cpp) | The ImGui **shell**: `run`/`drawUI`, menu bar + toolbar, the Viewport window (gizmo, sculpt, rubber-band, overlays), window layouts, undo/redo + clipboard + placement, the Project/Scene/Layers/Assets/Music/Sounds/Save-data/Scripts panels, asset import, sessions, the Terrain/Menus/Grading/Ambience/Disc-Layout windows, every Preferences dialog, and the wiring viewport ↔ project ↔ runner. **`app.hpp` still declares the whole `App` class** — the six files below only hold definitions that moved out of this TU, so a new member is declared here regardless of which file defines it. |
 | `app_internal.hpp` | ~175 | Private header shared by app.cpp and the seven subsystem TUs: the `PickKind` pickers, `sanitizeAssetName`, `fileSizeOr0`, `readTextFileTail`, `prefHelp`, `walkSpeedDrag`. It exists ONLY for file-scope helpers more than one of those TUs calls — a helper used by one TU stays in that TU. Compiled seven times, so keep it small and its includes cheap. |
 | `props_ui.cpp` | ~1900 | The object inspector: `drawPropertiesWindow`, `drawMultiProperties`, `drawLodOverrides`, the area/script pickers. |
-| `flowgraph_ui.cpp` | ~1500 | The Flow Graph editor window (imnodes): add menu, pins, links, params, the debugger overlay. |
+| `flowgraph_ui.cpp` | ~1900 | The Flow Graph editor window (imnodes): add menu, pins, links, params, the debugger overlay. Two things a change here has to respect. **`flowNodeDoc()` is the ONE tooltip renderer** (title, `desc`, then a line per parameter and per exec pin), used by both the add-menu tooltip and the node hover - the procui.cpp `procNodeDoc` precedent, and the two editors must not grow two answers to "what does hovering a node tell me". And **`paramTip()` must be called AFTER every `IsItem*` query on the widget it documents**: a tooltip is a window and ImGui's "last item" is context-global, so a `paramTip` placed before the `IsItemDeactivatedAfterEdit()` that commits an edit silently stops the edit from being saved the moment the cursor rests on it. A drawn param tip also suppresses the node-level tooltip that frame (`paramTipShown`) - the cursor is inside the node either way, and two ImGui tooltips in one frame are drawn on top of each other. |
 | `hud_ui.cpp` | ~3250 | The 2D-authoring windows: UI Editor, Loading Screen, Splash, Font Manager, button icons, Input Map, Animation Editor, plus the GI-bake and Tree-generator tool windows. |
 | `procui.cpp` | ~1060 | The Procedural window (Tools > Procedural, docs/procedural-generation.md): the scatter-graph canvas (its OWN imnodes editor context - `procEditorCtx_`, never `EditorContextSet(nullptr)`), the live budget readout, per-instance overrides, `addScatterVolume`, `updateProcPreview` and the bake verbs (`bakeProcVolume`/`bakeStaleProcVolumes`/`projectForBuild`), and the **seed simulator** for runtime volumes (`runProcSeedSweep` + `procSeedPreview_`, docs/procedural-runtime.md - N evaluations at N seeds, so the author sees the SPREAD a "new world every run" volume will hand players rather than the one draw they happened to author with; the simulated seed rides `procgen::Options::seedOverride` and is a way of LOOKING at the graph, never an edit - it must stay out of `bakeHash`). Two traps this file has already paid for: a node's context menu must remember its target in `procCtxNode_` and NOT in the hover tracker `procDescNode_` (that one is reset to -1 on every frame the cursor is not over a node, which an open popup is - the menu closed the frame after it opened and right-click read as dead); and the sweep uses a SCRATCH `procgen::Cache` per trial so it cannot evict the live preview's memo. **A point carries an asset OR a prefab**, and the prefab half has no mesh of its own - `updateProcPreview` expands each such instance through `prefab::instantiate` (the same function Insert into scene and the runtime spawner use, so the preview cannot invent a placement) into `ScatterPreview::prefabObjects`; a consumer that only looks at `Instance::asset` silently shows/counts NOTHING for a prefab-scattering graph, which is how the cube example previewed as empty ground at 0 triangles. App:: methods declared in app.hpp, own TU (the droneui.cpp precedent). |
 | `cutscene_ui.cpp` | ~2180 | The Cutscene Director (dopesheet, camera shots), the phone-camera link UI and camera-take import. |
@@ -325,9 +325,21 @@ entry; **`.category` is the add-menu submenu and the list is derived from the
 registry by `flowNodeCategories()`, so a new category costs nothing but a
 string** - `Procedural` is the home of the nodes that CREATE content while the
 game runs (Spawn/Despawn Prefab, Generate Volume), pulled out of `Object`
-because that one is the most crowded menu there is; **`.desc` is mandatory by convention** — it is the node's documentation:
-add-menu tooltip, node-hover tooltip AND the AI generator's catalog line all
-read it, so a node with a desc is documented everywhere at once) → node UI (pins, params)
+because that one is the most crowded menu there is; **`.desc` is mandatory by
+convention — and so, in spirit, is a tip on every parameter the node declares**
+(`.numTips[i]`, `.strTip`, `.str2Tip`, and `.execInTips[i]` on a node with
+several exec pins). All five are the node's documentation, read by the same
+three consumers — add-menu tooltip, node-hover tooltip AND the AI generator's
+catalog line (`nodeCatalogLine` in aigen.cpp) — so a node that fills them in is
+documented everywhere at once, including for the AI. The split is what makes
+the tooltips usable: **`.desc` says what the NODE does and why you would reach
+for it; a tip says what that ONE knob does.** Parameter prose written into
+`.desc` instead means hovering the node buries the answer in a paragraph and
+hovering the parameter gives nothing, which is the state PROGRESS (247) fixed
+across all 186 entries. A trap about one parameter belongs in that parameter's
+tip; a trap about the node as a whole stays in `.desc`. Never restate a raw slot
+name (`num[0]`, `str`) in prose — address a parameter by the label its widget
+carries, which `flowStrLabel`/`numLabels` are the single source of) → node UI (pins, params)
 in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 (templates.cpp), which compiles graphs to `src/gen/flow_graph.gen.cpp` — one
 script class per object graph; object references resolve to indices at codegen;

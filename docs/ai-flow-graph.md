@@ -40,10 +40,19 @@ The system prompt is built fresh per request from the live editor state, so it
 never drifts from the code:
 
 - the full node catalog from `flowNodeTypes()` **including the project's
-  custom `.flownode` nodes**, with pins, params and per-node semantics — the
-  semantics come from each node's `desc` (the same text the editor shows as
-  the add-menu / node-hover tooltip; custom nodes set it with the `desc =`
-  header key), so a documented node is documented for the AI too;
+  custom `.flownode` nodes**, with pins, params and per-node semantics — read
+  straight off the registry's documentation fields, the same ones the editor's
+  tooltips read, so a documented node is documented for the AI too:
+  - `desc` → what the node does, appended to its catalog line (the editor shows
+    it when you hover the node or its add-menu entry; custom nodes set it with
+    the `desc =` header key);
+  - `numTips[i]` / `strTip` / `str2Tip` / `execInTips[i]` → a parenthesised
+    gloss on each `num[i]=Label`, on `str`/`str2` and on each named exec pin
+    (the editor shows these when you hover that widget; custom nodes set them
+    with `tipN =` / `tip_string =`). **A parameter documented only in `desc`
+    would still reach the model, but a parameter documented nowhere does not** —
+    so a new node type that skips its tips makes the generator measurably worse
+    at filling that parameter in. Check with `--list-nodes`;
 - the graph JSON schema and the link-validity rules;
 - the project context: the owner object, scene objects (with usable/animated
   flags and positions), scenes, layers, music/sound tracks, save values and

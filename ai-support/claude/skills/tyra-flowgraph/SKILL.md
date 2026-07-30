@@ -42,8 +42,14 @@ over guessing from this file.
 
 - `id`: positive, unique per graph. `pos`: canvas pixels, lay out left→right.
 - `str` / `str2`: the node's string parameter(s) - object/track/value names,
-  button names, free text (meaning per node type in `--list-nodes`).
-- `num[4]`: numeric parameters (labels per node type).
+  button names, free text.
+- `num[4]`: numeric parameters, filled from slot 0 up.
+- **`--list-nodes` documents every one of them individually.** Each catalog
+  line names the node's params (`num[0]=Radius`, `str = ...`) with a
+  parenthesised gloss saying what that particular parameter does and what its
+  edge values mean, and names each exec pin of a merged node the same way. Read
+  the gloss for the parameter you are about to fill in rather than inferring it
+  from the node's description - the description says what the NODE does.
 - `kind`: `"exec"` (execution flow), `"object"` (object reference), `"pos"`
   (XYZ), `"bool"` (per-frame condition), `"text"` (string value), `"number"`
   (a computed float).
