@@ -30556,7 +30556,25 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
     s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
     // list.icn size depends on the icon source (flat quad vs a project
     // model's triangle/shape count) - ask the baker.
-    s.iconBytes = savebake::kIconSysBytes + savebake::iconInfo(p).bytes;
+    s.iconSysBytes = savebake::kIconSysBytes;
+    s.iconIcnBytes = savebake::iconInfo(p).bytes;
+    s.iconBytes = s.iconSysBytes + s.iconIcnBytes;
+    // Real card usage, not the byte sum. A PS2 card allocates in 1 KB
+    // clusters, a file never shares a cluster with another file, and the
+    // save's own directory costs one - so round every FILE up individually
+    // and add the directory. Reporting the raw sum as a "card footprint"
+    // understates a save this small by several times (each 128-byte slot
+    // still consumes a whole 1 KB cluster).
+    const int cluster = 1024;
+    auto clustersFor = [cluster](int bytes) {
+        return bytes <= 0 ? 1 : (bytes + cluster - 1) / cluster;
+    };
+    s.cardClusterBytes = cluster;
+    s.cardFootprintBytes =
+        (1 /* the save directory itself */
+         + kSaveSlots * clustersFor(s.payloadBytes) +
+         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
+        cluster;
     return s;
 }
 
@@ -30576,8 +30594,10 @@ static std::string saveSystemHeader(const Project& p) {
            "// (libmc, card-root-relative path). When the BIOS mc modules cannot\n"
            "// be loaded or no formatted PS2 card responds, the slots fall back\n"
            "// to save<n>.sav next to the ELF (host: under PCSX2).\n"
-           "constexpr int SAVE_SLOTS = 3;\n"
-        << "constexpr const char* SAVE_MC_DIR = \"" << saveGameDir(p)
+        << "constexpr int SAVE_SLOTS = " << kSaveSlots
+        << ";\n"
+           "constexpr const char* SAVE_MC_DIR = \""
+        << saveGameDir(p)
         << "\";\n"
            "constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // \"TYSV\"\n"
            "// v2: SaveGameData gained the text-value block (SAVE_TEXT_*)\n"

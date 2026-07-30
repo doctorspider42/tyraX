@@ -92,6 +92,10 @@ bool projectUsesBeams(const Project& p);
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
 
+// How many save slots the generated save system exposes. The twin of the
+// emitted `SAVE_SLOTS` in saveSystemHeader - change both together.
+constexpr int kSaveSlots = 3;
+
 // What one memory card save slot holds and costs, mirroring the generated
 // SaveGameData layout byte for byte (the Save Editor's size estimate; the
 // same buffer is the in-RAM checkpoint). Keep in sync with saveSystemHeader
@@ -105,7 +109,17 @@ struct SaveSizeInfo {
     int textsBytes = 0;
     int objectsBytes = 0;
     int payloadBytes = 0;  // the slot file: sum above, 64-byte aligned
-    int iconBytes = 0;     // icon.sys + list.icn, written once per card
+    int iconSysBytes = 0;  // icon.sys, written once per card
+    int iconIcnBytes = 0;  // list.icn, written once per card
+    int iconBytes = 0;     // iconSysBytes + iconIcnBytes (raw sum)
+    // What the card actually loses. A PS2 memory card allocates in 1 KB
+    // clusters and no two files share one, so every file costs at least a
+    // full cluster and the save's own directory costs another. Summing the
+    // raw byte sizes understates real usage several times over for a save
+    // this small (a 128-byte slot still eats 1 KB), which is the whole point
+    // of reporting it separately from the byte breakdown.
+    int cardClusterBytes = 0;    // the cluster size the rounding used
+    int cardFootprintBytes = 0;  // directory + 3 slots + icon.sys + list.icn
 };
 SaveSizeInfo saveSizeInfo(const Project& p);
 

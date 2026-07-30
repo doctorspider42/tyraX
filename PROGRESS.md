@@ -15838,3 +15838,43 @@ Each finished feature lands as its own commit.
   *(Merged onto main at ~523 commits behind; entries renumbered from (106) and
   (107), which main had long since reused. 248/249 are left free for the
   endless-scroller branch, which is in flight at the same time.)*
+
+- (252) **Save Editor: the card-footprint number was wrong, and the feature had
+  no docs page.** Two review findings on (250)/(251) after the merge.
+  (a) **"Full card footprint" understated real card usage.** `saveSizeInfo`
+  summed raw bytes - `payloadBytes * 3 + iconBytes` - and the UI printed that
+  under a label promising card footprint. A PS2 memory card allocates in whole
+  **1 KB clusters** and no two files share one, so every slot costs at least a
+  full kilobyte however small its payload (a 128-byte slot and a 1000-byte slot
+  cost exactly the same), `icon.sys` costs one, `list.icn` costs as many as it
+  needs and the save's own directory costs one more. `SaveSizeInfo` now carries
+  `cardClusterBytes` + `cardFootprintBytes` (each FILE rounded up individually,
+  plus the directory) and the Save Editor shows both rows - the raw sum, useful
+  for "did that save value matter?", and the highlighted card figure, which is
+  the one to quote - with a note explaining why they differ. Measured on a fresh
+  fpp project: raw 35 124 B vs 38 KB actually consumed, the gap being three
+  128-byte slots rounded to 1 KB each plus the directory. Also added
+  `templates::kSaveSlots` and made the emitted `SAVE_SLOTS` read from it, so the
+  host's accounting and the generated constant cannot drift apart (they were two
+  independent `3`s).
+  (b) **No `docs/` page existed** for a feature this size, against the standing
+  rule - README carried three dense bullets and nothing else, and the checkpoint
+  flow nodes' own descriptions referenced a `docs/save-editor.md` that was never
+  written. Added it (card title + the three icon sources and the 800-triangle
+  fallback, bytes vs card space, save values/texts, the checkpoint model and why
+  there is deliberately only one, the card-busy screen, and the hands-on checks
+  the card path still needs), linked from `docs/README.md`, and corrected the
+  README's own "full card footprint" wording to match (a).
+  **Checked and found correct, so left alone**: the card-busy state machine
+  cannot deadlock - `cardOpDelay` and `cardBusyFrames` are finite countdowns that
+  strictly decrease, the blocking transfer clears `cardOp` synchronously, and the
+  early `return true` while busy is what prevents a second card operation being
+  started on top of the first (the pad genuinely cannot reach the save menu
+  mid-transfer). The `SceneObjectData` struct/row 1:1 rule also still holds
+  (64 declared slots, 64 emitted per row) - this batch does not touch it.
+  **Verified**: editor build exit 0; `--refresh-gen` emits `SAVE_SLOTS = 3` and
+  the right `SAVE_MC_DIR`, and bakes `res/save/icon.sys` at exactly 964 B
+  (`kIconSysBytes`) plus a 33 776 B `list.icn`; full Docker build to a 2.8 MB ELF,
+  exit 0. **Not verified**: nothing booted in PCSX2, and the memory-card failure
+  modes (full / absent / unformatted) and the BIOS browser's rendering of the
+  title and animated icon are all still hands-on-only.

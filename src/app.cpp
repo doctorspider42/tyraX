@@ -7786,10 +7786,25 @@ void App::drawSaveEditorWindow() {
         ImGui::TableNextColumn();
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        row("Full card footprint (3 slots + icon)",
-            bytes(sz.payloadBytes * 3 + sz.iconBytes));
+        row("All data (3 slots + icon, raw bytes)",
+            bytes(sz.payloadBytes * templates::kSaveSlots + sz.iconBytes));
+        // What the card actually loses, which is the number that matters and
+        // is always bigger: files are allocated in whole 1 KB clusters and
+        // the save directory costs one of its own.
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("Card space used (1 KB clusters)");
+        ImGui::TableNextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s",
+                           bytes(sz.cardFootprintBytes).c_str());
         ImGui::EndTable();
     }
+    ImGui::TextDisabled(
+        "A PS2 card allocates whole %d-byte clusters and no two files share\n"
+        "one, so each of the %d slots costs at least one cluster however small\n"
+        "it is - plus one for icon.sys, one or more for list.icn, and one for\n"
+        "the save's own directory. That rounding is why the two rows differ.",
+        sz.cardClusterBytes, templates::kSaveSlots);
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(

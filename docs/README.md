@@ -121,6 +121,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   included) stamped by hand, scattered by a graph or spawned at runtime: the
   local-frame model, why instances are not linked back, and the merge/spawn
   split that decides what an instance costs on this machine.
+- [Save Editor](save-editor.md) - memory card saves in one window: the browser
+  title and the real 3D icon (including animated ones from a `.glb` clip), the
+  slot size breakdown and why "card space used" is bigger than the byte sum
+  (1 KB clusters), the save values/texts, the RAM checkpoint nodes, and the
+  "checking memory card" screen.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
