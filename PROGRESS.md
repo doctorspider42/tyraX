@@ -14873,7 +14873,6 @@ Each finished feature lands as its own commit.
   `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
   nothing a generated game project's assistant does needs it.
 
-<<<<<<< HEAD
 - (232) **Runtime procedural generation + prefabs** - the two halves of "build
   the world while the game runs". Until now a Procedural volume was baked: the
   editor evaluated the graph and wrote finished chunk meshes, and the console
@@ -15137,7 +15136,6 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
-=======
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15225,7 +15223,6 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
->>>>>>> origin/main
 
 - (237) **Merge fallout: a procedural volume scattered onto a terrain that no
   longer exists.** Found while merging main's *optional terrain* (236) into the
@@ -15673,7 +15670,85 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
-- (247) **ps2link r2: the hangs that made a network session need a console
+- (247) **Flow-graph node help split in two: hover a node for what it does,
+  hover a knob for what the knob does.** Reported by the owner: a node's tooltip
+  was one long blob, because `FlowNodeType::desc` was the only documentation
+  field there was and every parameter's meaning had to be spelled out inside it.
+  125 of the 186 built-in descs literally said `num[0]` or `num[1]`, so resting
+  the cursor on a node covered it with a wall of prose about knobs, while
+  resting the cursor on a knob gave *nothing at all* - and the reader hovering a
+  drag labelled `Seed` wanting to know what 0 and -1 mean was the one person the
+  text was not written for. GenerateVolume was the example that came with the
+  report ("num[0] Seed: 0 = keep the volume's own seed, -1 = roll a fresh one,
+  any other value = use it", buried mid-paragraph).
+  **The PROCEDURAL graph editor had already solved this**, so the shape was not
+  up for invention: `ProcParamDef::tip` plus `procNodeDoc()`, one renderer used
+  by both the add-menu tooltip and the node hover. Mirrored on the flow side
+  rather than designed again - the two node editors having two different answers
+  to "what does hovering a node tell me" is a worse outcome than either answer.
+  `FlowNodeType` gained `numTips[4]`, `strTip`, `str2Tip` and `execInTips[]`;
+  `flowNodeDoc()` (flowgraph_ui.cpp) draws title, `desc`, a separator, then one
+  line per parameter and per named exec pin, and both tooltips route through it;
+  each parameter widget in the node body grew its own hover tip. `desc` is now
+  what the node DOES and why you would reach for it. **All 186 entries** were
+  swept, not just the 125 - a node whose params were undocumented rather than
+  mis-documented is the same gap - and a trap about one parameter moved into
+  that parameter's tip while a trap about the node stayed in `desc`.
+  **Exec pins count as parameters.** Which of `generate`/`clear` you fire is as
+  much a choice as what you type, so `execInTips` is part of the set and shows
+  on the pin. Also two single-source helpers: `flowStrLabel` / `flowStr2Label`
+  give the string param the name its widget carries, so the tooltip can never
+  list a parameter under a name no widget uses.
+  **Three things this had to not silently break.** (1) `nodeCatalogLine`
+  (aigen.cpp) builds the AI generator's system prompt from `desc` - moving
+  parameter prose out of it without extending the catalog would have made the
+  generator measurably dumber, so every tip is emitted as a parenthesised gloss
+  on its `num[i]=Label` / `str` / exec pin. That also turned up `FontName` as
+  the one `strKind` with no `strKindDesc` entry: Display Text's font reached the
+  model as "no string param" while the node's prose talked about "the font named
+  str". (2) Custom `.flownode` nodes got the same vocabulary - `tip0`..`tip3`
+  and `tip_string`, deliberately NOT subject to the contiguity rule `num0..num3`
+  have (a tip is optional per param), mirrored into the VS Code extension's
+  `SPEC`, its grammar, its snippets and a new diagnostic for a `tipN` whose
+  `numN` is missing; `.vsix` regenerated to 0.2.0. (3) Both example
+  `.flownode` files now carry `desc` + tips, which they had never had.
+  **Two ImGui traps paid for here.** A tooltip is a *window* and ImGui's "last
+  item" is context-global, so a `paramTip()` placed before the
+  `IsItemDeactivatedAfterEdit()` that commits an edit silently stops that edit
+  from saving the moment the cursor rests on it - the call goes last, and the
+  helper says so. And a param tip and the node tooltip are BOTH eligible when
+  the cursor is on a documented widget (the node is hovered either way), which
+  draws two tooltips on top of each other; a drawn param tip now suppresses the
+  node one for that frame (`paramTipShown`). Worth knowing that procui.cpp has
+  the same latent overlap - it was copied from there before this was noticed.
+  **Verified.** `--list-nodes` is the real evidence: it prints all 186 catalog
+  lines, and a script over `flowNodeTypes()` reports 186 node types, 0
+  undocumented parameters and 0 documentation fields still naming a raw slot
+  (`num[N]`/`str`) - which is the check that the sweep is complete rather than
+  mostly complete. `--list-nodes examples/custom-nodes` shows both custom nodes
+  carrying desc + tips end to end. Both tooltips were then SEEN, with
+  `--ui-script` on a scratch project: hovering the Seed drag gives the Seed
+  paragraph alone, and the node hover gives title + what-it-does + `Object - `,
+  `Seed - `, `> generate - `, `> clear - `.
+  **Getting a screenshot of the flow canvas took two workarounds worth writing
+  down.** The imnodes param widgets register with `uiscript` only while the Flow
+  Graph is the FRONT tab - behind the Viewport tab the window is drawn with
+  `SkipItems` and `dump` shows four unlabelled node rects and nothing inside
+  them, which reads exactly like "the canvas is unreachable". Setting
+  `activeLayout` to the **Debugger** layout in the `.tyra` fixes it (that recipe
+  focuses Flow Graph), which is a better workaround than the documented
+  drop-a-window-from-`open` one, since Viewport is not an optional window and is
+  not in that list. And for the NODE hover, which is not a widget at all:
+  `wheel "Flow Graph" 1` is the one step allowed to resolve a bare window name,
+  and it PARKS the cursor at the window's centre - so placing a node under that
+  centre and following with `wait 1.6; shot` reaches a tooltip no `hover` target
+  exists for. Not verified: nothing here reaches the PS2 (the registry's
+  documentation fields do not reach codegen), so there is no console half to
+  test; the add-menu tooltip still cannot be scripted (it hangs off a
+  right-click of empty canvas, which `uiscript::find` refuses to click) and was
+  read by eye from the same renderer.
+
+- (253) **ps2link r2: the hangs that made a network session need a console
   Reset.** Asked as "obczaj naszą wersję ps2link (...) on często potrafi
   pierdolnąć i trzeba restować, może ma jakiś memory leak". Read the whole pinned
   tree (4.1k lines across `ee/` and `iop/`) rather than guessing, and the answer
@@ -15788,8 +15863,8 @@ Each finished feature lands as its own commit.
   troubleshooting rows, the harness, a "known remaining rough edges" section),
   tools/ps2link/README.md, tyra-testing.
 
-- (248) **ps2link r3: the SPU2 shuts up by itself now, so the silencer ELF is off
-  the hot path.** Follow-up to 247, asked as "jak się zrobi restart tego ps2link
+- (254) **ps2link r3: the SPU2 shuts up by itself now, so the silencer ELF is off
+  the hot path.** Follow-up to 253, asked as "jak się zrobi restart tego ps2link
   to dźwięk dostaje pierdolca (...) załatwiamy to teraz tak na szpetnie puszczając
   silence.elf, ale może da się temu ukrócić łeb". Root cause: **the SPU2 is a
   separate block from the IOP core and keeps its register state across an IOP
