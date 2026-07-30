@@ -15136,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15670,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15748,86 +15803,85 @@ Each finished feature lands as its own commit.
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
 
-- (248) **Recent projects in the menu bar, and Close Project** - asked as "dodaj
-  recent projects do menu głównego i opcję close project (wraca do tego ekranu,
-  który jest zaraz po włączeniu)". Half of it already existed: entry (180) put
-  the recent list on the welcome screen the Viewport draws before anything is
-  open. What was missing is that the list was **only** reachable there, i.e.
-  exactly when you no longer needed it - switching projects meant a file dialog,
-  and there was no way back to the welcome screen short of restarting the
-  editor. So: `File > Recent Projects` (the same `recentProjects_`, name in the
-  item and the full folder in its tooltip - a path in a menu item makes the menu
-  as wide as the deepest project on the machine - plus *Clear list*), and
-  `File > Close Project`.
-  The two ways in now share one exit: `openRecentProject(dir)` re-probes the
-  entry and reports the folder that vanished since startup (the probe is once
-  per entry at boot, not per frame), and the welcome screen's rows call it
-  instead of repeating that. The menu goes through `requestOpenRecent`, the
-  dirty guard's fifth and sixth verbs (`PendingAction::OpenRecent` carries its
-  target in `pendingRecentDir_`, `::Close` carries nothing).
-  `closeProject()` is the interesting one, and it is small for a reason: the
-  per-frame channels (Live Link, the debugger, Live Logic, the Remote Pad, the
-  error catcher) and every tool window already open with `if (!hasProject_)`
-  and stand down by themselves, so the close path inherited them for free. What
-  it has to say out loud is only what would OUTLIVE the project - the phone
-  camera link (stopped through `stopPhoneCam`, which bakes a recording in
-  progress into its cutscene first, so a close never eats a take), the GI baker,
-  and a running build, which is cancelled because Stop lives on the toolbar and
-  the toolbar goes away with the project - plus the disk-derived caches keyed by
-  project-relative paths (`viewport_.invalidateAssets()`, layer RAM, WAV issues,
-  model info), which a *different* project must not inherit. A game already
-  running in PCSX2 is deliberately left alone. No keyboard shortcut: `Ctrl+W` is
-  one slip away from the `W` that flies the viewport camera, and this throws the
-  project out of the editor.
-  Verified by clicking it (`--ui-script`, 43 steps, exit 0) on two scratch
-  projects created headlessly - `recentA` (FPP) and `recentB` (Empty). The probe
-  for "is a project attached" is the **Tools** menu, which only exists with one:
-  `expect Tools` -> File > Close Project -> `expect-not Tools` plus the welcome
-  screen's own `New project` / `Open project` buttons, and the `shot` is the boot
-  screen with the status bar reading "Project closed". Then File > Recent
-  Projects > `recentA` -> `expect Tools` again AND `expect "Project/Player"`,
-  which is what proves *which* project came back (the Empty-preset one has no
-  objects at all). Last third is the guard: add an Empty (which saves), Edit >
-  Undo (which commits without writing - the actual unsaved state), Close Project
-  -> the *Unsaved Changes* modal is on screen, *Don't Save* -> welcome screen.
-  The `editor.ini` the run wrote its two scratch entries into was restored
-  afterwards - the recent list is machine-global, so a test that leaves entries
-  in it is a test that edits the user's editor.
-
-- (249) **Close Project review fallout: the Drone Generator outlived the close.**
-  Found reviewing (248) against current main, and it is the exact bug class that
-  entry's own design notes warn about - state that outlives the project - in the
-  one subsystem whose guard does not catch it. `closeProject()` leans on every
-  per-frame channel standing down at `if (!hasProject_)`, which all of them do,
-  including main's newer `livetimeTick`. But `droneTickRender()` is called from
-  `drawDroneGeneratorWindow()` **above** that window's `!hasProject_` return, on
-  purpose, so an offline render survives closing the window. That means after a
-  close it still completes, and its completion path appends the rendered track
-  to `project_.music` and calls `saveAll()` - writing into the empty `Project`
-  the close just installed, or into whichever project is opened next. A drone
-  **audition** had the mirror-image problem: its Stop button lives in a window
-  that hides on `!hasProject_`, so the sound played on over the welcome screen
-  with nothing left to stop it. Both now stand down in `closeProject`, in the
-  same order `App::run`'s shutdown path documents and for the same reason: the
-  audio device first (its callback holds the `LiveSynth`), then cancel + join
-  the render thread (`dronegen::render` polls the cancel flag through its
-  progress callback, so the join is bounded). Also `glbInfoCache_`, which every
-  other eviction site clears together with `modelInfoCache_` and which the close
-  was clearing only half of.
-  **Verified** in the running editor with `--ui-script` on scratch projects,
-  which is also how the merge itself was checked: the File menu still reads
-  New / Open / Recent Projects / Save / Close Project / Exit after 35 commits of
-  main; the submenu lists 10 entries (the cap), newest first, with `Clear list`
-  under a separator; a project deleted off disk renders as `p177e  (missing)`
-  and the menu neither crashes nor hangs; Close Project on a clean project lands
-  on the welcome screen (`New project...` / `Open project...` present); and the
-  dirty guard holds - add an Empty (which saves its `objects/*.json`), Edit >
-  Undo (which commits without writing), Close Project -> the *Unsaved Changes*
-  modal with *Don't Save* / *Cancel*, 18/18 script steps green.
-  Not verified: the drone paths themselves are not reachable from `--ui-script`
-  without a sound card and a multi-second render, so the two teardown calls are
-  read-and-reasoned, not exercised - a human should start a render, close the
-  project mid-render, and confirm no track appears in the next project opened.
-  The `editor.ini` the runs wrote scratch entries into was restored afterwards -
-  the recent list is machine-global, so a test that leaves entries in it is a
-  test that edits the user's editor.
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
