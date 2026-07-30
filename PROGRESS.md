@@ -786,6 +786,35 @@ Each finished feature lands as its own commit.
     generated microcode has been built in Docker or run on hardware. Adopting a
     generated program is the next step and needs the full e2e pass, which is why
     `--vu-emit` writes to a directory you name instead of into the engine tree.
+  - **Review fixes on top of the above**, in two groups.
+    *The simulator was too kind to a program.* The VU FPU is not IEEE-754 - it
+    has no infinities and no NaN, an overflowing result saturates to
+    `0x7F7FFFFF` and a denormal is zero - and the simulator was using host
+    floats raw, so an overflow became an `inf` the console can never hold and
+    the next subtraction turned it into a `nan`. Every float the machine writes
+    now goes through `vuFloat()`; `ftoi0`/`ftoi4` saturate instead of invoking
+    C++'s undefined out-of-range conversion (`1e30` used to come out as
+    `INT32_MIN`, i.e. a far-right vertex landing far left); divide-by-zero
+    yields the saturated value signed by BOTH operands and `0/0` is no longer
+    zero. The flip side is that the move family must NOT be clamped, because it
+    carries integer payloads - `mr32` is now a raw field rotation like `move`,
+    not arithmetic. Measured by linking a probe against the editor's own
+    `vusim`/`vuasm`/`vuir` objects: 4 of 8 hardware behaviours diverged before,
+    0 after, and the plain-arithmetic control (`1.5 * 4.0`) is untouched.
+    *The generated EE side had the input layout wrong.* The per-vertex block
+    layout was spelled out three times - the microprogram's pointer arithmetic,
+    the equivalence harness, and the emitted
+    `addProgramQBufferDataToPacket` - and the third had drifted: the emitted
+    `c` put its colour block one `qbuffer->size` too far, and the emitted `td`
+    unpacked normals **on top of** the ST block. `--vu-check` cannot see either,
+    because it stages VU1 memory itself and only diffs the microprogram's GS
+    output - so "bit-identical" was true and the EE half was still broken. The
+    layout now lives once in `attrBlocks()` and the stream count derives from
+    it; all five emitted classes now match the pointer arithmetic in their own
+    microprogram (`d` and `td` deliberately omit the colour unpack the
+    handwritten files do, because those programs stage their GIF packet right
+    after the normals and never read a colour stream). Latent, not shipped:
+    nothing in `vendor/tyra` uses the generated files yet.
 
 - (227) **`examples/procedural`: the whole node library in one map** (owner:
   "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").

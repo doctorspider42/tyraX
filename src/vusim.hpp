@@ -14,7 +14,10 @@
 //
 // What this models: the logical semantics a VCL programmer writes against -
 // masked fields, the ACC, Q/I, the clip flag register, integer registers and
-// memory. What it does NOT model: cycle timing, the dual-issue pairing, branch
+// memory, plus the fact that the VU FPU is NOT IEEE-754 (no inf, no NaN,
+// overflow saturates to 0x7F7FFFFF, denormals read as zero - `vuFloat` in the
+// .cpp, and the reason the move family deliberately bypasses it).
+// What it does NOT model: cycle timing, the dual-issue pairing, branch
 // delay slots or the DIV latency. Those belong to VCL, which schedules the
 // program after this level; simulating them would make the model disagree with
 // the source the programmer reads. The one hazard that IS a programmer-level

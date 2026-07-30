@@ -88,6 +88,18 @@ coefficient.
 
 That check runs in milliseconds and needs no PS2.
 
+**What it does not cover: the EE side.** `--vu-check` stages VU1 memory itself
+(`stageInput`) and diffs only what the microprogram staged for the GS, so the
+generated `addProgramQBufferDataToPacket` — the code that decides *where* each
+per-vertex array lands — is never executed by it. That is not a theoretical gap:
+the emitted `c` variant put its colour block one `qbuffer->size` too far and the
+emitted `td` variant unpacked normals **on top of** the ST block, while
+`--vu-check` reported both bit-identical. Both came from the layout being spelled
+out three times (the microprogram's pointer arithmetic, `stageInput`, and the EE
+emitter), so it is now written down once in `attrBlocks()` and the other sites
+derive from it. Until the check grows an EE-side half, an adopted program still
+owes a Docker build and a look at the picture.
+
 **The output goes through `vucap::scanGifPackets`** — the very decoder the real
 capture path uses (`docs/devkit.md`). It was lifted out of `vucap.cpp` for this:
 a simulated run and a captured run produce the same `std::vector<uint32_t>`
@@ -100,6 +112,21 @@ Models: masked destination fields, the accumulator, Q and I, the clip-flag shift
 register (`clipw`/`fcand`/`fcset`), integer registers with correct 16-bit
 wrapping, `lq`/`sq`/`ilw`/`isw` against 1024 quadwords, branches, `xtop` and
 `xgkick`.
+
+Also modelled, because host floats get it wrong in a way that quietly invalidates
+a whole run: **the VU FPU is not IEEE-754.** It has no infinities and no NaN — an
+overflowing result saturates to ±`0x7F7FFFFF` and a denormal reads as zero — so
+every float the simulator writes goes through `vuFloat()`. Without it one
+overflow becomes an `inf`, the next subtraction turns that into a `nan`, and
+everything downstream is a picture the console could never have produced. The
+same reasoning sets the divide-by-zero result: hardware yields the saturated
+value signed by *both* operands, never zero, and `0/0` is no exception.
+
+The flip side is that the **move family must not be clamped**: `move`, `mr32`,
+`mfir`, `ftoi0`/`ftoi4`, `lq` and `sq` copy bit patterns, and those bit patterns
+are routinely integers — a packed GIF tag, an `ftoi4` fixed-point result. They
+write raw bits, and `mr32` in particular is a field *rotation*, not arithmetic.
+Clamping one of those as if it were a float is how you corrupt it.
 
 Does **not** model, on purpose:
 
