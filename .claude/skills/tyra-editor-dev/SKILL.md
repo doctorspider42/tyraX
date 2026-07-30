@@ -16,6 +16,12 @@ description: >
 
 # TyraX development
 
+> **A note on `PROGRESS 123` citations.** They appear throughout this file and
+> point at numbered entries of `PROGRESS.md`, which was retired at ~15 800
+> lines. They are still exact pointers — the file lives on in git history, and
+> `docs/backlog.md` has the two-line recipe for reading it. New work records
+> itself in its commit message and PR body instead.
+
 ## What this project is
 
 An editor for the [Tyra](https://github.com/h4570/tyra) PlayStation 2 game engine.
@@ -929,10 +935,11 @@ simply delegates are not.
 
 ### 5. Conventions
 - Files: `snake_case.cpp/.hpp`, paired header/impl, flat `src/`.
-- One feature = one commit. `PROGRESS.md` is a living log — every finished
-  feature gets a numbered entry there describing what was done and **how it was
-  verified** (read a few entries to match the tone; they double as the project's
-  institutional memory, including dead ends).
+- One feature = one commit, and its **commit message** describes what was done
+  and **how it was verified**, dead ends included. (This used to be a numbered
+  entry in `PROGRESS.md`, retired at ~15 800 lines; `docs/backlog.md` keeps the
+  forward-looking half and the git-history recipe.) A fact worth re-reading
+  later goes in the relevant `docs/` page or skill, not only in the message.
 - Comments explain constraints, not narration; match the existing density.
 - The editor viewport and the PS2 game must agree: shading, terrain sampling,
   sky and the reflective-material matcap (sphere-map STs from the camera-space
