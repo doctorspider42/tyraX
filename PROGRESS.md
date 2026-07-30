@@ -15136,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15670,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15748,133 +15803,85 @@ Each finished feature lands as its own commit.
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
 
-- (251) **Real 3D memory card icons - including ANIMATED ones from .glb
-  clips.** (250)'s flat textured quad grows into a proper icon pipeline
-  (savebake): `Project::saveIconModel` picks a res/models model as the icon
-  geometry - a **.obj** ships its triangles + map_Kd texture (kd baked into
-  vertex colors), an **animated .glb** has `saveIconClip` sampled into
-  `saveIconFrames` (≤8) morph shapes via the existing `glbparser::bake`
-  host sampler, so the memory card icon *plays the model's animation in the
-  PS2 browser* like retail saves. Everything is auto-fitted into icon space
-  (y-down, standing on y=0, ~3.6 units; the Y mirror flips winding, so
-  triangles are emitted reversed), static sources (quad/.obj) get a gentle
-  sine sway, models without textures get a near-white base so their
-  kd/baseColor tints render cleanly, and models over 800 tris fall back to
-  the quad with a Save Editor warning instead of failing the build. The
-  Save Editor gained the model/clip/frames pickers plus a stats line
-  (source, tris, shapes, exact bytes), its preview now decodes the baked
-  .icn's own texture segment (byte-exact with what ships), and the icon
-  cost in the size table + the generated card-copy buffer are sized
-  per-build from `savebake::iconInfo` (a model icon can be several hundred
-  KB). **The expensive lesson - icon animation key semantics**: each
-  frame's keys are that shape's WEIGHT ENVELOPE over the timeline (the
-  browser lerps between keys and blends shapes by weight - semantics per
-  mymcplus/ps2icon.py, whose parser also reveals key 0 lives inline where
-  Akesson's doc saw "two unknown" u32s). The obvious "one key at the
-  shape's own tick" encoding = weight ~0 almost everywhere = the icon
-  renders INVISIBLE (observed: only the selection glow in the browser).
-  Correct: a tent per shape - 0 at the neighbours' ticks, 1 at its own,
-  shape 0 closing the loop with a rising tail - so consecutive shapes
-  crossfade seamlessly. **Verified**: harness grew to 47 checks (glb icon
-  exact size/header/shape-divergence, buffer sizing, .obj/.glb fallbacks,
-  animated-quad math); a hand-built rigid-animated .glb fixture (spinning
-  wedge, generated by a Python script - glbparser's rigid-node path); and
-  PCSX2 BIOS e2e: the wedge icon renders lit in the browser next to the
-  two-line title and **burst screenshots 0.7 s apart show it mid-spin in
-  clearly different poses** - the animation actually plays. Editor +
-  harness rebuilt clean; the scratch game (Docker) rebuilt with the model
-  icon and rewrote it onto a wiped card ("Save icons: written to the
-  card").
-- (250) **Save Editor, memory card identity (icon.sys + 3D icon), checkpoints,
-  and the classic "checking memory card" screen.** The save system grew from a
-  Project-panel section into a real tool. **Save Editor** (*Tools > Save
-  Editor*, layout window key `save`): the card **title** (two browser lines,
-  `|` breaks) and **icon image** (any project PNG/JPG) with a live preview of
-  the exact 128x128 texture that ships; an exact **byte breakdown of one save
-  slot** (header / each value / 32-byte text slots / flagged-object states →
-  slot file size, card icon cost, full 3-slot footprint) via
-  `templates::saveSizeInfo`, which mirrors the generated `SaveGameData` layout
-  byte for byte; a per-scene list of every *Save state* object (answers "what
-  actually lands in my save?"); and the save values/texts editors moved in
-  from the Project panel. **Card identity** (`savebake.cpp`): bakes
-  `res/save/icon.sys` (964 B per the icon.sys spec) + `res/save/list.icn` (a
-  PS2 3D icon: static two-sided quad, 128x128 BGR555 texture, Akesson "PS2
-  Icon Format v0.5") on every `refreshGenerated`; the generated save system
-  copies both onto the card once per boot (`saveEnsureIcons`, 64-byte-aligned
-  DMA buffer, skipped when the card already has them). Hard-won detail: **the
-  PS2 browser's OSD font renders only FULL-WIDTH Shift-JIS** — a plain-ASCII
-  title (valid S-JIS!) displays as *nothing* (observed in the PCSX2 BIOS
-  browser), which is why every save tool converts; the title encoder maps
-  ASCII onto the 0x82/0x81-row full-width forms. **Payload optimization**:
-  `SAVE_OBJECT_MAX` now counts only save-flagged objects (max across scenes,
-  min 1) instead of the whole scene size — slot files and the checkpoint
-  buffer shrink accordingly (SAVE_VERSION 2 → 3; old, larger slot files fail
-  the size/version check and read as empty slots). **Checkpoints**: `doSave`/
-  `doLoad` refactored into `captureState`/`applyState`; ONE static in-RAM
-  `SaveGameData` buffer by design (a few KB, no checkpoint history — the
-  Save Editor displays its exact RAM cost) behind four flow nodes: *Save
-  Checkpoint* (instant snapshot, no card), *Load Checkpoint* (instant restore,
-  no-op when none), *Commit Checkpoint* (writes the buffer to card Slot 0..2),
-  and *Has Checkpoint* (pure bool source). **"Checking memory card" screen**:
-  every card write/read goes through `beginCardOp` — the baked warning sprite
-  (`res/hud/save-busy.png`, from `savebake::busyText()` via the menubake text
-  baker, written-if-missing/replaceable; codegen emits matching `SAVE_BUSY_W/H`
-  from the same HudText) is presented over a dim BEFORE the blocking libmc
-  transfer runs, then holds ~1.5 s minimum, exactly like retail games; menu
-  save/load and checkpoint commits all route through it. **Verified**: a
-  34-check headless harness (linked against the build's .obj files — model
-  round-trip, refreshGenerated, icon.sys/icn binary layout, codegen greps,
-  size math vs the generated struct); editor builds clean; scratch FPP project
-  compiles in Docker ("Build OK", -Wall); PCSX2 e2e with an unattended flow
-  graph (On Start → Delay → Save Checkpoint → Commit): the busy overlay was
-  captured on screen mid-commit, `bin/log.txt` shows "memory card ready" +
-  "Save icons: written to the card" **on a fully wiped (unformatted) card
-  image** (the probe-format path), the card image contains
-  TYRA-SAVETEST / icon.sys / list.icn / the committed slot file, and the PS2
-  **BIOS browser** shows the save with the custom two-line title and the
-  rendered 3D icon (screenshots). Save Editor window verified by GUI
-  screenshot at 1.5x UI scale. The in-game save menu's pad flow is unchanged
-  but keeps its usual "needs a hands-on pad test" caveat.
-  *(Merged onto main at ~523 commits behind; entries renumbered from (106) and
-  (107), which main had long since reused. 248/249 are left free for the
-  endless-scroller branch, which is in flight at the same time.)*
-
-- (252) **Save Editor: the card-footprint number was wrong, and the feature had
-  no docs page.** Two review findings on (250)/(251) after the merge.
-  (a) **"Full card footprint" understated real card usage.** `saveSizeInfo`
-  summed raw bytes - `payloadBytes * 3 + iconBytes` - and the UI printed that
-  under a label promising card footprint. A PS2 memory card allocates in whole
-  **1 KB clusters** and no two files share one, so every slot costs at least a
-  full kilobyte however small its payload (a 128-byte slot and a 1000-byte slot
-  cost exactly the same), `icon.sys` costs one, `list.icn` costs as many as it
-  needs and the save's own directory costs one more. `SaveSizeInfo` now carries
-  `cardClusterBytes` + `cardFootprintBytes` (each FILE rounded up individually,
-  plus the directory) and the Save Editor shows both rows - the raw sum, useful
-  for "did that save value matter?", and the highlighted card figure, which is
-  the one to quote - with a note explaining why they differ. Measured on a fresh
-  fpp project: raw 35 124 B vs 38 KB actually consumed, the gap being three
-  128-byte slots rounded to 1 KB each plus the directory. Also added
-  `templates::kSaveSlots` and made the emitted `SAVE_SLOTS` read from it, so the
-  host's accounting and the generated constant cannot drift apart (they were two
-  independent `3`s).
-  (b) **No `docs/` page existed** for a feature this size, against the standing
-  rule - README carried three dense bullets and nothing else, and the checkpoint
-  flow nodes' own descriptions referenced a `docs/save-editor.md` that was never
-  written. Added it (card title + the three icon sources and the 800-triangle
-  fallback, bytes vs card space, save values/texts, the checkpoint model and why
-  there is deliberately only one, the card-busy screen, and the hands-on checks
-  the card path still needs), linked from `docs/README.md`, and corrected the
-  README's own "full card footprint" wording to match (a).
-  **Checked and found correct, so left alone**: the card-busy state machine
-  cannot deadlock - `cardOpDelay` and `cardBusyFrames` are finite countdowns that
-  strictly decrease, the blocking transfer clears `cardOp` synchronously, and the
-  early `return true` while busy is what prevents a second card operation being
-  started on top of the first (the pad genuinely cannot reach the save menu
-  mid-transfer). The `SceneObjectData` struct/row 1:1 rule also still holds
-  (64 declared slots, 64 emitted per row) - this batch does not touch it.
-  **Verified**: editor build exit 0; `--refresh-gen` emits `SAVE_SLOTS = 3` and
-  the right `SAVE_MC_DIR`, and bakes `res/save/icon.sys` at exactly 964 B
-  (`kIconSysBytes`) plus a 33 776 B `list.icn`; full Docker build to a 2.8 MB ELF,
-  exit 0. **Not verified**: nothing booted in PCSX2, and the memory-card failure
-  modes (full / absent / unformatted) and the BIOS browser's rendering of the
-  title and animated icon are all still hands-on-only.
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
