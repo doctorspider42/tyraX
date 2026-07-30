@@ -7496,9 +7496,6 @@ Each finished feature lands as its own commit.
   screenshot). The Material Editor preview shares the verified shader path;
   its interactive feel (picker, slider) still wants a hands-on pass. Docs:
   README, `docs/reflective-materials.md`, engine + editor skills.
-(The entries below landed via a parallel branch that double-assigned numbers
-104–107 — the reflection series above and the Live-Link/Mirror series below are
-all real, distinct features; both sets are kept as written.)
 
   *(Numbering note: the reflective-materials series above landed as its own
   (99)-(112) while the Live-Link/mirror series below already used (99)-(107).
@@ -15139,6 +15136,7 @@ all real, distinct features; both sets are kept as written.)
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15673,6 +15671,60 @@ all real, distinct features; both sets are kept as written.)
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15751,139 +15803,85 @@ all real, distinct features; both sets are kept as written.)
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
 
-- (248) **Endless scroller — the train-window level generator.** New scene
-  object type `PrimitiveType::Scroller` (id 19): a conveyor-belt marker that
-  tiles authored "segments" of scene objects along its local +Z forever, so a
-  hand-built tunnel piece / terrain strip / row of trees wallpapers off to the
-  horizon and scrolls past to nausea. A `ScrollSegment` names a group of scene
-  objects (like `Mirror::mirrorObjects`) plus a belt `length` (0 = auto-measure
-  from the members' extent along the axis); segments repeat in list order.
-  Belt params: speed (units/s, negative reverses), populate-ahead / keep-behind
-  window, run-at-start, and a `scrollMaxClones` safety cap. **One shared host
-  simulator** (`src/scrollsim.cpp/.hpp`) is the single source of truth for the
-  belt math (axis, pattern length, cell count, the recycle `wrapU` + visibility
-  test); the editor viewport reads it for the live animated ghost preview and
-  codegen reads it to bake the clones — the PS2 runtime `sc_wrapU` is a
-  documented twin (like the reflective-matcap twins). **Codegen** (`sceneData-
-  Content` in templates.cpp): for each scroller it APPENDS baked clone objects
-  to its scene's `SCENE_*_OBJECTS` table (authored indices never shift, so flow
-  graphs / mirrors / scripts / players still resolve), enough copies to tile the
-  window, and emits `SCROLLERS` / `SCROLLER_CLONES` / `SCROLLER_HIDDEN` side
-  tables (the MIRRORS idiom). A generated `ScrollerDirector` Script
-  (`scroller.gen.cpp`, registered like `SequenceDirector`) advances each belt by
-  `g_frameDt`, wraps every clone into the window, slides it along the axis
-  (`data.position = home + u*axis; dirty=true`, skipped when a clone hasn't
-  moved) and forces the authored member templates `active=false`. Type 19 was
-  added to the geometry builder (marker — no mesh), the collision skip list and
-  the usable-scan skip list so the belt marker is invisible and intangible.
-  Three flow nodes (Scroller category): **Start / Stop Scroller** and **Set
-  Scroller Speed** (`scroller::` API keyed by baked scene+object index). Editor:
-  Insert > World > Scroller, an `addScroller()` marker, a Properties section
-  (belt params + a per-segment editor with member add/remove, reorder, auto-
-  length readout, live clone-count cost + cap warning + missing-name warnings),
-  a **"Make endless scroller from selection"** button in the multi-object
-  Properties, and rename remapping of segment member names alongside the mirror
-  remap. Live Link refuses scrollers (baked clones + generated director) and its
-  context hash folds every scroller's belt params, segment membership and each
-  member's transform so any edit flips the chip to "rebuild". **Verified**:
-  Layer 0 clean editor build; Layer 1 `--resave` round-trips the scroller +
-  segments through the split-object format; Layer 2 inspected the generated
-  `scene_data.hpp` (28 clones for a 2-member/len-4 segment in a [-8,40] window =
-  14 cells × 2, rest positions tiling z ∈ [-8,44], axis {0,0,1}, hidden {0,1},
-  ID hashes padded) and `scroller.gen.cpp` (director matches the host
-  simulator); Layer 3 full Docker build compiles `scroller.gen.cpp` on the PS2
-  toolchain and boots in PCSX2 — the belt renders as a seamless continuous
-  conveyor of the 28 tiled rail clones at a stable 50 FPS (EE ~33%), no TYRA
-  asserts, authored templates correctly hidden (no double-draw); the editor GUI
-  opens the project and the viewport shows the same ghost belt. A uniform
-  segment looks visually static while scrolling (identical pieces tile
-  seamlessly) — motion reads best with varied segments or a fixed camera; the
-  scroll advance itself is confirmed by the director math + host-twin parity.
-  **Seam flicker fix** (owner spotted flickering joints between tiled clones in
-  the first run): exactly-coplanar surfaces at the seams — consecutive boxes'
-  end caps, and box undersides resting exactly on the terrain plane. Fixes:
-  (a) new per-scroller **Seam overlap** (`scrollOverlap`, default 0.02;
-  Properties + serialized + both Live-Link hashes) — `scrollsim::seamScale`
-  stretches every clone along its belt-most local axis so neighbors
-  interpenetrate instead of butting (applied identically in the clone bake and
-  the viewport ghosts); (b) the docs/example rule that **continuous belt
-  surfaces should be Planes, not boxes** — a closed box's cap edge lies exactly
-  ON the visible surface at the joint, so a 1-px line can flicker no matter the
-  overlap (verified empirically: 0.15 overlap still showed it); planes have no
-  caps. The example tunnel's floor/walls became planes lifted off the terrain
-  plane; re-verified in PCSX2 (two frames 0.9 s apart, software renderer):
-  floor and walls seam-free in both, 50 FPS. `docs/endless-scroller.md` gained
-  a "Seams" section with the rules. Second owner report (dashed dark lines +
-  a two-tone floor in motion) exposed a **latent Plane-primitive bug**: the
-  plane is double-sided with BOTH faces at the same local height, and nothing
-  on the PS2 backface-culls (grepped vendor/tyra — no culling in the render
-  pipeline), so the darker underside dither-fights the lit top face across
-  the whole surface. Fixed at the source in both twins (templates.cpp
-  `addPlane` + primmesh `unitPlane`): the underside now sits 0.01 local units
-  below the top. Also bumped the example's *Keep behind* to 24 so the tunnel
-  extends behind the player too (the ahead/behind window has always been
-  two-sided). Verified with zoomed screenshot crops (PCSX2 SW renderer, two
-  frames): floor one uniform lit shade to the vanishing point, walls uniform,
-  no dashes, no banding. A dedicated demo lives in
-  **examples/endless-scroller** (FPP corridor streaming past at -7 u/s: plane
-  floor/walls + a cyan arch box every 3 units; committed with fresh generated
-  files, boots to a seam-free endless tunnel).
-  See docs/endless-scroller.md.
-  *(Merged onto main at ~494 commits behind: the object type id moved from
-  16 to 19 — `Portal` (16), `Area` (17) and `Scatter` (18) claimed the numbers
-  in between while this branch sat. Entry renumbered from (113) for the same
-  reason.)*
-
-- (249) **Endless scroller: post-merge review fixes.** Four real defects found
-  reviewing (248) against today's main, all verified by building the generated
-  game on the PS2 toolchain rather than by reading.
-  (a) **The belt was not actually endless.** `ScrollerDirector` accumulated
-  `scroll_ += speed * dt` without bound. The wrap it feeds is periodic, so the
-  accumulator only ever needed one period - but a `float` has 24 mantissa bits,
-  so after long enough the per-frame step (~0.14 units at 7 u/s) falls below the
-  representable spacing at that magnitude and the belt stutters in visible jumps
-  and then freezes. Both twins now fold the value into `[0, span)` every frame:
-  `scrollsim::placements` on the host and the generated director on the EE. The
-  fold is provably invisible (the layout is periodic in it), which is why it is
-  the right fix rather than a wider accumulator.
-  (b) **Flow-node control could be silently discarded.** `reset()` ran from the
-  director's first `update()` and overwrote `running_`/`speed_` with the
-  authored autostart values - so a *Start / Stop / Set Scroller Speed* node
-  firing in an `On Start` handler was lost whenever the flow graph's script
-  happened to update before the director's (script order is static-init order
-  across translation units, i.e. not something either side controls). Belts are
-  now armed in the CONSTRUCTOR; `update()` only re-arms on a genuine scene
-  change.
-  (c) **Every pre-existing project failed to build.** `scroller.gen.hpp/.cpp`
-  were registered only in the `--new` scaffold list, not in
-  `project::refreshGenerated`'s regenerate list, while `flow_graph.gen.cpp`
-  includes `scripts/scroller.gen.hpp` unconditionally. So any project scaffolded
-  before this feature - which is every project on disk, including all committed
-  `examples/` - regenerated that include and then died with
-  `fatal error: scripts/scroller.gen.hpp: No such file or directory`.
-  Reproduced by deleting the pair and rebuilding (exit 1, that exact error),
-  then fixed and re-verified (exit 0, full ELF).
-  (d) **The example could not link.** `examples/endless-scroller` still carried
-  its six generated `.cpp` files under `src/scripts/`, the path main abandoned
-  for `src/gen/`. `Makefile.base` discovers sources with
-  `find src -name *.cpp`, so after a refresh both copies compile and every
-  generated symbol is defined twice. The stale six are deleted; the example's
-  remaining generated files self-heal on the next build, and it still wants a
-  dedicated regeneration pass (the repo's standing rule for `examples/`).
-  Also folded in while merging: the belt marker was missing from
-  `blocksNavigation` (navmesh.cpp), so it would have been a navmesh blocker, and
-  *Set Scroller Speed* declared a number input pin that codegen ignored - it now
-  reads `numOperand`, so a wired number really does override the typed param
-  (proven: a `Number` node of -13.25 emits `scroller::setSpeed(0, 4, -13.25F)`
-  instead of the typed -9.5).
-  **Verified**: editor build exit 0; `--resave` round-trips a scroller with two
-  segments, an explicit and an auto length and a deliberately dangling member
-  name; codegen inspected by machine rather than by eye - `SceneObjectData`
-  declares 64 scalar slots and all 29 emitted rows carry exactly 64 (the
-  struct/row 1:1 rule), the 24 baked clones match the hand-computed
-  `ceil(52/10)+2 = 8` cells x 3 resolvable members, authored indices 0-4 are
-  untouched, and every clone row carries `batchStatic = 0` (a static-batched
-  object is merged into a shared mesh and cannot be repositioned, so batching one
-  would have silently frozen the belt); full Docker build to a 2.8 MB ELF, exit
-  0. **Not verified**: nothing here booted in PCSX2 - the drift fix is the kind
-  that only shows after hours of running, and (a)/(b) both want a hands-on pass.
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
