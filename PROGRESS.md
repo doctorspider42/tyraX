@@ -728,220 +728,11 @@ Each finished feature lands as its own commit.
      RENUMBERED to 225-231 when the two met.
      And once more here: this branch ran 232-246 while main took 227, 232 and
      233 for the credits editor, the vendored-license sweep and the flow-graph
-     zoom fix, so 232/233 appear twice. All kept.
-     And once more for the weapons/combat batch: it was written against 179 and
-     numbered 180-182, and was RENUMBERED to 247-249 when it met main here.
-     Then main took 247 as well, for the flow-graph per-parameter tooltips, so
-     247 appears TWICE (the weapons entry and the tooltip entry). Both kept.
-     Continue from 251. -->
+     zoom fix, so 232/233 appear twice. All kept. Continue from 247. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
-
-- (250) **Review pass on the weapons branch before it lands: two damage bugs,
-  and four ways a weapon reference could go stale.** Found by reading the
-  branch's own diff against main, not by a report.
-
-  The damage arithmetic had one real defect and one near miss. `falloff` is
-  documented and sliders as "the FRACTION of the damage lost at maximum
-  range", 0..1 - but `readWeaponsSection` read it with no clamp while
-  clamping every risky neighbour (`kind`, `fireRate`, `pellets`, `magSize`).
-  A value above 1 makes `dmg *= 1 - falloff * t` go **negative**, and the
-  runtime treats negative damage as a heal (that is how the Apply Damage
-  node's "heal" exec works), so a long-range hit would have *healed* the
-  target. Clamped, along with `damage` (same reasoning) and the upper bounds
-  on `magSize`/`reserve` - both reach the console as `short`, so a five-digit
-  magazine from a hand-edited file wrapped negative and left the weapon
-  permanently dry-clicking.
-
-  The second: **projectiles always paid the maximum falloff penalty.**
-  `wpnTickProjectiles` passed `w.range` as the impact distance, so
-  `t = dist / range` was always 1 - a grenade going off at the thrower's feet
-  lost exactly as much damage as one at the edge of its range. Projectiles
-  now carry a `travel` accumulator and the falloff is measured over the
-  ground actually covered. Hitscan was already correct.
-
-  The stale-reference set is all one shape: a weapon is referenced **by
-  name**, and not every referrer was being followed. `renameWeaponRefs` and
-  the delete button walked `scenes` only - but a `Prefab` holds real
-  `SceneObject`s, serialized through the same `objectJson`/`readObjectsArray`,
-  so prefab members carry loadouts and `WeaponName` flow nodes too, and
-  nothing in the Properties panel would ever show you the dangling name.
-  Delete also left flow nodes naming the weapon alone, and codegen resolves a
-  dead name to `-1`, which the runtime reads as "any weapon / the equipped
-  one" - so `Has Weapon "Shotgun"` quietly became `Has Weapon <anything>`.
-  Both paths now cover prefabs, and delete clears the node strings.
-
-  Two more caps that only failed inside Docker: **Duplicate** bypassed the
-  32-weapon ceiling that `+ Weapon` enforces (the generated code
-  `static_assert`s on it, because the carried set is a 32-bit mask), and so
-  did the load path, which is what a hand-edited file or a collaboration peer
-  arrives through. Plus: `weapongen::writeAssets` wrote the `.mtl` before the
-  `.obj` and returned on an `.obj` failure, leaving an orphan `.mtl` - and the
-  caller's name-uniquing loop only probes for the `.obj`, so a retry reused
-  the base name and overwrote the orphan instead of stepping past it. The
-  Wavefront sibling pair is now all-or-nothing.
-
-  **Verified** (Layer 2): editor builds clean, Release and Dev, exit 0; the
-  `examples/weapons` project builds in Docker to a linked ELF, exit 0, with
-  `weapons.gen.cpp` compiling on the PS2 toolchain and the release audit
-  clean. **Not** verified on hardware: nothing here was watched in PCSX2, so
-  the projectile-falloff change in particular still owes a human a
-  "grenade at your feet hurts, grenade at range hurts less" pad test. Docs:
-  `docs/weapons.md` (the falloff paragraph now states the projectile rule,
-  and the ammunition paragraph states where the caps come from).
-
-- (249) **Viewmodel animation: procedural motion with presets, or your own
-  clips.** Same user, after (248): "dodaj jeszcze opcje animacji dla tych
-  broni. W tych generowanych niech jest opcja uzycia swojej, albo tez
-  proceduralnie jakas machnac". Both halves, and the split falls out of the
-  ASSET rather than taste: a **generated weapon is a static .obj and can
-  never carry clips**, so procedural motion is the only animation it will ever
-  have; an authored `.glb`/`.fbx` viewmodel can play real ones.
-  **`animMode` 0 (procedural)**: the runtime animates the viewmodel's
-  transform from ten numbers - idle sway, a walk bob that rides the player's
-  measured planar speed, a recoil kick on a decaying spring, a reload dip +
-  roll spread over the weapon's own reloadTime, and the melee lunge/chop.
-  The recoil numbers that were hardcoded in (247) became these knobs, and
-  **Kick is deliberately NOT Recoil**: `recoil` moves the AIM (the player
-  fights it), `animKickBack`/`animKickPitch` move the WEAPON and never touch
-  where the shot goes - which is what lets a revolver jolt hard while staying
-  aimable.
-  Tuning ten numbers to discover what "a pistol" feels like is the wrong first
-  experience, so there are six one-click **motion presets** (Pistol snap,
-  Heavy recoil, Automatic chatter, Launcher shove, Blade swing, Locked down;
-  `applyWeaponAnimPreset`). They overwrite ONLY the motion fields, so applying
-  one to a finished weapon changes how it moves and nothing else - and
-  "Create viewmodel + add to scene" now picks the preset matching the
-  generated kind, so a fresh weapon arrives already moving.
-  **`animMode` 1 (clips)**: name up to four clips of an animated viewmodel
-  (idle / fire / reload / equip) and a small state machine in
-  `wpnTickViewAnim` plays them through the ordinary `playAnimation` path. Fire
-  and reload are raised as ONE-FRAME REQUESTS consumed in the tick, so a
-  nine-pellet shotgun blast restarts the fire clip once rather than nine
-  times. In clip mode the procedural kick/dip/swing stand aside (the clip owns
-  them) but **sway and bob stay on** - a baked clip cannot know how fast the
-  player is walking, and that is exactly the part a clip cannot do. Clip mode
-  on a static model is a harmless no-op: nothing resolves, so switching an
-  asset never breaks a build.
-  Verified on the console the only way an idle animation can be: a rig with
-  the sway exaggerated to 0.25 units, four screenshots of a **stationary
-  camera** in a static scene, and the pistol is fully inside the sampled
-  region in one frame and fully outside it in another (region-mean brightness
-  swinging 194-214). With a still camera nothing but the weapon can move
-  those pixels. The subtle shipped values (0.008-0.018) are the same code
-  path. `examples/weapons-arena` now gives each of its six weapons the preset
-  matching its silhouette.
-  Deliberately NOT done: generating an animated (skinned) weapon model. That
-  would mean a skeleton and a .tskl out of weapongen, and transform animation
-  is what PS2-era viewmodels actually were.
-  Still needs a human with a pad: whether the kick and swing FEEL right, which
-  no screenshot can answer.
-
-- (248) **The weapons arena - and the two bugs building it found.** Same user,
-  right after (247): "dodaj jeszcze jakas example mapke, ktora maksymalnie
-  tego feature pokazuje". `examples/weapons-arena` is every axis of the
-  weapon feature as six stations along one walk: an arsenal of six weapons on
-  usable pedestals (`On Used -> Give Weapon` IS the pickup system - there is
-  no pickup object type), a reaction wall where one shot sparks / bleeds /
-  puffs dust / leaves nothing depending on the TARGET, the four death actions
-  side by side, a nine-barrel pit one launcher shell clears, three turrets
-  plus a guard that chases while it shoots, and a melee alley. All nine
-  sounds are **synthesized** (`gunsfx.py` in the scratchpad: a gunshot is a
-  highpassed noise transient + a lowpassed body + a swept sine thump; an
-  explosion is integrated brown noise) for the same reason the models are
-  generated - no licence to carry.
-  Two real bugs it flushed out, both in the runtime, not the example:
-  **(a) the combat state synced on first TICK.** Generated scripts run in
-  LINK order, so the player's `On Start` handed out weapons and the weapon
-  script's first `wpnSyncScene` then wiped the inventory later in the same
-  frame - the HUD read the right ammo on frame 1 and 0/0 forever after.
-  Every `wpn*` entry point now calls the sync first, so combat initializes on
-  first TOUCH and the ordering stops mattering. Worth remembering as a class:
-  any generated subsystem with lazy per-scene state has this hazard.
-  **(b) a life-size viewmodel fills the screen.** One FOV for the world and
-  the weapon (no viewmodel FOV on a PS2) means a 0.95-unit shotgun 0.85 units
-  from the eye covers a quarter of the frame. "Create viewmodel + add to
-  scene" now auto-frames: `viewScale = 0.38 / model length` (clamped, a
-  pistol stays at 1) and the muzzle offset moves to the end of the scaled
-  barrel.
-  Also fixed a `-Wsign-compare` warning the PS2 toolchain flagged: the
-  "never synced" sentinel was `int -1` against an `unsigned` generation.
-  Verified in PCSX2 at a locked 50 FPS. Because the pad cannot be scripted,
-  the weapons were exercised through a throwaway rig in %TEMP% that hands the
-  player everything and pulls its own trigger on a timer (`arenatest.py`,
-  with a spawn override so a rig can face the station it tests): the shotgun
-  viewmodel frames correctly and its ammo holds steady, and the launcher rig
-  aimed into the pit left **3 of 9 barrels standing** with debris on the
-  ground - projectile arc, blast radius and the debris burst in one shot.
-  The shipped example boots clean, unarmed, with AMMO/HP/KILLS drawn.
-  Still needs a human with a pad: the pickups, weapon switching, the recoil
-  of the revolver vs the SMG, and the melee arc.
-
-- (247) **Weapons and combat: firearms, melee, damage, particle effects and
-  enemies that shoot back.** The user asked for "feature epoki" - guns and
-  blades, configurable damage, particle effects, and models the licence lets
-  us ship. Full guide: `docs/weapons.md`, demo: `examples/weapons`.
-  The design decision the whole feature hangs on is that **a weapon is not an
-  entity**. A `WeaponDef` is a project-wide definition (like a font or a
-  menu); OBJECTS carry weapons by name, so the Player object IS the player's
-  inventory and an armed guard is an ordinary object with a loadout plus one
-  number (*Auto-fire range*). Two things fall out of that for free: nothing in
-  the engine needed an "actor" concept, and **the weapon in your hands is also
-  just a scene object** - the runtime pins it in front of the camera while
-  equipped and hides it otherwise, so it lights, materials, LODs and previews
-  through every pipeline that already exists. No attachment system, no
-  parenting, no viewmodel asset type.
-  Three kinds (hitscan / projectile / melee) with damage + falloff, fire rate,
-  automatic, spread, pellets, recoil, rumble, magazine/reserve/reload, physics
-  impulse, blast radius and swing arc. Recoil is a **spring whose per-frame
-  DELTA** goes to `ScriptContext::viewKickPitch` - modelling it as a delta
-  rather than a remembered angle is what lets the player fight it with the
-  stick instead of having their aim snapped back.
-  **Effects** are one shared 128-particle burst pool (`FX_MAX`) on the same
-  VU1 billboard path as the emitters, exposed to every script as
-  `ctx.spawnFx` - muzzle flash, impact, blood, tracer streaks and the
-  projectile's own body/trail all come out of it, so a firefight costs the
-  same memory as a quiet room. Which burst a hit throws is decided by the
-  TARGET, not the weapon (a body bleeds where a wall sparks), overridable per
-  object. Also added `ctx.playSound` so scripts share the sample table the
-  boot sequence already loaded instead of paying SPU RAM for a second copy.
-  **Models**: `src/weapongen.cpp`, a treegen-shaped procedural generator
-  (pistol/revolver/SMG/rifle/shotgun/knife/sword/axe/crowbar, 48-190
-  triangles, three flat-Kd materials, no textures). Deterministic in its
-  Params, built from exactly two primitives (a tapered prism and a
-  cone/cylinder). Its **+Z-is-the-muzzle, origin-at-the-grip convention is
-  load-bearing** - the runtime aims the model down the view ray assuming it.
-  Written because every free gun model online carries a licence the project
-  would then have to carry.
-  Fourteen Combat flow nodes, gated codegen (a project with no weapons, no
-  damageable objects and no Combat nodes generates a one-line comment
-  instead of the runtime), and combat objects + viewmodels excluded from
-  static batching (a dying object gets hidden/despawned/handed to physics; a
-  viewmodel is re-posed every frame - neither survives a merged bag).
-  Verified end to end in PCSX2 at a locked 50 FPS with a scratch fixture
-  (`%TEMP%\tyra-editor-test\gunrange`: three weapons, an armed player firing
-  on an `Every N Seconds` trigger since the pad path cannot be scripted, three
-  damageable targets and an auto-firing turret): the viewmodel renders in
-  hand, *Get Ammo As Text* -> *Display Text* draws "AMMO 12 / 60", a target
-  took 60 -> 0 and **toppled under physics** (Death = Knock over), and the
-  turret walked the player 100 -> 79.6 -> 38.8 -> 18.4 -> 0. That 20.4-per-hit
-  figure is the falloff formula exactly (22 damage, 0.3 falloff, 19.6 of 80
-  units), which is a stronger check than the screenshot.
-  Two real bugs the console found, both worth remembering: **(a)** a Player
-  object is a MARKER (type 6) and the hitscan skips markers, so every NPC
-  bullet sailed straight through the player - the ray now takes an explicit
-  `testPlayer` flag and tests a body sphere hung below the eye; **(b)** in
-  FPP/noclip the Player OBJECT never leaves its spawn point (the camera is the
-  player - the same trap `navPlayerPos` documents), so blast radius and melee
-  sweeps measured against the spawn until `wpnActorPos` was introduced.
-  Also: burst `size` is a HALF extent like `emitterSize`, and the first
-  muzzle-flash default (0.16) filled a quarter of the screen because a flash
-  lives one unit from the eye - the defaults are ~0.05 now.
-  Still needs a hands-on pad test by a human: R1 fire / Triangle reload / L1
-  weapon switch, the recoil feel and the melee swing arc were exercised
-  through the flow-graph path only.
 
 - (227) **`examples/procedural`: the whole node library in one map** (owner:
   "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").
@@ -15345,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15879,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15956,3 +15802,86 @@ Each finished feature lands as its own commit.
   test; the add-menu tooltip still cannot be scripted (it hangs off a
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
+
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
