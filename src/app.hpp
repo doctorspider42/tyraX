@@ -35,6 +35,7 @@
 #include "project.hpp"
 #include "runner.hpp"
 #include "session.hpp"
+#include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
 #include "viewport.hpp"
 
@@ -102,6 +103,16 @@ private:
     // ImGui style + fonts; setUiScale() also persists the choice.
     void applyUiScale();
     void setUiScale(float userScale);
+    // Interface theme (docs/editor-theme.md). applyTheme() rebuilds the
+    // unscaled reference style from the theme and re-applies the UI scale over
+    // it - the two are one operation, because baseStyle_ IS the themed style;
+    // setTheme() also persists the choice to editor.ini.
+    void applyTheme();
+    void setTheme(theme::Id id);
+    // Loads the interface font once at startup: the first face in
+    // platform::uiFontFiles() this machine has. A machine with none keeps
+    // ImGui's built-in bitmap font, and everything else still works.
+    void loadUiFont();
     // Multiply a design-time pixel size (widget widths, child regions, window
     // sizes, hand-drawn previews) by the active UI scale, so code literals
     // track DPI/zoom the same way fonts and style spacing already do (see
@@ -944,6 +955,17 @@ private:
     float uiScaleUser_ = 0.0f;     // 0 == auto (match display DPI)
     float uiScaleApplied_ = 1.0f;  // effective scale currently in effect
     ImGuiStyle baseStyle_;
+
+    // Interface theme + font (editor.ini, like the UI scale - what an editor
+    // looks like is a property of the installation, not of any project).
+    theme::Id theme_ = theme::kDefault;
+    // The size the interface font was loaded at, or 0 when the built-in bitmap
+    // font is in use. applyUiScale() restores it after resetting the style,
+    // because ImGuiStyle's constructor zeroes FontSizeBase.
+    float uiFontSize_ = 0.0f;
+    // Which face loadUiFont() found, for the Preferences readout. Empty = the
+    // built-in font (no system face resolved).
+    std::string uiFontLabel_;
 
     // Viewport navigation (global editor config, see editor.ini persistence).
     NavConfig nav_;

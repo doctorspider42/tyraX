@@ -14963,7 +14963,6 @@ Each finished feature lands as its own commit.
   `ai-support/` is deliberately untouched: `--ui-script` drives the EDITOR, and
   nothing a generated game project's assistant does needs it.
 
-<<<<<<< HEAD
 - (232) **Runtime procedural generation + prefabs** - the two halves of "build
   the world while the game runs". Until now a Procedural volume was baked: the
   editor evaluated the graph and wrote finished chunk meshes, and the console
@@ -15227,7 +15226,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
-=======
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15315,7 +15314,6 @@ Each finished feature lands as its own commit.
   this feature is ~20 - they have drifted behind codegen for a while, and folding
   that in would bury the change. Their next dedicated regenerate picks the flag
   up (nothing in them turns the terrain off, so their behavior is unchanged).
->>>>>>> origin/main
 
 - (237) **Merge fallout: a procedural volume scattered onto a terrain that no
   longer exists.** Found while merging main's *optional terrain* (236) into the
@@ -15762,3 +15760,218 @@ Each finished feature lands as its own commit.
   names run to hundreds of characters and were falling off the panel edge
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
+
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
+- (247) **Flow-graph node help split in two: hover a node for what it does,
+  hover a knob for what the knob does.** Reported by the owner: a node's tooltip
+  was one long blob, because `FlowNodeType::desc` was the only documentation
+  field there was and every parameter's meaning had to be spelled out inside it.
+  125 of the 186 built-in descs literally said `num[0]` or `num[1]`, so resting
+  the cursor on a node covered it with a wall of prose about knobs, while
+  resting the cursor on a knob gave *nothing at all* - and the reader hovering a
+  drag labelled `Seed` wanting to know what 0 and -1 mean was the one person the
+  text was not written for. GenerateVolume was the example that came with the
+  report ("num[0] Seed: 0 = keep the volume's own seed, -1 = roll a fresh one,
+  any other value = use it", buried mid-paragraph).
+  **The PROCEDURAL graph editor had already solved this**, so the shape was not
+  up for invention: `ProcParamDef::tip` plus `procNodeDoc()`, one renderer used
+  by both the add-menu tooltip and the node hover. Mirrored on the flow side
+  rather than designed again - the two node editors having two different answers
+  to "what does hovering a node tell me" is a worse outcome than either answer.
+  `FlowNodeType` gained `numTips[4]`, `strTip`, `str2Tip` and `execInTips[]`;
+  `flowNodeDoc()` (flowgraph_ui.cpp) draws title, `desc`, a separator, then one
+  line per parameter and per named exec pin, and both tooltips route through it;
+  each parameter widget in the node body grew its own hover tip. `desc` is now
+  what the node DOES and why you would reach for it. **All 186 entries** were
+  swept, not just the 125 - a node whose params were undocumented rather than
+  mis-documented is the same gap - and a trap about one parameter moved into
+  that parameter's tip while a trap about the node stayed in `desc`.
+  **Exec pins count as parameters.** Which of `generate`/`clear` you fire is as
+  much a choice as what you type, so `execInTips` is part of the set and shows
+  on the pin. Also two single-source helpers: `flowStrLabel` / `flowStr2Label`
+  give the string param the name its widget carries, so the tooltip can never
+  list a parameter under a name no widget uses.
+  **Three things this had to not silently break.** (1) `nodeCatalogLine`
+  (aigen.cpp) builds the AI generator's system prompt from `desc` - moving
+  parameter prose out of it without extending the catalog would have made the
+  generator measurably dumber, so every tip is emitted as a parenthesised gloss
+  on its `num[i]=Label` / `str` / exec pin. That also turned up `FontName` as
+  the one `strKind` with no `strKindDesc` entry: Display Text's font reached the
+  model as "no string param" while the node's prose talked about "the font named
+  str". (2) Custom `.flownode` nodes got the same vocabulary - `tip0`..`tip3`
+  and `tip_string`, deliberately NOT subject to the contiguity rule `num0..num3`
+  have (a tip is optional per param), mirrored into the VS Code extension's
+  `SPEC`, its grammar, its snippets and a new diagnostic for a `tipN` whose
+  `numN` is missing; `.vsix` regenerated to 0.2.0. (3) Both example
+  `.flownode` files now carry `desc` + tips, which they had never had.
+  **Two ImGui traps paid for here.** A tooltip is a *window* and ImGui's "last
+  item" is context-global, so a `paramTip()` placed before the
+  `IsItemDeactivatedAfterEdit()` that commits an edit silently stops that edit
+  from saving the moment the cursor rests on it - the call goes last, and the
+  helper says so. And a param tip and the node tooltip are BOTH eligible when
+  the cursor is on a documented widget (the node is hovered either way), which
+  draws two tooltips on top of each other; a drawn param tip now suppresses the
+  node one for that frame (`paramTipShown`). Worth knowing that procui.cpp has
+  the same latent overlap - it was copied from there before this was noticed.
+  **Verified.** `--list-nodes` is the real evidence: it prints all 186 catalog
+  lines, and a script over `flowNodeTypes()` reports 186 node types, 0
+  undocumented parameters and 0 documentation fields still naming a raw slot
+  (`num[N]`/`str`) - which is the check that the sweep is complete rather than
+  mostly complete. `--list-nodes examples/custom-nodes` shows both custom nodes
+  carrying desc + tips end to end. Both tooltips were then SEEN, with
+  `--ui-script` on a scratch project: hovering the Seed drag gives the Seed
+  paragraph alone, and the node hover gives title + what-it-does + `Object - `,
+  `Seed - `, `> generate - `, `> clear - `.
+  **Getting a screenshot of the flow canvas took two workarounds worth writing
+  down.** The imnodes param widgets register with `uiscript` only while the Flow
+  Graph is the FRONT tab - behind the Viewport tab the window is drawn with
+  `SkipItems` and `dump` shows four unlabelled node rects and nothing inside
+  them, which reads exactly like "the canvas is unreachable". Setting
+  `activeLayout` to the **Debugger** layout in the `.tyra` fixes it (that recipe
+  focuses Flow Graph), which is a better workaround than the documented
+  drop-a-window-from-`open` one, since Viewport is not an optional window and is
+  not in that list. And for the NODE hover, which is not a widget at all:
+  `wheel "Flow Graph" 1` is the one step allowed to resolve a bare window name,
+  and it PARKS the cursor at the window's centre - so placing a node under that
+  centre and following with `wait 1.6; shot` reaches a tooltip no `hover` target
+  exists for. Not verified: nothing here reaches the PS2 (the registry's
+  documentation fields do not reach codegen), so there is no console half to
+  test; the add-menu tooltip still cannot be scripted (it hangs off a
+  right-click of empty canvas, which `uiscript::find` refuses to click) and was
+  read by eye from the same renderer.
+
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.

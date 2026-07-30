@@ -500,9 +500,14 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`) — **quoted with DOUBLE quotes, the only kind the tokenizer strips**, so
-  on PowerShell put the whole script in single quotes or the shell eats them and
-  a two-word target arrives as two tokens, `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted, with either `"` or `'`** (so on PowerShell wrap the whole
+  script in one kind and use the other inside; an unquoted two-word target
+  arrives as two tokens and fails). Quoting also makes the target OPAQUE, which
+  is the part worth remembering: a `#` or `;` inside quotes is an ordinary
+  character, so a name straight out of `dump` — ImGui child regions are
+  registered as `Project/##objects_DC0BCE04`, `#` and all — can be pasted into a
+  script verbatim, and a window name containing `/` resolves because every split
+  point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
@@ -519,6 +524,26 @@ Notes:
   widgets ARE ordinary items, so their rects give you the scale factor and the
   offsets between them give you whether the layout stayed self-similar
   (PROGRESS 233 measures both to under 0.1%).
+
+  Two things about the node canvases specifically (PROGRESS 247, which needed a
+  screenshot of a node tooltip). **A node's param widgets register only while
+  its window is the FRONT tab.** Behind another tab the window is drawn with
+  `SkipItems`, so `dump` lists the node rects (unlabelled - imnodes gives them
+  no label) and *nothing inside them*, which reads exactly like "the canvas is
+  unreachable". The Flow Graph ships docked behind Viewport in the Default
+  layout, and dropping a window from the layout's `open` list does NOT help -
+  Viewport is not optional and is not in that list. Set `"activeLayout"` in the
+  project's `.tyra` to a layout whose recipe FOCUSES the window instead
+  (`LayoutRecipe::Debugger` = index 3 focuses Flow Graph; `Procedural` focuses
+  Procedural), then everything inside the nodes is nameable as
+  `"Flow Graph/<Param>"`. **And `wheel` parks the cursor**, which is how you
+  reach a tooltip that hangs off no widget at all: it holds the mouse at the
+  target's centre while the notches arrive and ImGui keeps that position
+  afterwards, so `wheel "Flow Graph" 1; wait 1.6; shot x.png` screenshots
+  whatever the canvas shows for the point under the window's middle - put the
+  node there (screen = canvas origin + model position x nodeScale, both readable
+  off one `dump`) and you have the node-hover tooltip. What stays out of reach
+  is the **add menu**, which needs a right-click on empty canvas.
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally

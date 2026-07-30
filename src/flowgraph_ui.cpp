@@ -54,6 +54,48 @@
 
 #include "platform.hpp"
 
+// The node's documentation, drawn identically by the add-menu tooltip and by
+// the node hover: what the NODE does, then ONE LINE PER PARAMETER. The failure
+// this replaces is a paragraph that carries every knob's meaning inline - the
+// reader is hovering a drag labelled "Seed" and gets three sentences about
+// runtime volumes before the one clause they wanted. Same shape as
+// procNodeDoc() in procui.cpp; the two editors must not grow two answers to
+// "what does hovering a node tell me".
+static void flowNodeDoc(const FlowNodeType& t, float wrap) {
+    ImGui::PushTextWrapPos(wrap);
+    ImGui::TextUnformatted(t.title);
+    if (t.desc && *t.desc) ImGui::TextDisabled("%s", t.desc);
+    auto line = [](const char* label, const char* tip) {
+        ImGui::TextUnformatted(label);
+        if (tip && *tip) {
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::TextDisabled(" - %s", tip);
+        }
+    };
+    const char* strLabel = flowStrLabel(t);
+    const char* str2Label = flowStr2Label(t);
+    const bool anyParam =
+        (strLabel && *strLabel) || t.numCount > 0 ||
+        (!t.pure && !t.trigger && t.execInCount > 1);
+    if (anyParam && flowHasParamTips(t)) {
+        ImGui::Separator();
+        if (strLabel && *strLabel) line(strLabel, t.strTip);
+        if (str2Label && *str2Label) line(str2Label, t.str2Tip);
+        for (int i = 0; i < t.numCount && i < 4; ++i)
+            line(t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "Value",
+                 flowNumTip(t, i));
+        // Exec inputs are parameters of a kind - which of the node's branches
+        // you fire is as much a choice as what you type into it.
+        if (!t.pure && !t.trigger && t.execInCount > 1) {
+            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e) {
+                const std::string pin = std::string("> ") + flowExecInLabel(t, e);
+                line(pin.c_str(), flowExecInTip(t, e));
+            }
+        }
+    }
+    ImGui::PopTextWrapPos();
+}
+
 void App::drawFlowGraphWindow() {
     flowGraphFocused_ = false;  // recomputed below; gates the global Ctrl+C/V
     ImGui::Begin("Flow Graph");
@@ -314,8 +356,46 @@ void App::drawFlowGraphWindow() {
     // A dropdown list is a popup window sitting OUTSIDE the canvas, so it keeps
     // the UI font - a node at 40% zoom is meant to be unreadable, its menus are
     // not. Mirrors of ImGui::BeginCombo/EndCombo used by every node param.
-    auto beginCombo = [&](const char* label, const char* preview) {
-        if (!ImGui::BeginCombo(label, preview)) return false;
+    // Hover help for the parameter widget just submitted: FlowNodeType's
+    // strTip / str2Tip / numTips / execInTips. Hovering a NODE describes the node,
+    // hovering a KNOB describes that knob - which is the whole point, since the
+    // reader looking at "Seed" is not asking what a procedural volume is. Like
+    // a dropdown list, a tooltip is a window outside the canvas, so it keeps
+    // the UI font: a node at 40% zoom is meant to be unreadable, its help is
+    // not. ImGuiHoveredFlags_ForTooltip carries ImGui's own hover delay, so
+    // these match the rest of the editor and cannot fire mid-drag.
+    // Set when a parameter tip is actually drawn this frame, so the node-level
+    // doc tooltip below stands down. Both conditions are true at once whenever
+    // the cursor rests on a documented widget (the node IS hovered), and two
+    // ImGui tooltips in one frame are drawn on top of each other - the specific
+    // answer has to win over the general one.
+    bool paramTipShown = false;
+    auto paramTip = [&](const char* tip) {
+        if (!tip || !*tip) return;
+        if (!ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) return;
+        paramTipShown = true;
+        ImGui::BeginTooltip();
+        ImGui::PushFont(nullptr, uiFontSize);
+        ImGui::PushTextWrapPos(scaled(320.0f));
+        ImGui::TextUnformatted(tip);
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+        ImGui::EndTooltip();
+        // NOTE for new call sites: a tooltip is a WINDOW, and ImGui's
+        // "last item" is context-global - drawing one clobbers it. So this must
+        // come AFTER every IsItem* query on the widget it documents
+        // (IsItemDeactivatedAfterEdit is how most of these commit), or the edit
+        // silently stops being saved the moment the cursor rests on it.
+    };
+    // The tip is checked only while the list is CLOSED: an open dropdown means
+    // the cursor is already choosing, and the "last item" inside a popup window
+    // is whatever was drawn in it, not the combo.
+    auto beginCombo = [&](const char* label, const char* preview,
+                          const char* tip = nullptr) {
+        if (!ImGui::BeginCombo(label, preview)) {
+            paramTip(tip);
+            return false;
+        }
         ImGui::PushFont(nullptr, uiFontSize);
         return true;
     };
@@ -444,7 +524,7 @@ void App::drawFlowGraphWindow() {
                 ImGui::TextDisabled("Object: from id link");
             } else {
                 const char* current = n.str.empty() ? "(self)" : n.str.c_str();
-                if (beginCombo("Object", current)) {
+                if (beginCombo("Object", current, t->strTip)) {
                     if (ImGui::Selectable("(self)", n.str.empty())) {
                         n.str.clear();
                         changed = true;
@@ -470,7 +550,8 @@ void App::drawFlowGraphWindow() {
                                      "DpadRight", "L1",      "L2",     "L3",
                                      "R1",       "R2",       "R3",     "Start",
                                      "Select"};
-            if (beginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str())) {
+            if (beginCombo("Button", n.str.empty() ? "Cross" : n.str.c_str(),
+                                     t->strTip)) {
                 for (const char* b : buttons) {
                     if (ImGui::Selectable(b, n.str == b)) {
                         n.str = b;
@@ -482,7 +563,7 @@ void App::drawFlowGraphWindow() {
         } else if (t->strKind == FlowParamKind::InputActionName) {
             // Configurable input (Tools > Input Map): the action, not a button.
             const char* current = n.str.empty() ? "(pick an action)" : n.str.c_str();
-            if (beginCombo("Action", current)) {
+            if (beginCombo("Action", current, t->strTip)) {
                 for (const InputAction& a : project_.input.actions) {
                     const std::string label =
                         a.label.empty() ? a.name : a.label + "  (" + a.name + ")";
@@ -502,8 +583,9 @@ void App::drawFlowGraphWindow() {
                                         .c_str());
             }
         } else if (t->strKind == FlowParamKind::KeyName) {
-            if (beginCombo("Key", n.str.empty() ? "(pick a key)"
-                                                       : n.str.c_str())) {
+            if (beginCombo("Key",
+                           n.str.empty() ? "(pick a key)" : n.str.c_str(),
+                           t->strTip)) {
                 for (const InputKeyName& k : inputKeyNames())
                     if (ImGui::Selectable(k.label, n.str == k.label)) {
                         n.str = k.label;
@@ -514,7 +596,7 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled("USB keyboard (Preferences > Build)");
         } else if (n.type == "SetInputPreset") {
             const char* current = n.str.empty() ? "(pick a preset)" : n.str.c_str();
-            if (beginCombo("Preset", current)) {
+            if (beginCombo("Preset", current, t->strTip)) {
                 for (const InputPreset& pr : project_.input.presets)
                     if (ImGui::Selectable(pr.name.c_str(), pr.name == n.str)) {
                         n.str = pr.name;
@@ -536,7 +618,7 @@ void App::drawFlowGraphWindow() {
                     picker = true;
                     const std::string label =
                         n.str.empty() ? clips.front() + " (first)" : n.str;
-                    if (beginCombo("Clip", label.c_str())) {
+                    if (beginCombo("Clip", label.c_str(), t->strTip)) {
                         for (const std::string& c : clips) {
                             const bool selected =
                                 c == n.str || (n.str.empty() && c == clips.front());
@@ -555,6 +637,7 @@ void App::drawFlowGraphWindow() {
                 std::snprintf(buf, sizeof(buf), "%s", n.str.c_str());
                 if (ImGui::InputText("Clip", buf, sizeof(buf))) n.str = buf;
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                paramTip(t->strTip);
                 ImGui::TextDisabled("Target is not an animated\n.glb - type the clip name.");
             }
         } else if (t->strKind == FlowParamKind::Text) {
@@ -567,6 +650,7 @@ void App::drawFlowGraphWindow() {
             if (ImGui::InputText(prefix ? "Prefix" : "Text", buf, sizeof(buf)))
                 n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(t->strTip);
             if (n.type == "FindNearest") {
                 int count = 0;
                 if (!n.str.empty())
@@ -587,7 +671,7 @@ void App::drawFlowGraphWindow() {
             const std::string current =
                 n.str.empty() ? "<none>"
                               : std::filesystem::path(n.str).filename().string();
-            if (beginCombo("Track", current.c_str())) {
+            if (beginCombo("Track", current.c_str(), t->strTip)) {
                 for (const std::string& m : project_.music) {
                     const std::string name = std::filesystem::path(m).filename().string();
                     if (ImGui::Selectable(name.c_str(), m == n.str)) {
@@ -603,7 +687,7 @@ void App::drawFlowGraphWindow() {
             const std::string current =
                 n.str.empty() ? "<none>"
                               : std::filesystem::path(n.str).filename().string();
-            if (beginCombo("Sound", current.c_str())) {
+            if (beginCombo("Sound", current.c_str(), t->strTip)) {
                 for (const std::string& s : project_.sounds) {
                     const std::string name = std::filesystem::path(s).filename().string();
                     if (ImGui::Selectable(name.c_str(), s == n.str)) {
@@ -616,7 +700,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::SceneName) {
-            if (beginCombo("Scene", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Scene", n.str.empty() ? "<none>" : n.str.c_str(),
+                                    t->strTip)) {
                 for (const SceneData& s : project_.scenes) {
                     if (ImGui::Selectable(s.name.c_str(), s.name == n.str)) {
                         n.str = s.name;
@@ -626,7 +711,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::LayerName) {
-            if (beginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Layer", n.str.empty() ? "<none>" : n.str.c_str(),
+                                    t->strTip)) {
                 for (const SceneLayer& l : project_.active().layers) {
                     if (ImGui::Selectable(l.name.c_str(), l.name == n.str)) {
                         n.str = l.name;
@@ -640,10 +726,12 @@ void App::drawFlowGraphWindow() {
         } else if (t->strKind == FlowParamKind::AreaName) {
             // In Area: pick one of the scene's Area objects (docs/areas.md).
             if (areaCombo("Area", n.str)) changed = true;
+            paramTip(t->strTip);
             if (n.str.empty())
                 ImGui::TextDisabled("Pick an area - the node\ncompiles out without one.");
         } else if (t->strKind == FlowParamKind::SaveValue) {
-            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str(),
+                                    t->strTip)) {
                 for (const SaveValue& v : project_.saveValues) {
                     if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
                         n.str = v.name;
@@ -655,7 +743,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::SaveText) {
-            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Value", n.str.empty() ? "<none>" : n.str.c_str(),
+                                    t->strTip)) {
                 for (const SaveTextValue& v : project_.saveTexts) {
                     if (ImGui::Selectable(v.name.c_str(), v.name == n.str)) {
                         n.str = v.name;
@@ -677,10 +766,12 @@ void App::drawFlowGraphWindow() {
                     std::snprintf(buf, sizeof(buf), "%s", n.str2.c_str());
                     if (ImGui::InputText("Text", buf, sizeof(buf))) n.str2 = buf;
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    paramTip(t->str2Tip);
                 }
             }
         } else if (t->strKind == FlowParamKind::GradingName) {
-            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str(),
+                                     t->strTip)) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -696,7 +787,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::AmbienceName) {
-            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Preset", n.str.empty() ? "<none>" : n.str.c_str(),
+                                     t->strTip)) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -712,7 +804,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::SequenceName) {
-            if (beginCombo("Sequence", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Sequence", n.str.empty() ? "<none>" : n.str.c_str(),
+                                       t->strTip)) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -728,7 +821,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::CreditsName) {
-            if (beginCombo("Credits", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Credits", n.str.empty() ? "<none>" : n.str.c_str(),
+                                      t->strTip)) {
                 if (ImGui::Selectable("<none>", n.str.empty())) {
                     n.str.clear();
                     changed = true;
@@ -744,7 +838,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::MenuName) {
-            if (beginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Menu", n.str.empty() ? "<none>" : n.str.c_str(),
+                                   t->strTip)) {
                 for (const GameMenu& gm : project_.menus) {
                     if (ImGui::Selectable(gm.name.c_str(), gm.name == n.str)) {
                         n.str = gm.name;
@@ -756,7 +851,8 @@ void App::drawFlowGraphWindow() {
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::HudTextName) {
-            if (beginCombo("Text", n.str.empty() ? "<none>" : n.str.c_str())) {
+            if (beginCombo("Text", n.str.empty() ? "<none>" : n.str.c_str(),
+                                   t->strTip)) {
                 for (const HudText& ht : project_.hudTexts) {
                     if (ImGui::Selectable(ht.name.c_str(), ht.name == n.str)) {
                         n.str = ht.name;
@@ -772,7 +868,7 @@ void App::drawFlowGraphWindow() {
             // fresh Display Text node draws without picking anything.
             const std::string cur =
                 n.str.empty() ? project_.defaultFontName() : n.str;
-            if (beginCombo("Font", cur.c_str())) {
+            if (beginCombo("Font", cur.c_str(), t->strTip)) {
                 for (const GameFont& gf : project_.fonts) {
                     if (ImGui::Selectable(gf.name.c_str(), gf.name == cur)) {
                         n.str = gf.name;
@@ -793,12 +889,13 @@ void App::drawFlowGraphWindow() {
             std::snprintf(pbuf, sizeof(pbuf), "%s", n.str2.c_str());
             if (ImGui::InputText("Prefix", pbuf, sizeof(pbuf))) n.str2 = pbuf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(t->str2Tip);
         } else if (t->strKind == FlowParamKind::ScreenFxName) {
             // Only PLACED effects can be driven - the generated symbol exists
             // per placement, not per .screenfx file.
             std::string cur = n.str.empty() ? "<none>" : n.str;
             if (const CustomScreenFx* e = customScreenFx(n.str)) cur = e->title;
-            if (beginCombo("Effect", cur.c_str())) {
+            if (beginCombo("Effect", cur.c_str(), t->strTip)) {
                 int placed = 0;
                 for (const ScreenFxPlacement& pl : project_.screenFx) {
                     const CustomScreenFx* e = customScreenFx(pl.key);
@@ -826,6 +923,7 @@ void App::drawFlowGraphWindow() {
             if (ImGui::InputText(event ? "Event" : "Variable", buf, sizeof(buf)))
                 n.str = buf;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(t->strTip);
             if (event && n.str.empty())
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
                                    "Name it - an unnamed event\ncompiles out.");
@@ -869,14 +967,17 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
         } else if (n.type == "SetLight") {
             bool v = n.num[0] != 0.0f;
             if (ImGui::Checkbox("On", &v)) {
                 n.num[0] = v ? 1.0f : 0.0f;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             ImGui::DragFloat("Intensity", &n.num[1], 0.02f, 0.0f, 4.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 1));
         } else if (n.type == "SetDof") {
             const char* modes[] = {"Set custom", "Off", "Scene setting"};
             int mode = (int)n.num[3];
@@ -885,6 +986,7 @@ void App::drawFlowGraphWindow() {
                 n.num[3] = (float)mode;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 3));
             if (mode == 0) {
                 if (posLinked) {
                     // the link replaces Focus with the distance to the point
@@ -893,12 +995,15 @@ void App::drawFlowGraphWindow() {
                     ImGui::DragFloat("Focus", &n.num[0], 0.5f, 0.5f, 500.0f,
                                      "%.1f");
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    paramTip(flowNumTip(*t, 0));
                 }
                 ImGui::DragFloat("Range", &n.num[1], 0.5f, 0.1f, 500.0f,
                                  "%.1f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                paramTip(flowNumTip(*t, 1));
                 ImGui::SliderFloat("Amount", &n.num[2], 0.0f, 1.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                paramTip(flowNumTip(*t, 2));
             } else if (mode == 1) {
                 ImGui::TextDisabled("Turns depth of field off.");
             } else {
@@ -918,8 +1023,10 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = (float)mode;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             ImGui::DragFloat("Confirm s", &n.num[1], 0.5f, 0.0f, 60.0f, "%.0f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 1));
             ImGui::TextDisabled(
                 "Confirm > 0: the game asks to keep the\n"
                 "mode (X = yes) and reverts automatically\n"
@@ -932,6 +1039,7 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = (float)stick;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             const char* curves[] = {"Linear", "Exponential", "S-Curve"};
             int curve = (int)n.num[1];
             curve = curve < 0 ? 0 : curve > 2 ? 2 : curve;
@@ -939,20 +1047,25 @@ void App::drawFlowGraphWindow() {
                 n.num[1] = (float)curve;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 1));
             if (curve != 0) {  // exponent only shapes Exponential / S-Curve
                 ImGui::DragFloat("Exponent", &n.num[2], 0.05f, 1.0f, 6.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                paramTip(flowNumTip(*t, 2));
             }
         } else if (n.type == "VibratePad") {
             ImGui::SliderFloat("Big", &n.num[0], 0.0f, 1.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 0));
             bool small = n.num[1] != 0.0f;
             if (ImGui::Checkbox("Small", &small)) {
                 n.num[1] = small ? 1.0f : 0.0f;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 1));
             ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 60.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 2));
             ImGui::TextDisabled(
                 "Seconds 0 = until the next Vibrate Pad.\n"
                 "Big 0 + Small off stops the vibration.");
@@ -962,10 +1075,13 @@ void App::drawFlowGraphWindow() {
             // one enumerated field.
             ImGui::DragFloat("From", &n.num[0], 0.1f);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 0));
             ImGui::DragFloat("To", &n.num[1], 0.1f);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 1));
             ImGui::DragFloat("Seconds", &n.num[2], 0.05f, 0.0f, 600.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 2));
             const char* eases[] = {"Linear", "Ease in", "Ease out",
                                    "Smooth (in-out)"};
             int ease = (int)n.num[3];
@@ -974,6 +1090,7 @@ void App::drawFlowGraphWindow() {
                 n.num[3] = (float)ease;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 3));
             ImGui::TextDisabled("Wire the number output into\nwhatever should animate.");
         } else if (n.type == "SetScreenFx") {
             // The params belong to the EFFECT, so label and bound them from its
@@ -997,6 +1114,9 @@ void App::drawFlowGraphWindow() {
                     ImGui::SliderFloat(e->paramLabel[a].c_str(), &n.num[a],
                                        e->paramMin[a], e->paramMax[a], "%.3f");
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    // The LABEL is the effect's; what the slot means on this
+                    // node is the registry's, so the tip still comes from there.
+                    paramTip(flowNumTip(*t, a));
                 }
             }
         } else if (n.type == "SetBars") {
@@ -1008,6 +1128,7 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = (float)st;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             bool amtLinked = false;
             for (const FlowLink& l : fg.links)
                 amtLinked |= (l.kind == FlowLinkNum && l.toNode == n.id);
@@ -1016,6 +1137,7 @@ void App::drawFlowGraphWindow() {
             } else {
                 ImGui::SliderFloat("Amount", &n.num[1], 0.0f, 1.0f, "%.2f");
                 changed |= ImGui::IsItemDeactivatedAfterEdit();
+                paramTip(flowNumTip(*t, 1));
             }
             ImGui::TextDisabled("Wire a Tween into Amount\nto slide them in.");
         } else if (n.type == "PlayerPos") {
@@ -1025,6 +1147,7 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = (float)idx;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             if (idx == 1)
                 ImGui::TextDisabled(
                     "Reads player 1 while\nplayer 2 is not in the game.");
@@ -1035,21 +1158,27 @@ void App::drawFlowGraphWindow() {
                 n.num[0] = (float)outs;
                 changed = true;
             }
+            paramTip(flowNumTip(*t, 0));
             ImGui::TextDisabled("Only the first %d outputs\nare ever picked.", outs);
         } else if (n.type == "DisplayText") {
             // X/Y are a normalized screen position (center anchor), so they need
             // a much finer step than the generic 0.1 drag.
             ImGui::DragFloat2("Pos##dyntext", n.num, 0.005f, 0.0f, 1.0f, "%.3f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            // One widget for num[0] and num[1], so its tip covers both - X's.
+            paramTip(flowNumTip(*t, 0));
             ImGui::DragFloat("Size", &n.num[2], 0.2f, 8.0f, 48.0f, "%.0f px");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            paramTip(flowNumTip(*t, 2));
             ImGui::DragFloat("Seconds", &n.num[3], 0.05f, 0.0f, 60.0f, "%.2f");
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("0 = stays until the hide pin fires.");
+            paramTip(flowNumTip(*t, 3));
         } else if (t->numKind == FlowParamKind::Color) {
             ImGui::ColorEdit3("Color", n.num, ImGuiColorEditFlags_NoInputs);
             changed |= ImGui::IsItemDeactivatedAfterEdit();
+            // The picker is num[0..2] in one widget, so num[0]'s tip is the
+            // colour's - the registry writes it as "RGB", not as "red".
+            paramTip(flowNumTip(*t, 0));
         } else {
             // A wired number replaces num[0] (flowgraph.hpp's one convention),
             // so show that instead of a param the game will ignore.
@@ -1109,6 +1238,9 @@ void App::drawFlowGraphWindow() {
                                      isAngle ? 1.0f : 0.1f);
                     changed |= ImGui::IsItemDeactivatedAfterEdit();
                 }
+                // The one call that documents most of the registry: this loop
+                // draws every param of every node that has no bespoke branch.
+                paramTip(flowNumTip(*t, a));
             }
         }
         ImGui::PopID();  // "params"
@@ -1217,6 +1349,9 @@ void App::drawFlowGraphWindow() {
                 for (int e = 0; e < execIns; ++e) {
                     ImNodes::BeginInputAttribute(flowExecInPin(n.id, e));
                     ImGui::Text("> %s", flowExecInLabel(*t, e));
+                    // A merged node's pins ARE its parameters (which branch you
+                    // fire is a choice), so they get the same hover treatment.
+                    paramTip(flowExecInTip(*t, e));
                     ImNodes::EndInputAttribute();
                 }
             }
@@ -1405,12 +1540,16 @@ void App::drawFlowGraphWindow() {
     ImGui::PopStyleVar(3);
     ImGui::PopFont();
 
-    // Rest the mouse on a node to get its description (FlowNodeType::desc -
-    // the same text the add-menu tooltips and the AI catalog use). Delayed so
-    // it never flickers while wiring/dragging; any mouse button suppresses it.
+    // Rest the mouse on a node to get its documentation (flowNodeDoc - the same
+    // renderer the add-menu tooltips use). Delayed so it never flickers while
+    // wiring/dragging; any mouse button suppresses it. A PARAMETER tip that
+    // already fired this frame suppresses it too: the cursor is inside the node
+    // either way, so without that the specific answer and the general one would
+    // be drawn one on top of the other.
     {
         int hovered = -1;
-        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown()) {
+        if (ImNodes::IsNodeHovered(&hovered) && !ImGui::IsAnyMouseDown() &&
+            !paramTipShown) {
             if (hovered != flowDescNode_) {
                 flowDescNode_ = hovered;
                 flowDescSince_ = ImGui::GetTime();
@@ -1420,10 +1559,7 @@ void App::drawFlowGraphWindow() {
                     if (n.id == hovered) ht = flowNodeType(n.type);
                 if (ht && ht->desc && *ht->desc) {
                     ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(scaled(340.0f));
-                    ImGui::TextUnformatted(ht->title);
-                    ImGui::TextDisabled("%s", ht->desc);
-                    ImGui::PopTextWrapPos();
+                    flowNodeDoc(*ht, scaled(360.0f));
                     ImGui::EndTooltip();
                 }
             }
@@ -1833,15 +1969,13 @@ void App::drawFlowGraphWindow() {
                     ImNodes::SetNodeScreenSpacePos(n.id, clickPos);
                     changed = true;
                 }
-                // The node's registry description doubles as its add-menu
-                // tooltip (FlowNodeType::desc - custom nodes fill it from
-                // their `desc =` header key).
+                // The add-menu tooltip is the node's documentation, drawn by the
+                // same flowNodeDoc the node hover uses (custom nodes fill their
+                // half from the .flownode `desc =` / `tipN =` header keys).
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
                     t.desc && *t.desc) {
                     ImGui::BeginTooltip();
-                    ImGui::PushTextWrapPos(scaled(340.0f));
-                    ImGui::TextUnformatted(t.desc);
-                    ImGui::PopTextWrapPos();
+                    flowNodeDoc(t, scaled(360.0f));
                     ImGui::EndTooltip();
                 }
             }

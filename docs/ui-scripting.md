@@ -41,9 +41,18 @@ What follows from that is the whole value:
 ## The script
 
 Commands are separated by newlines or `;`, `#` starts a comment, and a target
-with spaces is quoted. A target is `"Window/Label"` or a bare `"Label"`;
-matching is case-insensitive, ignores a trailing `...` on menu entries, and takes
-the window as a prefix — so `click "Remote/Cross"` is fine.
+with spaces is quoted — `"like this"` or `'like this'`, whichever your shell
+leaves alone. A target is `"Window/Label"` or a bare `"Label"`; matching is
+case-insensitive, ignores a trailing `...` on menu entries, and takes the window
+as a prefix — so `click "Remote/Cross"` is fine.
+
+**Quoting is what makes a target opaque**, and that matters more than it sounds:
+inside quotes a `#` is an ordinary character rather than a comment, and so is a
+`;`. ImGui ids are full of `#` (a child region is registered as
+`Project/##objects_DC0BCE04`), which is exactly how `dump` and a failure message
+spell them — so a name copied out of `dump` can be pasted straight into a
+script. A **window** name may itself contain `/` for the same reason, so every
+split point of `Window/Label` is tried, longest window prefix first.
 
 | Command | What it does |
 |---|---|
