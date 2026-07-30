@@ -49,6 +49,13 @@ std::string plan(const Project& p, Plan* out, const LogFn& log = nullptr);
 // Writes the image. Returns "" on success, an error message otherwise.
 std::string build(const Project& p, const LogFn& log);
 
+// Writes an ESR-compatible image (<name>-esr.iso): the same ISO9660 disc plus
+// a minimal UDF bridge whose partition is ESR-patched to a fake DVD-Video
+// structure, so a modded PS2 running the ESR loader boots the DVD-R backup.
+// The UDF bridge + patch are ported from esrtool (ali-raheem, MIT) - see
+// esrudf.hpp. Returns "" on success, an error message otherwise.
+std::string buildEsr(const Project& p, const LogFn& log);
+
 // Persists a manual order into <project>/iso-layout.txt (bin-relative paths;
 // the ELF and SYSTEM.CNF stay first regardless). Empty list = reset to the
 // automatic group order (deletes the file).

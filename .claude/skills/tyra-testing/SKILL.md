@@ -387,8 +387,17 @@ Notes:
   never seen from synthetic events at all — test buttons by hand. Posting
   synthetic WM_RBUTTONDOWN to the render child can wedge PCSX2's mouse input
   until relaunch.
-- For ISO/cdrom0: testing use `Project > Export PS2 ISO`, then boot the ISO in
+- For ISO/cdrom0: testing use `Project > Export PS2 ISO` (or headless
+  `--export-iso <projectDir>` on an already-built `bin/`), then boot the ISO in
   PCSX2 (covers the path-conversion code that host: boots skip).
+- **ESR ISO** (`Project > Export ESR ISO`, headless `--export-esr`): produces
+  `<name>-esr.iso` for a modded PS2's ESR loader. PCSX2 boots it as a plain
+  disc (ESR/DVD-Video is not emulated), so PCSX2 only verifies the ISO9660 side
+  still boots — real ESR boot needs hardware. Verify the UDF/ESR bytes
+  structurally instead: every UDF descriptor tag has a valid checksum+CRC, the
+  partition descriptors at LBA 34/50 read back `+NSR02` and point at LBA 128,
+  and the fake partition at 128 matches esrtool's blob (a Python validator over
+  the image is enough — see the ESR entry in PROGRESS).
 - **Keep the fixture project's path short.** PCSX2's host: loader gives up on
   an ELF path over ~145 characters: emulog stops after `ELF Loading: ...`, the
   EE never reaches `is executing`, `bin/log.txt` is never written, and the

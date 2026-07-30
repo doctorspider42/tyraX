@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 
+#include "esrudf.hpp"
 #include "iso9660.hpp"
 #include "menubake.hpp"
 #include "templates.hpp"  // bakedModelPath - bin/ holds artifacts, not sources
@@ -238,7 +239,10 @@ std::string plan(const Project& p, Plan* out, const LogFn& log) {
     return err;
 }
 
-std::string build(const Project& p, const LogFn& log) {
+// Shared core for build() and buildEsr(). With esr = true the file data is
+// pushed above the UDF reserved area, the image gets a name suffix, and the
+// ESR UDF bridge + patch are layered on after the ISO9660 image is written.
+static std::string writeImage(const Project& p, bool esr, const LogFn& log) {
     std::vector<OrderedFile> ordered;
     bool manual = false;
     std::string err = orderFiles(p, ordered, &manual, log);
@@ -254,6 +258,7 @@ std::string build(const Project& p, const LogFn& log) {
 
     fs::path iso;
     std::vector<iso9660::PlacedFile> placed;
+    uint32_t totalSectors = 0;
     if (err.empty()) {
         std::string volume = upper(p.name).substr(0, 32);
         for (char& c : volume)
@@ -261,8 +266,13 @@ std::string build(const Project& p, const LogFn& log) {
                 std::string::npos)
                 c = '_';
         for (size_t i = 1; i < entries.size(); ++i) byIso[entries[i].isoPath] = &ordered[i - 1];
-        iso = fs::path(p.dir) / (p.name + ".iso");
-        err = iso9660::write(iso, volume, entries, &placed);
+        iso = fs::path(p.dir) / (p.name + (esr ? "-esr.iso" : ".iso"));
+        iso9660::Options opt;
+        if (esr) {
+            opt.firstDataLba = esrudf::kFirstDataLba;
+            opt.tailReserveSectors = esrudf::kTailReserveSectors;
+        }
+        err = iso9660::write(iso, volume, entries, &placed, opt, &totalSectors);
     }
     std::error_code ec;
     fs::remove(cnf, ec);
@@ -278,15 +288,30 @@ std::string build(const Project& p, const LogFn& log) {
                  group.c_str(), f.isoPath.c_str());
         log(line);
     }
+
+    if (esr) {
+        err = esrudf::makeEsrCompatible(iso, totalSectors, log);
+        if (!err.empty()) return err;
+    }
+
     char sum[256];
     snprintf(sum, sizeof(sum), "[editor] ISO written: %s (%.1f MB, %zu files)",
              iso.string().c_str(), (double)fs::file_size(iso, ec) / (1024.0 * 1024.0),
              placed.size());
     log(sum);
-    log("[editor] Boot it in PCSX2 (System > Start File) or burn to DVD-R. Tip: "
-        "Project > Disc Layout... reorders files on the disc.");
+    if (esr)
+        log("[editor] ESR-compatible image: burn to DVD-R and boot via ESR on a "
+            "modded PS2. (PCSX2 still runs it as a plain disc - ESR itself is not "
+            "emulated.)");
+    else
+        log("[editor] Boot it in PCSX2 (System > Start File) or burn to DVD-R. Tip: "
+            "Project > Disc Layout... reorders files on the disc.");
     return "";
 }
+
+std::string build(const Project& p, const LogFn& log) { return writeImage(p, false, log); }
+
+std::string buildEsr(const Project& p, const LogFn& log) { return writeImage(p, true, log); }
 
 std::string saveManualOrder(const Project& p, const std::vector<std::string>& relPaths) {
     const fs::path file = fs::path(p.dir) / "iso-layout.txt";

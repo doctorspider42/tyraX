@@ -188,11 +188,22 @@ tyrax-editor --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [u
 tyrax-editor --build <projectDir> [--run]
 tyrax-editor --resave <projectDir>        # load + save (runs format migrations)
 tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
+tyrax-editor --export-iso <projectDir>    # write <name>.iso from bin/ (build first)
+tyrax-editor --export-esr <projectDir>    # write ESR-patched <name>-esr.iso (build first)
 tyrax-editor --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
 tyrax-editor <projectDir|project.tyra>    # open GUI with a project loaded
 ```
 
 (`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux.)
+
+*Export PS2 ISO* burns a plain bootable disc; *Export ESR ISO (for modded PS2)*
+writes `<name>-esr.iso`, the same disc made bootable through the
+[ESR](https://consolemods.org/wiki/PS2:ESR) loader on a modchip-free PS2 (a UDF
+bridge whose partition is patched to a fake DVD-Video structure — see the
+Credits below). The GUI's *Project* menu has both items; they **build the game
+first** (full Docker build), then write the image, show progress in the Project
+panel, and offer to open the output folder when done. The `--export-*` CLI flags
+are export-only — run `--build` first.
 
 `--resave` loads a project and writes it straight back out, running every
 on-disk format migration in the process (e.g. stamping stable object ids on
@@ -388,6 +399,11 @@ This project stands on the shoulders of the PS2 homebrew community:
 - **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
   generated game links against; the custom `audsrv` build in
   `vendor/tyra/audsrv-pan` derives from its audsrv module.
+- **[esrtool](https://github.com/ali-raheem/esrtool)** by Ali Raheem — MIT.
+  *Project > Export ESR ISO* is based on this code: the UDF-partition ESR patch
+  (`src/esrudf.cpp`, including the fake DVD-Video partition + CRC table) is a
+  port of esrtool, which in turn traces back to Tatsh's original
+  `esr-disc-patcher` posted on PSX-Scene.
 - Editor dependencies fetched at a pinned commit by `setup.ps1` / `setup.sh`:
   [Dear ImGui](https://github.com/ocornut/imgui)
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),

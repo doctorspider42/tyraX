@@ -37,8 +37,12 @@ public:
     // keep the emulator's handle after launch). Best-effort and instant; a
     // no-op when nothing is running.
     void stopEmulator();
-    // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
+    // Compiles the game (full Docker build, no emulator) and then writes
+    // <project>/<name>.iso from the fresh bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
+    // Like exportIso but writes <project>/<name>-esr.iso: the same disc made
+    // ESR-compatible for a modded PS2 (UDF bridge + ESR patch, see esrudf.hpp).
+    void exportEsrIso(const Project& p);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the
     // container's game volume plus the host bin/ mirror. The next build
     // recompiles the game from scratch (the shared engine volume stays).
@@ -51,6 +55,14 @@ public:
 
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }
+
+    // Short label for the operation in flight ("Building...", "Exporting
+    // ISO...") - drives the progress indicator in the Project panel.
+    std::string statusLabel() const;
+    // Absolute path of the image written by the last successful export, or ""
+    // if the last finished operation was not an export (or it failed). Lets the
+    // UI offer "open output folder" once the export completes.
+    std::string lastExportPath() const;
     // True while the ps2client file server from the last PS2 deploy is alive
     // (i.e. the game on the console still has its host: filesystem).
     bool ps2ClientAlive() const;
@@ -72,13 +84,22 @@ private:
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
     void killPs2Client();
-    void worker(Project p, bool build, bool run, bool ps2);
+    // exportMode: 0 = none, 1 = plain ISO, 2 = ESR ISO. When set, a build runs
+    // first (build/run as usual), then the image is written from bin/.
+    void worker(Project p, bool build, bool run, bool ps2, int exportMode = 0);
     void join();
+    void setStatus(const std::string& label);
 
     std::thread thread_;
     std::atomic<State> state_{State::Idle};
     mutable std::mutex logMutex_;
     std::string log_;
+
+    // Progress label + last export path, guarded together (UI thread reads,
+    // worker thread writes).
+    mutable std::mutex statusMutex_;
+    std::string statusLabel_;
+    std::string lastExportPath_;
 
     // Cancel support: exec() parks the running child here so cancel() can
     // terminate its whole tree; the mutex orders kill vs destruction.

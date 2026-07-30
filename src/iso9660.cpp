@@ -126,7 +126,8 @@ static std::vector<uint8_t> renderDir(const Prepared& img, const Dir& d) {
     return out;
 }
 
-static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
+static std::string prepare(const std::vector<FileEntry>& files, Prepared& img,
+                           const Options& opt = {}) {
     if (files.empty()) return "no files to write";
 
     // --- Build the directory tree --------------------------------------
@@ -225,7 +226,9 @@ static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
     img.now = *std::localtime(&nowT);
 #endif
 
-    uint32_t lba = 16 + 2;  // system area + PVD + terminator
+    // System area + PVD + terminator end at LBA 18; the caller may push the
+    // metadata higher to reserve the sectors in between (ESR UDF bridge).
+    uint32_t lba = std::max<uint32_t>(16 + 2, opt.firstDataLba);
     img.ptL = lba;
     img.ptM = lba + img.ptSectors;
     lba = img.ptM + img.ptSectors;
@@ -240,7 +243,7 @@ static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
         lba += (f.size + SECTOR - 1) / SECTOR;
         if (f.size == 0) lba += 1;  // give empty files a real (zeroed) sector
     }
-    img.totalSectors = lba;
+    img.totalSectors = lba + opt.tailReserveSectors;
     return "";
 }
 
@@ -256,10 +259,12 @@ std::string plan(const std::vector<FileEntry>& files, PlannedImage* out) {
 }
 
 std::string write(const fs::path& isoFile, const std::string& volumeId,
-                  const std::vector<FileEntry>& files, std::vector<PlacedFile>* outPlacement) {
+                  const std::vector<FileEntry>& files, std::vector<PlacedFile>* outPlacement,
+                  const Options& opt, uint32_t* outTotalSectors) {
     Prepared img;
-    std::string err = prepare(files, img);
+    std::string err = prepare(files, img, opt);
     if (!err.empty()) return err;
+    if (outTotalSectors) *outTotalSectors = img.totalSectors;
     std::vector<Dir>& dirs = img.dirs;
     std::vector<File>& fileNodes = img.files;
     const std::vector<int>& ptOrder = img.ptOrder;
@@ -329,6 +334,10 @@ std::string write(const fs::path& isoFile, const std::string& volumeId,
         out.write((const char*)term.data(), SECTOR);
     }
 
+    // Reserved gap between the volume descriptors (ends at LBA 18) and the
+    // path tables, left zeroed for the caller to fill (ESR UDF bridge).
+    for (uint32_t s = 18; s < ptL; ++s) out.write((const char*)zeros.data(), SECTOR);
+
     // Path tables (L: little-endian fields, M: big-endian)
     auto writePathTable = [&](bool bigEndian) {
         std::vector<uint8_t> pt;
@@ -373,6 +382,10 @@ std::string write(const fs::path& isoFile, const std::string& volumeId,
         const uint32_t pad = (SECTOR - written % SECTOR) % SECTOR + (written == 0 ? SECTOR : 0);
         out.write((const char*)zeros.data(), pad);
     }
+
+    // Trailing reserved sectors (counted into the volume size above).
+    for (uint32_t s = 0; s < opt.tailReserveSectors; ++s)
+        out.write((const char*)zeros.data(), SECTOR);
 
     out.flush();
     if (!out) return "write failed: " + isoFile.string();

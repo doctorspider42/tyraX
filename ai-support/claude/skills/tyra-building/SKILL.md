@@ -98,5 +98,9 @@ log for conversion warnings.
 - `run.sh` (Linux/macOS) and `run.ps1` + `windows-pcsx2.ps1` (Windows) in the
   project launch the already-built ELF. Both sets are always present - a
   project is portable, so the helper for the other machine ships with it.
-- ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exist
-  but need editor-side setup; ask the user before reaching for them.
+- ISO export: `--export-iso <projectDir>` writes a bootable `<name>.iso` from an
+  already-built `bin/`; `--export-esr <projectDir>` writes `<name>-esr.iso`, the
+  same disc made bootable through the ESR loader on a modchip-free PS2. Build
+  first, then export.
+- Real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exists but needs
+  editor-side setup; ask the user before reaching for it.

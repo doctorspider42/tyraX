@@ -789,6 +789,39 @@ void App::drawUI() {
     // link data meets project_/ImGui.
     phoneCamTick();
 
+    // ISO export (build + write) finished? Offer to open the output folder,
+    // exactly once per run (mirrors the aiGenInFlight_ consume pattern).
+    if (exportInFlight_ && !runner_.busy()) {
+        exportInFlight_ = false;
+        if (runner_.state() == Runner::State::Success) {
+            exportDonePath_ = runner_.lastExportPath();
+            if (!exportDonePath_.empty()) openExportDonePopup_ = true;
+        }
+    }
+    if (openExportDonePopup_) {
+        openExportDonePopup_ = false;
+        ImGui::OpenPopup("Export complete");
+    }
+    // Centered over the main viewport, like every other modal here
+    // (drawDiscardModal) - without it the popup lands wherever the cursor was.
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                            ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Export complete", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("ISO export finished. Wrote:");
+        ImGui::TextWrapped("%s", exportDonePath_.c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Open folder")) {
+            // The file manager, on whichever OS this is (Explorer /select,
+            // Nautilus/Dolphin/xdg-open on Linux) - never a raw CreateProcess
+            // here, that is platform.cpp's job.
+            platform::revealInFileManager(exportDonePath_);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -1296,8 +1329,21 @@ void App::drawMenuBar() {
                 openPreferencesPopup_ = true;
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
+            if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy)) {
                 runner_.exportIso(projectForBuild());
+                exportInFlight_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Builds the game, then writes <name>.iso from the fresh bin/.");
+            if (ImGui::MenuItem("Export ESR ISO (for modded PS2)", nullptr, false, !busy)) {
+                runner_.exportEsrIso(projectForBuild());
+                exportInFlight_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Writes <name>-esr.iso: the same disc plus a UDF bridge ESR-patched\n"
+                    "to a fake DVD-Video partition, so a modded PS2 running the ESR loader\n"
+                    "boots the DVD-R backup. Based on esrtool (ali-raheem, MIT).");
             if (ImGui::MenuItem("Disc Layout...")) {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
@@ -3960,12 +4006,18 @@ void App::drawProjectWindow() {
     // visible without the Output window.
     if (runner_.busy()) {
         ImGui::Separator();
-        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
-        ImGui::SameLine();
+        std::string label = runner_.statusLabel();
+        if (label.empty()) label = "Working...";
+        ImGui::Text("%s %c", label.c_str(), "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
+        // Indeterminate bar (Docker/export give no percentage) - a sweeping
+        // fill just signals "still running".
+        float t = (float)ImGui::GetTime();
+        float frac = 0.5f + 0.5f * sinf(t * 3.0f);
+        ImGui::ProgressBar(frac, ImVec2(-FLT_MIN, scaled(6.0f)), "");
         if (ImGui::SmallButton("Cancel")) runner_.cancel();
     } else if (runner_.state() == Runner::State::Failed) {
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last operation failed - see Output.");
     }
 
     ImGui::End();
@@ -10181,7 +10233,10 @@ void App::drawDiscLayoutWindow() {
     if (ImGui::Button("Refresh")) discPlanDirty_ = true;
     ImGui::SameLine();
     ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Export ISO")) runner_.exportIso(projectForBuild());
+    if (ImGui::Button("Export ISO")) {
+        runner_.exportIso(projectForBuild());
+        exportInFlight_ = true;
+    }
     ImGui::EndDisabled();
     if (discPlan_.manualOrder) {
         ImGui::SameLine();
