@@ -201,6 +201,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the seeded DualShock set the editor draws itself, overriding one with your own
   PNG, and the two paths (composited into baked sprites, blitted from a sheet in
   runtime text).
+- [The editor's look: themes and the interface font](editor-theme.md) - the four
+  interface themes (three of them PS2 nods) in *View > Theme*, why the choice is
+  machine-global rather than project data, the system UI font the editor picks
+  instead of ImGui's built-in bitmap one, and - for developers - the
+  "ask for a meaning, not a colour" rule that keeps a status chip's green from
+  staying green in a violet editor.
 - [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more

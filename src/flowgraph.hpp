@@ -366,8 +366,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "link order, which is invisible in the editor. Unused outputs "
                  "cost nothing."},
         {.key = "DoOnce", .title = "Do Once", .category = "Flow",
-         .execInCount = 2, .execInLabels = {"do", "reset"}, .execOutCount = 1,
-         .execOutLabels = {"then"},
+         .execInCount = 2, .execInLabels = {"do", "reset"},
+         .execInTips = {"The exec to filter. The first one through continues out "
+                        "of 'then'; every one after it is swallowed.",
+                        "Arms the gate again, so the next 'do' passes. Fire it "
+                        "from whatever should make the one-shot repeatable."},
+         .execOutCount = 1, .execOutLabels = {"then"},
          .desc = "Passes the FIRST exec through and then nothing: the gate for "
                  "a one-shot inside a trigger that keeps firing (Near Object, "
                  "On Update). The 'reset' pin arms it again. Resets on scene "
@@ -377,8 +381,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .numTips = {"How many execs get through before the gate shuts. 0 or "
                      "less blocks everything; a wired number replaces it."},
          .numIn = true,
-         .execInCount = 2, .execInLabels = {"do", "reset"}, .execOutCount = 1,
-         .execOutLabels = {"then"},
+         .execInCount = 2, .execInLabels = {"do", "reset"},
+         .execInTips = {"The exec to count and filter. Each one through "
+                        "increments the counter until Times is reached.",
+                        "Sets the counter back to zero, so the next Times execs "
+                        "pass again."},
+         .execOutCount = 1, .execOutLabels = {"then"},
          .desc = "Passes the first few execs through and then blocks - Do "
                  "Once with a count. 'reset' starts the count over."},
         {.key = "Gate", .title = "Gate", .category = "Flow", .numCount = 1,
@@ -1018,6 +1026,12 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "SetPlayerInput", .title = "Set Player Input",
          .category = "Player", .execInCount = 2,
          .execInLabels = {"lock", "unlock"},
+         .execInTips = {"Stops reading the pad for the player. Gravity, "
+                        "collision and the camera keep running, so the avatar "
+                        "still falls and is still framed.",
+                        "Hands the controls back. A scene load also unlocks, so "
+                        "a graph that locks and never unlocks cannot strand the "
+                        "player across a load."},
          .desc = "'lock' takes the controls away from the player and 'unlock' "
                  "gives them back - what a dialogue, a scripted moment or a "
                  "cutscene that still shows the avatar needs. Only INPUT is "
@@ -1287,8 +1301,13 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {.key = "SetHudVisible", .title = "Set HUD Visible", .category = "HUD",
          .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},
-         .desc = "Sets all HUD images' visibility. Exec pins: 'show', 'hide', "
-                 "'toggle' (the USE prompt is unaffected)."},
+         .execInTips = {"Draws every HUD image again.",
+                        "Hides every HUD image at once. The USE prompt is not a "
+                        "HUD image and stays as it was.",
+                        "Flips whichever state the HUD is in - for a single "
+                        "button that opens and closes it."},
+         .desc = "Sets all HUD images' visibility. The USE prompt is "
+                 "unaffected."},
         {.key = "SetTextVisible", .title = "Set Text Visible", .category = "HUD",
          .strKind = FlowParamKind::HudTextName,
          .strTip = "The baked on-screen text from Tools > UI Editor (Texts). "
@@ -1300,6 +1319,9 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "until 'hide' fires. Ignored by the 'hide' pin."},
          .execInCount = 2,
          .execInLabels = {"show", "hide"},
+         .execInTips = {"Draws the text, and starts the Seconds countdown when "
+                        "one is set.",
+                        "Hides it now, whatever the countdown was doing."},
          .desc = "Shows or hides a pre-baked text sprite. Nothing is drawn "
                  "glyph by glyph here, so it costs one textured quad."},
         // Runtime text: the string is only known while the game runs, so it
