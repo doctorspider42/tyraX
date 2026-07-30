@@ -1,0 +1,1 @@
+{ "id": "e7c20b3792b7d6df", "name": "rock-48", "type": "box", "position": [20.697, 0.461, 56.772], "rotation": [0, 75.7, 0], "scale": [2.75, 1, 0.95], "color": [0.355, 0.355, 0.373], "physics": false, "collision": "none", "drawDistance": 60 }

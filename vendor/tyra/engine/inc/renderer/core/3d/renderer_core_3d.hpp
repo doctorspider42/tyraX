@@ -84,7 +84,27 @@ class RendererCore3D {
    */
   void setVU1DoubleBuffers(const u16& startingAddress, const u16& bufferSize);
 
+  /**
+   * Modified by TyraX: dynamic env map pass - swap in a square wide-FOV
+   * view/projection (and matching frustum planes, widened for the aspect
+   * mismatch) for the bracketed submissions. Restore with popEnvView(main
+   * camera info) before rendering the scene.
+   */
+  void pushEnvView(const Vec4& position, const Vec4& lookAt,
+                   const float& envFov, const float& size);
+
+  /**
+   * Modified by TyraX: portal through-view - swap ONLY the view matrix (the
+   * projection stays the main screen one; the destination renders in-place
+   * into the real framebuffer) and retarget the frustum planes at the
+   * virtual camera. Restore with popEnvView(main camera info).
+   */
+  void pushPortalView(const Vec4& position, const Vec4& lookAt);
+
+  void popEnvView(const CameraInfo3D& cameraInfo);
+
  private:
+  M4x4 savedView, savedProjection, savedViewProj;  // pushEnvView state
   M4x4 view, projection, viewProj;
   float fov;
   bool is3DSupportEnabled;

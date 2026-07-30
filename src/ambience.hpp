@@ -29,6 +29,14 @@ struct AmbiencePreset {
     float lightColor[3] = {1.0f, 1.0f, 1.0f};
     float brightness = 1.0f;
 
+    // Baked ambient occlusion (docs/ambient-occlusion.md): terrain
+    // self-shadowing + contact darkening between static geometry, multiplied
+    // into the same baked vertex colors as the light above. aoRadius = world
+    // units the darkening reaches; aoStrength = how dark full occlusion gets.
+    bool aoEnabled = false;
+    float aoStrength = 0.55f;  // 0..1
+    float aoRadius = 2.5f;     // world units
+
     // GS hardware distance fog.
     bool fogEnabled = false;
     float fogColor[3] = {0.5f, 0.5f, 0.55f};
@@ -45,7 +53,9 @@ inline bool operator==(const AmbiencePreset& a, const AmbiencePreset& b) {
            a.zenithSize == b.zenithSize &&
            eq3(a.lightDir, b.lightDir) && a.ambient == b.ambient &&
            a.diffuse == b.diffuse && eq3(a.lightColor, b.lightColor) &&
-           a.brightness == b.brightness && a.fogEnabled == b.fogEnabled &&
+           a.brightness == b.brightness && a.aoEnabled == b.aoEnabled &&
+           a.aoStrength == b.aoStrength && a.aoRadius == b.aoRadius &&
+           a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd;
 }

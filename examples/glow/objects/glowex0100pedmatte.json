@@ -1,0 +1,1 @@
+{ "id": "glowex0100pedmatte", "name": "s1-pedestal-matte", "type": "box", "position": [-3, 0.4, -18], "rotation": [0, 0, 0], "scale": [1.8, 0.8, 1.8], "color": [1, 1, 1], "physics": false, "material": "res/materials/concrete.mtl" }

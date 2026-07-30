@@ -1,0 +1,5 @@
+# Matte receiver: alley walls, pillars, pedestals. No Ke at all - every bit of
+# color on these surfaces comes from the emitters near them.
+newmtl concrete
+# tyra-brightness 1
+Kd 0.5500 0.5500 0.6000

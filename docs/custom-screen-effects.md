@@ -25,7 +25,7 @@ moving an effect elsewhere is a copy.
 2. It appears under **Screen effects** with a **+ Add** button. Click it to drop
    the effect into the screen stack, then drag it where it should composite.
 3. Select it in the stack to set its parameters. Build (F5) — your code lands in
-   `src/scripts/screen_fx.gen.cpp` and runs at the effect's stack slot.
+   `src/gen/screen_fx.gen.cpp` and runs at the effect's stack slot.
 4. Edit the file (format below), then **Custom effects… ▸ Reload from folder** to
    pick up manifest changes.
 

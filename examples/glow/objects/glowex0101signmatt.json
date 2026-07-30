@@ -1,0 +1,1 @@
+{ "id": "glowex0101signmatt", "name": "s1-sign-MATTE", "type": "box", "position": [-3, 1.9, -18], "rotation": [0, 0, 0], "scale": [1.6, 1.8, 0.3], "color": [1, 1, 1], "physics": false, "material": "res/materials/sign-matte.mtl" }

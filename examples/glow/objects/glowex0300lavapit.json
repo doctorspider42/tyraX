@@ -1,0 +1,1 @@
+{ "id": "glowex0300lavapit", "name": "s3-lava-pit", "type": "plane", "position": [0, 0.06, 2], "rotation": [0, 0, 0], "scale": [8, 1, 8], "color": [1, 1, 1], "physics": false, "material": "res/materials/lava.mtl" }

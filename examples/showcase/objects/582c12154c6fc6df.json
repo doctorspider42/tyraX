@@ -1,0 +1,1 @@
+{ "id": "582c12154c6fc6df", "name": "rain", "type": "emitter", "position": [0, 12, 0], "rotation": [0, 0, 0], "scale": [16, 1, 16], "color": [0.6, 0.7, 0.85], "physics": false, "layer": "weather", "emitter": { "kind": "rain", "count": 120, "size": 0.12, "enabled": true, "followPlayer": true } }

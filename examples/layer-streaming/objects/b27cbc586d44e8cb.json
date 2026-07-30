@@ -1,0 +1,1 @@
+{ "id": "b27cbc586d44e8cb", "name": "b-pillar", "type": "cylinder", "position": [3.5, 1.5, 16.5], "rotation": [0, 0, 0], "scale": [1.5, 3, 1.5], "color": [0.3, 0.6, 0.9], "physics": false, "layer": "building-b" }

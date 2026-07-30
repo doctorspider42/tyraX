@@ -7,13 +7,30 @@
 
 namespace Custom_nodes {
 
+/** restFrames value of a body that fell asleep. The countdown length is
+ * per-object (SceneObjectData::physSleep seconds, Properties > Physics >
+ * "Sleep after"); on completion the counter is pinned here so the asleep
+ * test never wobbles with the measured frame time. */
+constexpr short PHYS_ASLEEP = 0x7FFF;
+
 /** A scene object at runtime. Mutate `data` (position/rotation/scale/color),
- * `visible` or `velocityY`, then set `dirty = true` so the geometry gets
- * rebuilt on the next frame. */
+ * `visible` or the velocity fields, then set `dirty = true` so the geometry
+ * gets rebuilt on the next frame. */
 struct RuntimeObject {
   SceneObjectData data;
   bool visible = true;
-  float velocityY = 0.0F;  // vertical velocity (object physics)
+  // Object physics state (data.physics). Velocities are per-frame
+  // displacements (like the player's), spin is degrees/frame. After writing
+  // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
+  // asleep and skips simulation entirely.
+  float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
+  float velocityX = 0.0F, velocityZ = 0.0F;
+  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Settle-flatten targets, latched once per settle so the chosen face
+  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
+  // stays" when the roll lands on an even 90deg step.
+  float flatTgt[3] = {1e9F, 1e9F, 1e9F};
+  short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
@@ -36,10 +53,20 @@ struct RuntimeObject {
                              // (one-shots: once; looping: every wrap)
 };
 
+inline bool physAsleep(const RuntimeObject& o) {
+  return o.restFrames >= PHYS_ASLEEP;
+}
+
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
   Tyra::Engine* engine = nullptr;  // pad, renderer, audio, ...
   Tyra::Vec4 playerPosition;       // camera/player position this frame
+  Tyra::Vec4 playerLook;           // normalized view direction this frame
+  // Two-player modes (docs/multiplayer.md): player 2's eye position while
+  // active; equals playerPosition otherwise, so "nearest player" logic can
+  // read it unconditionally.
+  Tyra::Vec4 player2Position;
+  bool player2Active = false;
   RuntimeObject* objects = nullptr;  // mutable scene objects
   int objectCount = 0;
   Tyra::Color skyColor;  // write to change the clear color
@@ -52,6 +79,9 @@ struct ScriptContext {
   bool cameraOverride = false;
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
+  // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
+  // without roll renders exactly as it did before roll existed.
+  Tyra::Vec4 cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);
 
   // Cutscene presentation, also written by the sequence player every frame a
   // cutscene is active (and zeroed when it ends): widescreen mask style
@@ -62,6 +92,11 @@ struct ScriptContext {
   int barsStyle = 0;
   float barsAmount = 0.0F;  // 0..1 of the style's full coverage
   float fadeAlpha = 0.0F;   // 0..1 black overlay
+
+  // Set by the sequence player while a "Hide player" cutscene is active: the
+  // game hides the third-person avatar for the frame (no effect in FPP/noclip,
+  // which have no visible body). Cleared when the cutscene ends.
+  bool hidePlayer = false;
 
   // Set teleport = true and teleportPos to move the player (Player entity or
   // the FPP template player) there; the game applies and clears it.
@@ -85,6 +120,18 @@ struct ScriptContext {
   float* textDuration = nullptr;
   int textCount = 0;
 
+  // Runtime texts (DYN_TEXTS order, font_data.gen.hpp - one slot per Display
+  // Text node). Same request protocol as textRequest above, but the string is
+  // not baked: write it into dynTextBuf + i * DYN_TEXT_LEN. dynTextOn[i] tells
+  // a script whether its slot is currently on screen, so it only pays for the
+  // refresh while the text is actually visible.
+  signed char* dynTextRequest = nullptr;
+  float* dynTextDuration = nullptr;
+  char* dynTextBuf = nullptr;
+  const unsigned char* dynTextOn = nullptr;
+  int dynTextCount = 0;
+  int dynTextLen = 0;  // stride of dynTextBuf (DYN_TEXT_LEN)
+
   // Camera flashlight master switch (the Player object's "Enabled"). Write 1
   // to turn it on, 0 to turn it off, -1 to leave it unchanged; the game
   // applies and resets it. The optional toggle button still gates the beam.
@@ -98,9 +145,37 @@ struct ScriptContext {
   int grain = -1;
   int particles = -1;
 
+  // Depth of field (Set Depth Of Field flow node). dof: -1 = leave, -2 =
+  // restore the scene's authored setting (Tools > UI Editor), else a 0..128
+  // blur amount (0 = off). The image blurs progressively from dofFocus to
+  // dofFocus + dofRange (world units from the camera). The game applies and
+  // resets dof.
+  int dof = -1;
+  float dofFocus = 0.0F;
+  float dofRange = 0.0F;
+
+  // Analog stick response curves (Set Stick Curve flow node). Per stick:
+  // curve = -1 leave, else 0 Linear / 1 Exponential / 2 S-Curve; exp = the
+  // curve exponent, applied only when >= 1 (< 0 = leave). The game copies
+  // both into the runtime g_stickCurve*/g_stickExp* globals and resets them.
+  int stickCurveL = -1;
+  int stickCurveR = -1;
+  float stickExpL = -1.0F;
+  float stickExpR = -1.0F;
+
+  // Pad vibration (Vibrate Pad flow node / padVibrate() below). rumble: -1 =
+  // leave, else the DualShock big-motor power 0..255 (0 = off); rumbleSmall:
+  // the on/off buzz motor. rumbleSec > 0 auto-stops the vibration after that
+  // many seconds, 0 = vibrate until the next request. The game applies the
+  // request to the pad actuators and resets rumble to -1.
+  int rumble = -1;
+  int rumbleSmall = 0;
+  float rumbleSec = 0.0F;
+
   // Runtime video output (Set Display Mode / Set Widescreen flow nodes).
   // requestDisplayMode: -1 = leave, else a Tyra::DisplayMode value (0 =
-  // interlaced, 1 = progressive 480p, 2 = 1080i). displayConfirmSec > 0
+  // interlaced, 1 = progressive 480p, 2 = 1080i, 3 = interlaced field
+  // rendering, 4 = full-height PAL 576i). displayConfirmSec > 0
   // arms the keep-or-revert prompt: the game switches, asks the player to
   // confirm with X and reverts to the previous mode automatically when the
   // timer runs out (a mode the TV can't display would otherwise strand the
@@ -109,6 +184,12 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+
+  // Master sound-effect volume as a percentage (0..100), driven by a menu
+  // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
+  // as a multiplier on every Play Sound one-shot and every sound-emitter
+  // sample, so it rides on top of each source's own volume.
+  int sfxVolume = 100;
 
   // Save data: named values persisted in memory card slots (SAVE_VALUE_NAMES
   // order, scene_data.hpp). Set openSaveMenu = true to open the in-game
@@ -211,6 +292,17 @@ inline void stopAnimation(ScriptContext& ctx, int objectIndex) {
   ctx.objects[objectIndex].animPlaying = false;
 }
 
+/** Vibrates the DualShock pad: big = heavy-motor strength 0..1, small = the
+ * on/off buzz motor. seconds > 0 auto-stops after that long, 0 = vibrate
+ * until the next call. padVibrate(ctx, 0.0F) stops immediately. */
+inline void padVibrate(ScriptContext& ctx, float big, bool small = false,
+                       float seconds = 0.0F) {
+  const int power = (int)(big * 255.0F + 0.5F);
+  ctx.rumble = power < 0 ? 0 : power > 255 ? 255 : power;
+  ctx.rumbleSmall = small ? 1 : 0;
+  ctx.rumbleSec = seconds < 0.0F ? 0.0F : seconds;
+}
+
 /** True the frame an object's clip reached its last frame (one-shots: once;
  * looping clips: every wrap). */
 inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
@@ -247,7 +339,8 @@ class ObjectScript {
   virtual ~ObjectScript() {}
 
   /** The object this instance is attached to - mutate self->data (position/
-   * rotation/scale/color), self->visible or self->velocityY, then set
+   * rotation/scale/color), self->visible or the velocity/spin fields (write
+   * self->restFrames = 0 to wake a sleeping body), then set
    * self->dirty = true. Equals &ctx.objects[selfIndex]; refreshed by the
    * game every frame before onUpdate. */
   RuntimeObject* self = nullptr;

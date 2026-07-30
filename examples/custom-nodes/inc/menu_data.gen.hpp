@@ -6,14 +6,28 @@ namespace Custom_nodes {
 // Menu entry actions: 0 close, 1 switch scene, 2 open save menu,
 // 3 open menu (submenu), 4 set save value, 5 add to save value,
 // 6 fire flow event, 7 toggle, 8 choice (7/8: param = the save
-// value holding the option index). param = resolved index, -1 =
-// unknown target.
+// value holding the option index), 9 apply video mode (commits
+// the display-mode row's staged selection), 10 rebind an input
+// action (param = the save value holding the override code,
+// inputAction = which action; docs/input-bindings.md). param =
+// resolved index, -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;
   float amount;
   int optionCount;  // toggle/choice: how many options cycle
   int cell;         // first cell in the value strip (-1 = none)
+  int bind;         // option-block binding (applyMenuBindings):
+                    // 0 none, 1 music vol, 2 sfx vol, 3 deadzone,
+                    // 4 stick curve, 5 display mode, 6 widescreen,
+                    // 7 player count, 8 input preset
+  // action 10 only: the INPUT_ACTION index the row rebinds (-1 =
+  // unknown action - the row then does nothing).
+  int inputAction;
+  // bind 5 only: the Tyra::DisplayMode each option drives
+  // (optionCount ints; -1 = the project-default boot mode).
+  // Null = the option index itself.
+  const int* optModes;
 };
 
 struct MenuData {
@@ -31,19 +45,28 @@ struct MenuData {
   // cell's left edge relative to the panel's left edge.
   const char* values;
   int valueCellW, valueCellH, valuePitch, valueX;
+  // FONTS index the panel was baked with. A rebind row draws its
+  // current binding as runtime text from this font's glyph atlas
+  // (Project::atlasFontIndices bakes one for such menus).
+  int font;
 };
 
 constexpr int MENU_COUNT = 0;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1}};
+constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, -1, nullptr}};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0},
+    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},
 };
 
 constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
 constexpr int PAUSE_MENU = -1;
+// True when any menu carries an "apply video mode" row (action
+// 9): display-mode rows then only stage a selection and that row
+// commits it; without one they switch on change (the classic
+// behavior).
+constexpr bool MENU_HAS_APPLY_VIDEO = false;
 
 constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)

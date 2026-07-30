@@ -5,23 +5,126 @@ materials — plain Wavefront `.mtl` files under `res/materials/` (universal
 libraries you assign to any object) and `res/models/` (a model's own library).
 Every entry is a color (`Kd`), a brightness multiplier and an optional PNG
 texture (`map_Kd`); primitives use a file's **first** entry, models resolve
-their `usemtl` names against the assigned file, emitters take the first
-entry's texture for their particles. Edits save to the file on every change —
+their `usemtl` (or, for animated `.glb`/`.fbx`, their part) names against the
+assigned file, emitters take the first entry's texture for their particles.
+The override applies to animated models too — it is baked into the model at
+build time (see [docs/animated-models.md](animated-models.md#material-override-mtl)). Edits save to the file on every change —
 the scene viewport updates live, and the PS2 game parses the very same file.
 
 ## Previewing on your actual model
 
 The preview pane's shape picker offers the four unit primitives **and every
-`.obj` under `res/models/`**. Pick a model and the open `.mtl` acts exactly as
-it does in the game: it overrides the model's own libraries, entries are
-matched to the model's `usemtl` names, and the entry you are editing shows
+model under `res/models/`** — static `.obj` and animated `.glb`/`.fbx` alike
+(the animated ones are shown in bind pose). Pick a model and the open `.mtl`
+acts exactly as it does in the game: it overrides the model's own libraries,
+entries are matched to the model's material names (a `usemtl` for `.obj`, a
+glTF/FBX part name for animated models), and the entry you are editing shows
 its **staged** values live while you drag sliders. Opening the editor from a
-model object's *Properties > Material > Edit...* (or opening a model's own
-`.mtl`, which auto-picks the sibling `.obj`) lands directly on the right mesh.
+model object's *Properties > Material > Edit...* lands directly on the right
+mesh (for a static model's own `.mtl`, the sibling `.obj` is auto-picked).
 
-Camera: **drag** orbits (left button normally, **right button while
-painting**), **mouse wheel** zooms, *Spin* keeps the turntable going (paused
-while painting).
+**Multi-part models** (a character with skin/shirt/pants parts, the spider
+with body/legs/jaw...) are edited **one entry at a time** — the *Entry*
+combo at the top of the property column picks which part you are working
+on (untextured entries are marked), and everything below follows: texture,
+paint layers, smart masks, bake, the UV panel (other entries' islands stay
+visible, dimmed). Two shortcuts make this fast: **click a part right in
+the 3D preview** to jump to its entry (hover names it; painting keeps the
+left button for the brush), and when an entry has no texture yet the
+Layers box offers **Create texture for this entry** — one click and masks,
+presets and painting have somewhere to land. "Mud only on the clothes" is:
+click the shirt, create/apply, click the pants, apply again.
+
+An animated model has no sibling `.mtl` to assign, so the material picker in
+*Properties* has a **+ New material from this model...** entry: it extracts the
+model's built-in materials (part names, base colors, embedded textures) into a
+fresh `res/materials/<model>.mtl`, assigns it as the override and opens it here
+previewed on the model. Editing that file is then how you recolor/retexture the
+model on the PS2 — its built-in materials are the starting point, not a wall.
+(A material is matched to a part by name; a model whose material is **unnamed**
+can't take a name-keyed override — name it in your modelling tool first.)
+
+Camera: **drag** orbits (left button normally; the **right button always**
+orbits, painting or not), **mouse wheel** zooms, *Spin* keeps the turntable
+going (paused while painting). **Grabbing the preview unchecks Spin** — the
+moment you rotate by hand, the turntable stops fighting you and your
+framing stays put; re-tick it to resume. The camera can dip to low angles
+for hero shots.
+
+The **splitter between the property column and the preview is draggable** —
+grab the divider line and trade property width for preview width; the split
+persists per machine (editor.ini), like the UI scale.
+
+Next to *Spin* sit the **display mode** (Solid / Wireframe overlay /
+**UV checker** — a generated checker replaces every texture so stretch and
+texel density read at a glance / **PS2 CLUT** — see below) and the **UV**
+toggle, which splits the preview: the 3D mesh on top, the **UV layout panel** below — the entry's
+triangles drawn over its live texture (wheel zooms around the cursor, drag
+pans). The two views hover-sync both ways: rest the mouse on a face in 3D
+and its texture region lights up in the panel (with a dot on the exact
+texel); hover a triangle in the panel and it is outlined on the mesh.
+Overlapping UVs show themselves naturally — one 3D face lights up every
+triangle sharing its region.
+
+A **Light** combo under that row picks what the preview bakes its shading
+with. The default, *Scene ambience*, is the light the material will really get
+in game — but a dark scene (a cavern preset, a low brightness) makes the
+preview just as dark, and you cannot judge a texture you cannot see. *Neutral
+studio* lights it with the engine's default directional light instead, and any
+**ambience preset** of the project previews the material under that mood
+without switching the scene over to it. Preview only: the scene, the `.mtl` and
+the build are untouched. Persists per machine (editor.ini); the Animation
+Editor has the same combo (see [animated models](animated-models.md)).
+
+## The PS2 CLUT preview and the memory budget
+
+The **PS2 CLUT** display mode shows the texture as the console will
+actually sample it: palette-quantized through the *same median-cut
+quantizer the build's texture bake ships* (16 or 256 colors — "Project
+policy" resolves this material's per-asset override or the project's
+texture-quantization preference), with a **dithering comparison** combo:
+Floyd–Steinberg (what the bake uses), Ordered/Bayer (stable pattern) or
+none (raw banding). Painting keeps working — strokes show up already
+quantized, which is exactly how they will ship. The quantization happens
+at GL-upload time only; the PNG on disk stays full color (texbake
+quantizes at build, as always). A swatch strip shows the palette the
+median cut settled on, and a live **budget line** (also under the texture
+size in the property column) prices the texture in PS2 memory:
+`128x128 4-bit = 8.0 KB + 64 B palette`.
+
+Under the bake block sits **UV check** — *Validate UVs* inspects the
+preview mesh's mapping: **overlapping islands** (painting one paints the
+other — texel-exact, computed modulo the 0–1 wrap like the GS samples),
+UVs **outside 0–1**, **flipped** (mirrored) and **degenerate** triangles,
+and extreme **texel-density outliers** (4× above/below the mesh average).
+Click a finding and the offending triangle(s) outline red in the UV panel
+and on the mesh. Note the box primitive intentionally maps all six faces
+onto the same square — its overlap findings are by design.
+
+Next to it, **Unwrap UVs...** generates a mapping from scratch for the
+preview model — the classic smart-project recipe: faces cluster into
+**charts** by normal similarity (the *Chart angle* knob: low = many flat
+islands for hard surfaces, high = fewer, more distorted charts for organic
+shapes), each chart projects onto its plane and rotates to its tightest
+box, and everything packs into 0..1 at **uniform texel density** with a
+bleed *Margin*. A static `.obj` is rewritten in place — positions, normals,
+materials and comments survive byte-for-byte, only the UVs change (unwrap
+**before** texturing; an already-painted texture will no longer line up —
+projects are git repositories, revert from there). An **animated model**
+(`.glb`/`.fbx` — sources can't be rewritten) instead gets a
+**`<model>.uvs` sidecar**: each part unwraps into its own 0..1 square
+(parts carry their own textures), and the sidecar is folded in wherever
+the model is parsed — editor previews, bakes, and the `.tskl` the game
+ships (its LODs inherit the mapping too). Delete the sidecar to restore
+the original mapping; a re-exported model whose geometry changed simply
+ignores the stale entry. After the unwrap the validator re-runs
+automatically and the UV panel opens on the fresh layout. Deterministic:
+the same mesh and settings always produce the same mapping.
+
+The property column ends in a **Bake maps** block: a progressive raytraced
+bake of the preview mesh (ambient occlusion, curvature, thickness and more)
+that can land as a *"Baked AO" multiply layer* on the entry's texture — see
+`docs/material-baking.md`.
 
 ## Duplicating and deleting a material
 
@@ -83,7 +186,10 @@ quantizes it like any other PNG).
 
 ## Layers
 
-Painting happens on a **layer stack** (the *Layers* box in the paint pane):
+The **layer stack is always visible while the entry has a texture** — the
+*Paint* checkbox only arms the brush. Stack edits (reorder, blend, opacity,
+visibility), **smart masks** and **presets** all work with the brush
+disarmed; painting happens on the stack's active layer:
 the Background plus any number of transparent layers above it, each with a
 **blend mode** (Normal / Multiply / Add / Overlay), an **opacity** slider
 and a visibility toggle. Strokes land on the *active* (selected) layer;

@@ -1,0 +1,1 @@
+{ "id": "40ffb456fa1d59e5", "name": "mirror", "type": "mirror", "position": [0, 1.35, -6], "rotation": [0, 0, 0], "scale": [3.3, 2.7, 1], "color": [0.62, 0.78, 0.88], "physics": false, "mirror": { "opacity": 0.35, "reflectPlayer": true, "raytraced": false, "rtSize": 64, "objects": ["wall-left", "wall-right", "wall-top", "crate", "ball", "pillar"] } }

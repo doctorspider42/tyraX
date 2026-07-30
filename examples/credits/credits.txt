@@ -1,0 +1,21 @@
+// examples/credits - the source of the "end-credits" roll.
+// Edit this, then hit Re-import in Tools > Credits Editor.
+
+# A TYRAX DEMO
+
+[image res/credits/logo.png 0.35]
+
+# CAST
+Producer: Ada Lovelace
+Programming: Grace Hopper, Alan Turing
+Music: Wendy Carlos
+Terrain: The Checkerboard Company
+
+# SPECIAL THANKS
+> Everyone who booted this on a real PlayStation 2, and whoever
+> wrote the word-wrapping.
+
+---
+
+# THE END
+> Press Cross to skip back to the title screen.

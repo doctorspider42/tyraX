@@ -54,8 +54,8 @@
           ]
         },
         {
-          "comment": "num0..num3 = Label",
-          "match": "^\\s*(num[0-3])\\s*(=)\\s*(.*)$",
+          "comment": "num0..num3 = Label, tip0..tip3 = what that param does",
+          "match": "^\\s*(num[0-3]|tip[0-3])\\s*(=)\\s*(.*)$",
           "captures": {
             "1": { "name": "keyword.control.header.tyrax-flownode" },
             "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },
@@ -64,7 +64,7 @@
         },
         {
           "comment": "known scalar keys",
-          "match": "^\\s*(title|category|call)\\s*(=)\\s*(.*)$",
+          "match": "^\\s*(title|category|desc|tip_string|call)\\s*(=)\\s*(.*)$",
           "captures": {
             "1": { "name": "keyword.control.header.tyrax-flownode" },
             "2": { "name": "punctuation.separator.key-value.tyrax-flownode" },

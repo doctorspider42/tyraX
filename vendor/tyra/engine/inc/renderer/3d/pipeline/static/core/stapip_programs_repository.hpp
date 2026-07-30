@@ -29,6 +29,15 @@
 #include "./programs/clip/stapip_clip_td_vu1_program.hpp"
 #include "./programs/clip/stapip_clip_tc_vu1_program.hpp"
 
+// Modified by TyraX: env (matcap) programs - reflective materials.
+#include "./programs/cull/stapip_cull_tce_vu1_program.hpp"
+#include "./programs/as_is/stapip_as_is_tce_vu1_program.hpp"
+#include "./programs/clip/stapip_clip_tce_vu1_program.hpp"
+
+// Modified by TyraX: particle billboard programs (centers -> quads on VU1).
+#include "./programs/billboard/stapip_billboard_c_vu1_program.hpp"
+#include "./programs/billboard/stapip_billboard_t_vu1_program.hpp"
+
 namespace Tyra {
 
 class StaPipProgramsRepository {
@@ -52,6 +61,13 @@ class StaPipProgramsRepository {
   StaPipClipDVU1Program clipDirLights;
   StaPipClipTDVU1Program clipTextureDirLights;
   StaPipClipTCVU1Program clipTextureColor;
+  // Modified by TyraX: env (matcap) programs - reflective materials.
+  StaPipCullTCEVU1Program cullTextureEnv;
+  StaPipAsIsTCEVU1Program asIsTextureEnv;
+  StaPipClipTCEVU1Program clipTextureEnv;
+  // Modified by TyraX: particle billboard programs.
+  StaPipBillboardCVU1Program billboardColor;
+  StaPipBillboardTVU1Program billboardTexture;
 };
 
 }  // namespace Tyra

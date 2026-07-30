@@ -134,6 +134,11 @@ Texture* TextureRepository::add(const char* fullpath) {
   Texture* texture = new Texture(data);
   delete data;
 
+  // Modified by TyraX: remember the load path (name is just the basename,
+  // ambiguous across directories) - the texture hot-reload poller resolves
+  // repainted files against it.
+  texture->sourcePath = fullpath;
+
   textures.push_back(texture);
   return texture;
 }

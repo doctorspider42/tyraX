@@ -26,7 +26,22 @@
 //   z = 0
 //   w = GUARD          (bias so one clipw judgement tests both const planes)
 #define VU1_CLIP_CONSTS_ADDR 20
-#define VU1_STAPIP_LAST_ITEM_ADDR 20
+// Modified by TyraX: per-mesh GS ALPHA register (A+D pair), emitted in-band
+// with the other tags by every StaPip program (StoreTyraGifTags*Alpha) - the
+// blend equation follows the mesh in the ordered GIF stream, so switching to
+// the reflective materials' additive equation needs no FINISH barriers.
+#define VU1_ALPHA_ADDR 21
+// Modified by TyraX: camera basis (right, up, consts - 3 qwords) for the env
+// (matcap) programs. Reuses the lights-matrix area (= VU1_LIGHTS_MATRIX_ADDR;
+// env bags never carry lighting). Kept as a LITERAL: vclpp expands #defines
+// only one level, an alias reaches dvp-as unresolved.
+#define VU1_ENV_BASIS_ADDR 4
+// Modified by TyraX: particle billboard basis (right, up - 2 qwords) for the
+// billboard program family. Same lights-matrix area as the env basis
+// (billboard bags never carry lighting); kept as a LITERAL for the same
+// vclpp one-level-#define reason.
+#define VU1_BILLBOARD_BASIS_ADDR 4
+#define VU1_STAPIP_LAST_ITEM_ADDR 21
 
 // Bias used to turn the constant near/far plane tests into clipw judgements
 // (x < -GUARD bits). Only affects rounding: values within GUARD * 2^-24 of a

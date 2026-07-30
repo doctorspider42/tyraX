@@ -1,0 +1,1 @@
+{ "id": "9dde48bd74f798e3", "name": "orchard#pine-xm1zm1", "type": "model", "position": [-48, 0, -48], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/procgen-d05f8e23-pine-xm1zm1.obj", "procSource": "d05f8e2374b1a6c9" }
