@@ -302,8 +302,17 @@ std::string write(const fs::path& isoFile, const std::string& volumeId,
         putPadded(&pvd[739], 37, "");
         putPadded(&pvd[776], 37, "");
         char date[18];
-        snprintf(date, sizeof(date), "%04d%02d%02d%02d%02d%02d00", now.tm_year + 1900,
-                 now.tm_mon + 1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
+        // Reduced to their digit counts first: a struct tm field is a plain int
+        // as far as the compiler knows, so an unreduced "%04d" is a 11-byte
+        // directive and the 16-byte stamp is only provably 16 bytes this way.
+        const unsigned yr = (unsigned)(now.tm_year + 1900) % 10000u;
+        const unsigned mo = (unsigned)(now.tm_mon + 1) % 100u;
+        const unsigned dy = (unsigned)now.tm_mday % 100u;
+        const unsigned hh = (unsigned)now.tm_hour % 100u;
+        const unsigned mi = (unsigned)now.tm_min % 100u;
+        const unsigned ss = (unsigned)now.tm_sec % 100u;
+        snprintf(date, sizeof(date), "%04u%02u%02u%02u%02u%02u00", yr, mo, dy,
+                 hh, mi, ss);
         memcpy(&pvd[813], date, 16);  // creation
         memcpy(&pvd[830], date, 16);  // modification
         memset(&pvd[847], '0', 16);   // expiration: none

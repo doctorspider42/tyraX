@@ -1,0 +1,1 @@
+{ "id": "d11cecd4edc5187e", "name": "torch-right-copy", "type": "point-light", "position": [-1.71486, 7.35505, -24.9247], "rotation": [0, -0, 0], "scale": [0.4, 0.4, 0.4], "color": [1, 0.62, 0.25], "physics": false, "light": { "brightness": 1.09, "radius": 12.1, "dynamic": true, "flicker": 0.35, "beam": 1 } }

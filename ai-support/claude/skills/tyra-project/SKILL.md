@@ -30,6 +30,7 @@ build. Two kinds of files coexist here:
 | `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs. Sub-folders are fine | Yes (import via the editor keeps references sane; move/rename in the editor's Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its .mtl) |
 | `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
 | `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
+| `res/audio/*.drone` | Patch for a track the editor's Drone Generator made (`key = value` text; editor-only, never ships) | Yes - re-render it in the editor (Tools > Drone Generator) after editing |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
@@ -69,8 +70,9 @@ tyrax-editor binary lives.)
 | `--apply-graph <projectDir> <object> <graph.json> [scene] [--append]` | Validate a graph JSON and write it into the object |
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
+| `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp] [unitsPerMeter]` | Create a fresh project (defaults: 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off) |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
@@ -82,7 +84,17 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, areas,
+  procedural volumes...).
+- The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
+  in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
+  removed the scene has **no ground at all**: nothing is drawn and the game has
+  no floor, so the player, physics bodies and particles rest on the geometry the
+  scene places (a box, a plane, a model with collision) and fall through the
+  void anywhere else - and a Player or spawn point starts at its own authored
+  Y, not on a surface. The scene's width/depth still bound the world. Terrain
+  sculpting/painting, the ground bakes and **navigation AI** (the navmesh
+  rasterizes the ground, so agents have nowhere to walk) do not apply there.
 - An **area** is an invisible box (no geometry in the game). Other things
   reference one by name instead of carrying a distance: a streaming layer's
   auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
@@ -96,8 +108,40 @@ to see exactly what the game will compile.
   merge keys - never reference or reuse them.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
   HUD images/texts, color gradings, ambience presets, loading screens,
-  cutscene sequences and the **input map** (named input actions + binding
-  presets). `--dump` lists all of their names.
+  cutscene sequences, **credits rolls** and the **input map** (named input
+  actions + binding presets). `--dump` lists all of their names.
+- **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
+  of headings, role/name rows, lines, images and page breaks that scrolls (or
+  plays as cards) over music, is skippable, and finishes by resuming, switching
+  scene, opening a menu or firing a flow event. Started by a menu row (action
+  "Play credits") or the Play Credits node; a roll owns the screen and the pad
+  while it plays, so nothing else runs behind it. A long roll can also be
+  imported from a plain text file.
+- **Procedural volumes** (type `scatter` in the file - the display name changed,
+  the key did not) are procedural authoring regions: the object carries a node
+  graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
+  along a curve, or repeated exactly (Array / Radial Array) - and every build
+  bakes the result into merged static chunk meshes plus one generated Model
+  object per chunk. Those chunk objects carry `procSource` (the volume's id),
+  live in `res/models/.../procgen-*.obj` and are **rewritten wholesale by the
+  next bake** - never hand-edit them or reference them by name; edit the
+  volume's graph in the editor instead (*Tools > Procedural*). To give every
+  generated chunk a property (mesh LOD distance, baked lighting, reflections),
+  put an **ObjectSettings** node in the graph - a hand edit on one chunk does
+  not survive the next bake. A `--build` / `--refresh-gen` of such a project
+  rewrites the `.tyra`, which is expected.
+- A volume whose graph has `"runtime": true` is the other mode: the graph is
+  compiled into the game and evaluated on the console instead of baked, so it
+  produces NO chunk objects and no meshes at all. Only a subset of the node
+  library can run there (the editor lists what cannot, and codegen skips a
+  volume it cannot compile). The **Generate Volume** flow node re-runs one at
+  runtime with a fresh seed.
+- **Prefabs** are a project-wide list (`"prefabs"` in the `.tyra`): named groups
+  of scene objects - flow graphs included - stored in the prefab's own local
+  frame. Reference one BY NAME from a **Spawn Prefab** flow node or a **Pick
+  Prefab** procedural row; the editor's *Tools > Prefabs* window inserts copies
+  into a scene. An instance is not linked back to the prefab: inserted copies
+  are ordinary objects from then on.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
   `{{action:jump}}` draws whatever that action is currently bound to. Works in
   HUD texts, menu titles/labels, option labels, loading screens and Display Text

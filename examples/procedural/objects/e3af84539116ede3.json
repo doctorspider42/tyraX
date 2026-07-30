@@ -1,0 +1,1 @@
+{ "id": "e3af84539116ede3", "name": "colonnade#pillar-xm1z0", "type": "model", "position": [-32, 0, 32], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/procgen-2b8d40f6-pillar-xm1z0.obj", "meshLod": 45, "procSource": "2b8d40f6c3a1e7d2" }

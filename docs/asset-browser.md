@@ -101,9 +101,19 @@ breaks. Two rules shape what they do:
    them); a shared library keeps its name and the model gets an explicit
    `mtllib` line so it still finds it.
 
+A **`.drone` audio project** (see [drone-generator.md](drone-generator.md)) is
+its own asset kind: it counts under the *Audio* filter, its inspector reads the
+patch and describes the piece, and double-clicking it - or the track it rendered -
+opens it in the Drone Generator.
+
 Editor-side sidecars travel with their asset: the Material Editor's paint layers
-(`<texture>.png.layers/`) and replacement UVs (`<model>.uvs`). The baked
-`.tmdl` is deleted instead - the next build re-bakes it in the new place.
+(`<texture>.png.layers/`), replacement UVs (`<model>.uvs`) and the Drone
+Generator patch that produced a track (`<track>.drone`, see
+[drone-generator.md](drone-generator.md)). The baked `.tmdl` is deleted instead -
+the next build re-bakes it in the new place.
+
+Double-clicking a track that has a `.drone` next to it (or the patch itself)
+reopens that piece in the Drone Generator.
 
 A WAV moved between `res/audio` and `res/sfx` changes role (streamed music vs
 ADPCM one-shot) and moves between the Music and Sounds lists accordingly.

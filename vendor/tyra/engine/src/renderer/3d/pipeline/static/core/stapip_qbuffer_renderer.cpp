@@ -205,8 +205,33 @@ StaPipClipperSpot buildSpotForBag(const RendererCoreSpotLight& spot,
   out.color[1] = spot.color.g;
   out.color[2] = spot.color.b;
   out.invRange2 = 1.0F / objRange2;
+
+  // Point (omni) light through the SAME spot constants: zero direction makes
+  // the axial term t = max(0, d.dir) collapse to 0, so the cone factor
+  // becomes (0 - cosCut2*dist2)*invSoft = dist2 * invSoft with cosCut2 = -1.
+  // invSoft is sized to saturate that to 1 within ~1% of the range - the
+  // radial falloff alone shapes the light. No VU1 change, no micro memory.
+  if (spot.point) {
+    out.direction.x = 0.0F;
+    out.direction.y = 0.0F;
+    out.direction.z = 0.0F;
+    out.cosCut2 = -1.0F;
+    out.invSoft = 1.0e4F / objRange2;
+    return out;
+  }
+
   out.cosCut2 = spot.cosCutoff * spot.cosCutoff;
-  const float coneBase = objRange2 * (1.0F - out.cosCut2);
+  // The VU1/EE cone term is clamp01((t^2 - cosCut2*dist2) * invSoft). Its
+  // SIGN is the exact angular cutoff and is distance-independent, but its
+  // MAGNITUDE scales with dist2 - so sizing invSoft off the full range
+  // (objRange2 * (1 - cosCut2)) made the beam ramp up across the whole
+  // range: dim on everything close to the lamp, fully bright only near its
+  // far end. On the camera flashlight that reads as "it doesn't light what
+  // I'm looking at". Saturate at a fraction of the range instead; the
+  // cutoff ANGLE is unchanged, the edge just gets crisper.
+  constexpr float kFullBrightAt = 0.18F;  // of the range, on the axis
+  const float coneBase =
+      objRange2 * kFullBrightAt * kFullBrightAt * (1.0F - out.cosCut2);
   out.invSoft = coneBase > 1e-10F ? spot.softness / coneBase : 0.0F;
   return out;
 }
@@ -231,13 +256,16 @@ void StaPipQBufferRenderer::sendObjectData(
                                      4, false);
   }
 
-  // Modified by TyraX: spot light (flashlight) for the color programs.
+  // Modified by TyraX: dynamic light for the color programs - the per-bag
+  // pick from StaPipCore (flashlight or the strongest scene point light),
+  // falling back to the global flashlight state when no pick was made.
   // The dir-lights addresses are free when the bag has no lighting - the
   // C/TC programs read the three spot quads from there. Always uploaded
   // (the programs always compute; a zero color makes it a no-op) and the
   // same numbers go to the EE clipper for the as_is path.
   if (!bag->lighting) {
-    const auto meshSpot = buildSpotForBag(rendererCore->spot, bag->info->model);
+    const auto& light = bagLight ? *bagLight : rendererCore->spot;
+    const auto meshSpot = buildSpotForBag(light, bag->info->model);
     clipper.setSpot(meshSpot);
 
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_DIRS_ADDR, false);

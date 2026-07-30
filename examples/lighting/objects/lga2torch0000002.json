@@ -1,0 +1,1 @@
+{ "id": "lga2torch0000002", "name": "torch-right", "type": "point-light", "position": [5, 2.4, 6], "rotation": [0, 0, 0], "scale": [0.4, 0.4, 0.4], "color": [1, 0.62, 0.25], "physics": false, "light": { "brightness": 1.25, "radius": 11, "dynamic": true, "flicker": 0.35, "beam": 2 } }
