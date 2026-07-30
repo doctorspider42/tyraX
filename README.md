@@ -242,6 +242,30 @@ stack, and more patches will follow). The one-time console setup — hardware,
 flashing, `IPCONFIG.DAT`, firewall ports, what every failure message means — is
 **[docs/ps2link-setup.md](docs/ps2link-setup.md)**.
 
+## Ship it on a disc
+
+**Project > Export PS2 ISO** writes a bootable disc image (`<name>.iso`) next to
+the project — the shipping form of the game, with nothing external holding it up:
+it boots in PCSX2 from *System > Start File*, burns to DVD-R and runs from a USB
+drive through Open PS2 Loader, reading its assets from `cdrom0:` instead of a
+development machine. The layout is not a plain `mkisofs` dump: an in-tree ISO9660
+writer places file extents **in load order** (`SYSTEM.CNF` + the boot ELF, then
+startup assets, then each scene's assets in scene order, then music) so the drive
+does not seek between reads, and **Project > Disc Layout...** shows the resulting
+LBA map and lets you pin an order of your own.
+
+A **Title ID** (*Project > Preferences > Build*) makes it a product rather than a
+build: shaped like a retail code (`TYRA_141.83`), it becomes the boot file's name
+on the disc — the way a retail disc points `SYSTEM.CNF`'s `BOOT2` at
+`SLUS_213.45;1` — and the memory card save folder is derived from it
+(`/BATYRA-14183`, retail's own `BA` + flattened-id derivation), which is also
+what OPL and PCSX2 key per-game settings and cover art on. Fresh projects get one
+derived from their project id; the default `TYRA_` prefix is deliberately not a
+Sony publisher code, because an ID a real game also carries makes the two
+indistinguishable to every tool that reads it. Headless twin:
+`--export-iso <projectDir>`. Full guide, including what is still missing from a
+retail disc: **[docs/disc-image.md](docs/disc-image.md)**.
+
 ## The in-tree Tyra engine
 
 `vendor/tyra/engine` is a fork of the [Tyra engine](https://github.com/h4570/tyra) (Apache License 2.0, forked at `9273416`; license text in [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE)), maintained directly in this repo — edit it and the next Build & Run picks the change up automatically. The editor's modifications over upstream (marked `Modified by TyraX` / `TyraX guard band` in the sources):

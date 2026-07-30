@@ -702,6 +702,19 @@ struct ProjectSettings {
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
+    // The game's TITLE ID - the PS2's own product code, retail-shaped
+    // "AAAA_NNN.NN" (project::normalizeTitleId enforces it). It is not
+    // cosmetic: it is the boot file's name on an exported disc image (SYSTEM.CNF
+    // points BOOT2 at it, exactly as a retail disc points at "SLUS_213.45"),
+    // it is what OPL and PCSX2 key their per-game configuration and cover art
+    // on, and the memory card save folder is derived from it
+    // (project::saveGameDirName - "BASLUS-21345" is how retail names one).
+    //
+    // Empty = the pre-title-id behavior, which is what a project saved before
+    // this key loads as: the boot file keeps the ELF's own name and saves live
+    // in "TYRA-<NAME>". project::create seeds a fresh one (defaultTitleId).
+    std::string titleId;
+
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
     // videoSystem). "interlaced-field" is the same signal with true field
     // rendering: half-height buffers, a fresh image every field (50/60
@@ -1085,7 +1098,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
-           a.displayMode == b.displayMode &&
+           a.titleId == b.titleId && a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
@@ -2313,6 +2326,52 @@ void ensureObjectIds(Project& p);
 // Assigns Project::projectId when it is empty (fresh create or a project from
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
+
+// --- Title id (ProjectSettings::titleId) ------------------------------------
+//
+// Reshapes a typed title id into the retail form "AAAA_NNN.NN" - four letters,
+// underscore, three digits, dot, two digits. Tolerant on input: case, and the
+// separators, are fixed up ("slus-21345", "SLUS_21345" and "SLUS_213.45" all
+// normalize to "SLUS_213.45"). Returns "" for anything that is not four letters
+// followed by five digits, which is how the UI rejects a typo - so it is also
+// the validity test, and every writer must pass a value through it.
+std::string normalizeTitleId(std::string s);
+
+// A fresh project's title id: "TYRA_<3 digits>.<2 digits>", the five digits
+// derived from the project's stable projectId so two projects on one machine
+// cannot collide. The prefix is deliberately NOT a Sony publisher code
+// (SLUS/SLES/SCUS/SCES/SLPS/SLPM/SCPS...): those are assigned per retail game,
+// and squatting on one makes OPL and PCSX2 hand this project that game's
+// per-title configuration and share its memory card folder. Empty projectId
+// (never happens after ensureProjectId) yields "".
+std::string defaultTitleId(const std::string& projectId);
+
+// Non-empty when a title id, though well-formed, carries a publisher prefix
+// that a real console release could also carry - the collision explained above.
+// The returned string is the warning to show; empty means the id is unambiguous.
+std::string titleIdCollisionWarning(const std::string& titleId);
+
+// The boot file's name on an exported disc image: the title id ("SLUS_213.45"),
+// or the upper-cased ELF name for a project with no title id. This is NOT
+// Project::elfName() - the ELF built into bin/ keeps its own name for every
+// host: path there is (the Runner, ps2link, the devkit channels); the title id
+// only renames the copy that lands on the disc, which is the only name
+// SYSTEM.CNF and a real console's loader ever see.
+std::string discBootFileName(const std::string& titleId, const std::string& elfName);
+std::string discBootFileName(const Project& p);
+
+// The game's memory card folder, card-root-relative with the leading '/'
+// ("/BASLUS-21345" from title id SLUS_213.45 - retail's own derivation, 'BA' +
+// the id with its separators flattened). Falls back to "/TYRA-<NAME>" (the
+// pre-title-id name) when the project has no title id. Codegen bakes it as
+// SAVE_MC_DIR; changing it orphans saves already on the card, which is why the
+// title id is the stable half of the project rather than its NAME.
+//
+// Both of these take the raw strings as well as a Project, because the
+// preferences dialog previews what a title id it has not applied yet WOULD
+// produce - and a preview that read the saved project would show the old answer.
+std::string saveGameDirName(const std::string& titleId, const std::string& projectName);
+std::string saveGameDirName(const Project& p);
 
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so

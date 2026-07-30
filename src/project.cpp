@@ -1,6 +1,7 @@
 #include "project.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -1072,6 +1073,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
+         // Omitted while empty so a project that never had a title id keeps
+         // loading as one (the ELF's own boot name, the TYRA-<NAME> save dir).
+         << (p.settings.titleId.empty()
+                 ? std::string()
+                 : "    \"titleId\": \"" + p.settings.titleId + "\",\n")
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
          << ",\n"
@@ -2044,6 +2050,90 @@ void ensureProjectId(Project& p) {
     if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
+std::string normalizeTitleId(std::string s) {
+    // Strip everything that is not a letter or a digit, so the separators the
+    // user typed (or omitted) cannot matter, then require the retail shape.
+    std::string a;
+    for (char c : s)
+        if (std::isalnum((unsigned char)c)) a += (char)std::toupper((unsigned char)c);
+    if (a.size() != 9) return "";
+    for (int i = 0; i < 4; ++i)
+        if (!std::isalpha((unsigned char)a[i])) return "";
+    for (int i = 4; i < 9; ++i)
+        if (!std::isdigit((unsigned char)a[i])) return "";
+    return a.substr(0, 4) + "_" + a.substr(4, 3) + "." + a.substr(7, 2);
+}
+
+std::string defaultTitleId(const std::string& projectId) {
+    if (projectId.empty()) return "";
+    // FNV-1a over the project id, folded into the five digits the shape has
+    // room for. Deterministic: re-deriving it for the same project always
+    // returns the same id, so nothing depends on when create() ran.
+    uint64_t h = 1469598103934665603ull;
+    for (char c : projectId) {
+        h ^= (uint64_t)(unsigned char)c;
+        h *= 1099511628211ull;
+    }
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "TYRA_%03u.%02u", (unsigned)(h % 1000ull),
+                  (unsigned)((h / 1000ull) % 100ull));
+    return buf;
+}
+
+std::string titleIdCollisionWarning(const std::string& titleId) {
+    static const char* kSonyPrefixes[] = {"SLUS", "SLES", "SLPS", "SLPM", "SLKA",
+                                          "SCUS", "SCES", "SCPS", "SCAJ", "SCKA",
+                                          "PBPX", "PAPX"};
+    if (titleId.size() < 4) return "";
+    const std::string prefix = titleId.substr(0, 4);
+    for (const char* s : kSonyPrefixes)
+        if (prefix == s)
+            return prefix +
+                   " is a console-release prefix: an id a retail game also "
+                   "carries makes OPL and PCSX2 apply that game's settings and "
+                   "share its memory card folder.";
+    return "";
+}
+
+std::string discBootFileName(const std::string& titleId, const std::string& elfName) {
+    const std::string id = normalizeTitleId(titleId);
+    if (!id.empty()) return id;
+    std::string elf = elfName;  // pre-title-id fallback: "<NAME>.ELF"
+    for (char& c : elf) c = (char)std::toupper((unsigned char)c);
+    return elf;
+}
+
+std::string discBootFileName(const Project& p) {
+    return discBootFileName(p.settings.titleId, p.elfName());
+}
+
+std::string saveGameDirName(const std::string& titleId, const std::string& projectName) {
+    const std::string id = normalizeTitleId(titleId);
+    if (!id.empty()) {
+        // Retail's own derivation: 'BA' + the id with '_' as '-' and no dot.
+        std::string dir = "/BA";
+        for (char c : id)
+            if (c == '_')
+                dir += '-';
+            else if (c != '.')
+                dir += c;
+        return dir;
+    }
+    // The pre-title-id name ("TYRA-" + the sanitized project name). libmc card
+    // names allow up to 31 characters; keep well under.
+    std::string legacy;
+    for (char c : projectName) {
+        if (std::isalnum((unsigned char)c)) legacy += (char)std::toupper((unsigned char)c);
+        if (legacy.size() >= 16) break;
+    }
+    if (legacy.empty()) legacy = "GAME";
+    return "/TYRA-" + legacy;
+}
+
+std::string saveGameDirName(const Project& p) {
+    return saveGameDirName(p.settings.titleId, p.name);
+}
+
 const char* inputRoleName(int role) {
     switch (role) {
         case InputAction::RoleJump: return "jump";
@@ -2293,6 +2383,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
     }
 
     ensureProjectId(out);
+    // A title id is derived from the project id, so it can only be seeded once
+    // that exists. Fresh projects get one; older ones stay without (see the
+    // field's comment - it is what their save folder and boot name hang off).
+    out.settings.titleId = defaultTitleId(out.projectId);
     ensureObjectIds(out);
     ensureInputActions(out);
     ensureTextIcons(out);
@@ -3282,6 +3376,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
+        // Normalized on the way in: a hand-edited manifest cannot put a
+        // malformed id on a disc, it just reads as "no title id".
+        if (const auto* v = s->find("titleId"))
+            st.titleId = normalizeTitleId(v->stringOr(""));
         // pre-quantization projects keep their full-color output
         st.textureQuant = "none";
         if (const auto* v = s->find("textureQuant")) {

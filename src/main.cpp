@@ -17,6 +17,7 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "isoexport.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
@@ -618,6 +619,31 @@ static int refreshGenFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// Writes the bootable disc image out of an already-built bin/ - the headless
+// twin of Project > Export PS2 ISO (and of the Disc Layout window's button),
+// which is what makes the disc half of the pipeline checkable without a GUI:
+// the boot file's name, SYSTEM.CNF and the layout order all come out of
+// isoexport, so a script can export and inspect an image the same way a build
+// server would. Needs bin/<name>.elf to exist; run --build first.
+static int exportIsoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --export-iso <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const std::string err = isoexport::build(
+        p, [](const std::string& line) { std::printf("%s\n", line.c_str()); });
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     return 0;
 }
 
@@ -1270,6 +1296,8 @@ int main(int argc, char** argv) {
         return refreshGenFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--export-iso") == 0)
+        return exportIsoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)

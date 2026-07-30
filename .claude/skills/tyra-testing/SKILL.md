@@ -148,6 +148,7 @@ TYRAX --build <projectDir> [--run]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --export-iso <projectDir>      # bootable disc image from bin/, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
@@ -394,8 +395,19 @@ Notes:
   never seen from synthetic events at all — test buttons by hand. Posting
   synthetic WM_RBUTTONDOWN to the render child can wedge PCSX2's mouse input
   until relaunch.
-- For ISO/cdrom0: testing use `Project > Export PS2 ISO`, then boot the ISO in
-  PCSX2 (covers the path-conversion code that host: boots skip).
+- For ISO/cdrom0: testing use `Project > Export PS2 ISO` — or
+  **`--export-iso <projectDir>`**, its headless twin, which is what puts the disc
+  path in a script (docs/disc-image.md) — then boot the image in PCSX2 (covers
+  the path-conversion code that host: boots skip). Two things it makes cheap
+  without any emulator: the log names the **boot file** and the memory card
+  folder the project's *title id* resolved to, and the image itself is
+  inspectable — `SYSTEM.CNF` is the first data sector (LBA 22 on a small
+  project, printed in the layout) and the directory records are in the metadata
+  sectors below it, so `b'TYRA_141.83;1' in data[:22*2048]` asserts the boot
+  file's on-disc NAME in one line. The stand-in ELF trick makes even that
+  Docker-free: isoexport only sizes and embeds the bytes, so a fixture with a
+  dummy `bin/<name>.elf` exercises the naming, `SYSTEM.CNF` and the whole layout
+  planner — it just cannot be booted, so pair it with one real build.
 - **Keep the fixture project's path short.** PCSX2's host: loader gives up on
   an ELF path over ~145 characters: emulog stops after `ELF Loading: ...`, the
   EE never reaches `is executing`, `bin/log.txt` is never written, and the
@@ -936,4 +948,4 @@ test rather than a screenshot:
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |
-| ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
+| ISO export | `--export-iso` + read the image's own bytes (SYSTEM.CNF, the directory records) + boot it in PCSX2 |

@@ -38,6 +38,10 @@ static std::string upper(std::string s) {
 struct OrderedFile {
     std::string rel, group;
     bool pinned = false;
+    // On-disc name when it must differ from upper(rel): the ELF lands under the
+    // project's title id ("SLUS_213.45"), the way a retail disc names its boot
+    // file, while bin/ keeps the ELF's own name for every host: path.
+    std::string isoName;
 };
 
 // Scans bin/ and orders everything by load group; iso-layout.txt pins move
@@ -79,6 +83,7 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
     };
 
     take(p.elfName(), "boot");
+    autoOrder.front().isoName = project::discBootFileName(p);
     for (const HudImage& h : p.hud) take(binPathOf(h.imagePath), "startup");
     take("hud/use.png", "startup");
     take("hud/loading.png", "startup");
@@ -154,17 +159,19 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
     out.push_back(autoOrder.front());  // the ELF
     for (const auto& rel : pinOrder)
         for (const auto& f : autoOrder)
-            if (f.rel == rel) out.push_back({f.rel, f.group, true});
+            if (f.rel == rel) out.push_back({f.rel, f.group, true, f.isoName});
     for (size_t i = 1; i < autoOrder.size(); ++i)
         if (!pinned.count(autoOrder[i].rel)) out.push_back(autoOrder[i]);
     return "";
 }
 
 // SYSTEM.CNF is generated on the fly (temp file); \r\n like retail discs.
-static std::string writeSystemCnf(const std::string& elfIso, fs::path* out) {
+// bootName is the ELF's name ON THE DISC - the project's title id
+// ("SLUS_213.45"), or the upper-cased ELF name for a project without one.
+static std::string writeSystemCnf(const std::string& bootName, fs::path* out) {
     *out = fs::temp_directory_path() / "tyra-SYSTEM.CNF";
     std::ofstream f(*out, std::ios::trunc | std::ios::binary);
-    f << "BOOT2 = cdrom0:\\" << elfIso << ";1\r\nVER = 1.00\r\n";
+    f << "BOOT2 = cdrom0:\\" << bootName << ";1\r\nVER = 1.00\r\n";
     if (!f) return "cannot write " + out->string();
     return "";
 }
@@ -178,7 +185,7 @@ static std::string makeEntries(const Project& p, const std::vector<OrderedFile>&
     entries->push_back({cnf, "SYSTEM.CNF"});
     seen.insert("SYSTEM.CNF");
     for (const auto& f : ordered) {
-        std::string isoPath = upper(f.rel);
+        std::string isoPath = f.isoName.empty() ? upper(f.rel) : f.isoName;
         if (log) {
             for (const auto& part : fs::path(isoPath)) {
                 const std::string comp = part.generic_string();
@@ -204,7 +211,8 @@ std::string plan(const Project& p, Plan* out, const LogFn& log) {
     if (!err.empty()) return err;
 
     fs::path cnf;
-    if (err = writeSystemCnf(upper(p.elfName()), &cnf); !err.empty()) return err;
+    if (err = writeSystemCnf(project::discBootFileName(p), &cnf); !err.empty())
+        return err;
 
     std::vector<iso9660::FileEntry> entries;
     err = makeEntries(p, ordered, cnf, &entries, log);
@@ -246,7 +254,8 @@ std::string build(const Project& p, const LogFn& log) {
     if (manual) log("[editor] Applied pinned order from iso-layout.txt.");
 
     fs::path cnf;
-    if (err = writeSystemCnf(upper(p.elfName()), &cnf); !err.empty()) return err;
+    if (err = writeSystemCnf(project::discBootFileName(p), &cnf); !err.empty())
+        return err;
 
     std::vector<iso9660::FileEntry> entries;
     std::map<std::string, const OrderedFile*> byIso;
@@ -278,6 +287,12 @@ std::string build(const Project& p, const LogFn& log) {
                  group.c_str(), f.isoPath.c_str());
         log(line);
     }
+    log("[editor] Boot file: " + project::discBootFileName(p) +
+        " (SYSTEM.CNF BOOT2)" +
+        (p.settings.titleId.empty()
+             ? " - no title id set, so the ELF's own name; Project > "
+               "Preferences > Build assigns one."
+             : ", saves in mc0:" + project::saveGameDirName(p)));
     char sum[256];
     snprintf(sum, sizeof(sum), "[editor] ISO written: %s (%.1f MB, %zu files)",
              iso.string().c_str(), (double)fs::file_size(iso, ec) / (1024.0 * 1024.0),
