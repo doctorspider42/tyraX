@@ -15822,3 +15822,36 @@ Each finished feature lands as its own commit.
   a throwaway step, and the Linux half of `confirmBox` was not run at all (no
   Linux box here). Neither this nor (250) reaches the PS2, so there is no console
   half to test.
+
+- (252) **`_backup/` was a local safety copy that travelled.** Three review
+  findings on (250)'s migration backup, all from actually running it: with zero
+  steps registered the prompt and the backup copier are unreachable, so they were
+  exercised by compiling a throwaway `v1 -> v2` step and driving `--migrate`
+  (the path that needs no GUI dialog). The machinery itself was correct - the
+  backup held the pre-migration manifest, `objects/` and the heightmap, the gate
+  refused `--resave`/`--build` pointing at `--migrate`, and a failing step leaves
+  disk untouched - but the directory it writes into had two consequences nobody
+  had looked at:
+  - **It would be committed.** `_backup/` sits inside the project, and the
+    generated project `.gitignore` did not mention it, so every user's next
+    `git add` would sweep a full copy of their pre-migration model files into
+    their repo. Added to `TPL_GITIGNORE` (templates.cpp).
+  - **It would be synced to collaboration peers.** `session::hostSkipsPath`
+    excludes `bin/`, `obj/`, `.git/`, `.res-baked/` and `*.history` - not
+    `_backup/`. A host who had ever migrated would have shipped every snapshot
+    to every peer, and each snapshot contains a `.tyra`, which is exactly the
+    shape the client's materializer looks for. Now excluded.
+  - **A step must not rename the project.** The throwaway step renamed
+    `Project::name` to prove the transform ran, and that left TWO `.tyra` files
+    in the directory: `save()` writes `<name>.tyra` and does not remove the old
+    manifest, and `load()` takes whichever the directory iterator yields first -
+    which can be the pre-migration one, silently undoing the migration. Rather
+    than change main's save path for a case no real step has, the constraint is
+    documented where a step author will read it (migrations.hpp and
+    docs/format-versioning.md): rename fields, not the project.
+  **Verified:** `./build.ps1 -Dev` exit 0; a fresh `--new` project's
+  `.gitignore` carries `_backup/`. Not verified: an existing project keeps its
+  own `.gitignore` (main writes that file if-missing), so projects created before
+  this pick the line up only on a manual edit - acceptable, since `_backup/` only
+  appears once they migrate. The session exclusion is read-and-reasoned: proving
+  it needs two editors on a LAN, which is the hands-on check a human still owes.

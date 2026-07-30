@@ -17564,6 +17564,10 @@ bin/*.elf.sym
 .vscode/
 .res-baked/
 docker-compose.yml
+# Pre-migration snapshots of the project's own model files, written by a format
+# migration (docs/format-versioning.md). Local safety copies, not source: the
+# history that matters is already in git.
+_backup/
 # Devkit runtime files (docs/devkit.md): the editor <-> game channels, a
 # crash report and the game's log. Written next to the ELF while you work,
 # never shipped. bin/.gitignore already ignores the whole directory - this

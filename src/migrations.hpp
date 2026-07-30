@@ -21,6 +21,11 @@ struct Project;
 // irreversible is about to happen.
 namespace migrations {
 
+// One constraint on every step, learned by writing a throwaway one: a step must
+// NOT change Project::name. save() writes <name>.tyra and does not remove a
+// manifest under the old name, so a renaming step leaves TWO .tyra files in the
+// project directory - and load() takes whichever the directory iterator yields
+// first, which can be the pre-migration one. Rename fields, not the project.
 struct Migration {
     int from;             // upgrades from this format version to from + 1
     const char* summary;  // one line for the migration prompt and logs

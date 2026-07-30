@@ -37,15 +37,21 @@ reads as **v0**.
   **in memory** and saves. If any step fails, the project does not open and
   **nothing on disk was modified**.
 
-Headless (`--build`, `--resave`) refuses projects with pending migration
-steps instead of silently rewriting them — migrating is an explicit act:
+`_backup/` is a local safety copy, not source: the generated project
+`.gitignore` excludes it, and a collaboration session never sends it to peers.
 
-```powershell
-tyrax-editor.exe --migrate <projectDir>   # backup + migrate + resave
+Headless (`--build`, `--resave`, `--apply-graph`, `--ai-graph`) refuses
+projects with pending migration steps instead of silently rewriting them —
+migrating is an explicit act:
+
+```bash
+tyrax-editor --migrate <projectDir>   # backup + migrate + resave
 ```
 
 `--migrate` prints the backup location and each applied step; on an
-up-to-date project it degrades to a plain resave.
+up-to-date project it degrades to a plain resave. It writes the same file set
+as `--resave` (manifest + heights + splat) — a migration that persisted less
+than a resave would drop whatever it skipped.
 
 ## Rules for contributors
 
@@ -84,6 +90,17 @@ A step upgrades `from` → `from + 1`; the chain runs in order, so a project
 several versions behind migrates through every step in one go. `summary` is
 shown verbatim in the migration prompt and the `--migrate` output — write it
 for the user.
+
+**A step must not change `Project::name`.** `save()` writes `<name>.tyra` and
+does not delete a manifest under the old name, so a renaming step leaves two
+`.tyra` files in the project directory and `load()` takes whichever the
+directory iterator yields first — possibly the pre-migration one. Rename
+*fields*, not the project.
+
+With no step registered, the prompt and the backup are unreachable by
+construction. To exercise them, register a throwaway step and bump
+`kFormatVersion` locally (that is how they were tested); `--migrate` is the
+path that needs no GUI dialog.
 
 ## Format history
 

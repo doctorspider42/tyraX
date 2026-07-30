@@ -228,10 +228,18 @@ struct FileEntry {
 };
 
 // Directories/files that never travel: build outputs, git, bakes, undo
-// history. Model files (.tyra / objects/ / *.heights) come from memory.
+// history, format-migration backups. Model files (.tyra / objects/ /
+// *.heights) come from memory.
+//
+// _backup/ is a full copy of the project's model files (migrations.cpp), so
+// without this a peer would be sent every pre-migration snapshot the host has
+// ever taken - and each one contains a .tyra, which is exactly the shape the
+// client's materializer is looking for.
 bool hostSkipsPath(const std::string& rel) {
     auto pre = [&](const char* p) { return rel.rfind(p, 0) == 0; };
-    if (pre("bin/") || pre("obj/") || pre(".git/") || pre(".res-baked/")) return true;
+    if (pre("bin/") || pre("obj/") || pre(".git/") || pre(".res-baked/") ||
+        pre("_backup/"))
+        return true;
     if (rel.size() > 8 && rel.compare(rel.size() - 8, 8, ".history") == 0) return true;
     return false;
 }
