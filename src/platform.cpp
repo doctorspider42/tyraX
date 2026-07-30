@@ -872,6 +872,36 @@ const char* defaultFontLabel() {
 #endif
 }
 
+const std::vector<SystemFont>& uiFontFiles() {
+#ifdef _WIN32
+    // Segoe UI is what the rest of the desktop is drawn in and has shipped
+    // since Vista, so the first entry practically always resolves. The
+    // variable-weight Segoe UI Variable is deliberately absent: stb_truetype
+    // cannot select a weight axis and would rasterize it at the wrong one.
+    static const std::vector<SystemFont> fonts = {
+        {"Segoe UI", "segoeui.ttf"},
+        {"Tahoma", "tahoma.ttf"},
+        {"Verdana", "verdana.ttf"},
+        {"Arial", "arial.ttf"},
+    };
+#else
+    // Inter first where the user installed it, then the families the desktops
+    // actually ship: GNOME (Cantarell), Ubuntu, and the two metric-compatible
+    // sets that are on practically every distribution. Cantarell is an .otf -
+    // stb_truetype reads its CFF outlines, which is why it is allowed here at
+    // all - and it sits low in the chain for that reason.
+    static const std::vector<SystemFont> fonts = {
+        {"Inter", "Inter-Regular.ttf"},
+        {"Noto Sans", "NotoSans-Regular.ttf"},
+        {"Ubuntu", "Ubuntu-R.ttf"},
+        {"Cantarell", "Cantarell-Regular.otf"},
+        {"DejaVu Sans", "DejaVuSans.ttf"},
+        {"Liberation Sans", "LiberationSans-Regular.ttf"},
+    };
+#endif
+    return fonts;
+}
+
 // ---------------------------------------------------------------------------
 // Native file dialogs
 // ---------------------------------------------------------------------------

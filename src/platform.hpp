@@ -230,6 +230,18 @@ const std::vector<std::string>& fallbackFontFiles();
 // spelled for humans ("Consolas Bold", "DejaVu Sans Bold").
 const char* defaultFontLabel();
 
+// The EDITOR's own interface font, which is a different question from the two
+// above: those pick a face to rasterize game text with, this one picks what
+// the editor's windows are drawn in. ImGui otherwise falls back to its
+// built-in bitmap font, which is the single loudest "this is a debug tool"
+// signal an ImGui application gives off.
+//
+// Best first; the first entry systemFontPath() resolves wins, and a machine
+// with none of them keeps the built-in font. Proportional UI faces only - a
+// bold display face would be wrong here for the same reason the bake list is
+// all bold: small text at regular weight is what an interface wants.
+const std::vector<SystemFont>& uiFontFiles();
+
 // --- native file dialogs ---------------------------------------------------
 
 struct FileFilter {
