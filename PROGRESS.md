@@ -15136,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -15670,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -15748,110 +15803,85 @@ Each finished feature lands as its own commit.
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
 
-- (250) **Editor + project-format versioning with migrations.** Two
-  deliberately separate numbers in the new `src/version.hpp`: the editor
-  semver (`1.0.0`, title bar + informational `"editorVersion"` in the
-  manifest; feature → MINOR, fix → PATCH, breaking → MAJOR) and the on-disk
-  format contract `version::kFormatVersion` (monotonic int, `"formatVersion"`
-  in the manifest, pre-versioning files read as v0). The format version — not
-  the editor version — gates opening, so patch/minor releases never nag.
-  `project::load` refuses files from a NEWER editor outright (they would lose
-  their unknown fields on the next save; the message names both versions and
-  every path — GUI, `--build`, `--resave`, `--apply-graph`, `--ai-graph` — shares the guard). Older files:
-  silent open when only additive changes happened (the tolerant reader keeps
-  lifting legacy keys forever, restamp on next save); when registered
-  migration steps exist (`migrations.cpp`, steps `from → from+1` chained
-  across any version gap), the GUI prompts with the step list + irreversibility
-  warning, backs up the format-bearing files (`.tyra`, `objects/`,
-  `terrain-*.heights`, `flow-nodes/`, `screen-effects/` — never `res/`) into
-  `_backup/format-v<old>-<stamp>/`, migrates in memory and saves only on
-  success — a failing step leaves disk untouched. Headless refuses
-  migration-needing projects (CI must not irreversibly rewrite a project);
-  the new `--migrate <dir>` is the explicit CLI twin (backup + steps +
-  resave, degrades to a resave when current). Rules for contributors (bump on
-  every save-shape change, register a step only for real data transforms) in
-  `docs/format-versioning.md`. **Verified:** fresh `--new` project carries
-  both fields; hand-stripped v0 manifest resaves silently and restamps; a
-  v99 manifest is refused by `--resave` with the update-TyraX message
-  (exit 1); with a temporary test step compiled in, `--build` on a v0 project
-  refused pointing at `--migrate`, and `--migrate` printed the backup dir +
-  step, transformed the data and stamped v1 (backup verified to hold the
-  pre-migration v0 manifest + objects/ + heights); the GUI migration prompt
-  was screenshotted live (window-title GDI capture of the "Project
-  Migration" dialog, No = default button) on a v0 scratch project. See the
-  next entry for what the 526-commit rebase changed about all of this.
-
-- (251) **Versioning, rebased onto today's editor.** (250) was written when the
-  editor was Windows-only and `App` had one open path per caller; 526 commits of
-  main later, three things in it had rotted, and the merge fixed them rather
-  than compiling them as-is.
-  **Platform parity.** The GUI half called `MessageBoxA` directly - Windows-only,
-  and it would not have compiled on Linux at all. The error boxes now go through
-  the existing `platform::errorBox`, and the migration question through a new
-  `platform::confirmBox` with both halves (Win32 `MB_YESNO` with No as the
-  DEFAULT button, zenity `--question` / kdialog `--yesno` on Linux, both read by
-  exit code). Its no-dialog fallback answers **No**: the callers guard an
-  irreversible rewrite, so an unattended run must never silently consent to one.
-  **One funnel, not two.** The PR added `App::openProjectFrom`; main has since
-  grown `App::openProjectAt` as the single funnel every local open goes through
-  (CLI argument, Open dialog, the recent-projects list). Keeping the PR's parallel
-  function would have left the recent-projects entries opening projects with NO
-  version gate at all - the gate moved into `openProjectAt`, so all three paths
-  inherit it and `openProjectFrom` is gone.
-  **A migration must not persist less than a resave.** `--resave` grew a third
-  write, `project::saveSplat`, after this branch was cut. The migration save
-  paths (`--migrate` and the GUI's post-migration save) wrote only manifest +
-  heights, so a migration would have silently DROPPED the terrain splat map.
-  Both now write the same three files, and the CLI commands main added that
-  rewrite a project (`--apply-graph`, `--ai-graph`) got the `refuseUnmigrated`
-  gate the PR had only put on `--build`/`--resave`.
-  The format version is still **v1** on purpose: everything main added over those
-  526 commits was additive and landed BEFORE versioning existed, so v1 means "the
-  format as of the commit that introduced versioning" and pre-versioning files
-  still read as v0 through the tolerant reader. The `formatVersion`/`editorVersion`
-  stamp moved to main's new `manifestJson()` composer, which means it also rides
-  the collaboration wire (`manifestFiles()` ships those same bytes).
-  **Verified after the merge:** `./build.ps1 -Dev` exit 0. Round-tripped for real
-  rather than reasoned about - a fresh `--new` project carries both fields; a
-  `--resave` is byte-identical on the second pass (idempotent); a manifest
-  hand-edited to `"formatVersion": 99` is refused by `--resave`, `--build`,
-  `--apply-graph`, `--ai-graph` AND the GUI with the update-TyraX message; a
-  manifest with the field deleted (v0) opens silently and comes back stamped v1
-  with no other field lost. Not verified: the migration PROMPT and the backup
-  copier are still unreachable with zero steps registered - exercising them needs
-  a throwaway step, and the Linux half of `confirmBox` was not run at all (no
-  Linux box here). Neither this nor (250) reaches the PS2, so there is no console
-  half to test.
-
-- (252) **`_backup/` was a local safety copy that travelled.** Three review
-  findings on (250)'s migration backup, all from actually running it: with zero
-  steps registered the prompt and the backup copier are unreachable, so they were
-  exercised by compiling a throwaway `v1 -> v2` step and driving `--migrate`
-  (the path that needs no GUI dialog). The machinery itself was correct - the
-  backup held the pre-migration manifest, `objects/` and the heightmap, the gate
-  refused `--resave`/`--build` pointing at `--migrate`, and a failing step leaves
-  disk untouched - but the directory it writes into had two consequences nobody
-  had looked at:
-  - **It would be committed.** `_backup/` sits inside the project, and the
-    generated project `.gitignore` did not mention it, so every user's next
-    `git add` would sweep a full copy of their pre-migration model files into
-    their repo. Added to `TPL_GITIGNORE` (templates.cpp).
-  - **It would be synced to collaboration peers.** `session::hostSkipsPath`
-    excludes `bin/`, `obj/`, `.git/`, `.res-baked/` and `*.history` - not
-    `_backup/`. A host who had ever migrated would have shipped every snapshot
-    to every peer, and each snapshot contains a `.tyra`, which is exactly the
-    shape the client's materializer looks for. Now excluded.
-  - **A step must not rename the project.** The throwaway step renamed
-    `Project::name` to prove the transform ran, and that left TWO `.tyra` files
-    in the directory: `save()` writes `<name>.tyra` and does not remove the old
-    manifest, and `load()` takes whichever the directory iterator yields first -
-    which can be the pre-migration one, silently undoing the migration. Rather
-    than change main's save path for a case no real step has, the constraint is
-    documented where a step author will read it (migrations.hpp and
-    docs/format-versioning.md): rename fields, not the project.
-  **Verified:** `./build.ps1 -Dev` exit 0; a fresh `--new` project's
-  `.gitignore` carries `_backup/`. Not verified: an existing project keeps its
-  own `.gitignore` (main writes that file if-missing), so projects created before
-  this pick the line up only on a manual edit - acceptable, since `_backup/` only
-  appears once they migrate. The session exclusion is read-and-reasoned: proving
-  it needs two editors on a LAN, which is the hands-on check a human still owes.
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
