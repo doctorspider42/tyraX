@@ -801,15 +801,21 @@ private:
     void setDirty(bool dirty);
     void updateWindowTitle();
 
-    // Guarded actions that would discard unsaved edits (Exit / Open / New).
-    // When the project is dirty they open a confirm modal instead of running
-    // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New, JoinSession };
+    // Guarded actions that would discard unsaved edits (Exit / Open / New /
+    // Close). When the project is dirty they open a confirm modal instead of
+    // running immediately; the modal's Save/Discard buttons then run the
+    // pending one. OpenRecent carries its target in pendingRecentDir_.
+    enum class PendingAction { None, Exit, Open, OpenRecent, New, Close, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
+    void requestCloseProject();
     void performPendingAction();
     void drawDiscardModal();
+    // Release the open project and go back to the state the editor boots in
+    // (the Viewport becomes the welcome screen again). Never asks anything -
+    // requestCloseProject() owns the unsaved-edit guard.
+    void closeProject();
 
     // --- Recent projects ----------------------------------------------------
     // The list the welcome screen offers before any project is open, so the
@@ -826,6 +832,13 @@ private:
     void probeRecentProject(RecentProject& r);  // fill name + valid from disk
     void rememberRecentProject(const std::string& dir);  // to the front + save
     void forgetRecentProject(int index);                 // drop it + save
+    // Open one list entry, reporting a folder that moved/vanished since it was
+    // probed instead of failing silently. The welcome screen's rows and the
+    // File > Recent Projects menu both go through it.
+    void openRecentProject(const std::string& dir);
+    void requestOpenRecent(const std::string& dir);  // dirty-guarded
+    void drawRecentProjectsMenu();  // the File menu's submenu
+    std::string pendingRecentDir_;  // target of PendingAction::OpenRecent
     // Load and attach the project in `dir` (a project folder, not the .tyra).
     // Returns the load error; empty means it is open. The single funnel for
     // every local open path: the CLI argument, the Open dialog and the

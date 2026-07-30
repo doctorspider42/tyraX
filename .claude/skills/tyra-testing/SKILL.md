@@ -12,18 +12,25 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a PROGRESS.md entry or
+  "how do I know this works?" — including before writing a commit message or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-PROGRESS.md about which layer you reached (the existing entries distinguish
-"verified in PCSX2" from "compiles, needs a pad test by a human").
+your commit message and PR body about which layer you reached — the established
+wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
+human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
+the honesty convention outlived the file.)
 
 ## Layer 0 — build the editor
 
@@ -88,7 +95,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+build scripts** needs a build on both, or say so in the commit. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -560,11 +567,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in
-  PROGRESS.md and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in the
+  commit and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -906,7 +913,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in PROGRESS.md, that's the established convention.
+  problem) - say so in the commit message, that's the established convention.
 
 ### The unattended input test, end to end
 

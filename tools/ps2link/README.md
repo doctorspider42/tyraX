@@ -71,7 +71,9 @@ iomanX device and `PS2MouseInit()` spins forever on an RPC server that never
 registered, freezing the boot on the Tyra logo. Loading them at ps2link's own
 clean boot (right after its IOP reset, `usbd` first) leaves the drivers and
 their RPC servers resident before any game runs, so the game just **reuses**
-them. The saga is in [PROGRESS.md](../../PROGRESS.md) entries 91–95 and
+them. The saga was written up as entries 91–95 of the retired `PROGRESS.md`
+(readable from git history — see [docs/backlog.md](../../docs/backlog.md)); the
+standing documentation is
 [docs/keyboard-mouse.md](../../docs/keyboard-mouse.md).
 
 The baked-in drivers live on the IOP ps2link keeps resident, so a game that
