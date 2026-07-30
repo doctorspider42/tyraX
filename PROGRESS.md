@@ -728,862 +728,12 @@ Each finished feature lands as its own commit.
      RENUMBERED to 225-231 when the two met.
      And once more here: this branch ran 232-246 while main took 227, 232 and
      233 for the credits editor, the vendored-license sweep and the flow-graph
-     zoom fix, so 232/233 appear twice. All kept.
-     And once more for the Character Generator batch: it was written against
-     176 and numbered 177-200, while main had meanwhile taken 177-183 and
-     187-200 for its own batches, so all of those appear TWICE. All kept - the
-     numbers are labels for the prose, not identifiers anything resolves, and
-     renumbering two dozen entries in a merge is how cross-references rot.
-     Continue from 251 (main is at 247, the weapons branch holds 247-249 and
-     its review pass took 250). -->
+     zoom fix, so 232/233 appear twice. All kept. Continue from 247. -->
 - (nothing — remote collaboration v1 (113-118) is complete; internet
   exposure for sessions is deliberately deferred, see Backlog)
 
 ## Also done after the marathon
 
-- (255) **Second review pass on the Character Generator branch: what a
-  malformed input file could do.** (251) covered the platform and licensing
-  debt; this one reads the same diff asking only "where does data from outside
-  the program get believed?". Six places, and the first three were memory
-  safety rather than robustness.
-
-  **A fetched OBJ could write past the end of a heap array.** Face indices from
-  `loadBaseMesh` reached four consumers in `chargen.cpp` - the body and garment
-  normal accumulators and the two vertex expanders - and every one of them
-  indexed the vertex array **raw**. The meshes are third-party files pulled over
-  the network by `setup.ps1`/`setup.sh`, so a truncated or tampered download was
-  a heap write, not a bad render. Validated once now, where the indices enter
-  the program, and the file is **rejected** rather than clamped: a proxy mesh
-  whose faces do not match its vertices is not something a body can be fitted
-  to, and silently repointing a corner at vertex 0 would deform the character
-  in a way nobody could trace back. A missing UV (`f 1//2`) stays legal.
-
-  **A proxy's delete-range was expanded before anything checked it.**
-  `0 - 2000000000` in a `.mhclo` pushed two billion ints before the base mesh's
-  actual vertex count was ever consulted. Bounded by what the reference mesh
-  can contain.
-
-  **A mocap take's header was believed.** `frameCount` and `duration` came
-  straight out of the file and drove a `reserve` and the sample-time loop; a
-  hand-edited 100-byte take claiming `0xFFFFFFFF` frames asked for roughly 17 GB
-  per channel across up to 4096 channels, throwing `bad_alloc` out of a loader
-  whose callers do not catch. A frame is a fixed size, so the file itself gives
-  the bound - remaining bytes divided by frame stride - and an implausible
-  duration is refused too.
-
-  **A single NaN from the phone would break the whole session, not one frame.**
-  The normalization helpers downstream guard the zero-length case (`len < 1e-12`),
-  which is *false* for NaN, so a NaN quaternion divided through into the node
-  transforms and then survived in `PoseFilter::Joint::value` until `reset()`.
-  Frames are now rejected at the one place wire data becomes floats.
-
-  **`fitProxy` pulled vertices toward the origin.** Skipping an out-of-range
-  barycentric reference dropped its weight on the floor, so the remaining
-  weights summed to less than 1 and the vertex was dragged toward `(0,0,0)` by
-  the shortfall - the collapsing-mesh look, on positions rather than skinning.
-  Renormalized over the references that survive.
-
-  **`twoBoneIk` divided by zero on a degenerate limb**, and `findRig` will
-  happily produce coincident hip/knee/ankle nodes on an imported rig, so the
-  NaN had a real route out through the node transforms.
-
-  **A rebind mid-recording silently ruined the take.** The recording buffers use
-  the source's joint count as their stride, and a phone reconnecting mid-take
-  sends a fresh `bodyrest` straight into `mocapRebind()`. Either the stride
-  changed and `writeTake` later rejected every recorded frame, or the new
-  skeleton happened to have the same joint count and the file was written mixing
-  frames from two different rest poses under one rest-pose header. It now stops
-  the recording and says how many frames it discarded.
-
-  **The PS2 budget was informational only.** Nothing clamped the total: each
-  garment is decimated against its own slot budget with no view of the sum, and
-  the body's 1460 triangles are simply whatever `proxy741.obj` contains. A
-  dressed character on *High* lands several times over the figure the docs and
-  the UI quote, and the readout looked identical whether you were inside the
-  budget or four times outside it. Now warns past ~3000 - a warning and not a
-  refusal, because which garment to thin is an authoring decision. While
-  measuring this, found and documented a real discrepancy rather than papering
-  over it: for a closed garment the budget behaves as a **vertex** count
-  (`decimateSkinned` forwards it to `meshlod::decimate`, whose target is welded
-  vertices), while hair's `thinCards` really does count triangles - two
-  readings ten lines apart in `chargen.cpp`, still unreconciled.
-
-  **One block was already dead.** The ARKit double-heading detection in
-  `mocap::load` sat *after* `rot` was moved into the clip, so it read
-  moved-from husks: `worst` was always 0, the warning never fired, and the
-  repair wrote into channels nothing would ever read again. Moved above the
-  move, where it does what its comment claims.
-
-  **Verified:** editor builds Dev, exit 0. No Docker build - nothing here
-  touches codegen. **Not** verified: none of it ran in PCSX2 or on Linux, and
-  the malformed-input paths are argued from the code plus a compiler, not
-  driven with actual corrupt files - a fuzz pass over `loadBaseMesh`,
-  `loadProxy` and `mocap::load` is the honest next step and is not done.
-
-- (251) **Review pass on the Character Generator branch: the CC0 paperwork, and
-  a feature that was quietly Windows-only.** Found by reading the branch's diff
-  against main before it lands, not by a report.
-
-  **The Character Generator did not work on Linux at all**, and nothing said
-  so. `deps.ps1` carried the whole 138-file MakeHuman list and `setup.ps1`
-  fetched it; `deps.sh` and `setup.sh` had **no MakeHuman entry whatsoever**.
-  This is the exact failure the paired-list rule exists to prevent, and it is
-  the largest single instance of it so far - not a missing flag but a missing
-  feature, on the platform the author does not use. `deps.sh` now has the twin
-  (`tyrax_mh_files`, populated combinatorially the way deps.ps1 builds
-  `$MhFiles` with nested foreach) and `setup.sh` the twin fetch loop, with the
-  same resume-per-file behavior. Verified the two lists are byte-identical by
-  dumping both and diffing: 138 entries each, no duplicates, same URLs and same
-  destination paths - the recipe for that check is now in the tyra-testing
-  skill, because eyeballing two 90-line generators is not a check.
-
-  **The licensing paperwork was missing**, and one existing sentence had become
-  false. `THIRD-PARTY-LICENSES.md` said "TyraX ships no third-party assets
-  today" and had no MakeHuman row; `NOTICE` did not mention the data at all.
-  Both now do. Being precise about what is and is not an obligation: CC0 is a
-  public-domain dedication and requires **no** attribution, so the credit is
-  courtesy, not compliance - but the repo's own dependency policy (README rule
-  4, added by main in the meantime) requires an asset pack's status to be
-  documented file-by-file, and the genuinely load-bearing fact is the split
-  MakeHuman has: **the data is CC0 while the program around it is AGPL-3.0**.
-  That distinction is now stated where someone would look before adding to the
-  fetch list, along with the note that the fetched `LICENSE-CC0.txt` puts the
-  release text next to the data. Also corrected: the fetch is not "shipped" -
-  it is an optional download into a git-ignored directory, and the editor
-  builds and runs without it.
-
-  Also checked and deliberately NOT changed: the branch does **not** add a
-  second phone transport (one `wire::makeWebSocketTransport`, in
-  `phonecam.cpp`, with `body: true` at hello distinguishing the mocap app from
-  the camera app - one port, one pairing code), and characters correctly go out
-  as `.glb` into the existing animated pipeline rather than `.tmdl`, which is
-  the STATIC model format and wrong for a skinned rig.
-
-  **Verified** (Layer 2): editor builds clean, Release and Dev, exit 0; a
-  fresh third-person scratch project builds in Docker to a linked ELF, exit 0.
-  Both `deps.sh` and `setup.sh` pass `bash -n`. **Not** verified: nothing here
-  was run on Linux (only one platform's compiler runs at a time) and nothing
-  was run in PCSX2, so the Linux fetch owes a human one `./setup.sh` on a Linux
-  box. Docs: `THIRD-PARTY-LICENSES.md`, `NOTICE`, `README.md`,
-  `docs/character-generator.md`, tyra-testing skill.
-
-- (200) **Retargeting onto a rig somebody else made.** Owner asked whether a
-  take captured for a generated character could drive a Mixamo model too, or
-  whether he was out of luck - and whether calibration might rescue it.
-  Neither: it was a real limitation of mine, and calibration could never have
-  touched it, because that fixes the pose the SOURCE is measured against while
-  this is the TARGET's bind.
-  Generated characters bind with identity rotations by construction, and the
-  retarget was written against that - `findRig` composed bind positions from
-  translations alone, with a comment saying exactly why. Measured on the owner's
-  Mixamo character: **43 of 80 nodes carry a real bind rotation and the thigh is
-  at a full 180 degrees**. Composing its bone positions without them puts every
-  joint somewhere it is not, which then poisons the rest-direction correction
-  and everything built on top.
-  Bind rotations are composed now, and a bone's world orientation is
-  `delta * restFix * bind`. With an identity bind that is the previous formula
-  character for character, which is the point: the generated-character contact
-  sheet is unchanged, and the Mixamo model - which used to be unusable - now
-  stands in the same clean T-pose from the same take.
-  Worth stating: this was never about mocap. Any retarget onto a downloaded rig
-  was wrong in the same way, including a Mixamo animation library imported
-  through the Character Generator; nobody had pointed one at a non-generated
-  TARGET before.
-
-- (199) **The heading was also being applied in the wrong FRAME.** Repairing
-  the doubled heading (198) left the character still tumbling, which said the
-  duplicate was real but not the whole story - and the rest was a
-  non-commutativity mistake of mine, one character wide.
-  The relative heading was composed as `conj(A0) * At`. That expresses the turn
-  in the FIRST FRAME'S ANCHOR BASIS, and ARKit's anchor basis is not the
-  world's - it is the same convention that makes "hips -> spine" measure
-  sideways rather than up (195). The character's bind is in world space, so it
-  was being handed a rotation about axes ninety degrees off its own: a body
-  given that does not turn, it topples. It is `At * conj(A0)` now, which is the
-  same turn expressed in the world both rigs actually share.
-  Both halves are needed and neither alone is enough, which is why the first fix
-  looked like it had failed. Verified against the T-pose take, where the answer
-  is known: still perfectly upright, arms level - the change does not disturb a
-  take whose anchor barely moves, and rescues one whose anchor swings 160
-  degrees.
-  Takes recorded by the older code are **repaired on load** rather than
-  rejected: ARKit holds `hips_joint` at its rest value for a whole take, so
-  anything else in that channel is the folded-in heading, and putting the rest
-  value back removes the duplicate exactly. Asking somebody to perform a take
-  again for a defect in the recorder is the wrong way round.
-
-- (198) **The heading written twice: a recorded take that tumbles.** Live
-  preview correct, the SAME motion re-imported doing somersaults - which
-  localises the fault precisely, since only what reaches the file can differ.
-  `hips_joint` swings **160.9 degrees** in the offending take. ARKit does not
-  move that joint - not "hardly", but constant to the last float bit across
-  whole takes in which the performer turned a full circle, because the heading
-  lives on the anchor. So the heading had been folded into the hips AND stored
-  in the anchor slot, and the loader applied it twice.
-  The cause was a condition doing two jobs: `mocapVision_ && src ==
-  mocapFrameRot_` decided whether to store the improved frame, but `src` also
-  points at that buffer once the HEADING has been composed into it. With Vision
-  on, the composed frame went to disk. Recording now stores the frame as
-  improved with the hips rotation put back to raw - Vision's contribution kept,
-  the heading left in the one slot that owns it.
-  **I had tested this hypothesis and cleared it**, on the older take, which had
-  been recorded when the condition happened to be false: hips swing 0.0, theory
-  discarded. The right question asked of the wrong file. The loader now refuses
-  to be quiet about it - a take whose hips joint rotates more than 5 degrees is
-  flagged on import, because that signature is impossible in real ARKit data and
-  finding it a third time from a screenshot would be nobody's good afternoon.
-
-- (197) **A take that forgets how it was captured leans like a famous tower.**
-  Loading a clip recorded through the editor gave a character tilted about
-  thirty degrees. Measured on the file: `hips_joint` was constant, so the
-  heading had NOT been written twice as first suspected - the lean was in the
-  SPINE, 10.0 + 11.4 + 8.6 degrees off ARKit's neutral figure at frame zero,
-  accumulating up the torso.
-  So it was the uncalibrated rest pose again, in a new place - and with a
-  specific design fault behind it: `writeTake` was handed ARKit's neutral
-  skeleton as the take's rest pose no matter what, even when the session that
-  produced it had been calibrated. The calibration lived in the session and died
-  with it, so a take recorded from a perfectly good session came back wrong the
-  moment it was re-opened. The format has always had the slot; it is written
-  now, and the note says CALIBRATED or UNCALIBRATED so nobody has to wonder
-  which kind of file they just made.
-  Also: the Mocap preview starts face-on rather than at the Character
-  Generator's three-quarter angle. There you judge a silhouette; here you are
-  watching somebody standing square to a camera, and a quarter turn between the
-  two is exactly the confusion to avoid.
-
-- (196) **The last mile: a recording that can become an animation, and two
-  chicken-and-egg bugs.** Owner: "I recorded a clip, where did the animation go
-  and how do I put it on a model?" - a fair question with no good answer.
-  Recording wrote a `.tmocap` into `res/mocap`, and the only route onto a
-  character was the Character Generator's *Import clips...*, which rebuilds a
-  GENERATED character from its sliders. The model already in the scene - the one
-  being posed in that very window - had no route at all. **Add as a clip** does
-  it now: retarget the open take onto the chosen model and write it back into
-  that model's `.glb` beside the clips it already has. The model is re-read from
-  disk rather than reusing the on-screen copy, whose nodes carry the live pose;
-  baking that would fold the current frame into the rest pose.
-  **Two bugs with the same shape**, both reported and both real: Calibrate stayed
-  greyed out, and the preview did not come up when the link was started. The
-  whole live path sat inside `if (mocapBind_.valid())` - so the code that CREATES
-  the binding only ran when a binding already existed, and the newest frame that
-  Calibrate captures was only kept in there too. A phone connecting after the
-  character was picked therefore did nothing at all. The live handling is outside
-  that guard now, the newest frame is kept whether or not anything is bound, and
-  calibrating is explicitly not gated on a binding - requiring a good binding
-  before you may calibrate is backwards, since calibrating is what makes one.
-  Also: the phone's two buttons became one (v1.0.10). Calibrating already
-  re-zeroes the origin, so Zero never did anything Calibrate did not - two
-  buttons for one intent. The countdown beside it is what makes it a one-person
-  job: prop the phone up, press, walk into frame.
-
-- (195) **The 90-degree pelvis - "like a twisted gut".** A performer standing
-  perfectly still with the arms out came through with the legs crossed and the
-  torso wrung around its own waist. It reproduced identically from the live link
-  and from a 1.6-second recording in which no joint moved by more than two
-  degrees, which ruled out the performance and left the code.
-  Printing where each bone POINTS at rest, on both rigs, found it in one row:
-  "hips -> spine" measures **(0.00, 0.94, -0.34)** on the generated rig and
-  **(-1.00, 0.00, 0.00)** on ARKit's - **ninety degrees apart**, because the two
-  express a root frame differently, not because anybody is posed differently.
-  `restFix` dutifully rotated the pelvis by that and held it there for every
-  frame, while the legs kept their own ~6-degree correction; a body wrung around
-  its waist is exactly what that produces.
-  The hips are excluded now, and the reason generalises: **the root has no bone
-  direction to correct** - its orientation IS the body's, which the delta already
-  carries. Everything below is a real bone with a real direction, and there the
-  correction earns its place: the arms measure 49 degrees apart, the genuine
-  T-pose-versus-A-pose difference it was written for.
-  Worth noting how long this survived: the arms were fixed by this same
-  mechanism in (186), the mechanism was right, and nobody thought to ask whether
-  it applied to the root. The measurement that found it took one harness and one
-  run - it was never a hard question, only an unasked one.
-  Also in: a **delay** on Calibrate (none / 3 / 5 / 10 s, cancel by pressing
-  again), because nobody can press a button and be in a T-pose at the same
-  instant and with the phone on a tripod that is the only way to do it alone;
-  and calibration now works on a **recorded take** as well, on the frame under
-  the playhead - which is what recording somebody standing in a T-pose is for,
-  and which the live-only version could not use.
-
-- (194) **Calibration: measure the performer's rest pose instead of assuming
-  one.** Owner's verdict on the live link was "unusable", and the cause was the
-  thing every frame is measured against. Retargeting is a delta from a REST
-  POSE, and that pose was ARKit's `neutralBodySkeleton3D` - a nominal figure out
-  of a catalogue. Everything a real person differs from it by, in proportions
-  and in stance, was a CONSTANT error present in every single frame, which no
-  amount of per-frame correctness could remove.
-  **Calibrate (T-pose)** replaces the assumption with a measurement: the
-  performer stands in a T-pose facing the camera, that frame is captured, and the
-  binding is rebuilt with those rotations as the source bind. The change in the
-  code is tiny and that is the point - `prepareLive` already takes the rest pose
-  from the source Skel, so calibrating means handing it the measured rotations
-  instead of the catalogue ones. Bone OFFSETS are kept: limbs do not change
-  length between the catalogue and the room, only their resting angles do.
-  Everything downstream follows for free - `restFix` is computed from the same
-  bind, so it now aligns the character to THIS performer's T-pose, and the
-  height comes off their actual standing pose rather than the reference figure's.
-  It is also the heading zero, because at that instant they are facing the
-  camera by construction.
-  **The buttons are on the phone as well** (v1.0.9), over the command channel
-  that already carried record/stop/recenter. The performer is the one standing
-  in the pose and the one who knows when they are ready; walking back to a
-  keyboard mid-pose defeats the point of calibrating on that pose. `mocapZero`
-  and `mocapCalibrateFromPhone` are one implementation each, called by both the
-  window and the wire, so the two cannot drift.
-
-- (193) **A Mocap layout, and the Phone Link window that would not open.** The
-  window, its menu item and its whole body existed; nothing ever CALLED
-  `drawPhoneLinkWindow()`, so the menu set a flag no frame read. A missing call
-  is not a compile error, which is why the build stayed green and the failure
-  surfaced on a click - the one class of mistake nothing in this session's
-  toolchain catches. (Cause worth recording: several UI edits went in through a
-  script that writes only after all its patterns match, and a single stale
-  pattern silently discarded the whole batch.)
-  The layout itself, after the owner sent back what he had actually arranged:
-  the Mocap window takes the MIDDLE, tabbed with the Viewport and focused,
-  because it carries its own 3D preview of the character being driven - the
-  first attempt put it in a side column and squeezed the one thing anyone
-  watches. Phone Link is the opposite shape, all controls and no picture, so it
-  gets a narrow full-height column where the address and pairing code stay
-  visible instead of hiding behind a tab. Output along the bottom, because
-  during a session the useful diagnostics are printed rather than drawn. The Director gets Phone Link as well - recording a camera move is
-  the other thing a paired phone does.
-  Existing projects are topped up on load, because `seedBuiltinLayouts` only
-  runs for new ones and the layout would otherwise be visible to nobody who
-  already had a project open. Appended, never merged, so a layout of the user's
-  own is untouched.
-
-- (192) **The link gets its own window.** Owner's objection, and a fair one:
-  pairing a MOCAP session meant opening *Tools > Phone Camera*, a window whose
-  other four sections are preview JPEG quality, which Camera entity to view
-  from, and recording into cutscene keyframes. None of that has anything to do
-  with body capture.
-  The technical decision underneath is still right and is unchanged - one
-  server, one port, one pairing code, because two links would mean two codes to
-  type and a fight over 7798. What was wrong is that shared infrastructure was
-  living inside one of its two consumers. *Tools > Phone Link* now owns hosting,
-  the address, the code and the connected device; Phone Camera and Mocap each
-  show a one-line summary and a way in, and keep only what they actually use
-  (the pose stream stays with the camera, since that is what rides on it).
-  The new window also says which consumer a connected device is feeding, read
-  from what the app sent at hello rather than offered as a switch - the phone
-  decides that by being the app it is.
-
-- (191) **The shake, taken out without taking the movement with it.** Monocular
-  tracking re-estimates every joint from scratch each frame, so a performer
-  standing perfectly still arrives shimmering and the retarget passes that on
-  faithfully. Averaging fixes it and ruins everything else - smoothing strong
-  enough to settle a still hand puts visible lag on a punch.
-  `posefilter` is a one-euro filter whose cutoff RISES WITH SPEED: slow movement
-  is mostly noise and is filtered hard, fast movement is mostly signal and is
-  barely touched. Measured against a known signal at 2.5 degrees of joint noise:
-  standing still goes from 1.85 to **0.48** degrees of jitter and from 1.22 to
-  **0.58** of error - four times calmer AND twice as faithful - while a fast
-  punch pays three degrees of error and **zero frames of lag**.
-  **Two mistakes worth recording, both caught by measuring rather than looking.**
-  The textbook derivative cutoff of 1 Hz is tuned for a mouse pointer; at that
-  value the speed estimate cannot follow a 2 Hz gesture, the main cutoff never
-  opens in time, and the filter sat **18 degrees behind a punch**. And the first
-  parameter sweep weighted jitter and error equally, which scored the filter
-  barely better than doing nothing - a result that said everything about the
-  weights and nothing about the filter. Reweighted the way an eye actually
-  weights the defects (shimmer on a standing figure is the most visible thing
-  there is; three degrees of lag mid-punch is invisible), the optimum moved off
-  the grid edge and became obvious.
-  Quaternion trap, same as everywhere in this module: q and -q are the same
-  orientation and blending the two goes the long way round, so every input is
-  aligned to the filter's state before it is touched. And the filter is TIME
-  based, not frame based, so a dropped frame does not change how much it smooths.
-  It is reset wherever root motion is - Recentre now clears the filter and the
-  Vision tracker along with the origin, because a stream that JUMPS has not
-  moved and smoothing across the gap drags the character through it.
-
-- (190) **The head and the hands, from a framework ARKit is not.** "It just
-  does not give hands and that is that?" - no. ARKit's body tracker reports
-  those joints without solving them, but hand and face tracking on iOS live in
-  **Vision**, which runs over the same camera frames the same session is already
-  producing. The app (v1.0.8) now runs it at 12 Hz alongside the body tracker
-  and sends what it sees; `src/visionpose.cpp` turns landmarks into rotations
-  for `head_joint` and the two wrists and writes them into the SOURCE frame, so
-  the retarget downstream never learns a second framework was involved.
-  **The phone sends observations, the editor solves** - and that is the whole
-  reason the geometry is C++. It can be tested here against synthetic data with
-  no device in the loop, and a wrong convention costs an edit instead of a
-  build, a tag, an AltStore round trip and a reinstall. The harness earned it
-  three times over:
-  (a) **matching projected DIRECTIONS cannot work.** Two directions are two
-  constraints on three unknowns; eight of nine synthetic cases came back wrong
-  by 24 to 166 degrees. Foreshortening is the third constraint, so the fit uses
-  the vectors with their LENGTHS and solves for the one unknown scale - which is
-  also why no intrinsics are sent, since only the ratio matters and distance and
-  focal length cancel.
-  (b) **a plane cannot be told from its mirror.** The wrist and three knuckles
-  are coplanar, so two poses fit equally well forever. The THUMB sits off that
-  plane and is on the wire for no other reason; five failing cases became one.
-  (c) **the rest-pose tie-break had to become ten times weaker** - at 0.02 it
-  dragged correct answers home by 8 to 19 degrees. Its only job is separating
-  poses that are genuinely indistinguishable.
-  **Measured**: clean geometry with the camera anywhere, <= 1.2 degrees;
-  realistic landmark noise, 4.8; a small hand at 0.5% of frame, 10; past 1% the
-  mirror wins and it breaks. Frame-to-frame tracking pays at the noisy end - at
-  0.5% it takes the worst case from 95.7 to 49.5 degrees and JITTER from 15.8 to
-  6.8, which is the part anyone sees.
-  Two conventions are load-bearing on the wire and both are written into
-  PROTOCOL: the image ASPECT is sent because Vision normalizes both axes to
-  [0,1] independently (a 4:3 capture arrives a third too tall, which would tilt
-  every direction the solver reads), and hands are sorted left-to-right in the
-  IMAGE rather than by Vision's chirality, which is unreliable at the distance a
-  full-body shot needs - the editor knows where both wrists really are.
-  A recorded take now stores the SOLVED frame, because the solve is part of
-  acquiring a pose rather than of moving it onto a character; storing the raw one
-  would silently lose the head and wrists on re-import.
-  *Unverified*: the phone half. CI builds it; whether Vision finds a hand at the
-  distance a whole body needs is the owner's next test, and the Mocap window says
-  how many joints it is actually driving so the answer is visible rather than
-  guessed.
-
-- (189) **Feet on the floor: a ground solve for every retarget.** The owner's
-  brief was "the most expensive possible solution, take an epoch, as long as the
-  result knocks you off your feet", and the feet were the place to start: it
-  needs no new capture, it is entirely host-side, and it is the most visible
-  thing wrong with a retargeted pose.
-  **Rotations do not know where the ground is.** That is not a mocap problem, it
-  is a retarget problem - a clean Mixamo clip on a body of different proportions
-  sinks the ankle exactly as happily. On the owner's take the character's foot
-  went **147 mm through the floor**, slid 36 mm a frame while standing, and sat
-  37 degrees off level because ARKit never solves the ankle and the foot follows
-  the shin rigidly.
-  `GroundOptions` decides per frame whether each foot is STANDING - low enough
-  and slow enough - and if it is, puts the ankle back where it was set down,
-  levels the sole to the heading it was set down with, and bends the leg with a
-  two-bone solve to reach. Four choices are load-bearing: hysteresis in BOTH
-  directions (a foot hovering at one threshold flickers every other frame); the
-  IK ROTATES the world rotations the pose already had rather than rebuilding
-  them, so whatever twist the source put in the leg survives; the knee pole comes
-  from the pose itself, because an invented direction flips the joint; and the
-  leg may never straighten completely, since at full extension there is no knee
-  direction left to solve with.
-  **Measured, on the real take**: planted-foot slide 36.4 -> **0.9 mm** mean,
-  deepest through the floor 146.8 -> **4.0 mm**, sole off level 37.3 -> **1.0
-  deg** mean. The peak sole angle stays 61 degrees and that is the intent - it is
-  the single frame of first contact, before the ease-in runs.
-  **The control mattered more than the result.** Run against the generated walk
-  cycle, the solve came back a bit-exact no-op - which turned out to be because
-  the procedural clips are authored by `addLocomotion` and never touch the
-  retarget path at all. They measure 22.7 mm of slide and 20 mm through the
-  floor, so they would benefit; they are still left alone, deliberately, because
-  a stateful plant across a clip that has to LOOP seamlessly risks breaking a
-  shipped feature for a gain invisible at PS2 range. Stated rather than silently
-  skipped.
-  **One scare, resolved by arithmetic.** In that take the character's left foot
-  never comes within 94 mm of the floor while the right goes 147 mm through it -
-  a 240 mm asymmetry where the source has only 23 mm. The character's rig is
-  symmetric to 0.00 mm, and the hips bob 177 mm in that recording: a small
-  difference in each leg's maximum extension becomes a large difference in how
-  low each ankle ever gets, whenever the moments of full extension and of low
-  hips do not coincide. The performer stood on his right leg with the left held
-  bent. A foot that is never put down is never planted, which is correct.
-
-- (188) **Four complaints about the first live session, one bug.** The owner
-  pointed a phone at a person, watched the character copy them, and reported:
-  the legs are shuffled, the hands do not move, the head does not move, and the
-  character never turns round. Each was measured out of his own 9.5-second take
-  rather than guessed at, with a throwaway reader that asks only "what actually
-  MOVES in this recording".
-  **The heading is on the ANCHOR, not on the hips joint.** Across a take in
-  which he walked a full circle, `hips_joint`'s own rotation was constant *to
-  the bit* while the anchor swung 177 degrees and its heading covered 358. Both
-  paths kept the anchor's position and dropped its rotation, so a performer
-  walking a circle retargeted as one marching on the spot. Composed onto the
-  hips now - on decode for a file, in the Mocap window for a live frame - and
-  everything below inherits it. `writeTake` stores it too, or recording a live
-  session would lose the turn a second time. The phone sends it as four floats
-  beside the hips position; the `.tmocap` file already carried it and nobody was
-  reading it.
-  **The hands, head and feet are not a bug.** Over 277 frames both wrists, both
-  ankles, both toe joints and the head-relative-to-neck never changed by a float
-  bit. ARKit *reports* those joints and does not *solve* them. There is nothing
-  to fix in the retarget, so `mocap::load` now measures it per take and says
-  which bones the source never moves - "the source has no wrist data" and "the
-  retarget is broken" look identical on screen, and only one of them is worth
-  anyone's afternoon.
-  **The legs were the retarget being right.** A second harness compares, per
-  frame, the angle between the performer's bone and the character's after
-  retargeting: **0.0 degrees on every limb**. The pose was exactly what the
-  source said. What made it read as shuffled was the missing heading (a torso
-  that never turns while the legs step around it) plus rigid ankles pointing the
-  feet like a dancer. Worth keeping: when a retargeted pose looks wrong, that
-  angle decides in one run whether to debug the code or the data.
-
-- (187) **The phone-side sender: the live link actually streams** (tyrax-mocap
-  v1.0.4). (184) and (185) built the editor's half - the transport, the window,
-  the per-frame retarget - against a feed nothing was producing yet. The app now
-  produces it: a LIVE LINK row (editor address + the six-digit pairing code,
-  remembered between launches), and the generated character copies the performer
-  as they move. The loop this closes is the one the owner named - record,
-  AirDrop, import, discover it was wrong, repeat.
-  **Rotations only, and that is the whole design of the wire.** Bone lengths do
-  not change during a take, so the rest pose sent once at connect (`bodyrest`)
-  covers the translations; a frame is 4 floats a joint instead of a 4x4 matrix,
-  ~1.5 KB against the file format's 5.8 KB, which is what makes 30 Hz over Wi-Fi
-  unremarkable. The editor drops any `body` that arrives before `bodyrest` - not
-  as a safety check but because there is genuinely nothing to say which rotation
-  belongs to which joint, and nothing to take the retarget's delta against.
-  **The split follows tyrax-cam**: Swift packs the frame and hands it to
-  JavaScript as base64 (the RN bridge carries no binary), JavaScript owns the
-  WebSocket. Same server, same port, same handshake as the camera app - `body:
-  true` at hello is the only thing that distinguishes them, which is why neither
-  app needed a second listener.
-  **One bug caught by reading the editor instead of testing against it**: the
-  client waited for an `ok` that `phonecam.cpp` never sends - the handshake
-  answers `welcome`. It would have connected and then sat there silently, which
-  is the failure mode a protocol in two repositories produces.
-  **The editor gained one thing the phone half exposed**: the Mocap window now
-  binds to the live skeleton *on sight* (`phonecam::bodySkeletonSeq`, bumped per
-  `bodyrest`) instead of waiting for the Rebind button. Picking the live source
-  before the phone connects is the NORMAL order, and a window whose only
-  feedback was "waiting for the phone's skeleton" - forever, because nothing
-  retried - would have read as broken. The sequence is claimed before the build
-  that might reject it, so a malformed skeleton fails once rather than every
-  frame.
-  *Unverified*: the phone half needs the device. CI builds it; whether ARKit's
-  packed rotations land right on a real performer is the owner's next test.
-
-- (186) **Two retarget bugs the first real phone take exposed.** A 9.5-second
-  ARKit recording from the owner's iPhone came out, in his words, completely
-  broken: the character flew off the top of the screen and its arms were folded
-  across its chest. Both causes were measured out of the file rather than
-  guessed at, and neither was in the data - the take was well formed, every
-  mapped joint name existed, and rest and frames were in the same space.
-  **(a) The performer's height was measured wrong by 13x.** `buildSource`
-  summed the Y components of local translations down the chain, but ARKit
-  expresses a bone's offset in its parent's ROTATED frame - the thigh-to-shin
-  offset reads `(0.42, 0, 0)`, along the bone's own X. A 1.713 m performer
-  measured as **0.130 m**, so `heightScale` came out ~13 and every hips
-  translation was multiplied by it. Composing the full transform fixes it.
-  **(b) The two rigs rest differently, and a delta retarget assumed they did
-  not.** Measured: ARKit's rest arm direction is `(1.00, 0.00, -0.01)` - a true
-  T-pose - while the generated rig's is about `(0.55, -0.68, 0.29)`, an A-pose
-  already 40 degrees down. Transferring "80 degrees down from rest" onto a body
-  that starts 40 degrees lower lands it 120 degrees down, which is arms folded
-  across the chest. The binding now carries a per-bone `restFix` (`alignTo`
-  between the two rest directions) applied after the delta, so at rest the
-  character adopts the PERFORMER's pose - a performer standing in a T-pose puts
-  the character in one, which is what retargeting should mean.
-  **Why nothing caught this earlier, which is the useful part.** The synthetic
-  `.tmocap` test wrote the file with the same mapping it read back, so it could
-  only ever prove self-consistency. The Mixamo library did have the same
-  A-pose/T-pose mismatch, but its clips are a sword guard - the arms are never
-  straight down, and a systematic 40-degree shoulder offset is invisible in a
-  combat stance. And the live/clip equivalence harness proves the two paths
-  agree, not that either is right. It took real data of a person standing
-  normally.
-  Verified on that take: the character stays in frame across the whole clip and
-  the first frame has its arms hanging at its sides. The equivalence harness
-  still passes over it (0.48 micrometres, 143 frames).
-
-- (185) **Tools > Mocap**: a performer drives a character in the editor. Pick an
-  animated model, pick a source - a recorded `.tmocap` played back, or the live
-  phone link - and the character is posed as frames arrive, in the window's own
-  preview (the Character Generator's multi-part preview path, so clothes and
-  hair come along).
-  **The file source is not a mock of the live one, it is the live one with a
-  different feed**: both end in the same `mocapApplyFrame` -> `charanim::
-  applyLive`. That is deliberate. A streaming feature that only runs when a
-  phone is in the room is a feature nobody can debug, and the equivalence
-  harness from (183) already proves the two feeds produce identical poses.
-  **Recording writes a `.tmocap`, not a clip**, and only from the live source
-  (a file is already a take). It buffers the SOURCE frames rather than the
-  retargeted pose - a take is reusable on any character, a baked pose is not -
-  and the result imports through the Character Generator like any other take.
-  `mocap::writeTake` is the editor's half of the format the phone writes on
-  device; per-joint translation comes from the rest pose, since bones do not
-  change length mid-take.
-  Also: `Recentre` calls `resetLiveOrigin` - the thing (183) discovered the live
-  path needed - for when tracking is lost and regained.
-  **Verified**: builds clean, the window opens and renders (editor screenshot),
-  and the motion path underneath is the numerically proven one. What is NOT yet
-  verified is the click-through (picking a model and a take), which needs a
-  human at the GUI, and the live source, which needs the phone-side sender that
-  does not exist yet.
-
-- (184) **The body-tracking half of the phone link.** The SAME
-  `phonecam::Link` carries it - one server, one port, one pairing code, and the
-  phone says at hello what kind of client it is. Two links would have meant two
-  codes to type and a fight over 7798.
-  Two message types: `bodyrest` once when a device connects (joint names and the
-  tree in the JSON, the rest pose in the BINARY trailer - floats have no
-  business going through a reader that collapses escapes) and `body` per frame
-  (rotations in the trailer, hips position and timestamp in the JSON). A frame
-  arriving before the skeleton is dropped: there would be nothing to say which
-  rotation belongs to which joint.
-  **The rest pose is why the skeleton is sent at all** - retargeting is a delta
-  against the source's own bind, so a stream of absolute rotations cannot move
-  onto another body. It is sent once because it is ~90 joints of names and
-  transforms.
-  `mocap::buildSource` was lifted out of the file reader so both halves build
-  the source Skel the same way: a pose off a socket and a pose out of a `.tmocap`
-  become the same `glbparser::Skel`, and `charanim::prepareLive` cannot tell
-  them apart. The equivalence harness still passes through the refactor (0.12 µm
-  over a `.tmocap` source, 0.48 µm over the Mixamo one).
-  Still to come: the editor's Mocap window (puppet target, record) and the
-  phone-side sender.
-
-- (183) **Per-frame retargeting, and the phone-camera branch merged in.** The
-  live mocap streaming that comes next needs both halves - `phonecam::Link` for
-  the transport, `charanim::retarget` for the motion - and neither had landed on
-  main, so the camera branch merges here rather than racing. Every conflict was
-  "each branch added its own thing beside the other's" except `kLayoutWindowKeys`,
-  where keeping both sides would have left two array literals.
-  **`retarget()` is now implemented on top of a per-frame function** rather than
-  beside one: `prepareLive` builds the (source rig, character) binding once -
-  joint mapping, source bind pose, height ratio - and `applyLive` turns one
-  frame of source rotations into the character's node transforms, which
-  `poseMesh(skel, -1, 0)` then skins. The clip path calls the identical
-  `frameFromSource`, so a streamed pose and a baked take cannot be two
-  implementations of one idea.
-  **The harness proves it rather than asserting it in a comment**: retarget the
-  Mixamo library to clips, prepare a live binding from the same source, feed it
-  the same instants, and compare the POSED VERTICES (not the quaternions - a
-  clip channel is sign-corrected, so `q` and `-q` legitimately differ while the
-  pose does not). First run: **6.6 cm apart**. The cause was worth finding - the
-  clip path rebases root motion on each clip's own first sample, while the live
-  binding kept the first frame it ever saw. That is a real gap in the live API,
-  not a test artefact: a stream needs re-origining whenever it JUMPS rather than
-  moves (tracking lost and reacquired, a different person stepping in, or just
-  "put the character back where I placed it"). `resetLiveOrigin` exists now, and
-  with the two paths told the same thing the worst difference over 117 frames is
-  **0.48 micrometres** - float rounding.
-
-- (182) **Motion capture from an iPhone** (docs/character-generator.md). A new
-  companion app - **[tyrax-mocap](https://github.com/doctorspider42/tyrax-mocap)**,
-  its own public repo, the sibling of tyrax-cam - records ARKit body tracking
-  into a `.tmocap` take; *Import clips...* in the Character Generator now
-  accepts one. Point a phone at somebody, record, AirDrop it, import. No suit,
-  no markers, no cloud.
-  **The editor side is 300 lines because (180) already existed.** `mocap.cpp`
-  decodes the file, renames ARKit's joints (`left_forearm_joint` ->
-  `mixamorig:LeftForeArm`) and hands over an ordinary source `Skel` - after
-  that it IS a Mixamo import, same retarget, same resampling, same channel
-  pruning. The ~40 joints the rig has no bone for (fingers, toes past the ball,
-  face) load and parent correctly and simply never match, which is how a
-  91-joint take lands as a ~23-channel clip.
-  Two decisions in the format are load-bearing: every take carries the
-  skeleton's **rest pose** (`neutralBodySkeleton3D`) - without it there is
-  nothing to take the retarget's delta against - and the performer's height is
-  read off that rest pose so the hips translation scales, rather than a 1.9 m
-  performer lifting a 1.55 m character off the floor. Matrix **scale is
-  dropped** on decompose: ARKit's skeleton-scale estimation puts the
-  performer's real limb lengths in the local transforms, and carrying that
-  across would stretch the character to match whoever stood in front of the
-  camera.
-  On the phone side the recording is buffered and written **in Swift**: a take
-  is 91 joints x a 4x4 matrix per frame (~5.8 KB), and pushing that across the
-  JS bridge 30 times a second would cost more than the tracking does.
-  **Verified without a phone, which is the point of the split**: a harness
-  writes a generated 1.92 m man's own walk cycle out as an ARKit-shaped take
-  (ARKit names, ARKit matrix layout, plus two joints nothing maps), reads it
-  back through `mocap::load` and retargets it onto a **1.55 m woman** - 24
-  joints in, 22 matched, a clean walk cycle out with the arm swing and stride
-  intact. The app itself is CI-verified only (JS bundle + unsigned iOS archive);
-  on-device capture needs the owner's iPhone 14 and an AltStore sideload.
-
-- (181) **`examples/character-generator`** - the demo for (177)-(180). Four
-  people built by the generator, deliberately spread across its axes (male
-  1.82 m muscular / female 1.66 m / older heavy-set / a 1.28 m child), all on
-  the same 23-bone rig with the same four clips. **You play one of them**: the
-  Player object's model is `hero.glb` and its locomotion clips are named
-  `idle`/`walk`/`run`/`jump`, which is all the setup a generated character
-  needs to be a working third-person avatar. The other three are ordinary
-  Model objects autoplaying their first clip. Generated at Detail: Low and
-  128² textures - four characters share one ~1.33 MB GS VRAM budget - and the
-  scene holds **50 FPS with 15 resident textures and no eviction**.
-  It also surfaced a real gap: `res/.gitignore`'s bake rules were anchored to
-  `/models/`, and the Character Generator is the first thing that writes into
-  `models/characters/` - so an unfixed project would have committed a megabyte
-  of `.tskl` per character plus the textures the bake unpacks from a `.glb`
-  that already embeds them. The template now ignores `*.tskl`/`*.tanm`/`*.tmdl`
-  at ANY depth plus `/models/characters/*.png`, with a `refreshGenerated`
-  migration for existing projects (the same shape as the `.tmdl` one). The
-  example commits 2.3 MB, of which 1.8 MB is the four authored `.glb` files.
-
-- (180) **Mixamo retargeting for generated characters**
-  (docs/character-generator.md). *Import clips...* in the Character Generator
-  retargets any `.glb`/`.fbx` animation library whose bones carry Mixamo names
-  onto the generated rig, replacing the procedural cycles. This is what the
-  Mixamo naming was for, and the conversion is one line of intent - apply the
-  source bone's rotation relative to its OWN bind pose:
-  `target_world = src_animated_global * inverse(src_bind_global)`, then
-  `local = inverse(parent world) * world`. It works because the generated rig
-  binds with identity rotations, so the delta IS the target's world
-  orientation - the payoff for (177)'s decision - and a constant transform on
-  the source (the -90 deg X flip an FBX conversion leaves behind, a 0.01 unit
-  scale) cancels out of the delta for free.
-  Two things happen on the way in, and they are the point of doing this at
-  all: only the 23 bones this rig HAS are sampled (a Mixamo clip carries ~65
-  including every finger - **156 source channels land as 23**), and the keys
-  are resampled to ~15/s (Mixamo exports a key per frame per bone at 24-30
-  fps, and the EE evaluates those at runtime). Hips translation is scaled by
-  the height ratio and rebased onto the generated bind pose so a 1.95 m source
-  does not lift a 1.60 m character off the floor; *In place* strips the
-  horizontal component.
-  Matrix-form nodes are handled (`localRotation` pulls the rotation out of a
-  matrix with the columns normalized) because an FBX conversion often leaves
-  the root as one, and a failed import leaves the character with the
-  procedural clips it already had rather than with nothing.
-  **Verified** against a real merged Mixamo download the owner supplied
-  (`Arissa_merged2.glb`, 80 nodes, 4 clips, non-identity bind rotations):
-  3 clips retargeted onto 22 matched bones, 156 -> 23 channels each; contact
-  sheets per clip show coherent human motion (a sword guard stance, a lunge, a
-  duck) rather than the folded-limb garbage a sign error produces; and a
-  Docker build + PCSX2 boot shows the dressed character holding the retargeted
-  fighting stance at **50 FPS**.
-
-- (179) **Clothes, shoes and hair for the Character Generator**
-  (docs/character-generator.md). The CC0 wardrobe fits through **the same
-  mechanism the body does** - a `.mhclo` is byte-for-byte the same barycentric
-  binding as a `.proxy`, so `mhdata::loadProxy` already read them and a shirt
-  bound to the reference mesh's shoulder follows every morph with no cloth
-  solver and no per-body refitting. Each garment becomes its own textured mesh
-  part; the same weight transfer gives it the same skeleton. Five suits, shoes
-  and four hairstyles fetched by setup.ps1 (+35 MB).
-  **The body under the clothes is removed**: every `.mhclo` lists the base-mesh
-  vertices it covers, and a body proxy vertex whose three reference vertices
-  are all covered drops out with its faces. Shirt + trousers takes the body
-  from 1460 to ~750 triangles, so a dressed character costs far less than body
-  plus garment. A full outfit (suit + shoes + hair, medium detail) is 3140
-  triangles and 830 KB.
-  **Three measurements shaped the implementation, and each killed the obvious
-  approach.** (a) The source garments are 3.5k-16k triangles - offline-render
-  meshes - so a *Detail* budget decimates them (~500/1100/2200), and the slots
-  do NOT share it equally (shoes get 22%: two small blocks at the bottom of the
-  screen). (b) The suits stop simplifying around 1000 triangles and start
-  TEARING instead - the probe render showed holes appearing, so that is the
-  floor, not a target. (c) **Hair does not decimate at all**: it is separate
-  quads with a uv seam around every one, and meshlod locks seam and border
-  vertices by construction - 3678 triangles asked for 550 came back at 2696.
-  Hair is thinned by dropping whole CARDS smallest-first (`thinCards`), which
-  is both what shrinks it and what a low-poly hairstyle is.
-  Two traps: the `.mhclo` reader must only end a block on a BLOCK keyword -
-  `bob01.mhclo` puts `material` on the line right after `verts`, and treating
-  that as the end silently dropped all 5203 bindings ("this asset has no vertex
-  bindings"); and hair's texture must KEEP its alpha while the body skin's is
-  forced opaque, with the alpha made binary and colors dilated outward - the
-  treegen leaf-card rule, because the palettized tRNS→CLUT path loses a
-  gradient.
-  Also here: `Viewport::drawToolPreview` now takes a LIST of meshes (the
-  character preview draws up to four parts, cutouts last) and `charanim::
-  poseMesh` skins every part; parts are tagged by material prefix
-  (`hair:`/`cloth:`) so the preview knows the draw order without guessing.
-  And setup.ps1 now checks the MakeHuman list **file by file** instead of
-  gating on a probe - the list GROWS, so an existing install has to pick up
-  what is new rather than being declared complete because base.obj is there.
-  **Verified**: a probe harness that fits a suit and renders it at five
-  decimation targets side by side (that is what produced measurements (a)-(c));
-  editor screenshot with the Wardrobe section; and a Docker build + PCSX2 boot
-  of a fully dressed character - shirt, jeans, shoes, hair - at **50 FPS**, 5
-  resident textures, 0.91 MB VRAM free, no eviction, no assert.
-
-- (178) **Procedural locomotion for generated characters** (`charanim.cpp`,
-  docs/character-generator.md). Every generated character now ships with
-  **idle / walk / run / jump** built analytically - no motion library, no
-  licence, no download - and the Character Generator preview PLAYS them (clip
-  picker, play/pause, scrub). Those four names are what the generated game's
-  third-person locomotion already looks for, so a generated character used as
-  a Player avatar walks, runs and idles with cross-fades and **no further
-  setup**; `idle` is written first so a plain Model object (which autoplays the
-  model's first clip) idles rather than standing in bind pose.
-  **Two design decisions did all the work.** (a) A `Frame` carries one **world**
-  rotation per bone and `buildClip` converts to glTF locals
-  (`inverse(parent world) * world`). "The shin follows the thigh plus a knee
-  bend" is a statement about world orientation; writing it as a chain of
-  parent-relative frames is how animation code becomes unreadable, and the
-  first attempt proved it. (b) The rest stance is **derived** from the rig's own
-  bind directions (`alignTo(bind, target)`), not hardcoded: MakeHuman's arms
-  bind diagonally down-out-forward at a body-dependent angle, so v1's "rotate
-  the arm down 72 degrees about Z" over-rotated past vertical and folded both
-  elbows across the chest - the render made that obvious in one look, which is
-  the whole argument for the throwaway rasterizer harness.
-  Three smaller traps worth keeping: consecutive quaternion keys need
-  **sign correction** (LINEAR interpolation between `q` and `-q` takes the long
-  way round and a limb snaps through the body); the hips translation channel
-  must **add to** the bind translation, not replace it, or the character drops
-  through the floor the moment a clip plays; and the elbow angle has to be held
-  relative to the upper arm through the cycle, not summed with the swing, or
-  the arms straighten out at the back of every stride.
-  `charanim::poseMesh` is host linear-blend skinning - the twin of the
-  console's VU0 pass - which is what makes the live preview possible at all;
-  4380 vertices re-skinned per frame is cheaper than the upload that follows.
-  **Verified**: contact sheets per clip (8 phases x front/side) from the host
-  rasterizer, which is what caught the elbow bug, the zombie-armed jump (arms
-  reaching forward instead of swinging overhead) and the run's straightening
-  elbows; editor screenshot with the Animation section and the preview posed;
-  and a Docker build + PCSX2 boot where the character stands **arms down in the
-  idle pose** rather than in the model's bind pose - which is the console
-  evaluating our generated channels - at 50 FPS. Cost: +17 KB of PS2 RAM
-  (380 -> 397 KB), rebuild still ~10 ms.
-
-- (177) **Character Generator** (docs/character-generator.md) - *Tools >
-  Character Generator* builds a rigged, skinned, textured human at the PS2's
-  budget (1460 triangles, 23 bones, one 256² skin) from macro sliders, with a
-  live preview, and "Add to scene" writes a plain `.glb` into
-  `res/models/characters/` + drops a Model object in. **Nothing downstream
-  knows a character was generated** - `isAnimatedModelPath()` keys off the
-  extension, so import validation, the viewport preview, the Animation Editor,
-  the `.tskl` bake with its LODs, player avatars, NPC AI and Live Link all work
-  unchanged. That is why the output is a real glTF file and not a private
-  format, and it is also why the one genuinely new piece of plumbing here is
-  `gltfwrite.cpp`, the exact inverse of `glbparser::parseSkel`.
-  **The bodies are MakeHuman's CC0 DATA, not MakeHuman the program** (which is
-  AGPL and is not used): base mesh, macro targets, the `proxy741` proxy, the
-  rig, its vertex weights and six skins, fetched by `setup.ps1` into
-  `vendor/mh-assets` (~45 MB, listed in `deps.ps1`, git-ignored). Credits in
-  README.
-  **Three things made it fit a console**, and each replaced an approach that
-  would not have: (a) the macro sliders blend the CORNERS of MakeHuman's target
-  space (up to 16 `universal-*` plus 12 `<ethnicity>-*` files, one factor per
-  axis multiplied together) rather than one morph per slider; (b) the CC0
-  741-vertex `proxy741` body is bound to the 19158-vertex reference mesh
-  BARYCENTRICALLY (three base vertices + weights + an offset in units of the
-  body's own proportions), so the low-poly mesh follows every morph exactly -
-  no quadric decimation melting the face, and the UVs the CC0 skins are painted
-  for come along untouched; (c) the rig is RE-DERIVED from the morphed mesh
-  (MakeHuman defines each joint as a cube of base-mesh vertices, so the joint
-  is their centroid) instead of being fitted to it - a child and a heavy-set
-  adult get correctly placed hips for free. The reference rig's 163 bones
-  collapse onto 23 **Mixamo-named** ones by walking each bone to its nearest
-  kept ancestor (the toe chains are matched by name instead - MakeHuman parents
-  all five straight to the foot, so the ancestor walk would leave the toe bone
-  dead). Bind rotations are identity, so an inverse bind matrix is a pure
-  translation.
-  Two traps worth keeping: the `.proxy` format has a **one-token short form**
-  for a vertex that sits exactly on a base vertex (proxy741 has exactly one),
-  and dropping it shifts every later vertex against the .obj's face indices -
-  the mesh comes out subtly scrambled rather than obviously broken, which is
-  why `build()` now refuses a bindings/topology count mismatch outright. And
-  the skin texture is forced **opaque**: StaPip's alpha test discards `a == 0`,
-  so a transparent texel in a body skin punches a hole through the character
-  (the same rule as the lightmap floor in (176)).
-  Also here: `SkelNode` gained a `name` (filled by both the .glb and .fbx
-  importers) - nothing on the PS2 needs it, but it is what identifies a bone to
-  Blender and to any future retarget, and it round-trips through the writer.
-  The tool previews now share `Viewport::drawToolPreview`; the Character
-  Generator still gets its **own** framebuffer (`charFbo_`), per the rule that
-  two tools may be open at once.
-  Rebuild cost is ~8 ms once the targets are cached (the reference weights and
-  the decoded skin are computed once, not per slider frame - they cost 140 ms
-  when they were not).
-  **Verified**: host harnesses for each layer (mhdata loaders + proxy fit
-  against the base body's bbox; a hand-built Skel round-tripped through
-  `writeGlb` → `parseSkel`; every preset checked for requested height, feet on
-  y=0, weights summing to 255, joint indices in range, UVs in 0..1, outward
-  winding, plausible hip height, byte-identical rebuilds - plus a software
-  rasterizer dumping front/side shaded+textured contact sheets, which is how
-  the UV flip and the winding were confirmed by eye rather than by hope).
-  Editor GUI screenshot of the window with its live preview. Full e2e:
-  `--refresh-gen` bakes `man.tskl` (24 nodes, 23 palette slots) + extracts the
-  skin PNG, then a Docker build + PCSX2 boot shows the character standing
-  textured on the terrain at **50 FPS**, no assert, 2 resident textures.
 - (227) **`examples/procedural`: the whole node library in one map** (owner:
   "dodaj example projekt, który pokazuje jak największy wachlarz tych opcji").
   Six volumes over a 140x140 terrain shaped to give the terrain-reading nodes
@@ -8020,7 +7170,8 @@ Each finished feature lands as its own commit.
   the animClip column) while every populated example kept building, which
   is why it slipped through. One `0` in the reflected slot restores
   alignment; the row now carries a comment anchoring it to the struct.
-  Also removed the `  #89 merge had committed into this very file (both hunks were distinct
+  Also removed the `<<<<<<<`/`=======`/`>>>>>>>` conflict markers that the
+  #89 merge had committed into this very file (both hunks were distinct
   entry sets from parallel branches - the union is the correct log, so
   only the marker lines went; the historical duplicate entry NUMBERS from
   parallel branches stay as they are). **Verified**: Layer 3 - the fresh
@@ -15985,6 +15136,7 @@ Each finished feature lands as its own commit.
   reproduces the original frame **byte for byte** - 0 pixels differ - while the
   readout keeps saying `27 instances | 14 chunks | 6480 triangles` throughout,
   which is the "still evaluated" half of the promise.
+
 - (236) **The terrain is optional now** - asked as "dodaj możliwość usunięcia
   terenu zupełnie", with the New Project dialog gaining the choice (default:
   create one) and the FPP preset becoming that dialog's default preset. The flag
@@ -16519,6 +15671,60 @@ Each finished feature lands as its own commit.
   (owner screenshot). Panel verified with `--ui-script` (`click "Resolve
   names"` + `shot`).
 
+- (248) **Review follow-up to (247): the 11 exec pins it left undocumented, and
+  three defects in `--ui-script` found while trying to verify it.** Two
+  unrelated things, in one commit because the second is what made the first
+  checkable.
+
+  (247)'s own rule is that a knob on screen with nothing to say about it is the
+  bug. An audit of the registry - every node's `desc`, every declared `numTips`
+  / `strTip`, every labelled exec pin - says it landed at **186/186 descs,
+  167/167 numeric tips, 81/81 string tips** and **34/45 exec-input tips**: the
+  five nodes with several labelled exec pins and no `execInTips` at all were
+  `DoOnce`, `DoN`, `SetPlayerInput`, `SetHudVisible` and `SetTextVisible`. Those
+  are the case (247) argued matters MOST ("three unexplained pins" vs a node
+  that documents its own branches), and four of the five had the pin prose
+  buried in `desc` - exactly the half of the documentation the reader is not
+  looking at. Now 45/45, and `SetHudVisible`'s `desc` loses the pin list it no
+  longer needs.
+
+  Then `--ui-script`, which is how a tooltip is supposed to be verified without
+  a human. It could not name the widget it prints itself. Three bugs, all in the
+  same family - the script parser did not know what quoting was for:
+  **(a)** `#` was cut from a line as a comment BEFORE quotes were considered, and
+  ImGui ids are full of them, so `click "Project/##objects_DC0BCE04/the-cube"`
+  silently became `click "Project/` - which then prefix-matched a *different*
+  widget and clicked it. A test tool that asserts nothing and reports success is
+  the one failure mode that matters, and this was it. **(b)** only `"` was
+  honoured as a quote, while `docs/ui-scripting.md` and the README both write
+  `click 'Remote Pad'`; that spelling failed with "click needs one target".
+  **(c)** `uiscript::find` split `Window/Label` on the FIRST `/`, but a window
+  name legitimately contains one (a child region is `Project/##objects_...`) -
+  so the names `dump` and the failure message print were unresolvable. All three
+  are now one quote-aware scanner (`scanQuotes`) shared by the `;` split, the
+  `#` strip and the tokenizer, plus a `find` that tries every split point,
+  longest window prefix first (strictly more permissive - a target that worked
+  still does). A `;` inside a quoted label survives too.
+
+  **Verification**: `./build.ps1 -Dev` exit 0. The audit binary links against
+  the header itself and goes 11 gaps -> 0. `--ui-script` A/B: the `##` target
+  used to run green while clicking the wrong widget and now resolves; single
+  quotes work; the truncated form fails loudly with a candidate list. And the
+  whole point, end to end - with a `SetHudVisible` node parked under the Flow
+  Graph's centre, `wheel "Flow Graph" 1; wait 3; shot` catches the node tooltip
+  rendering all three new pin lines ("> show - Draws every HUD image again.",
+  "> hide - ... The USE prompt is not a HUD image ...", "> toggle - Flips
+  whichever state the HUD is in ..."). The `.flownode` examples still parse
+  (`--refresh-gen` exit 0 on a copy of `examples/custom-nodes`). Also checked
+  and found already correct, so nothing was changed: tooltip text lifetime (the
+  tips are static string literals consumed inside `BeginTooltip`/`EndTooltip` in
+  the same frame - no dangling `const char*`, which is the classic ImGui
+  tooltip bug), the `paramTip`-after-`IsItemDeactivatedAfterEdit` ordering at
+  all ~40 call sites, and the committed `tyrax-flownode-0.2.0.vsix` (rebuilt,
+  not renamed: 0.2.0 inside, and its packaged `extension.js` / grammar /
+  snippets are byte-identical to the sources). Not verified: nothing here
+  reaches the PS2, and the add-menu tooltip still cannot be scripted.
+
 - (247) **Flow-graph node help split in two: hover a node for what it does,
   hover a knob for what the knob does.** Reported by the owner: a node's tooltip
   was one long blob, because `FlowNodeType::desc` was the only documentation
@@ -16596,3 +15802,86 @@ Each finished feature lands as its own commit.
   test; the add-menu tooltip still cannot be scripted (it hangs off a
   right-click of empty canvas, which `uiscript::find` refuses to click) and was
   read by eye from the same renderer.
+
+- (248) **The editor stopped looking like ImGui: a real UI font and four
+  interface themes, one of them wearing the DualShock's colours.** Asked for by
+  the owner - "super interface, but you can tell instantly it's ImGui" - and the
+  diagnosis was two lines of code rather than the whole UI: `ImGui::StyleColorsDark()`
+  and no `AddFontFromFileTTF` anywhere, so every window was drawn in the stock
+  dark palette with the **built-in bitmap font** (ProggyClean). That font is the
+  single loudest "debug overlay" signal an ImGui application gives off, and no
+  amount of palette work hides it.
+  **The font is now the desktop's own** - `platform::uiFontFiles()` (both
+  `#ifdef` halves, the platform-parity rule) offers Segoe UI -> Tahoma ->
+  Verdana -> Arial on Windows and Inter -> Noto Sans -> Ubuntu -> Cantarell ->
+  DejaVu Sans -> Liberation Sans elsewhere, first one `systemFontPath()`
+  resolves wins at 15 px, and a machine with none of them keeps the built-in
+  face. Deliberately **nothing bundled** (no vendor entry, no font licence, no
+  350 KB) and deliberately **no font picker**: the editor's job is to look like
+  the machine it runs on. Segoe UI Variable is left out on purpose - stb_truetype
+  cannot select a weight axis and would rasterize it at the wrong one.
+  **The theme is a palette of NINE colours**, in its own TU (`src/theme.cpp`,
+  ImGui only - no Project, no GL, no App) from which all ~60 `ImGuiCol_` entries
+  are derived; the style METRICS (rounding, hairline frame borders, padding,
+  trackless scrollbars, accent tab overlines, `DrawLinesToNodes` tree lines) are
+  shared by every theme including the stock one, because a theme is a palette and
+  not a second layout. Four ship: **Face buttons** (default - graphite with cross
+  blue as the accent, triangle green for running, circle red for stopped),
+  **Boot screen** (the console's navy + logo blue), **Memory card** (the OSD
+  violet) and **ImGui dark** as an escape hatch. Picked in *View > Theme* or
+  *Edit > Preferences > Appearance*, applied immediately and saved by KEY (not
+  by enum index) into editor.ini - machine-global like the UI scale, so opening
+  someone else's project never repaints your editor.
+  **The rule that makes the themes hold**: a widget asks for a MEANING, never
+  for a colour. `theme::semantics()` offers accent/ok/warn/danger/text/textDim/
+  surface/border, and the toolbar's ten hardcoded `IM_COL32(95, 200, 115, 255)`
+  / `(240, 175, 70, 255)` / `(225, 95, 85, 255)` literals became `colOk` /
+  `colWarn` / `colStop` - otherwise the LIVE chip stays green in a violet
+  editor, which is exactly the drift this arrangement exists to prevent.
+  Chrome beyond colour: an accent wordmark plus a hairline under the main menu
+  bar (bar and dockspace are both dark surfaces with no border between them, and
+  without the line the whole top of the window reads as one block), and
+  `theme::hoverAnim()` - hover highlights on the hand-drawn toolbar icons and the
+  four status chips now FADE in over ~80 ms instead of snapping, while a held
+  button jumps straight to its pressed fill.
+  **Two integration traps, both paid for.** `App::applyTheme()` has to be
+  colours + metrics + scale in that order and `baseStyle_` has to BE the themed
+  style, because `applyUiScale()` resets to that reference on every zoom step - a
+  theme that only wrote `ImGui::GetStyle()` is undone by the next `Ctrl+=`. And
+  `ImGuiStyle`'s constructor leaves `FontSizeBase` at **0** ("ask the atlas on
+  the first frame"), which the reference copy carries, so the scale path now
+  restores the size the font was loaded at - left at 0 when no system face
+  resolved, which is what keeps the built-in font at its own size. Also: the
+  theme is applied AFTER `ImNodes::CreateContext()`, since it tints both node
+  canvases (darker than a window - a graph is a surface you look into; per-node
+  and per-pin colours are left alone, they encode category and pin type).
+  **Verified** with `--ui-script` on a scratch project, which is the honest part:
+  all four themes were driven from the View menu and screenshotted, and the
+  captures were MEASURED rather than eyeballed - panel background comes back
+  (17,17,20) / (10,14,23) / (10,9,18) / (15,15,15) and the menu bar
+  (23,23,27) / (13,18,32) / (16,14,28) / (36,36,36), i.e. exactly the four
+  palettes, which matters because four dark themes look alike in a thumbnail.
+  The Preferences *Appearance* section reports `Interface font: Noto Sans`, so the
+  chain resolved on this box. The hover fade was measured through mutter's
+  RemoteDesktop (the editor's own framebuffer capture, window offset calibrated
+  off the wordmark row): parking the cursor on the Save icon lights the button
+  rect to the ButtonHovered fill (41,66,82) and leaving it returns the pixel to
+  the menu-bar colour (23,23,27) - which is the check that matters, since a bad
+  storage key would leave a highlight stuck on. **Not verified**: the mid-fade
+  frame itself - the ramp is 83 ms and the D-Bus screencast path cannot be
+  triggered that precisely, so the intermediate alpha is arithmetic rather than a
+  measurement. Windows was not compiled (no box here); the only platform-paired
+  edit is `uiFontFiles()`, whose two halves are the same shape as the three font
+  lists already next to it. And the modal dim looks weak in a `--ui-script`
+  capture for a harness reason worth knowing: ImGui ramps `DimBgRatio` by
+  `DeltaTime * 10`, and a scripted run's frames have near-zero DeltaTime, so 20
+  frames reach ~0.2 of the dim rather than all of it.
+  **The README's hero screenshot was re-shot** in the same breath, because it is
+  the first thing anyone sees and it showed the old bitmap-font editor right next
+  to a bullet claiming otherwise. The replacement is the same example project
+  (`cutscene-demo`, opened from a COPY outside the repo so nothing committed gets
+  touched) with an object selected, so the Properties panel and the accent-filled
+  checkboxes are in frame; `docs/img/editor-themes.png` is a 2x2 of the four
+  palettes for the doc. Both captured with `--ui-script`, which is now the way to
+  produce a repo screenshot at all - no window focus, no coordinates, and the
+  framing is a script rather than a memory.
