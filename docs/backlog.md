@@ -110,3 +110,44 @@ the verification, and any fact worth reusing belongs in the relevant
   measure on hardware. Reusable instrumented scene:
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
+
+- **Why our ps2link will not boot from the FreeMcBoot menu (parked, 2026-07-31).**
+  Not blocking anything: the high build (`tools/ps2link/build.ps1`, the
+  default) boots from that menu and is what to flash. But we do not know why
+  the low build will not, and three plausible answers have already been
+  measured wrong, so write down where it stands before the next attempt
+  repeats one of them.
+
+  Everything below was flashed the same way to the same console and booted
+  from the FMCB menu. uLaunchELF boots **all** of them.
+
+  | build | ELF | unpacked image ends at | FMCB menu |
+  |---|---|---|---|
+  | owner's stock release `PS2LINK.ELF`, Apr 2024, packed | 89 364 B | `0x000dea20` | **yes** |
+  | ours, high, unpacked | 285 492 B | — (`0x01ee8000`) | **yes** |
+  | ours, low, unpacked | 285 492 B | `0x000eb5a0` | no |
+  | ours, low, unpacked, `--no-usb` | 235 828 B | `0x000df3a0` | no |
+  | stock upstream, low, unpacked, no patch | 233 396 B | `0x000dea20` | no |
+  | ours, low, **packed** | 118 740 B | `0x000eb5a0` | no |
+
+  Ruled out: **image size** (285 KB boots high, 233 KB fails low);
+  **`tyrax.patch`** (untouched upstream fails identically); **the link address
+  alone** (the release that works ends up at `0x00094000` too, just later);
+  **packing alone** (our packed low build fails anyway).
+
+  What is left, and the two builds already sitting in `tools/ps2link/` for it:
+
+  - `test-A-upstream-packed.elf` (103 364 B) - **stock upstream, packed by
+    us**. It is 14 KB larger than the owner's April 2024 release built from
+    the same pinned commit, so our toolchain and/or `ps2-packer` version
+    differs from upstream's CI. If A does not boot either, the answer is in
+    how we build, not in what we build, and the next move is pinning an older
+    `ps2dev` image and diffing the two files' headers.
+  - `test-B-ours-nousb-packed.elf` (104 164 B) - if A boots and B boots, the
+    boundary is how far the *decompressed* image reaches: `0x000df3a0` fine,
+    `0x000eb5a0` not, which would make the USB HID stack the thing pushing us
+    over and the low+packed+no-USB build a real option.
+
+  Both are gitignored; rebuild with `make` (not `make ee`) inside the
+  toolchain image - see the packed/unpacked section of
+  `tools/ps2link/README.md`, which carries the ELF-header evidence.

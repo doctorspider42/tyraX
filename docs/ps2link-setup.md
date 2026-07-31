@@ -175,8 +175,10 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
    > `0x00094000` once the loader is out of the way. `make ee` produces the raw
    > image, whose segment lands on FMCB's loader mid-copy. Building with `make`
    > instead of `make ee` gives us the packed shape (118 740 B, entry
-   > `0x01d0001c`); that build has not been booted on hardware yet, so the high
-   > build remains the default for now.
+   > `0x01d0001c`) — **and that does not boot either**, so packing is not the
+   > whole story. The question is parked with everything measured so far in
+   > [backlog.md](backlog.md); the high build is the default because it is the
+   > one that demonstrably boots.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:

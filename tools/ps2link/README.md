@@ -71,11 +71,17 @@ Ours comes from `make ee`, the unpacked ELF, whose PT_LOAD lands on FMCB's
 loader while it is still running. uLaunchELF is unaffected because it is packed
 too and lives elsewhere.
 
-So the fix is to ship what upstream ships: `make` (not `make ee`), which runs
-`ps2-packer` and writes `bin/PS2LINK.ELF`. The packed low build comes out at
-118 740 B with entry `0x01d0001c` - the same shape as the file that works.
-**Hardware confirmation of our packed build is still owed**; until it lands,
-the high unpacked build stays the default, since that one is measured.
+That looked like the fix - `make` rather than `make ee` runs `ps2-packer` and
+writes `bin/PS2LINK.ELF`, ours coming out at 118 740 B with entry
+`0x01d0001c`, the same shape as the file that works. **It does not boot
+either.** So packing is necessary-looking but not sufficient, and the question
+is parked with its measurements in
+[docs/backlog.md](../../docs/backlog.md) - including the next two test builds
+and the one lead nobody has pulled yet: our packed *upstream* build is 14 KB
+larger than the owner's release from the same pinned commit, so our toolchain
+is not the one that produced the file that works.
+
+The high build is the default because it is the one that is measured to boot.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
