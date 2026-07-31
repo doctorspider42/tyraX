@@ -217,8 +217,18 @@ the verification, and any fact worth reusing belongs in the relevant
   longer hanging the game, and why an unpacked low build black-screens from
   FreeMcBoot's menu.
 
-  Next time, start by isolating card-boot versus network-boot with everything
-  else held still - that is the one comparison nobody has run.
+  That comparison has since been run, with the same high unpacked image booted
+  both ways (card, and `execee` over a low packed build on the card): **one
+  cycle either way**. So the start method is not the variable either, and the
+  night's 4/4 was luck rather than a property of anything.
+
+  The one variable nobody controlled: **the game binary changed mid-session.**
+  The 4/4 run used `drone.elf` as built the previous night; every run after
+  11:48 used a rebuild that carries the engine's pad fix. The game is what
+  leaves the EE in whatever state `pkoReset` inherits, so it is a plausible
+  suspect and an easy one to test - deploy a trivially small example project
+  instead of drone, or rebuild drone from the pre-fix engine, and see whether
+  the cycle count moves. Start there.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
