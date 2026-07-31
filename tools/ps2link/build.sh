@@ -10,14 +10,15 @@
 #   ./build.sh --clean   # nuke the work tree first
 #   ./build.sh --low     # -> tools/ps2link/ps2link-low.elf   (0x00094000)
 #   ./build.sh --no-usb  # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
-#   ./build.sh --unpacked # -> ...-unpacked.elf: skip ps2-packer (see below)
+#   ./build.sh --packed  # -> ...-packed.elf: run ps2-packer over it
 #
-# Packed by default, like upstream's releases. It matters: an unpacked ELF has
-# its PT_LOAD at the final address, and a launcher that keeps its own code there
-# (FreeMcBoot's menu does) is overwritten mid-load - black screen. ps2-packer
-# leaves a small stub high in memory that decompresses the image down once the
-# loader is done, so a packed build boots from every launcher tried. --unpacked
-# is for debugging: it is the raw image, and it only boots from uLaunchELF.
+# --packed runs ps2-packer over the image, the way upstream's releases ship:
+# what a launcher loads is then a small stub high in memory that decompresses
+# the real image down once the loader is done with its own code. That is what a
+# LOW build needs to boot from FreeMcBoot's menu at all - an unpacked low image
+# lands on that loader mid-load and black-screens. The default here is
+# unpacked, because the high build boots from every launcher tried either way
+# and unpacked is the shape that has been measured through Run -> Stop cycles.
 #
 # Two link addresses, and which one works depends on how you boot it.
 #
@@ -42,20 +43,20 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 CLEAN=0
 LOADHIGH=1
 NOUSB=0
-UNPACKED=0
+PACKED=0
 for arg in "$@"; do
     case "$arg" in
         --clean|-Clean) CLEAN=1 ;;
         --low|-Low) LOADHIGH=0 ;;
         --no-usb|-NoUsb) NOUSB=1 ;;
-        --unpacked|-Unpacked) UNPACKED=1 ;;
-        *) echo "Unknown option: $arg (expected --clean, --low, --no-usb or --unpacked)" >&2; exit 2 ;;
+        --packed|-Packed) PACKED=1 ;;
+        *) echo "Unknown option: $arg (expected --clean, --low, --no-usb or --packed)" >&2; exit 2 ;;
     esac
 done
 # `make` runs ps2-packer over ee/ps2link.elf and writes bin/PS2LINK.ELF;
 # `make ee` stops at the raw image.
-MAKETARGET=""
-[ "$UNPACKED" = 1 ] && MAKETARGET="ee"
+MAKETARGET="ee"
+[ "$PACKED" = 1 ] && MAKETARGET=""
 
 here="$PWD"
 work="$here/build"
@@ -105,13 +106,13 @@ make clean >/dev/null 2>&1 || true
 make ee LOADHIGH=$LOADHIGH
 '
 
-elf="$work/bin/PS2LINK.ELF"
-[ "$UNPACKED" = 1 ] && elf="$work/ee/ps2link.elf"
+elf="$work/ee/ps2link.elf"
+[ "$PACKED" = 1 ] && elf="$work/bin/PS2LINK.ELF"
 [ -f "$elf" ] || { echo "expected $elf, not produced" >&2; exit 1; }
 suffix=""
 [ "$LOADHIGH" = 0 ] && suffix="$suffix-low"
 [ "$NOUSB" = 1 ] && suffix="$suffix-nousb"
-[ "$UNPACKED" = 1 ] && suffix="$suffix-unpacked"
+[ "$PACKED" = 1 ] && suffix="$suffix-packed"
 out="$here/ps2link$suffix.elf"
 cp -f "$elf" "$out"
 # The container builds as root; hand the artifact back to the invoking user so
@@ -119,15 +120,10 @@ cp -f "$elf" "$out"
 chmod u+rw "$out" 2>/dev/null || true
 echo "== OK: $out ($(stat -c%s "$out") bytes) =="
 echo "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if [ "$UNPACKED" = 1 ]; then
-    echo "NOTE: unpacked. Boots from uLaunchELF; FreeMcBoot's menu will give a"
-    echo "      black screen with a low build. Drop --unpacked to get the shape"
-    echo "      upstream ships."
-fi
-if [ "$LOADHIGH" = 0 ] && [ "$UNPACKED" = 0 ]; then
-    echo "NOTE: the low build boots from the FMCB menu when packed, but Stop"
-    echo "      still kills the console after a cycle or two - see the ps2link"
-    echo "      entry in docs/backlog.md. The high build is the safe one."
+if [ "$LOADHIGH" = 0 ] && [ "$PACKED" = 0 ]; then
+    echo "NOTE: an unpacked low build black-screens from FreeMcBoot's menu -"
+    echo "      it lands on that loader mid-load. Add --packed for a build that"
+    echo "      boots there (it still dies on Stop - docs/backlog.md)."
 fi
 if [ "$NOUSB" = 1 ]; then
     echo "      No keyboard or mouse over ps2link with this one - it bakes in"

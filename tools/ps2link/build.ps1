@@ -10,7 +10,7 @@
 #   ./build.ps1 -Clean       # nuke the work tree first
 #   ./build.ps1 -Low         # -> tools/ps2link/ps2link-low.elf   (0x00094000)
 #   ./build.ps1 -NoUsb       # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
-#   ./build.ps1 -Unpacked    # -> ...-unpacked.elf: skip ps2-packer (see below)
+#   ./build.ps1 -Packed      # -> ...-packed.elf: run ps2-packer over it
 #
 # Two link addresses, and which one works depends on how you boot it.
 #
@@ -28,14 +28,15 @@
 # boot screen prints the address it actually loaded at, so a flashed card
 # always says which one it is.
 
-# Packed by default, like upstream's releases. It matters: an unpacked ELF has
-# its PT_LOAD at the final address, and a launcher that keeps its own code there
-# (FreeMcBoot's menu does) is overwritten mid-load - black screen. ps2-packer
-# leaves a small stub high in memory that decompresses the image down once the
-# loader is done, so a packed build boots from every launcher tried. -Unpacked
-# is for debugging: it is the raw image, and it only boots from uLaunchELF.
+# -Packed runs ps2-packer over the image, the way upstream's releases ship: what
+# a launcher loads is then a small stub high in memory that decompresses the
+# real image down once the loader is done with its own code. That is what a LOW
+# build needs to boot from FreeMcBoot's menu at all - an unpacked low image
+# lands on that loader mid-load and black-screens. The default here is
+# unpacked, because the high build boots from every launcher tried either way
+# and unpacked is the shape that has been measured through Run -> Stop cycles.
 
-param([switch]$Clean, [switch]$Low, [switch]$NoUsb, [switch]$Unpacked)
+param([switch]$Clean, [switch]$Low, [switch]$NoUsb, [switch]$Packed)
 
 # NOTE: no ErrorActionPreference='Stop' - git and docker write progress to
 # stderr, which Stop would treat as fatal. We check $LASTEXITCODE instead.
@@ -100,30 +101,25 @@ $script = @(
     'make clean >/dev/null 2>&1 || true',
     # `make` runs ps2-packer over ee/ps2link.elf and writes bin/PS2LINK.ELF;
     # `make ee` stops at the raw image.
-    "make $(if ($Unpacked) { 'ee' }) LOADHIGH=$high NOUSB=$usbFlag"
+    "make $(if ($Packed) { '' } else { 'ee' }) LOADHIGH=$high NOUSB=$usbFlag"
 ) -join "`n"
 docker run --rm -v $mount $image sh -c $script
 Invoke-Checked 'docker build'
 
-$elf = Join-Path $work $(if ($Unpacked) { 'ee/ps2link.elf' } else { 'bin/PS2LINK.ELF' })
+$elf = Join-Path $work $(if ($Packed) { 'bin/PS2LINK.ELF' } else { 'ee/ps2link.elf' })
 if (-not (Test-Path $elf)) { throw "expected $elf, not produced" }
 $suffix = ''
 if ($Low) { $suffix += '-low' }
 if ($NoUsb) { $suffix += '-nousb' }
-if ($Unpacked) { $suffix += '-unpacked' }
+if ($Packed) { $suffix += '-packed' }
 $out = Join-Path $here "ps2link$suffix.elf"
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
 Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if ($Unpacked) {
-    Write-Host "NOTE: unpacked. Boots from uLaunchELF; FreeMcBoot's menu will give a"
-    Write-Host "      black screen with a low build. Drop -Unpacked to get the shape"
-    Write-Host "      upstream ships."
-}
-if ($Low -and -not $Unpacked) {
-    Write-Host "NOTE: the low build boots from the FMCB menu when packed, but Stop"
-    Write-Host "      still kills the console after a cycle or two - see the ps2link"
-    Write-Host "      entry in docs/backlog.md. The high build is the safe one."
+if ($Low -and -not $Packed) {
+    Write-Host "NOTE: an unpacked low build black-screens from FreeMcBoot's menu -"
+    Write-Host "      it lands on that loader mid-load. Add -Packed for a build that"
+    Write-Host "      boots there (it still dies on Stop - docs/backlog.md)."
 }
 if ($NoUsb) {
     Write-Host "      No keyboard or mouse over ps2link with this one - it bakes in"

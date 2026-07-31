@@ -20,7 +20,7 @@ index 2eb1e7e..f433943 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..a1b6875 100644
+index 08f9b19..3ce28dd 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
 @@ -15,6 +15,8 @@
@@ -321,7 +321,7 @@ index 08f9b19..a1b6875 100644
  
      SifInitRpc(0);
      SifExitRpc();
-@@ -845,3 +918,105 @@ void pkoReset(void)
+@@ -845,3 +918,100 @@ void pkoReset(void)
  
      ExecPS2(&__start, 0, 1, argv);
  }
@@ -344,6 +344,8 @@ index 08f9b19..a1b6875 100644
 +     * looking entirely unrelated. Breadcrumbs in this function are scr_printf
 +     * only. They were useless over the network anyway: the IOP reboot follows
 +     * within a millisecond and takes the queued tty with it. */
++    init_scr();
++    scr_printf("\n\nps2link: program stopped\n");
 +
 +    /* TyraX: TerminateThread stops the CPU, not the hardware. The game owned
 +     * the DMAC, both VUs, VIF0/1, the GIF and the IPU, and a transfer left
@@ -362,13 +364,6 @@ index 08f9b19..a1b6875 100644
 +    if (!(_lw(A_EE_D5_CHCR) & EE_CHCR_STR))
 +        SifSetDChain();
 +    EnableDmac(DMAC_SIF0);
-+
-+    /* TyraX: only NOW take the screen back from the program we just killed.
-+     * This used to be the first thing pkoReset did, before ResetEE - i.e. it
-+     * drove the GS while the dying game's DMA was still in flight, which is
-+     * asking for exactly the hang that leaves a black screen and no message. */
-+    init_scr();
-+    scr_printf("\n\nps2link: program stopped\n");
 +
 +    /* The game overwrote the EE exception vectors with its own crash handler
 +     * (Tyra links libeedebug) and that code is now dead memory. Take them

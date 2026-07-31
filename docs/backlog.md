@@ -172,7 +172,28 @@ the verification, and any fact worth reusing belongs in the relevant
   - removing the stdio did **not** help the low build: it still dies on the
     first Stop after a game. The console then answers nothing at all, not even
     ping, which places the death between the IOP reboot and `loadModules()` -
-    the fresh image never gets the network back up.
+    the fresh image never gets the network back up;
+  - the two deaths are **not the same bug**. The high build dies after two to
+    four cycles with the network still up (IOP alive, EE gone) - that is the
+    newlib-lock one. The low build dies on the first cycle with everything
+    gone. Fixing the first does nothing for the second.
+
+  Two attempted fixes made things **worse** and were reverted; both are worth
+  not re-trying:
+
+  - **moving `init_scr()` after `ResetEE`** in `pkoReset` (reasoning: do not
+    drive the GS while the dying game's DMA is in flight). Sound, and the high
+    build went from four clean cycles to two. Unmeasured reasoning lost to a
+    measurement, so the original order stands.
+  - **forcing newlib's locks in early `main()`** with `free(malloc(1))` +
+    `fflush(stdout)`, to beat the interrupt-driven printf to them. That made
+    the *high* build die on the first cycle, with the low build's signature -
+    stdio init talks to the IOP over the SIF, and at that point in the restart
+    there is no RPC yet. Exactly the mistake the fix was aimed at.
+
+  The shipped `ps2link.elf` is therefore back to the configuration measured at
+  four clean Run -> Stop cycles: high, unpacked, `pkoReset` as it was. 285 492
+  bytes, entry `0x01ee88a8`.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
