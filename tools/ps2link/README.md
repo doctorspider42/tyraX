@@ -29,16 +29,17 @@ leaves the USB HID stack out and adds `-nousb` to the name; the switches
 combine, so `-Low -NoUsb` writes `ps2link-low-nousb.elf`.
 
 Upstream defaults to the low address and its CI publishes both variants
-("default" and "highloading"); we default to high instead, because the low
-build black-screens when booted from FreeMcBoot's menu or a shortcut (it boots
-from uLaunchELF fine), and that is a worse failure than the high build's
-trade-off: it sits at ~31.9 MB, so a game that allocates its way up there would
-overwrite it. The boot screen prints the address, so the flashed card
-identifies itself.
+("default" and "highloading"); the build script here defaults to **high**
+because that is the convenient one to develop against, not because it is the
+better image — it sits at ~31.9 MB, so a game that allocates its way up there
+would overwrite it. **The build to flash is low + packed + no USB**, which
+boots from FreeMcBoot's menu and leaves the top of RAM to the game. The boot
+screen prints the address, so the flashed card identifies itself.
 
-Why the low build black-screens under FMCB: **because we ship it unpacked, and
-upstream's release is packed.** That took two wrong answers to reach, so here
-is the evidence rather than the story.
+Why an *unpacked* low build black-screens under FMCB: **because upstream's
+release is packed and ours was not.** That took two wrong answers to reach, so
+here is the evidence rather than the story - and note it is only half the
+answer; the size limit below is the other half.
 
 First theory, image size — our patch bakes in the USB HID stack, so the image
 reaches ~50 KB further into that window than stock. Measured on the console,
@@ -71,23 +72,30 @@ Ours comes from `make ee`, the unpacked ELF, whose PT_LOAD lands on FMCB's
 loader while it is still running. uLaunchELF is unaffected because it is packed
 too and lives elsewhere.
 
-That looked like the fix - `make` rather than `make ee` runs `ps2-packer` and
-writes `bin/PS2LINK.ELF`, ours coming out at 118 740 B with entry
-`0x01d0001c`, the same shape as the file that works. **It does not boot
-either.** So packing is necessary-looking but not sufficient, and the question
-is parked with its measurements in
-[docs/backlog.md](../../docs/backlog.md) - including the next two test builds
-and the one lead nobody has pulled yet: our packed *upstream* build is 14 KB
-larger than the owner's release from the same pinned commit, so our toolchain
-is not the one that produced the file that works.
+Packing (`make`, which runs `ps2-packer` and writes `bin/PS2LINK.ELF`, rather
+than `make ee`) turned out to be **necessary but not sufficient**: our packed
+*full* build, 118 740 B with entry `0x01d0001c`, does not boot either. There
+are two independent causes, which is why single-variable theories kept failing.
+Unpacked never boots from that menu, and a packed image still fails if the
+**decompressed** image reaches too far: `0x000df3a0` boots, `0x000eb5a0` does
+not, and our ~50 KB USB HID stack is exactly what pushes it over.
 
-The high build is the default because it is the one that is measured to boot.
+So the combination that works is **low + packed + no USB**, and it is measured:
+it boots from the FreeMcBoot menu and survives **12 consecutive Run → Stop
+cycles** on the console. That is the build to flash. Full table and the
+measurements behind it: [docs/backlog.md](../../docs/backlog.md).
+
+`ps2link.elf` (high, unpacked, with the USB stack) stays the **default of the
+build script** because it is the convenient one for development - it keeps
+keyboard and mouse, and the high address only bites a game that allocates its
+way past ~31.9 MB. It is not the one to put on a memory card.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), build inside the official `ps2dev/ps2dev`
-toolchain image and write **`ps2link.elf`** here (~120 KB, `ps2-packer`'d like
-upstream's releases - `-Unpacked` / `--unpacked` gives the raw image instead,
-which only boots from uLaunchELF). It builds with the
+toolchain image and write **`ps2link.elf`** here - the raw `make ee` image,
+~285 KB. `-Packed` / `--packed` runs `ps2-packer` over it the way upstream's
+releases ship, which is what a FreeMcBoot boot needs; the switches combine, so
+`-Low -NoUsb -Packed` writes `ps2link-low-nousb-packed.elf`. It builds with the
 current ps2dev toolchain, independent of the older `h4570/tyra` image the games
 build in — ps2link is a standalone program. The ELF is gitignored; the patch is
 what this repo maintains.
@@ -198,7 +206,7 @@ Consequence for the editor: *Stop on PS2* no longer deploys
 [`tools/silencer`](../silencer/) or sleeps ~7 s waiting for it. The tool stays in
 the tree as a manual fallback for consoles still on a pre-r3 ps2link.
 
-### 4. Stopping a running game (r4)
+### 4. Stopping a running game (r4, finished in r5/r6)
 
 *Stop on PS2* had never worked against a game on hardware. Two independent
 faults, both measured on a console, both covered in detail in
@@ -215,7 +223,26 @@ faults, both measured on a console, both covered in detail in
   (BOOTEND clearing, then setting) and re-execs the image, which is the only
   way to get ps2sdk's `.bss`-resident state cleared.
 
-Verified: four Run → Stop cycles back to back, no power cycle.
+r4 made the game die reliably, but the console still needed a power cycle after
+one or two Stops, and two more revisions were needed to finish the job:
+
+- **r5** took stdio off every error path in `cmdHandler.c`. A `printf()` after
+  the image re-execs faults on newlib's stdout lock, which is a cleared `.bss`
+  field until newlib re-initialises — so the report of a failure became the
+  crash. Real, but only the messenger.
+- **r6** is the actual fix: the IOP was being rebooted **twice per Stop**.
+  `pkoReset()` rebooted it immediately before `ExecPS2()`, and the fresh
+  image's `main()` reboots it again a few lines in. The first one strands crt0,
+  where ps2sdk's C runtime init talks to the IOP over the SIF before `main()`
+  ever runs — against an IOP that has just restarted with no modules on it.
+  `pkoRestartImage()` had the same shape and changed with it.
+
+Verified on the console, every "survived" confirmed by the *next deploy* rather
+than by ping: **12 consecutive Run → Stop cycles** on the high build and 12 on
+the low packed no-USB build booted from the FreeMcBoot menu, both series ending
+on their own limit. Before r6 the low build died on the *first* Stop every time.
+(An earlier "four cycles back to back" claim for r4 could not be reproduced on
+any build and is retracted.)
 
 ## Testing it without a console
 

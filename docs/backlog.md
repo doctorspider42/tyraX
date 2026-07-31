@@ -401,10 +401,19 @@ the verification, and any fact worth reusing belongs in the relevant
   died in the boot instead. The low build was measured from a card boot, and
   gives 12/12 like the high one.
 
-  Iterating does not need reflashing: keep the **high** build on the card and
-  `execee` low candidates over the network - their packer stub lands at
-  `0x01ce8890` and decompresses to `0x00094000`, clear of the running image.
-  A console killed this way does need a power cycle, one per attempt.
+  Iterating does not need reflashing, but **only in one direction, and this
+  paragraph used to have it backwards.** Keep the **low** build on the card and
+  `execee` **high** candidates over the network: that works and is how the
+  12-cycle series were taken. The reverse - a low candidate over a running high
+  image - leaves the console answering ping and accepting no deploy, i.e. the EE
+  never comes up, and r6 does not change that (retried with both reboot sites
+  fixed). Measuring the low build therefore wants a card boot. A console killed
+  either way needs a power cycle, one per attempt.
+
+  Better still, most of this no longer needs the console at all: ps2link runs in
+  a DEV9-bridged PCSX2 and answers the real `ps2client` (separate DONE entry
+  above). Hardware is for what the emulator cannot do - EE exceptions, and the
+  FreeMcBoot menu.
 
   The low+packed+no-USB build is the one to ship: it boots from every launcher
   and leaves the top of RAM alone. The USB HID stack would then need loading
