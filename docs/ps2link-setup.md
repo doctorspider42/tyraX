@@ -211,16 +211,21 @@ Measured on the console, `drone` fully running before every Stop and every
 | r4 | 1–2, then a power cycle |
 | r5 (stdio off the error paths) | 1 |
 | r6, high, with the diagnostic probe | 8/8, series ended on its limit |
-| r6, high, shipping build | 12/12, series ended on its limit |
+| r6, high, `pkoReset()` fixed | 12/12, series ended on its limit |
+| r6, high, both reboot sites fixed | 12/12, series ended on its limit |
 | r6, low packed no-USB | not yet measured — see below |
 
 `pkoRestartImage()` had the same reboot-then-`ExecPS2()` shape and r6 changes it
 the same way. That path only runs on the initial boot, where nothing has touched
 the hardware yet, which is why a memory-card boot always survived it — but
-launching one image over another with `execee` does not: booting the low build
-over a running high one killed the EE before the first Stop. So the low build's
-cycle count is **still unmeasured on r6**; what died there was the boot, not the
-Stop. Measuring it wants a card boot, i.e. a reflash.
+launching one image over another with `execee` did not: booting the low build
+over a running high one killed the EE before its first Stop. With both sites
+fixed the network boot comes up cleanly and the 12-cycle result is unchanged.
+
+What is still **unmeasured is the low build's own cycle count on r6**. The run
+that looked like a low-build failure died in the *boot*, not the Stop, and that
+boot path is now fixed — but the measurement was never actually taken. Taking it
+wants a card boot, i.e. a reflash.
 
 ## 2. Put it on the console
 

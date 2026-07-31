@@ -348,20 +348,24 @@ the verification, and any fact worth reusing belongs in the relevant
   | r4 | 1–2 |
   | r5 | 1 |
   | r6 high, with the probe still in | 8/8, stopped at the limit |
-  | r6 high, shipping build | 12/12, stopped at the limit |
+  | r6 high, `pkoReset()` fixed | 12/12, stopped at the limit |
+  | r6 high, both reboot sites fixed | 12/12, stopped at the limit |
 
   `restartIOP()` also gained its missing `SifIopSync()` edge — it waited only
   for the boot to *finish*, which falls straight through when BOOTEND is still
   set from the previous boot. Harmless while `pkoReset()` did a complete reboot
   of its own; it is now the only IOP reboot in the program.
 
-  `pkoRestartImage()` had the same shape and r6 changes it the same way, but
-  **that one is not verified yet**. It only runs on the initial boot, which is
-  why a card boot always survived it; launching one image over another with
-  `execee` does not, measured — the low build booted over a running high one had
-  a dead EE before the first Stop. So the **low build's cycle count on r6 is
-  still unmeasured**: what died in that run was the boot, not the Stop. It wants
-  a card boot to measure, i.e. a reflash.
+  `pkoRestartImage()` had the same shape and r6 changes it the same way. It only
+  runs on the initial boot, which is why a card boot always survived it;
+  launching one image over another with `execee` did not — the low build booted
+  over a running high one had a dead EE before its first Stop. With both sites
+  fixed the network boot comes up cleanly and the 12-cycle result is unchanged.
+
+  Still open: **the low build's own cycle count on r6 is unmeasured.** The run
+  that looked like a low-build failure died in the boot, not the Stop, and that
+  boot path is now fixed — but the measurement was never taken. It wants a card
+  boot, i.e. a reflash.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
