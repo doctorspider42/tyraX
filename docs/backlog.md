@@ -132,6 +132,7 @@ the verification, and any fact worth reusing belongs in the relevant
   | stock upstream, packed by us | 103 364 B | `0x000dea20` | **yes** |
   | ours r4 `--no-usb`, packed | 104 164 B | `0x000df3a0` | **yes** |
   | ours r4 full, packed | 118 740 B | `0x000eb5a0` | no |
+  | ours r6 full, packed | 118 612 B | `0x000eb3a0` | no (not retested; see below) |
   | any of the above, **unpacked** | 233-285 KB | — | no |
   | ours r4 full, high, unpacked | 285 492 B | — | yes |
 
@@ -375,9 +376,19 @@ the verification, and any fact worth reusing belongs in the relevant
   `0x01ce8890` and decompresses to `0x00094000`, clear of the running image.
   A console killed this way does need a power cycle, one per attempt.
 
-  If that is solved, the low+packed+no-USB build is the one to ship: it boots
-  from every launcher and leaves the top of RAM alone. The USB HID stack would
-  then need loading from the card at runtime (`SifLoadModule` from next to
-  `PS2LINK.ELF`) rather than baked into the image - which is also how it stops
-  costing 50 KB of that window.
+  The low+packed+no-USB build is the one to ship: it boots from every launcher
+  and leaves the top of RAM alone. The USB HID stack would then need loading
+  from the card at runtime (`SifLoadModule` from next to `PS2LINK.ELF`) rather
+  than baked into the image - which is also how it stops costing 50 KB of that
+  window.
+
+  **Does r6 make low+USB fit? No, and it was never going to.** That build was
+  never blocked by the reset path - it is blocked by FreeMcBoot's loader, and
+  the USB HID stack's ~50 KB is what pushes the image past whatever FMCB keeps
+  resident. Measured on r6 rather than assumed: `_end` is `0x000eb3a0`, i.e.
+  **512 bytes** below the r4 image that did not boot, against a last-known-good
+  `0x000df3a0` some 49 KB lower. Not retested on hardware, because a 512-byte
+  move across a 49 KB gap is not a hypothesis. uLaunchELF still boots it, so
+  low+USB is usable from there today (`ps2link-low-packed.elf`); the FMCB menu
+  wants the runtime-`SifLoadModule` route above.
 
