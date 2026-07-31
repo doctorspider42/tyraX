@@ -92,3 +92,10 @@ cp -f "$elf" "$out"
 chmod u+rw "$out" 2>/dev/null || true
 echo "== OK: $out ($(stat -c%s "$out") bytes) =="
 echo "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
+if [ "$LOADHIGH" != 1 ]; then
+    echo "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
+    echo "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
+    echo "      that lives at that address, so booting it there is a black"
+    echo "      screen. If that is how you start it, rebuild with --load-high"
+    echo "      and flash ps2link-loadhigh.elf instead."
+fi

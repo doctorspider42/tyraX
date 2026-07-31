@@ -83,3 +83,10 @@ $out = Join-Path $here $(if ($LoadHigh) { 'ps2link-loadhigh.elf' } else { 'ps2li
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
 Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
+if (-not $LoadHigh) {
+    Write-Host "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
+    Write-Host "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
+    Write-Host "      that lives at that address, so booting it there is a black"
+    Write-Host "      screen. If that is how you start it, rebuild with -LoadHigh"
+    Write-Host "      and flash ps2link-loadhigh.elf instead."
+}
