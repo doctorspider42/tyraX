@@ -224,11 +224,70 @@ the verification, and any fact worth reusing belongs in the relevant
 
   The one variable nobody controlled: **the game binary changed mid-session.**
   The 4/4 run used `drone.elf` as built the previous night; every run after
-  11:48 used a rebuild that carries the engine's pad fix. The game is what
-  leaves the EE in whatever state `pkoReset` inherits, so it is a plausible
-  suspect and an easy one to test - deploy a trivially small example project
-  instead of drone, or rebuild drone from the pre-fix engine, and see whether
-  the cycle count moves. Start there.
+  11:48 used a rebuild that carries the engine's pad fix.
+
+  **That lead is dead, and two others with it (2026-07-31, afternoon).**
+
+  - The pad-fix theory needed the pre-fix engine to have *frozen* the game, so
+    that the 4/4 run was really measuring "reset with no game running". It did
+    not: the console has a pad connected, so the pre-fix engine ran fine. The
+    binary is not the variable.
+  - A game built before 2026-07-10 (commit `f358e595`, which added the ps2link
+    deploy path and `IrxLoader::keepIopResident`) **cannot be used as a test
+    vehicle at all**: it reboots the IOP on startup and takes ps2link's network
+    modules with it. The symptom is a `host:` log that stops after ~9 lines and
+    a console that stops answering ping *while the game keeps running on the
+    TV*. That is not a console death; do not score it as one.
+  - Measurement trap that voided two runs here: **a `ps2client` left over from a
+    previous deploy keeps serving `host:`**. The next game boots but reads the
+    *old* directory's files (`open host:livepad.bin` → `fd = -1` forever) and
+    its chatter lands in the previous log. Kill every `ps2client` before each
+    cycle and verify the new log actually grows.
+  - **Ping is not a liveness check.** The console answers ping in the exact
+    failure state being chased (IOP alive, EE gone). A cycle only counts as
+    survived if `execee` produces `loadelf` output.
+
+  **What the console actually died of, resolved (2026-07-31).** Read off the
+  screen after a Stop that wedged it: `BadAddr 0x00000008`, `EPC 0x00098604`,
+  `Cause 0x70008008` — ExcCode 2, a TLB miss on a load. Against the low build's
+  `ps2link.map`, `0x98604` lands inside `__retarget_lock_acquire_recursive`,
+  +0x14, whose prologue is `move s0,a0` / `lw v1,8(s0)`: the lock argument was
+  NULL. That is the **newlib stdout lock** — cleared `.bss` after `ExecPS2`
+  re-enters the image.
+
+  This kills the entry's own claim that "the two deaths are not the same bug".
+  The low build died of the same newlib-lock bug the high build did. The r4 fix
+  ("no stdio in `pkoReset`") missed it because the remaining `printf()`s were
+  not in `pkoReset` — a disassembly sweep of the whole image found exactly eight
+  `printf`/`puts` call sites and **all eight are error paths**: `pkoDumpReg`,
+  `pkoDumpMem` ×2, `pkoGSExec`, the two user-thread failures on the deploy path,
+  and the two `initCmdRpc()` thread failures that run on every ps2link start.
+  Error paths are precisely what a broken restart takes, which is why this
+  looked address-dependent and intermittent for a whole session. r4 had even
+  routed a `CreateThread` failure to `printf` deliberately (see
+  `docs/ps2link-setup.md`), i.e. it wired the crash in.
+
+  **r5 removes all of it** (`scr_printf` everywhere in `cmdHandler.c`; verified
+  on the binary — zero `printf`/`puts` call sites remain, `puts`/`_puts_r` are
+  no longer linked in). Note the LTO trap when reading the map: symbol
+  boundaries do not match code layout, so a call site "inside `pkoReset`" was
+  really `pkoDumpMem`'s. Resolve call sites by their **format string**, not by
+  nearest-symbol-below.
+
+  **r5 does not fix Stop.** Measured immediately after, high unpacked started by
+  `execee`, `drone` fully running (1049 log lines, live-pad polling): the
+  console died on cycle 1, no ping at all. So the stdio crash was a
+  *consequence* — something was already failing and `printf` shot the messenger.
+
+  What changed is the evidence: the death is now a **black screen with no
+  exception**. The handler installs its own `init_scr()` and would have printed
+  one, so nothing faults any more — the machine dies silently. And since
+  `ExecPS2` blanks the screen while `main()`'s very first statements are
+  `init_scr()` + `scr_printf("ps2link: image started...")`, a black screen means
+  **the re-executed image never reaches `main()`**. That narrows the remaining
+  bug to `ExecPS2` → crt0 → the prologue of `main()`, which is a much smaller
+  window than anything above. Start there, and note that "the screen is black
+  because nothing prints that early" is no longer an available excuse.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at

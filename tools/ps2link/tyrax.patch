@@ -20,7 +20,7 @@ index 2eb1e7e..f433943 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..3ce28dd 100644
+index 08f9b19..7cf2bfe 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
 @@ -15,6 +15,8 @@
@@ -32,6 +32,15 @@ index 08f9b19..3ce28dd 100644
  #include <debug.h>
  #include <startup.h>
  #include <ee_regs.h>
+@@ -128,7 +130,7 @@ pkoLoadElf(char *path)
+ 
+     pid = CreateThread(&th_attr);
+     if (pid < 0) {
+-        printf("EE: Create user thread failed %d\n", pid);
++        scr_printf("EE: Create user thread failed %d\n", pid);
+         return -1;
+     }
+ 
 @@ -153,6 +155,9 @@ pkoExecEE(pko_pkt_execee_req *cmd)
  
      dbgprintf("EE: Executing file %s...\n", cmd->argv);
@@ -42,11 +51,13 @@ index 08f9b19..3ce28dd 100644
  
      scr_printf("Executing file %s...\n", path);
  
-@@ -175,8 +180,13 @@ pkoExecEE(pko_pkt_execee_req *cmd)
+@@ -174,9 +179,14 @@ pkoExecEE(pko_pkt_execee_req *cmd)
+ 
      ret = StartThread(userThreadID, &userArgs);
      if (ret < 0) {
-         printf("EE: Start user thread failed %d\n", ret);
+-        printf("EE: Start user thread failed %d\n", ret);
 -        cmdThreadID = 0;
++        scr_printf("EE: Start user thread failed %d\n", ret);
 +        /* TyraX: this used to zero cmdThreadID - the wrong variable. That is
 +         * the thread the SIF DMA handler wakes, so after one failed launch
 +         * every later packet went to iWakeupThread(0) and ps2link stopped
@@ -65,16 +76,17 @@ index 08f9b19..3ce28dd 100644
      fd = open((const char *)cmd->file, O_RDONLY);
      if (fd < 0) {
          return fd;
-@@ -196,11 +207,24 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
+@@ -196,8 +207,21 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
      len = read(fd, dataBuffer, 128);
      close(fd);
  
 -    if (len < 0) {
+-        printf("EE: pkoGSExec failed\n");
 +    if (len <= 0) {
-         printf("EE: pkoGSExec failed\n");
-         return -1;
-     }
- 
++        scr_printf("EE: pkoGSExec failed\n");
++        return -1;
++    }
++
 +    /* TyraX: the qword count came straight from the packet while only 128
 +     * bytes were ever read, so a size field above 128 DMA'd whatever followed
 +     * dataBuffer straight into the GIF - a hang or a wedged GS, with nothing
@@ -84,13 +96,10 @@ index 08f9b19..3ce28dd 100644
 +        qwords = len / 16;
 +    }
 +    if (qwords <= 0) {
-+        printf("EE: pkoGSExec: nothing to send\n");
-+        return -1;
-+    }
-+
-     // stop/reset dma02
++        scr_printf("EE: pkoGSExec: nothing to send\n");
+         return -1;
+     }
  
-     // dmasend via GIF channel
 @@ -212,7 +236,7 @@ pkoGSExec(pko_pkt_gsexec_req *cmd)
          "sw     $10, -24560($8);"
          "ori    $9, $0, 0x101;"
@@ -107,7 +116,7 @@ index 08f9b19..3ce28dd 100644
 +    path[PKO_MAX_PATH - 1] = '\0';
      fd = open(path, O_WRONLY | O_CREAT);
 +    if (fd < 0) {
-+        printf("EE: pkoDumpMem() could not open %s\n", path);
++        scr_printf("EE: pkoDumpMem() could not open %s\n", path);
 +        return -1;
 +    }
      total = 0;
@@ -138,7 +147,7 @@ index 08f9b19..3ce28dd 100644
 -            total += len;
 +        ret = write(fd, (void *)dataBuffer, len);
 +        if (ret <= 0) {
-+            printf("EE: pkoDumpMem() write failed\n");
++            scr_printf("EE: pkoDumpMem() write failed\n");
 +            /* TyraX: `return fd` here leaked the host: fd on both sides -
 +             * ps2link never closed it and ps2client kept its end open too. A
 +             * few failed dumps and the PS2 was out of iomanX descriptors. */
@@ -157,7 +166,7 @@ index 08f9b19..3ce28dd 100644
 +    path[PKO_MAX_PATH - 1] = '\0';
      fd = open(path, O_RDONLY);
 +    if (fd < 0) {
-+        printf("EE: pkoWriteMem() could not open %s\n", path);
++        scr_printf("EE: pkoWriteMem() could not open %s\n", path);
 +        return -1;
 +    }
      total = 0;
@@ -187,7 +196,7 @@ index 08f9b19..3ce28dd 100644
 -            total += len;
 +        ret = read(fd, (void *)dataBuffer, len);
 +        if (ret <= 0) {
-+            printf("EE: pkoWriteMem() read failed\n");
++            scr_printf("EE: pkoWriteMem() read failed\n");
 +            close(fd); // TyraX: was a bare `return fd`, leaking the host: fd
 +            return -1;
          }
@@ -232,7 +241,7 @@ index 08f9b19..3ce28dd 100644
 +            /* TyraX: an unknown register set left size == 0, which then made
 +             * write() return 0, took the "write failed" branch and returned
 +             * without close() - leaking the fd. Reject it up front. */
-+            printf("EE: pkoDumpReg() unknown register set %d\n", ntohl(cmd->regs));
++            scr_printf("EE: pkoDumpReg() unknown register set %d\n", ntohl(cmd->regs));
 +            return -1;
      }
  
@@ -272,11 +281,31 @@ index 08f9b19..3ce28dd 100644
                  break;
              case PKO_NETDUMP_CMD:
                  excepscrdump = 0;
-@@ -793,8 +859,10 @@ int initCmdRpc(void)
+@@ -760,7 +826,7 @@ static int cmdThread(void *arg)
+                 iopException(sifDmaDataPtr[3], sifDmaDataPtr[4], sifDmaDataPtr[5], sifDmaDataPtr[2], &sifDmaDataPtr[6], sifDmaDataPtr[41], (char *)&sifDmaDataPtr[43]);
+                 break;
+             default:
+-                printf("EE: Unknown rpc cmd (%x) !\n", cmd);
++                scr_printf("EE: Unknown rpc cmd (%x) !\n", cmd);
+                 ret = -1;
+         }
+     }
+@@ -784,7 +850,7 @@ int initCmdRpc(void)
+ 
+     ret = CreateThread(&th_attr);
+     if (ret < 0) {
+-        printf("EE: initCmdRpc createThread failed %d\n", ret);
++        scr_printf("EE: initCmdRpc createThread failed %d\n", ret);
+         return -1;
+     }
+ 
+@@ -792,9 +858,11 @@ int initCmdRpc(void)
+ 
      ret = StartThread(cmdThreadID, 0);
      if (ret < 0) {
-         printf("EE: initCmdRpc startThread failed %d\n", ret);
+-        printf("EE: initCmdRpc startThread failed %d\n", ret);
 -        cmdThreadID = 0;
++        scr_printf("EE: initCmdRpc startThread failed %d\n", ret);
 +        /* TyraX: order was reversed, so this deleted thread 0 and leaked the
 +         * one it had just created. */
          DeleteThread(cmdThreadID);
@@ -321,7 +350,7 @@ index 08f9b19..3ce28dd 100644
  
      SifInitRpc(0);
      SifExitRpc();
-@@ -845,3 +918,100 @@ void pkoReset(void)
+@@ -845,3 +918,109 @@ void pkoReset(void)
  
      ExecPS2(&__start, 0, 1, argv);
  }
@@ -343,7 +372,16 @@ index 08f9b19..3ce28dd 100644
 +     * __retarget_lock_acquire_recursive with BadAddr 8, a cycle or two later,
 +     * looking entirely unrelated. Breadcrumbs in this function are scr_printf
 +     * only. They were useless over the network anyway: the IOP reboot follows
-+     * within a millisecond and takes the queued tty with it. */
++     * within a millisecond and takes the queued tty with it.
++     *
++     * That rule was first written for this function alone, which is why the bug
++     * survived it: every remaining printf() in this file sits on an ERROR path,
++     * and error paths are exactly what a broken restart takes. Measured on the
++     * console - EPC 0x00098604, BadAddr 8, i.e. lw v1,8(s0) with s0 = a0 = a
++     * NULL lock - the EE died reporting some earlier failure, not causing it.
++     * So the rule is now file-wide: stdio nowhere, scr_printf everywhere. The
++     * failure that triggered it then survives onto the screen instead of taking
++     * the console with it. */
 +    init_scr();
 +    scr_printf("\n\nps2link: program stopped\n");
 +
@@ -503,7 +541,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..e651726 100644
+index d566140..c0805a8 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -42,7 +42,7 @@ int if_conf_len __attribute__((section(".data"))) = 0;
@@ -524,7 +562,7 @@ index d566140..e651726 100644
  {
      int ret;
  
-@@ -176,18 +176,48 @@ static void loadModules(void)
+@@ -176,18 +176,49 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -556,14 +594,15 @@ index d566140..e651726 100644
 +     * whenever tyrax.patch changes behaviour, and say so in
 +     * docs/ps2link-setup.md - r1 was USB HID only, r2 added the host:/reset
 +     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
-+     * host: file server and quiesces the EE peripherals before restarting. */
++     * host: file server and quiesces the EE peripherals before restarting, r5
++     * takes stdio out of every error path in cmdHandler.c. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r4 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link r5 (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r4 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link r5 (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
@@ -575,7 +614,7 @@ index d566140..e651726 100644
  {
      dbgscr_printf("reset iop\n");
  
-@@ -211,22 +241,40 @@ void _libcglue_rtc_update() {}
+@@ -211,22 +242,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers

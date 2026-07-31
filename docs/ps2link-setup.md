@@ -123,7 +123,8 @@ command against an idle ps2link was answered instantly. The listener now takes
 `USER_HIGHEST_PRIORITY` (9) and the file server sits one below it. Note 9 is
 the highest a user thread may have — 8 makes `CreateThread` fail, which ps2link
 used to report only through `dbgprintf`, i.e. not at all in a release build.
-That now goes through `printf`.
+That now goes through `scr_printf` — r4 sent it to `printf`, which turned out to
+be a way of killing the console rather than reporting to it (see r5).
 
 *ps2link did not come back.* Killing the game's thread stops the CPU, not the
 hardware: the DMAC, both VUs, VIF0/1, the GIF and the IPU were left mid-chain,
@@ -142,12 +143,42 @@ one Stop and wedged on the second, because ps2sdk keeps its "SIF is
 initialized" flags in `.bss` and only a re-executed image gets them cleared by
 crt0.
 
-Verified on the console: four Run → Stop cycles back to back with no power
-cycle, the game dying on every Stop and the next deploy booting into a clean
-IOP.
+The game dies on every Stop, measured and reproducible. Whether **ps2link**
+comes back is a separate and still-open question — this section used to claim
+four clean Run → Stop cycles, which later re-measurement could not reproduce on
+any build; see the ps2link entry in [backlog.md](backlog.md) for the numbers.
 
 None of this changes the protocol, so it needs no `ps2client` change and an old
 `ps2client` still talks to it.
+
+**No stdio anywhere in `cmdHandler.c` (r5)** — every remaining `printf()` in
+that file became `scr_printf()`. They all sat on *error* paths, which is exactly
+why the r4 rule ("no stdio in `pkoReset`") did not catch them, and why the bug
+looked address-dependent and intermittent: an error path only runs when
+something has already gone wrong.
+
+`printf()` takes newlib's stdout lock. After `ExecPS2()` re-enters the image
+that lock is a cleared `.bss` field until newlib re-initializes, so the call
+faults instead of printing. Measured on the console: **`BadAddr 0x00000008`,
+`EPC 0x00098604`, `Cause 0x70008008`** (ExcCode 2, TLB miss on load). `0x98604`
+resolves inside `__retarget_lock_acquire_recursive`, whose prologue is
+
+```
+jal   <get thread id>
+move  s0,a0          ; s0 = the lock pointer
+lw    v1,8(s0)       ; <-- EPC, faults when s0 == NULL
+```
+
+so the lock argument was NULL. A disassembly sweep of the whole image found
+exactly eight `printf`/`puts` call sites, all of them error reports, four of
+them on the restart and deploy paths — including the two `initCmdRpc()` thread
+failures, which run on *every* ps2link start. The r5 image has zero: `puts` and
+`_puts_r` are no longer even linked in.
+
+What this fixes is the **messenger**: a failure that used to take the EE down
+silently now survives onto the screen and names itself. It is not, on its own,
+a fix for Stop — the console can still fail to come back (see the backlog), and
+that failure is now a black screen with no exception rather than a crash.
 
 ## 2. Put it on the console
 
@@ -197,7 +228,7 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r4 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r5 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -319,10 +350,11 @@ whose driver has not finished its handshake.
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
 | `[editor] No response from <ip> within 15s` | The commands went out and nothing came back. Check the IP against the console's `Net config:` line, then the PC firewall (inbound **UDP 18194** for `ps2client` — without it the game may actually be running with its log going nowhere). |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
-| Boot banner is below `r4` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console. Reflash. |
-| Stop leaves the console frozen on the game, or on a black screen | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
+| Boot banner is below `r5` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably. Reflash. |
+| Stop leaves the console frozen on the game | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
+| Stop kills the game but the console then needs a power cycle | **Open** — see the ps2link entry in [backlog.md](backlog.md). On r4 this could show as an EE exception with `BadAddr 8`; r5 removes the stdio that caused *that* crash, so what remains is a black screen with no exception. Neither is fixed. |
 | The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
-| Stop works once and the next one wedges | Also r4 - and if you see it ON r4, it is a new bug: say so, that pattern was ps2sdk's `.bss` state and the restart no longer depends on it. |
+| Stop works once and the next one wedges | Partly r4 — the `.bss` half of it. It is still seen on r4 and r5, so if you hit it you are hitting the open bug above, not the old one. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |
