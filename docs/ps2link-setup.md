@@ -11,6 +11,43 @@ Consequently **nothing downloads a ps2link for you**: `setup.ps1` / `setup.sh`
 fetch [ps2client](../tools/ps2client/README.md) (the PC side) and stop there.
 You build the console side, which takes one command and about a minute.
 
+## Quickstart
+
+The rest of this page is long because it carries the evidence for every choice
+in it. If you just want a console running, this is the whole of it — five steps,
+once.
+
+```powershell
+tools/ps2link/build.ps1 -Low -NoUsb -Packed
+```
+
+1. **Build** — the command above writes `tools/ps2link/ps2link-low-nousb-packed.elf`.
+   *This is the build to flash*, and the flags are not optional: `-Packed` is
+   what lets FreeMcBoot's menu boot it at all, `-Low` keeps it out of the top of
+   RAM where a big scene would overwrite it, and `-NoUsb` keeps it small enough
+   to fit under the menu's limit. Linux: `tools/ps2link/build.sh --low --no-usb --packed`.
+2. **Copy two files to the memory card**, in the same folder: that ELF renamed
+   to `PS2LINK.ELF`, and an `IPCONFIG.DAT` containing one line of three
+   space-separated values — IP, netmask, gateway, e.g.
+   `192.168.1.42 255.255.255.0 192.168.1.1`. Pick an IP on your PC's subnet.
+   **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
+   and vanishes from the LAN.
+3. **Boot it** from your launcher. The screen must read
+   `Welcome to TyraX ps2link r6 (no USB)` and end with a `Net config:` line
+   showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
+   means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
+4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
+   > PS2 (ps2link) IP*. Machine-global, not project data, so you do this once.
+5. **Run with F6**, stop with the toolbar's Stop. That is it.
+
+Two things worth knowing before you hit a wall:
+
+- **This build has no keyboard or mouse support** — that is what `-NoUsb` costs,
+  and it buys the FreeMcBoot boot. Drop `-NoUsb` if you want them and boot via
+  uLaunchELF instead, which has no such size limit.
+- **The PC firewall must let UDP 18194 in**, or the game runs with its log going
+  nowhere and the editor reports no response.
+
 ## What you need
 
 | | |

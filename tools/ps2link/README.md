@@ -8,8 +8,10 @@ so it is built here rather than downloaded — `setup.ps1` / `setup.sh` fetch
 
 Full end-to-end setup — hardware, flashing, `IPCONFIG.DAT`, the editor
 preference, troubleshooting — is in
-**[docs/ps2link-setup.md](../../docs/ps2link-setup.md)**. This file is about the
-build itself.
+**[docs/ps2link-setup.md](../../docs/ps2link-setup.md)**, and if you only want a
+console running, start at its
+**[Quickstart](../../docs/ps2link-setup.md#quickstart)** (five steps, one
+command). This file is about the build itself.
 
 ## Build it
 
