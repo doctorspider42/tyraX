@@ -403,11 +403,11 @@ whose driver has not finished its handshake.
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
 | `[editor] No response from <ip> within 15s` | The commands went out and nothing came back. Check the IP against the console's `Net config:` line, then the PC firewall (inbound **UDP 18194** for `ps2client` — without it the game may actually be running with its log going nowhere). |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
-| Boot banner is below `r5` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably. Reflash. |
+| Boot banner is below `r6` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path. **Stop only survives from r6.** Reflash. |
 | Stop leaves the console frozen on the game | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
-| Stop kills the game but the console then needs a power cycle | **Open** — see the ps2link entry in [backlog.md](backlog.md). On r4 this could show as an EE exception with `BadAddr 8`; r5 removes the stdio that caused *that* crash, so what remains is a black screen with no exception. Neither is fixed. |
+| Stop kills the game but the console then needs a power cycle | **Fixed in r6** — `pkoReset()` rebooted the IOP immediately before `ExecPS2()` and crt0 then ran against an IOP with no modules (12/12 cycles since; see "One IOP reboot per Stop" above). On r4 it could show as an EE exception with `BadAddr 8` and on r5 as a black screen with no exception; both are the same wedge wearing different faces. Reflash r6. |
 | The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
-| Stop works once and the next one wedges | Partly r4 — the `.bss` half of it. It is still seen on r4 and r5, so if you hit it you are hitting the open bug above, not the old one. |
+| Stop works once and the next one wedges | Partly r4 — the `.bss` half of it — and the rest is the double IOP reboot r6 removed. Seen on r4 and r5; if you still see it on r6, that is a new bug, so say so. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |
@@ -443,10 +443,14 @@ We expect to keep changing our ps2link, so the loop is:
 
 ### Testing a change without a console
 
-PCSX2 runs no ps2link, so the console used to be the only test rig. For the
-`host:` protocol code there is now a host harness — it compiles the **real**
-`iop/net_fio.c` out of the work tree against stub IOP/lwip headers and drives it
-with a scripted fake socket:
+Two layers, and neither needs the console: a host harness for the `host:`
+protocol code, and — since 2026-07-31 — **the whole of ps2link running inside
+PCSX2**, driven by the real `ps2client`.
+
+#### The host harness (protocol code)
+
+It compiles the **real** `iop/net_fio.c` out of the work tree against stub
+IOP/lwip headers and drives it with a scripted fake socket:
 
 ```bash
 tools/ps2link/test/run.sh
@@ -455,8 +459,106 @@ tools/ps2link/test/run.sh
 `run.ps1` on Windows. `--pristine` / `-Pristine` points the same tests at the
 untouched upstream file and **expects them to fail** — that A/B is the evidence,
 so keep both halves passing. It covers framing, EOF, short reads and the
-buffer clamps; anything involving threads, the SIF or the GS still needs
-hardware.
+buffer clamps.
+
+#### ps2link in PCSX2 (the emulated console)
+
+This is the layer that pays for the "the console is wedged, go and power-cycle
+it" loop: **a wedge costs `Stop-Process`, not a walk to the console.** PCSX2
+emulates DEV9, so ps2link's network comes up and `ps2client` talks to the
+emulated machine exactly as it talks to the real one — same subnet, same ports,
+same commands, same `execee`. It reproduces the r6 bug (see the A/B below), so
+it is not a toy.
+
+Set it up **beside** your normal PCSX2, never on top of it: parallel sessions
+run their own emulator and the editor rewrites `PCSX2.ini` on every launch.
+
+1. Copy the PCSX2 installation somewhere short (`%TEMP%\ps2link-lab\pcsx2`),
+   copy the BIOS files you use into its `bios\`, and always start it with
+   `-portable` so it keeps its own `inis/`, `logs/` and `snaps/`.
+2. In that copy's `inis\PCSX2.ini`, section **`[DEV9/Eth]`**:
+
+   ```ini
+   [DEV9/Eth]
+   EthEnable = true
+   EthApi = PCAP Bridged
+   EthDevice = {4694B5A4-4249-4851-99DA-900F44CDF04E}
+   InterceptDHCP = false
+   ```
+
+   `EthDevice` is the **bare adapter GUID** (`Get-NetAdapter | Select-Object
+   Name,InterfaceGuid`) — PCSX2 prepends `\Device\NPF_` itself. Needs Npcap and
+   a **wired** adapter; bridged capture over Wi-Fi does not carry foreign MACs.
+3. Put `ps2link.elf` and an `IPCONFIG.DAT` giving the emulated console a free
+   **static address on your LAN** in one directory, and boot it:
+
+   ```powershell
+   Start-Process "$lab\pcsx2-qt.exe" -ArgumentList "-portable","-elf","$dir\ps2link.elf","-fastboot"
+   ```
+
+   The boot screen must show that address on its `Net config:` line — same
+   check as on the console, same fallback to 192.168.1.10 if the file was not
+   read. Then `ps2client -h <that ip> …` works from the PC.
+
+Four things behave differently here, and each one has cost an hour:
+
+- **`host:` is served by PCSX2, not by `ps2client`.** With `HostFs = true` the
+  emulator answers `host:` itself, relative to the directory of the `-elf`
+  image, and it shadows ps2link's own network file server. So
+  `execee host:game.elf` fails with `Could not execute file` unless `game.elf`
+  sits **next to `ps2link.elf`**, whatever the client's working directory is.
+  For a game, copy `ps2link.elf` + `IPCONFIG.DAT` **into the project's `bin\`**
+  and boot there — `host:` then maps onto `bin\` exactly like a normal PCSX2
+  run. (Turning `HostFs` off hands `host:` back to ps2link, but then ps2link
+  cannot read `IPCONFIG.DAT` either.)
+- **Ping proves nothing, in either direction.** On hardware it answers in the
+  exact failure state being chased; here it can time out while the console is
+  perfectly alive, because ICMP loses to the reboot window. `execee` producing
+  output is the only liveness check that means anything.
+- **`emulog.txt` is opened exclusively** — stop that PCSX2 before reading it.
+  It is also the only place a DEV9 misconfiguration is reported; the screen
+  shows nothing.
+- **`ps2client`'s stdout is block-buffered into a redirected pipe**, so a
+  scripted `execee` shows nothing until the process exits. Screenshot the
+  emulated console instead (`screenshot-window.ps1 -ProcessName pcsx2-qt`).
+
+#### Worked example: the r6 Stop bug, A/B in two minutes
+
+The cycle the editor runs on F6 and *Stop on PS2*, against the emulated
+console — deploy a payload, kill the file server, `reset`, deploy again:
+
+```powershell
+Start-Process $pc -ArgumentList "-h",$ip,"execee","host:hello.elf" -WorkingDirectory $dir
+Start-Sleep 10                                    # payload running
+Get-CimInstance Win32_Process -Filter "name='ps2client.exe'" |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+& $pc -h $ip -t 10 reset                          # this is the Stop
+Start-Sleep 12
+Start-Process $pc -ArgumentList "-h",$ip,"execee","host:hello.elf" -WorkingDirectory $dir
+```
+
+| Image | After the Stop | Second Run |
+|---|---|---|
+| **r4** | the EE falls through to the **BIOS browser** and the console drops off the LAN | dead — the "go and power-cycle it" state |
+| **r6** | the `Welcome to TyraX ps2link r6 … Net config:` banner is back | the payload runs again |
+
+Build the image under test into the rig without disturbing the work tree by
+copying `tools/ps2link` elsewhere first, then `git -C build checkout -- .`,
+`git -C build apply ../tyrax.patch` and the `docker run … make ee LOADHIGH=1`
+line `build.ps1` uses.
+
+#### What the emulator cannot do
+
+**EE exceptions.** The r4 stdio crash — `printf()` on a re-executed image, NULL
+newlib lock, `lw v1,8(s0)` → `BadAddr 8` — was replayed there deliberately: the
+`printf` **returned normally** and the word at `0x00000008` read back as
+`0x00000000`. In PCSX2 main RAM starts at address 0, so a NULL dereference is an
+ordinary load and never misses the TLB. That is also why a deliberate crash
+cannot be tested in the emulator (see [devkit.md](devkit.md)) — anything about
+faults, `crash.txt` or the EE crash handler stays a hardware test, as does
+timing, and so does the real `host:` file server while `HostFs` is on. What the
+rig is good for is everything above that line: sequencing, restarts, IOP
+reboots, the network protocol, and "did the restarted image reach `main()`".
 
 ### Known remaining rough edges
 

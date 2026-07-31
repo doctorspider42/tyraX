@@ -730,8 +730,26 @@ Notes:
   tools. Anything wanted from them is a **ps2link patch**, which is the normal
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
-  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
-  PCSX2 runs no ps2link.
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md).
+
+  **ps2link is no longer hardware-only: it runs in PCSX2.** A SECOND, portable
+  copy of the emulator (`-portable`, its own `inis/bios/logs`, so it cannot
+  disturb a parallel session or the editor's own launches) with **DEV9 bridged**
+  onto the LAN boots `ps2link.elf` and answers the real `ps2client` — same
+  subnet, same ports, `reset` and `execee` included. A wedge then costs
+  `Stop-Process` instead of a walk to the console, which is what makes a
+  Run → Stop → Run A/B a two-minute scripted test: measured 2026-07-31, r4 falls
+  through to the BIOS browser and drops off the LAN where r6 comes back and runs
+  the payload again. The full recipe, the four gotchas (`[DEV9/Eth]` is the ini
+  section, `EthDevice` is the bare adapter GUID, `host:` is served by PCSX2's
+  HostFs relative to the `-elf` directory and NOT by ps2client, ping proves
+  nothing in either direction) and the limits are in
+  **docs/ps2link-setup.md — "Testing a change without a console"**. The limit
+  that matters: **the emulator cannot produce an EE exception** — replayed the
+  r4 `BadAddr 8` crash there and the `printf` returned normally, because main
+  RAM starts at address 0, so a NULL dereference is an ordinary load. Faults,
+  `crash.txt` and the crash handler stay hardware tests; sequencing, restarts,
+  IOP reboots and the protocol do not.
 
   **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
   (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub

@@ -1,8 +1,9 @@
 /* Host harness for tools/ps2link/build/iop/net_fio.c - run it with
  * tools/ps2link/test/run.ps1 (or run.sh).
  *
- * ps2link only runs on real hardware (PCSX2 has no ps2link), so the host:
- * protocol code used to be unverifiable outside "flash it and see". This
+ * The host: protocol code used to be unverifiable outside "flash it and see".
+ * (ps2link does run in PCSX2 with DEV9 bridged - see docs/ps2link-setup.md -
+ * but that rig tests the console end to end, not this file's edge cases.) This
  * compiles the REAL patched IOP source against the stub IOP/lwip headers in
  * shim/ and drives it with a scripted fake socket, which is enough to pin down
  * the framing / EOF / clamping behaviour that tyrax.patch changes.

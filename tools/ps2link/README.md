@@ -219,7 +219,17 @@ Verified: four Run → Stop cycles back to back, no power cycle.
 
 ## Testing it without a console
 
-PCSX2 runs no ps2link, but the `host:` protocol code can be tested on the PC:
+**ps2link itself runs in PCSX2** — a portable second copy of the emulator with
+DEV9 bridged onto the LAN boots this ELF and answers the real `ps2client`, so a
+wedged console is a killed process rather than a walk to the hardware. That is
+the layer to reach for when a change touches the reset/restart path: the
+r4-vs-r6 *Stop* difference reproduces there in about two minutes. Setup,
+gotchas and what it cannot do (EE exceptions — main RAM starts at address 0, so
+a NULL dereference never faults) are in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#testing-a-change-without-a-console).
+
+For the `host:` protocol code specifically there is a host harness that needs no
+emulator at all:
 
 ```powershell
 tools/ps2link/test/run.ps1

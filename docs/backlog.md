@@ -111,6 +111,24 @@ the verification, and any fact worth reusing belongs in the relevant
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
+- **DONE (2026-07-31): ps2link can be debugged in PCSX2, without the console.**
+  A second, portable copy of the emulator with **DEV9 bridged** onto the LAN
+  boots `ps2link.elf` and answers the real `ps2client` — `reset` and `execee`
+  included — so a wedged console is a killed process instead of a walk to the
+  hardware. Validated against a case with a known answer: the same
+  Run -> Stop -> Run cycle shows **r4 falling through to the BIOS browser and
+  off the LAN, where r6 comes back and runs the payload again**. Recipe, the
+  four gotchas and the limits are in `docs/ps2link-setup.md`
+  ("Testing a change without a console"); the hard limit is that **PCSX2 cannot
+  produce an EE exception** — main RAM starts at address 0, so the NULL
+  dereference behind the r4 `BadAddr 8` crash is an ordinary load there.
+
+  Follow-ups worth doing, none of them blocking: **script the rig** (a
+  `tools/ps2link/lab.ps1` + `lab.sh` pair that copies the emulator, patches
+  `[DEV9/Eth]`, stages the ELF and runs a Run -> Stop -> Run cycle — the manual
+  steps are all in the doc), and consider letting the editor's *Real PS2* target
+  point at the emulated console for a smoke test before touching the hardware.
+
 - **DONE (2026-07-31): ps2link's low build boots from FMCB and survives Stop.**
   Both halves are now measured on the console. The low packed no-USB image boots
   from the FreeMcBoot menu, and flashed to the card and booted from that menu it
