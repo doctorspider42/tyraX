@@ -213,7 +213,11 @@ Measured on the console, `drone` fully running before every Stop and every
 | r6, high, with the diagnostic probe | 8/8, series ended on its limit |
 | r6, high, `pkoReset()` fixed | 12/12, series ended on its limit |
 | r6, high, both reboot sites fixed | 12/12, series ended on its limit |
-| r6, low packed no-USB | not yet measured — see below |
+| **r6, low packed no-USB, booted from the FMCB menu** | **12/12, series ended on its limit** |
+
+The last row is the one that matters: that build, in that launcher, is what a
+user actually flashes, and before r6 it died on the **first** Stop every single
+time.
 
 `pkoRestartImage()` had the same reboot-then-`ExecPS2()` shape and r6 changes it
 the same way. That path only runs on the initial boot, where nothing has touched
@@ -224,10 +228,10 @@ result above.
 **Booting the low build over a running high one still does not work** — the
 console answers ping afterwards but accepts no deploy, i.e. the EE never comes
 up. r6 does not fix that, measured; it was tried again with both reboot sites
-changed. So the low build can only be exercised from a **card boot**, and its
-own Run → Stop cycle count on r6 remains **unmeasured** — the run that looked
-like a low-build Stop failure actually died in the boot. Measuring it wants a
-reflash.
+changed. It is a limitation of the iteration recipe, not of the build: **the
+high image can be shot over a low one, but not the other way round.** The low
+build is measured from a card boot instead, which is how the last table row was
+taken.
 
 ## 2. Put it on the console
 

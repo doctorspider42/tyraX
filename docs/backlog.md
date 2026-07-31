@@ -111,15 +111,26 @@ the verification, and any fact worth reusing belongs in the relevant
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
-- **ps2link: the low build boots from FMCB when packed and small (2026-07-31).**
-  The Stop-wedges-the-console half of this entry is **fixed in r6** - see "What
-  the console actually died of" below; the short version is that `pkoReset()`
-  rebooted the IOP immediately before `ExecPS2()`, and ps2sdk's C runtime init
-  runs in crt0 against that IOP before `main()` ever gets control. High build:
-  12 consecutive Run -> Stop cycles, series ended on its limit, against 1-3 for
-  everything before it. What is left here is getting off the top-of-RAM address,
-  which is only free until a scene allocates past ~31 MB, and re-measuring the
-  low build on r6 - that needs a card boot, i.e. a reflash.
+- **DONE (2026-07-31): ps2link's low build boots from FMCB and survives Stop.**
+  Both halves are now measured on the console. The low packed no-USB image boots
+  from the FreeMcBoot menu, and flashed to the card and booted from that menu it
+  took **12 consecutive Run -> Stop cycles**, the series ending on its own limit
+  rather than on a failure - where before r6 it died on the **first** Stop every
+  time. The high build gives the same 12/12. So the top-of-RAM address is no
+  longer load-bearing: the shipping image sits at `0x00094000` and leaves the
+  top of memory to the game, which was the point of the whole entry.
+
+  The fix is r6, described under "What the console actually died of" below;
+  the short version is that `pkoReset()` rebooted the IOP immediately before
+  `ExecPS2()`, and ps2sdk's C runtime init runs in crt0 against that IOP before
+  `main()` ever gets control.
+
+  Still open, and now its own entry below: **keyboard and mouse on the low
+  build.** Baking the USB HID stack in makes the image too big for the FMCB
+  menu, so the shipping low build is the no-USB one.
+
+  Everything below is the investigation, kept because most of it is a record of
+  what was NOT the cause.
 
   The original question - why our low build black-screened from the FMCB menu
   while the owner's stock `PS2LINK.ELF` booted - **is answered**. Everything
@@ -351,6 +362,7 @@ the verification, and any fact worth reusing belongs in the relevant
   | r6 high, with the probe still in | 8/8, stopped at the limit |
   | r6 high, `pkoReset()` fixed | 12/12, stopped at the limit |
   | r6 high, both reboot sites fixed | 12/12, stopped at the limit |
+  | **r6 low packed no-USB, flashed, booted from the FMCB menu** | **12/12, stopped at the limit** |
 
   `restartIOP()` also gained its missing `SifIopSync()` edge — it waited only
   for the boot to *finish*, which falls straight through when BOOTEND is still
@@ -366,10 +378,10 @@ the verification, and any fact worth reusing belongs in the relevant
   does not fix it — retried with both reboot sites changed: the console answers
   ping afterwards and accepts no deploy, so the EE never came up. Consequence for
   the iteration recipe at the top of this entry: **the high build can be shot
-  over a low one, but not the other way round.** Which also means the low build's
-  own Run → Stop cycle count on r6 is **unmeasured** — the run that looked like a
-  low-build Stop failure died in the boot instead. It wants a card boot, i.e. a
-  reflash.
+  over a low one, but not the other way round.** That is a limit of the recipe,
+  not of the build — the run that once looked like a low-build Stop failure had
+  died in the boot instead. The low build was measured from a card boot, and
+  gives 12/12 like the high one.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
