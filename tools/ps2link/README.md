@@ -22,14 +22,23 @@ tools/ps2link/build.ps1
 Linux: `tools/ps2link/build.sh`. `-Clean` / `--clean` throws the work tree
 away first.
 
-`-LoadHigh` / `--load-high` builds the same thing linked at `0x01ee8000`
-instead of the default `0x00094000`, as **`ps2link-loadhigh.elf`**. The default
-address is the "BIOS unused" window below the `0x00100000` a game loads at —
-which is exactly where a launcher's own resident loader sits, so the default
-build black-screens when booted from FreeMcBoot's menu or a shortcut (it works
-from uLaunchELF, which loads elsewhere). The high build is clear of every
-launcher but within reach of a game that allocates past ~31 MB. The boot screen
-prints the address, so the flashed card identifies itself.
+**`ps2link.elf` is linked at `0x01ee8000`** (top of RAM). `-Low` / `--low`
+builds the same thing at `0x00094000` — the "BIOS unused" window below the
+`0x00100000` a game loads at — as `ps2link-low.elf`.
+
+Upstream defaults to the low address and its CI publishes both variants
+("default" and "highloading"); we default to high instead, because the low
+build black-screens when booted from FreeMcBoot's menu or a shortcut (it boots
+from uLaunchELF fine), and that is a worse failure than the high build's
+trade-off: it sits at ~31.9 MB, so a game that allocates its way up there would
+overwrite it. The boot screen prints the address, so the flashed card
+identifies itself.
+
+Why the low build breaks under FMCB while stock ps2link does not is **not
+settled**. Measured: our patch bakes in the USB HID stack, so the image ends at
+`0x000eb5a0` against upstream's `0x000dea20` — same start, ~50 KB longer tail,
+presumably over whatever FMCB keeps resident there. A low build without the USB
+stack would confirm it; the high build makes the question moot.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`

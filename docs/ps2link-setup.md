@@ -151,18 +151,27 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
    USB or the network, a PS2 memory-card manager on the PC, whatever your
    FMCB setup already uses to install homebrew).
 
-   > **Launch it from uLaunchELF.** ps2link links itself at `0x00094000` — in
-   > the "BIOS unused" window *below* the `0x00100000` a game loads at, which is
-   > what keeps it alive underneath the running game. That is also where a
-   > launcher's own resident loader lives, so booting `PS2LINK.ELF` straight
-   > from **FreeMcBoot's main menu or an FMCB shortcut gives a black screen and
-   > a console that answers nothing on the network** — the load overwrote the
-   > code doing the loading. uLaunchELF boots the same file fine. If you want it
-   > on a shortcut anyway, build the high variant — `build.ps1 -LoadHigh` /
-   > `build.sh --load-high` links at `0x01ee8000`, clear of every launcher, at
-   > the price of being in reach of a game that allocates past ~31 MB. The boot
-   > screen prints `ps2link loaded at 0x...`, so you can always see which one is
-   > on the card.
+   > **Two link addresses, and the default here is not upstream's.** ps2link can
+   > link at `0x00094000` — the "BIOS unused" window *below* the `0x00100000` a
+   > game loads at, which is what keeps it alive underneath the running game —
+   > or at `0x01ee8000`, the top of RAM. Upstream defaults to the low one and
+   > publishes both ("default" and "highloading"); **we default to the high
+   > one**, because the low build **black-screens when booted from FreeMcBoot's
+   > menu or a shortcut** (uLaunchELF boots it fine), and a console that shows
+   > nothing and answers nothing on the network is a worse failure than a
+   > memory ceiling no scene has come near. `build.ps1` / `build.sh` therefore
+   > write the high build as `ps2link.elf`; `-Low` / `--low` writes the low one
+   > as `ps2link-low.elf`. The boot screen prints `ps2link loaded at 0x...`, so
+   > a flashed card always says which one it is.
+   >
+   > Why the low build breaks there and stock ps2link does not is **not fully
+   > established**. What is measured: our patch bakes in `usbd` + `ps2kbd` +
+   > `ps2mouse`, so the image ends at `0x000eb5a0` instead of upstream's
+   > `0x000dea20` — about 50 KB further into the same window, presumably onto
+   > whatever FMCB keeps resident there. Same start address, longer tail. The
+   > experiment that would settle it is a low build with the USB stack left
+   > out; nobody has needed the answer badly enough to run it, since the high
+   > build makes the question moot.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:

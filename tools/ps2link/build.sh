@@ -6,31 +6,37 @@
 # official ps2dev/ps2dev toolchain image (Docker), and drops ps2link.elf next to
 # this script. Needs Docker running (and the current user in the docker group).
 #
-#   ./build.sh           # build -> tools/ps2link/ps2link.elf
+#   ./build.sh           # build -> tools/ps2link/ps2link.elf  (0x01ee8000)
 #   ./build.sh --clean   # nuke the work tree first
-#   ./build.sh --load-high   # -> tools/ps2link/ps2link-loadhigh.elf
+#   ./build.sh --low     # -> tools/ps2link/ps2link-low.elf   (0x00094000)
 #
-# --load-high links ps2link at 0x01ee8000 (top of RAM) instead of the default
-# 0x00094000. The default sits in the "BIOS unused" window below the 0x00100000
-# a game loads at - out of the game's way, but right on top of a launcher that
-# keeps its own code down there: FreeMcBoot's main menu / shortcuts hand over
-# to a low-memory loader, and loading over it is a black screen with no network
-# (uLaunchELF, which does not, boots the same ELF fine). The high build swaps
-# the problem: it is clear of every launcher, but a game that allocates its way
-# past ~31 MB would overwrite it instead. The boot screen prints the address it
-# actually loaded at, so there is never any doubt which one is flashed.
+# Two link addresses, and which one works depends on how you boot it.
+#
+# 0x00094000 is the "BIOS unused" window below the 0x00100000 a game loads at.
+# It keeps ps2link clear of the game - but it is also where a launcher keeps
+# its own resident loader, so FreeMcBoot's menu and its shortcuts black-screen
+# on it (uLaunchELF, which loads elsewhere, boots it fine). 0x01ee8000 is the
+# top of RAM: clear of every launcher, at the price of being in reach of a game
+# that allocates its way past ~31 MB.
+#
+# Upstream ships the low one as its default and publishes both from CI
+# ("default" and "highloading"). We default to HIGH instead, because booting
+# from the FMCB menu is the normal way to start a console here and a black
+# screen is a worse failure than a memory ceiling no scene has come near. The
+# boot screen prints the address it actually loaded at, so a flashed card
+# always says which one it is.
 #
 # Flash the result onto the console's memory card - see docs/ps2link-setup.md.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 CLEAN=0
-LOADHIGH=0
+LOADHIGH=1
 for arg in "$@"; do
     case "$arg" in
         --clean|-Clean) CLEAN=1 ;;
-        --load-high|-LoadHigh) LOADHIGH=1 ;;
-        *) echo "Unknown option: $arg (expected --clean or --load-high)" >&2; exit 2 ;;
+        --low|-Low) LOADHIGH=0 ;;
+        *) echo "Unknown option: $arg (expected --clean or --low)" >&2; exit 2 ;;
     esac
 done
 
@@ -85,17 +91,16 @@ make ee LOADHIGH=$LOADHIGH
 elf="$work/ee/ps2link.elf"
 [ -f "$elf" ] || { echo "expected $elf, not produced" >&2; exit 1; }
 out="$here/ps2link.elf"
-[ "$LOADHIGH" = 1 ] && out="$here/ps2link-loadhigh.elf"
+[ "$LOADHIGH" = 0 ] && out="$here/ps2link-low.elf"
 cp -f "$elf" "$out"
 # The container builds as root; hand the artifact back to the invoking user so
 # the next build (and copying it onto a memory card) needs no sudo.
 chmod u+rw "$out" 2>/dev/null || true
 echo "== OK: $out ($(stat -c%s "$out") bytes) =="
 echo "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if [ "$LOADHIGH" != 1 ]; then
+if [ "$LOADHIGH" = 0 ]; then
     echo "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
     echo "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
     echo "      that lives at that address, so booting it there is a black"
-    echo "      screen. If that is how you start it, rebuild with --load-high"
-    echo "      and flash ps2link-loadhigh.elf instead."
+    echo "      screen. Drop --low to get the 0x01ee8000 build instead."
 fi
