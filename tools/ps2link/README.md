@@ -36,27 +36,46 @@ trade-off: it sits at ~31.9 MB, so a game that allocates its way up there would
 overwrite it. The boot screen prints the address, so the flashed card
 identifies itself.
 
-Why the low build black-screens under FMCB is **settled, and it is the address
-itself**. The first theory was image size — our patch bakes in the USB HID
-stack, so the image reaches ~50 KB further into that window than stock ps2link,
-presumably over whatever FMCB keeps resident. Measured on the console, all at
-`0x00094000`, all flashed to the same path on the same card:
+Why the low build black-screens under FMCB: **because we ship it unpacked, and
+upstream's release is packed.** That took two wrong answers to reach, so here
+is the evidence rather than the story.
+
+First theory, image size — our patch bakes in the USB HID stack, so the image
+reaches ~50 KB further into that window than stock. Measured on the console,
+all at `0x00094000`, all flashed the same way:
 
 | build | image ends at | ELF | boots from the FMCB menu |
 |---|---|---|---|
-| stock upstream, no patch | `0x000dea20` | 233 396 B | **no** |
-| ours, `-NoUsb` / `--no-usb` | `0x000df3a0` | 235 828 B | **no** |
-| ours, full | `0x000eb5a0` | 285 492 B | **no** |
-| ours, full, high | — | 285 492 B | yes |
+| stock upstream, unpacked, no patch | `0x000dea20` | 233 396 B | **no** |
+| ours, `--no-usb`, unpacked | `0x000df3a0` | 235 828 B | **no** |
+| ours, unpacked | `0x000eb5a0` | 285 492 B | **no** |
+| ours, high, unpacked | — | 285 492 B | yes |
 
-So: not the size (285 KB boots, 233 KB does not), and not the patch (untouched
-upstream fails identically). The only variable left is the link address. That
-FMCB hands ELF launches to a loader living at `0x00094000` and anything loaded
-there overwrites it mid-copy; uLaunchELF, which loads elsewhere, boots every
-one of these builds fine — which is where "but it used to work" came from.
+Not the size (285 KB boots high, 233 KB fails low), and not the patch (stock
+fails identically). Second theory, therefore: the low address itself. Wrong
+too - the ps2link release that *had* been booting from that menu for a year
+also ends up at `0x00094000`.
 
-Hence the default. `-Low` is kept for uLaunchELF users and for bisecting;
-`-NoUsb` is kept because it now has a second use, as the small build.
+What it actually is shows up in the ELF headers of the file that works:
+
+| | entry | first PT_LOAD | size |
+|---|---|---|---|
+| upstream release `PS2LINK.ELF` | `0x01d0001c` | `0x01ced150` | 89 364 B |
+| uLaunchELF `BOOT.ELF` | `0x01d0001c` | — | 351 876 B |
+| ours, `make ee` | `0x000948a8` | `0x00094000` | 285 492 B |
+
+The releases are run through **`ps2-packer`**: what a launcher loads is a small
+stub high in memory, and the real image is decompressed down to `0x00094000`
+at runtime - after the loader that put it there is done with its own code.
+Ours comes from `make ee`, the unpacked ELF, whose PT_LOAD lands on FMCB's
+loader while it is still running. uLaunchELF is unaffected because it is packed
+too and lives elsewhere.
+
+So the fix is to ship what upstream ships: `make` (not `make ee`), which runs
+`ps2-packer` and writes `bin/PS2LINK.ELF`. The packed low build comes out at
+118 740 B with entry `0x01d0001c` - the same shape as the file that works.
+**Hardware confirmation of our packed build is still owed**; until it lands,
+the high unpacked build stays the default, since that one is measured.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`

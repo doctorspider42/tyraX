@@ -164,14 +164,19 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
    > as `ps2link-low.elf`. The boot screen prints `ps2link loaded at 0x...`, so
    > a flashed card always says which one it is.
    >
-   > **It is the address, not our patch and not the size.** Three low builds
-   > were flashed to the same path on the same card and all three black-screen
-   > from the FMCB menu: ours (285 KB), ours without the USB stack (236 KB),
-   > and **untouched upstream ps2link** (233 KB). The high build, same size as
-   > the first, boots. uLaunchELF boots all of them. So FMCB's menu hands over
-   > to something living at `0x00094000`, and an ELF loaded there overwrites
-   > the code doing the loading — which is also where "but stock ps2link used
-   > to work" comes from: it did, from uLaunchELF.
+   > **It is packed vs unpacked.** Three low builds black-screen from the FMCB
+   > menu — ours (285 KB), ours without the USB stack (236 KB) and untouched
+   > upstream (233 KB) — so it is neither the size nor the patch. Nor is it the
+   > address: upstream's *release* `PS2LINK.ELF` has been booting from that
+   > menu all along and ends up at `0x00094000` too. The difference is in the
+   > ELF headers: the release (and uLaunchELF) enters at `0x01d0001c` with its
+   > only segment high in memory, because it went through **`ps2-packer`** —
+   > the launcher loads a stub, which decompresses the real image down to
+   > `0x00094000` once the loader is out of the way. `make ee` produces the raw
+   > image, whose segment lands on FMCB's loader mid-copy. Building with `make`
+   > instead of `make ee` gives us the packed shape (118 740 B, entry
+   > `0x01d0001c`); that build has not been booted on hardware yet, so the high
+   > build remains the default for now.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:
