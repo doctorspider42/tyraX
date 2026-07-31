@@ -9,6 +9,7 @@
 #   ./build.sh           # build -> tools/ps2link/ps2link.elf  (0x01ee8000)
 #   ./build.sh --clean   # nuke the work tree first
 #   ./build.sh --low     # -> tools/ps2link/ps2link-low.elf   (0x00094000)
+#   ./build.sh --no-usb  # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
 #
 # Two link addresses, and which one works depends on how you boot it.
 #
@@ -32,11 +33,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 CLEAN=0
 LOADHIGH=1
+NOUSB=0
 for arg in "$@"; do
     case "$arg" in
         --clean|-Clean) CLEAN=1 ;;
         --low|-Low) LOADHIGH=0 ;;
-        *) echo "Unknown option: $arg (expected --clean or --low)" >&2; exit 2 ;;
+        --no-usb|-NoUsb) NOUSB=1 ;;
+        *) echo "Unknown option: $arg (expected --clean, --low or --no-usb)" >&2; exit 2 ;;
     esac
 done
 
@@ -90,17 +93,29 @@ make ee LOADHIGH=$LOADHIGH
 
 elf="$work/ee/ps2link.elf"
 [ -f "$elf" ] || { echo "expected $elf, not produced" >&2; exit 1; }
-out="$here/ps2link.elf"
-[ "$LOADHIGH" = 0 ] && out="$here/ps2link-low.elf"
+suffix=""
+[ "$LOADHIGH" = 0 ] && suffix="$suffix-low"
+[ "$NOUSB" = 1 ] && suffix="$suffix-nousb"
+out="$here/ps2link$suffix.elf"
 cp -f "$elf" "$out"
 # The container builds as root; hand the artifact back to the invoking user so
 # the next build (and copying it onto a memory card) needs no sudo.
 chmod u+rw "$out" 2>/dev/null || true
 echo "== OK: $out ($(stat -c%s "$out") bytes) =="
 echo "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if [ "$LOADHIGH" = 0 ]; then
+if [ "$LOADHIGH" = 0 ] && [ "$NOUSB" = 1 ]; then
+    echo "NOTE: low address, no USB stack - the image ends ~50 KB earlier than"
+    echo "      the full one. This is the build that answers whether the FMCB"
+    echo "      black screen is about that tail: if this one boots from the"
+    echo "      FMCB menu and the plain --low does not, that is the answer."
+elif [ "$LOADHIGH" = 0 ]; then
     echo "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
     echo "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
     echo "      that lives at that address, so booting it there is a black"
     echo "      screen. Drop --low to get the 0x01ee8000 build instead."
+fi
+if [ "$NOUSB" = 1 ]; then
+    echo "      No keyboard or mouse over ps2link with this one - it bakes in"
+    echo "      no usbd/ps2kbd/ps2mouse, and a game cannot load them itself on"
+    echo "      a network-booted ps2link. The banner reads 'r4 (no USB)'."
 fi

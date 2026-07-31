@@ -1,14 +1,21 @@
 diff --git a/ee/Makefile b/ee/Makefile
-index 2eb1e7e..444074e 100644
+index 2eb1e7e..f433943 100644
 --- a/ee/Makefile
 +++ b/ee/Makefile
-@@ -9,6 +9,9 @@ EE_LIBS += -lpatches -ldebug
+@@ -9,6 +9,16 @@ EE_LIBS += -lpatches -ldebug
  IRX_FILES += ioptrap.irx ps2dev9.irx poweroff.irx
  IRX_FILES += ps2ip.irx netman.irx smap.irx udptty.irx
  IRX_FILES += ps2link.irx
 +# TyraX: bake in the USB HID stack (usbd + keyboard + mouse). These ship
 +# prebuilt in $(PS2SDK)/iop/irx/ and are picked up by the generic %_irx.c rule.
++# NOUSB=1 leaves them out: they are ~50 KB of the image, and at the low link
++# address that tail is the difference between booting from FreeMcBoot's menu
++# and a black screen. Nothing else in ps2link depends on them.
++NOUSB ?= 0
++ifneq ($(NOUSB),1)
 +IRX_FILES += usbd.irx ps2kbd.irx ps2mouse.irx
++EE_CFLAGS += -DTYRAX_USB_HID
++endif
  EE_OBJS += $(IRX_FILES:.irx=_irx.o) ps2ip_nm_irx.o
  
  # Compile with -Werror
@@ -490,7 +497,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..9f99760 100644
+index d566140..e651726 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -42,7 +42,7 @@ int if_conf_len __attribute__((section(".data"))) = 0;
@@ -511,14 +518,16 @@ index d566140..9f99760 100644
  {
      int ret;
  
-@@ -176,18 +176,38 @@ static void loadModules(void)
+@@ -176,18 +176,48 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
 +
++#ifdef TYRAX_USB_HID
 +    /* TyraX: USB HID stack. usbd first (ps2kbd/ps2mouse import it), so a
 +     * game deployed over this ps2link can reuse the resident drivers and get
-+     * a keyboard AND mouse without loading its own usbd. */
++     * a keyboard AND mouse without loading its own usbd. Built out entirely
++     * by NOUSB=1 - see ee/Makefile. */
 +    dbgscr_printf("Exec usbd module. (%x,%d) ", (unsigned int)usbd_irx, size_usbd_irx);
 +    SifExecModuleBuffer(usbd_irx, size_usbd_irx, 0, NULL, &ret);
 +    dbgscr_printf("[%d] returned\n", ret);
@@ -528,6 +537,7 @@ index d566140..9f99760 100644
 +    dbgscr_printf("Exec ps2mouse module. (%x,%d) ", (unsigned int)ps2mouse_irx, size_ps2mouse_irx);
 +    SifExecModuleBuffer(ps2mouse_irx, size_ps2mouse_irx, 0, NULL, &ret);
 +    dbgscr_printf("[%d] returned\n", ret);
++#endif /* TYRAX_USB_HID */
 +
      dbgscr_printf("All modules loaded on IOP.\n");
  }
@@ -541,7 +551,14 @@ index d566140..9f99760 100644
 +     * docs/ps2link-setup.md - r1 was USB HID only, r2 added the host:/reset
 +     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
 +     * host: file server and quiesces the EE peripherals before restarting. */
++#ifdef TYRAX_USB_HID
 +    scr_printf("Welcome to TyraX ps2link r4 (USB keyboard + mouse)\n");
++#else
++    /* TyraX: the banner has to say which of the two this is - they differ in
++     * what stays resident on the IOP and in how far the image reaches, and the
++     * second is the whole reason this variant exists. */
++    scr_printf("Welcome to TyraX ps2link r4 (no USB)\n");
++#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
      scr_printf("Initializing...\n");
@@ -552,7 +569,7 @@ index d566140..9f99760 100644
  {
      dbgscr_printf("reset iop\n");
  
-@@ -211,22 +231,40 @@ void _libcglue_rtc_update() {}
+@@ -211,22 +241,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers

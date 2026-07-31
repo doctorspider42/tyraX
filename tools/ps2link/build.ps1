@@ -9,6 +9,7 @@
 #   ./build.ps1              # build -> tools/ps2link/ps2link.elf  (0x01ee8000)
 #   ./build.ps1 -Clean       # nuke the work tree first
 #   ./build.ps1 -Low         # -> tools/ps2link/ps2link-low.elf   (0x00094000)
+#   ./build.ps1 -NoUsb       # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
 #
 # Two link addresses, and which one works depends on how you boot it.
 #
@@ -26,7 +27,7 @@
 # boot screen prints the address it actually loaded at, so a flashed card
 # always says which one it is.
 
-param([switch]$Clean, [switch]$Low)
+param([switch]$Clean, [switch]$Low, [switch]$NoUsb)
 
 # NOTE: no ErrorActionPreference='Stop' - git and docker write progress to
 # stderr, which Stop would treat as fatal. We check $LASTEXITCODE instead.
@@ -74,6 +75,12 @@ Write-Host "== Building in $image (this pulls the image on first run) =="
 # minimal ps2dev image lacks. Non-login shell so the image's toolchain PATH stays.
 $mount = ($work -replace '\\', '/') + ':/work'
 $high = if ($Low) { '0' } else { '1' }
+# NOT $nousb: PowerShell variable names are case-insensitive, so that is the
+# same variable as the [switch]$NoUsb parameter. Assigning '1' to it fails the
+# type conversion, leaves the switch in place, and "$nousb" then interpolates
+# as "True" - make compares that against 1, keeps the USB stack, and the build
+# quietly ignores the flag it was asked for.
+$usbFlag = if ($NoUsb) { '1' } else { '0' }
 # The link address is baked into the command rather than passed as a container
 # environment variable: a lost -e leaves LOADHIGH empty, make silently falls
 # back to its own `LOADHIGH ?= 0`, and you get a low build wearing the name of
@@ -83,20 +90,33 @@ $script = @(
     'apk add --no-cache make git >/dev/null 2>&1 || true',
     'cd /work',
     'make clean >/dev/null 2>&1 || true',
-    "make ee LOADHIGH=$high"
+    "make ee LOADHIGH=$high NOUSB=$usbFlag"
 ) -join "`n"
 docker run --rm -v $mount $image sh -c $script
 Invoke-Checked 'docker build'
 
 $elf = Join-Path $work 'ee/ps2link.elf'
 if (-not (Test-Path $elf)) { throw "expected $elf, not produced" }
-$out = Join-Path $here $(if ($Low) { 'ps2link-low.elf' } else { 'ps2link.elf' })
+$suffix = ''
+if ($Low) { $suffix += '-low' }
+if ($NoUsb) { $suffix += '-nousb' }
+$out = Join-Path $here "ps2link$suffix.elf"
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
 Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if ($Low) {
+if ($Low -and $NoUsb) {
+    Write-Host "NOTE: low address, no USB stack - the image ends ~50 KB earlier than"
+    Write-Host "      the full one. This is the build that answers whether the FMCB"
+    Write-Host "      black screen is about that tail: if this one boots from the"
+    Write-Host "      FMCB menu and the plain -Low does not, that is the answer."
+} elseif ($Low) {
     Write-Host "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
     Write-Host "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
     Write-Host "      that lives at that address, so booting it there is a black"
     Write-Host "      screen. Drop -Low to get the 0x01ee8000 build instead."
+}
+if ($NoUsb) {
+    Write-Host "      No keyboard or mouse over ps2link with this one - it bakes in"
+    Write-Host "      no usbd/ps2kbd/ps2mouse, and a game cannot load them itself on"
+    Write-Host "      a network-booted ps2link. The banner reads 'r4 (no USB)'."
 }

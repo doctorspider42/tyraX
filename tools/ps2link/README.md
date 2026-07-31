@@ -24,7 +24,9 @@ away first.
 
 **`ps2link.elf` is linked at `0x01ee8000`** (top of RAM). `-Low` / `--low`
 builds the same thing at `0x00094000` — the "BIOS unused" window below the
-`0x00100000` a game loads at — as `ps2link-low.elf`.
+`0x00100000` a game loads at — as `ps2link-low.elf`. `-NoUsb` / `--no-usb`
+leaves the USB HID stack out and adds `-nousb` to the name; the switches
+combine, so `-Low -NoUsb` writes `ps2link-low-nousb.elf`.
 
 Upstream defaults to the low address and its CI publishes both variants
 ("default" and "highloading"); we default to high instead, because the low
@@ -35,10 +37,22 @@ overwrite it. The boot screen prints the address, so the flashed card
 identifies itself.
 
 Why the low build breaks under FMCB while stock ps2link does not is **not
-settled**. Measured: our patch bakes in the USB HID stack, so the image ends at
-`0x000eb5a0` against upstream's `0x000dea20` — same start, ~50 KB longer tail,
-presumably over whatever FMCB keeps resident there. A low build without the USB
-stack would confirm it; the high build makes the question moot.
+settled**. Measured, all at `0x00094000`:
+
+| build | image ends at | ELF |
+|---|---|---|
+| stock upstream | `0x000dea20` | 233 396 B |
+| ours, `-NoUsb` / `--no-usb` | `0x000df3a0` | 235 828 B |
+| ours, full | `0x000eb5a0` | 285 492 B |
+
+Same start address; the USB HID stack is the whole of the difference. The
+hypothesis is that FMCB keeps something resident in that ~50 KB, so upstream
+fits under it and we do not. **`-NoUsb` is the experiment that settles it**: if
+`ps2link-low-nousb.elf` boots from the FMCB menu and `ps2link-low.elf` does
+not, the tail is the cause. It costs the keyboard and mouse — those drivers
+have to be baked into ps2link (see below), and a game cannot load them itself
+on a network-booted one — so it is only interesting if you were not using them
+anyway. The banner reads `r4 (no USB)` so a card cannot be mistaken.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
