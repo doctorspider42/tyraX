@@ -120,3 +120,370 @@ the verification, and any fact worth reusing belongs in the relevant
   measure on hardware. Reusable instrumented scene:
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
+
+- **DONE (2026-07-31): ps2link can be debugged in PCSX2, without the console.**
+  A second, portable copy of the emulator with **DEV9 bridged** onto the LAN
+  boots `ps2link.elf` and answers the real `ps2client` — `reset` and `execee`
+  included — so a wedged console is a killed process instead of a walk to the
+  hardware. Validated against a case with a known answer: the same
+  Run -> Stop -> Run cycle shows **r4 falling through to the BIOS browser and
+  off the LAN, where r6 comes back and runs the payload again**. Recipe, the
+  four gotchas and the limits are in `docs/ps2link-setup.md`
+  ("Testing a change without a console"); the hard limit is that **PCSX2 cannot
+  produce an EE exception** — main RAM starts at address 0, so the NULL
+  dereference behind the r4 `BadAddr 8` crash is an ordinary load there.
+
+  Follow-ups worth doing, none of them blocking: **script the rig** (a
+  `tools/ps2link/lab.ps1` + `lab.sh` pair that copies the emulator, patches
+  `[DEV9/Eth]`, stages the ELF and runs a Run -> Stop -> Run cycle — the manual
+  steps are all in the doc), and consider letting the editor's *Real PS2* target
+  point at the emulated console for a smoke test before touching the hardware.
+
+- **DONE (2026-07-31): ps2link's low build boots from FMCB and survives Stop.**
+  Both halves are now measured on the console. The low packed no-USB image boots
+  from the FreeMcBoot menu, and flashed to the card and booted from that menu it
+  took **12 consecutive Run -> Stop cycles**, the series ending on its own limit
+  rather than on a failure - where before r6 it died on the **first** Stop every
+  time. The high build gives the same 12/12. So the top-of-RAM address is no
+  longer load-bearing: the shipping image sits at `0x00094000` and leaves the
+  top of memory to the game, which was the point of the whole entry.
+
+  The fix is r6, described under "What the console actually died of" below;
+  the short version is that `pkoReset()` rebooted the IOP immediately before
+  `ExecPS2()`, and ps2sdk's C runtime init runs in crt0 against that IOP before
+  `main()` ever gets control.
+
+  Still open, and now its own entry below: **keyboard and mouse on the low
+  build.** Baking the USB HID stack in makes the image too big for the FMCB
+  menu, so the shipping low build is the no-USB one.
+
+  Everything below is the investigation, kept because most of it is a record of
+  what was NOT the cause.
+
+  The original question - why our low build black-screened from the FMCB menu
+  while the owner's stock `PS2LINK.ELF` booted - **is answered**. Everything
+  below was flashed to the same console and booted from that menu; uLaunchELF
+  boots all of them.
+
+  | build | ELF | decompressed image ends at | FMCB menu |
+  |---|---|---|---|
+  | owner's stock release, Apr 2024, packed | 89 364 B | `0x000dea20` | yes |
+  | stock upstream, packed by us | 103 364 B | `0x000dea20` | **yes** |
+  | ours r4 `--no-usb`, packed | 104 164 B | `0x000df3a0` | **yes** |
+  | ours r4 full, packed | 118 740 B | `0x000eb5a0` | no |
+  | ours r6 full, packed | 118 612 B | `0x000eb3a0` | no (not retested; see below) |
+  | any of the above, **unpacked** | 233-285 KB | — | no |
+  | ours r4 full, high, unpacked | 285 492 B | — | yes |
+
+  Two independent causes, which is why single-variable theories kept failing:
+
+  1. **Unpacked never works from that menu.** A raw ELF's PT_LOAD sits at
+     `0x00094000` and the loader writes it over its own resident code. Upstream
+     ships `ps2-packer`'d releases (entry `0x01d0001c`, one segment high in
+     memory) that decompress down to `0x00094000` after the loader is done -
+     which is what `make` gives us and `make ee` does not.
+  2. **Packed still fails if the decompressed image reaches too far.**
+     `0x000df3a0` boots, `0x000eb5a0` does not, so something FMCB keeps
+     resident sits between them and our USB HID stack's ~50 KB is what pushes
+     us over it.
+
+  The new problem: **the packed low build dies on the r4 reset.** Stop kills
+  the game and the console then answers nothing, not even ping - a full EE
+  death, where the same reset on the high unpacked build survives four
+  Run -> Stop cycles untouched. Chased as far as this:
+
+  - a reset with **no game running** survives;
+  - one real bug was found and fixed on the way - `pkoReset()` called
+    `init_scr()`, i.e. drove the GS, *before* `ResetEE` quiesced the DMA the
+    dying game still had in flight. That is worth having regardless, and it
+    moved the low build from dying on the first Stop to dying on the second;
+  - so something else remains, it is address-dependent (identical code at
+    `0x00094000` dies, at `0x01ee8000` does not), and it needs a game to have
+    run. That smells like memory below `0x00100000` being written by something
+    - the region between the image end and the game's load address holds the
+      SIF command buffer at `0x000ff800`;
+  - EE `printf` breadcrumbs do **not** survive to the PC: the IOP reboot
+    follows within a millisecond and takes the queued tty with it. The screen
+    is the only channel past that point - and it is black there, because
+    `ExecPS2` blanks it before the code that would print anything;
+  - adding those breadcrumbs found a *different* bug, worth knowing about:
+    **no stdio may be called in the reset path.** `printf` takes newlib's
+    stdout lock, and after `ExecPS2` re-enters the image that lock is a
+    cleared `.bss` field until newlib re-initializes, so the console dies in
+    `__retarget_lock_acquire_recursive` with `BadAddr 8` - a cycle or two
+    later, looking unrelated. That one hit the *high* build (four cycles ->
+    two) and is fixed; `scr_printf` is fine, `printf` is not;
+  - removing the stdio did **not** help the low build: it still dies on the
+    first Stop after a game. The console then answers nothing at all, not even
+    ping, which places the death between the IOP reboot and `loadModules()` -
+    the fresh image never gets the network back up;
+  - the two deaths are **not the same bug**. The high build dies after two to
+    four cycles with the network still up (IOP alive, EE gone) - that is the
+    newlib-lock one. The low build dies on the first cycle with everything
+    gone. Fixing the first does nothing for the second.
+
+  Two attempted fixes made things **worse** and were reverted; both are worth
+  not re-trying:
+
+  - **moving `init_scr()` after `ResetEE`** in `pkoReset` (reasoning: do not
+    drive the GS while the dying game's DMA is in flight). Sound, and the high
+    build went from four clean cycles to two. Unmeasured reasoning lost to a
+    measurement, so the original order stands.
+  - **forcing newlib's locks in early `main()`** with `free(malloc(1))` +
+    `fflush(stdout)`, to beat the interrupt-driven printf to them. That made
+    the *high* build die on the first cycle, with the low build's signature -
+    stdio init talks to the IOP over the SIF, and at that point in the restart
+    there is no RPC yet. Exactly the mistake the fix was aimed at.
+
+  **Correction, and it invalidates the framing above.** The "four clean
+  Run -> Stop cycles" this was all measured against was the **low, unpacked**
+  build **started over the network** (`execee` from a card-booted ps2link) - it
+  was quoted afterwards as a property of the high build, which it never was.
+  Re-measured from a card boot, with the console power-cycled first:
+
+  | build | started from | cycles before the console needed a power cycle |
+  |---|---|---|
+  | low, unpacked | network `execee` | 4 (stopped there, not a failure) |
+  | low, packed | network `execee` | 1 |
+  | high, packed | memory card | 2 |
+  | high, unpacked | memory card | 1 |
+
+  So the variable that best explains the data may be **how ps2link was
+  started**, not its address and not packing - which is the opposite of the
+  story the entry above tells. Nothing here is clean enough to conclude from:
+  every row is one or two samples of an intermittent failure.
+
+  What that means for the user, stated plainly: **on a card boot, Stop still
+  leaves the console needing a power cycle.** The game does die - that part is
+  fixed and measured - but ps2link does not reliably come back. The parts of
+  this that ARE fixed and verified are the command reaching a busy console (IOP
+  thread priorities), the editor no longer refusing to deploy, the pad no
+  longer hanging the game, and why an unpacked low build black-screens from
+  FreeMcBoot's menu.
+
+  That comparison has since been run, with the same high unpacked image booted
+  both ways (card, and `execee` over a low packed build on the card): **one
+  cycle either way**. So the start method is not the variable either, and the
+  night's 4/4 was luck rather than a property of anything.
+
+  The one variable nobody controlled: **the game binary changed mid-session.**
+  The 4/4 run used `drone.elf` as built the previous night; every run after
+  11:48 used a rebuild that carries the engine's pad fix.
+
+  **That lead is dead, and two others with it (2026-07-31, afternoon).**
+
+  - The pad-fix theory needed the pre-fix engine to have *frozen* the game, so
+    that the 4/4 run was really measuring "reset with no game running". It did
+    not: the console has a pad connected, so the pre-fix engine ran fine. The
+    binary is not the variable.
+  - A game built before 2026-07-10 (commit `f358e595`, which added the ps2link
+    deploy path and `IrxLoader::keepIopResident`) **cannot be used as a test
+    vehicle at all**: it reboots the IOP on startup and takes ps2link's network
+    modules with it. The symptom is a `host:` log that stops after ~9 lines and
+    a console that stops answering ping *while the game keeps running on the
+    TV*. That is not a console death; do not score it as one.
+  - Measurement trap that voided two runs here: **a `ps2client` left over from a
+    previous deploy keeps serving `host:`**. The next game boots but reads the
+    *old* directory's files (`open host:livepad.bin` → `fd = -1` forever) and
+    its chatter lands in the previous log. Kill every `ps2client` before each
+    cycle and verify the new log actually grows.
+  - **Ping is not a liveness check.** The console answers ping in the exact
+    failure state being chased (IOP alive, EE gone). A cycle only counts as
+    survived if `execee` produces `loadelf` output.
+
+  **What the console actually died of, resolved (2026-07-31).** Read off the
+  screen after a Stop that wedged it: `BadAddr 0x00000008`, `EPC 0x00098604`,
+  `Cause 0x70008008` — ExcCode 2, a TLB miss on a load. Against the low build's
+  `ps2link.map`, `0x98604` lands inside `__retarget_lock_acquire_recursive`,
+  +0x14, whose prologue is `move s0,a0` / `lw v1,8(s0)`: the lock argument was
+  NULL. That is the **newlib stdout lock** — cleared `.bss` after `ExecPS2`
+  re-enters the image.
+
+  This kills the entry's own claim that "the two deaths are not the same bug".
+  The low build died of the same newlib-lock bug the high build did. The r4 fix
+  ("no stdio in `pkoReset`") missed it because the remaining `printf()`s were
+  not in `pkoReset` — a disassembly sweep of the whole image found exactly eight
+  `printf`/`puts` call sites and **all eight are error paths**: `pkoDumpReg`,
+  `pkoDumpMem` ×2, `pkoGSExec`, the two user-thread failures on the deploy path,
+  and the two `initCmdRpc()` thread failures that run on every ps2link start.
+  Error paths are precisely what a broken restart takes, which is why this
+  looked address-dependent and intermittent for a whole session. r4 had even
+  routed a `CreateThread` failure to `printf` deliberately (see
+  `docs/ps2link-setup.md`), i.e. it wired the crash in.
+
+  **r5 removes all of it** (`scr_printf` everywhere in `cmdHandler.c`; verified
+  on the binary — zero `printf`/`puts` call sites remain, `puts`/`_puts_r` are
+  no longer linked in). Note the LTO trap when reading the map: symbol
+  boundaries do not match code layout, so a call site "inside `pkoReset`" was
+  really `pkoDumpMem`'s. Resolve call sites by their **format string**, not by
+  nearest-symbol-below.
+
+  **r5 does not fix Stop.** Measured immediately after, high unpacked started by
+  `execee`, `drone` fully running (1049 log lines, live-pad polling): the
+  console died on cycle 1, no ping at all. So the stdio crash was a
+  *consequence* — something was already failing and `printf` shot the messenger.
+
+  What changed is the evidence: the death is now a **black screen with no
+  exception**. The handler installs its own `init_scr()` and would have printed
+  one, so nothing faults any more — the machine dies silently.
+
+  **The re-executed image never reaches `main()`, measured.** Reasoning from
+  the black screen alone does not establish that, and the first attempt to
+  instrument it failed in a way worth recording: a breadcrumb written to the GS
+  background colour register (`0x120000E0`) is invisible **twice over** — the
+  background only shows where nothing is drawn, so a marker set while the debug
+  screen is up sits behind its framebuffer, and one set after `ExecPS2` has
+  blanked the display cannot show at all. That probe reported black no matter
+  what happened; it proved nothing.
+
+  The working probe turns the display back on first — `SetGsCrt` is a syscall,
+  it touches no DMA and has nothing to wedge on — and only then sets the
+  colour, with no framebuffer over it. Read the CRT mode from the ROM region
+  byte at `0x1FC7FF54` (`'E'` = PAL, mode 3, else mode 2); a wrong mode fails to
+  sync and looks exactly like the black screen being diagnosed. With that in
+  place at the top of `main()`, three outcomes are distinguishable: text = the
+  console came up, green = `main()` was entered but `init_scr()` did not
+  finish, black = `main()` was never entered.
+
+  Measured: **black**. And the other end is pinned too — a death before
+  `ExecPS2` would have left `pkoReset`'s own lines ("program stopped",
+  "rebooting the IOP...") on screen, and the screen is clear. So `ExecPS2` ran,
+  blanked the display, and control never arrived at `main()`. The remaining
+  window is `ExecPS2` → crt0 → the prologue of `main()`.
+
+  The strongest suspect in that window, and it already has a witness in this
+  entry: **ps2sdk's C runtime init runs before `main()` and talks to the IOP
+  over the SIF** (`_libcglue_init`, `__fdman_init`, the pthread glue — ps2link
+  already disables what it can via `DISABLE_PATCHED_FUNCTIONS()` and friends).
+  `pkoReset` has just rebooted the IOP, which comes back with *no modules
+  loaded*, so an RPC from crt0 has nothing to answer it. That is the same
+  mechanism as the reverted `free(malloc(1))` + `fflush(stdout)` experiment
+  above, which died in exactly this way for exactly this reason — it only
+  looked like a separate mistake because it forced the calls early by hand
+  instead of letting crt0 make them.
+
+  Cycle counts on r5, high unpacked, `execee`-started, `drone` fully running
+  each time: **1 cycle** without the probe, **2 cycles** with it (died on the
+  3rd). Do not read that as the probe helping — the documented spread on this
+  bug is 1–4 cycles, so both numbers are inside the noise. It is recorded only
+  so the next session does not mistake a lucky run for a fix.
+
+  **Fixed in r6: the IOP was rebooted twice per Stop, and the first one is the
+  one that broke it.** `pkoReset()` rebooted the IOP and then called
+  `ExecPS2()`, while the re-executed image's `main()` calls `restartIOP()` a few
+  lines in and reboots it again. The second is the one that has to happen. The
+  first strands crt0: ps2sdk's C runtime init (`_libcglue_init`,
+  `__fdman_init`, the pthread glue) runs before `main()` and talks to the IOP
+  over the SIF, so it comes up against an IOP that has just restarted with no
+  modules on it and nobody to answer. That is exactly the window the probe
+  pointed at, and it is the same mechanism as the reverted `free(malloc(1))`
+  experiment above — which now reads as a correct diagnosis applied in the wrong
+  place, not a separate mistake.
+
+  Measured, `drone` fully running before every Stop and every "survived"
+  confirmed by the **next deploy**, not by ping:
+
+  | build | cycles |
+  |---|---|
+  | r4 | 1–2 |
+  | r5 | 1 |
+  | r6 high, with the probe still in | 8/8, stopped at the limit |
+  | r6 high, `pkoReset()` fixed | 12/12, stopped at the limit |
+  | r6 high, both reboot sites fixed | 12/12, stopped at the limit |
+  | **r6 low packed no-USB, flashed, booted from the FMCB menu** | **12/12, stopped at the limit** |
+
+  `restartIOP()` also gained its missing `SifIopSync()` edge — it waited only
+  for the boot to *finish*, which falls straight through when BOOTEND is still
+  set from the previous boot. Harmless while `pkoReset()` did a complete reboot
+  of its own; it is now the only IOP reboot in the program.
+
+  `pkoRestartImage()` had the same shape and r6 changes it the same way. It only
+  runs on the initial boot, which is why a card boot always survived it. Booting
+  the **high** build over a running low one comes up cleanly and gives the
+  12-cycle result above.
+
+  **Booting the low build over a running high one still does not work**, and r6
+  does not fix it — retried with both reboot sites changed: the console answers
+  ping afterwards and accepts no deploy, so the EE never came up. Consequence for
+  the iteration recipe at the top of this entry: **the high build can be shot
+  over a low one, but not the other way round.** That is a limit of the recipe,
+  not of the build — the run that once looked like a low-build Stop failure had
+  died in the boot instead. The low build was measured from a card boot, and
+  gives 12/12 like the high one.
+
+  Iterating does not need reflashing, but **only in one direction, and this
+  paragraph used to have it backwards.** Keep the **low** build on the card and
+  `execee` **high** candidates over the network: that works and is how the
+  12-cycle series were taken. The reverse - a low candidate over a running high
+  image - leaves the console answering ping and accepting no deploy, i.e. the EE
+  never comes up, and r6 does not change that (retried with both reboot sites
+  fixed). Measuring the low build therefore wants a card boot. A console killed
+  either way needs a power cycle, one per attempt.
+
+  Better still, most of this no longer needs the console at all: ps2link runs in
+  a DEV9-bridged PCSX2 and answers the real `ps2client` (separate DONE entry
+  above). Hardware is for what the emulator cannot do - EE exceptions, and the
+  FreeMcBoot menu.
+
+  The low+packed+no-USB build is the one to ship: it boots from every launcher
+  and leaves the top of RAM alone. The USB HID stack would then need loading
+  from the card at runtime (`SifLoadModule` from next to `PS2LINK.ELF`) rather
+  than baked into the image - which is also how it stops costing 50 KB of that
+  window.
+
+  **Does r6 make low+USB fit? No, and it was never going to.** That build was
+  never blocked by the reset path - it is blocked by FreeMcBoot's loader, and
+  the USB HID stack's ~50 KB is what pushes the image past whatever FMCB keeps
+  resident. Measured on r6 rather than assumed: `_end` is `0x000eb3a0`, i.e.
+  **512 bytes** below the r4 image that did not boot, against a last-known-good
+  `0x000df3a0` some 49 KB lower. Not retested on hardware, because a 512-byte
+  move across a 49 KB gap is not a hypothesis. uLaunchELF still boots it, so
+  low+USB is usable from there today (`ps2link-low-packed.elf`); the FMCB menu
+  wants the runtime-`SifLoadModule` route above.
+
+- **ps2link: load the USB HID stack from the card instead of baking it in.**
+  Would give one image that boots from **every** launcher (FMCB menu included)
+  *and* has keyboard + mouse - today you pick one or the other, because the
+  three `.irx` are ~50 KB of the EE image and that is exactly what pushes the
+  low build past FreeMcBoot's loader (numbers in the entry above). Moving them
+  out of the image costs IOP memory, which is not the scarce thing here.
+
+  **What changes.** `loadModules()` in `ee/ps2link.c` currently does
+  `SifExecModuleBuffer(usbd_irx, ...)` on three `bin2c`'d buffers declared in
+  `ee/irx_variables.h`; `ee/Makefile` adds them to `IRX_FILES` unless `NOUSB=1`.
+  Replace that block with `SifLoadModule()` calls against files sitting next to
+  `PS2LINK.ELF` on the card, and the `NOUSB` switch disappears - there is only
+  one build again.
+
+  **The four things that make this less trivial than it reads:**
+
+  - **Where the card is.** `ps2link.c` already keeps `argv[0]` in `elfName`, so
+    the boot path is known (`mc0:/BOOT/PS2LINK.ELF` → `mc0:/BOOT/`). But a
+    network-booted image has `host:ps2link.elf` there, and `pkoReset()` re-execs
+    with the same `elfName` - so derive the directory, and when it is not a
+    `mc?:` path, skip the load rather than guessing.
+  - **Nothing can read the card at that point.** `rom0:SIO2MAN`, `rom0:MCMAN`
+    and `rom0:MCSERV` are loaded only in `loadModules()`'s `if_conf_len == 0`
+    branch, which `return`s immediately after - the normal path never loads
+    them. They have to come first on the path that then reads `mc0:`.
+  - **A missing module may not be fatal.** `pkoLoadModule()` calls
+    `SleepThread()` when `SifLoadModule` fails, which is right for the network
+    stack and wrong here: a console with no keyboard must still boot and still
+    accept deploys. Needs its own non-fatal wrapper.
+  - **No stdio on the failure path** - see r5 above. `scr_printf` only.
+
+  **Setup and packaging.** The three `.irx` come from the ps2dev image
+  (`/usr/local/ps2dev/ps2sdk/iop/irx/{usbd,ps2kbd,ps2mouse}.irx`); `build.sh` /
+  `build.ps1` should drop them next to the built ELF so "copy these four files
+  to the card" is one instruction, and `docs/ps2link-setup.md` needs that step.
+  Both build scripts are edited as a pair.
+
+  **How far this can be verified, and where it stops.** Image size and the FMCB
+  boot are checkable: build, read `_end` out of `ee/ps2link.map` (want it back
+  around `0x000df3a0`, not `0x000eb3a0`), flash, boot from the FMCB menu. That
+  the modules load is visible in the boot log. **Actual key and mouse input is
+  NOT verifiable on this console** - its USB keyboard and mouse are invisible to
+  it, uLaunchELF included, so the feature has only ever been confirmed in PCSX2.
+  Do not read "no keystrokes on hardware" as a bug in this change and do not go
+  debugging it in software; that ground is already burned.
+

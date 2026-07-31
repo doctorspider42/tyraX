@@ -415,6 +415,62 @@ void Runner::killPs2Client() {
     if (ps2Pump_.joinable()) ps2Pump_.join();
 }
 
+// Resets ps2link, and reports whatever the console says while it happens -
+// WITHOUT treating silence as a verdict.
+//
+// `ps2client reset` is fire-and-forget UDP, so this used to run a ps2client in
+// `listen` mode as a witness and retry the command until something came back.
+// That was right when a reset still printed "unmounting" from the IOP side;
+// ps2link r4 stopped unmounting anything (there is no reboot there to unmount
+// for any more) and narrates the restart on the console's own screen instead,
+// so a perfectly good reset now says nothing at all over the network. Reading
+// that as "the console is hung" made the editor refuse to deploy to a healthy
+// console - a false negative that is much worse than the missing signal it was
+// meant to replace, because it blocks the thing it was checking.
+//
+// So: send it once, keep the listener because its output is genuinely useful
+// when there is any, and let the caller's own timeout be the judge of a dead
+// console - the execee that follows a deploy already reports one within 15 s.
+//
+// The caller is expected to have killed the deploy's file server first: a game
+// polling host: every frame (Remote Pad, Live Link, the time machine) both
+// keeps the IOP busy and holds the tty port this listener needs.
+Runner::ResetResult Runner::resetPs2Link(const Project& p) {
+    const std::string client = findPs2Client();
+
+    platform::Process::Options opts;
+    opts.capture = true;
+    std::shared_ptr<platform::Process> listener = platform::Process::start(
+        platform::shellArg(client) + " -h " + p.ps2LinkIp + " listen", opts);
+    std::atomic<int> heard{0};
+    std::thread pump;
+    if (listener) {
+        pump = std::thread([this, listener, &heard] {
+            std::string line;
+            while (listener->readLine(line)) {
+                appendLine("[ps2] " + line);
+                heard++;
+            }
+        });
+    }
+
+    ResetResult out = ResetResult::Sent;
+    if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset",
+             "") != 0) {
+        out = ResetResult::Failed;
+    } else {
+        // Long enough to catch anything the console does say, short enough not
+        // to be a tax on every deploy. The settle wait belongs to the caller.
+        for (int i = 0; i < 8 && heard.load() == 0 && !cancelRequested_; i++)
+            platform::sleepMs(250);
+        if (heard.load() > 0) out = ResetResult::Answered;
+    }
+
+    if (listener) listener->kill();
+    if (pump.joinable()) pump.join();
+    return out;
+}
+
 void Runner::stopPs2(const Project& p) {
     if (busy()) return;
     join();
@@ -422,49 +478,19 @@ void Runner::stopPs2(const Project& p) {
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] Stopping the game on the PS2...");
-        // Kill the file server (ours by handle, strays by name) - the game
-        // loses host: - then reset ps2link so the console reboots back into
-        // its listening state instead of hanging on dead file handles.
+        // The file server goes first: the game loses host: (and stops flooding
+        // the IOP with per-frame polls, which is what the reset has to cut
+        // through), and the tty port is freed for the listener resetPs2Link
+        // runs to hear the console with.
         killPs2Client();
         exec(platform::killByName({"ps2client"}), "");
         if (!p.ps2LinkIp.empty()) {
-            const std::string client = findPs2Client();
-            exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset", "");
-            // The SPU2 keeps looping voices and the stalled autodma buffer
-            // independently of the IOP, so the reset alone leaves sfx
-            // playing. Run the silencer for a moment: it loads audsrv on
-            // the fresh IOP and audsrv_init() keys everything off.
-            const std::string silencer =
-                findTool((fs::path("silencer") / "silencer.elf").string());
-            if (!silencer.empty()) {
-                for (int i = 0; i < 12 && !cancelRequested_; i++) platform::sleepMs(250);
-                const std::string dir = fs::path(silencer).parent_path().string();
-                // Spawn the execee file server WITHOUT capturing its output.
-                // The silencer's file server never exits on its own, so a
-                // captured pipe would never reach EOF and exec()'s read loop
-                // would block forever - hanging Stop at "Executing file
-                // host:...elf" and leaving the build stuck Running. Launch it,
-                // give the silencer a few seconds to load audsrv and reset the
-                // SPU, then kill the file server ourselves.
-                appendLine("[editor] Silencing the SPU (host:silencer.elf)...");
-                const std::string cmd = platform::shellArg(client) + " -h " +
-                                        p.ps2LinkIp + " execee host:silencer.elf";
-                platform::Process::Options opts;
-                opts.cwd = dir;
-                if (auto proc = platform::Process::start(cmd, opts)) {
-                    for (int i = 0; i < 16 && !cancelRequested_; i++) platform::sleepMs(250);
-                    proc->kill();
-                } else {
-                    appendLine("[editor] Failed to start: " + cmd);
-                }
-                // Belt and suspenders: reap the just-killed server and any stray.
-                exec(platform::killByName({"ps2client"}), "");
-                appendLine("[editor] SPU silenced; ps2link is listening again.");
-            } else {
-                appendLine("[editor] ps2link reset - the console is listening "
-                           "again (tools/silencer/silencer.elf not found, so "
-                           "looping sounds keep playing until the next deploy).");
-            }
+            if (resetPs2Link(p) == ResetResult::Failed)
+                appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
+            else
+                appendLine("[editor] Reset sent - the console should be back in "
+                           "ps2link. (r4 restarts without saying anything over the "
+                           "network; it narrates it on the TV.)");
         }
         state_ = State::Success;
     });
@@ -498,9 +524,21 @@ bool Runner::deployToPs2(const Project& p) {
 
     // One file server at a time: kill the previous deploy's ps2client (ours
     // by handle, strays by name - a leftover from a crashed editor would hold
-    // the TCP 18193 listener and starve this one).
+    // the local tty port and starve this one). It also has to be gone before
+    // the reset: see resetPs2Link.
     killPs2Client();
     exec(platform::killByName({"ps2client"}), "");
+
+    // Reset exactly like Stop does, and do not launch into a console that
+    // never answered - the execee would just sit there until the 15 s timeout
+    // below and report a firewall problem that isn't one.
+    appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
+    if (resetPs2Link(p) == ResetResult::Failed) {
+        appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
+                   " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
+                   "Edit > Preferences.)");
+        return false;
+    }
 
     // Same as the PCSX2 path: the game appends TYRA_LOG to bin/log.txt over
     // host: (here: over the network); drop the stale file for the Debug window.
@@ -523,17 +561,13 @@ bool Runner::deployToPs2(const Project& p) {
     else
         appendLine("[editor] Warning: could not write bin/ps2link.run marker.");
 
-    appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
-    if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset",
-             binDir) != 0) {
-        appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
-                   " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
-                   "Edit > Preferences.)");
-        return false;
-    }
-    // ps2link reboots the IOP and reloads itself; give it a moment before the
-    // execee connect, or the command lands on a half-initialized listener.
-    for (int i = 0; i < 12 && !cancelRequested_; i++) platform::sleepMs(250);
+    // ps2link reboots the IOP, restarts its own image and reloads every IRX
+    // before it listens again - the better part of ten seconds on the console,
+    // and the tty only comes back with udptty at the end of it. Deploying into
+    // the middle of that gets a game that loads and then waits forever on a
+    // pad the freshly loaded padman has not finished handshaking (seen on the
+    // console: "Curent pad(0,0) status: DISCONNECT" and a frozen Tyra logo).
+    for (int i = 0; i < 40 && !cancelRequested_; i++) platform::sleepMs(250);
     if (cancelRequested_) return false;
 
     // The execee process is the host: file server for the whole game session -

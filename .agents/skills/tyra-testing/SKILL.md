@@ -12,25 +12,18 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a commit message or
+  "how do I know this works?" — including before writing a PROGRESS.md entry or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
-> **A note on `PROGRESS 123` citations.** They point at numbered entries of
-> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
-> is in git history, and `docs/backlog.md` has the recipe. New work records
-> itself in its commit message and PR body instead.
-
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-your commit message and PR body about which layer you reached — the established
-wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
-human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
-the honesty convention outlived the file.)
+PROGRESS.md about which layer you reached (the existing entries distinguish
+"verified in PCSX2" from "compiles, needs a pad test by a human").
 
 ## Layer 0 — build the editor
 
@@ -95,7 +88,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in the commit. The pairs that
+build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -220,7 +213,7 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   are machine-readable project I/O (apply validates node types + link pin
   rules and saves) — handy for scripted graph fixtures; `--ai-graph` runs the
   whole AI generation (docs/ai-tools.md). To e2e-test the AI pipeline without
-  a real backend, put a stub `claude.cmd` on PATH that swallows stdin
+  a real backend, put a stub `Codex.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
@@ -400,7 +393,7 @@ Notes:
   an ELF path over ~145 characters: emulog stops after `ELF Loading: ...`, the
   EE never reaches `is executing`, `bin/log.txt` is never written, and the
   window is black with no diagnostic. The editor warns, but a scratchpad path
-  under `/tmp/claude-*/...` blows past the limit on its own - put e2e fixtures
+  under `/tmp/Codex-*/...` blows past the limit on its own - put e2e fixtures
   in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
   produces nothing but `TLB Miss` spam, measure the path before debugging the
   game.
@@ -424,7 +417,7 @@ Notes:
   script — a GDI capture that works reliably:
 
   ```powershell
-  powershell -File .claude/skills/tyra-testing/scripts/screenshot-window.ps1 `
+  powershell -File .Codex/skills/tyra-testing/scripts/screenshot-window.ps1 `
       -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
   ```
 
@@ -435,7 +428,7 @@ Notes:
   synthetic keyboard/mouse, no human in the loop:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
+  python3 .Codex/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
   ```
 
   It talks straight to **mutter's own D-Bus APIs** (`org.gnome.Mutter.ScreenCast`
@@ -454,7 +447,7 @@ Notes:
   PipeWire every time (~0.6 s each) and drops pointer state in between:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
+  python3 .Codex/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
   key ctrl+n
   sleep 0.6
   click --at 917,382
@@ -567,11 +560,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in the
-  commit and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in
+  PROGRESS.md and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -730,26 +723,8 @@ Notes:
   tools. Anything wanted from them is a **ps2link patch**, which is the normal
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
-  `build.sh`/`build.ps1` — see docs/ps2link-setup.md).
-
-  **ps2link is no longer hardware-only: it runs in PCSX2.** A SECOND, portable
-  copy of the emulator (`-portable`, its own `inis/bios/logs`, so it cannot
-  disturb a parallel session or the editor's own launches) with **DEV9 bridged**
-  onto the LAN boots `ps2link.elf` and answers the real `ps2client` — same
-  subnet, same ports, `reset` and `execee` included. A wedge then costs
-  `Stop-Process` instead of a walk to the console, which is what makes a
-  Run → Stop → Run A/B a two-minute scripted test: measured 2026-07-31, r4 falls
-  through to the BIOS browser and drops off the LAN where r6 comes back and runs
-  the payload again. The full recipe, the four gotchas (`[DEV9/Eth]` is the ini
-  section, `EthDevice` is the bare adapter GUID, `host:` is served by PCSX2's
-  HostFs relative to the `-elf` directory and NOT by ps2client, ping proves
-  nothing in either direction) and the limits are in
-  **docs/ps2link-setup.md — "Testing a change without a console"**. The limit
-  that matters: **the emulator cannot produce an EE exception** — replayed the
-  r4 `BadAddr 8` crash there and the `printf` returned normally, because main
-  RAM starts at address 0, so a NULL dereference is an ordinary load. Faults,
-  `crash.txt` and the crash handler stay hardware tests; sequencing, restarts,
-  IOP reboots and the protocol do not.
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
+  PCSX2 runs no ps2link.
 
   **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
   (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub
@@ -931,7 +906,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in the commit message, that's the established convention.
+  problem) - say so in PROGRESS.md, that's the established convention.
 
 ### The unattended input test, end to end
 
@@ -945,7 +920,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".Codex\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL

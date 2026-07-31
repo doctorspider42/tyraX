@@ -237,9 +237,17 @@ The console side is **always our own [ps2link](https://github.com/ps2dev/ps2link
 a pinned upstream plus this repo's patch, built in Docker by
 [`tools/ps2link/build.ps1`](tools/ps2link/README.md) (`build.sh` on Linux) and
 flashed onto the memory card once — nothing downloads a ps2link for you, and
-stock ps2link is not a supported target (ours bakes in the USB keyboard/mouse
-stack, and more patches will follow). The one-time console setup — hardware,
-flashing, `IPCONFIG.DAT`, firewall ports, what every failure message means — is
+stock ps2link is not a supported target: ours bakes in the USB keyboard/mouse
+stack, and **fixes the hangs that made a network session need a console reset**
+(upstream's `host:` receive loop spun forever when the PC closed the socket, its
+reply parser desynced permanently on any unexpected packet, its IOP exception
+handler faulted before it could report a crash, and its IOP reset waited on an
+inverted condition). It also **silences the SPU2 on reset**, so a redeploy no
+longer leaves the dead game's voices looping — the chip keeps its registers
+across an IOP reset, which is why that used to need a separate silencer ELF
+deployed after every Stop. The boot banner carries an `r<n>` revision so you can
+tell which fixes a flashed card has. The one-time console setup — hardware, flashing,
+`IPCONFIG.DAT`, firewall ports, what every failure message means — is
 **[docs/ps2link-setup.md](docs/ps2link-setup.md)**.
 
 ## The in-tree Tyra engine
@@ -326,7 +334,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; fetched at a **pinned commit** by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
-- `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+- `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, plus `ps2link/test`, a host harness that drives the real `host:` protocol code against a fake socket without a console; see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Dependency policy
 

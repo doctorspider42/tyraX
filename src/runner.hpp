@@ -65,7 +65,16 @@ public:
     std::string emulatorLogPath(const Project& p) const;
 
 private:
+    // Outcome of a `ps2client reset`, as far as the PC can tell. Answered = the
+    // console logged something while it reset - a bonus, not a requirement,
+    // since ps2link r4 restarts silently as far as the network is concerned;
+    // Sent = the command went out; Failed = ps2client itself could not send it.
+    enum class ResetResult { Answered, Sent, Failed };
+
     void appendLine(const std::string& line);
+    // Resets ps2link and reports what the console said, if anything. Kill the
+    // deploy's ps2client first (see runner.cpp).
+    ResetResult resetPs2Link(const Project& p);
     // Runs a command through the platform shell in `cwd`, streams output to
     // log. Returns process exit code, or -1 on spawn failure.
     int exec(const std::string& cmdline, const std::string& cwd);

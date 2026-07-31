@@ -391,6 +391,8 @@ constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {80.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {80.0F};
+constexpr float TERRAIN_VOID_Y = -1000000.0F;
+constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
@@ -580,6 +582,7 @@ inline int everyFrames(float seconds) {
 #define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
