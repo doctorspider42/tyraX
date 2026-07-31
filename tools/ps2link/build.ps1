@@ -124,5 +124,5 @@ if ($Low -and -not $Packed) {
 if ($NoUsb) {
     Write-Host "      No keyboard or mouse over ps2link with this one - it bakes in"
     Write-Host "      no usbd/ps2kbd/ps2mouse, and a game cannot load them itself on"
-    Write-Host "      a network-booted ps2link. The banner reads 'r4 (no USB)'."
+    Write-Host "      a network-booted ps2link. The banner reads 'r6 (no USB)'."
 }

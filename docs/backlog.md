@@ -111,11 +111,15 @@ the verification, and any fact worth reusing belongs in the relevant
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
-- **ps2link: the low build boots from FMCB when packed and small, but our reset
-  then kills it (2026-07-31).** Not blocking: the default `ps2link.elf` (high,
-  unpacked) boots from that menu *and* survives Stop, verified over four
-  Run -> Stop cycles. This is about getting off the top-of-RAM address, which
-  is only free until a scene allocates past ~31 MB.
+- **ps2link: the low build boots from FMCB when packed and small (2026-07-31).**
+  The Stop-wedges-the-console half of this entry is **fixed in r6** - see "What
+  the console actually died of" below; the short version is that `pkoReset()`
+  rebooted the IOP immediately before `ExecPS2()`, and ps2sdk's C runtime init
+  runs in crt0 against that IOP before `main()` ever gets control. High build:
+  12 consecutive Run -> Stop cycles, series ended on its limit, against 1-3 for
+  everything before it. What is left here is getting off the top-of-RAM address,
+  which is only free until a scene allocates past ~31 MB, and re-measuring the
+  low build on r6 - that needs a card boot, i.e. a reflash.
 
   The original question - why our low build black-screened from the FMCB menu
   while the owner's stock `PS2LINK.ELF` booted - **is answered**. Everything
@@ -323,6 +327,41 @@ the verification, and any fact worth reusing belongs in the relevant
   3rd). Do not read that as the probe helping — the documented spread on this
   bug is 1–4 cycles, so both numbers are inside the noise. It is recorded only
   so the next session does not mistake a lucky run for a fix.
+
+  **Fixed in r6: the IOP was rebooted twice per Stop, and the first one is the
+  one that broke it.** `pkoReset()` rebooted the IOP and then called
+  `ExecPS2()`, while the re-executed image's `main()` calls `restartIOP()` a few
+  lines in and reboots it again. The second is the one that has to happen. The
+  first strands crt0: ps2sdk's C runtime init (`_libcglue_init`,
+  `__fdman_init`, the pthread glue) runs before `main()` and talks to the IOP
+  over the SIF, so it comes up against an IOP that has just restarted with no
+  modules on it and nobody to answer. That is exactly the window the probe
+  pointed at, and it is the same mechanism as the reverted `free(malloc(1))`
+  experiment above — which now reads as a correct diagnosis applied in the wrong
+  place, not a separate mistake.
+
+  Measured, `drone` fully running before every Stop and every "survived"
+  confirmed by the **next deploy**, not by ping:
+
+  | build | cycles |
+  |---|---|
+  | r4 | 1–2 |
+  | r5 | 1 |
+  | r6 high, with the probe still in | 8/8, stopped at the limit |
+  | r6 high, shipping build | 12/12, stopped at the limit |
+
+  `restartIOP()` also gained its missing `SifIopSync()` edge — it waited only
+  for the boot to *finish*, which falls straight through when BOOTEND is still
+  set from the previous boot. Harmless while `pkoReset()` did a complete reboot
+  of its own; it is now the only IOP reboot in the program.
+
+  `pkoRestartImage()` had the same shape and r6 changes it the same way, but
+  **that one is not verified yet**. It only runs on the initial boot, which is
+  why a card boot always survived it; launching one image over another with
+  `execee` does not, measured — the low build booted over a running high one had
+  a dead EE before the first Stop. So the **low build's cycle count on r6 is
+  still unmeasured**: what died in that run was the boot, not the Stop. It wants
+  a card boot to measure, i.e. a reflash.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at

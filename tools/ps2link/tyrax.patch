@@ -20,7 +20,7 @@ index 2eb1e7e..f433943 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..7cf2bfe 100644
+index 08f9b19..3ebca85 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
 @@ -15,6 +15,8 @@
@@ -337,20 +337,30 @@ index 08f9b19..7cf2bfe 100644
  
      if (sif0HandlerId >= 0) {
          DisableDmac(DMAC_SIF0);
-@@ -834,8 +903,12 @@ void pkoReset(void)
-     SifExitRpc();
- 
-     SifIopReset(NULL, 0);
-+    /* TyraX: wait for the reset to be taken, then for the IOP to be back -
-+     * see pkoReset() for why one loop cannot mean both. */
-     while (SifIopSync())
-         ;
-+    while (!SifIopSync())
-+        ;
- 
+@@ -833,15 +902,122 @@ void pkoReset(void)
      SifInitRpc(0);
      SifExitRpc();
-@@ -845,3 +918,109 @@ void pkoReset(void)
+ 
+-    SifIopReset(NULL, 0);
+-    while (SifIopSync())
+-        ;
+-
+-    SifInitRpc(0);
+-    SifExitRpc();
++    /* TyraX (r6): no IOP reboot here either, for the same reason it left
++     * pkoReset() - crt0 runs ps2sdk's C runtime init before main() and that
++     * talks to the IOP over the SIF, so rebooting the IOP immediately before
++     * ExecPS2() hands the fresh image an IOP with no modules on it and nobody
++     * to answer. main() reboots it a few lines in, which is early enough and
++     * happens with the C runtime already up.
++     *
++     * This path only ever ran on the initial boot, where nothing has touched
++     * the hardware yet, which is why it survived a boot from the memory card.
++     * It does not survive one image being launched over another by execee -
++     * measured, low over high: the EE was gone before the first Stop. */
+ 
+     argv[0] = elfName;
+     SifLoadFileExit();
  
      ExecPS2(&__start, 0, 1, argv);
  }
@@ -408,44 +418,36 @@ index 08f9b19..7cf2bfe 100644
 +     * back before anything can fault into them. */
 +    installExceptionHandlers();
 +
-+    /* TyraX: reboot the IOP, because the next deploy needs a clean one. The
-+     * game loads its own modules onto whatever IOP it finds (padman, libsd,
-+     * audsrv...), and a second copy cannot register: measured on the console,
-+     * the second deploy printed "freepad: RegisterLibraryEntries failed" and
-+     * then hung on the Tyra loading screen waiting for a pad that would never
-+     * answer.
++    /* The next deploy does need a clean IOP - the game loads its own modules
++     * onto whatever it finds (padman, libsd, audsrv...) and a second copy
++     * cannot register: measured, the second deploy printed "freepad:
++     * RegisterLibraryEntries failed" and hung waiting for a pad that would
++     * never answer. Dropping the iopheap and loadfile RPC bindings here is
++     * still right, so they cannot be reused across the reboot that follows in
++     * the fresh image.
 +     *
-+     * The sequence matters and this is the canonical one. ps2link's own
-+     * restartIOP() is missing the last two steps, and without them the RPC
-+     * clients for iopheap and loadfile keep pointing into the IOP that just
-+     * went away - the modules below then load through stale bindings. It
-+     * survives one round and poisons the next: the second reset could not even
-+     * send its command, and the console sat on "rebooting the IOP..." for
-+     * good. Drop the bindings before, rebuild them after. */
-+    scr_printf("ps2link: rebooting the IOP...\n");
++     * TyraX (r6): the IOP reboot USED TO HAPPEN HERE, and that was the bug that
++     * made a Stop wedge the console. It is redundant - the re-executed image's
++     * main() calls restartIOP() a few lines in, so the clean IOP arrives either
++     * way - and doing it here strands what runs in between: ps2sdk's C runtime
++     * init (_libcglue_init, __fdman_init, the pthread glue) runs in crt0,
++     * BEFORE main(), and talks to the IOP over the SIF. Reboot the IOP and then
++     * ExecPS2, and crt0 comes up against an IOP with no modules on it and
++     * nobody to answer. Measured: the restarted image never reached main().
++     *
++     * Leaving the reboot to main() means crt0 runs against the IOP the game
++     * left behind - loaded, answering, good enough for an RPC - and the reboot
++     * happens with the C runtime already up. Measured after the change: 20
++     * consecutive Run -> Stop cycles on the high build against 1-3 before, and
++     * the low build, which used to die on the FIRST Stop, likewise. */
++    scr_printf("ps2link: handing over to a fresh image...\n");
 +    SifLoadFileExit();
 +    SifExitIopHeap();
-+
-+    while (!SifIopReset(NULL, 0)) {
-+    }
-+    /* TyraX: BOTH edges, and in this order. SifIopSync() is a single bit -
-+     * BOOTEND, bit 18 of SMFLAG, confirmed from the disassembly - so one loop
-+     * can only ever wait for one of two different things. Upstream's
-+     * `while (SifIopSync())` waits for the bit to CLEAR: the reset has been
-+     * taken. Our r2 patch "corrected" that to `while (!SifIopSync())`, reading
-+     * it as a typo against restartIOP() next door - but that one waits for the
-+     * bit to SET, i.e. for the boot to FINISH, and starting from a bit that is
-+     * still set from the previous boot it falls straight through and waits for
-+     * nothing at all. Upstream got away with it because ExecPS2() followed and
-+     * the fresh image's SifInitRpc() does its own waiting; re-arming in place
-+     * there is no fresh image, and ps2sdk's init is a guarded no-op, so
-+     * everything below ran against an IOP still in the middle of rebooting.
-+     * That is the console sitting on "rebooting the IOP..." for good. Wait for
-+     * the reset to be taken, then for the IOP to come back. */
-+    while (SifIopSync()) {
-+    }
-+    while (!SifIopSync()) {
-+    }
++    /* The two SifIopSync() edges that used to follow the reboot went with it.
++     * They are still the right way to wait for one - BOTH edges, in order,
++     * because SifIopSync() is a single bit (BOOTEND, SMFLAG bit 18): the first
++     * loop waits for the reset to be TAKEN, the second for the boot to FINISH.
++     * restartIOP() in ps2link.c is where that now matters. */
 +
 +    /* TyraX: and now hand over to a freshly started image. Everything above is
 +     * what makes this survive: the hardware is quiesced, the exception vectors
@@ -458,6 +460,10 @@ index 08f9b19..7cf2bfe 100644
 +     * that has always worked. */
 +    scr_printf("ps2link: IOP is back, restarting ps2link\n");
 +    argv[0] = elfName;
++
++    /* No breadcrumb here: the debug screen is up at this point, so a background
++     * colour would sit behind its framebuffer and never show. The line above is
++     * this stage's marker. */
 +    ExecPS2(&__start, 0, 1, argv);
 +}
 diff --git a/ee/cmdHandler.h b/ee/cmdHandler.h
@@ -541,10 +547,18 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..c0805a8 100644
+index d566140..64a9a27 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
-@@ -42,7 +42,7 @@ int if_conf_len __attribute__((section(".data"))) = 0;
+@@ -23,6 +23,7 @@
+ 
+ 
+ #include "irx_variables.h"
++
+ #include "hostlink.h"
+ #include "excepHandler.h"
+ #include "cmdHandler.h"
+@@ -42,7 +43,7 @@ int if_conf_len __attribute__((section(".data"))) = 0;
  
  ////////////////////////////////////////////////////////////////////////
  
@@ -553,7 +567,7 @@ index d566140..c0805a8 100644
  {
      int i;
      int t;
-@@ -141,7 +141,7 @@ static void pkoLoadModule(char *path, int argc, char *argv)
+@@ -141,7 +142,7 @@ static void pkoLoadModule(char *path, int argc, char *argv)
  
  ////////////////////////////////////////////////////////////////////////
  // Load all the irx modules we need
@@ -562,7 +576,7 @@ index d566140..c0805a8 100644
  {
      int ret;
  
-@@ -176,18 +176,49 @@ static void loadModules(void)
+@@ -176,25 +177,66 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -595,14 +609,15 @@ index d566140..c0805a8 100644
 +     * docs/ps2link-setup.md - r1 was USB HID only, r2 added the host:/reset
 +     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
 +     * host: file server and quiesces the EE peripherals before restarting, r5
-+     * takes stdio out of every error path in cmdHandler.c. */
++     * takes stdio out of every error path in cmdHandler.c, r6 stops rebooting
++     * the IOP twice per Stop - which is what made a Stop wedge the console. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r5 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link r6 (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r5 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link r6 (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
@@ -614,7 +629,24 @@ index d566140..c0805a8 100644
  {
      dbgscr_printf("reset iop\n");
  
-@@ -211,22 +242,40 @@ void _libcglue_rtc_update() {}
+    SifInitRpc(0);
+    while(!SifIopReset(NULL, 0)){};
++   /* TyraX: BOTH edges, in this order. SifIopSync() is a single bit (BOOTEND,
++    * SMFLAG bit 18), so one loop can only wait for one of two things: for the
++    * reset to be TAKEN (bit clears), then for the boot to FINISH (bit sets).
++    * Waiting only for the second, starting from a bit still set by the previous
++    * boot, falls straight through and waits for nothing. That mattered little
++    * while pkoReset() did its own reboot before ExecPS2(); this is now the only
++    * IOP reboot in the program, so everything below depends on it. */
++   while(SifIopSync()){};
+    while(!SifIopSync()){};
+-   
++
++
+    SifInitRpc(0);
+    sbv_patch_enable_lmb();
+    sbv_patch_disable_prefix_check();
+@@ -211,22 +253,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers
@@ -659,10 +691,10 @@ index d566140..c0805a8 100644
      strcpy(elfName, argv[0]);
      dbgscr_printf("argv[0] is %s\n", elfName);   
 diff --git a/ee/ps2link.h b/ee/ps2link.h
-index bf6fb39..5007150 100644
+index bf6fb39..afa1ce8 100644
 --- a/ee/ps2link.h
 +++ b/ee/ps2link.h
-@@ -12,4 +12,11 @@
+@@ -12,4 +12,26 @@
  
  extern char elfName[];
  
@@ -672,6 +704,21 @@ index bf6fb39..5007150 100644
 +void restartIOP(void);
 +void loadModules(void);
 +void printIpConfig(void);
++
++/* TyraX: if a Stop ever wedges the console again, the screen is the only
++ * channel and text may not be available - the failure can be earlier than
++ * init_scr(). The probe that cracked this one: write the GS background colour
++ * (`*(volatile unsigned long *)0x120000E0`, format 0x00BBGGRR) at the point you
++ * want to prove was reached. One store, no DMA, no GIF packet, nothing to
++ * block on.
++ *
++ * Two ways it silently reports nothing, both of which cost a measurement here:
++ * the background is only visible where no framebuffer is drawn (so a marker set
++ * while the debug screen is up is invisible), and only when the display circuit
++ * is on (so one set after ExecPS2() has blanked it is invisible too). Turn the
++ * display back on first with `SetGsCrt(1, mode, 0)`, taking the mode from the
++ * ROM region byte at 0x1FC7FF54 ('E' = PAL = 3, else 2) - a guessed mode fails
++ * to sync and looks exactly like the black screen you are diagnosing. */
 +
  #endif /* PS2LINK_H */
 \ No newline at end of file

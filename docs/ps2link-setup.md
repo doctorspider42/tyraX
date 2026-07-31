@@ -176,9 +176,51 @@ failures, which run on *every* ps2link start. The r5 image has zero: `puts` and
 `_puts_r` are no longer even linked in.
 
 What this fixes is the **messenger**: a failure that used to take the EE down
-silently now survives onto the screen and names itself. It is not, on its own,
-a fix for Stop — the console can still fail to come back (see the backlog), and
-that failure is now a black screen with no exception rather than a crash.
+silently now survives onto the screen and names itself. On its own it did not
+fix Stop — the console still failed to come back, as a black screen with no
+exception rather than a crash. That was r6's job.
+
+**One IOP reboot per Stop, not two (r6)** — and this is the one that makes Stop
+survivable. `pkoReset()` rebooted the IOP and *then* called `ExecPS2()`, while
+the re-executed image's `main()` calls `restartIOP()` a few lines in and reboots
+it again. The second reboot is the one that has to happen; the first one is what
+broke the console.
+
+What runs between them is crt0. ps2sdk's C runtime init — `_libcglue_init`,
+`__fdman_init`, the pthread glue — runs *before* `main()` and talks to the IOP
+over the SIF. Reboot the IOP and hand straight over to `ExecPS2()`, and crt0
+comes up against an IOP that has just restarted with no modules on it and
+nobody to answer an RPC. Measured with a GS-background probe at the top of
+`main()`: the restarted image **never reached `main()`**, which is why the
+screen was black, the network never came back, and no exception was ever
+raised.
+
+Leaving the reboot to `main()` means crt0 runs against the IOP the game left
+behind — loaded, answering — and the reboot then happens with the C runtime
+already up. `restartIOP()` gained the second `SifIopSync()` edge at the same
+time: it waited only for the boot to *finish*, which falls straight through when
+the BOOTEND bit is still set from the previous boot. That was harmless while
+`pkoReset()` did its own complete reboot; it is now the only IOP reboot in the
+program.
+
+Measured on the console, `drone` fully running before every Stop and every
+"survived" confirmed by the *next deploy* rather than by ping:
+
+| build | Run → Stop cycles |
+|---|---|
+| r4 | 1–2, then a power cycle |
+| r5 (stdio off the error paths) | 1 |
+| r6, high, with the diagnostic probe | 8/8, series ended on its limit |
+| r6, high, shipping build | 12/12, series ended on its limit |
+| r6, low packed no-USB | not yet measured — see below |
+
+`pkoRestartImage()` had the same reboot-then-`ExecPS2()` shape and r6 changes it
+the same way. That path only runs on the initial boot, where nothing has touched
+the hardware yet, which is why a memory-card boot always survived it — but
+launching one image over another with `execee` does not: booting the low build
+over a running high one killed the EE before the first Stop. So the low build's
+cycle count is **still unmeasured on r6**; what died there was the boot, not the
+Stop. Measuring it wants a card boot, i.e. a reflash.
 
 ## 2. Put it on the console
 
