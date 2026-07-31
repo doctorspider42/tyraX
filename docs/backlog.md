@@ -145,11 +145,27 @@ the verification, and any fact worth reusing belongs in the relevant
 
   The new problem: **the packed low build dies on the r4 reset.** Stop kills
   the game and the console then answers nothing, not even ping - a full EE
-  death, where the same reset on the high unpacked build restarts ps2link
-  cleanly. Both run identical code at `0x00094000` once decompressed, so the
-  suspect is `pkoReset()`'s closing `ExecPS2(&__start)` re-entering an image
-  that a packer stub, not a loader, put there. Worth a screen-breadcrumb run
-  (`pkoReset` narrates on the TV) before anything else.
+  death, where the same reset on the high unpacked build survives four
+  Run -> Stop cycles untouched. Chased as far as this:
+
+  - a reset with **no game running** survives;
+  - one real bug was found and fixed on the way - `pkoReset()` called
+    `init_scr()`, i.e. drove the GS, *before* `ResetEE` quiesced the DMA the
+    dying game still had in flight. That is worth having regardless, and it
+    moved the low build from dying on the first Stop to dying on the second;
+  - so something else remains, it is address-dependent (identical code at
+    `0x00094000` dies, at `0x01ee8000` does not), and it needs a game to have
+    run. That smells like memory below `0x00100000` being written by something
+    - the region between the image end and the game's load address holds the
+      SIF command buffer at `0x000ff800`;
+  - EE `printf` breadcrumbs do **not** survive to the PC: the IOP reboot
+    follows within a millisecond and takes the queued tty with it. The screen
+    is the only channel past that point.
+
+  Iterating does not need reflashing: keep the **high** build on the card and
+  `execee` low candidates over the network - their packer stub lands at
+  `0x01ce8890` and decompresses to `0x00094000`, clear of the running image.
+  A console killed this way does need a power cycle, one per attempt.
 
   If that is solved, the low+packed+no-USB build is the one to ship: it boots
   from every launcher and leaves the top of RAM alone. The USB HID stack would
