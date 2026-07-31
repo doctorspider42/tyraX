@@ -20,7 +20,7 @@ index 2eb1e7e..f433943 100644
  
  # Compile with -Werror
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
-index 08f9b19..6f4bb7b 100644
+index 08f9b19..a1b6875 100644
 --- a/ee/cmdHandler.c
 +++ b/ee/cmdHandler.c
 @@ -15,6 +15,8 @@
@@ -321,7 +321,7 @@ index 08f9b19..6f4bb7b 100644
  
      SifInitRpc(0);
      SifExitRpc();
-@@ -845,3 +918,106 @@ void pkoReset(void)
+@@ -845,3 +918,105 @@ void pkoReset(void)
  
      ExecPS2(&__start, 0, 1, argv);
  }
@@ -337,11 +337,13 @@ index 08f9b19..6f4bb7b 100644
 +    }
 +    userThreadID = 0;
 +
-+    /* TyraX: printf, not scr_printf: this goes over the SIF to the IOP's tty
-+     * and out to the PC, so the first half of a reset can be watched from the
-+     * editor's Output panel instead of by filming the television. Everything
-+     * past the IOP reboot below is screen-only, necessarily. */
-+    printf("EE: reset: user thread killed\n");
++    /* TyraX: nothing here may call stdio. printf() takes newlib's stdout lock,
++     * and after ExecPS2 re-enters this image that lock is a cleared .bss field
++     * until newlib re-initializes - the console then dies in
++     * __retarget_lock_acquire_recursive with BadAddr 8, a cycle or two later,
++     * looking entirely unrelated. Breadcrumbs in this function are scr_printf
++     * only. They were useless over the network anyway: the IOP reboot follows
++     * within a millisecond and takes the queued tty with it. */
 +
 +    /* TyraX: TerminateThread stops the CPU, not the hardware. The game owned
 +     * the DMAC, both VUs, VIF0/1, the GIF and the IPU, and a transfer left
@@ -360,7 +362,6 @@ index 08f9b19..6f4bb7b 100644
 +    if (!(_lw(A_EE_D5_CHCR) & EE_CHCR_STR))
 +        SifSetDChain();
 +    EnableDmac(DMAC_SIF0);
-+    printf("EE: reset: peripherals quiesced, SIF0 re-armed\n");
 +
 +    /* TyraX: only NOW take the screen back from the program we just killed.
 +     * This used to be the first thing pkoReset did, before ResetEE - i.e. it
@@ -389,8 +390,6 @@ index 08f9b19..6f4bb7b 100644
 +     * send its command, and the console sat on "rebooting the IOP..." for
 +     * good. Drop the bindings before, rebuild them after. */
 +    scr_printf("ps2link: rebooting the IOP...\n");
-+    printf("EE: reset: vectors restored, rebooting the IOP now "
-+           "(last word before the tty goes)\n");
 +    SifLoadFileExit();
 +    SifExitIopHeap();
 +

@@ -160,7 +160,19 @@ the verification, and any fact worth reusing belongs in the relevant
       SIF command buffer at `0x000ff800`;
   - EE `printf` breadcrumbs do **not** survive to the PC: the IOP reboot
     follows within a millisecond and takes the queued tty with it. The screen
-    is the only channel past that point.
+    is the only channel past that point - and it is black there, because
+    `ExecPS2` blanks it before the code that would print anything;
+  - adding those breadcrumbs found a *different* bug, worth knowing about:
+    **no stdio may be called in the reset path.** `printf` takes newlib's
+    stdout lock, and after `ExecPS2` re-enters the image that lock is a
+    cleared `.bss` field until newlib re-initializes, so the console dies in
+    `__retarget_lock_acquire_recursive` with `BadAddr 8` - a cycle or two
+    later, looking unrelated. That one hit the *high* build (four cycles ->
+    two) and is fixed; `scr_printf` is fine, `printf` is not;
+  - removing the stdio did **not** help the low build: it still dies on the
+    first Stop after a game. The console then answers nothing at all, not even
+    ping, which places the death between the IOP reboot and `loadModules()` -
+    the fresh image never gets the network back up.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
