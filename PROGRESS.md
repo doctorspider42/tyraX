@@ -14687,3 +14687,55 @@ Each finished feature lands as its own commit.
   what would change it. Not decided here: whether to grant one, and whether to
   attach the Apache boilerplate header to `src/*.cpp` (recommended by the
   license, not required, and a ~90-file sweep).
+
+- (228) **Generated games can be sold closed-source: a template exception, and
+  the notices file that makes it real** - asked as "chciałbym, żeby użytkownik
+  mógł wydać grę komercyjnie z zamkniętym źródłem", straight after 227 put the
+  repo on Apache-2.0.
+  The first finding is that the goal was **already legal** and the framing was
+  the problem. Apache-2.0 is an attribution license, not copyleft: it has never
+  forbidden a closed, commercial binary. What it *does* attach is paperwork, and
+  227's README had honestly said generated projects inherit that paperwork -
+  which reads to a game author like "my game is encumbered" even though the only
+  ask is a credits line. So the fix is two-sided: remove TyraX's own conditions
+  outright, and stop the remaining ones from being the author's problem.
+  **`LICENSE-EXCEPTION.md`** is the grant - unlimited permission to use, modify,
+  distribute and sell the files TyraX generates, and any binary built from them,
+  with no condition arising from TyraX's copyright. It is an *additional*
+  permission layered on Apache-2.0, so it can only widen rights, never narrow
+  them, and it is scoped to generated output (the editor's own sources stay
+  plain Apache-2.0). `LICENSE` was deliberately NOT touched - it stays the
+  canonical Apache text, byte-identical to the recovered `vendor/tyra` copy.
+  **What an exception cannot do** is the part worth writing down, because it is
+  where a naive "we grant everything" would have been a lie: a generated game
+  links the **Tyra engine** (Apache-2.0) and **PS2SDK** (AFL-2.0), and those are
+  not TyraX's rights to waive. Both are attribution-only, so closed-source
+  commercial release stays fine; what survives is that the credit must travel
+  with the binary.
+  So that obligation became a generated file rather than homework. Every project
+  now gets **`THIRD-PARTY-NOTICES.txt`** at its root, pre-filled with the engine
+  and PS2SDK notices and opening with the sentence an author actually needs
+  ("you may release it commercially and you may keep your source closed"). Ship
+  it beside the ELF, in the package, or as a credits screen - done.
+  The ownership category is the load-bearing detail. It is **written-if-missing**
+  (the `.vscode/extensions.json` branch in `project.cpp`, not the always-rewrite
+  list), because this is a file authors are *expected to edit* - they append
+  their own credits to it. Regenerating over that would delete their work AND
+  leave them shipping notices they no longer believe in. Same branch also means
+  projects created before this pick the file up on their next build. Documented
+  as a third ownership category in tyra-editor-dev, next to always-overwritten
+  and user-ownable, since it had only ever existed as a one-off for a JSON file
+  with no room for a marker comment.
+  Verified headless, all four behaviors: `--new` writes the file into a fresh
+  project; appending a line to it and running `--refresh-gen` leaves the line
+  intact; deleting it and refreshing brings it back (with the user line gone, as
+  it must be); and a **copy of `examples/script-demo`** - a project that predates
+  the feature - gains the file on its first `--refresh-gen`, which is the
+  migration path for every existing project. Editor builds clean.
+  The committed `examples/` were again deliberately NOT regenerated, for the same
+  reason as 226/227: a `--refresh-gen` on the smallest of them still produces
+  ~2100 changed lines of unrelated codegen drift. They gain the notices file on
+  their next dedicated regenerate.
+  **Left to the copyright holder, not decided here**: whether to attach the
+  Apache boilerplate header to `src/*.cpp` (recommended by the license, not
+  required, ~90 files).

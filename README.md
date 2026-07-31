@@ -390,21 +390,34 @@ This project stands on the shoulders of the PS2 homebrew community:
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
 ## License
 
-TyraX is licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and
-[NOTICE](NOTICE). Apache-2.0 was the natural choice rather than a deliberate
-one: the engine this editor is built around is already Apache-2.0, so matching
-it keeps the whole tree under a single set of terms with no compatibility
-question to answer.
+TyraX — the editor — is licensed under the **Apache License 2.0**, see
+[LICENSE](LICENSE) and [NOTICE](NOTICE). Apache-2.0 was the natural choice rather
+than a deliberate one: the engine this editor is built around is already
+Apache-2.0, so matching it keeps the whole tree under a single set of terms with
+no compatibility question to answer.
+
+**Games you generate are not covered by that** — see below.
 
 Third-party notices are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md);
 what may be added as a dependency, and on what conditions, is in the
 [Dependency policy](#dependency-policy) above.
 
-**Games you generate**: TyraX writes a project's C++ from templates that live in
-this repository (`src/templates.cpp`), so the generated sources start out as a
-copy of Apache-2.0-licensed code and carry those terms with them. In practice
-Apache-2.0 asks very little of you — keep the license and notice, state what you
-changed, don't use the project's name to endorse yours — and it does not reach
-your own game logic, art or audio. If you want generated projects released under
-terms of your own choosing instead, that needs an explicit exception added here
-by the copyright holder; until one exists, assume the above.
+### Games you generate — the game is yours
+
+**You can release a game made with TyraX commercially, with closed source.**
+TyraX writes a project's C++ from templates in this repository, and
+[LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md) grants that generated output to you
+with **no conditions at all** — no attribution, no license text, no notice, no
+source disclosure. Sell it, keep it closed, license it however you like.
+
+One thing an exception cannot waive, because the rights are not TyraX's to waive:
+a generated game links the **Tyra engine** (Apache-2.0) and **PS2SDK** (Academic
+Free License v2.0). Neither is copyleft — neither obliges you to publish source,
+restricts commercial use, or reaches your own game logic, art, audio or levels.
+Both ask only that the credit travels with the binary.
+
+That is handled for you: every project TyraX creates gets a
+**`THIRD-PARTY-NOTICES.txt`** at its root, pre-filled with exactly those notices.
+Ship it beside the ELF, in the package, or as an in-game credits screen and you
+are compliant. It is written once and never regenerated, so your own credits
+added to it survive every build. Older projects pick it up on their next build.
