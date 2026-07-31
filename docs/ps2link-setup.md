@@ -301,6 +301,7 @@ whose driver has not finished its handshake.
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
 | Boot banner is below `r4` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console. Reflash. |
 | Stop leaves the console frozen on the game, or on a black screen | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
+| The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
 | Stop works once and the next one wedges | Also r4 - and if you see it ON r4, it is a new bug: say so, that pattern was ps2sdk's `.bss` state and the restart no longer depends on it. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
