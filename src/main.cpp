@@ -23,6 +23,7 @@
 #include "vucap.hpp"
 #include "app.hpp"
 #include "platform.hpp"
+#include "procbake.hpp"
 #include "project.hpp"
 #include "runner.hpp"
 
@@ -279,6 +280,23 @@ static int createFromCli(int argc, char** argv) {
 }
 
 // Headless helper: tyrax-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
+// Bakes every stale Scatter volume into its chunk meshes and saves the result
+// (docs/procedural-generation.md). The GUI does this in App::projectForBuild;
+// the headless paths need their own call, or an agent-driven build would ship
+// whatever the last GUI session happened to bake - or nothing at all.
+static void bakeProcedural(Project& p) {
+    if (!procbake::anyStale(p)) return;
+    const procbake::Report rep = procbake::bakeAll(p, false);
+    std::printf("procedural: baked %d volume(s) -> %d chunks, %d instances, "
+                "%d triangles\n",
+                rep.volumes, rep.chunks, rep.instances, rep.triangles);
+    for (const std::string& w : rep.warnings)
+        std::printf("procedural: %s\n", w.c_str());
+    if (std::string err = project::save(p); !err.empty())
+        std::fprintf(stderr, "warning: could not save the baked scene: %s\n",
+                     err.c_str());
+}
+
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -295,6 +313,7 @@ static int buildFromCli(int argc, char** argv) {
         return 1;
     }
     if (runPs2 && argc > 4) p.ps2LinkIp = argv[4];
+    bakeProcedural(p);
 
     Runner runner;
     if (runPs2)
@@ -491,6 +510,7 @@ static int dumpFromCli(int argc, char** argv) {
     names("ambiencePresets", p.ambiencePresets,
           [](const AmbiencePreset& a) { return a.name; });
     names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
+    names("credits", p.credits, [](const CreditsRoll& r) { return r.name; });
     // Input actions / binding presets: what On Action and Set Input Preset
     // reference (docs/input-bindings.md).
     names("inputActions", p.input.actions,
@@ -592,6 +612,7 @@ static int refreshGenFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    bakeProcedural(p);
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -1000,12 +1021,12 @@ static int uiScriptFromCli(int argc, char** argv) {
             "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
             "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
             "\n"
-            "script: click|hover|doubleclick|expect|expect-not <target>\n"
+            "script: click|rightclick|hover|doubleclick|expect|expect-not <target>\n"
             "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
             "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
-            "example: --ui-script myproj \"click Tools; click 'Remote Pad';"
+            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
             " shot pad.png\"\n"
             "hint:    a script of just \"dump\" lists every widget on screen\n");
         return 2;

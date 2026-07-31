@@ -1,8 +1,9 @@
 # TyraX documentation
 
 User-facing guides for editor features. Written for people building games
-with the editor; internals live in code comments, `PROGRESS.md` (feature log
-+ verification notes) and the `.claude/skills/` developer guides.
+with the editor; internals live in code comments, the git log (commit messages
+carry what changed and how it was verified) and the `.claude/skills/` developer
+guides. What is queued is in [Backlog](backlog.md).
 
 - [Animated models (.glb)](animated-models.md) - authoring animations in
   Blender, importing them, clip playback, flow-graph nodes and the script
@@ -55,6 +56,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
   tracks real load work, and the built-in fallback.
+- [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
+  wrapped lines, images and page breaks, scrolled or shown as cards over music,
+  with a skip button and a finish action (resume / scene / menu / flow event);
+  importing a roll from a text file, and the page-texture VRAM budget that
+  decides how long a roll can be.
 - [Custom screen effects](custom-screen-effects.md) - defining your own
   full-screen post effects (like the built-in bloom / film grain) in
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
@@ -95,6 +101,27 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   tiled texture detail, cost only on painted chunks), stochastic tiling
   (build-time texture bombing that breaks the tiled-grid repetition), the
   storage/undo model, and why the baked-composite approach was abandoned.
+- [Procedural generation (scatter graphs)](procedural-generation.md) - the
+  node graph that fills a region with instances (forests, rock fields, fence
+  posts, a ring of columns): the Procedural volume, the node library
+  (surface/grid/volume/curve sources and a single placed point, noise and
+  terrain masks, slope/mask/distance/avoid filters, Array / Radial Array for
+  exact repetition, weighted asset pools, transform variation), the Object
+  Settings node that applies properties to everything the volume bakes,
+  per-instance hand edits that survive re-evaluation, the live triangle budget,
+  and the bake that merges instances into ordinary static chunk meshes so the
+  PS2 never sees a graph.
+- [Runtime procedural generation](procedural-runtime.md) - the same graph
+  compiled into the game and evaluated on the EE instead: what the console can
+  and cannot run (and why the window says so up front), what a runtime volume
+  costs in load time and RAM, where the per-run randomness actually comes from,
+  the Generate Volume node, and Blocks Fill - the block-world source that emits
+  only visible blocks, tells the merge which faces to draw, and publishes its
+  solid field as the world's collision.
+- [Prefabs](prefabs.md) - reusable groups of scene objects (their flow graphs
+  included) stamped by hand, scattered by a graph or spawned at runtime: the
+  local-frame model, why instances are not linked back, and the merge/spawn
+  split that decides what an instance costs on this machine.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
@@ -170,6 +197,12 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   the seeded DualShock set the editor draws itself, overriding one with your own
   PNG, and the two paths (composited into baked sprites, blitted from a sheet in
   runtime text).
+- [The editor's look: themes and the interface font](editor-theme.md) - the four
+  interface themes (three of them PS2 nods) in *View > Theme*, why the choice is
+  machine-global rather than project data, the system UI font the editor picks
+  instead of ImGui's built-in bitmap one, and - for developers - the
+  "ask for a meaning, not a colour" rule that keeps a status chip's green from
+  staying green in a violet editor.
 - [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more

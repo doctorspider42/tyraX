@@ -42,8 +42,14 @@ over guessing from this file.
 
 - `id`: positive, unique per graph. `pos`: canvas pixels, lay out left→right.
 - `str` / `str2`: the node's string parameter(s) - object/track/value names,
-  button names, free text (meaning per node type in `--list-nodes`).
-- `num[4]`: numeric parameters (labels per node type).
+  button names, free text.
+- `num[4]`: numeric parameters, filled from slot 0 up.
+- **`--list-nodes` documents every one of them individually.** Each catalog
+  line names the node's params (`num[0]=Radius`, `str = ...`) with a
+  parenthesised gloss saying what that particular parameter does and what its
+  edge values mean, and names each exec pin of a merged node the same way. Read
+  the gloss for the parameter you are about to fill in rather than inferring it
+  from the node's description - the description says what the NODE does.
 - `kind`: `"exec"` (execution flow), `"object"` (object reference), `"pos"`
   (XYZ), `"bool"` (per-frame condition), `"text"` (string value), `"number"`
   (a computed float).
@@ -149,6 +155,12 @@ over guessing from this file.
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
+  **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
+  takes over the screen and the pad - this graph included - until it ends or the
+  player skips it, then runs the ROLL's own finish action (resume / switch scene
+  / open menu / fire a flow event), so the graph usually needs nothing after it.
+  **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
+  roll stops for any reason.
 - **Graphs talk to each other with EVENTS, not with polled variables.**
   **Send Event** broadcasts a name (plus an optional number payload) to every
   graph in the game; every **On Event** of that name fires on the NEXT frame,

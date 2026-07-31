@@ -12,18 +12,25 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a PROGRESS.md entry or
+  "how do I know this works?" — including before writing a commit message or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-PROGRESS.md about which layer you reached (the existing entries distinguish
-"verified in PCSX2" from "compiles, needs a pad test by a human").
+your commit message and PR body about which layer you reached — the established
+wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
+human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
+the honesty convention outlived the file.)
 
 ## Layer 0 — build the editor
 
@@ -88,7 +95,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+build scripts** needs a build on both, or say so in the commit. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -200,7 +207,11 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   whenever the thing you are measuring is an asset. It also runs the **asset bakes that live
   inside refreshGenerated**: animated models into `res/models/*.tskl` and
   static ones into `res/models/*.tmdl` (docs/model-pipeline.md), each printing
-  its problems as `[anim bake]` / `[model bake]` lines on stdout. So a model
+  its problems as `[anim bake]` / `[model bake]` lines on stdout, plus the
+  **credits page strips** (docs/credits.md) into `res/credits/<roll>-<k>.png` -
+  so a roll's typography and page count are checkable with no Docker and no GUI:
+  refresh, stitch the pages back into one image and look at it, and read
+  `CREDITS_PAGE_TOTAL` / `contentH` out of `inc/credits_data.gen.hpp`. So a model
   format / LOD change is verifiable headlessly: refresh, then read the file's
   bytes (a few lines of Python on the layout in `src/tmdl.hpp` /
   `glbparser.cpp` tell you the tier vertex counts). Note the texture bake
@@ -212,6 +223,17 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- Both `--build` and `--refresh-gen` also run the **procedural bake** first
+  (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
+  volumes are baked into their chunk meshes and the project is saved, printing
+  `procedural: baked N volume(s) -> ...`. So a headless build of a project with
+  a procedural volume MUTATES the `.tyra` (the chunk objects are real scene
+  objects) - expect that diff, and use it: the fastest way to test a graph
+  change is `--refresh-gen` + grep `inc/scene_data.hpp` for the
+  `<volume>#<asset>-x<i>z<j>` chunk objects. The graph model itself is
+  harness-testable (procgraph/procgen/procbake link without GUI, GL or
+  templates.cpp - see PROGRESS 171 for the property list that caught three real
+  bugs).
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -464,10 +486,10 @@ Notes:
 
   ```powershell
   build\tyrax-editor.exe --ui-script <projectDir> `
-      "frames 20; click Tools; click 'Remote Pad'; shot panel.png; quit"
+      'frames 20; click Tools; click "Remote Pad"; shot panel.png; quit'
   ```
 
-  `click|hover|doubleclick|hold|drag|key|text|wait|frames|shot|dump|log|quit`
+  `click|rightclick|hover|doubleclick|hold|drag|wheel|key|text|wait|frames|shot|dump|log|quit`
   plus `expect` / `expect-not` / `expect-checked` / `expect-unchecked`; the exit
   code is 0 only if every step passed, so a scripted GUI run gates a shell
   script. **Always start with `dump`** (`--ui-script <dir> "frames 20; dump"`):
@@ -476,11 +498,50 @@ Notes:
   save time: a step that names a target WAITS for it (menus need no sleeps, and a
   timeout prints what was on screen instead), a target is `"Window/Label"` with
   prefix matching (`"Remote/Cross"` works, and so does a menu entry without its
-  `...`), `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
+  `...`) — **quoted, with either `"` or `'`** (so on PowerShell wrap the whole
+  script in one kind and use the other inside; an unquoted two-word target
+  arrives as two tokens and fails). Quoting also makes the target OPAQUE, which
+  is the part worth remembering: a `#` or `;` inside quotes is an ordinary
+  character, so a name straight out of `dump` — ImGui child regions are
+  registered as `Project/##objects_DC0BCE04`, `#` and all — can be pasted into a
+  script verbatim, and a window name containing `/` resolves because every split
+  point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it.
+  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
+  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
+  shows the rect with an empty label - set the value another way and read the
+  result off a `shot`.
+
+  **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
+  exposes one): it holds the cursor on the target and injects one notch per
+  frame, and it is the only step that may resolve a bare WINDOW name, so
+  `wheel "Flow Graph" -6` scrolls over the middle of the canvas. The way to
+  verify a zoom is not a screenshot but `dump` at two zoom levels: the node
+  widgets ARE ordinary items, so their rects give you the scale factor and the
+  offsets between them give you whether the layout stayed self-similar
+  (PROGRESS 233 measures both to under 0.1%).
+
+  Two things about the node canvases specifically (PROGRESS 247, which needed a
+  screenshot of a node tooltip). **A node's param widgets register only while
+  its window is the FRONT tab.** Behind another tab the window is drawn with
+  `SkipItems`, so `dump` lists the node rects (unlabelled - imnodes gives them
+  no label) and *nothing inside them*, which reads exactly like "the canvas is
+  unreachable". The Flow Graph ships docked behind Viewport in the Default
+  layout, and dropping a window from the layout's `open` list does NOT help -
+  Viewport is not optional and is not in that list. Set `"activeLayout"` in the
+  project's `.tyra` to a layout whose recipe FOCUSES the window instead
+  (`LayoutRecipe::Debugger` = index 3 focuses Flow Graph; `Procedural` focuses
+  Procedural), then everything inside the nodes is nameable as
+  `"Flow Graph/<Param>"`. **And `wheel` parks the cursor**, which is how you
+  reach a tooltip that hangs off no widget at all: it holds the mouse at the
+  target's centre while the notches arrive and ImGui keeps that position
+  afterwards, so `wheel "Flow Graph" 1; wait 1.6; shot x.png` screenshots
+  whatever the canvas shows for the point under the window's middle - put the
+  node there (screen = canvas origin + model position x nodeScale, both readable
+  off one `dump`) and you have the node-hover tooltip. What stays out of reach
+  is the **add menu**, which needs a right-click on empty canvas.
 
   The editor can also **capture its own framebuffer** on a timer, with no
   display permissions at all: set `TYRAX_SHOT=<dir>` (and optionally
@@ -506,11 +567,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in
-  PROGRESS.md and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in the
+  commit and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -756,11 +817,16 @@ Notes:
   copy a DEBUG build keeps (`Makefile.base` writes it when the generated Makefile
   sets `KEEPSYM=1`; the shipped ELF is `strip --strip-all`ed, so a release
   project has nothing to resolve against). Needs the build container up.
-- **Testing a crash is harder than it looks**: PCSX2 will not produce the
-  exception for you - writing to address 0 does NOT fault on the PS2 (main RAM
-  starts at 0) and a misaligned load went through unharmed. And installing the
-  EE crash handler wedges the game under PCSX2 (entry 194), so that path is a
-  hardware-only test today. What IS testable in the emulator: the report format
+- **Testing a crash is harder than it looks**: **PCSX2 cannot produce an EE
+  exception at all**, so catching one is a HARDWARE-ONLY test (entry 246).
+  Everything tried passed through unharmed there: a signed-overflow `add`, an
+  illegal opcode, a write to address 0 (main RAM starts at 0) and a misaligned
+  load. On a real console the reliable trigger is one line in a user-owned
+  script - `volatile int a = 0x7FFFFFFF, b = 1; asm volatile("add %0, %1, %2" :
+  "=r"(r) : "r"(a), "r"(b));` - which raises cause 12 and lands a real
+  `bin/crash.txt`; `--symbolize` then names the exact source line. (Installing
+  the handler no longer wedges anything - that was `ee_dbg_install(2)`, fixed in
+  246.) What IS testable in the emulator: the report format
   (write a synthetic `bin/crash.txt` and let the editor parse + symbolize it),
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the
@@ -816,7 +882,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in PROGRESS.md, that's the established convention.
+  problem) - say so in the commit message, that's the established convention.
 
 ### The unattended input test, end to end
 

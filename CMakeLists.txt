@@ -136,6 +136,7 @@ add_executable(tyrax-editor
     src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
     src/devsession.cpp
@@ -143,6 +144,8 @@ add_executable(tyrax-editor
     src/flownode.cpp
     src/hud_ui.cpp
     src/mateditor_ui.cpp
+    src/prefab_ui.cpp
+    src/procui.cpp
     src/props_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
@@ -167,7 +170,12 @@ add_executable(tyrax-editor
     src/placement.cpp
     src/platform.cpp
     src/pngquant.cpp
+    src/prefab.cpp
     src/primmesh.cpp
+    src/procgraph.cpp
+    src/procgen.cpp
+    src/procbake.cpp
+    src/procrt.cpp
     src/decalproj.cpp
     src/dronegen.cpp
     src/droneui.cpp
@@ -178,6 +186,7 @@ add_executable(tyrax-editor
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
+    src/theme.cpp
     src/tmdl.cpp
     src/treegen.cpp
     src/uiscript.cpp

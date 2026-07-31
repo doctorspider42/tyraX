@@ -136,29 +136,49 @@ const std::vector<Item>& items() { return g_items; }
 const Item* find(const std::string& target, bool clickable) {
     const std::string t = trim(target);
     if (t.empty()) return nullptr;
-    std::string wantWindow, wantLabel = t;
-    const size_t slash = t.find('/');
-    if (slash != std::string::npos) {
-        wantWindow = trim(t.substr(0, slash));
-        wantLabel = trim(t.substr(slash + 1));
-    }
-    auto usable = [&](const Item& it) {
-        if (clickable && it.isWindow) return false;
-        return wantWindow.empty() || startsWithCI(it.window, wantWindow);
+
+    // One "window/label" split attempt.
+    auto trySplit = [&](const std::string& wantWindow,
+                        const std::string& wantLabel) -> const Item* {
+        auto usable = [&](const Item& it) {
+            if (clickable && it.isWindow) return false;
+            return wantWindow.empty() || startsWithCI(it.window, wantWindow);
+        };
+        // Exact label first, then a prefix - so a menu entry authored as
+        // "Remote Pad..." is reachable as "Remote Pad" without the ellipsis.
+        for (const Item& it : g_items)
+            if (usable(it) && lower(it.label) == lower(wantLabel)) return &it;
+        for (const Item& it : g_items)
+            if (usable(it) && !it.label.empty() &&
+                startsWithCI(it.label, wantLabel))
+                return &it;
+        return nullptr;
     };
-    // Exact label first, then a prefix - so a menu entry authored as
-    // "Remote Pad..." is reachable as "Remote Pad" without the ellipsis.
-    for (const Item& it : g_items)
-        if (usable(it) && lower(it.label) == lower(wantLabel)) return &it;
-    for (const Item& it : g_items)
-        if (usable(it) && !it.label.empty() && startsWithCI(it.label, wantLabel))
-            return &it;
+
+    // A WINDOW name can itself contain '/': ImGui child regions are registered
+    // as "Project/##objects_DC0BCE04", and that is exactly how `dump` and the
+    // failure message spell them. Splitting on the FIRST '/' therefore could not
+    // resolve the names the tool prints itself - it looked for a label called
+    // "##objects_DC0BCE04/the-cube". So every split point is tried, LONGEST
+    // window prefix first, and the first one that resolves wins. Strictly more
+    // permissive than the old single split, so a target that worked still does;
+    // it additionally makes a label containing '/' reachable.
+    std::vector<size_t> slashes;
+    for (size_t i = 0; i < t.size(); ++i)
+        if (t[i] == '/') slashes.push_back(i);
+    for (auto it = slashes.rbegin(); it != slashes.rend(); ++it)
+        if (const Item* hit = trySplit(trim(t.substr(0, *it)),
+                                       trim(t.substr(*it + 1))))
+            return hit;
+    // No window qualifier at all.
+    if (const Item* hit = trySplit("", t)) return hit;
+
     // Last resort: the WINDOW itself (ImGui registers each window as an item),
     // so `expect "Remote Pad"` answers before anything inside it is known. Never
     // for a click - see the note on the declaration.
-    if (wantWindow.empty() && !clickable)
-        for (const Item& it : g_items)
-            if (lower(it.window) == lower(wantLabel)) return &it;
+    if (!clickable)
+        for (const Item& item : g_items)
+            if (lower(item.window) == lower(t)) return &item;
     return nullptr;
 }
 
@@ -181,27 +201,73 @@ std::string dumpText() {
 
 namespace {
 
-/** Splits a command line into tokens, honoring double quotes so a target with
- * spaces can be written `click "Live Link"`. */
-std::vector<std::string> tokenize(const std::string& line) {
-    std::vector<std::string> out;
-    std::string cur;
-    bool inQuotes = false;
-    for (char c : line) {
-        if (c == '"') {
-            inQuotes = !inQuotes;
+enum : unsigned char { kInQuotes = 1, kQuoteDelim = 2 };
+
+/** Marks, for every character of `s`, whether it sits INSIDE a quoted run and
+ * whether it is one of the quote characters delimiting one.
+ *
+ * All three places that scan a script for structure - the `;` / newline
+ * statement split, the `#` comment strip, and the whitespace tokenizer - go
+ * through this, because they have to agree that a quoted widget name is opaque.
+ * They did not: `#` was cut from a line before quotes were considered at all,
+ * and ImGui ids routinely contain `##` (`"Project/##objects_DC0BCE04"`), so the
+ * target was silently truncated to `Project/` - which then prefix-matched a
+ * DIFFERENT widget and clicked it. A script that asserts nothing and still
+ * reports success is the one failure mode a test tool must not have. A label
+ * containing `;` was cut the same way.
+ *
+ * A double quote always opens a run. A single quote opens one only at a token
+ * boundary (start of line, or after whitespace or a separator), so an
+ * apostrophe inside a label - "Player's hat" - stays an ordinary character
+ * while `click 'Remote Pad'` works. Both spellings are used in the docs. */
+std::vector<unsigned char> scanQuotes(const std::string& s) {
+    std::vector<unsigned char> f(s.size(), 0);
+    char open = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (open) {
+            if (c == open) {
+                f[i] = kQuoteDelim;
+                open = 0;
+            } else {
+                f[i] = kInQuotes;
+            }
             continue;
         }
-        if (!inQuotes && (c == ' ' || c == '\t')) {
-            if (!cur.empty()) {
+        const bool boundary = i == 0 || s[i - 1] == ' ' || s[i - 1] == '\t' ||
+                              s[i - 1] == '\n' || s[i - 1] == ';';
+        if (c == '"' || (c == '\'' && boundary)) {
+            open = c;
+            f[i] = kQuoteDelim;
+        }
+    }
+    return f;
+}
+
+/** Splits a command line into tokens, honoring quotes so a target with spaces
+ * can be written `click "Live Link"` or `click 'Live Link'`. */
+std::vector<std::string> tokenize(const std::string& line) {
+    const std::vector<unsigned char> f = scanQuotes(line);
+    std::vector<std::string> out;
+    std::string cur;
+    bool quoted = false;  // this token had a quoted run, so "" is still a token
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (f[i] & kQuoteDelim) {
+            quoted = true;
+            continue;
+        }
+        const char c = line[i];
+        if (!(f[i] & kInQuotes) && (c == ' ' || c == '\t')) {
+            if (!cur.empty() || quoted) {
                 out.push_back(cur);
                 cur.clear();
+                quoted = false;
             }
             continue;
         }
         cur += c;
     }
-    if (!cur.empty()) out.push_back(cur);
+    if (!cur.empty() || quoted) out.push_back(cur);
     return out;
 }
 
@@ -221,10 +287,14 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
     out.clear();
     err.clear();
 
+    // Quote-aware: a `;` inside a quoted widget name is part of the name, not a
+    // statement separator (see scanQuotes).
+    const std::vector<unsigned char> qf = scanQuotes(text);
     std::vector<std::string> lines;
     std::string cur;
-    for (char c : text) {
-        if (c == '\n' || c == ';') {
+    for (size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if ((c == '\n' || c == ';') && !(qf[i] & kInQuotes)) {
             lines.push_back(cur);
             cur.clear();
         } else {
@@ -243,8 +313,15 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
     for (const std::string& raw : lines) {
         ++lineNo;
         std::string line = raw;
-        const size_t hash = line.find('#');
-        if (hash != std::string::npos) line = line.substr(0, hash);
+        // A `#` starts a comment only OUTSIDE quotes: an ImGui id is full of
+        // them ("Flow Graph/##canvas"), and cutting the line there truncated
+        // the target instead of commenting anything.
+        const std::vector<unsigned char> lf = scanQuotes(line);
+        for (size_t i = 0; i < line.size(); ++i)
+            if (line[i] == '#' && !(lf[i] & kInQuotes)) {
+                line = line.substr(0, i);
+                break;
+            }
         line = trim(line);
         if (line.empty()) continue;
         const std::vector<std::string> tok = tokenize(line);
@@ -255,11 +332,14 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
         s.source = line;
         auto needArg = [&](size_t count) { return tok.size() == count; };
 
-        if (cmd == "click" || cmd == "doubleclick" || cmd == "hover" ||
+        if (cmd == "click" || cmd == "rightclick" || cmd == "right-click" ||
+            cmd == "doubleclick" || cmd == "hover" ||
             cmd == "expect" || cmd == "expect-not" || cmd == "expectnot" ||
             cmd == "expect-checked" || cmd == "expect-unchecked") {
             if (!needArg(2)) return fail(cmd + " needs one target");
             s.kind = cmd == "click"             ? Step::Click
+                     : cmd == "rightclick"      ? Step::RightClick
+                     : cmd == "right-click"     ? Step::RightClick
                      : cmd == "doubleclick"     ? Step::DoubleClick
                      : cmd == "hover"           ? Step::Hover
                      : cmd == "expect"          ? Step::Expect
@@ -283,6 +363,13 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             s.kind = Step::Drag;
             s.arg = tok[1];
             s.dx = (float)dx;
+            s.dy = (float)dy;
+        } else if (cmd == "wheel" || cmd == "scroll") {
+            if (!needArg(3)) return fail("wheel needs a target and notches");
+            double dy = 0;
+            if (!toNumber(tok[2], dy)) return fail("wheel notches must be a number");
+            s.kind = Step::Wheel;
+            s.arg = tok[1];
             s.dy = (float)dy;
         } else if (cmd == "key") {
             if (!needArg(2)) return fail("key needs a chord, e.g. ctrl+n");

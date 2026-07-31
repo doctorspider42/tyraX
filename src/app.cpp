@@ -89,6 +89,11 @@ struct EditorConfig {
     // Material Editor: the preview panel's share of the window width
     // (0.25..0.75), set by dragging the splitter between the columns.
     float matEdSplit = 0.48f;
+    // Credits Editor: the preview strip's share of the window HEIGHT
+    // (0.15..0.75), set by dragging the splitter above it. Same reasoning as
+    // matEdSplit - how much room a preview deserves is a property of the
+    // monitor and of what you are doing, not of the project.
+    float creditsSplit = 0.42f;
     // Lighting the Material / Animation Editor previews bake with: "" = the
     // scene's ambience, "*" = the neutral studio default, anything else = an
     // ambience preset name. A view preference of this machine, not project
@@ -122,6 +127,10 @@ struct EditorConfig {
     // hold. Machine-global because it is a memory budget for THIS PC, not a
     // property of the game - and it is a ceiling, not an allocation.
     int timeMachineBudgetMb = 128;
+    // Interface theme (docs/editor-theme.md), stored as theme::Info::key so a
+    // reordered enum cannot repaint everyone's editor. An unknown key (a
+    // config written by a newer build) falls back to the default theme.
+    std::string theme;
     // Viewport output mode (docs/ps2-viewport.md): false = the editor's own
     // free-aspect image, true = the scene rasterized at the GS framebuffer
     // size of the project's display mode and shown the way a TV shows it.
@@ -185,6 +194,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("aiModel", v)) cfg.ai.model = v;
         else if (match("aiThinking", v)) cfg.ai.thinking = toI(v, 0) != 0;
         else if (match("matEdSplit", v)) cfg.matEdSplit = toF(v, cfg.matEdSplit);
+        else if (match("creditsSplit", v))
+            cfg.creditsSplit = toF(v, cfg.creditsSplit);
         else if (match("matEdLight", v)) cfg.matEdLight = v;
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
@@ -204,6 +215,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeBothRegions", v)) cfg.safeBothRegions = toI(v, 0) != 0;
         else if (match("safeAspect", v)) cfg.safeAspect = toI(v, 0);
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
+        else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
@@ -249,6 +261,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "aiModel=" << cfg.ai.model << "\n"
       << "aiThinking=" << (cfg.ai.thinking ? 1 : 0) << "\n"
       << "matEdSplit=" << cfg.matEdSplit << "\n"
+      << "creditsSplit=" << cfg.creditsSplit << "\n"
       << "matEdLight=" << cfg.matEdLight << "\n"
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
@@ -268,6 +281,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeBothRegions=" << (cfg.safeBothRegions ? 1 : 0) << "\n"
       << "safeAspect=" << cfg.safeAspect << "\n"
       << "safeOpacity=" << cfg.safeOpacity << "\n"
+      << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
@@ -458,20 +472,30 @@ int App::run(const std::string& initialProjectDir) {
     // The window layout lives inside the project's .tyra file, not a global
     // imgui.ini - we load/save it via ImGui's in-memory settings API.
     io.IniFilename = nullptr;
-    ImGui::StyleColorsDark();
-    // Capture the unscaled style before any DPI scaling is applied - every
-    // scale change resets to this reference so repeated changes don't compound.
-    baseStyle_ = ImGui::GetStyle();
+    // The interface font: a proportional face changes every frame height the
+    // style metrics are authored against, so it is loaded before the theme.
+    // The theme itself is applied further down, once the ImNodes context it
+    // also tints exists and the editor config has been read.
+    loadUiFont();
 
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
     ImGui_ImplOpenGL3_Init("#version 330 core");
     ImNodes::CreateContext();
+    // One EDITOR context per canvas. imnodes keeps panning/zoom/selection in
+    // the editor context, so the Flow Graph and the Procedural graph would
+    // otherwise shove each other around; and the context must never be left
+    // unset - EditorContextSet(nullptr) makes the next BeginNodeEditor
+    // dereference null (a startup crash when both windows are open, found the
+    // hard way).
+    flowEditorCtx_ = (void*)ImNodes::EditorContextCreate();
+    procEditorCtx_ = (void*)ImNodes::EditorContextCreate();
 
     // Scale the UI for the display: the saved override if any, else auto-match
     // the monitor's content scale (a 4K laptop reports e.g. 2.0). Fonts are
     // rasterized dynamically in this ImGui, so scaling stays crisp.
     {
         const EditorConfig cfg = loadEditorConfig();
+        theme_ = theme::fromKey(cfg.theme);
         uiScaleUser_ = cfg.uiScale;
         nav_ = cfg.nav;
         globalEmulatorPath_ = cfg.emulatorPath;
@@ -482,6 +506,7 @@ int App::run(const std::string& initialProjectDir) {
         globalSessionCacheDir_ = cfg.sessionCacheDir;
         globalAi_ = cfg.ai;
         matEdSplit_ = cfg.matEdSplit;
+        creditsSplit_ = cfg.creditsSplit;
         matEdLight_ = cfg.matEdLight;
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
@@ -510,7 +535,9 @@ int App::run(const std::string& initialProjectDir) {
             recentProjects_.push_back(r);
         }
     }
-    applyUiScale();
+    // Colours + style metrics + the scale over them, in that order (applyTheme
+    // ends in applyUiScale).
+    applyTheme();
 
     // Drag & drop from Explorer: the dialog-free import path (PNGs land in
     // res/hud and attach to the selected menu when the Menu Editor is open).
@@ -627,6 +654,9 @@ int App::run(const std::string& initialProjectDir) {
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
+    if (flowEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)flowEditorCtx_);
+    if (procEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)procEditorCtx_);
+    flowEditorCtx_ = procEditorCtx_ = nullptr;
     ImNodes::DestroyContext();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -778,9 +808,12 @@ void App::drawUI() {
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
+    drawProceduralWindow();
+    drawPrefabsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
+    drawCreditsWindow();
     drawAnimEditorWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
@@ -831,15 +864,15 @@ void App::drawUI() {
     if (hasProject_ && !runner_.busy()) {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
         if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
-            runner_.buildAndRun(project_, true);
+            runner_.buildAndRun(projectForBuild(), true);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
             runner_.runEmulatorOnly(project_);
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
-            runner_.buildAndRunPs2(project_, true);
+            runner_.buildAndRunPs2(projectForBuild(), true);
         if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
-            runner_.buildAndRunPs2(project_, false);
+            runner_.buildAndRunPs2(projectForBuild(), false);
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
-            runner_.buildAndRun(project_, false);
+            runner_.buildAndRun(projectForBuild(), false);
     }
     // Debugger shortcuts (docs/live-debugger.md). F9 opens the panel; the
     // transport keys only mean something while a game is reporting, and they
@@ -907,6 +940,18 @@ void App::applyUiScale() {
     style = baseStyle_;           // reset to the unscaled reference...
     style.ScaleAllSizes(scale);   // ...then scale spacing/padding/borders
     style.FontScaleMain = scale;  // dynamic fonts re-rasterize at the new size
+    // ImGuiStyle's constructor leaves FontSizeBase at 0 ("ask the font atlas on
+    // the first frame"), and baseStyle_ carries that zero - so restore the size
+    // loadUiFont() picked. Left at 0 when no system face resolved, which is
+    // exactly what makes ImGui fall back to the built-in font's own size.
+    style.FontSizeBase = uiFontSize_;
+    if (uiScaleApplied_ != scale) {
+        // The Flow Graph canvas lays its nodes out in scaled grid space (see
+        // drawFlowGraphWindow), so the positions it pushed into imnodes belong
+        // to the old scale - re-push them or the graph draws at the new node
+        // size with the old spacing.
+        flowPositionsApplied_ = false;
+    }
     uiScaleApplied_ = scale;
 }
 
@@ -921,14 +966,15 @@ void App::saveGlobalConfig() {
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
-                      matEdSplit_, matEdLight_, animEdLight_,
+                      matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
                       placementSnap_, showAxisGizmo_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
-                      safeArea_.opacity, timeBudgetMb_, viewportPs2_,
-                      runOnPs2_, std::move(recent)});
+                      safeArea_.opacity, timeBudgetMb_,
+                      theme::info(theme_).key, viewportPs2_, runOnPs2_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -937,11 +983,60 @@ void App::setUiScale(float userScale) {
     saveGlobalConfig();
 }
 
+// The interface font (docs/editor-theme.md). ImGui's built-in bitmap face is
+// the loudest "this is a debug overlay" signal the editor gives off, so the
+// first system UI font this machine has is loaded over it. Called once, before
+// the first frame; fonts are rasterized dynamically in this ImGui, so the UI
+// scale re-bakes the glyphs on its own and there is no atlas to rebuild here.
+void App::loadUiFont() {
+    // 15 px against ProggyClean's 13: a proportional face needs the extra pixel
+    // to read as well at the same nominal size, and the whole UI is authored in
+    // scaled() multiples of it rather than in absolute rows.
+    constexpr float kUiFontSize = 15.0f;
+    for (const platform::SystemFont& f : platform::uiFontFiles()) {
+        const std::string path = platform::systemFontPath(f.file);
+        if (path.empty()) continue;
+        if (!ImGui::GetIO().Fonts->AddFontFromFileTTF(path.c_str(), kUiFontSize))
+            continue;  // present but unreadable - try the next face
+        uiFontSize_ = kUiFontSize;
+        uiFontLabel_ = f.label;
+        return;
+    }
+    // Nothing resolved: the built-in font stays, and uiFontSize_ 0 leaves
+    // FontSizeBase alone so ImGui keeps that font's own size.
+    std::printf("[ui] no system UI font found - using the built-in font\n");
+}
+
+// Colours + metrics + the DPI scale over them. One function because baseStyle_
+// IS the themed style: the scale path resets to it every time, so a theme that
+// only wrote ImGui::GetStyle() would be undone by the next zoom step.
+void App::applyTheme() {
+    ImGuiStyle themed;  // fresh ImGui defaults for everything the theme leaves
+    theme::apply(theme_, themed);
+    baseStyle_ = themed;
+    theme::applyImNodes();  // the two node canvases follow the palette
+    applyUiScale();
+}
+
+void App::setTheme(theme::Id id) {
+    theme_ = id;
+    applyTheme();
+    saveGlobalConfig();
+}
+
 void App::drawMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
+        // Wordmark: the accent colour, once, where every application puts its
+        // name. It is not a menu (no popup, no hover highlight) - it is what
+        // turns a bare row of menus into the top of a product.
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(4.0f));
+        ImGui::TextColored(theme::semantics().accent, "TyraX");
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(6.0f));
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+            drawRecentProjectsMenu();
+            ImGui::Separator();
             const bool sessionClient =
                 session_.role() == session::Session::Role::Client;
             if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
@@ -951,6 +1046,11 @@ void App::drawMenuBar() {
                     "You joined this project as a session participant -\n"
                     "the HOST owns saving and committing. Leave the session\n"
                     "to keep your local copy and save it yourself.");
+            // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
+            // W that flies the viewport camera, and this throws the project out
+            // of the editor.
+            if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
+                requestCloseProject();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
@@ -1024,6 +1124,20 @@ void App::drawMenuBar() {
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
+
+            // Theme next to the interface scale: both are "how the editor
+            // looks on THIS machine", both live in editor.ini, and a picker
+            // buried in Preferences is one nobody finds. Also in
+            // Edit > Preferences > Appearance.
+            if (ImGui::BeginMenu("Theme")) {
+                for (int i = 0; i < (int)theme::Id::Count; ++i) {
+                    const theme::Info& ti = theme::info((theme::Id)i);
+                    if (ImGui::MenuItem(ti.label, nullptr, theme_ == (theme::Id)i))
+                        setTheme((theme::Id)i);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
+                }
+                ImGui::EndMenu();
+            }
 
             ImGui::Separator();
             ImGui::TextDisabled("Viewport output");
@@ -1143,6 +1257,16 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
+                                hasProject_))
+                showProcPreview_ = !showProcPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw what the procedural volumes generate. Turn it off to "
+                    "work on\nwhat is underneath - a finished forest hides the "
+                    "ground it grows on.\nThe graph keeps being evaluated, so "
+                    "the budget readout and the seed\nsimulator stay live; only "
+                    "the geometry goes.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -1180,7 +1304,7 @@ void App::drawMenuBar() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
-                runner_.exportIso(project_);
+                runner_.exportIso(projectForBuild());
             if (ImGui::MenuItem("Disc Layout...")) {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
@@ -1191,17 +1315,17 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("Build", hasProject_)) {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
-                runner_.buildAndRun(project_, false);
+                runner_.buildAndRun(projectForBuild(), false);
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(project_, true);
+                runner_.buildAndRun(projectForBuild(), true);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
                 runner_.runEmulatorOnly(project_);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(project_, true);
+                runner_.buildAndRunPs2(projectForBuild(), true);
             if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(project_, false);
+                runner_.buildAndRunPs2(projectForBuild(), false);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
             if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
@@ -1294,6 +1418,12 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "End credits: headings, role/name pairs, images and page\n"
+                    "breaks, imported from a text file if you like, scrolling\n"
+                    "over music with a skip button and somewhere to go after.");
             ImGui::Separator();
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
             if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
@@ -1308,6 +1438,13 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable groups of objects - a hut, a room, a lamp post\n"
+                    "with its light and its script. Stamp them by hand, scatter\n"
+                    "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1331,6 +1468,19 @@ void App::drawMenuBar() {
             ImGui::SameLine(ImGui::GetWindowWidth() - w - 16.0f);
             ImGui::TextDisabled("%s", statusMessage_.c_str());
         }
+        // A hairline along the bottom edge of the bar, in the accent colour.
+        // The menu bar and the dockspace under it are both dark surfaces with
+        // no border between them, so without this the whole top of the window
+        // reads as one undifferentiated block.
+        {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetWindowPos();
+            const float y = p.y + ImGui::GetWindowHeight() - scaled(1.0f);
+            dl->AddRectFilled(
+                ImVec2(p.x, y),
+                ImVec2(p.x + ImGui::GetWindowWidth(), y + scaled(1.0f)),
+                ImGui::GetColorU32(theme::semantics().accentMuted));
+        }
         ImGui::EndMainMenuBar();
     }
 }
@@ -1339,8 +1489,8 @@ void App::drawMenuBar() {
 // button, its dropdown and anything else that grows later cannot disagree
 // about what "Run" means.
 void App::runSelectedTarget(bool build) {
-    if (runOnPs2_) runner_.buildAndRunPs2(project_, build);
-    else if (build) runner_.buildAndRun(project_, true);
+    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
+    else if (build) runner_.buildAndRun(projectForBuild(), true);
     else runner_.runEmulatorOnly(project_);
 }
 
@@ -1359,7 +1509,16 @@ void App::drawToolbar() {
     const bool ps2Ready = !project_.ps2LinkIp.empty();
     const ImU32 colDim = ImGui::GetColorU32(ImGuiCol_TextDisabled);
     const ImU32 colText = ImGui::GetColorU32(ImGuiCol_Text);
-    const ImU32 colStop = IM_COL32(225, 95, 85, 255);
+    // The chips say what a state MEANS, so they read their colours from the
+    // theme (theme.hpp) instead of naming one: green/amber/red hardcoded here
+    // is green/amber/red in a violet editor. colInfo is the accent - "the
+    // other run target", "a live channel" - which every theme keeps distinct
+    // from ok/warn/danger.
+    const theme::Semantics& sem = theme::semantics();
+    const ImU32 colOk = ImGui::GetColorU32(sem.ok);
+    const ImU32 colWarn = ImGui::GetColorU32(sem.warn);
+    const ImU32 colInfo = ImGui::GetColorU32(sem.accent);
+    const ImU32 colStop = ImGui::GetColorU32(sem.danger);
     const float h = ImGui::GetFrameHeight();
     const float round = ImGui::GetStyle().FrameRounding;
     const float gapPair = ImMax(2.0f, h * 0.08f);   // within a play/stop pair
@@ -1379,10 +1538,18 @@ void App::drawToolbar() {
             ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
         const bool held = enabled && ImGui::IsItemActive();
         const bool clicked = enabled && ImGui::IsItemClicked();
-        if (enabled && hovered)
+        // The highlight fades in and out instead of snapping: sweeping the
+        // cursor along a row of icons is the most common thing anyone does with
+        // this bar, and a hard rectangle appearing under each one in turn is
+        // the difference between a toolbar and a debug overlay. Held buttons
+        // jump straight to the active fill - a press must feel immediate.
+        const float hoverT =
+            theme::hoverAnim(ImGui::GetItemID(), enabled && hovered, 12.0f);
+        if (held || hoverT > 0.0f)
             dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + h),
                               ImGui::GetColorU32(held ? ImGuiCol_ButtonActive
-                                                      : ImGuiCol_ButtonHovered),
+                                                      : ImGuiCol_ButtonHovered,
+                                                 held ? 1.0f : hoverT),
                               round);
         const float pad = h * 0.28f;
         // Square glyph rect regardless of button width (carets are narrower).
@@ -1396,6 +1563,18 @@ void App::drawToolbar() {
     auto iconButton = [&](const char* id, float lead, bool enabled,
                           const char* tip, auto&& paint) -> bool {
         return button(id, lead, h, enabled, tip, paint);
+    };
+
+    // The status chips (LIVE / DBG / LOGIC / SESSION) all draw their own dot +
+    // label, so they need the icon buttons' faded highlight spelled out once
+    // rather than four times. Call right after the chip's InvisibleButton.
+    auto chipHover = [&](ImDrawList* dl, ImVec2 p, float chipW) {
+        const float t =
+            theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        if (t > 0.0f)
+            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
+                              ImGui::GetColorU32(ImGuiCol_ButtonHovered, t),
+                              round);
     };
 
     // One stroke weight for every outlined glyph - that, plus the shared glyph
@@ -1440,7 +1619,7 @@ void App::drawToolbar() {
                          : "Save (Ctrl+S)",
             [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
                 const ImU32 c = !en      ? colDim
-                                : dirty_ ? IM_COL32(240, 175, 70, 255)
+                                : dirty_ ? colWarn
                                          : colText;
                 const float w = b.x - a.x, hh = b.y - a.y;
                 const float cut = w * 0.30f;  // clipped top-right corner
@@ -1476,15 +1655,15 @@ void App::drawToolbar() {
                        dl->AddLine(mid, ur, c, stroke);  // meeting at the front
                        dl->AddLine(mid, bot, c, stroke); // corner
                    }))
-        runner_.buildAndRun(project_, false);
+        runner_.buildAndRun(projectForBuild(), false);
 
     // --- Run group: Play (+ target dropdown) + Debug + Stop ----------------
     // ONE pair for both targets; the dropdown picks which machine it drives and
-    // the Play glyph's color says so (green = emulator, blue = real PS2).
+    // the Play glyph's color says so (the theme's "ok" = the emulator, its
+    // accent = the real console; every theme keeps those two apart).
     const bool targetReady = !runOnPs2_ || ps2Ready;
     const bool debugProfile = project_.settings.buildProfile == "debug";
-    const ImU32 colTarget = runOnPs2_ ? IM_COL32(80, 160, 245, 255)
-                                      : IM_COL32(95, 200, 115, 255);
+    const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
     const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
     // Debug is Run plus opening the Debugger panel. It needs the debug build
     // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
@@ -1561,14 +1740,14 @@ void App::drawToolbar() {
         if (on) {
             switch (liveLinkState_) {
                 case LiveLinkState::Live:
-                    c = IM_COL32(95, 200, 115, 255);
+                    c = colOk;
                     label = "LIVE";
                     tip = "Live Link: object edits (move/rotate/scale/recolor,"
                           " add/delete) stream\ninto the running game. Click "
                           "to turn off (project setting).";
                     break;
                 case LiveLinkState::RebuildNeeded:
-                    c = IM_COL32(240, 175, 70, 255);
+                    c = colWarn;
                     label = "LIVE (rebuild)";
                     tip = "Live Link: the scene changed in a way the session "
                           "can't absorb (model/\nmaterial swaps, lights, "
@@ -1594,11 +1773,7 @@ void App::drawToolbar() {
             project_.settings.liveLink = !on;
             commitChange();
         }
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW,
-                                        p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered),
-                              round);
+        chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1621,7 +1796,7 @@ void App::drawToolbar() {
             "Debugger panel (F9).";
         switch (dbgState_) {
             case DbgState::Running:
-                c = IM_COL32(95, 200, 115, 255);
+                c = colOk;
                 std::snprintf(label, sizeof(label), "DBG %.0f fps", dbgFps_);
                 tip = "Live Debugger: the running game is reporting every "
                       "flow-graph node it\n"
@@ -1638,7 +1813,7 @@ void App::drawToolbar() {
                       "open the Debugger panel.";
                 break;
             case DbgState::Stale:
-                c = IM_COL32(240, 175, 70, 255);
+                c = colWarn;
                 std::snprintf(label, sizeof(label), "DBG (rebuild)");
                 tip = "Live Debugger: the running game was built from "
                       "different graphs, so node\n"
@@ -1655,9 +1830,7 @@ void App::drawToolbar() {
         const float chipW = dotR * 2.0f + 4.0f + textW;
         if (ImGui::InvisibleButton("##tb_livedbg", ImVec2(chipW, h)))
             showDebugger_ = true;
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+        chipHover(dl, p, chipW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1681,8 +1854,8 @@ void App::drawToolbar() {
         else
             std::snprintf(label, sizeof(label), "LOGIC (%d)",
                           liveLogicPatchCount_);
-        const ImU32 c = blocked ? IM_COL32(240, 175, 70, 255)
-                                : IM_COL32(110, 190, 245, 255);
+        const ImU32 c = blocked ? colWarn
+                                : colInfo;
         const char* tip =
             blocked ? "Live Logic: an edited graph uses nodes the interpreter "
                       "cannot run\n(audio, AI, animation, spawning, runtime "
@@ -1698,9 +1871,7 @@ void App::drawToolbar() {
         const float chipW = dotR * 2.0f + 4.0f + textW;
         if (ImGui::InvisibleButton("##tb_livelogic", ImVec2(chipW, h)))
             showDebugger_ = true;
-        if (ImGui::IsItemHovered())
-            dl->AddRectFilled(p, ImVec2(p.x + chipW, p.y + h),
-                              ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+        chipHover(dl, p, chipW);
         dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
         dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                            p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -1716,21 +1887,21 @@ void App::drawToolbar() {
         if (st != session::Session::State::Idle &&
             st != session::Session::State::Error) {
             char label[32] = "SESSION";
-            ImU32 c = IM_COL32(240, 175, 70, 255);
+            ImU32 c = colWarn;
             const char* tip = "Connecting...";
             switch (st) {
                 case session::Session::State::Listening: {
                     const int others = (int)sessionPeers_.size() - 1;
                     std::snprintf(label, sizeof(label), "SESSION (%d)",
                                   others < 0 ? 0 : others);
-                    c = IM_COL32(95, 200, 115, 255);
+                    c = colOk;
                     tip = "Hosting a live session - click for peers / kick / "
                           "close.";
                     break;
                 }
                 case session::Session::State::Live:
                     std::snprintf(label, sizeof(label), "JOINED");
-                    c = IM_COL32(80, 160, 245, 255);
+                    c = colInfo;
                     tip = "Joined a live session - the host owns saving. Click "
                           "for the Session window.";
                     break;
@@ -1747,9 +1918,7 @@ void App::drawToolbar() {
             if (ImGui::InvisibleButton("##tb_session",
                                        ImVec2(dotR * 2.0f + 4.0f + textW, h)))
                 showSessionWindow_ = true;
-            if (ImGui::IsItemHovered())
-                dl->AddRectFilled(p, ImVec2(p.x + dotR * 2.0f + 4.0f + textW, p.y + h),
-                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered), round);
+            chipHover(dl, p, dotR * 2.0f + 4.0f + textW);
             dl->AddCircleFilled(ImVec2(p.x + dotR, p.y + h * 0.5f), dotR, c);
             dl->AddText(ImVec2(p.x + dotR * 2.0f + 4.0f,
                                p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
@@ -2006,16 +2175,10 @@ void App::drawWelcomeScreen() {
     // An open wins over a drop in the same frame (they can't both be clicked,
     // but the drop would shift the index the open reads).
     if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
-    if (openIndex >= 0) {
-        const std::string dir = recentProjects_[openIndex].dir;
-        const std::string err = openProjectAt(dir);
-        if (!err.empty()) {
-            // Moved/deleted since it was probed: say so and mark the row, but
-            // keep it - the user decides whether it is worth forgetting.
-            probeRecentProject(recentProjects_[openIndex]);
-            platform::errorBox("Open Project", err);
-        }
-    }
+    // Nothing is open here, so there is never anything to discard - straight to
+    // the shared open path (which reports a folder that vanished since it was
+    // probed and re-marks the row).
+    if (openIndex >= 0) openRecentProject(recentProjects_[openIndex].dir);
 }
 
 void App::drawViewportWindow() {
@@ -2156,6 +2319,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
         // under us, and resolving it is a handful of comparisons.
@@ -2663,9 +2827,80 @@ void App::drawViewportWindow() {
             }
         }
 
+        // Procedural tools take the click while they are armed (Tools >
+        // Procedural): editing a curve's control points, or picking an
+        // instance for a manual override.
+        bool procClick = false;
+        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+            (procCurveNode_ != 0 || procOverrideMode_) &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            if (procCurveNode_ != 0 && procVolume_ >= 0 &&
+                procVolume_ < (int)project_.objects().size()) {
+                float wx = 0.0f, wz = 0.0f;
+                if (viewport_.terrainRaycast(u, v, wx, wz)) {
+                    ProcNode* cn = procgraph::node(
+                        project_.objects()[procVolume_].procGraph, procCurveNode_);
+                    if (cn) {
+                        const float wy = viewport_.terrainHeight(wx, wz);
+                        if (procCurvePoint_ >= 0 &&
+                            procCurvePoint_ < (int)cn->rows.size()) {
+                            ProcRow& row = cn->rows[procCurvePoint_];
+                            row.v[0] = wx;
+                            row.v[1] = wy;
+                            row.v[2] = wz;
+                        } else {
+                            ProcRow row;
+                            row.v[0] = wx;
+                            row.v[1] = wy;
+                            row.v[2] = wz;
+                            cn->rows.push_back(row);
+                        }
+                        commitChange();
+                        procClick = true;
+                    }
+                }
+            } else if (procOverrideMode_ && procVolume_ >= 0 &&
+                       procVolume_ < (int)project_.objects().size()) {
+                const int hit = pickProcInstance(u, v);
+                ProcGraph& pg = project_.objects()[procVolume_].procGraph;
+                if (hit >= 0) {
+                    const uint64_t key = procResult_.instances[hit].key;
+                    if (io.KeyCtrl) {  // ctrl+click deletes the instance
+                        procOverrideFor(pg, key).removed = true;
+                        procSelInstance_ = 0;
+                        commitChange();
+                    } else {
+                        procSelInstance_ = key;
+                    }
+                    procClick = true;
+                } else if (procSelInstance_) {
+                    // Clicking the ground with an instance selected moves it
+                    // there: the offset is stored relative to whatever the
+                    // graph generated, so re-evaluation keeps the placement.
+                    float wx = 0.0f, wz = 0.0f;
+                    if (viewport_.terrainRaycast(u, v, wx, wz)) {
+                        const procgen::Instance* sel = nullptr;
+                        for (const procgen::Instance& inst : procResult_.instances)
+                            if (inst.key == procSelInstance_) sel = &inst;
+                        if (sel) {
+                            ProcOverride& ov = procOverrideFor(pg, procSelInstance_);
+                            ov.offset[0] += wx - sel->pos[0];
+                            ov.offset[2] += wz - sel->pos[2];
+                            ov.offset[1] += viewport_.terrainHeight(wx, wz) - sel->pos[1];
+                            commitChange();
+                            procClick = true;
+                        }
+                    }
+                }
+            }
+        }
+
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
-        if (imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
+        if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
@@ -3786,9 +4021,12 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
+    if (key == "credits") return &showCreditsEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "proc") return &showProcedural_;
+    if (key == "prefabs") return &showPrefabs_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
@@ -3813,7 +4051,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad"};
+    "pad",      "proc",     "prefabs"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -3890,6 +4128,37 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         ImGui::DockBuilderDockWindow("Viewport", center);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
         pendingFocusWindow_ = "Flow Graph";
+        break;
+    }
+    case LayoutRecipe::Procedural: {
+        // Scattering desk. The graph and the viewport are used TOGETHER - you
+        // drag a density slider and watch the world change - so neither may
+        // hide the other: the graph takes the bottom half (it is wide and
+        // short, like the dopesheet) and the viewport keeps the middle.
+        // Properties gets the right column because a volume's own BOX is the
+        // region the graph fills, which makes its transform a graph parameter
+        // in everything but name.
+        //
+        // Prefabs is a bottom TAB rather than a side panel on purpose: it is
+        // consulted (what does one instance cost, which members merge) rather
+        // than watched, and its member table needs real width - in a 0.22 side
+        // column every column of it truncates to three characters, while the
+        // bottom dock hands it the whole window when you switch to it.
+        ImGuiID left =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.20f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.46f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Project", left);
+        ImGui::DockBuilderDockWindow("Properties", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Prefabs", bottom);
+        ImGui::DockBuilderDockWindow("Procedural", bottom);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        pendingFocusWindow_ = "Procedural";
         break;
     }
     case LayoutRecipe::Default:
@@ -4185,6 +4454,66 @@ void App::forgetRecentProject(int index) {
     saveGlobalConfig();  // the list only ever lives in editor.ini
 }
 
+void App::openRecentProject(const std::string& dir) {
+    const std::string err = openProjectAt(dir);
+    if (err.empty()) return;
+    // Moved or deleted since it was probed (the probe runs at startup, not per
+    // frame): re-probe so the entry shows as missing, say what went wrong, and
+    // KEEP it - whether a project on an unplugged drive is worth forgetting is
+    // the user's call.
+    const std::string key = recentProjectKey(dir);
+    for (RecentProject& r : recentProjects_)
+        if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+    platform::errorBox("Open Project", err);
+}
+
+void App::requestOpenRecent(const std::string& dir) {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::OpenRecent;
+        pendingRecentDir_ = dir;
+        openDiscardPopup_ = true;
+    } else {
+        openRecentProject(dir);
+    }
+}
+
+// File > Recent Projects: the same list the welcome screen draws, reachable
+// while a project is open - "switch back to yesterday's project" is otherwise
+// close-then-file-dialog. Entries stay clickable when they probed as missing:
+// the probe is from startup, and the drive may well be back.
+void App::drawRecentProjectsMenu() {
+    if (!ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) return;
+
+    // Resolved after the loop: opening (or clearing) rewrites recentProjects_,
+    // which we are iterating.
+    std::string pick;
+    bool clear = false;
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i);
+        // Two projects can share a name, so the full folder rides in the
+        // tooltip rather than in the label - a path in a menu item makes the
+        // whole menu as wide as the deepest project on the machine.
+        const std::string label = r.valid ? r.name : r.name + "  (missing)";
+        if (ImGui::MenuItem(label.c_str())) pick = r.dir;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Clear list")) clear = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Forgets the shortcuts only - nothing on disk is touched");
+    ImGui::EndMenu();
+
+    if (!pick.empty()) requestOpenRecent(pick);
+    else if (clear) {
+        recentProjects_.clear();
+        saveGlobalConfig();  // the list only ever lives in editor.ini
+    }
+}
+
 std::string App::openProjectAt(const std::string& dir) {
     Project p;
     std::string err = project::load(p, dir);
@@ -4216,6 +4545,85 @@ void App::requestNewProject() {
     }
 }
 
+void App::requestCloseProject() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::Close;
+        openDiscardPopup_ = true;
+    } else {
+        closeProject();
+    }
+}
+
+// Back to the screen the editor boots on: the project is released and the
+// Viewport draws the welcome screen (New / Open / recent projects) again. The
+// unsaved-edit guard already ran in requestCloseProject().
+//
+// Most of the teardown is free: the per-frame channels (Live Link, the
+// debugger, Live Logic, the Remote Pad) and every tool window stand down on
+// their own the moment hasProject_ is false. What is left is the state that
+// would otherwise outlive the project - worker threads still writing into it,
+// and the disk-derived caches a DIFFERENT project must not inherit.
+void App::closeProject() {
+    if (!hasProject_) return;
+
+    // Stopping the link also stops a recording in progress, which bakes its
+    // keys into the sequence first - so a close never silently eats a take.
+    if (phoneCam_.listening()) stopPhoneCam();
+    if (giBaker_.running()) giBaker_.cancel();
+    // A build has no UI left once the toolbar goes away (Stop lives there), so
+    // it would run to completion with no way to cancel it.
+    if (runner_.busy()) runner_.cancel();
+    // The Drone Generator, in the same order the shutdown path uses (audio
+    // first: the device callback holds the LiveSynth, and the render thread
+    // writes into droneRenderResult_). The audition has to stop because its
+    // window - and with it Stop - hides on !hasProject_, so a drone would play
+    // on over the welcome screen with no control left. The offline render has
+    // to be cancelled because droneTickRender() deliberately runs BEFORE that
+    // same guard (so a render survives closing the window), and its completion
+    // path appends the track to project_.music and calls saveAll() - after a
+    // close that writes into an empty Project, or into whichever project is
+    // opened next.
+    if (droneAuditioning_) droneStop();
+    if (droneRendering_) {
+        droneRenderCancel_.store(true);
+        if (droneRenderThread_.joinable()) droneRenderThread_.join();
+        droneRendering_ = false;
+        droneRenderDone_.store(false);
+        droneRenderResult_ = dronegen::RenderResult();
+        droneStatus_ = "Render cancelled - the project was closed.";
+    }
+    if (session_.active()) {
+        session_.close();
+        peerPresence_.clear();
+        viewport_.setPeerSelections({});
+    }
+
+    project_ = Project();  // one empty scene - objects() stays safe to call
+    hasProject_ = false;
+    dirty_ = false;
+    history_.reset({project_.scenes});
+    clearSelection();
+    pastePending_ = false;
+    pasteStaged_.clear();
+    flowGraphObject_ = -1;
+    flowPositionsApplied_ = false;
+    // Every one of these is keyed by a project-relative path.
+    viewport_.invalidateAssets();
+    layerRamCache_.clear();
+    wavIssueCache_.clear();
+    modelInfoCache_.clear();
+    glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    // The error catcher tails the open project's logs; the next open baselines
+    // it again (attachProject). The runner log survives the close, so its size
+    // has to stay honest or the next poll reads a shrink that never happened.
+    errorSeenSig_.clear();
+    errorGameLogSize_ = 0;
+    errorRunnerLogSize_ = runner_.log().size();
+    openErrorPopup_ = false;
+    statusMessage_ = "Project closed";
+    updateWindowTitle();
+}
+
 void App::performPendingAction() {
     const PendingAction action = pendingAction_;
     pendingAction_ = PendingAction::None;
@@ -4227,8 +4635,17 @@ void App::performPendingAction() {
         case PendingAction::Open:
             openProjectDialog();
             break;
+        case PendingAction::OpenRecent: {
+            const std::string dir = std::move(pendingRecentDir_);
+            pendingRecentDir_.clear();
+            openRecentProject(dir);
+            break;
+        }
         case PendingAction::New:
             openNewProjectPopup_ = true;
+            break;
+        case PendingAction::Close:
+            closeProject();
             break;
         case PendingAction::JoinSession:
             openJoinSessionPopup_ = true;
@@ -4893,6 +5310,34 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
 
 void App::deleteSelectedObjects() {
     if (selection_.empty()) return;
+    // A scatter volume owns its baked chunk objects and their mesh files, so
+    // deleting one must take those with it. That erases objects, which shifts
+    // every index in the selection - so when a volume is involved the whole
+    // deletion switches to ids (stable by construction) instead of indices.
+    std::vector<std::string> volumeIds, deleteIds;
+    bool byId = true;
+    for (int i : selection_) {
+        if (i < 0 || i >= (int)project_.objects().size()) continue;
+        const SceneObject& o = project_.objects()[i];
+        if (o.id.empty()) byId = false;
+        deleteIds.push_back(o.id);
+        if (o.type == PrimitiveType::Scatter) volumeIds.push_back(o.id);
+    }
+    if (!volumeIds.empty() && byId) {
+        for (const std::string& v : volumeIds)
+            procbake::clearVolume(project_, project_.active(), v);
+        std::vector<SceneObject>& objs = project_.objects();
+        objs.erase(std::remove_if(objs.begin(), objs.end(),
+                                  [&](const SceneObject& o) {
+                                      return std::find(deleteIds.begin(),
+                                                       deleteIds.end(),
+                                                       o.id) != deleteIds.end();
+                                  }),
+                   objs.end());
+        clearSelection();
+        commitChange();
+        return;
+    }
     // Erase high indices first so earlier ones stay valid.
     std::vector<int> idx = selection_;
     std::sort(idx.begin(), idx.end(), [](int a, int b) { return a > b; });
@@ -6350,6 +6795,16 @@ void App::drawAddObjectMenu() {
         if (ImGui::MenuItem("Point light")) addPointLight();
         ImGui::EndMenu();
     }
+    // Procedural authoring region: the box a node graph fills - by scattering,
+    // by exact repetition, or both - which the build bakes into ordinary static
+    // chunk meshes. This menu item and Tools > Procedural > New volume are the
+    // same verb; both land in the graph editor with the volume selected.
+    if (ImGui::MenuItem("Procedural volume...")) addScatterVolume();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "A region filled by a node graph (Tools > Procedural): forests,\n"
+            "rock fields, a colonnade around a plaza. Adding one opens the\n"
+            "graph editor - the object itself is just the box it works in.");
 }
 
 void App::drawSceneSection() {
@@ -6385,10 +6840,15 @@ void App::drawSceneSection() {
         // One object row: Selectable with the existing multi-select clicks and
         // hidden dimming, doubling as a drag source for layer reassignment.
         // Ctrl/Shift+click extends the selection; plain click replaces it.
-        auto objectRow = [&](int i) {
+        auto objectRow = [&](int i, bool inPrefabGroup = false) {
             const SceneObject& o = project_.objects()[i];
             const bool hidden = isObjectHiddenInEditor(o);
+            // Inside a prefab group the provenance is already stated by the
+            // group header; outside one (a member dragged onto another layer,
+            // or a copy pasted somewhere else) the row has to say it itself.
+            const bool tag = !o.prefabSource.empty() && !inPrefabGroup;
             std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                (tag ? "  [" + o.prefabSource + "]" : "") +
                                 (hidden ? "  [hidden]" : "") + "##obj" +
                                 std::to_string(i);
             if (hidden)
@@ -6439,10 +6899,85 @@ void App::drawSceneSection() {
             ImGui::EndDragDropTarget();
         };
 
+        // Objects stamped from a prefab collapse into one node per prefab -
+        // the same shape as the layer groups above them, and for the same
+        // reason: twenty slabs that arrived together are one thing in the
+        // author's head and twenty rows in a flat list. The group sits at the
+        // position of its FIRST member, so the list keeps scene order instead
+        // of quietly sorting itself, and it starts CLOSED (collapsing them is
+        // the point - a scene of 27 prefab rooms is otherwise 500 rows). Click
+        // the label to select the whole instance, the arrow to open it.
+        auto selectAll = [&](const std::vector<int>& ms) {
+            clearSelection();
+            for (int j : ms) toggleSelect(j);
+        };
+        auto emitRows = [&](const std::vector<int>& idxs) {
+            std::vector<std::string> done;
+            for (int i : idxs) {
+                const std::string src = project_.objects()[i].prefabSource;
+                if (src.empty()) {
+                    objectRow(i);
+                    continue;
+                }
+                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
+                done.push_back(src);
+                std::vector<int> members;
+                for (int j : idxs)
+                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                bool allSel = true;
+                for (int j : members) allSel &= isSelected(j);
+                ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
+                                            ImGuiTreeNodeFlags_OpenOnArrow |
+                                            ImGuiTreeNodeFlags_OpenOnDoubleClick;
+                if (allSel) pflags |= ImGuiTreeNodeFlags_Selected;
+                const std::string header = src + "  (" +
+                                           std::to_string(members.size()) +
+                                           ")##pfgrp" + std::to_string(i);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.62f, 0.80f, 0.96f, 1.0f));
+                const bool open = ImGui::TreeNodeEx(header.c_str(), pflags);
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+                    if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)
+                        for (int j : members) { if (!isSelected(j)) toggleSelect(j); }
+                    else
+                        selectAll(members);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(
+                        "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
+                        "These are ordinary objects - editing the prefab does not\n"
+                        "reach back into them.\n"
+                        "Click to select all %d, the arrow to list them.",
+                        src.c_str(), (int)members.size());
+                // A closed group would otherwise make its members undraggable,
+                // so the header is a drag source for the whole instance.
+                if (grouped && ImGui::BeginDragDropSource()) {
+                    if (!allSel) selectAll(members);
+                    const int first = members.front();
+                    ImGui::SetDragDropPayload("SCENE_OBJECT", &first, sizeof(int));
+                    ImGui::Text("Move %d objects (%s)", (int)members.size(),
+                                src.c_str());
+                    ImGui::EndDragDropSource();
+                }
+                if (open) {
+                    for (int j : members) objectRow(j, true);
+                    ImGui::TreePop();
+                }
+            }
+        };
+
+        // Indices of the scene's objects, in order, that pass `keep`.
+        auto indicesWhere = [&](auto keep) {
+            std::vector<int> out;
+            for (int i = 0; i < (int)project_.objects().size(); ++i)
+                if (keep(project_.objects()[i])) out.push_back(i);
+            return out;
+        };
+
         ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
                           ImGuiChildFlags_Borders);
         if (!grouped) {
-            for (int i = 0; i < (int)project_.objects().size(); ++i) objectRow(i);
+            emitRows(indicesWhere([](const SceneObject&) { return true; }));
         } else {
             const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
                                               ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -6461,8 +6996,9 @@ void App::drawSceneSection() {
                 if (!l.editorVisible) ImGui::PopStyleColor();
                 dropTarget(l.name);
                 if (open) {
-                    for (int i = 0; i < (int)project_.objects().size(); ++i)
-                        if (project_.objects()[i].layer == l.name) objectRow(i);
+                    emitRows(indicesWhere([&](const SceneObject& o) {
+                        return o.layer == l.name;
+                    }));
                     ImGui::TreePop();
                 }
             }
@@ -6476,10 +7012,9 @@ void App::drawSceneSection() {
             const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
             dropTarget("");
             if (open) {
-                for (int i = 0; i < (int)project_.objects().size(); ++i) {
-                    const SceneObject& o = project_.objects()[i];
-                    if (o.layer.empty() || !layerExists(o.layer)) objectRow(i);
-                }
+                emitRows(indicesWhere([&](const SceneObject& o) {
+                    return o.layer.empty() || !layerExists(o.layer);
+                }));
                 ImGui::TreePop();
             }
         }
@@ -8541,7 +9076,7 @@ void App::drawMenusWindow() {
     static const char* kActionNames[] = {
         "Close menu",     "Switch scene",      "Open save menu", "Open menu",
         "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode",  "Rebind key"};
+        "Choice",         "Apply video mode",  "Rebind key",     "Play credits"};
     for (int e = 0; e < (int)m.entries.size(); ++e) {
         MenuEntry& en = m.entries[e];
         ImGui::PushID(e);
@@ -8573,7 +9108,8 @@ void App::drawMenusWindow() {
         changed |= textTokenPicker("labeltok", en.label);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames, 11)) {
+        if (ImGui::Combo("##action", &en.action, kActionNames,
+                         IM_ARRAYSIZE(kActionNames))) {
             en.param.clear();
             en.optionModes.clear();
             // Stateful rows start with a sensible option set; everything
@@ -8638,6 +9174,14 @@ void App::drawMenusWindow() {
                     "Save value holding the state (the option index).\n"
                     "Its default is the initial state; flow graphs react\n"
                     "via Value At Least -> On Condition.");
+        } else if (en.action == MenuEntry::PlayCredits) {
+            paramCombo("##credits", "<roll>", project_.credits,
+                       [](const CreditsRoll& r) -> const std::string& { return r.name; });
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Credits roll to play (Tools > Credits Editor). The menu\n"
+                    "closes first; where the player ends up afterwards is the\n"
+                    "roll's own finish action.");
         } else if (en.action == MenuEntry::RebindKey) {
             // Two references: WHICH action to rebind, and the save value the
             // player's override is persisted in (docs/input-bindings.md).
@@ -9786,7 +10330,7 @@ void App::drawDiscLayoutWindow() {
     if (ImGui::Button("Refresh")) discPlanDirty_ = true;
     ImGui::SameLine();
     ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Export ISO")) runner_.exportIso(project_);
+    if (ImGui::Button("Export ISO")) runner_.exportIso(projectForBuild());
     ImGui::EndDisabled();
     if (discPlan_.manualOrder) {
         ImGui::SameLine();
@@ -10874,8 +11418,7 @@ void App::drawPreferencesModal() {
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
     ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler (experimental)",
-                    &prefSettings_.eeCrashHandler);
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();
     prefHelp(
         "A real CPU exception (bad pointer, address error, reserved\n"
@@ -10888,9 +11431,13 @@ void App::drawPreferencesModal() {
         ""
         "backtrace - and the editor resolves those addresses to functions and\n"
         ""
-        "source lines. EXPERIMENTAL and off by default: under PCSX2 installing\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
         ""
-        "the handler wedges the game (measured), so this wants a real console.\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        ""
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        ""
+        "at all, so a report only ever appears on a real console.\n"
         ""
         "See docs/devkit.md.");
     prefHelp(
@@ -11360,6 +11907,27 @@ void App::drawEditorPreferencesModal() {
         "Settings for this editor installation - shared by every project and\n"
         "stored outside the .tyra file (in editor.ini, next to the other machine "
         "settings).");
+
+    // Appearance applies IMMEDIATELY and saves itself, unlike the staged text
+    // fields below: a theme you cannot see until you press Save is a theme you
+    // cannot choose. Same reasoning as the Navigation modal.
+    ImGui::SeparatorText("Appearance");
+    if (ImGui::BeginCombo("Theme", theme::info(theme_).label)) {
+        for (int i = 0; i < (int)theme::Id::Count; ++i) {
+            const theme::Info& ti = theme::info((theme::Id)i);
+            if (ImGui::Selectable(ti.label, theme_ == (theme::Id)i))
+                setTheme((theme::Id)i);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", ti.desc);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::TextDisabled("%s", theme::info(theme_).desc);
+    ImGui::TextDisabled(
+        "Interface font: %s (the first UI face found on this machine).\n"
+        "Scale lives in View > Interface scale - currently %d%%%s.",
+        uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
+        (int)std::lround(uiScaleApplied_ * 100.0f),
+        uiScaleUser_ == 0.0f ? " (auto)" : "");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,

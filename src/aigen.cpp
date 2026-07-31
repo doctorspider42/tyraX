@@ -92,14 +92,23 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AreaName:
             return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
+        case FlowParamKind::CreditsName: return "credits roll name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
+        // Display Text's font. It was the one strKind with no entry here, so
+        // its str slot reached the model as "no string param" while the node's
+        // prose talked about "the font named str".
+        case FlowParamKind::FontName:
+            return "font name (see context; Tools > Font Manager; \"\" = the "
+                   "project's first font)";
         case FlowParamKind::InputActionName:
             return "input action name (see context; Tools > Input Map)";
         case FlowParamKind::KeyName:
             return "keyboard key label: A-Z, 0-9, Enter, Esc, Backspace, Tab, "
                    "Space, F1-F12, Up, Down, Left, Right, Left Shift, "
                    "Left Ctrl, Left Alt";
+        case FlowParamKind::PrefabName:
+            return "prefab name (see context; Tools > Prefabs)";
         case FlowParamKind::EventName:
             return "event name (free text - an event exists by being named; use "
                    "the SAME string on the Send Event and the On Event)";
@@ -125,9 +134,19 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
             // "pin", so the catalog has to name them - otherwise every graph the
             // model writes lands on pin 0 (show / set) whatever it meant.
             std::string s = "exec pins";
-            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e)
+            for (int e = 0; e < t.execInCount && e < kFlowMaxExecIn; ++e) {
                 s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
                      flowExecInLabel(t, e);
+                // What the branch DOES lives in the pin's tip now (it used to be
+                // inline in `desc`), so the catalog has to carry it or the model
+                // sees three pin names and no idea which one it wants.
+                if (const char* tip = flowExecInTip(t, e); *tip) {
+                    std::string g(tip);
+                    while (!g.empty() && (g.back() == '.' || g.back() == ' '))
+                        g.pop_back();
+                    s += " (" + g + ")";
+                }
+            }
             in.push_back(s);
         } else {
             in.push_back("exec");
@@ -171,16 +190,37 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     };
     o << "Inputs: " << (in.empty() ? "none" : join(in))
       << ". Outputs: " << (out.empty() ? "none" : join(out)) << ".";
-    // params
+    // Params. The per-parameter MEANING lives in FlowNodeType::numTips /
+    // strTip / str2Tip (it used to be spelled out inline in `desc`, which made
+    // hovering a node in the editor a wall of prose - see flowgraph.hpp). The
+    // registry is still the single source, so the catalog reads the tips from
+    // exactly where the editor's tooltips read them: drop them here and the
+    // generator loses everything it knew about what a parameter is FOR.
+    // A tip is written as prose ending in a full stop; inside a parenthesised
+    // gloss that reads as ".)." - so drop the terminal one here rather than
+    // asking every registry entry to be punctuated for this one consumer.
+    auto gloss = [](const char* tip) {
+        std::string s = tip ? tip : "";
+        while (!s.empty() && (s.back() == '.' || s.back() == ' ')) s.pop_back();
+        return s.empty() ? s : " (" + s + ")";
+    };
     const std::string sd = strKindDesc(t.strKind);
-    if (!sd.empty()) o << " str = " << sd << ".";
+    // The tip is emitted even when the KIND has no standard description - a node
+    // whose str is free text still says what that text is for.
+    if (!sd.empty() || (t.strTip && *t.strTip))
+        o << " str = " << (sd.empty() ? "free text" : sd) << gloss(t.strTip)
+          << ".";
+    if (t.str2Tip && *t.str2Tip)
+        o << " str2 = " << flowStr2Label(t) << gloss(t.str2Tip) << ".";
     if (t.numKind == FlowParamKind::Color) {
-        o << " num[0..2] = RGB color, each 0..1.";
+        o << " num[0..2] = RGB color, each 0..1" << gloss(t.numTips[0]) << ".";
     } else if (t.numCount > 0) {
         o << " num params:";
-        for (int i = 0; i < t.numCount && i < 4; ++i)
-            o << " num[" << i << "]="
-              << (t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "value");
+        for (int i = 0; i < t.numCount && i < 4; ++i) {
+            o << (i ? "; " : " ") << "num[" << i << "]="
+              << (t.numLabels[i] && *t.numLabels[i] ? t.numLabels[i] : "value")
+              << gloss(flowNumTip(t, i));
+        }
         o << ".";
     }
     if (t.desc && *t.desc) o << " " << t.desc;
@@ -377,6 +417,10 @@ std::string systemPrompt(const Project& p, int ownerIndex,
                      [](const AmbiencePreset& a) { return a.name; }));
     ctxLine("Sequences (cutscenes)",
             nameList(p.sequences, [](const Sequence& s) { return s.name; }));
+    ctxLine("Prefabs (Spawn Prefab / Despawn Prefab)",
+            nameList(p.prefabs, [](const Prefab& pf) { return pf.name; }));
+    ctxLine("Credits rolls",
+            nameList(p.credits, [](const CreditsRoll& r) { return r.name; }));
 
     o << "\nIf the request references something that does not exist in the "
          "project context, prefer the closest existing name; only invent "

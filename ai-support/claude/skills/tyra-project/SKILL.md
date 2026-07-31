@@ -84,7 +84,8 @@ to see exactly what the game will compile.
 
 - A project has one or more **scenes**; each scene has a terrain, streaming
   layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras, areas...).
+  emitters, sound emitters, the player, decals, mirrors, cameras, areas,
+  procedural volumes...).
 - The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
   in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
   removed the scene has **no ground at all**: nothing is drawn and the game has
@@ -107,8 +108,40 @@ to see exactly what the game will compile.
   merge keys - never reference or reuse them.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
   HUD images/texts, color gradings, ambience presets, loading screens,
-  cutscene sequences and the **input map** (named input actions + binding
-  presets). `--dump` lists all of their names.
+  cutscene sequences, **credits rolls** and the **input map** (named input
+  actions + binding presets). `--dump` lists all of their names.
+- **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
+  of headings, role/name rows, lines, images and page breaks that scrolls (or
+  plays as cards) over music, is skippable, and finishes by resuming, switching
+  scene, opening a menu or firing a flow event. Started by a menu row (action
+  "Play credits") or the Play Credits node; a roll owns the screen and the pad
+  while it plays, so nothing else runs behind it. A long roll can also be
+  imported from a plain text file.
+- **Procedural volumes** (type `scatter` in the file - the display name changed,
+  the key did not) are procedural authoring regions: the object carries a node
+  graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
+  along a curve, or repeated exactly (Array / Radial Array) - and every build
+  bakes the result into merged static chunk meshes plus one generated Model
+  object per chunk. Those chunk objects carry `procSource` (the volume's id),
+  live in `res/models/.../procgen-*.obj` and are **rewritten wholesale by the
+  next bake** - never hand-edit them or reference them by name; edit the
+  volume's graph in the editor instead (*Tools > Procedural*). To give every
+  generated chunk a property (mesh LOD distance, baked lighting, reflections),
+  put an **ObjectSettings** node in the graph - a hand edit on one chunk does
+  not survive the next bake. A `--build` / `--refresh-gen` of such a project
+  rewrites the `.tyra`, which is expected.
+- A volume whose graph has `"runtime": true` is the other mode: the graph is
+  compiled into the game and evaluated on the console instead of baked, so it
+  produces NO chunk objects and no meshes at all. Only a subset of the node
+  library can run there (the editor lists what cannot, and codegen skips a
+  volume it cannot compile). The **Generate Volume** flow node re-runs one at
+  runtime with a fresh seed.
+- **Prefabs** are a project-wide list (`"prefabs"` in the `.tyra`): named groups
+  of scene objects - flow graphs included - stored in the prefab's own local
+  frame. Reference one BY NAME from a **Spawn Prefab** flow node or a **Pick
+  Prefab** procedural row; the editor's *Tools > Prefabs* window inserts copies
+  into a scene. An instance is not linked back to the prefab: inserted copies
+  are ordinary objects from then on.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
   `{{action:jump}}` draws whatever that action is currently bound to. Works in
   HUD texts, menu titles/labels, option labels, loading screens and Display Text

@@ -1,0 +1,29 @@
+# Block palette for the blocks-terrain example.
+# One flat material per block type - no textures on purpose: a block
+# world is thousands of merged faces, and a flat Kd costs nothing in
+# GS VRAM while a texture would be resident forever.
+
+newmtl grass
+Kd 0.360 0.620 0.240
+Ka 0 0 0
+Ks 0 0 0
+
+newmtl dirt
+Kd 0.450 0.320 0.200
+Ka 0 0 0
+Ks 0 0 0
+
+newmtl stone
+Kd 0.480 0.480 0.500
+Ka 0 0 0
+Ks 0 0 0
+
+newmtl sand
+Kd 0.800 0.720 0.450
+Ka 0 0 0
+Ks 0 0 0
+
+newmtl snow
+Kd 0.900 0.920 0.950
+Ka 0 0 0
+Ks 0 0 0
