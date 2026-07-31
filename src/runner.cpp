@@ -415,26 +415,28 @@ void Runner::killPs2Client() {
     if (ps2Pump_.joinable()) ps2Pump_.join();
 }
 
-// Resets ps2link and WAITS FOR THE CONSOLE TO SAY SO, retrying the command a
-// few times.
+// Resets ps2link, and reports whatever the console says while it happens -
+// WITHOUT treating silence as a verdict.
 //
-// `ps2client reset` is fire-and-forget UDP, and one shot of it turned out to be
-// unreliable in practice: by hand, Stop would do nothing at all, a second Stop
-// would kill the game instantly, and the next time round neither would. The
-// console's only real answer is its log - ps2link narrates the reset
-// ("unmounting", "SPU2 silenced") and prints its welcome banner once it is
-// listening again - which arrives over UDP 18194 and needs a ps2client to
-// receive it. So run one in `listen` mode (it prints nothing of its own, so any
-// line at all is the console) for as long as the reset takes, and keep sending
-// the command until something comes back.
+// `ps2client reset` is fire-and-forget UDP, so this used to run a ps2client in
+// `listen` mode as a witness and retry the command until something came back.
+// That was right when a reset still printed "unmounting" from the IOP side;
+// ps2link r4 stopped unmounting anything (there is no reboot there to unmount
+// for any more) and narrates the restart on the console's own screen instead,
+// so a perfectly good reset now says nothing at all over the network. Reading
+// that as "the console is hung" made the editor refuse to deploy to a healthy
+// console - a false negative that is much worse than the missing signal it was
+// meant to replace, because it blocks the thing it was checking.
+//
+// So: send it once, keep the listener because its output is genuinely useful
+// when there is any, and let the caller's own timeout be the judge of a dead
+// console - the execee that follows a deploy already reports one within 15 s.
 //
 // The caller is expected to have killed the deploy's file server first: a game
 // polling host: every frame (Remote Pad, Live Link, the time machine) both
 // keeps the IOP busy and holds the tty port this listener needs.
-Runner::ResetResult Runner::resetPs2Link(const Project& p, int attempts) {
+Runner::ResetResult Runner::resetPs2Link(const Project& p) {
     const std::string client = findPs2Client();
-    const std::string cmd =
-        platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset";
 
     platform::Process::Options opts;
     opts.capture = true;
@@ -450,34 +452,18 @@ Runner::ResetResult Runner::resetPs2Link(const Project& p, int attempts) {
                 heard++;
             }
         });
-    } else {
-        appendLine("[editor] Could not start the ps2client listener - the reset goes "
-                   "out unverified.");
     }
 
-    ResetResult out = ResetResult::Failed;
-    for (int attempt = 1; attempt <= attempts && !cancelRequested_; attempt++) {
-        if (attempt > 1)
-            appendLine("[editor] No answer yet - reset attempt " +
-                       std::to_string(attempt) + " of " + std::to_string(attempts) +
-                       "...");
-        if (exec(cmd, "") != 0) {
-            out = ResetResult::Failed;
-            break;
-        }
-        if (!listener) {
-            out = ResetResult::Sent;
-            break;
-        }
-        out = ResetResult::Silent;
-        // ps2link reboots the IOP, reloads itself and repaints its screen; on a
-        // healthy console the first line lands well inside this.
-        for (int i = 0; i < 20 && heard.load() == 0 && !cancelRequested_; i++)
+    ResetResult out = ResetResult::Sent;
+    if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset",
+             "") != 0) {
+        out = ResetResult::Failed;
+    } else {
+        // Long enough to catch anything the console does say, short enough not
+        // to be a tax on every deploy. The settle wait belongs to the caller.
+        for (int i = 0; i < 8 && heard.load() == 0 && !cancelRequested_; i++)
             platform::sleepMs(250);
-        if (heard.load() > 0) {
-            out = ResetResult::Answered;
-            break;
-        }
+        if (heard.load() > 0) out = ResetResult::Answered;
     }
 
     if (listener) listener->kill();
@@ -499,19 +485,12 @@ void Runner::stopPs2(const Project& p) {
         killPs2Client();
         exec(platform::killByName({"ps2client"}), "");
         if (!p.ps2LinkIp.empty()) {
-            switch (resetPs2Link(p, 3)) {
-                case ResetResult::Failed:
-                    appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
-                    break;
-                case ResetResult::Silent:
-                    appendLine("[editor] The console never answered - it is hung and "
-                               "will not take the next deploy either. Power-cycle it "
-                               "back into PS2LINK.ELF.");
-                    break;
-                default:
-                    appendLine("[editor] ps2link reset - the console is listening again.");
-                    break;
-            }
+            if (resetPs2Link(p) == ResetResult::Failed)
+                appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
+            else
+                appendLine("[editor] Reset sent - the console should be back in "
+                           "ps2link. (r4 restarts without saying anything over the "
+                           "network; it narrates it on the TV.)");
         }
         state_ = State::Success;
     });
@@ -554,17 +533,10 @@ bool Runner::deployToPs2(const Project& p) {
     // never answered - the execee would just sit there until the 15 s timeout
     // below and report a firewall problem that isn't one.
     appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
-    const ResetResult reset = resetPs2Link(p, 3);
-    if (reset == ResetResult::Failed) {
+    if (resetPs2Link(p) == ResetResult::Failed) {
         appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
                    " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
                    "Edit > Preferences.)");
-        return false;
-    }
-    if (reset == ResetResult::Silent) {
-        appendLine("[editor] The console never answered the reset - it is hung (a "
-                   "previous game most likely took it down). Power-cycle it back into "
-                   "PS2LINK.ELF and deploy again.");
         return false;
     }
 

@@ -111,43 +111,49 @@ the verification, and any fact worth reusing belongs in the relevant
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
-- **Why our ps2link will not boot from the FreeMcBoot menu (parked, 2026-07-31).**
-  Not blocking anything: the high build (`tools/ps2link/build.ps1`, the
-  default) boots from that menu and is what to flash. But we do not know why
-  the low build will not, and three plausible answers have already been
-  measured wrong, so write down where it stands before the next attempt
-  repeats one of them.
+- **ps2link: the low build boots from FMCB when packed and small, but our reset
+  then kills it (2026-07-31).** Not blocking: the default `ps2link.elf` (high,
+  unpacked) boots from that menu *and* survives Stop, verified over four
+  Run -> Stop cycles. This is about getting off the top-of-RAM address, which
+  is only free until a scene allocates past ~31 MB.
 
-  Everything below was flashed the same way to the same console and booted
-  from the FMCB menu. uLaunchELF boots **all** of them.
+  The original question - why our low build black-screened from the FMCB menu
+  while the owner's stock `PS2LINK.ELF` booted - **is answered**. Everything
+  below was flashed to the same console and booted from that menu; uLaunchELF
+  boots all of them.
 
-  | build | ELF | unpacked image ends at | FMCB menu |
+  | build | ELF | decompressed image ends at | FMCB menu |
   |---|---|---|---|
-  | owner's stock release `PS2LINK.ELF`, Apr 2024, packed | 89 364 B | `0x000dea20` | **yes** |
-  | ours, high, unpacked | 285 492 B | — (`0x01ee8000`) | **yes** |
-  | ours, low, unpacked | 285 492 B | `0x000eb5a0` | no |
-  | ours, low, unpacked, `--no-usb` | 235 828 B | `0x000df3a0` | no |
-  | stock upstream, low, unpacked, no patch | 233 396 B | `0x000dea20` | no |
-  | ours, low, **packed** | 118 740 B | `0x000eb5a0` | no |
+  | owner's stock release, Apr 2024, packed | 89 364 B | `0x000dea20` | yes |
+  | stock upstream, packed by us | 103 364 B | `0x000dea20` | **yes** |
+  | ours r4 `--no-usb`, packed | 104 164 B | `0x000df3a0` | **yes** |
+  | ours r4 full, packed | 118 740 B | `0x000eb5a0` | no |
+  | any of the above, **unpacked** | 233-285 KB | — | no |
+  | ours r4 full, high, unpacked | 285 492 B | — | yes |
 
-  Ruled out: **image size** (285 KB boots high, 233 KB fails low);
-  **`tyrax.patch`** (untouched upstream fails identically); **the link address
-  alone** (the release that works ends up at `0x00094000` too, just later);
-  **packing alone** (our packed low build fails anyway).
+  Two independent causes, which is why single-variable theories kept failing:
 
-  What is left, and the two builds already sitting in `tools/ps2link/` for it:
+  1. **Unpacked never works from that menu.** A raw ELF's PT_LOAD sits at
+     `0x00094000` and the loader writes it over its own resident code. Upstream
+     ships `ps2-packer`'d releases (entry `0x01d0001c`, one segment high in
+     memory) that decompress down to `0x00094000` after the loader is done -
+     which is what `make` gives us and `make ee` does not.
+  2. **Packed still fails if the decompressed image reaches too far.**
+     `0x000df3a0` boots, `0x000eb5a0` does not, so something FMCB keeps
+     resident sits between them and our USB HID stack's ~50 KB is what pushes
+     us over it.
 
-  - `test-A-upstream-packed.elf` (103 364 B) - **stock upstream, packed by
-    us**. It is 14 KB larger than the owner's April 2024 release built from
-    the same pinned commit, so our toolchain and/or `ps2-packer` version
-    differs from upstream's CI. If A does not boot either, the answer is in
-    how we build, not in what we build, and the next move is pinning an older
-    `ps2dev` image and diffing the two files' headers.
-  - `test-B-ours-nousb-packed.elf` (104 164 B) - if A boots and B boots, the
-    boundary is how far the *decompressed* image reaches: `0x000df3a0` fine,
-    `0x000eb5a0` not, which would make the USB HID stack the thing pushing us
-    over and the low+packed+no-USB build a real option.
+  The new problem: **the packed low build dies on the r4 reset.** Stop kills
+  the game and the console then answers nothing, not even ping - a full EE
+  death, where the same reset on the high unpacked build restarts ps2link
+  cleanly. Both run identical code at `0x00094000` once decompressed, so the
+  suspect is `pkoReset()`'s closing `ExecPS2(&__start)` re-entering an image
+  that a packer stub, not a loader, put there. Worth a screen-breadcrumb run
+  (`pkoReset` narrates on the TV) before anything else.
 
-  Both are gitignored; rebuild with `make` (not `make ee`) inside the
-  toolchain image - see the packed/unpacked section of
-  `tools/ps2link/README.md`, which carries the ELF-header evidence.
+  If that is solved, the low+packed+no-USB build is the one to ship: it boots
+  from every launcher and leaves the top of RAM alone. The USB HID stack would
+  then need loading from the card at runtime (`SifLoadModule` from next to
+  `PS2LINK.ELF`) rather than baked into the image - which is also how it stops
+  costing 50 KB of that window.
+
