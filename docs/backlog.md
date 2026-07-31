@@ -191,9 +191,34 @@ the verification, and any fact worth reusing belongs in the relevant
     stdio init talks to the IOP over the SIF, and at that point in the restart
     there is no RPC yet. Exactly the mistake the fix was aimed at.
 
-  The shipped `ps2link.elf` is therefore back to the configuration measured at
-  four clean Run -> Stop cycles: high, unpacked, `pkoReset` as it was. 285 492
-  bytes, entry `0x01ee88a8`.
+  **Correction, and it invalidates the framing above.** The "four clean
+  Run -> Stop cycles" this was all measured against was the **low, unpacked**
+  build **started over the network** (`execee` from a card-booted ps2link) - it
+  was quoted afterwards as a property of the high build, which it never was.
+  Re-measured from a card boot, with the console power-cycled first:
+
+  | build | started from | cycles before the console needed a power cycle |
+  |---|---|---|
+  | low, unpacked | network `execee` | 4 (stopped there, not a failure) |
+  | low, packed | network `execee` | 1 |
+  | high, packed | memory card | 2 |
+  | high, unpacked | memory card | 1 |
+
+  So the variable that best explains the data may be **how ps2link was
+  started**, not its address and not packing - which is the opposite of the
+  story the entry above tells. Nothing here is clean enough to conclude from:
+  every row is one or two samples of an intermittent failure.
+
+  What that means for the user, stated plainly: **on a card boot, Stop still
+  leaves the console needing a power cycle.** The game does die - that part is
+  fixed and measured - but ps2link does not reliably come back. The parts of
+  this that ARE fixed and verified are the command reaching a busy console (IOP
+  thread priorities), the editor no longer refusing to deploy, the pad no
+  longer hanging the game, and why an unpacked low build black-screens from
+  FreeMcBoot's menu.
+
+  Next time, start by isolating card-boot versus network-boot with everything
+  else held still - that is the one comparison nobody has run.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
