@@ -164,15 +164,14 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
    > as `ps2link-low.elf`. The boot screen prints `ps2link loaded at 0x...`, so
    > a flashed card always says which one it is.
    >
-   > Why the low build breaks there is **unresolved, and the obvious answer has
-   > been ruled out**. The theory was that our USB HID stack pushes the image
-   > ~50 KB further into that window than stock ps2link (`0x000eb5a0` against
-   > `0x000dea20`) and so onto whatever FMCB keeps resident. But a `--no-usb`
-   > build, which ends at `0x000df3a0` — 2.4 KB from upstream — black-screens
-   > exactly the same. So it is either something else in the patch, or the low
-   > address does not work with that FMCB at all, stock ps2link included. The
-   > high build boots from everything tried, so nothing is blocked on the
-   > answer.
+   > **It is the address, not our patch and not the size.** Three low builds
+   > were flashed to the same path on the same card and all three black-screen
+   > from the FMCB menu: ours (285 KB), ours without the USB stack (236 KB),
+   > and **untouched upstream ps2link** (233 KB). The high build, same size as
+   > the first, boots. uLaunchELF boots all of them. So FMCB's menu hands over
+   > to something living at `0x00094000`, and an ELF loaded there overwrites
+   > the code doing the loading — which is also where "but stock ps2link used
+   > to work" comes from: it did, from uLaunchELF.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:

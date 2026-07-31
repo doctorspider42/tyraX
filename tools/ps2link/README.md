@@ -36,32 +36,27 @@ trade-off: it sits at ~31.9 MB, so a game that allocates its way up there would
 overwrite it. The boot screen prints the address, so the flashed card
 identifies itself.
 
-Why the low build black-screens under FMCB is **not settled, and the obvious
-explanation is wrong**. The theory was image size: our patch bakes in the USB
-HID stack, so the image reaches further into the same window as stock ps2link
-and presumably over whatever FMCB keeps resident there. Measured, all at
-`0x00094000`:
+Why the low build black-screens under FMCB is **settled, and it is the address
+itself**. The first theory was image size — our patch bakes in the USB HID
+stack, so the image reaches ~50 KB further into that window than stock ps2link,
+presumably over whatever FMCB keeps resident. Measured on the console, all at
+`0x00094000`, all flashed to the same path on the same card:
 
 | build | image ends at | ELF | boots from the FMCB menu |
 |---|---|---|---|
-| stock upstream | `0x000dea20` | 233 396 B | reported yes, not re-verified |
+| stock upstream, no patch | `0x000dea20` | 233 396 B | **no** |
 | ours, `-NoUsb` / `--no-usb` | `0x000df3a0` | 235 828 B | **no** |
 | ours, full | `0x000eb5a0` | 285 492 B | **no** |
+| ours, full, high | — | 285 492 B | yes |
 
-A build within 2.4 KB of upstream fails exactly like the full one, so the
-~50 KB tail is not the cause. What is left is either something else in the
-patch, or the low address simply not working with that FMCB at all — in which
-case stock ps2link would fail there too and the "it used to work" is a
-misremembering. The next step is to boot a pristine upstream ELF from that
-menu:
+So: not the size (285 KB boots, 233 KB does not), and not the patch (untouched
+upstream fails identically). The only variable left is the link address. That
+FMCB hands ELF launches to a loader living at `0x00094000` and anything loaded
+there overwrites it mid-copy; uLaunchELF, which loads elsewhere, boots every
+one of these builds fine — which is where "but it used to work" came from.
 
-```bash
-docker run --rm -v "$PWD/tools/ps2link/build:/work" -v "$PWD/tools/ps2link:/out"   ps2dev/ps2dev:latest sh -c 'cd /work && git checkout -- . && make clean >/dev/null 2>&1;
-    make ee LOADHIGH=0 >/dev/null 2>&1 && cp ee/ps2link.elf /out/ps2link-upstream-low.elf'
-```
-
-None of this blocks anything: the high build is the default and boots from
-everything we have tried.
+Hence the default. `-Low` is kept for uLaunchELF users and for bisecting;
+`-NoUsb` is kept because it now has a second use, as the small build.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
