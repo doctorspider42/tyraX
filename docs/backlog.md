@@ -392,3 +392,49 @@ the verification, and any fact worth reusing belongs in the relevant
   low+USB is usable from there today (`ps2link-low-packed.elf`); the FMCB menu
   wants the runtime-`SifLoadModule` route above.
 
+- **ps2link: load the USB HID stack from the card instead of baking it in.**
+  Would give one image that boots from **every** launcher (FMCB menu included)
+  *and* has keyboard + mouse - today you pick one or the other, because the
+  three `.irx` are ~50 KB of the EE image and that is exactly what pushes the
+  low build past FreeMcBoot's loader (numbers in the entry above). Moving them
+  out of the image costs IOP memory, which is not the scarce thing here.
+
+  **What changes.** `loadModules()` in `ee/ps2link.c` currently does
+  `SifExecModuleBuffer(usbd_irx, ...)` on three `bin2c`'d buffers declared in
+  `ee/irx_variables.h`; `ee/Makefile` adds them to `IRX_FILES` unless `NOUSB=1`.
+  Replace that block with `SifLoadModule()` calls against files sitting next to
+  `PS2LINK.ELF` on the card, and the `NOUSB` switch disappears - there is only
+  one build again.
+
+  **The four things that make this less trivial than it reads:**
+
+  - **Where the card is.** `ps2link.c` already keeps `argv[0]` in `elfName`, so
+    the boot path is known (`mc0:/BOOT/PS2LINK.ELF` → `mc0:/BOOT/`). But a
+    network-booted image has `host:ps2link.elf` there, and `pkoReset()` re-execs
+    with the same `elfName` - so derive the directory, and when it is not a
+    `mc?:` path, skip the load rather than guessing.
+  - **Nothing can read the card at that point.** `rom0:SIO2MAN`, `rom0:MCMAN`
+    and `rom0:MCSERV` are loaded only in `loadModules()`'s `if_conf_len == 0`
+    branch, which `return`s immediately after - the normal path never loads
+    them. They have to come first on the path that then reads `mc0:`.
+  - **A missing module may not be fatal.** `pkoLoadModule()` calls
+    `SleepThread()` when `SifLoadModule` fails, which is right for the network
+    stack and wrong here: a console with no keyboard must still boot and still
+    accept deploys. Needs its own non-fatal wrapper.
+  - **No stdio on the failure path** - see r5 above. `scr_printf` only.
+
+  **Setup and packaging.** The three `.irx` come from the ps2dev image
+  (`/usr/local/ps2dev/ps2sdk/iop/irx/{usbd,ps2kbd,ps2mouse}.irx`); `build.sh` /
+  `build.ps1` should drop them next to the built ELF so "copy these four files
+  to the card" is one instruction, and `docs/ps2link-setup.md` needs that step.
+  Both build scripts are edited as a pair.
+
+  **How far this can be verified, and where it stops.** Image size and the FMCB
+  boot are checkable: build, read `_end` out of `ee/ps2link.map` (want it back
+  around `0x000df3a0`, not `0x000eb3a0`), flash, boot from the FMCB menu. That
+  the modules load is visible in the boot log. **Actual key and mouse input is
+  NOT verifiable on this console** - its USB keyboard and mouse are invisible to
+  it, uLaunchELF included, so the feature has only ever been confirmed in PCSX2.
+  Do not read "no keystrokes on hardware" as a bug in this change and do not go
+  debugging it in software; that ground is already burned.
+
