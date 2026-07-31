@@ -30,9 +30,13 @@ tools/ps2link/build.ps1
 On Linux: `tools/ps2link/build.sh` (the same script, same pins). Add `-Clean` /
 `--clean` to throw the work tree away first.
 
-It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, runs `make ee`
-inside `ps2dev/ps2dev:latest` and drops **`tools/ps2link/ps2link.elf`** (~280 KB)
-next to the script. The first run pulls the toolchain image; later runs reuse the
+It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds inside
+`ps2dev/ps2dev:latest` and drops **`tools/ps2link/ps2link.elf`** (~120 KB) next
+to the script. Like upstream's releases it is run through `ps2-packer`, which
+is what lets a launcher boot it: an unpacked ELF has its segment at the final
+address and FreeMcBoot's menu keeps its own loader there. `-Unpacked` /
+`--unpacked` builds the raw image instead, for debugging - it only boots from
+uLaunchELF. The first run pulls the toolchain image; later runs reuse the
 clone in `tools/ps2link/build/`. The ELF is gitignored — the patch is the source
 of truth, not the binary.
 

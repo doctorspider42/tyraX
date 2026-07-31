@@ -84,8 +84,10 @@ is not the one that produced the file that works.
 The high build is the default because it is the one that is measured to boot.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
-[`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
-toolchain image and write **`ps2link.elf`** here (~280 KB). It builds with the
+[`tyrax.patch`](tyrax.patch), build inside the official `ps2dev/ps2dev`
+toolchain image and write **`ps2link.elf`** here (~120 KB, `ps2-packer`'d like
+upstream's releases - `-Unpacked` / `--unpacked` gives the raw image instead,
+which only boots from uLaunchELF). It builds with the
 current ps2dev toolchain, independent of the older `h4570/tyra` image the games
 build in — ps2link is a standalone program. The ELF is gitignored; the patch is
 what this repo maintains.

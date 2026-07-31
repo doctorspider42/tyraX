@@ -10,6 +10,7 @@
 #   ./build.ps1 -Clean       # nuke the work tree first
 #   ./build.ps1 -Low         # -> tools/ps2link/ps2link-low.elf   (0x00094000)
 #   ./build.ps1 -NoUsb       # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
+#   ./build.ps1 -Unpacked    # -> ...-unpacked.elf: skip ps2-packer (see below)
 #
 # Two link addresses, and which one works depends on how you boot it.
 #
@@ -27,7 +28,14 @@
 # boot screen prints the address it actually loaded at, so a flashed card
 # always says which one it is.
 
-param([switch]$Clean, [switch]$Low, [switch]$NoUsb)
+# Packed by default, like upstream's releases. It matters: an unpacked ELF has
+# its PT_LOAD at the final address, and a launcher that keeps its own code there
+# (FreeMcBoot's menu does) is overwritten mid-load - black screen. ps2-packer
+# leaves a small stub high in memory that decompresses the image down once the
+# loader is done, so a packed build boots from every launcher tried. -Unpacked
+# is for debugging: it is the raw image, and it only boots from uLaunchELF.
+
+param([switch]$Clean, [switch]$Low, [switch]$NoUsb, [switch]$Unpacked)
 
 # NOTE: no ErrorActionPreference='Stop' - git and docker write progress to
 # stderr, which Stop would treat as fatal. We check $LASTEXITCODE instead.
@@ -90,30 +98,32 @@ $script = @(
     'apk add --no-cache make git >/dev/null 2>&1 || true',
     'cd /work',
     'make clean >/dev/null 2>&1 || true',
-    "make ee LOADHIGH=$high NOUSB=$usbFlag"
+    # `make` runs ps2-packer over ee/ps2link.elf and writes bin/PS2LINK.ELF;
+    # `make ee` stops at the raw image.
+    "make $(if ($Unpacked) { 'ee' }) LOADHIGH=$high NOUSB=$usbFlag"
 ) -join "`n"
 docker run --rm -v $mount $image sh -c $script
 Invoke-Checked 'docker build'
 
-$elf = Join-Path $work 'ee/ps2link.elf'
+$elf = Join-Path $work $(if ($Unpacked) { 'ee/ps2link.elf' } else { 'bin/PS2LINK.ELF' })
 if (-not (Test-Path $elf)) { throw "expected $elf, not produced" }
 $suffix = ''
 if ($Low) { $suffix += '-low' }
 if ($NoUsb) { $suffix += '-nousb' }
+if ($Unpacked) { $suffix += '-unpacked' }
 $out = Join-Path $here "ps2link$suffix.elf"
 Copy-Item -Force $elf $out
 Write-Host "== OK: $out ($((Get-Item $out).Length) bytes) =="
 Write-Host "Flash this onto your PS2 as PS2LINK.ELF - see docs/ps2link-setup.md."
-if ($Low -and $NoUsb) {
-    Write-Host "NOTE: low address, no USB stack - the image ends ~50 KB earlier than"
-    Write-Host "      the full one. This is the build that answers whether the FMCB"
-    Write-Host "      black screen is about that tail: if this one boots from the"
-    Write-Host "      FMCB menu and the plain -Low does not, that is the answer."
-} elseif ($Low) {
-    Write-Host "NOTE: this is the 0x00094000 build. It boots from uLaunchELF, but"
-    Write-Host "      FreeMcBoot's own menu and its shortcuts hand over to a loader"
-    Write-Host "      that lives at that address, so booting it there is a black"
-    Write-Host "      screen. Drop -Low to get the 0x01ee8000 build instead."
+if ($Unpacked) {
+    Write-Host "NOTE: unpacked. Boots from uLaunchELF; FreeMcBoot's menu will give a"
+    Write-Host "      black screen with a low build. Drop -Unpacked to get the shape"
+    Write-Host "      upstream ships."
+}
+if ($Low -and -not $Unpacked) {
+    Write-Host "NOTE: the low build boots from the FMCB menu when packed, but Stop"
+    Write-Host "      still kills the console after a cycle or two - see the ps2link"
+    Write-Host "      entry in docs/backlog.md. The high build is the safe one."
 }
 if ($NoUsb) {
     Write-Host "      No keyboard or mouse over ps2link with this one - it bakes in"
