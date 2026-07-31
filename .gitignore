@@ -81,3 +81,13 @@ examples/*/.res-baked/*
 # with the lighting silently switched off.
 !examples/*/.res-baked/gi/
 examples/*/*.history
+
+# The same devkit channel files, but dropped in the REPO ROOT: they land here
+# whenever the editor or the Live Debugger is run with the repo as its working
+# directory, which is what a headless CLI invocation does. Root-anchored, so a
+# project that legitimately tracks one is unaffected. livedbg.bin was committed
+# by accident before this rule existed and is untracked in the same commit.
+/live*.bin
+/livelink.*
+/vucap.bin
+/crash.txt
