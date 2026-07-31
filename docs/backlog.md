@@ -357,15 +357,18 @@ the verification, and any fact worth reusing belongs in the relevant
   of its own; it is now the only IOP reboot in the program.
 
   `pkoRestartImage()` had the same shape and r6 changes it the same way. It only
-  runs on the initial boot, which is why a card boot always survived it;
-  launching one image over another with `execee` did not — the low build booted
-  over a running high one had a dead EE before its first Stop. With both sites
-  fixed the network boot comes up cleanly and the 12-cycle result is unchanged.
+  runs on the initial boot, which is why a card boot always survived it. Booting
+  the **high** build over a running low one comes up cleanly and gives the
+  12-cycle result above.
 
-  Still open: **the low build's own cycle count on r6 is unmeasured.** The run
-  that looked like a low-build failure died in the boot, not the Stop, and that
-  boot path is now fixed — but the measurement was never taken. It wants a card
-  boot, i.e. a reflash.
+  **Booting the low build over a running high one still does not work**, and r6
+  does not fix it — retried with both reboot sites changed: the console answers
+  ping afterwards and accepts no deploy, so the EE never came up. Consequence for
+  the iteration recipe at the top of this entry: **the high build can be shot
+  over a low one, but not the other way round.** Which also means the low build's
+  own Run → Stop cycle count on r6 is **unmeasured** — the run that looked like a
+  low-build Stop failure died in the boot instead. It wants a card boot, i.e. a
+  reflash.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
