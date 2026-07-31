@@ -22,6 +22,16 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
+  *recommends* (does not require) attaching its short header comment to each
+  source file. TyraX is Apache-2.0 (`LICENSE`) but no source file carries the
+  header, so a file copied out of this repo in isolation says nothing about its
+  terms. It is a ~90-file mechanical sweep, deliberately left out of the
+  licensing work so it would not bury that diff. Low urgency: the repo-level
+  `LICENSE` + `NOTICE` are what actually establish the terms, and generated
+  games are covered separately by `LICENSE-EXCEPTION.md` (which is a real grant,
+  not a recommendation). Worth doing on a quiet day, alone, in one commit.
+
 - **Finish opt-in dynamic lighting per object** (branch
   `claude/gi-dynamic-lighting-wip`; docs/global-illumination.md is the
   surrounding design). An object may opt into being lit by the LIT VU1 program

@@ -17616,6 +17616,62 @@ static const char* TPL_RES_GITIGNORE =
 /models/*.tmdl
 )";
 
+// The attribution a shipped game owes to the code inside it, written into every
+// project so a commercial release is compliant by DEFAULT rather than after the
+// author goes reading licenses. Written once and never clobbered (see the
+// write-if-missing branch in project.cpp) so an author can extend it with their
+// own credits.
+//
+// The point of the first paragraph is the one thing authors actually worry
+// about: none of this requires publishing your source. Apache-2.0 and AFL-2.0
+// are both attribution licenses, not copyleft - the ELF can be closed and sold.
+// The obligations that DO survive come from the engine and the SDK, which are
+// not TyraX's to waive; TyraX's own contribution carries none (LICENSE-EXCEPTION.md).
+static const char* TPL_THIRD_PARTY_NOTICES = R"(THIRD-PARTY NOTICES
+===================
+
+This game is built with TyraX and runs on the Tyra engine. You may release it
+commercially and you may keep your source code closed - nothing here is a
+copyleft license, and none of it requires you to publish anything you wrote.
+
+What IS required is attribution: ship this file with your game (next to the ELF,
+in the package, or reproduced in an in-game credits screen - any of those works)
+and keep the notices below intact. That is the whole obligation.
+
+
+Tyra engine - Apache License 2.0
+--------------------------------
+Copyright Sandro Sobczynski (h4570) and the Tyra contributors.
+https://github.com/h4570/tyra
+
+This game links the Tyra engine, used under the Apache License 2.0. A copy of
+the license is at http://www.apache.org/licenses/LICENSE-2.0 and in the TyraX
+repository at vendor/tyra/LICENSE. The engine as shipped by TyraX is a modified
+fork; the modifications are marked "Modified by TyraX" in its sources.
+
+
+PS2SDK - Academic Free License v2.0
+-----------------------------------
+Copyright the ps2dev project contributors.
+https://github.com/ps2dev/ps2sdk
+
+This game links PS2SDK, used under the Academic Free License version 2.0
+(https://opensource.org/license/afl-2-0-php). If your project enables positional
+audio, it also includes a build of the PS2SDK audsrv module modified to support
+L/R panning.
+
+
+TyraX (the editor and its code templates)
+-----------------------------------------
+Copyright 2026 doctorspider42.
+https://github.com/doctorspider42/tyra-editor
+
+The generated C++ in this project came from TyraX's templates. TyraX grants
+those generated files to you with NO conditions attached - no attribution, no
+license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
+section is a courtesy credit, and you may delete it.
+)";
+
 // Multi-user collaboration hints, written once at project creation (a new game
 // map is its own repo, separate from the editor). Object bodies are split one
 // file per object so they merge cleanly; the files below cannot be auto-merged
@@ -31167,6 +31223,7 @@ std::vector<File> generate(const Project& p) {
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},
+        {"THIRD-PARTY-NOTICES.txt", TPL_THIRD_PARTY_NOTICES},
         {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
