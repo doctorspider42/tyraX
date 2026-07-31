@@ -281,13 +281,48 @@ the verification, and any fact worth reusing belongs in the relevant
 
   What changed is the evidence: the death is now a **black screen with no
   exception**. The handler installs its own `init_scr()` and would have printed
-  one, so nothing faults any more — the machine dies silently. And since
-  `ExecPS2` blanks the screen while `main()`'s very first statements are
-  `init_scr()` + `scr_printf("ps2link: image started...")`, a black screen means
-  **the re-executed image never reaches `main()`**. That narrows the remaining
-  bug to `ExecPS2` → crt0 → the prologue of `main()`, which is a much smaller
-  window than anything above. Start there, and note that "the screen is black
-  because nothing prints that early" is no longer an available excuse.
+  one, so nothing faults any more — the machine dies silently.
+
+  **The re-executed image never reaches `main()`, measured.** Reasoning from
+  the black screen alone does not establish that, and the first attempt to
+  instrument it failed in a way worth recording: a breadcrumb written to the GS
+  background colour register (`0x120000E0`) is invisible **twice over** — the
+  background only shows where nothing is drawn, so a marker set while the debug
+  screen is up sits behind its framebuffer, and one set after `ExecPS2` has
+  blanked the display cannot show at all. That probe reported black no matter
+  what happened; it proved nothing.
+
+  The working probe turns the display back on first — `SetGsCrt` is a syscall,
+  it touches no DMA and has nothing to wedge on — and only then sets the
+  colour, with no framebuffer over it. Read the CRT mode from the ROM region
+  byte at `0x1FC7FF54` (`'E'` = PAL, mode 3, else mode 2); a wrong mode fails to
+  sync and looks exactly like the black screen being diagnosed. With that in
+  place at the top of `main()`, three outcomes are distinguishable: text = the
+  console came up, green = `main()` was entered but `init_scr()` did not
+  finish, black = `main()` was never entered.
+
+  Measured: **black**. And the other end is pinned too — a death before
+  `ExecPS2` would have left `pkoReset`'s own lines ("program stopped",
+  "rebooting the IOP...") on screen, and the screen is clear. So `ExecPS2` ran,
+  blanked the display, and control never arrived at `main()`. The remaining
+  window is `ExecPS2` → crt0 → the prologue of `main()`.
+
+  The strongest suspect in that window, and it already has a witness in this
+  entry: **ps2sdk's C runtime init runs before `main()` and talks to the IOP
+  over the SIF** (`_libcglue_init`, `__fdman_init`, the pthread glue — ps2link
+  already disables what it can via `DISABLE_PATCHED_FUNCTIONS()` and friends).
+  `pkoReset` has just rebooted the IOP, which comes back with *no modules
+  loaded*, so an RPC from crt0 has nothing to answer it. That is the same
+  mechanism as the reverted `free(malloc(1))` + `fflush(stdout)` experiment
+  above, which died in exactly this way for exactly this reason — it only
+  looked like a separate mistake because it forced the calls early by hand
+  instead of letting crt0 make them.
+
+  Cycle counts on r5, high unpacked, `execee`-started, `drone` fully running
+  each time: **1 cycle** without the probe, **2 cycles** with it (died on the
+  3rd). Do not read that as the probe helping — the documented spread on this
+  bug is 1–4 cycles, so both numbers are inside the noise. It is recorded only
+  so the next session does not mistake a lucky run for a fix.
 
   Iterating does not need reflashing: keep the **high** build on the card and
   `execee` low candidates over the network - their packer stub lands at
