@@ -164,14 +164,15 @@ None of this changes the protocol, so it needs no `ps2client` change and an old
    > as `ps2link-low.elf`. The boot screen prints `ps2link loaded at 0x...`, so
    > a flashed card always says which one it is.
    >
-   > Why the low build breaks there and stock ps2link does not is **not fully
-   > established**. What is measured: our patch bakes in `usbd` + `ps2kbd` +
-   > `ps2mouse`, so the image ends at `0x000eb5a0` instead of upstream's
-   > `0x000dea20` — about 50 KB further into the same window, presumably onto
-   > whatever FMCB keeps resident there. Same start address, longer tail. The
-   > experiment that would settle it is a low build with the USB stack left
-   > out; nobody has needed the answer badly enough to run it, since the high
-   > build makes the question moot.
+   > Why the low build breaks there is **unresolved, and the obvious answer has
+   > been ruled out**. The theory was that our USB HID stack pushes the image
+   > ~50 KB further into that window than stock ps2link (`0x000eb5a0` against
+   > `0x000dea20`) and so onto whatever FMCB keeps resident. But a `--no-usb`
+   > build, which ends at `0x000df3a0` — 2.4 KB from upstream — black-screens
+   > exactly the same. So it is either something else in the patch, or the low
+   > address does not work with that FMCB at all, stock ps2link included. The
+   > high build boots from everything tried, so nothing is blocked on the
+   > answer.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:

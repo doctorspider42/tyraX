@@ -36,23 +36,32 @@ trade-off: it sits at ~31.9 MB, so a game that allocates its way up there would
 overwrite it. The boot screen prints the address, so the flashed card
 identifies itself.
 
-Why the low build breaks under FMCB while stock ps2link does not is **not
-settled**. Measured, all at `0x00094000`:
+Why the low build black-screens under FMCB is **not settled, and the obvious
+explanation is wrong**. The theory was image size: our patch bakes in the USB
+HID stack, so the image reaches further into the same window as stock ps2link
+and presumably over whatever FMCB keeps resident there. Measured, all at
+`0x00094000`:
 
-| build | image ends at | ELF |
-|---|---|---|
-| stock upstream | `0x000dea20` | 233 396 B |
-| ours, `-NoUsb` / `--no-usb` | `0x000df3a0` | 235 828 B |
-| ours, full | `0x000eb5a0` | 285 492 B |
+| build | image ends at | ELF | boots from the FMCB menu |
+|---|---|---|---|
+| stock upstream | `0x000dea20` | 233 396 B | reported yes, not re-verified |
+| ours, `-NoUsb` / `--no-usb` | `0x000df3a0` | 235 828 B | **no** |
+| ours, full | `0x000eb5a0` | 285 492 B | **no** |
 
-Same start address; the USB HID stack is the whole of the difference. The
-hypothesis is that FMCB keeps something resident in that ~50 KB, so upstream
-fits under it and we do not. **`-NoUsb` is the experiment that settles it**: if
-`ps2link-low-nousb.elf` boots from the FMCB menu and `ps2link-low.elf` does
-not, the tail is the cause. It costs the keyboard and mouse — those drivers
-have to be baked into ps2link (see below), and a game cannot load them itself
-on a network-booted one — so it is only interesting if you were not using them
-anyway. The banner reads `r4 (no USB)` so a card cannot be mistaken.
+A build within 2.4 KB of upstream fails exactly like the full one, so the
+~50 KB tail is not the cause. What is left is either something else in the
+patch, or the low address simply not working with that FMCB at all — in which
+case stock ps2link would fail there too and the "it used to work" is a
+misremembering. The next step is to boot a pristine upstream ELF from that
+menu:
+
+```bash
+docker run --rm -v "$PWD/tools/ps2link/build:/work" -v "$PWD/tools/ps2link:/out"   ps2dev/ps2dev:latest sh -c 'cd /work && git checkout -- . && make clean >/dev/null 2>&1;
+    make ee LOADHIGH=0 >/dev/null 2>&1 && cp ee/ps2link.elf /out/ps2link-upstream-low.elf'
+```
+
+None of this blocks anything: the high build is the default and boots from
+everything we have tried.
 
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
 [`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
