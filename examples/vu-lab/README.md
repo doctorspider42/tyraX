@@ -91,6 +91,19 @@ surprising when you are building a capture fixture. `tall-pillar` carries a
 two-node graph (`On Start` → `Set Object Visible`) that does nothing visible; it
 is there to keep the devkit layer alive.
 
+## It is also the A/B fixture for adopting generated microcode
+
+The five `as_is` programs in `vendor/tyra` are generated (docs/vu-framework.md),
+and this scene is how that was proven: with *Preferences > Rendering* set to the
+**EE clipper** (`precise`) the `as_is` family is what draws, so a frame here
+exercises the generated code. Handwritten build against generated build, frozen
+camera, PCSX2: **0 differing pixels of 1 258 400**. The same build was then run
+on a physical PS2 over ps2link and looked right on the TV.
+
+Freezing the camera (`walkSpeed`/`lookSpeed` 0) is what makes that comparison
+meaningful - without it the two shots are of different moments and a pixel diff
+says nothing. The scene ships walkable; the A/B copy sets those to zero.
+
 ## What this measured, and what it cost to get right
 
 The replay is also how the simulator's arithmetic got fixed. The first run

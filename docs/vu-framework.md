@@ -298,14 +298,19 @@ IR-level check called bit-identical:
    the caller.
 
 **On real hardware:** the generated build boots and runs on a physical PS2 over
-ps2link (frames advancing, devkit channels served, 512x512 PAL). `--vu-replay`
-did NOT reach a bit-exact match on hardware captures, unlike the PCSX2 ones -
-the reconstruction lands on a packet whose values are off by far more than
-rounding (dz in the millions), which reads as the snapshot not belonging to the
-mesh being replayed rather than as an arithmetic gap. Whether the real VU also
-differs from the simulator in the last bits is UNKNOWN and not claimed either
-way; settling it needs the object-data chain captured alongside the qbuffer
-chain (see docs/backlog.md).
+ps2link (frames advancing, devkit channels served, 512x512 PAL), and the picture
+on the TV was confirmed correct by the console's owner - clean sky, smooth
+matcap on the chrome ball, the texture in place. So the adoption is verified on
+hardware visually, and pixel-exactly on the emulator.
+
+`--vu-replay` did NOT reach a bit-exact match on the hardware captures, unlike
+the PCSX2 ones. The per-vertex deltas say why it is not an arithmetic gap: dz in
+the millions and hardware values sitting at the clamp (65535, 0xFFFFE1), i.e. the
+packet being compared is not the one that program produced. That points at the
+snapshot/mesh pairing - the per-mesh constants come from an object-data chain the
+capture does not contain. Whether the real VU also differs from the simulator in
+the last bits is UNKNOWN and not claimed either way; settling it needs that chain
+captured (see docs/backlog.md).
 
 **Not done:** the `cull`, `clip` and `billboard` families are still handwritten. The generated programs
 are proven equivalent in the simulator, but no generated microcode has been built
