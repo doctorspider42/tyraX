@@ -18,11 +18,14 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 #include <imgui.h>
 
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "platform.hpp"
 #include "theme.hpp"
 #include "vuasm.hpp"
 #include "vugen.hpp"
@@ -44,26 +47,71 @@ const ClassRow kClasses[] = {
     {1u << 4, "Reflective (matcap)", "materials with a refl map"},
 };
 
-/** Roughly what a class costs in micro memory: the cull program plus its
- * clipped-or-as_is twin, which is the pair `setProgramsCache` uploads. Measured
- * from the descriptions rather than guessed, and a RANGE for the same reason
- * the budget is (VCL pairs an upper and a lower op when it can). */
-void classCost(unsigned bit, int& lo, int& hi) {
-    std::vector<std::pair<std::string, const vuir::Program*>> set;
-    std::vector<vugen::Built> built;
-    for (const vugen::Desc& d : vugen::allDescs()) {
-        unsigned b = 1u << 0;
-        if (d.dirLights && !d.texture) b = 1u << 1;
-        else if (d.dirLights && d.texture) b = 1u << 2;
-        else if (d.env) b = 1u << 4;
-        else if (d.texture) b = 1u << 3;
-        if (b != bit) continue;
-        built.push_back(vugen::build(d));
+/** Emitted instruction count per (class, family), read from the ENGINE's own
+ * .vclpp files rather than from the descriptions.
+ *
+ * This has to be the real files, and the reason is the whole point of the bar:
+ * `setProgramsCache` uploads a cull program plus its CLIPPED-or-as_is twin per
+ * class, and the clip family is much bigger than anything the generator
+ * describes - the five clip programs alone measured 2162 instructions against
+ * the 2042 ceiling before they were made to share a fan emitter. A budget
+ * computed from the cull half only says a program fits when it does not, which
+ * is exactly what happened: examples/vu-lab tripped the engine's own overflow
+ * assert on the first console run while this panel showed green.
+ *
+ * Parsed once and cached - 25 files is a few milliseconds, and the window
+ * rebuilds every frame. */
+struct EngineSizes {
+    bool loaded = false;
+    // [class bit index][0 = cull, 1 = clip, 2 = as_is]
+    int instr[5][3] = {};
+};
+
+EngineSizes& engineSizes() {
+    static EngineSizes s;
+    if (s.loaded) return s;
+    s.loaded = true;  // one attempt; a missing engine tree leaves zeros
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path engine = "vendor/tyra/engine";
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        const fs::path c =
+            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+        if (fs::exists(c / "Makefile", ec)) engine = fs::weakly_canonical(c, ec);
     }
-    for (const vugen::Built& b : built) set.push_back({b.program.name, &b.program});
-    const vugen::Budget bud = vugen::budget(set);
-    lo = bud.totalMin;
-    hi = bud.totalMax;
+    static const char* kStems[5][3] = {
+        {"cull/stapip_cull_c_vu1", "clip/stapip_clip_c_vu1", "as_is/stapip_as_is_c_vu1"},
+        {"cull/stapip_cull_d_vu1", "clip/stapip_clip_d_vu1", "as_is/stapip_as_is_d_vu1"},
+        {"cull/stapip_cull_td_vu1", "clip/stapip_clip_td_vu1", "as_is/stapip_as_is_td_vu1"},
+        {"cull/stapip_cull_tc_vu1", "clip/stapip_clip_tc_vu1", "as_is/stapip_as_is_tc_vu1"},
+        {"cull/stapip_cull_tce_vu1", "clip/stapip_clip_tce_vu1", "as_is/stapip_as_is_tce_vu1"},
+    };
+    for (int c = 0; c < 5; ++c)
+        for (int f = 0; f < 3; ++f) {
+            vuasm::Options opt;
+            opt.includeRoot = engine.string();
+            vuir::Program prog;
+            std::string err;
+            const std::string path =
+                (engine / "src" / "renderer" / "3d" / "pipeline" / "static" /
+                 "core" / "programs" / (std::string(kStems[c][f]) + ".vclpp"))
+                    .string();
+            if (!vuasm::parseFile(path, opt, prog, err)) continue;
+            int n = 0;
+            for (const vuir::Instr& in : prog.code)
+                if (in.op != vuir::Op::Label && in.op != vuir::Op::Barrier &&
+                    in.op != vuir::Op::Cont && in.op != vuir::Op::Nop)
+                    ++n;
+            s.instr[c][f] = n;
+        }
+    return s;
+}
+
+int classBitIndex(unsigned bit) {
+    for (int i = 0; i < 5; ++i)
+        if (bit == (1u << i)) return i;
+    return 0;
 }
 
 /** A tooltip on the widget just submitted. Deliberately a local copy rather
@@ -93,41 +141,6 @@ const char* bindLabel(int slot) {
 }
 
 }  // namespace
-
-// Which material classes the SCENES actually draw. The point of computing it
-// rather than asking is that a hand-set mask is right on the day it is set and
-// wrong the first time someone adds a chrome ball - and the failure mode is a
-// mesh silently drawing in a simpler style (residentFallback), which looks like
-// a material bug, not a settings one.
-unsigned App::vuNeededClasses() const {
-    unsigned mask = 1u << 0;  // colour is the floor and always resident
-    auto scan = [&](const SceneObject& o) {
-        const bool lit = o.dynamicLighting;
-        bool textured = !o.materialPath.empty() || !o.modelPath.empty();
-        bool matcap = false;
-        if (!o.materialPath.empty()) {
-            // A refl map is what makes a material a matcap - the Material
-            // Editor writes it as a `refl` statement.
-            const std::string text =
-                readTextFileTail(project_.filePath(o.materialPath), 1 << 16);
-            if (text.find("\nrefl ") != std::string::npos ||
-                text.compare(0, 5, "refl ") == 0)
-                matcap = true;
-        }
-        if (matcap) mask |= 1u << 4;
-        if (lit && textured) mask |= 1u << 2;
-        else if (lit) mask |= 1u << 1;
-        else if (textured) mask |= 1u << 3;
-    };
-    for (const SceneData& sc : project_.scenes)
-        for (const SceneObject& o : sc.objects) scan(o);
-    // A prefab or a procedural volume can put an object into the world that no
-    // scene lists, and a class that is not resident when it spawns draws in the
-    // wrong style - so their members count too.
-    for (const Prefab& pf : project_.prefabs)
-        for (const SceneObject& o : pf.objects) scan(o);
-    return mask;
-}
 
 // Build every enabled program once per frame the window is open. Cheap
 // (milliseconds) and it is what keeps the listing, the budget and the
@@ -314,22 +327,23 @@ void App::drawVuProgramsWindow() {
                 "is an assert that release compiles out.");
             ImGui::Spacing();
 
-            const unsigned needed = vuNeededClasses();
-            unsigned mask = project_.vu.residentAuto ? needed
-                                                     : project_.vu.residentClasses;
-            int totLo = 0, totHi = 0;
+            const unsigned needed = project::vuNeededClasses(project_);
+            const unsigned mask = project::vuResidentClasses(project_);
+            // Which twin each class uploads alongside its cull program depends
+            // on the clipping mode, and the clip family is far bigger - so the
+            // mode is part of the budget, not a detail.
+            const int fam = project_.settings.clipping == "vu1" ? 1 : 2;
+            int totEmitted = 0;
             for (const ClassRow& c : kClasses) {
                 if ((mask & c.bit) == 0) continue;
-                int lo = 0, hi = 0;
-                classCost(c.bit, lo, hi);
-                totLo += lo, totHi += hi;
+                const int ci = classBitIndex(c.bit);
+                totEmitted += engineSizes().instr[ci][0] +
+                              engineSizes().instr[ci][fam];
             }
-            for (const vugen::Built& b : vuPreview_) {
-                // A custom program REPLACES its class's cull half, so only the
-                // difference against the engine's own is new weight.
-                totLo += (b.stageInstrs + 1) / 2;
-                totHi += b.stageInstrs;
-            }
+            // A custom program REPLACES its class's cull half, so only the
+            // difference against the engine's own is new weight.
+            for (const vugen::Built& b : vuPreview_) totEmitted += b.stageInstrs;
+            const int totLo = (totEmitted + 1) / 2, totHi = totEmitted;
             const float frac = (float)totHi / 2042.0f;
             char bar[64];
             std::snprintf(bar, sizeof bar, "%d..%d of 2042", totLo, totHi);
@@ -364,13 +378,15 @@ void App::drawVuProgramsWindow() {
             for (const ClassRow& c : kClasses) {
                 bool on = (mask & c.bit) != 0;
                 const bool used = (needed & c.bit) != 0;
-                int lo = 0, hi = 0;
-                classCost(c.bit, lo, hi);
+                const int ci = classBitIndex(c.bit);
+                const int emitted =
+                    engineSizes().instr[ci][0] + engineSizes().instr[ci][fam];
+                const int lo = (emitted + 1) / 2, hi = emitted;
                 ImGui::PushID((int)c.bit);
                 if (c.bit == 1u) ImGui::BeginDisabled();  // the fallback floor
                 if (ImGui::Checkbox(c.label, &on)) {
                     project_.vu.residentClasses =
-                        on ? (mask | c.bit) : (mask & ~c.bit);
+                        (on ? (mask | c.bit) : (mask & ~c.bit)) | 1u;
                     commitChange();
                 }
                 if (c.bit == 1u) ImGui::EndDisabled();

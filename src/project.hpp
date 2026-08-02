@@ -2621,6 +2621,16 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
 // Is the world point inside the area's box?
 bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
 
+// Which StaPip material classes the project's scenes and prefabs actually
+// draw, as a StaPipProgramClass bit mask (docs/vu-authoring.md). ONE answer,
+// used by the VU panel's budget bar and by codegen's setResidentClasses call -
+// a second implementation would let the editor promise room the build does not
+// make. Colour is always set: it is what everything else falls back to.
+unsigned vuNeededClasses(const Project& p);
+// What the build will actually install: the auto-detected set, or the mask the
+// project pinned by hand.
+unsigned vuResidentClasses(const Project& p);
+
 // Types an area may catch: everything the game draws as static geometry (the
 // same set the mirror/portal pickers offer). Markers have nothing to render or
 // reflect, so an area never picks them up.

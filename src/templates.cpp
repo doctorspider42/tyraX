@@ -12608,6 +12608,16 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    // Back to zero the moment this object's bags are out. The numbers are
+    // RENDERER STATE, not a property of the bag, so everything drawn after an
+    // object - the terrain, the sky dome, a static batch, the next object -
+    // would otherwise inherit them. Zero is the "wants nothing" case every
+    // stage renders bit-identically to the untouched program, so scoping them
+    // to one object is what makes the rest of the frame predictable.
+    if (vuprog::ENABLED) {
+      const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      vuprog::setParams(stapip.core, none);
+    }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -18463,6 +18473,15 @@ static bool staticBatchEligible(const SceneObject& o,
     // bag would never draw.
     if (o.dynamicLighting) return false;
     if (!o.textureFeed.empty()) return false;  // live feed rebinds textures
+    // Per-mesh VU parameters are uploaded per BAG, and a static batch is one
+    // bag for many objects - so a batched member would get whatever numbers
+    // the batch happened to be built with. An object that asks for its own
+    // effect draws solo instead (docs/vu-authoring.md); that costs a submit,
+    // which is the honest trade and the one the author chose by typing a
+    // number. Objects that leave them at zero batch as before.
+    if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
+        o.vuParams[2] != 0.0f || o.vuParams[3] != 0.0f)
+        return false;
     if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
     if (!o.layer.empty()) return false;        // streamed in/out with a layer
     // Per-object logic: the graph can move self, attached scripts get a
@@ -31221,10 +31240,12 @@ struct VuBuild {
     std::string kernelHeader;
     std::vector<std::pair<std::string, std::string>> installs;  // class, enum
     std::vector<std::string> warnings;
+    unsigned residentMask = 0x1Fu;
 };
 
 VuBuild buildVuFiles(const Project& p) {
     VuBuild out;
+    out.residentMask = project::vuResidentClasses(p);
     for (const VuProgram& pr : p.vu.programs) {
         if (!pr.enabled) continue;
         vugen::Desc d = vugen::descCustomBase(pr.base);
@@ -31360,6 +31381,16 @@ std::string vuProgramsSource(const VuBuild& vb) {
         s += "Tyra::" + e.first + " g_" + e.first + ";\n";
     s += "}  // namespace\n\n";
     s += "void install(Tyra::StaPipCore& core) {\n";
+    // Drop the material classes the project never draws BEFORE installing
+    // anything. Each class is a cull program plus its clipped-or-as_is twin,
+    // and in VU1-clipping mode the ten of them sit close enough to the
+    // 2042-slot ceiling that a custom program of any size overflows it. That is
+    // not a theory: the engine's own assert fired on examples/vu-lab the first
+    // time this ran, and dropping the two lighting classes it does not use is
+    // what made room (docs/vu-authoring.md).
+    if (vb.residentMask != 0x1Fu)
+        s += "  core.setResidentClasses(" + std::to_string(vb.residentMask) +
+             ");  // only the classes this project draws\n";
     for (const auto& e : vb.installs)
         s += "  core.setProgramOverride(Tyra::" + e.second + ", &g_" + e.first +
              ");\n";

@@ -266,12 +266,31 @@ into one 64-bit slot when it can, so N emitted instructions occupy between
 `ceil(N/2)` and N slots, and the exact number is only known after VCL runs.
 Reporting a single number would be a guess dressed as a measurement.
 
+**Budget against the CLIP family, not the cull one.** With VU1 clipping on (the
+default) each resident class uploads its `cull` program *plus* its `clip` twin,
+and the clip family is far bigger - the five clip programs measured 2162
+instructions against the 2042 ceiling before they were made to share a fan
+emitter. The panel's bar therefore reads the engine's own `.vclpp` files rather
+than the generator's descriptions. That is not fastidiousness: budgeting against
+the cull half alone showed `examples/vu-lab` comfortably green while the console
+died on the engine's assert the first time it ran.
+
+```
+| Assertion failed!
+| VU1 pipeline programs overflow into the draw-finish program
+| File : src/renderer/core/paths/path1/path1.cpp:145
+```
+
 Two ways to buy room:
 
-- **Drop material classes the project never draws.**
-  `StaPipCore::setResidentClasses(mask)` removes a class's two programs from the
-  upload. A project with no matcap material does not need the two `tce`
-  programs. A class that is not resident falls back down to a resident relative
+- **Drop material classes the project never draws.** This is the one that
+  actually works, and codegen does it for you: the mask is derived from what the
+  scenes and prefabs draw (`project::vuNeededClasses`) and emitted as
+  `core.setResidentClasses(...)` at the top of `install`. vu-lab draws nothing
+  lit, so it ships `setResidentClasses(25)` and the two dropped lighting classes
+  are what pay for its stages. `StaPipCore::setResidentClasses(mask)` removes a
+  class's two programs from the upload; a project with no matcap material does
+  not need the two `tce` programs either. A class that is not resident falls back down to a resident relative
   rather than MSCAL-ing into nothing, and the colour class is forced resident as
   the floor. Safe to call at run time — it is a rebuild plus an upload, so it
   belongs at a zone or level boundary, never per bag.

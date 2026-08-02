@@ -590,9 +590,7 @@ private:
     void drawVuStageList(std::vector<VuStage>& stages, bool kernel);
     void vuRebuildPreview();
     void vuSimulate();
-    /** Which material classes the project's scenes and prefabs actually
-     * draw - the auto-detected resident mask. */
-    unsigned vuNeededClasses() const;
+
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
     // editor. One window drives every Scatter volume in the active scene -
     // graph editing, the live budget, per-instance overrides and the bake.

@@ -1,8 +1,11 @@
 # vu-lab example
 
 A small scene whose job is to be **inspected**, not played. It is the fixture for
-the VU framework ([docs/vu-framework.md](../../docs/vu-framework.md)): take a VU1
-packet off the running console, re-run it on your PC, and get the same bits back.
+two things: the VU framework
+([docs/vu-framework.md](../../docs/vu-framework.md)) - take a VU1 packet off the
+running console and re-run it on your PC bit for bit - and **authoring**
+([docs/vu-authoring.md](../../docs/vu-authoring.md)): it ships with a
+microprogram of its own, composed out of stages, with no assembly anywhere.
 
 Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
@@ -12,15 +15,76 @@ Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
 Five props in a row in front of the spawn, each deliberately on a different
 drawing path, plus a small 40x40 terrain:
 
-| Object | Why it is there |
-|---|---|
-| `flat-box`, `flat-ball` | Plain vertex colour - no texture, no material. |
-| `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. |
-| `chrome-ball` | A `refl` (matcap) material - the ST slot carries a normal instead. |
-| `tall-pillar` | Stands apart, and owns the scene's one flow graph (see below). |
+| Object | Why it is there | VU parameters |
+|---|---|---|
+| `flat-ball` | Plain vertex colour. | `0.45, 0, 0, 0` - Wobble amplitude |
+| `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | `0, 1, 0, 0` - Desaturate |
+| `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below). | `0, 1, 0, 0` - Desaturate |
+| `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | none |
+| `chrome-ball` | A `refl` (matcap) material - the ST slot carries a normal instead. | none |
 
 The scene keeps VU1 clipping on (*Preferences > Rendering*), which is the default
 - so the programs that actually run are the `clip` family, not `as_is`.
+
+## The authored program
+
+*Tools > VU Programs* shows it: one program on the **untextured colour** class,
+two stages.
+
+| Stage | Parameter | Bound to |
+|---|---|---|
+| Wobble | Amplitude | mesh **X** |
+| | Frequency 0.6, Speed 3 | baked into the microprogram |
+| Desaturate | Amount | mesh **Y** |
+
+That is the whole design in one screen. The program replaces a **material
+class**, not an object - VU1 micro memory has no room for one program per mesh -
+so the KIND of effect is shared and its STRENGTH is per mesh. `flat-ball` asks
+for wobble, the pillar asks to go grey, `tex-box` and `chrome-ball` are on other
+classes entirely and never see it, and anything that leaves its four numbers at
+zero renders exactly as it would with no program at all.
+
+That last claim is not a promise, it is measured. Freeze the camera
+(`walkSpeed`/`lookSpeed` 0) and take two shots, one with the parameters as
+shipped and one with every object's set to zero:
+
+```
+scene-only difference: 188 540 pixels, in exactly three column bands
+  x 1529..1661   the pillar   (blue -> grey)
+  x 1739..2168   the ball     (round -> wobbling)
+  x 3039..3055   the emulator's own FPS text
+```
+
+Nothing else in the frame moves. The chrome ball, the textured box, the terrain
+and the sky are pixel-identical between the two runs.
+
+### Two things the example is shaped to teach
+
+**A custom program only reaches packages fully inside the frustum.** `flat-box`
+carries the same Desaturate parameter the pillar does, and in the spawn view it
+stays RED - it is cut off by the right edge of the screen, so its package is
+classified as frustum-crossing and drawn by the untouched `clip` program instead
+of the overridden `cull` one. Walk toward it until it is fully on screen and it
+turns grey. That is the honest limit of `setProgramOverride`, and this is what it
+looks like rather than a paragraph about it.
+
+**Dropping material classes is what makes room.** The first console run of this
+example died on the engine's own assert:
+
+```
+| Assertion failed!
+| VU1 pipeline programs overflow into the draw-finish program
+| File : src/renderer/core/paths/path1/path1.cpp:145
+```
+
+With VU1 clipping on, the ten resident programs are five `cull` plus five
+`clip`, and the clip family is big - close enough to the 2042-slot ceiling that
+a custom program of any size pushes it over. vu-lab draws nothing lit, so
+codegen emits `setResidentClasses(25)` (colour, textured, matcap) and the two
+dropped lighting classes pay for the stages. *Tools > VU Programs > Micro
+memory* is where that bar lives, and it reads the ENGINE's own `.vclpp` files -
+budgeting against the generator's descriptions alone is what let this ship green
+and assert on the console.
 
 ## The loop this example exists for
 

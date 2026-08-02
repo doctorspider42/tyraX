@@ -2974,6 +2974,48 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
     return nullptr;
 }
 
+unsigned vuNeededClasses(const Project& p) {
+    unsigned mask = 1u << 0;  // colour: the fallback floor, always resident
+    auto scan = [&](const SceneObject& o) {
+        const bool lit = o.dynamicLighting;
+        const bool textured = !o.materialPath.empty() || !o.modelPath.empty();
+        bool matcap = false;
+        if (!o.materialPath.empty()) {
+            // A `refl` statement is what makes a material a matcap - the same
+            // line objparser and the engine's lean_obj_loader read.
+            std::ifstream in(p.filePath(o.materialPath), std::ios::binary);
+            if (in) {
+                std::string line;
+                while (std::getline(in, line)) {
+                    size_t a = line.find_first_not_of(" 	");
+                    if (a == std::string::npos) continue;
+                    if (line.compare(a, 5, "refl ") == 0) {
+                        matcap = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (matcap) mask |= 1u << 4;
+        if (lit && textured) mask |= 1u << 2;
+        else if (lit) mask |= 1u << 1;
+        else if (textured) mask |= 1u << 3;
+    };
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) scan(o);
+    // A prefab member can reach the world without being in any scene (stamped
+    // by a procedural volume, spawned by a flow node), and a class that is not
+    // resident when it appears draws in the wrong style.
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) scan(o);
+    return mask;
+}
+
+unsigned vuResidentClasses(const Project& p) {
+    return p.vu.residentAuto ? vuNeededClasses(p)
+                             : (p.vu.residentClasses | 1u);
+}
+
 bool areaContainsPoint(const SceneObject& area, float x, float y, float z) {
     return areaDistSq(area, x, y, z) <= 0.0f;
 }
