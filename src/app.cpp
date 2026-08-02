@@ -1268,6 +1268,16 @@ void App::drawMenuBar() {
                     "ground it grows on.\nThe graph keeps being evaluated, so "
                     "the budget readout and the seed\nsimulator stay live; only "
                     "the geometry goes.");
+            if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
+                                hasProject_))
+                showScrollerPreview_ = !showScrollerPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the sliding ghost copies of every endless scroller's\n"
+                    "segments. Turn it off to work on the member objects the\n"
+                    "copies are made of - a running belt fills its whole window\n"
+                    "with them. The belt markers stay, and the clone count and\n"
+                    "warnings in Properties stay live.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -2237,6 +2247,7 @@ void App::drawViewportWindow() {
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
         }
+        viewport_.setScrollerPreview(showScrollerPreview_);
         // Non-destructive clip edits + the project's animation-fps ratio, so
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,

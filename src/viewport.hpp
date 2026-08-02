@@ -205,6 +205,13 @@ public:
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
 
+    // Endless-scroller ghost belts (View > Scroller preview). Off draws the
+    // belt origin markers and nothing else: a belt fills its whole window with
+    // semi-transparent copies, which is exactly what you cannot see past while
+    // editing the member objects those copies are made of. The markers stay -
+    // they are how a belt is found and selected, not part of its output.
+    void setScrollerPreview(bool on) { scrollerPreview_ = on; }
+
     // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
     // over the walkable cells of the app-baked grid (navmesh::bake - the app
     // owns the Project). The GL mesh is rebuilt only when `version` changes,
@@ -544,6 +551,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool navOverlayOn_ = false;
+    bool scrollerPreview_ = true;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;

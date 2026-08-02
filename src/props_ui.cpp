@@ -958,6 +958,16 @@ void App::drawPropertiesWindow() {
             "Seeds the per-cell variation set up on each segment member below\n"
             "(Appears in / Variant group / the jitters). Changing it deals a\n"
             "different infinite level from the same pieces.");
+        // Editor-only, and deliberately NOT part of the object: the same flag
+        // the View menu holds, offered here because this panel is where you
+        // are when the ghosts are in your way. No commitChange() - hiding a
+        // preview is not an edit to the scene.
+        ImGui::Checkbox("Show belt preview", &showScrollerPreview_);
+        ImGui::SetItemTooltip(
+            "Draw the sliding ghost copies in the viewport (View > Scroller\n"
+            "preview). Off leaves the belt marker and every readout below\n"
+            "alone - it only stops the copies from covering the member\n"
+            "objects you are editing. An editor setting, not project data.");
 
         // Cost readout: how many clone objects this belt bakes into the scene.
         if (!o.scrollSegments.empty()) {

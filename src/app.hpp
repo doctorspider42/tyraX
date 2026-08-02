@@ -1267,6 +1267,14 @@ private:
     // would be a worse lie than the geometry being in the way.
     bool showProcPreview_ = true;
 
+    // View > Scroller preview, and the same checkbox in a Scroller's
+    // Properties. Same reason as the procedural one: a belt fills its whole
+    // ahead/behind window with semi-transparent copies of its members, which is
+    // exactly what you cannot see past while editing those members. Session
+    // state like the rest of the Preview group - the belt's origin markers and
+    // the layout maths are untouched, only the ghosts go.
+    bool showScrollerPreview_ = true;
+
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
     // bloom + color grading, 2 = film grain), the pinned USE prompt (3), a

@@ -170,6 +170,15 @@ both the editor preview and the build:
 The editor viewport reads the identical `scrollsim` code to draw the animated,
 semi-transparent **ghost belt** — so what you preview is exactly what ships.
 
+A running belt fills its whole ahead/behind window with those copies, which is
+exactly what you cannot see past while editing the member objects they are made
+of. **View > Scroller preview** turns them off (and so does *Show belt preview*
+in a Scroller's Properties — one setting, two places to reach it). The belt's
+origin markers stay, because they are how a belt is found and selected, and
+nothing else changes: the clone count, the warnings and the layout maths are all
+still live. It is an editor setting, not project data — it does not travel with
+the `.tyra` and the game never hears about it.
+
 ## Seams: making the joints invisible
 
 Where two copies of a chunk meet, faces can fight in the z-buffer and flicker.
