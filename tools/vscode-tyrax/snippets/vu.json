@@ -1,0 +1,97 @@
+{
+  "VU1 program skeleton": {
+    "prefix": "vuprog",
+    "body": [
+      ".syntax new",
+      ".name ${1:MyVU1Program}",
+      ".vu",
+      ".init_vf_all",
+      ".init_vi_all",
+      "",
+      "#include \"src/renderer/3d/pipeline/shared/vcl_sml.i\"",
+      "#include \"src/renderer/3d/pipeline/shared/tyra_macros.i\"",
+      "#include \"inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h\"",
+      "",
+      "--enter",
+      "--endenter",
+      "",
+      "#vuprog ${2:MyProgram}",
+      "",
+      "\tLoadTyraStaticData{ gifSetTag }",
+      "",
+      "begin:",
+      "\txtop buffer",
+      "\tLoadTyraBufferTags{ scale, primTag, buffer }",
+      "",
+      "\tiaddiu\tvertexData,\tbuffer,\tVU1_STAPIP_VERT_DATA_ADDR",
+      "\tilw.w\tvertexCount,\t0(buffer)",
+      "",
+      "\t$0",
+      "",
+      "\txgkick kickAddress",
+      "",
+      "--barrier",
+      "--cont",
+      "",
+      "\tb\tbegin",
+      "",
+      "#endvuprog",
+      "",
+      "--exit",
+      "--endexit"
+    ],
+    "description": "The whole per-buffer skeleton: constants, xtop, the loop, xgkick and the branch back. Every program in this engine has this shape."
+  },
+  "Per-vertex loop": {
+    "prefix": "vuloop",
+    "body": [
+      "\tiadd vertexCounter, buffer, vertexCount",
+      "vertexLoop:",
+      "",
+      "\t\t$0",
+      "",
+      "\t\tiaddiu\tvertexData,\tvertexData,\t3",
+      "\t\tiaddiu\tdestAddress,\tdestAddress,\t${1:6}",
+      "\t\tiaddi\tvertexCounter,\tvertexCounter,\t-3",
+      "\t\tibne\tvertexCounter,\tbuffer, vertexLoop"
+    ],
+    "description": "Triangle-at-a-time loop. The counter walks down to `buffer` because that is what xtop left in it."
+  },
+  "Matrix multiply a vertex": {
+    "prefix": "vumvp",
+    "body": [
+      "\tmul\t\tacc,\t\t${1:mvp}[0],\t${2:vertex}[x]",
+      "\tmadd\tacc,\t\t${1:mvp}[1],\t${2:vertex}[y]",
+      "\tmadd\tacc,\t\t${1:mvp}[2],\t${2:vertex}[z]",
+      "\tmadd\t${2:vertex},\t${1:mvp}[3],\t${2:vertex}[w]"
+    ],
+    "description": "The four-register accumulator chain - one mula to start it, three madds to finish."
+  },
+  "Perspective divide": {
+    "prefix": "vupers",
+    "body": [
+      "\tdiv\t\tq,\tvf00[w],\t${1:vertex}[w]",
+      "\tmul.xyz\t${1:vertex},\t${1:vertex},\tq"
+    ],
+    "description": "Divide xyz by W and leave W alone - fog and the texture correction still need it. WRITES Q."
+  },
+  "Clamp a colour to 0..255": {
+    "prefix": "vufixcolor",
+    "body": [
+      "\tloi\t\t255",
+      "\tmini.xyz\t${1:color},\t${1:color},\ti",
+      "\tmax.xyz\t${1:color},\t${1:color},\tvf00[x]",
+      "\tftoi0\t${1:color},\t${1:color}"
+    ],
+    "description": "FixColor: clamp through the I register, then convert to the integer bytes the GS reads."
+  },
+  "Scale NDC to the GS screen format": {
+    "prefix": "vuscale",
+    "body": [
+      "\tmula.xyz\tacc,\t\t${1:scale},\tvf00[w]",
+      "\tmadd.xyz\t${2:vertex},\t${2:vertex},\t${1:scale}",
+      "\tftoi4.xyz\t${2:vertex},\t${2:vertex}"
+    ],
+    "description": "scale * (v + 1) accumulated through the ACC, then ftoi4 to 12.4. Note it is NOT scale*(v+1) computed directly - the rounding differs."
+  }
+}
