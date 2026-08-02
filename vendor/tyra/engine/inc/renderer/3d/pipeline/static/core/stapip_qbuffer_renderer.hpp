@@ -69,6 +69,26 @@ class StaPipQBufferRenderer {
    */
   void setVU1Clipping(const bool& enabled);
 
+  /** TyraX addition: which MATERIAL CLASSES keep a resident VU1 program
+   * (docs/vu-framework.md). VU1 micro memory holds ~2042 instruction slots and
+   * the full set of ten sits right under that ceiling, so a project that never
+   * draws a lit mesh is paying ~380 instructions for programs it cannot reach.
+   * Dropping a class frees that room for a program the user wrote.
+   *
+   * One bit per class; Color is always kept, because it is what everything else
+   * falls back to. Never calling this keeps every class, i.e. exactly the
+   * behaviour before it existed. */
+  enum StaPipProgramClass {
+    StaPipClassColor = 1 << 0,
+    StaPipClassDirLights = 1 << 1,
+    StaPipClassTextureDirLights = 1 << 2,
+    StaPipClassTextureColor = 1 << 3,
+    StaPipClassTextureEnv = 1 << 4,
+    StaPipClassAll = 0x1F,
+  };
+  void setResidentClasses(const u32& mask);
+  const u32& getResidentClasses() const { return residentClasses; }
+
   /** TyraX addition: install a game-supplied microprogram over a built-in slot
    * and make it resident (docs/vu-framework.md). Rebuilds the program cache and
    * re-uploads it, so it is safe to call after init - and it must be, because a
@@ -145,6 +165,14 @@ class StaPipQBufferRenderer {
   Path1* path1;
   StaPipClipper clipper;
   StaPipProgramsRepository repository;
+  /** TyraX addition: see setResidentClasses. */
+  u32 residentClasses = StaPipClassAll;
+  /** TyraX addition: the requested program's class is not resident - walk down
+   * to one that is, rather than MSCAL-ing to an address nothing was uploaded
+   * to. A dropped class then draws in a simpler style instead of tearing the
+   * screen, which is the right failure for something the editor is supposed to
+   * have proven unnecessary in the first place. */
+  StaPipProgramName residentFallback(const StaPipProgramName& name) const;
 
   u16 bufferSize, nextBufferIndex, currentBufferIndex;
   // Modified by TyraX: VU1 buffer capacity, used by clip() to drain the
