@@ -445,7 +445,11 @@ std::shared_ptr<const AssetMesh> assetMesh(const Project& p,
     }
     auto out = std::make_shared<AssetMesh>();
     objparser::Model m;
-    if (!objparser::load(p.dir + "\\" + relPath, m)) {
+    // filePath(), never a hand-joined "\\": outside Windows a backslash is an
+    // ordinary filename character, so the join named a file that does not
+    // exist and EVERY asset-scattering volume baked zero chunks in silence
+    // (bakeVolume skips an instance whose mesh will not load).
+    if (!objparser::load(p.filePath(relPath), m)) {
         std::lock_guard<std::mutex> lock(mu);
         cache[key] = nullptr;
         return nullptr;

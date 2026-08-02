@@ -165,7 +165,7 @@ const IconImg* iconImage(const Project& p, const std::string& name) {
     IconImg& img = cache[name];
     if (!icon) return nullptr;
     if (!icon->path.empty() && !p.dir.empty()) {
-        const std::string full = p.dir + "\\" + icon->path;
+        const std::string full = p.filePath(icon->path);  // never a raw "\\" join
         int w = 0, h = 0, comp = 0;
         if (unsigned char* px = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
             img.px.assign(px, px + (size_t)w * h * 4);
