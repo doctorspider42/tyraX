@@ -160,6 +160,19 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
+  // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
+  // away - gravity, collision and the camera keep running, so a locked player
+  // still falls and is still framed. The game applies and resets it.
+  int lockInput = -1;
+
+  // Camera shake (Camera Shake flow node). shakeAmp < 0 = leave; else the
+  // amplitude in world units (0 stops it) held for shakeSec seconds. The game
+  // applies the request to its own decaying shake and resets shakeAmp. It
+  // perturbs whatever camera is in force, cutscene override included.
+  float shakeAmp = -1.0F;
+  float shakeSec = 0.0F;
+
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
   // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
   // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
@@ -235,6 +248,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // A flow event queued from OUTSIDE a menu row - today a credits roll whose
+  // finish action is "fire a flow event". updateGameMenu promotes it into
+  // menuEvent (the one place that clears it), so the trigger side needs to
+  // know only about menu events. -1 = none.
+  int pendingEvent = -1;
 
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset

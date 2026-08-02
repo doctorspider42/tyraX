@@ -32,8 +32,10 @@
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
+#include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
+#include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -61,6 +63,21 @@ float g_frameScale = 1.0F;
 // particle simulation and skeletal-animation playback freeze on their last
 // frame instead of advancing behind the menu.
 bool g_gameplayPaused = false;
+
+// True while the Set Player Input flow node has taken the controls away (a
+// cutscene, a dialogue, a scripted fall). Only the walker's INPUT reads honour
+// it - gravity, collision and the camera keep running, so a locked player still
+// falls and still gets framed instead of freezing in mid-air. Cleared on scene
+// load, so a lock cannot survive a reload.
+bool g_playerLocked = false;
+
+// Camera Shake flow node: a decaying handheld wobble applied to whatever camera
+// is in force this frame (the walker's, or a cutscene override). Amplitude in
+// world units, g_camShakeT the seconds left; the noise is the same sum of sines
+// the Cutscene Director's per-shot shake uses, so the two look alike.
+float g_camShake = 0.0F;
+float g_camShakeT = 0.0F;
+float g_camShakeClock = 0.0F;
 
 // Camera flashlight runtime state (a Player object property; declared in
 // scene_data.hpp). g_flashEnabled is the master switch - seeded per scene from
@@ -1799,15 +1816,19 @@ void TerrainGame::init() {
   if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
 
   // Player start: the first spawn point in the scene (if any)
+  float spawnY = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
       playerX = SCENE_OBJECTS[i].position[0];
       playerZ = SCENE_OBJECTS[i].position[2];
+      spawnY = SCENE_OBJECTS[i].position[1];
       yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
       break;
     }
   }
-  playerY = terrainHeightAt(playerX, playerZ);
+  // Feet on the ground - or at the spawn point's own height in a scene with no
+  // terrain, where there is no ground to stand on (docs/terrain.md).
+  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
 
   updatePlayer();
   buildScene();
@@ -1872,6 +1893,11 @@ void TerrainGame::loop() {
 #endif
   // The engine pumps pad 1; pad 2 is ours (optional - polls for a hot-join).
   if (MULTIPLAYER_MODE != 0) pad2.update();
+  // Remote Pad (docs/remote-pad.md): the editor's on-screen pad and the --pad
+  // CLI reach the game here, after BOTH pads were refreshed from hardware -
+  // update() rebuilds the state, so an overlay applied before it would be
+  // thrown away. Compiles to nothing when the feature is off.
+  livepad::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -1908,6 +1934,24 @@ void TerrainGame::loop() {
         }
         bootPhase = 2;
       }
+    }
+  }
+
+  // Credits roll (Tools > Credits Editor, docs/credits.md): while one plays it
+  // owns the screen AND the pad, so the rest of the frame is skipped entirely -
+  // no walker, no scripts, nothing behind it to keep simulating. The frame it
+  // ends, its finish action becomes one of the requests this loop already
+  // serves (a scene switch, a menu, a flow event), so nothing about it is a
+  // special case further down.
+  if (credits::playing()) {
+    const credits::Result cr = credits::tick(engine, engine->pad, g_frameDt);
+    if (credits::playing()) return;
+    if (cr.finish == 1 && cr.scene >= 0) {
+      scriptCtx.requestScene = cr.scene;
+    } else if (cr.finish == 2 && cr.menu >= 0) {
+      scriptCtx.openMenu = cr.menu;
+    } else if (cr.finish == 3 && cr.event >= 0) {
+      scriptCtx.pendingEvent = cr.event;
     }
   }
 
@@ -2009,15 +2053,18 @@ void TerrainGame::loop() {
     playerZ = 0.0F;
     yaw = 0.0F;
     pitch = 0.0F;
+    float spawnY = 0.0F;
     for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
       if (SCENE_OBJECTS[i].type == 4) {
         playerX = SCENE_OBJECTS[i].position[0];
         playerZ = SCENE_OBJECTS[i].position[2];
+        spawnY = SCENE_OBJECTS[i].position[1];
         yaw = SCENE_OBJECTS[i].rotation[1] * PI / 180.0F;
         break;
       }
     }
-    playerY = terrainHeightAt(playerX, playerZ);
+    // The spawn point's own height in a scene with no terrain - see initScene.
+    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
     playerVelY = 0.0F;
   }
 
@@ -2092,6 +2139,11 @@ void TerrainGame::loop() {
   if (scriptCtx.flashlight >= 0) {
     g_flashEnabled = scriptCtx.flashlight != 0;
     scriptCtx.flashlight = -1;
+  }
+  // Player input lock (Set Player Input flow node).
+  if (scriptCtx.lockInput >= 0) {
+    g_playerLocked = scriptCtx.lockInput == 0;
+    scriptCtx.lockInput = -1;
   }
   // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
   if (scriptCtx.fog >= 0) {
@@ -2175,6 +2227,32 @@ void TerrainGame::loop() {
     cameraUp = scriptCtx.cameraUp;
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
+  }
+  // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
+  // move by the same offset, so the shot wobbles without swinging the aim -
+  // shaking only the eye would read as a lurching pan.
+  if (scriptCtx.shakeAmp >= 0.0F) {
+    g_camShake = scriptCtx.shakeAmp;
+    g_camShakeT = scriptCtx.shakeSec;
+    scriptCtx.shakeAmp = -1.0F;
+  }
+  if (g_camShake > 0.0F && g_camShakeT > 0.0F) {
+    g_camShakeClock += g_frameDt;
+    const float t = g_camShakeClock;
+    // Fade out over the last of the hold, so it settles instead of snapping.
+    const float a = g_camShake * (g_camShakeT < 0.25F ? g_camShakeT * 4.0F
+                                                     : 1.0F);
+    const Vec4 off(
+        a * (0.6F * sinf(t * 23.7F) + 0.4F * sinf(t * 7.3F + 1.7F)),
+        a * (0.6F * sinf(t * 19.1F + 0.9F) + 0.4F * sinf(t * 9.7F)),
+        a * 0.3F * sinf(t * 13.9F + 2.3F));
+    cameraPosition = cameraPosition + off;
+    cameraLookAt = cameraLookAt + off;
+    g_camShakeT -= g_frameDt;
+    if (g_camShakeT <= 0.0F) {
+      g_camShakeT = 0.0F;
+      g_camShake = 0.0F;
+    }
   }
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
@@ -4185,6 +4263,11 @@ void TerrainGame::loadScene(int sceneIndex) {
   // on/off toggle starts on.
   g_flashEnabled = FLASHLIGHT_ENABLED;
   g_flashOn = true;
+  // A Set Player Input lock must never survive a scene load - a cutscene that
+  // switches scenes would otherwise hand the player a world they cannot move in.
+  g_playerLocked = false;
+  g_camShake = 0.0F;
+  g_camShakeT = 0.0F;
 
   // Authored objects + the dynamic spawn pool (Spawn Object flow node).
   runtimeObjects.assign(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS,
@@ -4277,8 +4360,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     if (P.objIndex < 0) continue;
     P.x = SCENE_OBJECTS[P.objIndex].position[0];
     P.z = SCENE_OBJECTS[P.objIndex].position[2];
-    P.y = PP_MODE(pi) == 1 ? SCENE_OBJECTS[P.objIndex].position[1]
-                           : terrainHeightAt(P.x, P.z);
+    // Feet on the ground - unless the player flies, or the scene HAS no ground
+    // (docs/terrain.md), in which case the authored height is the only sensible
+    // start: the void answer would drop the player a million units below the
+    // world before the first frame's collision could catch them.
+    P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
+              ? SCENE_OBJECTS[P.objIndex].position[1]
+              : terrainHeightAt(P.x, P.z);
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -4592,7 +4680,12 @@ void TerrainGame::updateParticles() {
         } else if (kind == 4) {  // rain: fast streaks, die on the terrain
           const float fall = 14.0F + r2 * 6.0F;
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.6F, -fall, (r3 - 0.5F) * 0.6F, 0.0F);
-          float drop = by - terrainHeightAt(sx, sz);
+          // Fall distance = how far the ground is below the emitter. With no
+          // terrain (docs/terrain.md) that is the void, and a drop would live
+          // for hours - so the emitter's own height is the fall instead, which
+          // keeps the volume raining.
+          float drop = TERRAIN_ENABLED ? by - terrainHeightAt(sx, sz)
+                                       : d.scale[1];
           if (drop < 0.5F) drop = 0.5F;
           ps.maxLife[i] = drop / fall;
         } else if (kind == 5) {  // custom: cone jet, physics from the knobs
@@ -5303,6 +5396,15 @@ void TerrainGame::renderSaveMenu() {
 // flag off float over the running game (pad presses reach both).
 bool TerrainGame::updateGameMenu() {
   scriptCtx.menuEvent = -1;
+  // A flow event queued from outside a menu row (a finished credits roll)
+  // becomes this frame's menu event, so the On Menu Event triggers see it
+  // exactly as if a row had fired it. Promoted HERE because this is the one
+  // place that clears menuEvent - a queuer running earlier in the loop would
+  // otherwise have its event wiped before any script could read it.
+  if (scriptCtx.pendingEvent >= 0) {
+    scriptCtx.menuEvent = scriptCtx.pendingEvent;
+    scriptCtx.pendingEvent = -1;
+  }
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
@@ -5495,6 +5597,15 @@ bool TerrainGame::updateGameMenu() {
             e.inputAction < INPUT_ACTION_COUNT &&
             INPUT_REBINDABLE[e.inputAction])
           menuRebindRow = gameMenuCursor;
+        break;
+      case 11:  // roll the credits: the menu closes first, so the roll owns a
+        // clean screen and its own finish action decides what comes back (a
+        // title screen typically sends the player straight back to itself).
+        if (e.param >= 0) {
+          gameMenuIndex = -1;
+          gameMenuStackDepth = 0;
+          credits::play(e.param);
+        }
         break;
     }
   }
@@ -5938,6 +6049,10 @@ void TerrainGame::setupLightBeams() {
 void TerrainGame::setupLightPools() {
   lightPools.clear();
   if (!beamCoronaTex) return;
+  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
+  // there is nothing to drop it onto, so the scene simply has none - the beams,
+  // the coronas and the per-vertex light are unaffected.
+  if (!TERRAIN_ENABLED) return;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
   // follows the camera flashlight's terrain hit.
@@ -6654,6 +6769,10 @@ void TerrainGame::renderProjShadows() {
     // of folding down beside it - a shadow that floats a little, against one
     // that stands up in the air.
     const float baseY = projSurfaceAt(gx, gz);
+    // Nothing under the caster at all: with no terrain (docs/terrain.md) the
+    // surface answer is the void, and a patch built down there is geometry a
+    // million units from the scene. A caster over a hole simply casts nothing.
+    if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;
     const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
     auto patchY = [&](float px, float pz) {
       return onGeometry ? baseY : terrainHeightAt(px, pz);
@@ -7041,11 +7160,18 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right). A shared-screen P2
@@ -7064,7 +7190,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // Mouse look (controls.hpp): the USB mouse drives player 1 (pad 1). The
     // deltas are the counts accumulated since the previous frame, so no
     // g_frameScale: the same swipe turns the same angle at any frame rate.
-    if (pi == 0 && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
+    if (pi == 0 && !g_playerLocked && (!fixedCam || PP_CAM_YAW_ROTATE(pi)))
       P.yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
 #endif
     if (fixedCam) {
@@ -7072,7 +7198,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     } else {
       P.pitch -= axisR(rightJoy.v) * 0.035F * PP_LOOK_SPEED(pi) * g_frameScale;
 #ifdef TYRAX_KBD_MOUSE
-      if (pi == 0)
+      if (pi == 0 && !g_playerLocked)
         P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
 #endif
       if (P.pitch > 1.35F) P.pitch = 1.35F;
@@ -7104,8 +7230,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x += (fx * cp * forward - fz * strafe) * step;
     P.z += (fz * cp * forward + fx * strafe) * step;
     P.y += sinf(P.pitch) * forward * step;
-    if (inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
-    if (inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_UP)) P.y += step;
+    if (!g_playerLocked && inputPressed(pad, IA_ROLE_FLY_DOWN)) P.y -= step;
 
     P.camPos = Vec4(P.x, P.y, P.z);
     P.camLook = Vec4(P.x + fx * cp, P.y + sinf(P.pitch), P.z + fz * cp);
@@ -7157,7 +7283,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.y = ground;
       P.velY = 0.0F;
       grounded = true;
-      if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+      if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
         P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
     }
 
@@ -7316,7 +7442,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (P.y <= ground) {
     P.y = ground;
     P.velY = 0.0F;
-    if (PP_CAN_JUMP(pi) && inputClicked(pad, IA_ROLE_JUMP))
+    if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
       P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
   }
 
@@ -11895,6 +12021,15 @@ void TerrainGame::buildHighlightApron(int index, float half) {
 // The pool never reallocates afterwards: chunk bags point into their own
 // slot's vectors, so slots must not move while chunks are alive.
 void TerrainGame::resetTerrainChunks() {
+  // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
+  // what makes renderTerrain and the streaming pass no-ops: every loop over
+  // them runs zero times.
+  if (!TERRAIN_ENABLED) {
+    terrainChunksX = terrainChunksZ = 0;
+    terrainChunks.clear();
+    terrainChunkSlot.clear();
+    return;
+  }
   const int cellsX = HM_W - 1;
   const int cellsZ = HM_D - 1;
   terrainChunksX = (cellsX + TERRAIN_CHUNK_CELLS - 1) / TERRAIN_CHUNK_CELLS;
@@ -12641,11 +12776,18 @@ void TerrainGame::updatePlayer() {
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
   // - Preferences > Input / Set Stick Curve node / a menu "Aim curve" block).
+  // Set Player Input off (g_playerLocked) reads as both sticks centred: it is
+  // the ONE funnel every analog read goes through, so nothing downstream needs
+  // to know the controls were taken away.
   auto axisL = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneL, g_stickCurveL, g_stickExpL);
   };
   auto axisR = [&](const u8& raw) {
-    return stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
+    return g_playerLocked
+               ? 0.0F
+               : stickAxis(raw, g_deadzoneR, g_stickCurveR, g_stickExpR);
   };
 
   // Right stick: look around (stick right = turn right)
@@ -12655,8 +12797,10 @@ void TerrainGame::updatePlayer() {
   // Mouse look (controls.hpp). The deltas are the counts accumulated since
   // the previous frame, so no g_frameScale: the same swipe turns the same
   // angle at any frame rate.
-  yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
-  pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  if (!g_playerLocked) {
+    yaw -= engine->kbdMouse.getMouse().dx * 0.003F * MOUSE_SENSITIVITY;
+    pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
+  }
 #endif
   if (pitch > 1.2F) pitch = 1.2F;
   if (pitch < -1.2F) pitch = -1.2F;
@@ -12719,7 +12863,7 @@ void TerrainGame::updatePlayer() {
   if (playerY <= ground) {
     playerY = ground;
     playerVelY = 0.0F;
-    if (inputClicked(engine->pad, IA_ROLE_JUMP))
+    if (!g_playerLocked && inputClicked(engine->pad, IA_ROLE_JUMP))
       playerVelY = JUMP_SPEED * g_frameDt;
   }
 

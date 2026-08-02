@@ -62,10 +62,15 @@ void Pad::init() {
   this->ret = padPortOpen(this->port, this->slot, padBuf);
   TYRA_ASSERT(this->ret != 0,
               "padPortOpen failed! padPortOpen returned: ", this->ret);
-  TYRA_ASSERT(this->initPad(), "initPad failed!");
+  /* Modified by TyraX: booting is no longer conditional on a controller being
+   * there and awake. This used to assert (i.e. halt) when initPad() failed,
+   * and initPad() could not fail because it span forever first - so a pad
+   * reporting DISCONNECT as the game booted froze it on the Tyra logo. It
+   * happens for real: over ps2link a deploy can land seconds after padman was
+   * loaded. Come up without a pad, and let update() adopt it when it shows. */
   this->opened = true;
-  this->ready = true;
-  this->connected = true;
+  this->ready = this->initPad() != 0;
+  this->connected = this->ready;
 }
 
 void Pad::initOptional(const int& t_port, const int& t_slot) {
@@ -81,14 +86,35 @@ void Pad::initOptional(const int& t_port, const int& t_slot) {
            this->slot, this->ret);
 }
 
-/** Wait when pad will be ready (stable and ready) */
+/** Modified by TyraX: roughly a millisecond of nothing, so the poll below is
+ * spread over real time instead of hammering the pad buffer. Deliberately not
+ * a Timer or a vsync wait - this runs before the renderer exists. */
+static void padSettleDelay() {
+  for (volatile int i = 0; i < 20000; i++) __asm__ __volatile__("nop");
+}
+
+/** Wait when pad will be ready (stable and ready).
+ *
+ * Modified by TyraX: BOUNDED. This used to spin forever, which is fine when a
+ * controller is plugged in and fatal when it is not: over ps2link the game
+ * boots seconds after padman was loaded, and a pad reporting DISCONNECT at
+ * that moment froze the boot on the Tyra logo with "Curent pad(0,0) status:
+ * DISCONNECT" as the last word. A controller settles in well under a second;
+ * anything past a few is not coming, so say so and let the caller carry on -
+ * update() re-initializes the pad the moment it does appear.
+ *
+ * Returns 0 when the pad is ready, -1 when it never got there. */
 int Pad::waitPadReady() {
-  int state;
-  int lastState;
   char* stateString = new char[16];
-  state = padGetState(this->port, this->slot);
-  lastState = -1;
-  while ((state != PAD_STATE_STABLE) && (state != PAD_STATE_FINDCTP1)) {
+  int lastState = -1;
+  int result = -1;
+
+  for (int i = 0; i < PAD_READY_POLLS; i++) {
+    int state = padGetState(this->port, this->slot);
+    if (state == PAD_STATE_STABLE || state == PAD_STATE_FINDCTP1) {
+      result = 0;
+      break;
+    }
     if (state != lastState) {
       padStateInt2String(state, stateString);
       TYRA_LOG("Pad state changed");
@@ -96,13 +122,19 @@ int Pad::waitPadReady() {
              stateString);
     }
     lastState = state;
-    state = padGetState(this->port, this->slot);
+    padSettleDelay();
   }
+
   // Were the pad ever 'out of sync'?
-  if (lastState != -1) TYRA_LOG("Pad is ready!");
+  if (result == 0) {
+    if (lastState != -1) TYRA_LOG("Pad is ready!");
+  } else {
+    printf("Pad(%d, %d) never became ready - continuing without it\n",
+           this->port, this->slot);
+  }
 
   delete[] stateString;
-  return 0;
+  return result;
 }
 
 /** Like waitPadReady, but gives up instead of spinning forever - an optional
@@ -119,7 +151,10 @@ int Pad::waitPadReadyBounded() {
 /** Initializes and checks type of pad */
 int Pad::initPad() {
   TYRA_LOG("Initializing pad");
-  this->waitPadReady();
+  /* Modified by TyraX: a pad that never settles is no longer fatal. Every
+   * assert below reads a mode table the pad has not published yet, so on a
+   * timeout they would all fire on a controller that is merely absent. */
+  if (this->waitPadReady() != 0) return 0;
 
   int modes = padInfoMode(this->port, this->slot, PAD_MODETABLE, -1);
   TYRA_ASSERT(modes, "Connected device is not a dual shock controller!");
@@ -145,12 +180,16 @@ int Pad::initPad() {
   // When using MMODE_LOCK, user cant change mode with Select button
   padSetMainMode(this->port, this->slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
 
-  this->waitPadReady();
+  /* Modified by TyraX: every wait from here on is checked. A pad pulled in the
+   * middle of its own mode setup used to be waited on forever; now it costs
+   * one timeout and leaves the pad marked not-ready, so update() runs the
+   * setup again from the top when it comes back. */
+  if (this->waitPadReady() != 0) return 0;
   TYRA_LOG("Pad has pressure sensitive buttons? ",
            padInfoPressMode(this->port, this->slot));
-  this->waitPadReady();
+  if (this->waitPadReady() != 0) return 0;
   padEnterPressMode(this->port, this->slot);  // Set pressure sensitive mode
-  this->waitPadReady();
+  if (this->waitPadReady() != 0) return 0;
   this->actuators = padInfoAct(this->port, this->slot, -1, 0);
   TYRA_LOG("# of actuators: ", this->actuators);
   if (actuators != 0) {
@@ -160,12 +199,12 @@ int Pad::initPad() {
     this->actAlign[3] = 0xff;
     this->actAlign[4] = 0xff;
     this->actAlign[5] = 0xff;
-    this->waitPadReady();
+    if (this->waitPadReady() != 0) return 0;
     TYRA_LOG("padSetActAlign: ",
              padSetActAlign(this->port, this->slot, actAlign));
   } else
     TYRA_LOG("Did not find any actuators.");
-  this->waitPadReady();
+  if (this->waitPadReady() != 0) return 0;
   TYRA_LOG("Pad initialized!");
   return 1;
 }
@@ -233,15 +272,31 @@ void Pad::update() {
     }
     this->connected = true;
   } else {
-    int x = 0;
-    this->ret = padGetState(this->port, this->slot);
-    while ((this->ret != PAD_STATE_STABLE) &&
-           (this->ret != PAD_STATE_FINDCTP1)) {
-      if (this->ret == PAD_STATE_DISCONN)
+    /* Modified by TyraX: this used to spin here until the pad came back,
+     * printing "is disconnected" as fast as the EE could manage - unplugging a
+     * controller mid-game froze the frame for good and flooded the log with
+     * it. Report a centered, silent pad instead and keep rendering, exactly
+     * like the optional port above; the pad is adopted again when it returns,
+     * including the first time it shows up after a boot that came up without
+     * one. */
+    int state = padGetState(this->port, this->slot);
+    if (state != PAD_STATE_STABLE && state != PAD_STATE_FINDCTP1) {
+      if (this->connected) {
         printf("Pad(%d, %d) is disconnected\n", this->port, this->slot);
-      this->ret = padGetState(this->port, this->slot);
+        this->connected = false;
+        this->ready = false;
+      }
+      this->oldPad = 0;
+      this->reset();
+      this->resetJoys();
+      return;
     }
-    if (x == 1) TYRA_LOG("Pad: OK!\n");
+    if (!this->ready) {
+      this->ready = this->initPadSoft() != 0;
+      if (!this->ready) return;
+      printf("Pad(%d, %d) is connected\n", this->port, this->slot);
+    }
+    this->connected = true;
   }
 
   this->ret = padRead(this->port, this->slot, &this->buttons);

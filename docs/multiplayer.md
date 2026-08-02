@@ -43,7 +43,15 @@ the game is running.
 - **Input**: player 1 keeps the engine pad (connector 1); player 2 reads a
   second `Tyra::Pad` on connector 2. The pad is *optional* — no controller
   never blocks or asserts, and the game keeps polling so plugging one in
-  mid-session works (`Pad::initOptional`, `vendor/tyra` fork).
+  mid-session works (`Pad::initOptional`, `vendor/tyra` fork). **Connector 1
+  behaves the same way now**: it used to spin forever waiting for a pad to
+  settle, both at boot and on every frame, so a controller that was absent,
+  unplugged mid-game or merely slow to report froze the game outright. Boot
+  gives it a few seconds and then comes up without it; a frame without a pad
+  reports a centered, silent one and keeps rendering; and the pad is adopted
+  (full DualShock + pressure mode) the moment it does appear. It matters over
+  ps2link, where a deploy can land seconds after `padman` was loaded and the
+  pad answers `DISCONNECT` for a moment — that used to be a frozen Tyra logo.
 - **Walkers**: both players run the same per-player walker
   (`updatePlayerWalker(PlayerCtl&, pi, pad)` in the generated
   `terrain_game.cpp`) — terrain bounds, object collision, gravity/jump,

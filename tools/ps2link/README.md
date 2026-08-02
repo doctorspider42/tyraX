@@ -8,8 +8,10 @@ so it is built here rather than downloaded — `setup.ps1` / `setup.sh` fetch
 
 Full end-to-end setup — hardware, flashing, `IPCONFIG.DAT`, the editor
 preference, troubleshooting — is in
-**[docs/ps2link-setup.md](../../docs/ps2link-setup.md)**. This file is about the
-build itself.
+**[docs/ps2link-setup.md](../../docs/ps2link-setup.md)**, and if you only want a
+console running, start at its
+**[Quickstart](../../docs/ps2link-setup.md#quickstart)** (five steps, one
+command). This file is about the build itself.
 
 ## Build it
 
@@ -22,18 +24,101 @@ tools/ps2link/build.ps1
 Linux: `tools/ps2link/build.sh`. `-Clean` / `--clean` throws the work tree
 away first.
 
+**`ps2link.elf` is linked at `0x01ee8000`** (top of RAM). `-Low` / `--low`
+builds the same thing at `0x00094000` — the "BIOS unused" window below the
+`0x00100000` a game loads at — as `ps2link-low.elf`. `-NoUsb` / `--no-usb`
+leaves the USB HID stack out and adds `-nousb` to the name; the switches
+combine, so `-Low -NoUsb` writes `ps2link-low-nousb.elf`.
+
+Upstream defaults to the low address and its CI publishes both variants
+("default" and "highloading"); the build script here defaults to **high**
+because that is the convenient one to develop against, not because it is the
+better image — it sits at ~31.9 MB, so a game that allocates its way up there
+would overwrite it. **The build to flash is low + packed + no USB**, which
+boots from FreeMcBoot's menu and leaves the top of RAM to the game. The boot
+screen prints the address, so the flashed card identifies itself.
+
+Why an *unpacked* low build black-screens under FMCB: **because upstream's
+release is packed and ours was not.** That took two wrong answers to reach, so
+here is the evidence rather than the story - and note it is only half the
+answer; the size limit below is the other half.
+
+First theory, image size — our patch bakes in the USB HID stack, so the image
+reaches ~50 KB further into that window than stock. Measured on the console,
+all at `0x00094000`, all flashed the same way:
+
+| build | image ends at | ELF | boots from the FMCB menu |
+|---|---|---|---|
+| stock upstream, unpacked, no patch | `0x000dea20` | 233 396 B | **no** |
+| ours, `--no-usb`, unpacked | `0x000df3a0` | 235 828 B | **no** |
+| ours, unpacked | `0x000eb5a0` | 285 492 B | **no** |
+| ours, high, unpacked | — | 285 492 B | yes |
+
+Not the size (285 KB boots high, 233 KB fails low), and not the patch (stock
+fails identically). Second theory, therefore: the low address itself. Wrong
+too - the ps2link release that *had* been booting from that menu for a year
+also ends up at `0x00094000`.
+
+What it actually is shows up in the ELF headers of the file that works:
+
+| | entry | first PT_LOAD | size |
+|---|---|---|---|
+| upstream release `PS2LINK.ELF` | `0x01d0001c` | `0x01ced150` | 89 364 B |
+| uLaunchELF `BOOT.ELF` | `0x01d0001c` | — | 351 876 B |
+| ours, `make ee` | `0x000948a8` | `0x00094000` | 285 492 B |
+
+The releases are run through **`ps2-packer`**: what a launcher loads is a small
+stub high in memory, and the real image is decompressed down to `0x00094000`
+at runtime - after the loader that put it there is done with its own code.
+Ours comes from `make ee`, the unpacked ELF, whose PT_LOAD lands on FMCB's
+loader while it is still running. uLaunchELF is unaffected because it is packed
+too and lives elsewhere.
+
+Packing (`make`, which runs `ps2-packer` and writes `bin/PS2LINK.ELF`, rather
+than `make ee`) turned out to be **necessary but not sufficient**: our packed
+*full* build, 118 740 B with entry `0x01d0001c`, does not boot either. There
+are two independent causes, which is why single-variable theories kept failing.
+Unpacked never boots from that menu, and a packed image still fails if the
+**decompressed** image reaches too far: `0x000df3a0` boots, `0x000eb5a0` does
+not, and our ~50 KB USB HID stack is exactly what pushes it over.
+
+So the combination that works is **low + packed + no USB**, and it is measured:
+it boots from the FreeMcBoot menu and survives **12 consecutive Run → Stop
+cycles** on the console. That is the build to flash. Full table and the
+measurements behind it: [docs/backlog.md](../../docs/backlog.md).
+
+`ps2link.elf` (high, unpacked, with the USB stack) stays the **default of the
+build script** because it is the convenient one for development - it keeps
+keyboard and mouse, and the high address only bites a game that allocates its
+way past ~31.9 MB. It is not the one to put on a memory card.
+
 Both scripts clone a **pinned** ps2link (`0c6138c`), apply
-[`tyrax.patch`](tyrax.patch), run `make ee` inside the official `ps2dev/ps2dev`
-toolchain image and write **`ps2link.elf`** here (~280 KB). It builds with the
+[`tyrax.patch`](tyrax.patch), build inside the official `ps2dev/ps2dev`
+toolchain image and write **`ps2link.elf`** here - the raw `make ee` image,
+~285 KB. `-Packed` / `--packed` runs `ps2-packer` over it the way upstream's
+releases ship, which is what a FreeMcBoot boot needs; the switches combine, so
+`-Low -NoUsb -Packed` writes `ps2link-low-nousb-packed.elf`. It builds with the
 current ps2dev toolchain, independent of the older `h4570/tyra` image the games
 build in — ps2link is a standalone program. The ELF is gitignored; the patch is
 what this repo maintains.
 
 You can tell our build apart on the console: the boot screen reads
-**“Welcome to TyraX ps2link (USB keyboard + mouse)”** instead of
-“Welcome to ps2link”.
+**“Welcome to TyraX ps2link r6 (USB keyboard + mouse)”** instead of
+“Welcome to ps2link”. The `r<n>` is bumped whenever the patch changes console
+behaviour — r1 was USB HID only, r2 added the hang/leak fixes, r3 silences the
+SPU2, r4 makes stopping a running game work, r5 takes stdio out of every error
+path (a `printf()` after a restart faults on newlib's cleared stdout lock and
+kills the EE instead of reporting), r6 stops rebooting the IOP twice per Stop —
+which is what made the console need a power cycle after one — so a memory card
+can be identified without guessing.
 
 ## What the patch does
+
+Four groups: the USB HID stack it started as, a set of robustness fixes to
+upstream's error paths, the SPU2 silencing, and making the reset command work
+against a running game.
+
+### 1. The USB HID stack
 
 Three mechanical edits to ps2link's `ee/` tree that bake the USB HID stack —
 `usbd` + `ps2kbd` + `ps2mouse`, shipped prebuilt in `$PS2SDK/iop/irx/` — into
@@ -69,6 +154,126 @@ ps2link (the `keepIopResident` path), so they're fine.
 > `ps2kbd`/`ps2mouse` only speak the USB HID **boot protocol**, which many
 > wireless/gaming devices don't expose — check yours in uLaunchELF first.
 
+### 2. Hang and leak fixes
+
+Upstream ps2link assumes the wire never misbehaves, and its error paths turn
+recoverable hiccups into a dead console. The full table — what was wrong, where,
+and why it mattered — is in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link).
+The short version, worst first:
+
+- **`pko_recv_bytes()` spun forever when the PC closed the connection.**
+  `recv()` returning 0 did `left -= 0`. It happens on every `ps2client` exit, and
+  it spins at IOP priority 9 while holding the `host:` semaphore, so everything
+  after it blocks permanently. This is the "it pierdoli and needs a reset" bug.
+- **`pko_accept_pkt()` left the byte stream out of frame** after any unexpected
+  reply, because it never consumed the packet's body.
+- **`pko_read_file()` trusted the PC's byte count** and wrote past the caller's
+  buffer.
+- **The IOP exception handler faulted on `strlen(NULL)`** for exactly the crashes
+  people care about, so a game crash reported nothing.
+- **`pkoExecEE()` zeroed `cmdThreadID`** (the wrong variable) on a failed launch,
+  after which ps2link answered no commands at all.
+- **`pkoReset()` was thought to wait on `SifIopSync()` inverted** — it was not,
+  and r4 undid that "fix": the two loops in the tree wait for opposite edges of
+  the same bit on purpose (see group 4).
+- Busy-loops on failing `accept()`/`recvfrom()`, `host:` fd leaks in
+  `dumpmem`/`writemem`/`dumpreg`, a thread + semaphore leak on re-mount, and a
+  handful of unchecked wire values.
+
+The protocol is untouched, so `tools/ps2client` needs no matching change.
+
+### 3. Silencing the SPU2 on reset
+
+The SPU2 is a separate block from the IOP and **keeps its registers across an IOP
+reset**, so it carried on looping the dead game's voices and mixing whatever
+autodma had left in its input. That is the "sound goes haywire when ps2link
+restarts", and it hit every redeploy — not just *Stop*.
+
+`spu2Silence()` (in `iop/cmdHandler.c`) keys off all 24 voices on both cores,
+zeroes voice volumes, unroutes them from the dry and reverb mixes, clears `MMIX`
+so the autodma input is unrouted too, clears `CORE_ATTR` and zeroes the output
+volume block. It runs from `pkoReset()` *and* from ps2link.irx's `_start()`, so
+it covers both sides of the reset and an IOP reset that never went through
+`pkoReset()` at all. The boot log prints `SPU2 silenced` when it fires.
+
+It can't leave you with no audio: every write is a zero or a key-off (so it
+cannot set a bit that wasn't set), and every register it touches is one
+`libsd`'s init reprograms — so the next `audsrv_init()` restores all of it. That
+was verified by diffing the two register sets out of the disassembly rather than
+assumed; the one-liner to redo it is in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link).
+
+Consequence for the editor: *Stop on PS2* no longer deploys
+[`tools/silencer`](../silencer/) or sleeps ~7 s waiting for it. The tool stays in
+the tree as a manual fallback for consoles still on a pre-r3 ps2link.
+
+### 4. Stopping a running game (r4, finished in r5/r6)
+
+*Stop on PS2* had never worked against a game on hardware. Two independent
+faults, both measured on a console, both covered in detail in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#1-build-the-tyrax-ps2link):
+
+- **the command never arrived** — the IOP command listener ran at priority 60,
+  *below* the `host:` file server at 9, and a game of ours polls `host:` about
+  ten times a frame. It now takes `USER_HIGHEST_PRIORITY` (9, the highest a
+  user thread may have) and the file server sits one below;
+- **ps2link never came back** — killing the game's thread leaves the DMAC, the
+  VUs, VIF, GIF and IPU running and the EE exception vectors owned by the
+  game's `libeedebug` handler. `pkoReset()` now quiesces them, re-arms the SIF0
+  chain, takes the vectors back, waits for *both* edges of `SifIopSync()`
+  (BOOTEND clearing, then setting) and re-execs the image, which is the only
+  way to get ps2sdk's `.bss`-resident state cleared.
+
+r4 made the game die reliably, but the console still needed a power cycle after
+one or two Stops, and two more revisions were needed to finish the job:
+
+- **r5** took stdio off every error path in `cmdHandler.c`. A `printf()` after
+  the image re-execs faults on newlib's stdout lock, which is a cleared `.bss`
+  field until newlib re-initialises — so the report of a failure became the
+  crash. Real, but only the messenger.
+- **r6** is the actual fix: the IOP was being rebooted **twice per Stop**.
+  `pkoReset()` rebooted it immediately before `ExecPS2()`, and the fresh
+  image's `main()` reboots it again a few lines in. The first one strands crt0,
+  where ps2sdk's C runtime init talks to the IOP over the SIF before `main()`
+  ever runs — against an IOP that has just restarted with no modules on it.
+  `pkoRestartImage()` had the same shape and changed with it.
+
+Verified on the console, every "survived" confirmed by the *next deploy* rather
+than by ping: **12 consecutive Run → Stop cycles** on the high build and 12 on
+the low packed no-USB build booted from the FreeMcBoot menu, both series ending
+on their own limit. Before r6 the low build died on the *first* Stop every time.
+(An earlier "four cycles back to back" claim for r4 could not be reproduced on
+any build and is retracted.)
+
+## Testing it without a console
+
+**ps2link itself runs in PCSX2** — a portable second copy of the emulator with
+DEV9 bridged onto the LAN boots this ELF and answers the real `ps2client`, so a
+wedged console is a killed process rather than a walk to the hardware. That is
+the layer to reach for when a change touches the reset/restart path: the
+r4-vs-r6 *Stop* difference reproduces there in about two minutes. Setup,
+gotchas and what it cannot do (EE exceptions — main RAM starts at address 0, so
+a NULL dereference never faults) are in
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md#testing-a-change-without-a-console).
+
+For the `host:` protocol code specifically there is a host harness that needs no
+emulator at all:
+
+```powershell
+tools/ps2link/test/run.ps1
+```
+
+`run.sh` on Linux. It compiles the **real** `build/iop/net_fio.c` against the
+stub IOP/lwip headers in `test/shim/` and drives it with a scripted fake socket,
+checking framing, EOF handling, short reads and the buffer clamps. `-Pristine` /
+`--pristine` runs the same tests against the untouched upstream file and
+**expects failure** — that A/B is what makes the suite worth anything, so if you
+change `net_fio.c`, keep both halves honest. Needs `build/` to exist (run
+`build.ps1` once) and a host `gcc`.
+
+Anything touching threads, the SIF or the GS is still hardware-only.
+
 ## Changing it
 
 Expect to. The loop:
@@ -89,6 +294,10 @@ Expect to. The loop:
 Keep the patch LF-only (`.gitattributes` enforces it): it is applied to a Unix
 checkout inside a Linux container, and a CRLF patch fails `git apply`. To move
 to a newer upstream, bump the commit in **both** `build.ps1` and `build.sh` and
-re-generate the patch against the new tree. If a change alters the boot banner,
-update [docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how
-anyone tells this build apart from a stock one.
+re-generate the patch against the new tree. If a change alters console
+behaviour, bump the `r<n>` in the banner and update
+[docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how anyone
+tells builds apart, including which fixes a flashed card already has.
+
+Note that the pinned commit `0c6138c` **is** upstream's head, so there is no
+newer ps2link to pull these fixes from; they live here or nowhere.
