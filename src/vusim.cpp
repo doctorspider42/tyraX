@@ -1,6 +1,7 @@
 #include "vusim.hpp"
 
 #include <array>
+#include <cfenv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -57,8 +58,32 @@ struct Machine {
 
 }  // namespace
 
+namespace {
+
+/** The VU FPU does NOT round the way the host does: it truncates toward zero,
+ * where an x86 rounds to nearest-even. Ignoring that was measurable, not
+ * theoretical - replaying a real console capture (`--vu-replay`) reproduced
+ * screen X and Y bit for bit and missed the 24-bit Z by one or two units in the
+ * last place, every time. Z is the coordinate scaled by 8388607.5 rather than
+ * 2048, so it is where a single-ULP mantissa difference first shows.
+ *
+ * Switching the host rounding mode for the duration of a run is the whole fix:
+ * every add/mul/madd below then rounds the way VU1 does.
+ *
+ * Still NOT modelled, and neither has shown up in a capture yet: the VU has no
+ * denormals (it flushes them to zero) and no infinities (it saturates to the
+ * largest representable value). */
+struct RoundTowardZero {
+    int saved;
+    RoundTowardZero() : saved(std::fegetround()) { std::fesetround(FE_TOWARDZERO); }
+    ~RoundTowardZero() { std::fesetround(saved); }
+};
+
+}  // namespace
+
 Result run(const Program& p, const std::vector<uint32_t>& initialMem,
            const Config& cfg) {
+    const RoundTowardZero vuRounding;
     Result res;
     Machine m;
     m.vf.assign(p.vfNames.empty() ? 1 : p.vfNames.size(), {0, 0, 0, 0});

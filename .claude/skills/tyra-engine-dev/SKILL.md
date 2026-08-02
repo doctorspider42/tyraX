@@ -320,6 +320,17 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   simulating both on randomized input. If you change one of those five by hand,
   `--vu-check` starts failing - update the description in `vugen.cpp` too, or
   the two have genuinely diverged and you should say which is right.
+- **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
+  diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
+  36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
+  be replayed, so you need the Debugger's flush picker to get a single-mesh
+  flush, and a project with no flow-graph node compiles the devkit layer away
+  entirely - the capture button then does nothing.
+- **The simulator rounds toward zero, because VU1 does.** An x86 rounds to
+  nearest-even; that difference is invisible on screen X/Y and shows up as one or
+  two units in the last place of the 24-bit Z (the coordinate scaled by
+  8388607.5). It was found by replaying a console capture, not reasoned about. If
+  you add arithmetic to `vusim`, do not compute outside `run()`'s rounding scope.
 - **Nothing in `vendor/tyra` is generated yet.** `--vu-emit` writes to a
   directory you name on purpose: adopting generated microcode needs the full
   Docker + hardware pass, not a host check.

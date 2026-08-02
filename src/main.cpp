@@ -1448,6 +1448,264 @@ static int vuListFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Usage:
+//   tyrax-editor --vu-replay <projectDir> [engineDir]
+//
+// Takes a VU1 capture off a real console (bin/vucap.bin - Debugger > VU, or
+// docs/devkit.md) and RE-RUNS it on the host, then diffs the result against what
+// the hardware actually produced. See docs/vu-framework.md.
+//
+// The capture happens to contain both halves of the experiment: the DMA chain
+// the EE built (the input) and a snapshot of all 1024 quadwords of VU1 data
+// memory taken once the microprogram went idle (the output). So the input can be
+// reconstructed, fed to the simulator, and the answer compared against the
+// console's own.
+//
+// Two things the capture does NOT record are found by SEARCH rather than
+// assumed, which turns out to be the more useful design: which microprogram ran
+// (the chain carries an MSCAL entry address, and an address is only meaningful
+// against a program layout the host does not have), and which half of the double
+// buffer it ran from. Every candidate is tried and the one that reproduces the
+// hardware output is reported - so the tool answers "which program drew this?"
+// with evidence instead of a label, and a run where NOTHING matches is itself
+// the finding.
+static int vuReplayFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --vu-replay <projectDir> [engineDir]\n");
+        return 2;
+    }
+    Project proj;
+    const std::string perr = project::load(proj, argv[2]);
+    if (!perr.empty()) {
+        std::fprintf(stderr, "error: %s\n", perr.c_str());
+        return 1;
+    }
+    const std::string capPath = (fs::path(proj.dir) / "bin" / "vucap.bin").string();
+    vucap::Capture cap;
+    if (!vucap::load(capPath, cap)) {
+        std::fprintf(stderr, "error: %s (%s)\n", cap.error.c_str(), capPath.c_str());
+        return 1;
+    }
+    std::printf("capture: frame %u, %d quadwords, %d mesh(es), flush %d of %d\n",
+                cap.frame, cap.qw, (int)cap.meshes.size(), cap.flushIndex,
+                cap.flushCount);
+    if (!cap.hasVuMem) {
+        std::fprintf(stderr,
+                     "error: this capture has no VU1 memory snapshot, so there is "
+                     "nothing to compare against.\n"
+                     "       Re-arm it from Debugger > VU (a v3 or newer capture).\n");
+        return 1;
+    }
+
+    // Every microprogram the engine ships is a candidate.
+    const std::string engine = vuEngineDir(argc > 3 ? argv[3] : nullptr);
+    std::error_code ec;
+    std::vector<std::string> files;
+    for (const auto& e : fs::recursive_directory_iterator(fs::path(engine) / "src", ec))
+        if (e.is_regular_file() && e.path().extension() == ".vclpp")
+            files.push_back(e.path().string());
+    std::sort(files.begin(), files.end());
+    if (files.empty()) {
+        std::fprintf(stderr, "error: no .vclpp programs under %s\n", engine.c_str());
+        return 1;
+    }
+
+    // The two halves of the StaPip double buffer (stapip_qbuffer_renderer.cpp:
+    // starting address VU1_STAPIP_LAST_ITEM_ADDR + 1, size split evenly below
+    // VU1_STAPIP_DBUFFER_END). The capture does not say which one this run used.
+    const int kStart = 22, kEnd = 944;
+    const int half = (kEnd - kStart) / 2;
+    const int topsCandidates[2] = {kStart, kStart + half};
+
+    // Reconstruct the input. The constants the object-data chain uploaded
+    // (matrices, tags, fog) are not in THIS chain - but they survive in the
+    // captured memory, because nothing in the run overwrites quadwords 0..21.
+    // So those are copied from the snapshot and the chain's unpacks are replayed
+    // on top of an OTHERWISE ZEROED memory.
+    //
+    // Zeroing the rest is the load-bearing part, and seeding from the whole
+    // snapshot instead was the first version's bug: the console's own output
+    // packet is still sitting in that memory, so the packet scan found it no
+    // matter what the simulated program did, and every one of the 25 candidates
+    // "reproduced" the capture. A comparison that cannot fail proves nothing.
+    // With the output area zeroed, a packet found afterwards was written by
+    // THIS run.
+    const int kConstQuads = 22;  // VU1_STAPIP_LAST_ITEM_ADDR + 1
+
+    // Only the LAST mesh of the chain can be replayed: its output is the one
+    // still in the snapshot, everything before it has been overwritten. Each
+    // mesh's upload starts with the 2-quadword buffer header at +TOPS offset 0,
+    // so the final group is everything from the last such unpack onward.
+    // (Grouping by `Unpack::program` is not enough - consecutive meshes often
+    // run the SAME microprogram, and their two buffer halves would be merged
+    // into one incoherent image.)
+    size_t groupStart = 0;
+    for (size_t i = 0; i < cap.unpacks.size(); ++i)
+        if (cap.unpacks[i].useTops && cap.unpacks[i].vuAddr == 0) groupStart = i;
+
+    // The clip programs read a six-plane table the EE uploads per mesh into the
+    // scratch above the double buffer (VU1_CLIP_PLANES_ADDR, stapip_vu1_shared
+    // _defines.h). It is not in this chain either, and zeroing it makes every
+    // clip program cut everything away - so it is carried over from the snapshot
+    // exactly like the low constants are.
+    const int kScratchFrom = 944;  // VU1_STAPIP_DBUFFER_END
+    auto stage = [&](int tops) {
+        std::vector<uint32_t> mem(vusim::kMemWords, 0u);
+        for (int i = 0; i < kConstQuads * 4 && i < (int)cap.vuMem.size(); ++i)
+            mem[i] = cap.vuMem[i];
+        for (int i = kScratchFrom * 4;
+             i < vusim::kMemWords && i < (int)cap.vuMem.size(); ++i)
+            mem[i] = cap.vuMem[i];
+        for (size_t k = groupStart; k < cap.unpacks.size(); ++k) {
+            const vucap::Unpack& u = cap.unpacks[k];
+            const int base = (u.useTops ? tops : 0) + (int)u.vuAddr;
+            for (size_t i = 0; i < u.words.size(); ++i) {
+                const size_t at = (size_t)base * 4 + i;
+                if (at < mem.size()) mem[at] = u.words[i];
+            }
+        }
+        return mem;
+    };
+
+    // Which quadwords the EE itself wrote. A "match" inside this range is the
+    // input echoing itself, not a program reproducing an output - the first
+    // version compared the biggest geometry packet in memory and that packet
+    // turned out to be the EE's own PRIM tag at buffer+1 followed by the vertex
+    // array, read as GS vertices. Every candidate matched it. Anything the
+    // comparison lands on has to be OUTSIDE what the chain uploaded.
+    auto unpackTouches = [&](int tops, int qw0, int qw1) {
+        for (const vucap::Unpack& u : cap.unpacks) {
+            const int base = (u.useTops ? tops : 0) + (int)u.vuAddr;
+            const int end = base + (int)(u.words.size() / 4);
+            if (qw0 < end && base < qw1) return true;
+        }
+        return false;
+    };
+    // The first geometry packet at or after `start` in a memory image.
+    auto packetAt = [](const std::vector<uint32_t>& mem, int start,
+                       vucap::GifPacket& out) {
+        std::vector<vucap::GifPacket> all;
+        vucap::scanGifPackets(mem, all);
+        for (const vucap::GifPacket& g : all)
+            if (g.vuAddr >= start && g.hasGeometry) {
+                out = g;
+                return true;
+            }
+        return false;
+    };
+
+    struct Hit {
+        std::string file, name;
+        int tops = 0, kick = 0, verts = 0, mismatched = 0;
+        std::string regs, prim;
+    };
+    std::vector<Hit> exact, near;
+    int ran = 0, kicked = 0, echo = 0;
+
+    for (const std::string& f : files) {
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program prog;
+        std::string err;
+        if (!vuasm::parseFile(f, opt, prog, err)) continue;
+
+        for (int tops : topsCandidates) {
+            vusim::Config cfg;
+            cfg.top = tops;
+            const vusim::Result r = vusim::run(prog, stage(tops), cfg);
+            if (!r.ok || r.kicks.empty()) continue;
+            ++ran;
+
+            // Compare at the address THIS program says it kicked - that is where
+            // the GS would have read from, so it is where the console's memory
+            // must agree if the same program produced it.
+            const int kick = r.kicks.front();
+            vucap::GifPacket mine, theirs;
+            if (!packetAt(r.mem, kick, mine)) continue;
+            if (!packetAt(cap.vuMem, kick, theirs)) continue;
+            ++kicked;
+            if (mine.verts.size() != theirs.verts.size()) continue;
+            if (mine.verts.empty()) continue;
+            const int qw0 = mine.vuAddr;
+            const int qw1 = qw0 + 1 + mine.nloop * mine.nreg;
+            if (unpackTouches(tops, qw0, qw1)) {
+                ++echo;
+                continue;  // inside the EE's own upload: proves nothing
+            }
+
+            int bad = 0;
+            for (size_t i = 0; i < mine.verts.size(); ++i) {
+                const vucap::GsVertex& a = theirs.verts[i];
+                const vucap::GsVertex& b = mine.verts[i];
+                // ST is compared as BITS, and it is what separates otherwise
+                // identical candidates: for a mesh entirely inside the frustum
+                // the cull and clip families stage the same positions, and only
+                // the texture coordinates say whether the matcap variant ran.
+                if (a.x != b.x || a.y != b.y || a.z != b.z || a.r != b.r ||
+                    a.g != b.g || a.b != b.b || a.a != b.a ||
+                    std::memcmp(&a.s, &b.s, 4) != 0 ||
+                    std::memcmp(&a.t, &b.t, 4) != 0)
+                    ++bad;
+            }
+            Hit h{fs::path(f).filename().string(),
+                  prog.name,
+                  tops,
+                  kick,
+                  (int)mine.verts.size(),
+                  bad,
+                  mine.regs,
+                  mine.primName()};
+            (bad == 0 ? exact : near).push_back(h);
+        }
+    }
+    std::printf("%d candidate runs kicked a packet, %d had one to compare, "
+                "%d landed inside the EE's own upload and were discarded\n\n",
+                ran, kicked, echo);
+
+    if (!exact.empty()) {
+        std::printf("REPRODUCED - the host simulator produced the console's "
+                    "packet exactly:\n");
+        for (const Hit& h : exact)
+            std::printf("  %-32s (%s)\n      buffer half %d, kicked quadword %d, "
+                        "%s [%s], %d/%d vertices identical\n",
+                        h.file.c_str(), h.name.c_str(), h.tops, h.kick,
+                        h.prim.c_str(), h.regs.c_str(), h.verts, h.verts);
+        std::printf(
+            "\nEvery GS vertex matches bit for bit - screen X/Y in 12.4, the "
+            "24-bit Z\nand the clamped colours. The program above is what drew "
+            "this packet, and\nthe simulator agrees with the hardware on it.\n");
+        return 0;
+    }
+
+    std::printf("NOT REPRODUCED - no shipped microprogram replayed into the "
+                "console's packet.\n\n");
+    if (near.empty()) {
+        std::printf(
+            "No candidate produced a comparable packet outside the EE's own\n"
+            "upload. That usually means the reconstruction is wrong rather than\n"
+            "any program: this chain carries several meshes and only the LAST\n"
+            "one's output survives in the snapshot, and the per-mesh constants\n"
+            "come from an object-data chain this capture does not contain.\n");
+    } else {
+        std::printf("Closest candidates (same vertex count, differing values):\n");
+        std::sort(near.begin(), near.end(),
+                  [](const Hit& a, const Hit& b) { return a.mismatched < b.mismatched; });
+        for (size_t i = 0; i < near.size() && i < 6; ++i)
+            std::printf("  %-32s half %d, kick %d: %d of %d vertices differ\n",
+                        near[i].file.c_str(), near[i].tops, near[i].kick,
+                        near[i].mismatched, near[i].verts);
+        std::printf(
+            "\nA near miss is worth reading, not dismissing: identical vertex\n"
+            "counts with differing values means the right program ran and one\n"
+            "input differs - the per-mesh constants the object-data chain\n"
+            "uploaded are NOT in this capture, so a matrix or a fog parameter\n"
+            "read from the snapshot may belong to a later mesh.\n");
+    }
+    return 1;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
@@ -1455,6 +1713,8 @@ int main(int argc, char** argv) {
         return vuEmitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--vu-list") == 0)
         return vuListFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-replay") == 0)
+        return vuReplayFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--debug-state") == 0)
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
@@ -1507,6 +1767,8 @@ int main(int argc, char** argv) {
             "program classes\n"
             "  --vu-list <file.vclpp> [engineDir]      expand and disassemble "
             "one microprogram\n"
+            "  --vu-replay <projectDir> [engineDir]    re-run a console VU1 "
+            "capture on the host and diff it\n"
             "  --resave <projectDir>\n"
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "

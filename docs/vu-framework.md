@@ -110,6 +110,16 @@ Does **not** model, on purpose:
   yield 0 and emit a warning saying the run is not authoritative for a program
   that branches on them. An admitted gap beats a plausible wrong answer.
 
+**Rounding is VU rounding, and that was measured, not assumed.** The VU FPU
+truncates toward zero where an x86 rounds to nearest-even. The first `--vu-replay`
+against a real console reproduced screen X and Y exactly and missed the 24-bit Z
+by one or two units in the last place, every time - Z is the coordinate scaled by
+8388607.5 rather than 2048, so it is where a single-ULP mantissa difference first
+shows. `vusim::run` switches the host rounding mode for the duration of a run;
+with that, the captured packet matches whole. Still not modelled, and not yet
+seen in a capture: the VU has no denormals (it flushes them) and no infinities
+(it saturates).
+
 It *does* report two things the assembler will not:
 
 - **Q clobbering** — a `div`/`rsqrt` whose result is overwritten before anything
@@ -183,6 +193,36 @@ described program. It writes to a directory you name, **not** into
 Docker and looked at on hardware, so this stages it for a human to diff first.
 
 ```bash
+tyrax-editor --vu-replay <projectDir> [engineDir]
+```
+Takes a VU1 capture off a real console (`bin/vucap.bin`) and re-runs it here,
+then diffs the result against what the hardware produced. The capture holds both
+halves of the experiment: the DMA chain the EE built (the input) and a snapshot
+of VU1 data memory taken once the microprogram went idle (the output).
+
+Two things the capture does not record are found by SEARCH rather than assumed,
+which turned out to be the more useful design - which microprogram ran (the chain
+carries an MSCAL entry address, and an address means nothing without a program
+layout the host does not have) and which half of the double buffer it used. Every
+candidate is tried and the ones that reproduce the hardware output are reported,
+so the tool answers "which program drew this?" with evidence instead of a label.
+
+Measured on `examples/vu-lab`: **36/36 GS vertices identical** - screen X/Y in
+12.4, the 24-bit Z, the clamped colours and the perspective-corrected ST. It
+narrows that draw to two candidates (`clip_tc` and `cull_tc`) and stops there,
+which is the honest answer: for a mesh entirely inside the frustum the clip
+program's Sutherland-Hodgman pass changes nothing, so the two stage identical
+output and nothing in the output can separate them.
+
+Two limits worth knowing before using it. Only the **last mesh of a chain** can
+be replayed - everything before it has been overwritten in VU1 memory by
+definition, so a flush carrying fourteen terrain chunks is not resolvable and the
+Debugger's flush picker is how you get a single-mesh one. And the per-mesh
+constants (matrices, tags, fog) come from an object-data chain the capture does
+not contain; they are carried over from the snapshot, which is only sound while
+the snapshot belongs to the mesh being replayed.
+
+```bash
 tyrax-editor --vu-list <file.vclpp> [engineDir]
 ```
 Expands and disassembles one microprogram — what the framework sees *after* the
@@ -198,6 +238,10 @@ write.
 all twenty-five `.vclpp` files parse with no diagnostics, including the five
 Sutherland–Hodgman clip programs and the VU0 raytracer kernel. They can be run,
 traced and inspected today; they just do not have a C++ description yet.
+
+**Validated against hardware:** a capture from `examples/vu-lab` running in
+PCSX2 replays into a bit-identical GIF packet (36/36 vertices). That is the
+simulator checked against a real console rather than against itself.
 
 **Not done:** nothing in `vendor/tyra` has been replaced. The generated programs
 are proven equivalent in the simulator, but no generated microcode has been built

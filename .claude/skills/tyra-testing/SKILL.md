@@ -165,7 +165,18 @@ TYRAX --vu-check [engineDir]         # exit 0 = every program parsed AND every
                                      #   twin bit for bit, in the host simulator
 TYRAX --vu-list <file.vclpp>         # expand + disassemble one microprogram
 TYRAX --vu-emit <outDir>             # generate .vclpp + the EE program classes
+TYRAX --vu-replay <projectDir>       # re-run a console VU1 capture on the host
 ```
+
+`--vu-replay` is the only layer that checks the simulator against REAL hardware:
+it reconstructs the input from `bin/vucap.bin` and diffs its own output against
+the console's. `examples/vu-lab` is the fixture built for it. Two things to know
+before trying it on some other project: only the LAST mesh of a chain can be
+replayed (use the Debugger's flush picker to capture a flush carrying ONE mesh -
+a terrain flush with fourteen chunks is not resolvable), and **a project with no
+flow-graph node has no devkit layer at all** - `live_debug.gen.cpp` compiles to an
+empty TU and the capture button does nothing, which looks like a broken feature
+and is the zero-cost rule working.
 
 **Run `--vu-check` after ANY change under `vendor/tyra/.../*.vclpp` or to
 `src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
