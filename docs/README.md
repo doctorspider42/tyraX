@@ -46,6 +46,10 @@ guides. What is queued is in [Backlog](backlog.md).
   inserted and pasted objects resting on the terrain or on the object below
   instead of sinking into it, the `End` drop-to-floor command, and the paste
   that follows the cursor until you click it down.
+- [Endless scroller](endless-scroller.md) - the conveyor-belt object that
+  tiles authored segments of scene objects along its axis forever (the
+  train-window level generator): segments, belt settings, the Start / Stop /
+  Set Scroller Speed flow nodes, seam rules, how the clone bake works.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real

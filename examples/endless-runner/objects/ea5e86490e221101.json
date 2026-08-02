@@ -1,0 +1,1 @@
+{ "id": "ea5e86490e221101", "name": "rocks-left#rock-xm1z0", "type": "model", "position": [-16, 0, 16], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/procgen-rocksl-rock-xm1z0.obj", "procSource": "rocksl" }

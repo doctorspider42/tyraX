@@ -11,6 +11,7 @@
 #include <set>
 
 #include "objparser.hpp"
+#include "scrollsim.hpp"
 
 namespace aobake {
 
@@ -157,8 +158,14 @@ static bool objectShape(const SceneObject& o, int index,
 std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                                        const ModelAabbFn& modelAabb) {
     std::vector<Occluder> out;
+    // An endless scroller's member templates are deactivated in the game and
+    // replaced by sliding clones, so they cast nothing - baking their contact
+    // shadow leaves a permanent dark patch at the belt origin under objects
+    // the player never sees (scrollsim::memberTemplateFlags).
+    const std::vector<char> beltMember = scrollsim::memberTemplateFlags(objects);
     for (int i = 0; i < (int)objects.size(); ++i) {
         if (!objects[i].castShadow) continue;  // per-object opt-out (Properties)
+        if (beltMember[(size_t)i]) continue;
         Occluder oc;
         if (objectShape(objects[i], i, modelAabb, oc)) out.push_back(oc);
     }
@@ -228,7 +235,10 @@ std::vector<Emitter> collectEmitters(const std::string& projectDir,
     std::vector<Emitter> out;
     GlowCache own;
     GlowCache& c = cache ? *cache : own;
+    // Same reason as collectOccluders: a hidden belt template lights nothing.
+    const std::vector<char> beltMember = scrollsim::memberTemplateFlags(objects);
     for (int i = 0; i < (int)objects.size(); ++i) {
+        if (beltMember[(size_t)i]) continue;
         const SceneObject& o = objects[i];
         // Note castShadow is deliberately NOT consulted: a glowing sign that
         // casts no shadow still lights the wall behind it.
@@ -1046,8 +1056,13 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     GlowCache glowCache;
     // Collected once: the set of object names any flow graph can move.
     const std::set<std::string> movableRefs = project::runtimeRefNames(p, sc.objects);
+    // A scroller's member templates never render (the game deactivates them and
+    // slides clones instead), and the clones move, so a belt takes no lightmap
+    // at either end - it stays on the vertex bake.
+    const std::vector<char> beltMember = scrollsim::memberTemplateFlags(sc.objects);
     for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
         const SceneObject& o = sc.objects[oi];
+        if (beltMember[(size_t)oi]) continue;
         const int rc = regionCountFor(o.type);
         if (rc == 0) continue;
         // Runtime movers keep the vertex bake (which re-bakes on rebuild);

@@ -1,0 +1,1 @@
+{ "id": "lwall", "name": "wall-left", "type": "plane", "position": [-2.95, 2.1, 0], "rotation": [0, 0, 90], "scale": [4.2, 1, 3], "color": [0.5, 0.46, 0.4], "physics": false }

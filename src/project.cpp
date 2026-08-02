@@ -42,6 +42,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Portal: return "portal";
         case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
+        case PrimitiveType::Scroller: return "scroller";
     }
     return "box";
 }
@@ -65,6 +66,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "portal") return PrimitiveType::Portal;
     if (s == "area") return PrimitiveType::Area;
     if (s == "scatter") return PrimitiveType::Scatter;
+    if (s == "scroller") return PrimitiveType::Scroller;
     return PrimitiveType::Box;
 }
 
@@ -685,6 +687,41 @@ std::string objectJson(const SceneObject& o) {
                 ", \"objects\": [";
         for (size_t i = 0; i < o.portalObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
+        json += "] }";
+    }
+    if (o.type == PrimitiveType::Scroller) {
+        json += ", \"scroller\": { \"speed\": " + fmtFloat(o.scrollSpeed) +
+                ", \"ahead\": " + fmtFloat(o.scrollAhead) +
+                ", \"behind\": " + fmtFloat(o.scrollBehind) +
+                ", \"autostart\": " + (o.scrollAutostart ? "true" : "false") +
+                ", \"maxClones\": " + std::to_string(o.scrollMaxClones) +
+                ", \"overlap\": " + fmtFloat(o.scrollOverlap) +
+                ", \"varySeed\": " + std::to_string(o.scrollVarySeed) +
+                ", \"segments\": [";
+        for (size_t i = 0; i < o.scrollSegments.size(); ++i) {
+            const ScrollSegment& s = o.scrollSegments[i];
+            json += (i ? ", " : "") + std::string("{ \"name\": \"") + s.name +
+                    "\", \"length\": " + fmtFloat(s.length) + ", \"objects\": [";
+            for (size_t k = 0; k < s.objects.size(); ++k) {
+                const ScrollMember& m = s.objects[k];
+                json += k ? ", " : "";
+                // A member that varies nothing stays a bare name, so belts
+                // authored before per-cell variation round-trip unchanged.
+                if (scrollMemberIsPlain(m)) {
+                    json += "\"" + m.name + "\"";
+                    continue;
+                }
+                json += "{ \"n\": \"" + m.name + "\"";
+                if (m.chance < 1.0f) json += ", \"chance\": " + fmtFloat(m.chance);
+                if (m.variant != 0) json += ", \"variant\": " + std::to_string(m.variant);
+                if (m.yawVary != 0.0f) json += ", \"yaw\": " + fmtFloat(m.yawVary);
+                if (m.offsetVary != 0.0f)
+                    json += ", \"offset\": " + fmtFloat(m.offsetVary);
+                if (m.scaleVary != 0.0f) json += ", \"scale\": " + fmtFloat(m.scaleVary);
+                json += " }";
+            }
+            json += "] }";
+        }
         json += "] }";
     }
     if (o.type == PrimitiveType::Model && isAnimatedModelPath(o.modelPath)) {
@@ -3175,6 +3212,64 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* sr = jo.find("scroller")) {
+            if (const auto* v = sr->find("speed")) o.scrollSpeed = (float)v->numberOr(6.0);
+            if (const auto* v = sr->find("ahead")) o.scrollAhead = (float)v->numberOr(40.0);
+            if (o.scrollAhead < 0.0f) o.scrollAhead = 0.0f;
+            if (const auto* v = sr->find("behind"))
+                o.scrollBehind = (float)v->numberOr(10.0);
+            if (o.scrollBehind < 0.0f) o.scrollBehind = 0.0f;
+            if (const auto* v = sr->find("autostart"))
+                o.scrollAutostart = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = sr->find("maxClones"))
+                o.scrollMaxClones = (int)v->numberOr(120);
+            if (o.scrollMaxClones < 1) o.scrollMaxClones = 1;
+            if (const auto* v = sr->find("overlap"))
+                o.scrollOverlap = (float)v->numberOr(0.02);
+            if (o.scrollOverlap < 0.0f) o.scrollOverlap = 0.0f;
+            if (const auto* v = sr->find("varySeed"))
+                o.scrollVarySeed = (int)v->numberOr(1);
+            if (const auto* segs = sr->find("segments");
+                segs && segs->type == json::Value::Type::Array) {
+                for (const auto& js : segs->arr) {
+                    if (js.type != json::Value::Type::Object) continue;
+                    ScrollSegment seg;
+                    if (const auto* v = js.find("name")) seg.name = v->stringOr("segment");
+                    if (const auto* v = js.find("length"))
+                        seg.length = (float)v->numberOr(0.0);
+                    if (const auto* v = js.find("objects");
+                        v && v->type == json::Value::Type::Array) {
+                        // Two spellings, mixable in one list: a bare name (a
+                        // member that varies nothing) or an object carrying the
+                        // per-cell variation fields.
+                        for (const auto& s : v->arr) {
+                            ScrollMember m;
+                            if (s.type == json::Value::Type::String) {
+                                m.name = s.str;
+                            } else if (s.type == json::Value::Type::Object) {
+                                if (const auto* f = s.find("n")) m.name = f->stringOr("");
+                                if (const auto* f = s.find("chance"))
+                                    m.chance = (float)f->numberOr(1.0);
+                                if (const auto* f = s.find("variant"))
+                                    m.variant = (int)f->numberOr(0);
+                                if (const auto* f = s.find("yaw"))
+                                    m.yawVary = (float)f->numberOr(0.0);
+                                if (const auto* f = s.find("offset"))
+                                    m.offsetVary = (float)f->numberOr(0.0);
+                                if (const auto* f = s.find("scale"))
+                                    m.scaleVary = (float)f->numberOr(0.0);
+                            }
+                            if (m.name.empty()) continue;
+                            if (m.chance < 0.0f) m.chance = 0.0f;
+                            if (m.chance > 1.0f) m.chance = 1.0f;
+                            if (m.variant < 0) m.variant = 0;
+                            seg.objects.push_back(std::move(m));
+                        }
+                    }
+                    o.scrollSegments.push_back(std::move(seg));
+                }
+            }
+        }
         if (const auto* pt = jo.find("portal")) {
             if (const auto* v = pt->find("target")) o.portalTarget = v->stringOr("");
             if (const auto* v = pt->find("showTerrain"))
@@ -4945,6 +5040,23 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     for (const auto& n : o.portalObjects) fnvMixS(h, n);
     fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
                   (o.portalViewAll ? 4 : 0));
+    // Scroller parameters + segment membership are baked (SCROLLERS /
+    // SCROLLER_CLONES side tables + the appended clone objects), so any edit
+    // must read as "rebuild needed" for Live Link.
+    fnvMixF(h, o.scrollSpeed), fnvMixF(h, o.scrollAhead), fnvMixF(h, o.scrollBehind);
+    fnvMix(h, (o.scrollAutostart ? 1 : 0));
+    fnvMix(h, (uint64_t)o.scrollMaxClones);
+    fnvMixF(h, o.scrollOverlap);
+    fnvMix(h, (uint64_t)(uint32_t)o.scrollVarySeed);
+    for (const ScrollSegment& s : o.scrollSegments) {
+        fnvMixS(h, s.name);
+        fnvMixF(h, s.length);
+        for (const ScrollMember& m : s.objects) {
+            fnvMixS(h, m.name);
+            fnvMixF(h, m.chance), fnvMix(h, (uint64_t)(uint32_t)m.variant);
+            fnvMixF(h, m.yawVary), fnvMixF(h, m.offsetVary), fnvMixF(h, m.scaleVary);
+        }
+    }
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
     // vertex colors. Folding them into the recipe makes any live edit of
@@ -4987,6 +5099,7 @@ bool liveLinkCanSpawnLive(const SceneObject& o) {
     // expansions) that only exist for authored objects - a spawned clone would
     // be a volume nothing points at.
     if (o.type == PrimitiveType::Area) return false;
+    if (o.type == PrimitiveType::Scroller) return false;  // baked clones + gen'd director
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
     return true;
 }
@@ -5005,6 +5118,36 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
             fnvMixS(h, l.streamArea);  // baked as the zone's area object index
+        }
+        // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
+        // from their segments AND the current transforms of the member objects
+        // they reference. A live session cannot restripe the belt, so fold the
+        // belt params, segment membership and every member's transform in here
+        // - editing any of them flips the context hash to "rebuild needed".
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Scroller) continue;
+            fnvMix(h, 0x5D);  // scroller separator
+            fnvMixF(h, o.scrollSpeed), fnvMixF(h, o.scrollAhead);
+            fnvMixF(h, o.scrollBehind), fnvMix(h, o.scrollAutostart ? 1 : 0);
+            fnvMixF(h, o.scrollOverlap);
+            fnvMix(h, (uint64_t)(uint32_t)o.scrollVarySeed);
+            fnvMix3(h, o.rotation);  // belt axis
+            for (const ScrollSegment& s : o.scrollSegments) {
+                fnvMixS(h, s.name), fnvMixF(h, s.length);
+                for (const ScrollMember& sm : s.objects) {
+                    const std::string& name = sm.name;
+                    fnvMixS(h, name);
+                    fnvMixF(h, sm.chance), fnvMix(h, (uint64_t)(uint32_t)sm.variant);
+                    fnvMixF(h, sm.yawVary), fnvMixF(h, sm.offsetVary);
+                    fnvMixF(h, sm.scaleVary);
+                    for (const SceneObject& m : sc.objects)
+                        if (m.name == name) {
+                            fnvMix3(h, m.position), fnvMix3(h, m.rotation);
+                            fnvMix3(h, m.scale);
+                            break;
+                        }
+                }
+            }
         }
     }
     // Animation clip edits are baked into the .tskl at build time, so a
@@ -5076,6 +5219,14 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scripts\\screen_fx.gen.hpp" ||
             f.relativePath == "inc\\scripts\\sequences.gen.hpp" ||
             f.relativePath == "src\\gen\\sequences.gen.cpp" ||
+            // Endless-scroller runtime. MUST be here, not only in the --new
+            // scaffold: flow_graph.gen.cpp includes scroller.gen.hpp
+            // unconditionally, so a project scaffolded before this feature
+            // existed (i.e. every project already on disk) regenerates that
+            // include and then fails to compile with "scripts/scroller.gen.hpp:
+            // No such file or directory" unless the pair is refreshed too.
+            f.relativePath == "inc\\scripts\\scroller.gen.hpp" ||
+            f.relativePath == "src\\gen\\scroller.gen.cpp" ||
             f.relativePath == "inc\\model_data.gen.hpp" ||
             f.relativePath == "inc\\hud_data.gen.hpp" ||
             f.relativePath == "inc\\font_data.gen.hpp" ||
