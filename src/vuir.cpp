@@ -43,14 +43,25 @@ const char* opText(Op op) {
     return "???";
 }
 
-/** True for the float ops that write a masked destination field. */
-bool isFloatOp(Op op) {
+/** True for the ops whose MNEMONIC carries the destination-field mask, i.e.
+ * whose text spelling must end in ".xyzw".
+ *
+ * `Lq` and `Sq` belong here and their absence was a real bug, not a cosmetic
+ * one: the emitted `.vclpp` printed `sq.xyz vertex, 2(destAddress)` as a plain
+ * `sq`, so the store wrote FOUR words instead of three and the position's W
+ * clobbered the fog coefficient that an earlier `isw.w` had just put there.
+ * Nothing on the IR side could see it - the IR was right, only its text
+ * spelling was wrong - which is why `--vu-check` now parses the emitted source
+ * back and re-runs it. On hardware it showed as smeared sky triangles and a
+ * torn matcap. `Ilw`/`Isw` are not listed because their cases below print the
+ * suffix themselves. */
+bool hasMaskSuffix(Op op) {
     switch (op) {
         case Op::Add: case Op::Sub: case Op::Mul: case Op::Mula:
         case Op::Madd: case Op::Madda: case Op::Msub: case Op::Msuba:
         case Op::Mini: case Op::Max: case Op::Move: case Op::Mr32:
         case Op::Abs: case Op::Ftoi0: case Op::Ftoi4: case Op::Itof0:
-        case Op::Clipw:
+        case Op::Clipw: case Op::Lq: case Op::Sq:
             return true;
         default:
             return false;
@@ -134,7 +145,7 @@ std::string srcText(const Program& p, const Instr& in) {
 std::string disassemble(const Program& p, const Instr& in) {
     char buf[256];
     const std::string mnem = std::string(opText(in.op)) +
-                             (isFloatOp(in.op) ? maskSuffix(in.mask) : "");
+                             (hasMaskSuffix(in.op) ? maskSuffix(in.mask) : "");
 
     switch (in.op) {
         case Op::Label:

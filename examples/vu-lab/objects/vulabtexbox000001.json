@@ -1,1 +1,1 @@
-{ "id": "vulabtexbox000001", "name": "tex-box", "type": "box", "position": [1.5, 1, -7], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "material": "res/materials/skybox.mtl" }
+{ "id": "vulabtexbox000001", "name": "tex-box", "type": "box", "position": [1.5, 1, 8], "rotation": [0, 0, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "material": "res/materials/skybox.mtl" }

@@ -272,7 +272,32 @@ traced and inspected today; they just do not have a C++ description yet.
 PCSX2 replays into a bit-identical GIF packet (36/36 vertices). That is the
 simulator checked against a real console rather than against itself.
 
-**Not done:** nothing in `vendor/tyra` has been replaced. The generated programs
+**Adopted in the engine:** the five `as_is` programs in `vendor/tyra` ARE the
+generated ones. Built in Docker, booted in PCSX2, and the frame is
+**pixel-identical** to the handwritten build (0 differing pixels of 1 258 400,
+frozen camera). Regenerate them with `--vu-emit` and copy over; `--vu-check`
+gates the change.
+
+**Two traps the hardware pass exposed, both now covered by `--vu-check`.** They
+are worth reading before extending the generator, because each produced code the
+IR-level check called bit-identical:
+
+1. *The emitter dropped the destination mask on `lq`/`sq`.* `vuir::disassemble`
+   only appended `.xyzw` for the ops it classed as "float", and the load/store
+   pair was not in that list - so `sq.xyz vertex, 2(destAddress)` printed as a
+   plain `sq`, the store wrote FOUR words instead of three, and the position's W
+   clobbered the fog coefficient an earlier `isw.w` had just put there. On screen:
+   smeared sky triangles and a torn matcap. The IR was right the whole time; only
+   its text spelling was wrong, which no comparison of IR against IR can see.
+   Hence the round-trip stage: the emitted source is parsed back and re-run.
+2. *A value-returning builder mints a fresh register per call.* `fogCoefficient`
+   returned a new `IVal` each time, so the three vertices used three integer
+   registers where the handwritten program reuses one - 13 VI names instead of
+   11. VU1 has 16 and the simulator has unlimited virtual ones, so the pressure
+   is invisible on the host. Library methods that need scratch now take it from
+   the caller.
+
+**Not done:** the `cull`, `clip` and `billboard` families are still handwritten. The generated programs
 are proven equivalent in the simulator, but no generated microcode has been built
 in Docker or run on hardware. That is the next step and it needs the full e2e
 pass (`tyra-testing`), not a host check.

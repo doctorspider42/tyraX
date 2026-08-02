@@ -443,7 +443,7 @@ void Vu::fixColor(Val color) {
     ftoi0Into(color, color, MALL);
 }
 
-IVal Vu::fogCoefficient(Val vertex, Val fogParams, Val scratch, const char* hint) {
+void Vu::fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch) {
     // F = clamp(w * fogScale + fogOffset, 0, 255), then ftoi4 so the value is
     // already shifted into the F field of a packed XYZF2 (bits 4..11).
     addInto(scratch, zero(), vertex.broadcast(3), MX);
@@ -454,7 +454,12 @@ IVal Vu::fogCoefficient(Val vertex, Val fogParams, Val scratch, const char* hint
     minimumIInto(scratch, scratch, MX);
     maximumInto(scratch, scratch, zero().broadcast(0), MX);
     ftoi4Into(scratch, scratch, MX);
-    return mtir(scratch, 0, hint);
+    Instr in;
+    in.op = Op::Mtir;
+    in.dst = dst.reg;
+    in.s1 = scratch.reg;
+    in.bc1 = 0;
+    emit(in);
 }
 
 void Vu::envStq(Val stq, Val envRight, Val envUp, Val envConsts,
@@ -990,10 +995,12 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         b.fixColor(color[i]);
     }
 
+    // One scratch pair for all three vertices - see Vu::fogCoefficient on why
+    // this must not be a fresh register per call.
     const Val fogScratch = b.named("fogAccum");
+    const IVal fogInt = b.inamed("fogInt");
     for (int i = 0; i < 3; ++i) {
-        const IVal fogInt =
-            b.fogCoefficient(vertex[i], fogParams, fogScratch, "fogInt");
+        b.fogCoefficient(fogInt, vertex[i], fogParams, fogScratch);
         b.isw(fogInt, destAddress, xyz + i * stride, 3);
     }
 

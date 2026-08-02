@@ -1366,7 +1366,44 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // 3. The micro-memory budget for the generated set.
+    // 3. The emitted SOURCE must behave like the IR it came from.
+    //
+    // This is not paranoia, it is the check whose absence shipped a broken
+    // engine build: everything above compares the in-memory IR, and the file
+    // that actually reaches vclpp is produced by a separate text emitter. Parse
+    // the emitted text back and run the same equivalence over it, so a program
+    // is only "generated" once the bytes on disk are proven too.
+    int roundTripFails = 0;
+    std::printf("-- emitted source, parsed back and re-run --\n");
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Built& b = built[i];
+        if (b.program.code.empty() || b.vclpp.empty()) continue;
+        const vugen::Desc d = vugen::allAsIsDescs()[i];
+        vuasm::Options opt;  // the emitted source has no #includes by design
+        vuir::Program back;
+        std::string err;
+        if (!vuasm::parseText(b.vclpp, d.fileStem + ".vclpp", opt, back, err)) {
+            std::printf("  %-16s EMITTED SOURCE DOES NOT PARSE: %s\n",
+                        d.vclName.c_str(), err.c_str());
+            ++roundTripFails;
+            continue;
+        }
+        const vugen::Equivalence eq =
+            vugen::equivalence(b.program, back, d, 30, 0x51DE0FFEu);
+        std::printf("  %-16s %-9s %d instructions in, %d parsed back\n",
+                    d.vclName.c_str(), eq.identical ? "MATCHES" : "DIFFERENT",
+                    (int)b.program.code.size(), (int)back.code.size());
+        if (!eq.identical) {
+            ++roundTripFails;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+        for (const std::string& n : back.notes)
+            std::printf("      note: %s\n", n.c_str());
+    }
+    std::printf("\n");
+
+    // 4. The micro-memory budget for the generated set.
     for (const vugen::Built& b : built)
         if (!b.program.code.empty()) set.push_back({b.program.name, &b.program});
     const vugen::Budget bud = vugen::budget(set);
@@ -1385,7 +1422,7 @@ static int vuCheckFromCli(int argc, char** argv) {
         "   64-bit slot when it can, so the exact size is only known after it "
         "runs)\n\n");
 
-    const bool ok = parseFailed == 0 && mismatches == 0;
+    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
                              "handwritten twin bit for bit"
                            : "FAIL");

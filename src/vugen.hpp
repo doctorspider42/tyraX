@@ -148,7 +148,12 @@ class Vu {
     void fixColor(Val color);
     /** CalculateTyraFog: the GS fog coefficient from the vertex's clip W,
      * already shifted into the F field position of a packed XYZF2. */
-    IVal fogCoefficient(Val vertex, Val fogParams, Val scratch, const char* hint);
+    /** `dst` and `scratch` are supplied by the caller and REUSED across the
+     * three vertices on purpose. Minting a fresh register per call is what a
+     * value-returning API wants to do, and it is a trap here: VU1 has 16
+     * integer registers, the simulator has unlimited virtual ones, so the
+     * pressure is invisible to `--vu-check` and only shows on hardware. */
+    void fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch);
     /** MatrixMultiplyVertex: dst = m * v, the four-register mula/madd chain. */
     void transform(Val dst, const Val m[4], Val v);
     /** CalculateTyraEnvStq: turns the object-space normal carried in the ST
