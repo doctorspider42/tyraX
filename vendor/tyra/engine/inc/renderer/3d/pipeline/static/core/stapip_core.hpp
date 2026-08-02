@@ -75,6 +75,20 @@ class StaPipCore {
     qbufferRenderer.setProgramOverride(name, program);
   }
 
+  /** TyraX addition: the per-mesh numbers and the clock a project's own
+   * microprogram reads (docs/vu-authoring.md). setVuParams is set before each
+   * mesh is submitted - it is renderer state, exactly like the fog or the
+   * flashlight, not a field on the bag - and only reaches VU1 for a bag with
+   * no lighting, because the two quadwords live in the lights-colour block. */
+  void setVuCustomEnabled(const bool& enabled) {
+    qbufferRenderer.setVuCustomEnabled(enabled);
+  }
+  void setVuParams(const float& x, const float& y, const float& z,
+                   const float& w) {
+    qbufferRenderer.setVuParams(x, y, z, w);
+  }
+  void setVuTime(const float& seconds) { qbufferRenderer.setVuTime(seconds); }
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 

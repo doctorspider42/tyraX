@@ -555,7 +555,92 @@ struct SceneObject {
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
+
+    // The four numbers this mesh hands to the project's own VU1 microprogram
+    // (docs/vu-authoring.md). A custom program replaces a whole MATERIAL CLASS
+    // - VU1 micro memory has no room for one program per object - so the kind
+    // of effect is per class and its STRENGTH is per mesh, and these are that
+    // strength. All zero means "this mesh wants nothing", which every stage is
+    // required to render bit-identically to the untouched program.
+    //
+    // They are uploaded per bag, so BATCHED objects share them: the generated
+    // game merges non-moving primitives into combined bags, and one bag is one
+    // upload. Two props that need different numbers need to be different bags.
+    float vuParams[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
+
+// ---------------------------------------------------------------------------
+// The project's own VU programs (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+// One authored stage. `kind` is a key from vugen::stageDefs(); an unknown one
+// is DROPPED on load rather than guessed at, the flowLegacyNodes rule - a
+// project written by a newer editor must not silently compile to a different
+// microprogram here.
+struct VuStage {
+    std::string kind;
+    bool enabled = true;
+    float params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // -1 = the literal above; 0..3 = that field of the per-mesh quadword.
+    int bind[4] = {-1, -1, -1, -1};
+};
+
+inline bool operator==(const VuStage& a, const VuStage& b) {
+    for (int i = 0; i < 4; ++i)
+        if (a.params[i] != b.params[i] || a.bind[i] != b.bind[i]) return false;
+    return a.kind == b.kind && a.enabled == b.enabled;
+}
+inline bool operator!=(const VuStage& a, const VuStage& b) { return !(a == b); }
+
+// A program the project installs over one of the engine's material classes.
+// `base` is a vugen::customBases() key ("cullColor" / "cullTextureColor" /
+// "cullTextureEnv") - at most one program per base, because installing two over
+// one slot is not a thing setProgramOverride can express.
+struct VuProgram {
+    std::string base = "cullColor";
+    bool enabled = true;
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuProgram& a, const VuProgram& b) {
+    return a.base == b.base && a.enabled == b.enabled && a.stages == b.stages;
+}
+inline bool operator!=(const VuProgram& a, const VuProgram& b) { return !(a == b); }
+
+// A VU0 compute kernel: the same stages, on the other vector unit, with no
+// rendering around them. Reaches the game as a driver class a user script
+// calls; nothing in the scene pipeline knows it exists.
+struct VuKernel {
+    bool enabled = false;
+    std::string name = "kernel";
+    int maxElements = 112;  // VU0 has 256 quadwords TOTAL - see buildKernel
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuKernel& a, const VuKernel& b) {
+    return a.enabled == b.enabled && a.name == b.name &&
+           a.maxElements == b.maxElements && a.stages == b.stages;
+}
+inline bool operator!=(const VuKernel& a, const VuKernel& b) { return !(a == b); }
+
+struct VuSettings {
+    std::vector<VuProgram> programs;
+    VuKernel kernel;
+    // Which material classes keep a resident VU1 program
+    // (StaPipQBufferRenderer::StaPipProgramClass; 0x1F = all five). Dropping
+    // one buys ~380 instructions of micro memory for a program the user wrote.
+    unsigned residentClasses = 0x1F;
+    // Let the editor derive the mask from what the scenes actually draw,
+    // instead of trusting a hand-set one to stay right as the project grows.
+    bool residentAuto = true;
+};
+
+inline bool operator==(const VuSettings& a, const VuSettings& b) {
+    return a.programs == b.programs && a.kernel == b.kernel &&
+           a.residentClasses == b.residentClasses &&
+           a.residentAuto == b.residentAuto;
+}
+inline bool operator!=(const VuSettings& a, const VuSettings& b) { return !(a == b); }
 
 // A reusable group of scene objects - their flow graphs included - stamped
 // into the world by hand, by a procedural graph, or by the Spawn Prefab flow
@@ -685,6 +770,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
+           a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource;
 }
 
@@ -2215,6 +2302,13 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // The project's own VU1 microprograms and its VU0 kernel
+    // (docs/vu-authoring.md). Project-wide like the preset collections above,
+    // persisted through save(), not part of undo/redo - a microprogram is a
+    // build artefact, and undoing one halfway through a scene edit would mean
+    // the running game and the editor disagree about what is installed.
+    VuSettings vu;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -2369,12 +2463,16 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    kCount,          // not a section - the count, see below
 };
-// KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
-// one short silently stops writing the LAST section to the .tyra - and parallel
-// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
-// while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 16;
+// DERIVED from the enum, never restated. save() loops sections by index, so a
+// count one short silently stops writing the LAST section to the .tyra - and it
+// HAD drifted: a hand-maintained 16 against seventeen entries meant Prefabs was
+// never written at all, and every save of a project with prefabs deleted them.
+// A comment telling the next person to keep two numbers equal is not a check;
+// this is.
+constexpr int kSectionCount = (int)Section::kCount;
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

@@ -450,6 +450,11 @@ struct KernelDesc {
     std::string asmName = "TyraXKernel";      // .name / linker symbol stem
     std::string fileStem = "vu0_kernel";      // <stem>.vclpp, <stem>_kernel.*
     std::string className = "TyraXVu0Kernel";  // the emitted EE driver
+    /** What the emitted .cpp includes. Its own header travels to inc/ in a
+     * generated project (a user script includes it, and inc/ is the only
+     * directory on the game's include path), so the name cannot be derived
+     * from fileStem. */
+    std::string headerName = "vu0_kernel_kernel.hpp";
     std::string title = "TyraX VU0 kernel";
 
     /** Data-memory map, in quadwords. Defaults leave 112 elements each way

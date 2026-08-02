@@ -36,6 +36,7 @@
 #include "project.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
+#include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
@@ -2667,6 +2668,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -2689,6 +2691,9 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+// The clock the project's own VU1 stages read, in seconds. Wrapped in the game
+// loop - see the setTime call there.
+float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
 // True while a pausing menu owns the frame (set at the top of loop()). Read by
@@ -4419,6 +4424,11 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -4860,6 +4870,15 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  if (vuprog::ENABLED) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    vuprog::setTime(stapip.core, g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -12572,6 +12591,12 @@ void TerrainGame::renderScene() {
           break;
         }
     }
+    // The four numbers this mesh hands to the project's own microprogram.
+    // Staged per object rather than per bag because every bag of one object
+    // shares them; a static BATCH is one bag for many objects, so its members
+    // share whatever the batch was built with (docs/vu-authoring.md).
+    if (vuprog::ENABLED)
+      vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -15418,6 +15443,11 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -15911,6 +15941,15 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  if (vuprog::ENABLED) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    vuprog::setTime(stapip.core, g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -17829,7 +17868,9 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
         << floatLit(o.meshLodOverride) << ", " << floatLit(o.modelYawOffset)
         << ", " << clampPrimDetail(o.type, o.primDetail) << ", " << layerIdx
-        << ", " << batchStatic << "},  // " << o.name << "\n";
+        << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
+        << floatLit(o.vuParams[1]) << ", " << floatLit(o.vuParams[2]) << ", "
+        << floatLit(o.vuParams[3]) << "}},  // " << o.name << "\n";
 }
 
 // inc/prefab_data.gen.hpp - the prefab library (docs/prefabs.md).
@@ -18524,6 +18565,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
            "                   // (build-time verdict: non-moving primitive with\n"
            "                   // no physics/logic/graph refs/save-state/layer)\n"
+           "  float vuParams[4]; // the four numbers this mesh hands to the\n"
+           "                   // project's own VU1 microprogram, if it has one\n"
+           "                   // (docs/vu-authoring.md). All zero = no effect,\n"
+           "                   // which every stage is required to render\n"
+           "                   // bit-identically to the untouched program.\n"
+           "                   // Uploaded per BAG, so batched objects share one\n"
+           "                   // set - one bag is one sendObjectData.\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -31133,6 +31181,204 @@ static std::string objectScriptsSource(const Project& p) {
     return out.str();
 }
 
+// ---------------------------------------------------------------------------
+// The project's own VU programs (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/** Model -> generator. One place, so the panel's preview and the build cannot
+ * disagree about what a stage list compiles to. */
+vugen::Stage vuStageOf(const VuStage& s) {
+    vugen::Stage out = vugen::makeStage(s.kind);
+    out.enabled = s.enabled;
+    for (int i = 0; i < 4; ++i) {
+        out.params[i].value = s.params[i];
+        out.params[i].meshSlot = s.bind[i];
+    }
+    return out;
+}
+
+std::vector<vugen::Stage> vuStagesOf(const std::vector<VuStage>& in) {
+    std::vector<vugen::Stage> out;
+    out.reserve(in.size());
+    for (const VuStage& s : in) out.push_back(vuStageOf(s));
+    return out;
+}
+
+/** The engine's StaPipProgramName a base installs over. */
+const char* vuProgramEnum(const std::string& base) {
+    if (base == "cullTextureColor") return "StaPipCullTextureColor";
+    if (base == "cullTextureEnv") return "StaPipCullTextureEnv";
+    return "StaPipCullColor";
+}
+
+struct VuBuild {
+    std::vector<File> files;
+    bool anyProgram = false;
+    bool anyKernel = false;
+    std::string kernelClass;
+    std::string kernelHeader;
+    std::vector<std::pair<std::string, std::string>> installs;  // class, enum
+    std::vector<std::string> warnings;
+};
+
+VuBuild buildVuFiles(const Project& p) {
+    VuBuild out;
+    for (const VuProgram& pr : p.vu.programs) {
+        if (!pr.enabled) continue;
+        vugen::Desc d = vugen::descCustomBase(pr.base);
+        d.stages = vuStagesOf(pr.stages);
+        // A program whose whole stage list folded away is not a program: it
+        // would install a byte-for-byte copy of the engine's own microprogram
+        // over the engine's own slot, burning micro memory to change nothing.
+        bool anyLive = false;
+        for (const vugen::Stage& s : d.stages)
+            if (!vugen::stageIsNoOp(s)) anyLive = true;
+        if (!anyLive) {
+            out.warnings.push_back(
+                "program on " + std::string(vugen::customBaseTitle(pr.base)) +
+                " has no live stage (every strength is a literal zero) - not "
+                "generated");
+            continue;
+        }
+        const vugen::Built b = vugen::build(d);
+        for (const std::string& e : b.errors)
+            out.warnings.push_back(vugen::customBaseTitle(pr.base) +
+                                   std::string(": ") + e);
+        if (!b.errors.empty()) continue;
+        out.files.push_back({"src\\gen\\" + d.fileStem + ".vclpp", b.vclpp});
+        out.files.push_back(
+            {"src\\gen\\" + d.fileStem + "_program.hpp", b.eeHeader});
+        out.files.push_back(
+            {"src\\gen\\" + d.fileStem + "_program.cpp", b.eeSource});
+        out.installs.push_back({d.className, vuProgramEnum(pr.base)});
+        out.anyProgram = true;
+    }
+
+    if (p.vu.kernel.enabled && !p.vu.kernel.stages.empty()) {
+        vugen::KernelDesc k;
+        std::string stem =
+            "vu0_" + sanitizeNamespace(p.vu.kernel.name.empty() ? "kernel"
+                                                                : p.vu.kernel.name);
+        // File names stay lowercase - src/gen is read by humans diffing a
+        // generated tree, and a capitalised one sorts away from its siblings.
+        for (char& c : stem)
+            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        k.fileStem = stem;
+        k.vclName = "TyraXKernel";
+        k.asmName = "TyraXKernel";
+        k.className = "TyraXVu0Kernel";
+        // The driver's header travels to inc/ (a user script includes it, and
+        // inc/ is the only directory on the game's include path), so the .cpp
+        // cannot derive the include name from the file stem.
+        k.headerName = stem + ".gen.hpp";
+        k.title = p.vu.kernel.name;
+        k.maxElements = p.vu.kernel.maxElements;
+        k.stages = vuStagesOf(p.vu.kernel.stages);
+        const vugen::BuiltKernel b = vugen::buildKernel(k);
+        for (const std::string& e : b.errors)
+            out.warnings.push_back("VU0 kernel: " + e);
+        if (b.errors.empty()) {
+            out.files.push_back({"src\\gen\\" + stem + ".vclpp", b.vclpp});
+            // The header goes in inc/ because a USER SCRIPT includes it, and
+            // inc/ is the only directory on the game's include path.
+            out.files.push_back({"inc\\" + stem + ".gen.hpp", b.eeHeader});
+            out.files.push_back({"src\\gen\\" + stem + ".gen.cpp", b.eeSource});
+            out.anyKernel = true;
+            out.kernelClass = k.className;
+            out.kernelHeader = stem + ".gen.hpp";
+        }
+    }
+    return out;
+}
+
+/** inc/scripts/vu_programs.gen.hpp - the on/off seam.
+ *
+ * ALWAYS emitted, and its predicate is a compile-time constant, so a project
+ * with no custom program folds every call site away rather than paying a branch
+ * - the same arrangement the devkit layers use (docs/devkit.md). */
+std::string vuProgramsHeader(const VuBuild& vb) {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    s += "//\n";
+    s += "// The project's own VU1 microprograms (docs/vu-authoring.md).\n";
+    s += "// vuprog::ENABLED is a compile-time constant: with no custom program\n";
+    s += "// every call below is an inline no-op and folds away entirely.\n";
+    s += "#pragma once\n\n";
+    s += "#include <tyra>\n\n";
+    s += "namespace vuprog {\n\n";
+    s += std::string("constexpr bool ENABLED = ") +
+         (vb.anyProgram ? "true" : "false") + ";\n\n";
+    // These take the pipeline CORE, not an Engine: the static pipeline is the
+    // GAME's own member (TerrainGame::stapip), not something hanging off the
+    // engine, and StaPipCore is where setProgramOverride lives.
+    if (vb.anyProgram) {
+        s += "/** Installs the generated programs over their engine slots and\n";
+        s += " * turns on the per-mesh parameter upload. Call once, AFTER\n";
+        s += " * setRenderer and setVU1Clipping - both rebuild the program\n";
+        s += " * cache, and an override installed first would be rebuilt away. */\n";
+        s += "void install(Tyra::StaPipCore& core);\n";
+        s += "/** The clock the time-varying stages read. WRAPPED - the\n";
+        s += " * microprogram's range reduction folds through a 2^23 add. */\n";
+        s += "void setTime(Tyra::StaPipCore& core, float seconds);\n";
+        s += "/** The four numbers for the mesh about to be submitted. */\n";
+        s += "void setParams(Tyra::StaPipCore& core, const float* p);\n";
+    } else {
+        s += "inline void install(Tyra::StaPipCore&) {}\n";
+        s += "inline void setTime(Tyra::StaPipCore&, float) {}\n";
+        s += "inline void setParams(Tyra::StaPipCore&, const float*) {}\n";
+    }
+    s += "\n}  // namespace vuprog\n";
+    return s;
+}
+
+/** src/gen/vu_programs.gen.cpp - an EMPTY translation unit when the project has
+ * no custom program, so nothing of this reaches such a build. */
+std::string vuProgramsSource(const VuBuild& vb) {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n\n";
+    if (!vb.anyProgram) {
+        s += "// This project has no VU program of its own, so this translation\n";
+        s += "// unit is deliberately empty (docs/vu-authoring.md).\n";
+        return s;
+    }
+    s += "#include \"scripts/vu_programs.gen.hpp\"\n";
+    // The program headers sit next to this file; a quoted include searches the
+    // includer's own directory first, which is why src/gen needs no -I.
+    for (const File& f : vb.files) {
+        const std::string& rp = f.relativePath;
+        if (rp.size() > 12 && rp.compare(rp.size() - 12, 12, "_program.hpp") == 0) {
+            const size_t slash = rp.find_last_of('\\');
+            s += "#include \"" +
+                 rp.substr(slash == std::string::npos ? 0 : slash + 1) + "\"\n";
+        }
+    }
+    s += "\nnamespace vuprog {\n\n";
+    s += "namespace {\n";
+    for (const auto& e : vb.installs)
+        s += "Tyra::" + e.first + " g_" + e.first + ";\n";
+    s += "}  // namespace\n\n";
+    s += "void install(Tyra::StaPipCore& core) {\n";
+    for (const auto& e : vb.installs)
+        s += "  core.setProgramOverride(Tyra::" + e.second + ", &g_" + e.first +
+             ");\n";
+    s += "  // Two extra quadwords per mesh, and only for a bag with no\n";
+    s += "  // lighting - they live in the directional-lights colour block.\n";
+    s += "  core.setVuCustomEnabled(true);\n";
+    s += "}\n\n";
+    s += "void setTime(Tyra::StaPipCore& core, float seconds) {\n";
+    s += "  core.setVuTime(seconds);\n";
+    s += "}\n\n";
+    s += "void setParams(Tyra::StaPipCore& core, const float* p) {\n";
+    s += "  core.setVuParams(p[0], p[1], p[2], p[3]);\n";
+    s += "}\n\n";
+    s += "}  // namespace vuprog\n";
+    return s;
+}
+
+}  // namespace
+
 std::vector<File> generate(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
@@ -31149,6 +31395,12 @@ std::vector<File> generate(const Project& p) {
     // theirs rather than being buried in a comment nobody reads.
     for (const std::string& w : procRt.warnings)
         std::printf("[procedural] %s\n", w.c_str());
+    // The project's own VU programs. Same reporting shape as the procedural
+    // volumes above: a program that could not be generated means an effect the
+    // author asked for will simply not be there, so it is printed, not buried.
+    const VuBuild vuBuild = buildVuFiles(p);
+    for (const std::string& w : vuBuild.warnings)
+        std::printf("[vu] %s\n", w.c_str());
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
@@ -31156,7 +31408,7 @@ std::vector<File> generate(const Project& p) {
         fill(fpp ? TPL_GAME_CPP_FPP_TAIL : TPL_GAME_CPP_ORBIT_TAIL) +
         fill(TPL_GAME_CPP_FOOTER);
 
-    return {
+    std::vector<File> files = {
         {"Makefile", fill(TPL_MAKEFILE)},
         {"docker-compose.yml", fill(TPL_COMPOSE)},
         {"src\\main.cpp", fill(TPL_MAIN_CPP)},
@@ -31222,7 +31474,13 @@ std::vector<File> generate(const Project& p) {
         {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
+        // The on/off seam is ALWAYS emitted; the microprogram files below only
+        // exist when the project actually has a program.
+        {"inc\\scripts\\vu_programs.gen.hpp", vuProgramsHeader(vuBuild)},
+        {"src\\gen\\vu_programs.gen.cpp", vuProgramsSource(vuBuild)},
     };
+    for (const File& f : vuBuild.files) files.push_back(f);
+    return files;
 }
 
 }  // namespace templates

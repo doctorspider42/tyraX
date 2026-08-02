@@ -713,6 +713,16 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.prefabSource.empty())
         json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
+    // The mesh's numbers for the project's own VU1 program. Omitted at the
+    // all-zero default, which is every object in a project that has no such
+    // program - and "wants nothing" for every object in one that does.
+    if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
+        o.vuParams[2] != 0.0f || o.vuParams[3] != 0.0f) {
+        json += ", \"vuParams\": [";
+        for (int i = 0; i < 4; ++i)
+            json += (i ? ", " : "") + fmtFloat(o.vuParams[i]);
+        json += "]";
+    }
     return json + " }";
 }
 
@@ -1918,6 +1928,116 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// The project's own VU programs (docs/vu-authoring.md). Conditional: a project
+// that never opened Tools > VU Programs emits nothing.
+static void writeVuStages(std::ostream& json, const std::vector<VuStage>& st) {
+    json << "[";
+    for (size_t i = 0; i < st.size(); ++i) {
+        const VuStage& s = st[i];
+        json << (i ? ", " : "") << "{ \"kind\": \"" << jsonEscape(s.kind) << "\"";
+        if (!s.enabled) json << ", \"off\": true";
+        json << ", \"p\": [";
+        for (int k = 0; k < 4; ++k)
+            json << (k ? ", " : "") << fmtFloat(s.params[k]);
+        json << "]";
+        // Only written when something is actually bound - the common case is
+        // four literals and four -1s would be noise in every diff.
+        bool any = false;
+        for (int k = 0; k < 4; ++k) any = any || s.bind[k] >= 0;
+        if (any) {
+            json << ", \"bind\": [";
+            for (int k = 0; k < 4; ++k) json << (k ? ", " : "") << s.bind[k];
+            json << "]";
+        }
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readVuStages(const json::Value& arr, std::vector<VuStage>& out) {
+    out.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr.arr) {
+        VuStage s;
+        if (const json::Value* v = e.find("kind")) s.kind = v->stringOr("");
+        if (s.kind.empty()) continue;
+        if (const json::Value* v = e.find("off")) s.enabled = !v->boolOr(false);
+        if (const json::Value* v = e.find("p"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
+                    s.params[k] = (float)v->arr[k].numberOr(0.0);
+        if (const json::Value* v = e.find("bind"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k) {
+                    const int b = (int)v->arr[k].numberOr(-1.0);
+                    s.bind[k] = (b >= 0 && b < 4) ? b : -1;
+                }
+        out.push_back(std::move(s));
+    }
+}
+
+static void writeVuSection(std::ostream& json, const Project& p) {
+    const VuSettings& v = p.vu;
+    const bool touched = !v.programs.empty() || !v.kernel.stages.empty() ||
+                         v.kernel.enabled || !v.residentAuto ||
+                         v.residentClasses != 0x1Fu;
+    if (!touched) return;
+    json << "\"vu\": { \"residentClasses\": " << v.residentClasses
+         << ", \"residentAuto\": " << (v.residentAuto ? "true" : "false");
+    if (!v.programs.empty()) {
+        json << ", \"programs\": [";
+        for (size_t i = 0; i < v.programs.size(); ++i) {
+            const VuProgram& pr = v.programs[i];
+            json << (i ? ",\n      " : "\n      ") << "{ \"base\": \""
+                 << jsonEscape(pr.base) << "\"";
+            if (!pr.enabled) json << ", \"off\": true";
+            json << ", \"stages\": ";
+            writeVuStages(json, pr.stages);
+            json << " }";
+        }
+        json << "\n    ]";
+    }
+    if (v.kernel.enabled || !v.kernel.stages.empty()) {
+        json << ", \"kernel\": { \"name\": \"" << jsonEscape(v.kernel.name)
+             << "\", \"enabled\": " << (v.kernel.enabled ? "true" : "false")
+             << ", \"maxElements\": " << v.kernel.maxElements << ", \"stages\": ";
+        writeVuStages(json, v.kernel.stages);
+        json << " }";
+    }
+    json << " }";
+}
+
+static void readVuSection(const json::Value& root, Project& out) {
+    out.vu = VuSettings();
+    const json::Value* v = root.find("vu");
+    if (!v || v->type != json::Value::Type::Object) return;
+    if (const json::Value* x = v->find("residentClasses"))
+        out.vu.residentClasses = (unsigned)x->numberOr(0x1F) & 0x1Fu;
+    if (const json::Value* x = v->find("residentAuto"))
+        out.vu.residentAuto = x->boolOr(true);
+    if (const json::Value* arr = v->find("programs"))
+        if (arr->type == json::Value::Type::Array)
+            for (const json::Value& e : arr->arr) {
+                VuProgram pr;
+                if (const json::Value* x = e.find("base")) pr.base = x->stringOr("");
+                if (pr.base.empty()) continue;
+                if (const json::Value* x = e.find("off"))
+                    pr.enabled = !x->boolOr(false);
+                if (const json::Value* x = e.find("stages"))
+                    readVuStages(*x, pr.stages);
+                out.vu.programs.push_back(std::move(pr));
+            }
+    if (const json::Value* k = v->find("kernel")) {
+        if (const json::Value* x = k->find("name")) out.vu.kernel.name = x->stringOr("kernel");
+        if (const json::Value* x = k->find("enabled"))
+            out.vu.kernel.enabled = x->boolOr(false);
+        if (const json::Value* x = k->find("maxElements"))
+            out.vu.kernel.maxElements = (int)x->numberOr(112.0);
+        if (const json::Value* x = k->find("stages"))
+            readVuStages(*x, out.vu.kernel.stages);
+    }
+}
+
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
 // for a conditional section with nothing to emit (TexQuality with no entries).
 static std::string sectionBody(const Project& p, Section s) {
@@ -1940,6 +2060,8 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::VuPrograms: writeVuSection(ss, p); break;
+        case Section::kCount: break;
     }
     return ss.str();
 }
@@ -1963,6 +2085,8 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::VuPrograms: return "vu";
+        case Section::kCount: return "count";
     }
     return "unknown";
 }
@@ -3222,6 +3346,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
+        if (const auto* v = jo.find("vuParams"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
+                    o.vuParams[k] = (float)v->arr[k].numberOr(0.0);
         out.push_back(std::move(o));
     }
 }
@@ -4416,6 +4544,8 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::VuPrograms: readVuSection(root, p); break;
+        case Section::kCount: break;
     }
     return true;
 }
@@ -4552,6 +4682,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAnimEditsSection(root, out);
 
     readPrefabsSection(root, out);
+    readVuSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -5044,6 +5175,20 @@ std::string liveLinkSigFile(const Project& p) {
     return out.str();
 }
 
+// Generated VU files (docs/vu-authoring.md). They are named after the program
+// they carry, so refreshGenerated cannot list them by path the way it lists
+// everything else - and a leftover one is worse than a stale header, because
+// Makefile.base globs src/**.vclpp and would assemble AND LINK a microprogram
+// the project no longer has.
+static bool isVuGenerated(const std::string& rel) {
+    auto startsWith = [&](const char* pre) {
+        const size_t n = std::strlen(pre);
+        return rel.size() >= n && rel.compare(0, n, pre) == 0;
+    };
+    return startsWith("src\\gen\\vu_custom_") || startsWith("src\\gen\\vu0_") ||
+           startsWith("inc\\vu0_");
+}
+
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
@@ -5099,7 +5244,15 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\menu_data.gen.hpp" ||
             f.relativePath == "inc\\icon_data.gen.hpp" ||
             f.relativePath == "inc\\input_map.gen.hpp" ||
-            f.relativePath == "src\\gen\\input_map.gen.cpp") {
+            f.relativePath == "src\\gen\\input_map.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\vu_programs.gen.hpp" ||
+            f.relativePath == "src\\gen\\vu_programs.gen.cpp" ||
+            // The project's own microprograms and their EE classes are named
+            // after what they are, so they cannot be listed by hand - and a
+            // stale one still LINKS (Makefile.base globs src/**.vclpp), which
+            // is why the sweep below deletes the ones a rebuild did not
+            // produce (docs/vu-authoring.md).
+            isVuGenerated(f.relativePath)) {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
@@ -5176,6 +5329,28 @@ std::string refreshGenerated(const Project& p) {
             }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
+        }
+    }
+
+    // Sweep VU files a rebuild did NOT produce: a program removed from the
+    // project leaves its .vclpp behind, and Makefile.base's glob would keep
+    // assembling and linking it - a microprogram nobody asked for, taking micro
+    // memory from the ones that are.
+    {
+        std::set<std::string> wanted;
+        for (const auto& f : templates::generate(p))
+            if (isVuGenerated(f.relativePath)) wanted.insert(f.relativePath);
+        std::error_code ec;
+        for (const char* dir : {"src\\gen", "inc"}) {
+            const fs::path d = fs::path(p.dir) / templates::nativePath(dir);
+            if (!fs::exists(d, ec)) continue;
+            for (const auto& e : fs::directory_iterator(d, ec)) {
+                if (!e.is_regular_file()) continue;
+                const std::string rel =
+                    std::string(dir) + "\\" + e.path().filename().string();
+                if (isVuGenerated(rel) && wanted.find(rel) == wanted.end())
+                    fs::remove(e.path(), ec);
+            }
         }
     }
 

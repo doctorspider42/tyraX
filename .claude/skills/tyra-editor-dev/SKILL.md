@@ -491,6 +491,26 @@ the generated copy is derived from that preset, so they normally agree).
 same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 `OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
 
+**The project's own VU programs** (docs/vu-authoring.md) - `VuSettings vu` on
+`Project` (`Section::VuPrograms`, key `"vu"`) plus `SceneObject::vuParams[4]`.
+The load-bearing constraint is that VU1 micro memory has no room for a program
+per object, so `setProgramOverride` replaces a whole MATERIAL CLASS: the KIND of
+effect is per class and its STRENGTH is per mesh. Two rules follow and both are
+checked by `--vu-check`: **every stage must be the bit-exact identity when its
+strength is zero** (it runs on every mesh of that class, including the ones that
+want nothing), and a stage must actually change the packet at full strength.
+Codegen emits `src/gen/vu_custom_*.vclpp` + the EE program class + an on/off
+seam whose predicate is a **compile-time constant** (`vuprog::ENABLED`), so a
+project without one folds every call site away. Three traps worth knowing:
+`vuprog::install` must run AFTER `setRenderer`/`setVU1Clipping` because both
+rebuild the resident program cache; the per-mesh quadwords live at
+`VU1_CUSTOM_PARAMS_ADDR`/`VU1_CUSTOM_TIME_ADDR` = 15/16, INSIDE the
+directional-lights colour block, so the engine only uploads them for a bag with
+no lighting (which is also why only the colour bases can carry a program); and
+`refreshGenerated` SWEEPS `src/gen/vu_custom_*` / `src/gen/vu0_*` / `inc/vu0_*`
+that the current project does not produce, because `Makefile.base` globs
+`src/**.vclpp` and a leftover microprogram would still be assembled and linked.
+
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into

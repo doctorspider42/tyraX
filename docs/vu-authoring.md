@@ -258,6 +258,86 @@ shipping, or check with `nm` after building.
 
 ---
 
+## How a program reaches the game
+
+Everything below is generated at build time from the project's `vu` section. No
+Makefile work: the game Makefile includes `/tyra/Makefile.base`, whose
+`VCL_SOURCES` globs `src/**.vclpp` and whose link line picks up `src/**/*.cpp`.
+
+| File | What it is |
+|---|---|
+| `src/gen/vu_custom_<c\|tc\|tce>.vclpp` | the microprogram |
+| `src/gen/vu_custom_<...>_program.{hpp,cpp}` | the EE-side program class — unpack layout, GIF register list, store stride, all from the same description |
+| `inc/scripts/vu_programs.gen.hpp` | the on/off seam |
+| `src/gen/vu_programs.gen.cpp` | `install` / `setTime` / `setParams` |
+| `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | a VU0 kernel and its driver |
+
+`vuprog::ENABLED` is a **compile-time constant**. A project with no program of
+its own gets a header of inline no-ops and an empty `.cpp`, so every call site
+folds away — the same arrangement the devkit layers use, and for the same
+reason: a feature you are not using must not cost a branch.
+
+Three call sites in the generated game, and each is where it is for a reason:
+
+```cpp
+stapip.setRenderer(&engine->renderer.core);
+stapip.core.setVU1Clipping(CLIP_VU1);
+vuprog::install(stapip.core);        // AFTER both - each rebuilds the cache
+```
+
+```cpp
+if (vuprog::ENABLED) {
+  g_vuClock += g_frameDt;
+  if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;   // 2*pi*1024
+  vuprog::setTime(stapip.core, g_vuClock);
+}
+```
+
+```cpp
+// renderObjects, per object, before its bags go out
+if (vuprog::ENABLED)
+  vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
+```
+
+`install` **must** come after `setVU1Clipping`: both rebuild the resident
+program cache, and an override installed first would be rebuilt away. The
+parameters are staged per OBJECT, not per bag, because every bag of one object
+shares them — and a static batch is one bag for many objects, which is where the
+"batched props share parameters" limitation comes from concretely.
+
+The numbers themselves live on `SceneObjectData::vuParams` — the ordinary
+per-object data table — so they are copied into `RuntimeObject::data` at scene
+load like every other property, and a flow node or a script can write them at
+run time without a geometry rebuild (they are not vertex data; nothing needs
+`dirty`).
+
+### Engine side
+
+Two quadwords, uploaded per mesh in `StaPipQBufferRenderer::sendObjectData`:
+
+```
+VU1_CUSTOM_PARAMS_ADDR  15   the mesh's four numbers
+VU1_CUSTOM_TIME_ADDR    16   (time, sin time, cos time, 1.0)
+```
+
+They sit **inside the directional-lights colour block**, which is why the upload
+lives in the `if (!bag->lighting)` branch — a lit bag needs 15..18 for its light
+colours and would be corrupted by them. That is also the real reason a custom
+program can only be built on a colour base: the addresses are only free there.
+
+`StaPipCore::setVuCustomEnabled` gates the whole thing off by default, so a
+project without a custom program does not pay two extra unpacked quadwords per
+mesh.
+
+### Files a removed program leaves behind
+
+`refreshGenerated` **sweeps** `src/gen/vu_custom_*`, `src/gen/vu0_*` and
+`inc/vu0_*` that the current project does not produce. This is not tidiness:
+`Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
+assembled and **linked**, taking micro memory for a program nobody asked for.
+
+---
+
 ## VU0 kernels
 
 The same stage library, on the other vector unit, with none of the rendering

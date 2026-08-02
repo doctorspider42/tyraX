@@ -287,6 +287,21 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_float(objectDataPacket, meshSpot.invSoft);
     }
     packet2_utils_vu_close_unpack(objectDataPacket);
+
+    // Modified by TyraX: the two quadwords a project's own microprogram reads
+    // (docs/vu-authoring.md). Inside the `if (!bag->lighting)` on purpose -
+    // they occupy the directional-lights COLOUR block, which a lit bag needs.
+    if (vuCustomEnabled) {
+      packet2_utils_vu_open_unpack(objectDataPacket, VU1_CUSTOM_PARAMS_ADDR,
+                                   false);
+      {
+        for (u32 i = 0; i < 4; i++)
+          packet2_add_float(objectDataPacket, vuParams[i]);
+        for (u32 i = 0; i < 4; i++)
+          packet2_add_float(objectDataPacket, vuTime[i]);
+      }
+      packet2_utils_vu_close_unpack(objectDataPacket);
+    }
   }
 
   // Modified by TyraX: VU1 clipping data. One quad of constants for the
@@ -615,6 +630,15 @@ StaPipProgramName StaPipQBufferRenderer::residentFallback(
     default:
       return name;
   }
+}
+
+// TyraX addition: see the header. sinf/cosf on the EE once per call is nothing
+// next to what the same series costs three times per vertex on VU1.
+void StaPipQBufferRenderer::setVuTime(const float& seconds) {
+  vuTime[0] = seconds;
+  vuTime[1] = sinf(seconds);
+  vuTime[2] = cosf(seconds);
+  vuTime[3] = 1.0F;
 }
 
 void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
