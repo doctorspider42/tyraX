@@ -2238,16 +2238,35 @@ void App::drawViewportWindow() {
                                  selectedAmbience_ < (int)project_.ambiencePresets.size();
             if (preview) {
                 const AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
-                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
-                viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
-                                      a.brightness);
+                // A cycle owns the sky, the light and the fog colour at its
+                // authored hour - exactly the overlay project::resolvedSettings
+                // applies for the bake, so dragging the time slider previews
+                // the light the build will actually use.
+                if (a.cycle.enabled) {
+                    const ambience::Resolved d =
+                        ambience::evaluate(a.cycle, a.cycle.time);
+                    viewport_.setSky(d.skyColor, d.skyTopColor, a.skyDome,
+                                     a.zenithSize);
+                    viewport_.setLighting(d.lightDir, d.ambient, d.diffuse,
+                                          d.lightColor, d.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, d.fogColor,
+                                     a.fogStart, a.fogEnd);
+                } else {
+                    viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
+                    viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
+                                          a.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
+                }
                 viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
-                viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 ambiencePreviewPushed_ = true;
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
                 applyProjectToViewport();  // restore the scene's own ambience
             }
+            // The sun/moon discs follow whichever cycle is being shown: the
+            // previewed preset while the editor is open, the scene's own
+            // otherwise - so they are visible during ordinary scene work too.
+            updateSkyBodyPreview(preview ? selectedAmbience_ : -1);
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -8415,6 +8434,10 @@ void App::drawAmbienceWindow() {
             drawAmbiencePresets(changed);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Day / night")) {
+            drawAmbienceDayCycle(changed);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Global illumination", nullptr,
                                 wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
             drawGiBakeSection();
@@ -8617,6 +8640,334 @@ void App::drawAmbiencePresets(bool& changed) {
     }
 
     ImGui::EndChild();
+}
+
+// The day/night half of the Ambience Editor (docs/day-night-cycle.md). Edits
+// the SELECTED preset's cycle: a preset is a scene's mood bundle, so "which
+// preset" doubles as "which time of day", and a scene picks one already.
+void App::drawAmbienceDayCycle(bool& changed) {
+    if (selectedAmbience_ < 0 ||
+        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
+        ImGui::TextDisabled("Select a preset on the Presets tab first.");
+        ImGui::TextDisabled(
+            "\nA day/night cycle belongs to a preset: the sun and moon arcs,\n"
+            "the colours through the day, and the hour the scene is built at.");
+        return;
+    }
+    AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
+    DayCycle& c = a.cycle;
+
+    ImGui::Text("Preset: %s", a.name.c_str());
+    ImGui::SameLine(0.0f, scaled(24.0f));
+    if (ImGui::Checkbox("Enable day/night cycle", &c.enabled)) {
+        // First enable with nothing authored would resolve every hour to one
+        // default key, i.e. a flat sky - seed a real day instead.
+        if (c.enabled && c.keys.empty()) c.keys = ambience::defaultKeys();
+        changed = true;
+    }
+    prefHelp(
+        "Replaces this preset's sky, light direction/colour and fog colour with\n"
+        "whatever the cycle resolves to at the hour below.\n\n"
+        "It is not a screen tint: the resolved direction is what the vertex\n"
+        "shading, the AO bake, the GI bake and the runtime projected shadows,\n"
+        "lens flare and god rays are all built from.");
+    if (!c.enabled) {
+        ImGui::TextDisabled(
+            "\nOff - the preset's own sky/lighting/fog on the Presets tab is used.");
+        return;
+    }
+
+    // --- the slider --------------------------------------------------------
+    ImGui::SeparatorText("Time of day");
+    const ambience::Resolved now = ambience::evaluate(c, c.time);
+    {
+        char label[32];
+        std::snprintf(label, sizeof(label), "%02d:%02d", (int)c.time,
+                      (int)((c.time - (float)(int)c.time) * 60.0f));
+        ImGui::SetNextItemWidth(-scaled(120.0f));
+        ImGui::SliderFloat("##tod", &c.time, 0.0f, 24.0f, label);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Noon")) { c.time = 12.0f; changed = true; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Midnight")) { c.time = 0.0f; changed = true; }
+
+    // A 24-hour strip of the horizon colour, with the current hour marked. It
+    // is the fastest way to see that a key list has a hole in it.
+    {
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float h = scaled(22.0f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const int steps = 96;
+        for (int i = 0; i < steps; ++i) {
+            const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
+            const DayKey k = ambience::sampleKeys(c, t0 * 24.0f);
+            dl->AddRectFilled(
+                ImVec2(p0.x + w * t0, p0.y), ImVec2(p0.x + w * t1 + 1.0f, p0.y + h),
+                IM_COL32((int)(k.skyColor[0] * 255), (int)(k.skyColor[1] * 255),
+                         (int)(k.skyColor[2] * 255), 255));
+        }
+        const theme::Semantics& sem = theme::semantics();
+        for (const DayKey& k : c.keys) {
+            const float x = p0.x + w * (k.hour / 24.0f);
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + h * 0.35f),
+                        ImGui::GetColorU32(sem.textDim), 1.0f);
+        }
+        const float sx = p0.x + w * (ambience::wrap24(c.time) / 24.0f);
+        dl->AddLine(ImVec2(sx, p0.y), ImVec2(sx, p0.y + h),
+                    ImGui::GetColorU32(sem.accent), scaled(2.0f));
+        ImGui::Dummy(ImVec2(w, h));
+    }
+    ImGui::TextDisabled(
+        "Sun %+.0f deg, moon %+.0f deg above the horizon - %s is lighting the "
+        "scene.",
+        now.sunElevation, now.moonElevation,
+        now.sunElevation >= now.moonElevation ? "the sun" : "the moon");
+    prefHelp(
+        "The baked light direction never dips below +5 degrees, whichever body\n"
+        "is up: a light at the horizon gives flat ground no diffuse at all, and\n"
+        "one below it lights the world from underneath. Night gets dark from\n"
+        "the key colours, not from aiming the sun into the floor.");
+
+    // --- sun ---------------------------------------------------------------
+    ImGui::SeparatorText("Sun");
+    ImGui::SliderFloat("Rises at (bearing)", &c.sunAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Compass bearing of sunrise: 0 = +Z, 90 = +X.");
+    ImGui::SliderFloat("Arc tilt", &c.sunTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("How far the arc leans off the zenith. 0 puts the sun straight\n"
+             "overhead at midday; 60 is a low winter sun with long shadows.");
+    ImGui::SliderFloat("Sunrise", &c.sunrise, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sunset", &c.sunset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sun size", &c.sunSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Apparent diameter of the disc. The real sun is about 0.5 deg,\n"
+             "which is almost invisible on a 512x448 frame - 3 reads better.");
+
+    // --- moon --------------------------------------------------------------
+    ImGui::SeparatorText("Moon");
+    ImGui::SliderFloat("Moon bearing", &c.moonAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Moon arc tilt", &c.moonTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Hours behind the sun", &c.moonOffset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("12 puts the moon up exactly while the sun is down, which is what\n"
+             "you want unless you are after a moon visible in daylight.");
+    ImGui::SliderFloat("Moon size", &c.moonSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a\n"
+             "terminator, so it costs the console nothing.");
+    {
+        ImGui::Text("Moon texture: %s",
+                    c.moonTexture.empty() ? "built-in (NASA LRO colour map)"
+                                          : c.moonTexture.c_str());
+        if (ImGui::Button("Import moon texture...")) {
+            // Same import shape as the HUD image pickers: copy into res/ and
+            // store the project-relative path.
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    c.moonTexture = "res/textures/" + fileName;
+                    skyBodyMoonSig_.clear();  // force a re-bake
+                    changed = true;
+                } else {
+                    statusMessage_ = "Moon texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (!c.moonTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Reset to built-in")) {
+                c.moonTexture.clear();
+                skyBodyMoonSig_.clear();
+                changed = true;
+            }
+        }
+        prefHelp(
+            "Empty = NASA's Lunar Reconnaissance Orbiter colour map, built into\n"
+            "the editor. A 2:1 image is treated as an equirectangular map of the\n"
+            "sphere and projected; anything else is used as the disc face.\n\n"
+            "The map itself never ships - only the small baked disc does.");
+    }
+    // The disc as it will be baked, at the size it is baked (the preview and
+    // the shipped texture are the same pixels - see menubake::bakeMoonRGBA).
+    if (uint32_t t = viewport_.moonDiscTexture())
+        ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
+
+    // --- keys --------------------------------------------------------------
+    ImGui::SeparatorText("Colours through the day");
+    if (ImGui::Button("Seed a default day")) {
+        c.keys = ambience::defaultKeys();
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    prefHelp("Replaces the key list with a night/dawn/day/dusk/night set.");
+    ImGui::SameLine();
+    if (ImGui::Button("+ Key at current time")) {
+        DayKey k = ambience::sampleKeys(c, c.time);  // continue the curve
+        k.hour = ambience::wrap24(c.time);
+        c.keys.push_back(k);
+        project::sortDayKeys(c);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(selectedDayKey_ < 0 || selectedDayKey_ >= (int)c.keys.size());
+    if (ImGui::Button("Remove key")) {
+        c.keys.erase(c.keys.begin() + selectedDayKey_);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+
+    if (c.keys.empty()) {
+        ImGui::TextDisabled("No keys - every hour resolves to the same neutral sky.");
+        return;
+    }
+    if (ImGui::BeginTable("##daykeys", 8,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingFixedFit |
+                              ImGuiTableFlags_ScrollY,
+                          ImVec2(0, scaled(200)))) {
+        ImGui::TableSetupColumn("Hour");
+        ImGui::TableSetupColumn("Horizon");
+        ImGui::TableSetupColumn("Zenith");
+        ImGui::TableSetupColumn("Light");
+        ImGui::TableSetupColumn("Fog");
+        ImGui::TableSetupColumn("Amb");
+        ImGui::TableSetupColumn("Diff");
+        ImGui::TableSetupColumn("Stars");
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+        bool resort = false;
+        for (int i = 0; i < (int)c.keys.size(); ++i) {
+            DayKey& k = c.keys[i];
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(scaled(64));
+            if (ImGui::DragFloat("##h", &k.hour, 0.05f, 0.0f, 24.0f, "%.2f"))
+                selectedDayKey_ = i;
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                resort = true;
+                changed = true;
+            }
+            if (ImGui::IsItemActivated()) selectedDayKey_ = i;
+            const ImGuiColorEditFlags cf =
+                ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
+            auto colCell = [&](const char* id, float* rgb) {
+                ImGui::TableNextColumn();
+                if (ImGui::ColorEdit3(id, rgb, cf)) selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            colCell("##sky", k.skyColor);
+            colCell("##top", k.skyTopColor);
+            colCell("##lit", k.lightColor);
+            colCell("##fog", k.fogColor);
+            auto numCell = [&](const char* id, float* v, float hi) {
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(scaled(52));
+                if (ImGui::DragFloat(id, v, 0.01f, 0.0f, hi, "%.2f"))
+                    selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            numCell("##amb", &k.ambient, 1.0f);
+            numCell("##dif", &k.diffuse, 1.0f);
+            numCell("##str", &k.stars, 1.0f);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+        if (resort) {
+            project::sortDayKeys(c);
+            selectedDayKey_ = -1;
+        }
+    }
+    ImGui::TextDisabled(
+        "Keys interpolate cyclically, so the last key of the day carries "
+        "through\nmidnight into the first. Two keys holding the same colour "
+        "are how you\nkeep night looking like night instead of ramping into "
+        "dawn from 00:00.");
+
+    if (changed) project::clampDayCycle(c);
+}
+
+// Pushes the sun/moon discs into the viewport, re-baking the moon only when its
+// inputs moved. `presetIndex` >= 0 = preview that preset (the Ambience Editor is
+// showing it); -1 = whatever the active scene resolves to.
+void App::updateSkyBodyPreview(int presetIndex) {
+    const DayCycle* c = nullptr;
+    if (presetIndex >= 0 && presetIndex < (int)project_.ambiencePresets.size()) {
+        const DayCycle& pc = project_.ambiencePresets[presetIndex].cycle;
+        if (pc.enabled) c = &pc;
+    } else {
+        c = templates::sceneDayCycle(project_, project_.active());
+    }
+    if (!c) {
+        viewport_.setSkyBodies(Viewport::SkyBodies{});
+        return;
+    }
+
+    // The sun sprite is fixed, so it uploads once per session.
+    if (!skyBodySunUploaded_) {
+        std::vector<unsigned char> rgba;
+        menubake::bakeSunRGBA(rgba);
+        viewport_.setSkyBodyTexture(false, menubake::kSunDiscSize,
+                                    menubake::kSunDiscSize, rgba.data());
+        skyBodySunUploaded_ = true;
+    }
+    // The moon is a real image projection - only re-bake when its inputs move.
+    {
+        char sig[64];
+        std::snprintf(sig, sizeof(sig), "%.4f|", c->moonPhase);
+        const std::string want = std::string(sig) + c->moonTexture;
+        if (want != skyBodyMoonSig_) {
+            std::vector<unsigned char> rgba;
+            const std::string srcAbs = c->moonTexture.empty()
+                                           ? std::string()
+                                           : project_.filePath(c->moonTexture);
+            if (menubake::bakeMoonRGBA(c->moonPhase, srcAbs, rgba)) {
+                viewport_.setSkyBodyTexture(true, menubake::kMoonDiscSize,
+                                            menubake::kMoonDiscSize, rgba.data());
+                skyBodyMoonSig_ = want;
+            }
+        }
+    }
+
+    const ambience::Resolved d = ambience::evaluate(*c, c->time);
+    Viewport::SkyBodies b;
+    b.enabled = true;
+    for (int i = 0; i < 3; ++i) {
+        b.sunDir[i] = d.sunDir[i];
+        b.moonDir[i] = d.moonDir[i];
+        b.sunColor[i] = d.lightColor[i];
+    }
+    // Same "keep drawing a little below the horizon" rule codegen bakes, so a
+    // setting body slides out of view here too instead of vanishing whole.
+    const float kDeg = 3.14159265f / 180.0f;
+    b.sunRadius =
+        d.sunElevation < -10.0f ? 0.0f : std::tan(c->sunSize * 0.5f * kDeg);
+    b.moonRadius =
+        d.moonElevation < -10.0f ? 0.0f : std::tan(c->moonSize * 0.5f * kDeg);
+    b.moonRoll = d.moonUpAngle;
+    viewport_.setSkyBodies(b);
 }
 
 // --- Options-menu "option blocks" ------------------------------------------

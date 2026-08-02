@@ -1302,6 +1302,9 @@ void Viewport::shutdown() {
     destroyMesh(scatterPointsMesh_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
+    destroyMesh(skyBodyQuad_);
+    if (sunDiscTex_) glDeleteTextures(1, &sunDiscTex_);
+    if (moonDiscTex_) glDeleteTextures(1, &moonDiscTex_);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
     for (Mesh& m : prevLitShape_) destroyMesh(m);
@@ -3329,6 +3332,92 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
     skyQuadDirty_ = true;
 }
 
+void Viewport::setSkyBodyTexture(bool moon, int w, int h,
+                                 const unsigned char* rgba) {
+    if (w < 1 || h < 1 || !rgba) return;
+    uint32_t& tex = moon ? moonDiscTex_ : sunDiscTex_;
+    if (!tex) {
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        tex = t;
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUploadTexRgba(w, h, rgba);  // never the one-call form - see gl_loader.h
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// The editor twin of the generated game's TerrainGame::renderSkyBodies. Both
+// place a quad at `dir * domeRadius` from the eye and size it by the body's
+// apparent radius, so what the slider previews is what the console draws.
+void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
+                             const float* right, const float* up,
+                             float domeRadius) {
+    if (!skyBodies_.enabled) return;
+    if (!skyBodyQuad_.vertexCount) {
+        // Unit quad in the XY plane; the model matrix below orients it. pos3 +
+        // color3 + uv2, the layout uploadMesh expects.
+        skyBodyQuad_ = uploadMesh({
+            -1, -1, 0, 1, 1, 1, 0, 0,  //
+            1, -1, 0, 1, 1, 1, 1, 0,   //
+            1, 1, 0, 1, 1, 1, 1, 1,    //
+            -1, -1, 0, 1, 1, 1, 0, 0,  //
+            1, 1, 0, 1, 1, 1, 1, 1,    //
+            -1, 1, 0, 1, 1, 1, 0, 1,   //
+        });
+    }
+    // Just inside the dome, like the game's 0.94 - otherwise the two z-fight.
+    const float dist = domeRadius * 0.94f;
+
+    auto draw = [&](uint32_t tex, const float* dir, float rFrac, float roll,
+                    const float* tint, bool additive) {
+        if (!tex || rFrac <= 0.0f) return;
+        const float half = dist * rFrac;
+        // Billboard axes, rolled so the moon's lit limb faces the sun.
+        const float cr = std::cos(roll), sr = std::sin(roll);
+        float rx[3], uy[3];
+        for (int i = 0; i < 3; ++i) {
+            rx[i] = right[i] * cr + up[i] * sr;
+            uy[i] = up[i] * cr - right[i] * sr;
+        }
+        Mat4 model{};
+        for (int i = 0; i < 3; ++i) {
+            model.m[i] = rx[i] * half;
+            model.m[4 + i] = uy[i] * half;
+            model.m[8 + i] = dir[i] * half;  // unused by a flat quad, kept sane
+            model.m[12 + i] = eye[i] + dir[i] * dist;
+        }
+        model.m[15] = 1.0f;
+        const Mat4 mvp = mul(*reinterpret_cast<const Mat4*>(viewProj16), model);
+
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniform3f(uTint_, tint[0], tint[1], tint[2]);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uUseTex_, 1);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glEnable(GL_BLEND);
+        // The sun ADDS light (that is what makes it read as a source and what
+        // the bloom pass picks up), so its sprite carries its shape in RGB and
+        // blends ONE/ONE - the GS additive bag's Cs*FIX + Cd. The moon is a lit
+        // rock: an ordinary alpha blend, or the night sky glows through it.
+        if (additive) glBlendFunc(GL_ONE, GL_ONE);
+        else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBindVertexArray(skyBodyQuad_.vao);
+        glDrawArrays(GL_TRIANGLES, 0, skyBodyQuad_.vertexCount);
+        glDisable(GL_BLEND);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUniform1i(uUseTex_, 0);
+    };
+
+    const float white[3] = {1.0f, 1.0f, 1.0f};
+    // The sun takes the scene's light colour, so a red sunset sun is red with
+    // nothing extra authored - the generated game tints it the same way.
+    draw(sunDiscTex_, skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
+         skyBodies_.sunColor, true);
+    draw(moonDiscTex_, skyBodies_.moonDir, skyBodies_.moonRadius,
+         skyBodies_.moonRoll, white, false);
+}
+
 void Viewport::orbit(float dx, float dy) {
     if (projection_ > Projection::Ortho) {
         // Dragging out of a locked axis view: seed the orbit angles from the
@@ -3516,6 +3605,15 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uLit_, 0);
         glBindVertexArray(skyQuad_.vao);
         glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
+        glEnable(GL_DEPTH_TEST);
+    }
+    // Day/night cycle sun and moon, on the dome and with depth off for the same
+    // reason it is: they are the backdrop, and the scene paints over them.
+    if (skyBodies_.enabled) {
+        const float skyR = diag * 8.0f + 80.0f;
+        const float eyeArr[3] = {eye.x, eye.y, eye.z};
+        glDisable(GL_DEPTH_TEST);
+        drawSkyBodies(viewProj.m, eyeArr, cam.right, cam.up, skyR);
         glEnable(GL_DEPTH_TEST);
     }
 

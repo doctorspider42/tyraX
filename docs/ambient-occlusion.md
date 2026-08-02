@@ -20,6 +20,12 @@ Two knobs, two places:
 The editor viewport previews the shadows live (per fragment, the same
 formulas), including a `Cast shadow` toggle taking effect immediately.
 
+**The light direction the bake uses may come from a day/night cycle**
+([day-night-cycle.md](day-night-cycle.md)). A cycle overwrites the preset's
+`lightDir` inside `project::resolvedSettings`, which is where this bake reads
+it from - so moving the time-of-day slider swings every contact shadow in the
+scene, and nothing in `aobake` needs to know why.
+
 ## How it ships
 
 | What | Where it is computed | How it ships |

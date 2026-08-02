@@ -1067,6 +1067,29 @@ class TerrainGame : public Tyra::Game {
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
 
+  // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
+  // the dome radius in the baked SCENE_SUN_* / SCENE_MOON_* directions. Six
+  // vertices each, rebuilt per frame from the camera basis so they keep facing
+  // the viewer - the same shape the beam coronas use, and the same cost.
+  // DAYCYCLE_USED gates the textures; without a cycle nothing here is touched.
+  Tyra::Texture* sunDiscTex = nullptr;
+  Tyra::Texture* moonDiscTex = nullptr;
+  struct SkyBody {
+    std::vector<Tyra::Vec4> verts;  // 6
+    std::vector<Tyra::Vec4> sts;    // 6
+    Tyra::Color color{128.0F, 128.0F, 128.0F, 128.0F};
+    Tyra::M4x4 mat = Tyra::M4x4::Identity;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  SkyBody sunBody, moonBody;
+  void setupSkyBodies();
+  // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
+  // portal or a camera feed needs them oriented for ITS eye, not the player's.
+  void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
+
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
@@ -2106,6 +2129,29 @@ class TerrainGame : public Tyra::Game {
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
   std::vector<Tyra::Sprite> hudSprites;
+
+  // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
+  // the dome radius in the baked SCENE_SUN_* / SCENE_MOON_* directions. Six
+  // vertices each, rebuilt per frame from the camera basis so they keep facing
+  // the viewer - the same shape the beam coronas use, and the same cost.
+  // DAYCYCLE_USED gates the textures; without a cycle nothing here is touched.
+  Tyra::Texture* sunDiscTex = nullptr;
+  Tyra::Texture* moonDiscTex = nullptr;
+  struct SkyBody {
+    std::vector<Tyra::Vec4> verts;  // 6
+    std::vector<Tyra::Vec4> sts;    // 6
+    Tyra::Color color{128.0F, 128.0F, 128.0F, 128.0F};
+    Tyra::M4x4 mat = Tyra::M4x4::Identity;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  SkyBody sunBody, moonBody;
+  void setupSkyBodies();
+  // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
+  // portal or a camera feed needs them oriented for ITS eye, not the player's.
+  void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
@@ -5187,6 +5233,17 @@ void TerrainGame::buildScene() {
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
+    // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
+    // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
+    // cycle-less project pays no VRAM for a sky it does not draw. Together they
+    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    if (DAYCYCLE_USED) {
+      sunDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/sun-disc.png"));
+      moonDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/moon-disc.png"));
+      setupSkyBodies();
+    }
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
@@ -8554,6 +8611,130 @@ void TerrainGame::renderFlare() {
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
     engine->renderer.renderer2D.render(flareSprites[i]);
+}
+
+// Day/night cycle sky bodies (docs/day-night-cycle.md): one-time setup of the
+// sun and moon quads. Six vertices each and a fixed full-sprite ST quad; the
+// positions are written every frame by renderSkyBodies.
+//
+// The two differ in how they blend, and it is not a style choice. The sun is
+// ADDITIVE (Cs*FIX + Cd), which is what makes it read as a light source and
+// what feeds the bloom pass a bright spot to flare - so its sprite carries its
+// shape in RGB, because an additive bag never reads texture alpha. The moon is
+// an ordinary alpha-blended quad: it is a lit ROCK, and adding it to the sky
+// would make a night sky glow through it.
+void TerrainGame::setupSkyBodies() {
+  if (!DAYCYCLE_USED) return;
+  auto init = [](SkyBody& b, Tyra::Texture* tex, bool additive) {
+    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.clear();
+    // Two triangles over the whole sprite, matching the corner order below.
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.mat.identity();
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // The discs ride the dome, past the fog end - hardware fog would paint
+    // them solid fog colour, exactly as it would the dome itself.
+    b.info->fogDisabled = true;
+    // Centred on the camera like the dome: a nearby torch must not tint the sun.
+    b.info->dynLightPick = false;
+    b.info->fullClipChecks = true;  // crosses the screen edge constantly
+    if (additive) b.info->additiveBlendFix = 128;
+    else b.info->blendingEnabled = true;
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = tex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = 6;
+  };
+  if (sunDiscTex) init(sunBody, sunDiscTex, true);
+  if (moonDiscTex) init(moonBody, moonDiscTex, false);
+}
+
+// Places and submits the two discs. Called right after the sky dome, so they
+// are behind everything and write no depth of their own.
+void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
+  if (!DAYCYCLE_USED) return;
+  // View basis: the quads are billboards, so their corners are rebuilt from
+  // this view's right/up every frame (six vertices - the beam-corona deal).
+  V3 fwd = {look.x - eye.x, look.y - eye.y, look.z - eye.z};
+  float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl < 1e-4F) return;
+  fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  V3 right = {fwd.z, 0.0F, -fwd.x};
+  float rl = sqrtf(right.x * right.x + right.z * right.z);
+  if (rl < 1e-4F) {
+    right = {1.0F, 0.0F, 0.0F};
+    rl = 1.0F;
+  }
+  right.x /= rl, right.y = 0.0F, right.z /= rl;
+  const V3 up = {right.y * fwd.z - right.z * fwd.y,
+                 right.z * fwd.x - right.x * fwd.z,
+                 right.x * fwd.y - right.y * fwd.x};
+
+  // The dome's own radius, so a body sits ON the sky rather than in front of
+  // the terrain. Mirrors buildSkyDome's clamp - keep the two in step.
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Just inside the dome, or z-fighting decides per frame whether the sun is
+  // in front of the sky.
+  const float dist = domeR * 0.94F;
+
+  auto place = [&](SkyBody& b, float dx, float dy, float dz, float rFrac,
+                   float roll) {
+    if (!b.bag || rFrac <= 0.0F) return;
+    const float cx = eye.x + dx * dist;
+    const float cy = eye.y + dy * dist;
+    const float cz = eye.z + dz * dist;
+    const float half = dist * rFrac;
+    // Roll the billboard axes so the moon's lit limb faces the sun; the sun
+    // passes roll 0 and pays only a cosf/sinf of nothing.
+    const float cr = cosf(roll), sr = sinf(roll);
+    const V3 rx = {right.x * cr + up.x * sr, right.y * cr + up.y * sr,
+                   right.z * cr + up.z * sr};
+    const V3 uy = {up.x * cr - right.x * sr, up.y * cr - right.y * sr,
+                   up.z * cr - right.z * sr};
+    const Vec4 c0(cx + (-rx.x - uy.x) * half, cy + (-rx.y - uy.y) * half,
+                  cz + (-rx.z - uy.z) * half, 1.0F);
+    const Vec4 c1(cx + (rx.x - uy.x) * half, cy + (rx.y - uy.y) * half,
+                  cz + (rx.z - uy.z) * half, 1.0F);
+    const Vec4 c2(cx + (rx.x + uy.x) * half, cy + (rx.y + uy.y) * half,
+                  cz + (rx.z + uy.z) * half, 1.0F);
+    const Vec4 c3(cx + (-rx.x + uy.x) * half, cy + (-rx.y + uy.y) * half,
+                  cz + (-rx.z + uy.z) * half, 1.0F);
+    b.verts[0] = c0;
+    b.verts[1] = c1;
+    b.verts[2] = c2;
+    b.verts[3] = c0;
+    b.verts[4] = c2;
+    b.verts[5] = c3;
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  };
+
+  // The sun takes the scene's light colour, so a red sunset sun is red without
+  // a second authored colour anywhere.
+  sunBody.color.set(128.0F * SCENE_LIGHT_COL_R, 128.0F * SCENE_LIGHT_COL_G,
+                    128.0F * SCENE_LIGHT_COL_B, 128.0F);
+  place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
+  place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
+        SCENE_MOON_ROLL);
 }
 
 // Visible light beams (Point Light > Beam): per-scene setup. One additive
@@ -12411,6 +12592,7 @@ void TerrainGame::renderScene() {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
@@ -12467,6 +12649,7 @@ void TerrainGame::renderScene() {
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(cameraPosition, cameraLookAt);
   }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
@@ -13177,6 +13360,7 @@ void TerrainGame::renderCameraFeed() {
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, look);
       skyDome.infoBag->zTestType = prevZTest;
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
@@ -13317,6 +13501,7 @@ void TerrainGame::renderObjectProbe(int index) {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
@@ -13652,6 +13837,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, at);
     }
     // resident chunks only - the streaming ring follows the MAIN camera, so
     // with terrain streaming on, keep the pair inside the streamed radius
@@ -19925,6 +20111,48 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("SCENE_LIGHT_COL_GS", [&](int si) { return floatLit(rs[si].lightColor[1]); });
     sceneFloats("SCENE_LIGHT_COL_BS", [&](int si) { return floatLit(rs[si].lightColor[2]); });
     sceneFloats("SCENE_BRIGHTNESSES", [&](int si) { return floatLit(rs[si].brightness); });
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). The arcs are
+    // evaluated HERE, at the authored hour, so the game does no astronomy: it
+    // just places two quads on the dome. A scene with no cycle gets a sun
+    // straight overhead and an elevation of -90, which renderSkyBodies reads as
+    // "draw nothing" - the same shape as an unused flare.
+    {
+        auto bodyOf = [&](int si, int which, int axis) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            if (!c) return floatLit(axis == 1 ? 1.0f : 0.0f);
+            const ambience::Resolved d = ambience::evaluate(*c, c->time);
+            const float* v = which == 0 ? d.sunDir : d.moonDir;
+            return floatLit(v[axis]);
+        };
+        sceneFloats("SCENE_SUN_XS", [&](int si) { return bodyOf(si, 0, 0); });
+        sceneFloats("SCENE_SUN_YS", [&](int si) { return bodyOf(si, 0, 1); });
+        sceneFloats("SCENE_SUN_ZS", [&](int si) { return bodyOf(si, 0, 2); });
+        sceneFloats("SCENE_MOON_XS", [&](int si) { return bodyOf(si, 1, 0); });
+        sceneFloats("SCENE_MOON_YS", [&](int si) { return bodyOf(si, 1, 1); });
+        sceneFloats("SCENE_MOON_ZS", [&](int si) { return bodyOf(si, 1, 2); });
+        // Apparent radius as a fraction of the dome radius: tan(size/2). A body
+        // below the horizon gets 0, which is the "skip me" flag.
+        auto sizeOf = [&](int si, int which) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            if (!c) return floatLit(0.0f);
+            const ambience::Resolved d = ambience::evaluate(*c, c->time);
+            const float elev = which == 0 ? d.sunElevation : d.moonElevation;
+            // Keep drawing a little below the horizon so a setting body slides
+            // out of view instead of vanishing whole.
+            if (elev < -10.0f) return floatLit(0.0f);
+            const float deg = which == 0 ? c->sunSize : c->moonSize;
+            return floatLit(std::tan(deg * 0.5f * 3.14159265358979f / 180.0f));
+        };
+        sceneFloats("SCENE_SUN_RS", [&](int si) { return sizeOf(si, 0); });
+        sceneFloats("SCENE_MOON_RS", [&](int si) { return sizeOf(si, 1); });
+        // Rotation of the moon disc around the view axis, so its lit limb keeps
+        // pointing at the sun (the disc is baked lit-side-toward-+X).
+        sceneFloats("SCENE_MOON_ROLLS", [&](int si) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            if (!c) return floatLit(0.0f);
+            return floatLit(ambience::evaluate(*c, c->time).moonUpAngle);
+        });
+    }
     // Baked ambient occlusion (docs/ambient-occlusion.md): folded into the
     // same vertex colors as the light above while geometry bakes at load.
     sceneBools("SCENE_AO_ENABLEDS", [&](int si) { return rs[si].aoEnabled; });
@@ -19982,6 +20210,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         << ";\n";
     // Same contract for the light-beam corona sprite (projectUsesBeams).
     out << "constexpr int BEAMS_USED = " << (projectUsesBeams(p) ? 1 : 0)
+        << ";\n";
+    // ...and for the day/night cycle's sun and moon discs
+    // (templates::projectUsesDayCycle bakes res/hud/{sun,moon}-disc.png).
+    out << "constexpr int DAYCYCLE_USED = " << (projectUsesDayCycle(p) ? 1 : 0)
         << ";\n";
     // Blob shadows under moving objects (project-wide preference; the glow
     // sprite doubles as the shadow's alpha mask, baked when either is on).
@@ -20283,6 +20515,19 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
+// and the moon, their apparent radius as a fraction of the dome radius (0 = the
+// body is down, draw nothing) and the moon disc's roll so its lit limb faces
+// the sun. All resolved at build - the game places two quads and no more.
+#define SCENE_SUN_X SCENE_SUN_XS[g_activeScene]
+#define SCENE_SUN_Y SCENE_SUN_YS[g_activeScene]
+#define SCENE_SUN_Z SCENE_SUN_ZS[g_activeScene]
+#define SCENE_SUN_R SCENE_SUN_RS[g_activeScene]
+#define SCENE_MOON_X SCENE_MOON_XS[g_activeScene]
+#define SCENE_MOON_Y SCENE_MOON_YS[g_activeScene]
+#define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
+#define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
+#define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
@@ -20616,6 +20861,29 @@ bool projectUsesFlare(const Project& p) {
                 if (n.type == "SetFlare") return true;
     }
     return false;
+}
+
+const DayCycle* sceneDayCycle(const Project& p, const SceneData& sc) {
+    const int ai = project::ambienceIndexFor(p, sc);
+    if (ai < 0) return nullptr;
+    const DayCycle& c = p.ambiencePresets[ai].cycle;
+    return c.enabled ? &c : nullptr;
+}
+
+bool projectUsesDayCycle(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        if (sceneDayCycle(p, sc)) return true;
+    return false;
+}
+
+// The moon disc is baked per PROJECT, not per scene: it is one texture in a
+// 1.08 MB heap, so two scenes with different moon phases would be a second
+// resident 128x128. The first cycle scene that resolves wins and the Ambience
+// Editor says so.
+const DayCycle* projectMoonCycle(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        if (const DayCycle* c = sceneDayCycle(p, sc)) return c;
+    return nullptr;
 }
 
 bool projectUsesBeams(const Project& p) {

@@ -1,0 +1,198 @@
+# Day / night cycle
+
+*Tools > Ambience Editor > **Day / night***
+
+A time-of-day slider from midnight to midnight. The sun and the moon travel
+authored arcs across the sky, a list of keyframes says what the light and the
+sky look like at each hour, and the hour you leave the slider on is the hour the
+scene is **built** at.
+
+It is not a screen tint. The resolved light direction is the one the vertex
+shading, the ambient-occlusion bake, the global-illumination bake and its probe
+grid, the runtime projected shadows, the blob shadows, the lens flare and the
+god rays are all built from. Move the slider from noon to five in the afternoon
+and every contact shadow in the scene leans east.
+
+The cycle is **static** in one specific sense: the authored `time` is baked, and
+the game does not advance it. What a moving cycle would cost is at the bottom of
+this page.
+
+## Where it lives
+
+A cycle belongs to an **ambience preset** (`DayCycle` on `AmbiencePreset`,
+[src/ambience.hpp](../src/ambience.hpp)). A preset is already a scene's mood
+bundle and a scene already picks one, so "which preset" doubles as "which time
+of day" - two presets of the same place at different hours is the natural way to
+author a morning level and an evening one.
+
+## The one hook
+
+Everything above follows from a single overlay in
+`project::resolvedSettings` ([src/project.cpp](../src/project.cpp)), the funnel
+every consumer of scene-visual settings already reads:
+
+```cpp
+if (a.cycle.enabled) {
+    const ambience::Resolved d = ambience::evaluate(a.cycle, a.cycle.time);
+    // ... writes skyColor, skyTopColor, lightDir, lightColor,
+    //     ambient, diffuse, brightness, fogColor
+}
+```
+
+Nothing downstream knows a cycle exists. `aobake`, `gibake`, the
+`SCENE_LIGHT_*` codegen and the viewport keep reading the same
+`ProjectSettings` fields they always did.
+
+One consequence worth knowing: **moving the time stales the GI bake.** That is
+correct, not a bug - `lightDir` is part of the bake's cache signature
+(`gibake.cpp`), so each authored hour caches separately and re-baking is what
+gives you that hour's bounce light.
+
+## The arcs
+
+Each body rides a great circle. It crosses the horizon at compass bearing
+`azimuth` (0 = +Z, 90 = +X) and the circle leans `tilt` degrees off the zenith,
+so the peak elevation is `90 - tilt`. Between `sunrise` and `sunset` the sun is
+above the horizon; the rest of the day it continues the same circle underneath.
+The moon uses its own bearing and tilt, shifted `moonOffset` hours behind the
+sun - 12 puts it up exactly while the sun is down.
+
+`ambience::arcDirection` is that formula, and it is the only copy: codegen bakes
+`SCENE_SUN_*` / `SCENE_MOON_*` from it, the viewport places its discs from it,
+and the editor's readout prints it.
+
+### Two rules the math keeps, and why
+
+**The baked light never dips below +5 degrees** (`kMinLightElevation`). A light
+exactly at the horizon gives flat ground zero diffuse, and one below it lights
+the world from underground - both read as a broken bake rather than as night.
+Darkness comes from the authored key colours instead.
+
+**The handover sweeps over the zenith.** At the crossover the sun and the moon
+are near-opposite (a full moon rises as the sun sets), so blending the two
+direction vectors cancels to zero and the normalized result snaps: measured as a
+180-degree flip of every shadow between 17:59 and 18:01. `evaluate` adds a
+zenith term weighted `4·w·(1-w)`, which is 1 exactly where the cancellation
+would be and 0 at both ends, so the light walks from one horizon up over the top
+and down to the other. That is also the honest answer physically - at twilight
+the dominant light really is the sky overhead. Measured effect on the default
+cycle: worst light-direction step per minute fell from 1.99 to 0.078.
+
+## Keyframes
+
+A free list of `DayKey`s: hour, sky horizon and zenith, light colour, ambient,
+diffuse, brightness, fog colour, and star brightness. They interpolate
+**cyclically**, so the last key of the day carries through midnight into the
+first.
+
+The trap the default seed exists to avoid: keys interpolate *linearly*, so a
+lone midnight key ramping to a 06:00 dawn makes 03:00 read as half-sunrise - a
+pink sky in the dead of night. Hold a colour with **two** keys (00:00 and 04:30)
+and the warm ramp stays in the hour either side of the horizon. *Seed a default
+day* writes a nine-key set built that way.
+
+## The sun and the moon in the sky
+
+Two textured quads on the sky dome, one submit each, placed in the baked
+directions and sized by `tan(size/2)` of the dome radius. A body more than 10
+degrees below the horizon is skipped, so a setting sun slides out of view rather
+than vanishing whole.
+
+They blend differently, and it is not a style choice:
+
+- The **sun is additive** (`Cs*FIX + Cd`), which is what makes it read as a
+  light source and what gives the bloom pass a bright spot to flare. An additive
+  bag never reads texture alpha, so `res/hud/sun-disc.png` carries its shape in
+  RGB - the same rule as `flare-corona.png`. It is tinted by the scene's light
+  colour, so a red sunset sun is red with nothing extra authored.
+- The **moon is alpha-blended**. It is a lit rock; adding it to the sky would
+  make the night glow through it.
+
+Both are drawn per view - the main camera, mirrors, portals and camera feeds
+each get them oriented for their own eye (`renderSkyBodies(eye, look)`).
+
+### The moon texture
+
+`res/hud/moon-disc.png` is baked at 128x128 by `menubake::bakeMoonRGBA`: the
+near side of the sphere projected orthographically out of an equirectangular
+albedo map, with the phase applied as a terminator and the limb antialiased.
+
+The terminator is modelled as the illumination of a real sphere, so it comes out
+as an **ellipse** rather than a straight cut - a straight cut is the tell-tale of
+a fake crescent. A trace of earthshine keeps a thin crescent showing a faint full
+disc instead of an amputated shape.
+
+The default source is **NASA's Lunar Reconnaissance Orbiter colour map**
+(`resources/moon-lroc-color-1k.jpg`, 1024x512, public domain - see
+[THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md)), embedded into the editor
+binary by `cmake/embed_binary.cmake`. **The map never ships to the PS2** - only
+the small baked disc does. Import your own and a 2:1 image is projected the same
+way; anything else is used as the disc face directly.
+
+The bake is the single source: `refreshGenerated` PNG-encodes it for the
+console, and the editor viewport uploads the *same pixels* while the phase
+slider moves. There is no separate preview-quality moon.
+
+### VRAM
+
+64x64 + 128x128 at 32bpp = 6 144 + 18 432 words, about **8.7 % of the ~1.08 MB
+texture heap** ([gs-vram.md](gs-vram.md)). Paid only by projects with a cycle:
+`DAYCYCLE_USED` gates the texture load and matches the `projectUsesDayCycle`
+predicate that bakes the PNGs, the way `FLARE_USED` matches `projectUsesFlare`.
+
+The moon disc is baked **per project**, not per scene - it is one texture in a
+1.08 MB heap, so the first scene that resolves to a cycle decides the phase.
+
+## What a moving cycle would cost
+
+Asked and answered rather than built, because the answer decides the shape of
+any future work.
+
+### Free today, or nearly
+
+The sky dome already retints itself per frame when a script changes
+`scriptCtx.skyColor` - 504 vertices, nothing. Fog colour is a register write.
+The two discs are six vertices each. Projected shadows, blob shadows, the flare
+and the god rays all read `SCENE_LIGHT_*` **per frame already**, so making that a
+variable instead of a constant would give a genuinely moving shadow at no extra
+cost. The zenith colour is the one constant that would have to become a variable
+(`SKY_TOP_R` is baked into `buildSkyDome`).
+
+### The wall
+
+Static geometry is lit by **baked vertex colours**. Relighting it per frame means
+either re-baking - a full scene re-bake is on the order of 170 ms, impossible at
+50 Hz - or moving it onto VU1's directional lighting, which the engine supports
+(`PipelineDirLightsBag`, opt-in per object today). The catch is structural, not
+arithmetic: a dyn-lit object is excluded from static batching, and a PS2 submit
+costs about 1 ms flat. A 50-prop scene is 50 ms of submits before a triangle is
+drawn. Baked AO and baked GI lightmaps are static by construction and have no
+dynamic equivalent at all.
+
+### Baking several moments instead
+
+| baked thing | where it lives | cost of N slots |
+|---|---|---|
+| SH probe grid | main RAM, 13 B/probe | cheap - N grids fit easily |
+| per-vertex baked shading | rebuilt on the EE | ~170 ms for a full re-bake |
+| lightmap atlas + terrain AO map | 256² RGBA32 in GS VRAM | 24 % of the texture heap **each** |
+| static batches | rebuilt with the vertices | folded into the re-bake |
+
+So the honest shape is **2-4 slots, probes and vertex colours only**, lightmap
+frozen at one slot. The 170 ms re-bake wants to hide behind a transition that
+already exists (a scene load, a fade, a cutscene) or be amortised over a few
+dozen frames - `RuntimeObject::dirty` already re-bakes objects one at a time.
+Crossfading two baked colour arrays is O(verts) per frame and is not worth it;
+snapping under a fade is.
+
+### The recommendation
+
+A hybrid, not a choice. Always dynamic: sun/moon position, sky, fog, projected
+and blob shadows, flare, god rays - cheap, and it is the half the eye reads as
+time passing. The baked half handled by a handful of slots snapped under a fade.
+Optionally a per-frame colour grade ([grading.hpp](../src/grading.hpp) is
+already a full-screen GS pass) to carry the continuous drift between slots: it
+cannot move a shadow, but it makes 14:00 and 16:00 differ for free.
+
+A literally dynamic cycle - every surface relit every frame - is not something
+the PS2 can be talked into, and the limit is submit count, not maths.

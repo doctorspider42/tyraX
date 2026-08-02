@@ -995,6 +995,46 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     if (s.fogEnd <= s.fogStart + 1.0f) s.fogEnd = s.fogStart + 1.0f;
 }
 
+void clampDayKey(DayKey& k) {
+    k.hour = ambience::wrap24(k.hour);
+    auto c01 = [](float& v) { v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+    for (int i = 0; i < 3; ++i) {
+        c01(k.skyColor[i]);
+        c01(k.skyTopColor[i]);
+        c01(k.lightColor[i]);
+        c01(k.fogColor[i]);
+    }
+    c01(k.ambient);
+    c01(k.diffuse);
+    c01(k.stars);
+    if (k.brightness < 0.0f) k.brightness = 0.0f;
+    if (k.brightness > 2.0f) k.brightness = 2.0f;
+}
+
+void clampDayCycle(DayCycle& c) {
+    c.time = ambience::wrap24(c.time);
+    c.sunAzimuth = ambience::wrap24(c.sunAzimuth / 15.0f) * 15.0f;  // 0..360
+    c.moonAzimuth = ambience::wrap24(c.moonAzimuth / 15.0f) * 15.0f;
+    auto clampf = [](float& v, float lo, float hi) {
+        v = v < lo ? lo : (v > hi ? hi : v);
+    };
+    clampf(c.sunTilt, -89.0f, 89.0f);
+    clampf(c.moonTilt, -89.0f, 89.0f);
+    c.sunrise = ambience::wrap24(c.sunrise);
+    c.sunset = ambience::wrap24(c.sunset);
+    c.moonOffset = ambience::wrap24(c.moonOffset);
+    clampf(c.sunSize, 0.25f, 30.0f);
+    clampf(c.moonSize, 0.25f, 30.0f);
+    clampf(c.moonPhase, 0.0f, 1.0f);
+    for (DayKey& k : c.keys) clampDayKey(k);
+    sortDayKeys(c);
+}
+
+void sortDayKeys(DayCycle& c) {
+    std::stable_sort(c.keys.begin(), c.keys.end(),
+                     [](const DayKey& a, const DayKey& b) { return a.hour < b.hour; });
+}
+
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     ProjectSettings r = p.settings;
     const ProjectSettings& o = s.settings;
@@ -1060,6 +1100,26 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.fogEnabled = a.fogEnabled;
         r.fogStart = a.fogStart;
         r.fogEnd = a.fogEnd;
+
+        // Day/night cycle (docs/day-night-cycle.md). THE hook: everything
+        // downstream keeps reading these same ProjectSettings fields, so the
+        // time-of-day slider reaches the vertex bake, aobake, gibake and its
+        // probe grid, SCENE_LIGHT_* in codegen and from there the runtime
+        // projected shadows, blob shadows, lens flare and god rays - without a
+        // single one of them knowing a cycle exists.
+        if (a.cycle.enabled) {
+            const ambience::Resolved d = ambience::evaluate(a.cycle, a.cycle.time);
+            for (int i = 0; i < 3; ++i) {
+                r.skyColor[i] = d.skyColor[i];
+                r.skyTopColor[i] = d.skyTopColor[i];
+                r.lightDir[i] = d.lightDir[i];
+                r.lightColor[i] = d.lightColor[i];
+                r.fogColor[i] = d.fogColor[i];
+            }
+            r.ambient = d.ambient;
+            r.diffuse = d.diffuse;
+            r.brightness = d.brightness;
+        }
     }
     return r;
 }
@@ -1503,7 +1563,43 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
              << ", \"fogEnabled\": " << (a.fogEnabled ? "true" : "false")
              << ", \"fogColor\": " << fmtVec3(a.fogColor)
              << ", \"fogStart\": " << fmtFloat(a.fogStart)
-             << ", \"fogEnd\": " << fmtFloat(a.fogEnd) << " }";
+             << ", \"fogEnd\": " << fmtFloat(a.fogEnd);
+        // Day/night cycle (docs/day-night-cycle.md). Omitted entirely when the
+        // preset has none, so a project that never opened the tab keeps the
+        // .tyra it had.
+        const DayCycle& c = a.cycle;
+        if (c.enabled || !c.keys.empty()) {
+            json << ",\n      \"cycle\": { \"enabled\": "
+                 << (c.enabled ? "true" : "false")
+                 << ", \"time\": " << fmtFloat(c.time)
+                 << ", \"sunAzimuth\": " << fmtFloat(c.sunAzimuth)
+                 << ", \"sunTilt\": " << fmtFloat(c.sunTilt)
+                 << ", \"sunrise\": " << fmtFloat(c.sunrise)
+                 << ", \"sunset\": " << fmtFloat(c.sunset)
+                 << ", \"sunSize\": " << fmtFloat(c.sunSize)
+                 << ", \"moonAzimuth\": " << fmtFloat(c.moonAzimuth)
+                 << ", \"moonTilt\": " << fmtFloat(c.moonTilt)
+                 << ", \"moonOffset\": " << fmtFloat(c.moonOffset)
+                 << ", \"moonSize\": " << fmtFloat(c.moonSize)
+                 << ", \"moonPhase\": " << fmtFloat(c.moonPhase)
+                 << ", \"moonTexture\": \"" << jsonEscape(c.moonTexture)
+                 << "\", \"keys\": [";
+            for (size_t k = 0; k < c.keys.size(); ++k) {
+                const DayKey& dk = c.keys[k];
+                json << (k ? ",\n        " : "\n        ")
+                     << "{ \"hour\": " << fmtFloat(dk.hour)
+                     << ", \"skyColor\": " << fmtVec3(dk.skyColor)
+                     << ", \"skyTopColor\": " << fmtVec3(dk.skyTopColor)
+                     << ", \"lightColor\": " << fmtVec3(dk.lightColor)
+                     << ", \"ambient\": " << fmtFloat(dk.ambient)
+                     << ", \"diffuse\": " << fmtFloat(dk.diffuse)
+                     << ", \"brightness\": " << fmtFloat(dk.brightness)
+                     << ", \"fogColor\": " << fmtVec3(dk.fogColor)
+                     << ", \"stars\": " << fmtFloat(dk.stars) << " }";
+            }
+            json << (c.keys.empty() ? "] }" : "\n      ] }");
+        }
+        json << " }";
     }
     json << (p.ambiencePresets.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultAmbience\": " << p.defaultAmbience;
@@ -3978,6 +4074,57 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
             readVec3(ja.find("fogColor"), a.fogColor);
             if (const auto* v = ja.find("fogStart")) a.fogStart = (float)v->numberOr(15.0);
             if (const auto* v = ja.find("fogEnd")) a.fogEnd = (float)v->numberOr(120.0);
+            if (const auto* jc = ja.find("cycle");
+                jc && jc->type == json::Value::Type::Object) {
+                DayCycle& c = a.cycle;
+                if (const auto* v = jc->find("enabled")) c.enabled = v->boolOr(false);
+                if (const auto* v = jc->find("time")) c.time = (float)v->numberOr(12.0);
+                if (const auto* v = jc->find("sunAzimuth"))
+                    c.sunAzimuth = (float)v->numberOr(90.0);
+                if (const auto* v = jc->find("sunTilt"))
+                    c.sunTilt = (float)v->numberOr(25.0);
+                if (const auto* v = jc->find("sunrise"))
+                    c.sunrise = (float)v->numberOr(6.0);
+                if (const auto* v = jc->find("sunset"))
+                    c.sunset = (float)v->numberOr(18.0);
+                if (const auto* v = jc->find("sunSize"))
+                    c.sunSize = (float)v->numberOr(3.0);
+                if (const auto* v = jc->find("moonAzimuth"))
+                    c.moonAzimuth = (float)v->numberOr(90.0);
+                if (const auto* v = jc->find("moonTilt"))
+                    c.moonTilt = (float)v->numberOr(35.0);
+                if (const auto* v = jc->find("moonOffset"))
+                    c.moonOffset = (float)v->numberOr(12.0);
+                if (const auto* v = jc->find("moonSize"))
+                    c.moonSize = (float)v->numberOr(4.0);
+                if (const auto* v = jc->find("moonPhase"))
+                    c.moonPhase = (float)v->numberOr(0.5);
+                if (const auto* v = jc->find("moonTexture"))
+                    c.moonTexture = v->stringOr("");
+                if (const auto* jk = jc->find("keys");
+                    jk && jk->type == json::Value::Type::Array) {
+                    for (const auto& jd : jk->arr) {
+                        DayKey dk;
+                        if (const auto* v = jd.find("hour"))
+                            dk.hour = (float)v->numberOr(12.0);
+                        readVec3(jd.find("skyColor"), dk.skyColor);
+                        readVec3(jd.find("skyTopColor"), dk.skyTopColor);
+                        readVec3(jd.find("lightColor"), dk.lightColor);
+                        if (const auto* v = jd.find("ambient"))
+                            dk.ambient = (float)v->numberOr(0.55);
+                        if (const auto* v = jd.find("diffuse"))
+                            dk.diffuse = (float)v->numberOr(0.45);
+                        if (const auto* v = jd.find("brightness"))
+                            dk.brightness = (float)v->numberOr(1.0);
+                        readVec3(jd.find("fogColor"), dk.fogColor);
+                        if (const auto* v = jd.find("stars"))
+                            dk.stars = (float)v->numberOr(0.0);
+                        project::clampDayKey(dk);
+                        c.keys.push_back(dk);
+                    }
+                }
+                project::clampDayCycle(c);
+            }
             if (!a.name.empty()) out.ambiencePresets.push_back(std::move(a));
         }
     }
@@ -5465,6 +5612,38 @@ std::string refreshGenerated(const Project& p) {
         if (!f) return "Cannot write blob shadow sprite: " + path.string();
         f.write(reinterpret_cast<const char*>(png.data()),
                 (std::streamsize)png.size());
+    }
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). Same arrangement as
+    // the flare sprites above: baked only when a scene resolves to an enabled
+    // cycle, and DAYCYCLE_USED gates the matching game-side texture load.
+    if (const DayCycle* cyc = templates::projectMoonCycle(p)) {
+        {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeSunPNG(png)) return "Sun disc bake failed";
+            const fs::path path = fs::path(p.dir) / "res" / "hud" / "sun-disc.png";
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write sun disc: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+        {
+            // A user texture is a project asset path; empty falls back to the
+            // embedded NASA map inside bakeMoonPNG.
+            const std::string srcAbs =
+                cyc->moonTexture.empty() ? std::string() : p.filePath(cyc->moonTexture);
+            std::vector<unsigned char> png;
+            if (!menubake::bakeMoonPNG(cyc->moonPhase, srcAbs, png))
+                return "Moon disc bake failed";
+            const fs::path path = fs::path(p.dir) / "res" / "hud" / "moon-disc.png";
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write moon disc: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
     }
     // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite.
     if (templates::projectUsesBeams(p)) {

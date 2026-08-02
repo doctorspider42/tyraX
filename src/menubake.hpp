@@ -132,6 +132,38 @@ std::string textFileName(const std::string& textName);
 // the project uses the flare / beams.
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);
+
+// --- Sun and moon discs (docs/day-night-cycle.md) ----------------------------
+// The two sky bodies a day/night cycle draws, baked to res/hud/ by
+// refreshGenerated exactly like the flare sprites above and gated the same way
+// (DAYCYCLE_USED in scene_data.hpp).
+//
+// The RGBA bakes are the single source: refreshGenerated PNG-encodes them for
+// the console, and the editor viewport uploads the SAME pixels straight to GL
+// while the phase slider moves. A second, "preview-quality" moon would be a
+// second answer to what the moon looks like.
+constexpr int kSunDiscSize = 64;
+constexpr int kMoonDiscSize = 128;
+
+// The sun is 64x64 with its shape in RGB: it is drawn through an additive bag,
+// which blends Cs*FIX + Cd and never reads texture alpha (same rule as the
+// corona, kind 2 above).
+void bakeSunRGBA(std::vector<unsigned char>& rgba);
+bool bakeSunPNG(std::vector<unsigned char>& png);
+
+// The moon is 128x128 RGBA - an ordinary alpha-blended quad, so the disc mask
+// lives in alpha. The near side is projected orthographically out of an
+// equirectangular albedo map; `phase` (0 new .. 0.5 full .. 1 new) is applied
+// as a terminator, with the lit limb toward +X so the renderer only has to
+// rotate the quad (ambience::Resolved::moonUpAngle).
+//
+// `sourcePath` empty = NASA's embedded LRO colour map. Otherwise a project
+// asset: 2:1 images are treated as equirectangular and projected, anything else
+// is used as the disc face directly.
+bool bakeMoonRGBA(float phase, const std::string& sourcePath,
+                  std::vector<unsigned char>& rgba);
+bool bakeMoonPNG(float phase, const std::string& sourcePath,
+                 std::vector<unsigned char>& png);
 // --- Interaction prompts -----------------------------------------------------
 // The USE / PICK UP prompts are baked like a HUD text, with one difference: the
 // action tokens in them are NOT composited in. A prompt has to keep telling the

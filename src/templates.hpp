@@ -4,7 +4,12 @@
 #include <string>
 #include <vector>
 
+// Forward-declared rather than #included: this header is pulled in widely and
+// project.hpp is not cheap. Callers that actually dereference these already
+// include it.
 struct Project;
+struct SceneData;
+struct DayCycle;
 
 namespace templates {
 
@@ -87,6 +92,21 @@ bool projectUsesFlare(const Project& p);
 // True when any scene has a Point Light with a visible beam (corona/cone).
 // Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
 bool projectUsesBeams(const Project& p);
+
+// The enabled day/night cycle a scene resolves to through its ambience preset,
+// or null (docs/day-night-cycle.md). The single answer codegen, the sky-disc
+// bake and the editor all ask - never walk the presets by hand.
+const DayCycle* sceneDayCycle(const Project& p, const SceneData& sc);
+
+// True when ANY scene resolves to an enabled cycle. Gates the
+// res/hud/{sun,moon}-disc.png bake (refreshGenerated) and the game-side texture
+// load (DAYCYCLE_USED in scene_data.hpp) - keep the two equal, the way
+// projectUsesFlare and FLARE_USED are.
+bool projectUsesDayCycle(const Project& p);
+
+// The cycle whose moon phase/texture the single shared moon disc is baked from
+// (the first scene that resolves to one), or null.
+const DayCycle* projectMoonCycle(const Project& p);
 
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,

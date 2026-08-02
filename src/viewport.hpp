@@ -109,6 +109,31 @@ public:
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
                 float zenithSize = 0.5f);
 
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). The editor's twin of
+    // the generated game's renderSkyBodies: two camera-facing quads on the sky
+    // dome, placed from the SAME ambience::evaluate the codegen bakes
+    // SCENE_SUN_* / SCENE_MOON_* from - so dragging the time slider previews
+    // exactly what the console will draw.
+    struct SkyBodies {
+        bool enabled = false;
+        float sunDir[3] = {0.0f, 1.0f, 0.0f};
+        float moonDir[3] = {0.0f, -1.0f, 0.0f};
+        // Apparent radius as a fraction of the dome radius, tan(size/2).
+        // 0 = the body is below the horizon; draw nothing.
+        float sunRadius = 0.0f;
+        float moonRadius = 0.0f;
+        float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
+        float sunColor[3] = {1.0f, 1.0f, 1.0f};
+    };
+    void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
+    // Disc pixels, pushed by the app straight from menubake's RGBA bake (the
+    // same one refreshGenerated PNG-encodes) so a phase edit previews without
+    // a build. moon=false uploads the sun.
+    void setSkyBodyTexture(bool moon, int w, int h, const unsigned char* rgba);
+    // The uploaded moon disc, for the Ambience Editor's own preview - the SAME
+    // texture the viewport draws, so the panel cannot show a different moon.
+    uint32_t moonDiscTexture() const { return moonDiscTex_; }
+
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
@@ -583,6 +608,15 @@ private:
     bool skyGradient_ = true;
     float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
+    // Day/night cycle discs: one shared unit quad, oriented per body by a
+    // billboard model matrix (see drawSkyBodies).
+    SkyBodies skyBodies_;
+    Mesh skyBodyQuad_;
+    uint32_t sunDiscTex_ = 0, moonDiscTex_ = 0;
+    // Plain floats rather than the internal Mat4/CamView: both are declared
+    // below this point (Mat4 lives in viewport.cpp's anonymous namespace).
+    void drawSkyBodies(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 

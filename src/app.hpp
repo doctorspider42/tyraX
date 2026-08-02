@@ -736,6 +736,11 @@ private:
     void drawGradingWindow();
     void drawAmbienceWindow();
     void drawAmbiencePresets(bool& changed);
+    void drawAmbienceDayCycle(bool& changed);
+    // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
+    // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
+    // its phase or texture changed.
+    void updateSkyBodyPreview(int presetIndex);
     void drawCutsceneWindow();
     // Poses a copy of the active scene's objects at the Cutscene Director
     // playhead (the same interpolation the PS2 runtime uses) so the viewport
@@ -1436,6 +1441,13 @@ private:
     int selectedAmbience_ = -1;
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+    // Day/night cycle discs (docs/day-night-cycle.md). The moon bake is a
+    // real image projection, so it is re-run only when its inputs change -
+    // this is the signature of what is currently uploaded ("" = nothing yet).
+    std::string skyBodyMoonSig_;
+    bool skyBodySunUploaded_ = false;
+    // Which key row the cycle tab has selected (-1 = none).
+    int selectedDayKey_ = -1;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
     // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
