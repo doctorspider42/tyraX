@@ -1303,8 +1303,9 @@ void Viewport::shutdown() {
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
     destroyMesh(skyBodyQuad_);
-    if (sunDiscTex_) glDeleteTextures(1, &sunDiscTex_);
-    if (moonDiscTex_) glDeleteTextures(1, &moonDiscTex_);
+    for (Mesh& m : starMesh_) destroyMesh(m);
+    for (uint32_t& t : skySpriteTex_)
+        if (t) glDeleteTextures(1, &t);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
     for (Mesh& m : prevLitShape_) destroyMesh(m);
@@ -3332,10 +3333,11 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
     skyQuadDirty_ = true;
 }
 
-void Viewport::setSkyBodyTexture(bool moon, int w, int h,
+void Viewport::setSkyBodyTexture(int which, int w, int h,
                                  const unsigned char* rgba) {
     if (w < 1 || h < 1 || !rgba) return;
-    uint32_t& tex = moon ? moonDiscTex_ : sunDiscTex_;
+    if (which < 0 || which >= SkySpriteCount) return;
+    uint32_t& tex = skySpriteTex_[which];
     if (!tex) {
         GLuint t = 0;
         glGenTextures(1, &t);
@@ -3412,10 +3414,118 @@ void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
     const float white[3] = {1.0f, 1.0f, 1.0f};
     // The sun takes the scene's light colour, so a red sunset sun is red with
     // nothing extra authored - the generated game tints it the same way.
-    draw(sunDiscTex_, skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
+    draw(skySpriteTex_[SkySun], skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
          skyBodies_.sunColor, true);
-    draw(moonDiscTex_, skyBodies_.moonDir, skyBodies_.moonRadius,
+    draw(skySpriteTex_[SkyMoon], skyBodies_.moonDir, skyBodies_.moonRadius,
          skyBodies_.moonRoll, white, false);
+}
+
+void Viewport::setStarField(const std::vector<starfield::Star>& stars,
+                            float brightness, float twinkle, float timeSec) {
+    if (stars.size() != stars_.size() ||
+        (!stars.empty() &&
+         std::memcmp(stars.data(), stars_.data(),
+                     stars.size() * sizeof(starfield::Star)) != 0)) {
+        stars_ = stars;
+        starMeshDirty_ = true;
+    }
+    starBrightness_ = brightness < 0.0f ? 0.0f : (brightness > 1.0f ? 1.0f : brightness);
+    starTwinkle_ = twinkle < 0.0f ? 0.0f : (twinkle > 1.0f ? 1.0f : twinkle);
+    starTime_ = timeSec;
+}
+
+// The editor twin of the generated game's renderStarField. One mesh per
+// magnitude tier, drawn ADDITIVELY - which is the whole reason a star reads as
+// a point of light instead of a grey pixel: the GS (and GL_ONE/GL_ONE here)
+// ADDS the star's colour to the sky behind it, so a bright one saturates and
+// blooms while a faint one barely lifts the background.
+//
+// The quads are built in the CAMERA's plane, so the mesh is rebuilt when the
+// view rotates. That is 4800 vertices worst case on the host and it buys the
+// console nothing - there the same field is three static bags whose vertices
+// never move, because VU1 billboards them.
+void Viewport::drawStarField(const float* viewProj16, const float* eye,
+                             const float* right, const float* up,
+                             float domeRadius) {
+    if (stars_.empty() || starBrightness_ <= 0.001f) return;
+    // Inside the dome, and inside the sun/moon discs' shell too, so a star can
+    // never z-fight its way in front of the moon.
+    const float dist = domeRadius * 0.96f;
+
+    // Rebuild whenever the star list OR the view basis moved.
+    static thread_local float lastRight[3] = {0, 0, 0}, lastUp[3] = {0, 0, 0};
+    bool basisMoved = false;
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(right[i] - lastRight[i]) > 1e-4f ||
+            std::fabs(up[i] - lastUp[i]) > 1e-4f)
+            basisMoved = true;
+    if (starMeshDirty_ || basisMoved || !starMesh_[0].vertexCount) {
+        for (int i = 0; i < 3; ++i) lastRight[i] = right[i], lastUp[i] = up[i];
+        starMeshDirty_ = false;
+        std::vector<float> v[starfield::kTiers];
+        for (const starfield::Star& st : stars_) {
+            const int t = st.tier < 0 ? 0
+                                      : (st.tier >= starfield::kTiers
+                                             ? starfield::kTiers - 1
+                                             : st.tier);
+            const float half = dist * st.size;
+            const float cx = st.dir[0] * dist, cy = st.dir[1] * dist,
+                        cz = st.dir[2] * dist;
+            const float r = st.r / 255.0f, g = st.g / 255.0f, b = st.b / 255.0f;
+            auto push = [&](float sx, float sy, float u, float w) {
+                v[t].push_back(cx + (right[0] * sx + up[0] * sy) * half);
+                v[t].push_back(cy + (right[1] * sx + up[1] * sy) * half);
+                v[t].push_back(cz + (right[2] * sx + up[2] * sy) * half);
+                v[t].push_back(r);
+                v[t].push_back(g);
+                v[t].push_back(b);
+                v[t].push_back(u);
+                v[t].push_back(w);
+            };
+            push(-1, -1, 0, 0); push(1, -1, 1, 0); push(1, 1, 1, 1);
+            push(-1, -1, 0, 0); push(1, 1, 1, 1); push(-1, 1, 0, 1);
+        }
+        for (int t = 0; t < starfield::kTiers; ++t) {
+            destroyMesh(starMesh_[t]);
+            if (!v[t].empty()) starMesh_[t] = uploadMesh(v[t]);
+        }
+    }
+
+    glUniformMatrix4fv(uMvp_, 1, GL_FALSE, viewProj16);
+    glUniform1i(uLit_, 0);
+    // The soft radial dot, not a bare quad: an untextured star is a hard little
+    // SQUARE, which is the "grey pixel" look a starfield exists to avoid. The
+    // sprite's shape lives in RGB because additive blending ignores alpha, and
+    // it is the same corona the light beams already ship.
+    const uint32_t dot = skySpriteTex_[SkyStarDot];
+    glUniform1i(uUseTex_, dot ? 1 : 0);
+    if (dot) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, dot);
+    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    for (int t = 0; t < starfield::kTiers; ++t) {
+        if (!starMesh_[t].vertexCount) continue;
+        // Twinkle: each tier shimmers at its own rate. This is per BAG, not per
+        // star - three multiplies a frame for the whole sky, and it is exactly
+        // what the console does with the bags' additive FIX.
+        float k = starBrightness_;
+        if (starTwinkle_ > 0.0f) {
+            const float phase =
+                starTime_ * (0.7f + 0.45f * (float)t) + (float)t * 2.1f;
+            k *= 1.0f - starTwinkle_ * 0.35f * (0.5f - 0.5f * std::cos(phase));
+        }
+        glUniform3f(uTint_, k, k, k);
+        glBindVertexArray(starMesh_[t].vao);
+        glDrawArrays(GL_TRIANGLES, 0, starMesh_[t].vertexCount);
+    }
+    glDisable(GL_BLEND);
+    if (dot) {
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUniform1i(uUseTex_, 0);
+    }
+    glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
 }
 
 void Viewport::orbit(float dx, float dy) {
@@ -3613,6 +3723,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         const float skyR = diag * 8.0f + 80.0f;
         const float eyeArr[3] = {eye.x, eye.y, eye.z};
         glDisable(GL_DEPTH_TEST);
+        // Stars first: they sit further out than the discs, and with depth off
+        // the draw order IS the depth order.
+        drawStarField(viewProj.m, eyeArr, cam.right, cam.up, skyR);
         drawSkyBodies(viewProj.m, eyeArr, cam.right, cam.up, skyR);
         glEnable(GL_DEPTH_TEST);
     }

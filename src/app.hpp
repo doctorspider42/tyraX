@@ -1446,6 +1446,11 @@ private:
     // this is the signature of what is currently uploaded ("" = nothing yet).
     std::string skyBodyMoonSig_;
     bool skyBodySunUploaded_ = false;
+    // The generated night sky, cached against the Params it came from -
+    // starfield::generate is deterministic, so re-rolling it per frame would
+    // buy nothing and cost a mesh rebuild.
+    std::vector<starfield::Star> skyBodyStars_;
+    starfield::Params skyBodyStarParams_;
     // Which key row the cycle tab has selected (-1 = none).
     int selectedDayKey_ = -1;
 

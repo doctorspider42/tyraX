@@ -58,7 +58,9 @@ bool operator==(const DayCycle& a, const DayCycle& b) {
            a.sunSize == b.sunSize && a.moonAzimuth == b.moonAzimuth &&
            a.moonTilt == b.moonTilt && a.moonOffset == b.moonOffset &&
            a.moonSize == b.moonSize && a.moonPhase == b.moonPhase &&
-           a.moonTexture == b.moonTexture && a.keys == b.keys;
+           a.moonTexture == b.moonTexture && a.starsEnabled == b.starsEnabled &&
+           a.starTwinkle == b.starTwinkle && a.starField == b.starField &&
+           a.keys == b.keys;
 }
 
 namespace ambience {

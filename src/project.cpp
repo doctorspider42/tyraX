@@ -1026,6 +1026,14 @@ void clampDayCycle(DayCycle& c) {
     clampf(c.sunSize, 0.25f, 30.0f);
     clampf(c.moonSize, 0.25f, 30.0f);
     clampf(c.moonPhase, 0.0f, 1.0f);
+    clampf(c.starTwinkle, 0.0f, 1.0f);
+    clampf(c.starField.magnitudeSpread, 0.0f, 1.0f);
+    clampf(c.starField.milkyWay, 0.0f, 1.0f);
+    clampf(c.starField.milkyWayTilt, -89.0f, 89.0f);
+    clampf(c.starField.sizeScale, 0.25f, 4.0f);
+    if (c.starField.count < 0) c.starField.count = 0;
+    if (c.starField.count > starfield::kMaxStars)
+        c.starField.count = starfield::kMaxStars;
     for (DayKey& k : c.keys) clampDayKey(k);
     sortDayKeys(c);
 }
@@ -1583,7 +1591,15 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
                  << ", \"moonSize\": " << fmtFloat(c.moonSize)
                  << ", \"moonPhase\": " << fmtFloat(c.moonPhase)
                  << ", \"moonTexture\": \"" << jsonEscape(c.moonTexture)
-                 << "\", \"keys\": [";
+                 << "\", \"starsEnabled\": " << (c.starsEnabled ? "true" : "false")
+                 << ", \"starTwinkle\": " << fmtFloat(c.starTwinkle)
+                 << ", \"starSeed\": " << c.starField.seed
+                 << ", \"starCount\": " << c.starField.count
+                 << ", \"starSpread\": " << fmtFloat(c.starField.magnitudeSpread)
+                 << ", \"milkyWay\": " << fmtFloat(c.starField.milkyWay)
+                 << ", \"milkyWayTilt\": " << fmtFloat(c.starField.milkyWayTilt)
+                 << ", \"starSize\": " << fmtFloat(c.starField.sizeScale)
+                 << ", \"keys\": [";
             for (size_t k = 0; k < c.keys.size(); ++k) {
                 const DayKey& dk = c.keys[k];
                 json << (k ? ",\n        " : "\n        ")
@@ -4101,6 +4117,22 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
                     c.moonPhase = (float)v->numberOr(0.5);
                 if (const auto* v = jc->find("moonTexture"))
                     c.moonTexture = v->stringOr("");
+                if (const auto* v = jc->find("starsEnabled"))
+                    c.starsEnabled = v->boolOr(false);
+                if (const auto* v = jc->find("starTwinkle"))
+                    c.starTwinkle = (float)v->numberOr(0.35);
+                if (const auto* v = jc->find("starSeed"))
+                    c.starField.seed = (int)v->numberOr(1.0);
+                if (const auto* v = jc->find("starCount"))
+                    c.starField.count = (int)v->numberOr(400.0);
+                if (const auto* v = jc->find("starSpread"))
+                    c.starField.magnitudeSpread = (float)v->numberOr(0.7);
+                if (const auto* v = jc->find("milkyWay"))
+                    c.starField.milkyWay = (float)v->numberOr(0.6);
+                if (const auto* v = jc->find("milkyWayTilt"))
+                    c.starField.milkyWayTilt = (float)v->numberOr(30.0);
+                if (const auto* v = jc->find("starSize"))
+                    c.starField.sizeScale = (float)v->numberOr(1.0);
                 if (const auto* jk = jc->find("keys");
                     jk && jk->type == json::Value::Type::Array) {
                     for (const auto& jd : jk->arr) {
@@ -5645,8 +5677,11 @@ std::string refreshGenerated(const Project& p) {
                     (std::streamsize)png.size());
         }
     }
-    // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite.
-    if (templates::projectUsesBeams(p)) {
+    // Light-beam corona (Point Light > Beam): its own RGB-shaped sprite. The
+    // night sky draws its stars through the SAME sprite - a star is a soft
+    // radial dot, and an untextured quad would be a hard square - so a
+    // starfield project bakes it whether or not it has a single beam.
+    if (templates::projectUsesBeams(p) || templates::projectStarCycle(p)) {
         for (int kind = 2; kind < 3; ++kind) {
             std::vector<unsigned char> png;
             if (!menubake::bakeFlarePNG(kind, png))

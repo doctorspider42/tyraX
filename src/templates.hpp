@@ -108,6 +108,10 @@ bool projectUsesDayCycle(const Project& p);
 // (the first scene that resolves to one), or null.
 const DayCycle* projectMoonCycle(const Project& p);
 
+// ...and the one whose starfield the single shared STARS table is generated
+// from. Null when no scene has stars on.
+const DayCycle* projectStarCycle(const Project& p);
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);

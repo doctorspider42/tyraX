@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "starfield.hpp"
+
 // Ambience presets (Tools > Ambience Editor). A named bundle of the scene's
 // "mood" settings - sky gradient, baked lighting and distance fog - authored
 // once and reused across scenes. One preset can be the project default; a
@@ -73,6 +75,15 @@ struct DayCycle {
     // colour map (see menubake::bakeMoonPNG). A project asset path otherwise -
     // equirectangular sources are projected, square ones used as the disc.
     std::string moonTexture;
+
+    // Procedural night sky (starfield.hpp). Enabled here, shaped by `starField`,
+    // and faded in by the per-key `stars` value - so the field appears at dusk
+    // and washes out at dawn instead of being switched by a threshold.
+    bool starsEnabled = false;
+    // How much the magnitude tiers shimmer against each other, 0 = steady. It
+    // costs nothing per star: each tier is one bag with its own additive FIX.
+    float starTwinkle = 0.35f;
+    starfield::Params starField;
 
     std::vector<DayKey> keys;  // sorted by hour; see ambience::sampleKeys
 };

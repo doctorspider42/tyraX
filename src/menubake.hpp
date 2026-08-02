@@ -130,6 +130,11 @@ std::string textFileName(const std::string& textName);
 // in RGB - additive 3D bags blend Cs*FIX + Cd and ignore texture alpha).
 // Written to res/hud/flare-{glow,ring,corona}.png by refreshGenerated when
 // the project uses the flare / beams.
+// The RGBA form is the single bake; the PNG one wraps it. The editor viewport
+// uploads these pixels straight to GL (the night sky's soft dot is kind 2), so
+// there is no second, preview-quality sprite.
+constexpr int kFlareSpriteSize = 64;
+void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba);
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);
 

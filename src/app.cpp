@@ -8812,6 +8812,51 @@ void App::drawAmbienceDayCycle(bool& changed) {
     if (uint32_t t = viewport_.moonDiscTexture())
         ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
 
+    // --- stars ---------------------------------------------------------------
+    ImGui::SeparatorText("Stars");
+    if (ImGui::Checkbox("Night sky", &c.starsEnabled)) changed = true;
+    prefHelp(
+        "Real glowing points, not a sky texture: the field is drawn through\n"
+        "ADDITIVE bags, so each star ADDS its colour to the sky behind it and a\n"
+        "bright one saturates and blooms.\n\n"
+        "One bag per magnitude tier = 3 submits for the whole sky, and the\n"
+        "brightness rides the bags' additive FIX - so fading the stars in at\n"
+        "dusk costs three bytes a frame, not a rebuild. How bright they get at\n"
+        "each hour is the Stars column in the key table below.");
+    if (c.starsEnabled) {
+        starfield::Params& sp = c.starField;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::InputInt("Seed", &sp.seed)) changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reroll")) {
+            sp.seed = (int)(ImGui::GetTime() * 1000.0) & 0x7fffffff;
+            changed = true;
+        }
+        prefHelp("The same seed is the same sky, always - so nudging a slider\n"
+                 "adjusts the sky instead of reshuffling it.");
+        ImGui::SliderInt("Star count", &sp.count, 0, starfield::kMaxStars);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Magnitude spread", &sp.magnitudeSpread, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("0 = every star equally bright; 1 = a realistic long tail of\n"
+                 "faint stars under a handful of bright ones.");
+        ImGui::SliderFloat("Milky Way", &sp.milkyWay, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Density along a band. Without it a random sky reads as\n"
+                 "uniform noise rather than as a sky.");
+        ImGui::SliderFloat("Band tilt", &sp.milkyWayTilt, -89.0f, 89.0f, "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Star size", &sp.sizeScale, 0.25f, 4.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Twinkle", &c.starTwinkle, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Each magnitude tier shimmers at its own rate. Per BAG, not\n"
+                 "per star - three multiplies a frame for the whole sky.");
+        ImGui::TextDisabled("%d stars = %d vertices in %d submits (the sky dome "
+                            "next to it is 504).",
+                            sp.count, sp.count * 6, starfield::kTiers);
+    }
+
     // --- keys --------------------------------------------------------------
     ImGui::SeparatorText("Colours through the day");
     if (ImGui::Button("Seed a default day")) {
@@ -8922,6 +8967,7 @@ void App::updateSkyBodyPreview(int presetIndex) {
     }
     if (!c) {
         viewport_.setSkyBodies(Viewport::SkyBodies{});
+        viewport_.setStarField({}, 0.0f, 0.0f, 0.0f);
         return;
     }
 
@@ -8929,8 +8975,14 @@ void App::updateSkyBodyPreview(int presetIndex) {
     if (!skyBodySunUploaded_) {
         std::vector<unsigned char> rgba;
         menubake::bakeSunRGBA(rgba);
-        viewport_.setSkyBodyTexture(false, menubake::kSunDiscSize,
+        viewport_.setSkyBodyTexture(Viewport::SkySun, menubake::kSunDiscSize,
                                     menubake::kSunDiscSize, rgba.data());
+        // The star dot rides along - it is fixed too, and it is what keeps a
+        // star from drawing as a hard little square.
+        menubake::bakeFlareRGBA(2, rgba);
+        viewport_.setSkyBodyTexture(Viewport::SkyStarDot,
+                                    menubake::kFlareSpriteSize,
+                                    menubake::kFlareSpriteSize, rgba.data());
         skyBodySunUploaded_ = true;
     }
     // The moon is a real image projection - only re-bake when its inputs move.
@@ -8944,14 +8996,30 @@ void App::updateSkyBodyPreview(int presetIndex) {
                                            ? std::string()
                                            : project_.filePath(c->moonTexture);
             if (menubake::bakeMoonRGBA(c->moonPhase, srcAbs, rgba)) {
-                viewport_.setSkyBodyTexture(true, menubake::kMoonDiscSize,
+                viewport_.setSkyBodyTexture(Viewport::SkyMoon,
+                                            menubake::kMoonDiscSize,
                                             menubake::kMoonDiscSize, rgba.data());
                 skyBodyMoonSig_ = want;
             }
         }
     }
 
+    // The night sky. Regenerated only when its Params change - generate() is
+    // deterministic, so the same seed is always the same sky and there is
+    // nothing to gain from re-rolling it every frame.
+    if (c->starsEnabled && c->starField.count > 0) {
+        if (c->starField != skyBodyStarParams_) {
+            skyBodyStarParams_ = c->starField;
+            skyBodyStars_ = starfield::generate(c->starField);
+        }
+    } else if (!skyBodyStars_.empty()) {
+        skyBodyStars_.clear();
+        skyBodyStarParams_ = starfield::Params{};
+    }
+
     const ambience::Resolved d = ambience::evaluate(*c, c->time);
+    viewport_.setStarField(skyBodyStars_, d.stars, c->starTwinkle,
+                           (float)ImGui::GetTime());
     Viewport::SkyBodies b;
     b.enabled = true;
     for (int i = 0; i < 3; ++i) {

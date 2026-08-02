@@ -23,6 +23,7 @@
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
+#include "starfield.hpp"
 #include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
 #include "livepad.hpp"  // Remote Pad wire format - shared with the editor
 #include "livetime.hpp"  // time-machine wire format - shared with the editor
@@ -1085,6 +1086,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   SkyBody sunBody, moonBody;
+  // The night sky: one bag per magnitude tier (STAR_TIERS). Three submits for
+  // the whole field, and the brightness/twinkle ride the bags' additive FIX -
+  // so fading the stars in at dusk costs three bytes a frame, not a rebuild.
+  struct StarBag {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Vec4> sts;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  StarBag starBags[STAR_TIERS];
+  Tyra::M4x4 starMat = Tyra::M4x4::Identity;
+  void buildStarField();
+  void renderStarField();
+
   void setupSkyBodies();
   // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
   // portal or a camera feed needs them oriented for ITS eye, not the player's.
@@ -2148,6 +2166,23 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   SkyBody sunBody, moonBody;
+  // The night sky: one bag per magnitude tier (STAR_TIERS). Three submits for
+  // the whole field, and the brightness/twinkle ride the bags' additive FIX -
+  // so fading the stars in at dusk costs three bytes a frame, not a rebuild.
+  struct StarBag {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Vec4> sts;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  StarBag starBags[STAR_TIERS];
+  Tyra::M4x4 starMat = Tyra::M4x4::Identity;
+  void buildStarField();
+  void renderStarField();
+
   void setupSkyBodies();
   // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
   // portal or a camera feed needs them oriented for ITS eye, not the player's.
@@ -3088,6 +3123,10 @@ struct DynLightRt {
 };
 std::vector<DynLightRt> g_dynLights;
 float g_dynLightTime = 0.0F;
+// The starfield's own clock. It cannot borrow g_dynLightTime: that one only
+// advances while the scene HAS dynamic lights, so a night sky over an unlit
+// scene would freeze mid-shimmer.
+float g_starTime = 0.0F;
 
 void collectScenePointLights() {
   g_scenePointLights.clear();
@@ -5077,6 +5116,8 @@ void TerrainGame::buildScene() {
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
+  // NOT buildStarField() here: the star bags need beamCoronaTex, which the
+  // texture block further down has not loaded yet. It is built there instead.
 
   // Save system: BIOS mc modules, custom values, menu sprites (hud/save-*.png)
   saveValues.assign(SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1, 0.0F);
@@ -5225,8 +5266,10 @@ void TerrainGame::buildScene() {
       }
       flareTexturesLoaded = true;
     }
-    // Light-beam corona texture (Point Light > Beam; shape in RGB).
-    if (BEAMS_USED)
+    // Light-beam corona texture (Point Light > Beam; shape in RGB). The night
+    // sky's stars are drawn through the SAME sprite - one 64x64 for both, and a
+    // star without it is a hard square - so a starfield loads it too.
+    if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
@@ -5244,6 +5287,9 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd("hud/moon-disc.png"));
       setupSkyBodies();
     }
+    // The night sky, now that the corona sprite its stars are drawn through
+    // exists. A scene reload rebuilds it (see loadScene) - this is the boot one.
+    buildStarField();
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
@@ -6880,6 +6926,7 @@ void TerrainGame::loadScene(int sceneIndex) {
     infoBag->fullClipChecks = CLIP_PRECISE;
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
     buildSkyDome();
+    buildStarField();
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
@@ -8611,6 +8658,136 @@ void TerrainGame::renderFlare() {
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
     engine->renderer.renderer2D.render(flareSprites[i]);
+}
+
+// The night sky (docs/day-night-cycle.md "Stars"). Builds one additive bag per
+// magnitude tier out of the generated STARS table - the same list
+// starfield::generate handed the editor, so the console's sky IS the preview's.
+//
+// Additive is the whole feature: the GS computes Cs*FIX + Cd, so a star ADDS
+// its colour to the sky behind it. That is what makes a bright star bright
+// (and gives the bloom pass something to flare) rather than a grey pixel, and
+// it is why the per-star colour lives in the Gouraud vertex colours.
+//
+// The quads are built once in WORLD space around the origin and the bag is
+// re-centred on the camera each frame like the sky dome; VU1 does the rest.
+void TerrainGame::buildStarField() {
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    starBags[t].verts.clear();
+    starBags[t].colors.clear();
+    starBags[t].bag.reset();
+  }
+  if (STAR_COUNT <= 0) return;
+
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Further out than the sun and moon discs (0.94), so a star can never
+  // z-fight its way in front of the moon.
+  const float dist = domeR * 0.96F;
+
+  for (int i = 0; i < STAR_COUNT; ++i) {
+    const StarData& sd = STARS[i];
+    int t = sd.tier;
+    if (t < 0) t = 0;
+    if (t >= STAR_TIERS) t = STAR_TIERS - 1;
+    StarBag& sb = starBags[t];
+    const float half = dist * sd.size;
+    const float cx = sd.x * dist, cy = sd.y * dist, cz = sd.z * dist;
+    // A star is a dot: two triangles in the plane perpendicular to its own
+    // direction. It is far enough away that not billboarding it costs nothing
+    // visible, and it keeps the bag STATIC - which is what makes the whole sky
+    // three submits and no per-frame vertex work.
+    float rx = -sd.z, ry = 0.0F, rz = sd.x;  // cross(up, dir)
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl < 1e-4F) { rx = 1.0F; ry = 0.0F; rz = 0.0F; }
+    else { rx /= rl; rz /= rl; }
+    const float ux = sd.y * rz - sd.z * ry;
+    const float uy = sd.z * rx - sd.x * rz;
+    const float uz = sd.x * ry - sd.y * rx;
+    const Vec4 c0(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
+                  cz + (-rz - uz) * half, 1.0F);
+    const Vec4 c1(cx + (rx - ux) * half, cy + (ry - uy) * half,
+                  cz + (rz - uz) * half, 1.0F);
+    const Vec4 c2(cx + (rx + ux) * half, cy + (ry + uy) * half,
+                  cz + (rz + uz) * half, 1.0F);
+    const Vec4 c3(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
+                  cz + (-rz + uz) * half, 1.0F);
+    // 128 is full strength in the engine's colour space for an untextured bag.
+    const Color col((float)sd.r * 0.5F, (float)sd.g * 0.5F, (float)sd.b * 0.5F,
+                    128.0F);
+    sb.verts.push_back(c0); sb.verts.push_back(c1); sb.verts.push_back(c2);
+    sb.verts.push_back(c0); sb.verts.push_back(c2); sb.verts.push_back(c3);
+    // Full-sprite STs: the star IS the soft dot. Without the texture a star
+    // draws as a hard little square, which is the "grey pixel" look the whole
+    // additive arrangement exists to avoid.
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    for (int k = 0; k < 6; ++k) sb.colors.push_back(col);
+  }
+
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (sb.verts.empty()) continue;
+    sb.info = std::make_unique<StaPipInfoBag>();
+    sb.info->model = &starMat;  // re-centred on the camera every frame
+    sb.info->shadingType = TyraShadingGouraud;
+    sb.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    sb.info->fullClipChecks = true;
+    sb.info->fogDisabled = true;    // past the fog end, like the dome
+    sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->additiveBlendFix = 128;
+    sb.colorBag = std::make_unique<StaPipColorBag>();
+    sb.colorBag->many = sb.colors.data();
+    sb.bag = std::make_unique<StaPipBag>();
+    sb.bag->info = sb.info.get();
+    sb.bag->color = sb.colorBag.get();
+    sb.bag->vertices = sb.verts.data();
+    sb.bag->count = static_cast<u32>(sb.verts.size());
+    if (beamCoronaTex) {
+      sb.texBag = std::make_unique<StaPipTextureBag>();
+      sb.texBag->texture = beamCoronaTex;
+      sb.texBag->coordinates = sb.sts.data();
+      sb.bag->texture = sb.texBag.get();
+    } else {
+      sb.bag->texture = nullptr;
+    }
+    sb.bag->lighting = nullptr;
+    sb.bag->bboxVersion = ++g_bboxStamp;
+  }
+}
+
+// Submits the field. The scene's star brightness and the twinkle both ride the
+// additive FIX, so this is three byte writes and three submits - no geometry
+// touched, whatever the time of day.
+void TerrainGame::renderStarField() {
+  if (STAR_COUNT <= 0 || SCENE_STARS_BRIGHT <= 0.004F) return;
+  if (!g_gameplayPaused) g_starTime += g_frameDt;
+  starMat.identity();
+  starMat.data[12] = cameraPosition.x;
+  starMat.data[13] = cameraPosition.y;
+  starMat.data[14] = cameraPosition.z;
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (!sb.bag) continue;
+    float k = SCENE_STARS_BRIGHT;
+    if (SCENE_STARS_TWINKLE > 0.0F) {
+      // Per TIER, not per star: each tier shimmers at its own rate, which is
+      // enough to read as twinkling and costs three multiplies a frame.
+      const float phase =
+          g_starTime * (0.7F + 0.45F * (float)t) + (float)t * 2.1F;
+      k *= 1.0F - SCENE_STARS_TWINKLE * 0.35F * (0.5F - 0.5F * cosf(phase));
+    }
+    float fix = 128.0F * k;
+    sb.info->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    stapip.core.render(sb.bag.get());
+  }
 }
 
 // Day/night cycle sky bodies (docs/day-night-cycle.md): one-time setup of the
@@ -12649,6 +12826,9 @@ void TerrainGame::renderScene() {
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
     stapip.core.render(skyDome.bag.get());
+    // Stars behind the discs: with the dome's depth arrangement the draw order
+    // is the depth order, and a star must never land in front of the moon.
+    renderStarField();
     renderSkyBodies(cameraPosition, cameraLookAt);
   }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
@@ -20147,6 +20327,19 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         sceneFloats("SCENE_MOON_RS", [&](int si) { return sizeOf(si, 1); });
         // Rotation of the moon disc around the view axis, so its lit limb keeps
         // pointing at the sun (the disc is baked lit-side-toward-+X).
+        // The night sky (docs/day-night-cycle.md "Stars"). One shared field for
+        // the project - it is a sphere of points with no scene-specific content,
+        // and three static bags is what it costs whether one scene uses it or
+        // ten. Per scene we only emit how bright it is and how much it shimmers.
+        sceneFloats("SCENE_STARS_BRIGHTS", [&](int si) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            if (!c || !c->starsEnabled) return floatLit(0.0f);
+            return floatLit(ambience::evaluate(*c, c->time).stars);
+        });
+        sceneFloats("SCENE_STARS_TWINKLES", [&](int si) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            return floatLit(c && c->starsEnabled ? c->starTwinkle : 0.0f);
+        });
         sceneFloats("SCENE_MOON_ROLLS", [&](int si) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
             if (!c) return floatLit(0.0f);
@@ -20215,6 +20408,35 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // (templates::projectUsesDayCycle bakes res/hud/{sun,moon}-disc.png).
     out << "constexpr int DAYCYCLE_USED = " << (projectUsesDayCycle(p) ? 1 : 0)
         << ";\n";
+    // The night sky, as the star LIST rather than baked quads: ~400 rows
+    // instead of ~2400 vertices, and buildStarField makes the geometry at scene
+    // load the way buildSkyDome does. Generated from starfield::generate, the
+    // same call the editor previews with, so the two skies are the same sky.
+    {
+        std::vector<starfield::Star> stars;
+        if (const DayCycle* c = projectStarCycle(p))
+            stars = starfield::generate(c->starField);
+        out << "constexpr int STAR_COUNT = " << (int)stars.size() << ";\n";
+        out << "struct StarData { float x, y, z, size; unsigned char r, g, b, "
+               "tier; };\n";
+        out << "constexpr StarData STARS[" << (stars.empty() ? 1 : stars.size())
+            << "] = {";
+        if (stars.empty()) {
+            out << "{0,0,0,0,0,0,0,0}";
+        } else {
+            for (size_t i = 0; i < stars.size(); ++i) {
+                const starfield::Star& st = stars[i];
+                if (i % 4 == 0) out << "\n    ";
+                out << "{" << floatLit(st.dir[0]) << "," << floatLit(st.dir[1])
+                    << "," << floatLit(st.dir[2]) << "," << floatLit(st.size)
+                    << "," << (int)st.r << "," << (int)st.g << "," << (int)st.b
+                    << "," << st.tier << "},";
+            }
+            out << "\n";
+        }
+        out << "};\n";
+        out << "constexpr int STAR_TIERS = " << starfield::kTiers << ";\n";
+    }
     // Blob shadows under moving objects (project-wide preference; the glow
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
@@ -20528,6 +20750,8 @@ inline int everyFrames(float seconds) {
 #define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
 #define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
 #define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
+#define SCENE_STARS_BRIGHT SCENE_STARS_BRIGHTS[g_activeScene]
+#define SCENE_STARS_TWINKLE SCENE_STARS_TWINKLES[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
@@ -20883,6 +21107,17 @@ bool projectUsesDayCycle(const Project& p) {
 const DayCycle* projectMoonCycle(const Project& p) {
     for (const SceneData& sc : p.scenes)
         if (const DayCycle* c = sceneDayCycle(p, sc)) return c;
+    return nullptr;
+}
+
+// The cycle whose starfield the single shared table is generated from - the
+// first scene that resolves to one with stars on. Same reasoning as the moon
+// disc: the field is three bags whatever the scene, so it is a project-level
+// thing and the Ambience Editor says so.
+const DayCycle* projectStarCycle(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        if (const DayCycle* c = sceneDayCycle(p, sc))
+            if (c->starsEnabled && c->starField.count > 0) return c;
     return nullptr;
 }
 

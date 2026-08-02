@@ -143,6 +143,62 @@ predicate that bakes the PNGs, the way `FLARE_USED` matches `projectUsesFlare`.
 The moon disc is baked **per project**, not per scene - it is one texture in a
 1.08 MB heap, so the first scene that resolves to a cycle decides the phase.
 
+## Stars
+
+*Ambience Editor > Day / night > **Stars***
+
+Real glowing points, not a sky texture - and it is affordable, because the
+engine already has the exact primitive for it.
+
+`StaPipInfoBag::additiveBlendFix` gives an **additive 3D geometry bag**: the GS
+computes `Cv = Cs*FIX/128 + Cd`, so whatever it draws ADDS light to the frame
+instead of being pasted over it. The visible light beams and the ground light
+pools already ride it. A starfield is the same trick, and it buys four things
+at once:
+
+- **One bag per magnitude tier** (`starfield::kTiers` = 3). 400 stars is 2 400
+  vertices in **three submits** - the sky dome next to it is 504 vertices in
+  one.
+- **Per-star brightness and colour live in the Gouraud vertex colours**, so a
+  magnitude-2 blue-white star and a faint orange one genuinely differ, and the
+  bright ones bloom into the sky behind them. That is what "additive" buys: a
+  bright star is *bright*, not a pale grey pixel.
+- **Fading the field in at dusk is one byte per bag per frame** - the brightness
+  is the bag's additive FIX, driven by the interpolated `DayKey::stars`. No
+  geometry is touched when the sun sets.
+- **Twinkle is free**, for the same reason: each tier's FIX gets a slow sine at
+  its own rate. Three multiplies a frame for the whole sky, not per-star work.
+
+The quads are built once in world space and the bag is re-centred on the camera
+each frame like the dome, so nothing is rebuilt per frame either.
+
+### The generator
+
+`src/starfield.{hpp,cpp}` - host-only, no GL, no `Project` (the
+treegen/dronegen shape, exercisable from a small harness). Deterministic in its
+`Params`: the same seed is the same sky, always, so nudging a slider adjusts the
+sky rather than reshuffling it.
+
+- **Magnitude distribution.** A uniform sample raised to a power, which gives
+  the real shape: many faint stars under a handful of bright ones. Brightness
+  drives the quad size too - a bright star reads as bigger because it saturates
+  more pixels, and one texel is all a faint one deserves.
+- **Colour from a black-body temperature** (2600 K to 12000 K), so the field has
+  real blue-white / yellow / faint-red variation. A uniform-white field is the
+  thing that reads as "pixels" rather than as stars.
+- **A Milky Way band**: a share of the stars is pulled toward a tilted great
+  circle. Note it PULLS rather than rejecting samples - a reject loop would
+  quietly thin the sky as the slider rises, so the count you ask for would stop
+  being the count you get.
+
+Codegen emits the star LIST (`STARS[]`, ~400 rows of direction + size + colour +
+tier), not baked quads, and the game's `buildStarField` makes the geometry at
+scene load the way `buildSkyDome` does. Both sides call the same
+`starfield::generate`, so the preview and the console draw the same sky.
+
+`starfield::kMaxStars` (800) is the cap, so a slider cannot cost the EE its
+frame.
+
 ## What a moving cycle would cost
 
 Asked and answered rather than built, because the answer decides the shape of

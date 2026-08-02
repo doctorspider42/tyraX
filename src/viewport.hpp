@@ -126,13 +126,25 @@ public:
         float sunColor[3] = {1.0f, 1.0f, 1.0f};
     };
     void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
-    // Disc pixels, pushed by the app straight from menubake's RGBA bake (the
-    // same one refreshGenerated PNG-encodes) so a phase edit previews without
-    // a build. moon=false uploads the sun.
-    void setSkyBodyTexture(bool moon, int w, int h, const unsigned char* rgba);
+    // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
+    // same ones refreshGenerated PNG-encodes) so a phase edit previews without a
+    // build. 0 = the sun disc, 1 = the moon disc, 2 = the star dot (the soft
+    // radial corona - a hard-edged quad is exactly the "grey pixel" a starfield
+    // must not look like).
+    enum SkySprite { SkySun = 0, SkyMoon = 1, SkyStarDot = 2, SkySpriteCount = 3 };
+    void setSkyBodyTexture(int which, int w, int h, const unsigned char* rgba);
+
+    // Procedural night sky (starfield.hpp). The app hands over the generated
+    // star list and a 0..1 brightness; the viewport turns each star into an
+    // additive camera-facing quad, exactly as the generated game does. An empty
+    // list or brightness 0 draws nothing.
+    // `timeSec` drives the twinkle - the viewport owns no clock, and taking one
+    // would be a second answer to "what time is it" next to ImGui's.
+    void setStarField(const std::vector<starfield::Star>& stars, float brightness,
+                      float twinkle, float timeSec);
     // The uploaded moon disc, for the Ambience Editor's own preview - the SAME
     // texture the viewport draws, so the panel cannot show a different moon.
-    uint32_t moonDiscTexture() const { return moonDiscTex_; }
+    uint32_t moonDiscTexture() const { return skySpriteTex_[SkyMoon]; }
 
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
@@ -612,7 +624,18 @@ private:
     // billboard model matrix (see drawSkyBodies).
     SkyBodies skyBodies_;
     Mesh skyBodyQuad_;
-    uint32_t sunDiscTex_ = 0, moonDiscTex_ = 0;
+    uint32_t skySpriteTex_[SkySpriteCount] = {0, 0, 0};
+    // Night sky: one mesh per magnitude tier, rebuilt only when the star list
+    // itself changes (the brightness fade is a uniform, not a rebuild - the
+    // same split the console makes with the bags' additive FIX).
+    std::vector<starfield::Star> stars_;
+    Mesh starMesh_[starfield::kTiers];
+    bool starMeshDirty_ = false;
+    float starBrightness_ = 0.0f;
+    float starTwinkle_ = 0.0f;
+    float starTime_ = 0.0f;
+    void drawStarField(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
     // Plain floats rather than the internal Mat4/CamView: both are declared
     // below this point (Mat4 lives in viewport.cpp's anonymous namespace).
     void drawSkyBodies(const float* viewProj16, const float* eye,

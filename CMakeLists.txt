@@ -204,6 +204,7 @@ add_executable(tyrax-editor
     src/scrollsim.cpp
     src/screenfx.cpp
     src/session.cpp
+    src/starfield.cpp
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
