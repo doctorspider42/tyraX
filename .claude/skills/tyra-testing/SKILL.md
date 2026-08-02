@@ -144,7 +144,7 @@ probe is still absent after a fetch.
 
 ```
 TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
-TYRAX --build <projectDir> [--run]   # exit code 0 = success
+TYRAX --build <projectDir> [--run] [--rebuild]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
@@ -188,7 +188,7 @@ generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
 
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
-  Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
+  docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in
   third-person mode (both generate the SAME game sources — the mode is a
   per-object property); `empty` is an orbit-camera scene with no objects. The
@@ -346,8 +346,9 @@ TYRAX --build <projectDir> --run
 ```
 
 What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d --build` (container `<name>-compiler-1`) → engine sources checksum-synced
-into the shared volume, `libtyra` rebuilt if changed → project rsynced → `make`
+up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
+sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+(VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
@@ -355,6 +356,21 @@ ELF.
 Notes:
 - First-ever build downloads the `h4570/tyra` image and compiles the engine
   (minutes). Subsequent builds take seconds unless the engine changed.
+- **The whole pipeline is incremental, so measure a build by what it
+  RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
+  log is the number that means something: on `examples/showcase` (18 TUs, 6
+  cores) a build with nothing changed is **0 compiles / ~5 s**, one edited game
+  source is **1 / ~9 s**, a moved scene object is **13 / ~47 s** (the scene
+  table is in a header most TUs include), an engine `.cpp` is **~7 s**, an
+  engine `.vclpp` is **~2 min** (the microprograms), and `--rebuild` is
+  **~5 min** from nothing. A "no changes" build that still compiles things is a
+  regression with a specific cause — some step wrote a file the compiler reads
+  (see the `runner.cpp` row in tyra-editor-dev); find it by comparing mtimes in
+  the container against `/src/obj/*.d`.
+- **`--rebuild` is the escape hatch** and the control when you suspect the
+  incremental logic itself: it recreates the container and rebuilds the engine
+  and the game from source. `Clean` is the other hammer — it also wipes the
+  host's `bin/`.
 - PCSX2.ini is found portable-first (an `inis/` next to the executable), then
   per OS: the Documents known folder on Windows — **Documents may be
   OneDrive-redirected** (e.g. `...\OneDrive - <org>\Dokumenty\PCSX2\`), not

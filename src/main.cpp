@@ -283,7 +283,7 @@ static int createFromCli(int argc, char** argv) {
     return 0;
 }
 
-// Headless helper: tyrax-editor.exe --build <projectDir> [--run | --run-ps2 [ip]]
+// Headless helper: tyrax-editor --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild]
 // Bakes every stale Scatter volume into its chunk meshes and saves the result
 // (docs/procedural-generation.md). The GUI does this in App::projectForBuild;
 // the headless paths need their own call, or an agent-driven build would ship
@@ -304,11 +304,25 @@ static void bakeProcedural(Project& p) {
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
-                     "usage: tyrax-editor --build <projectDir> [--run | --run-ps2 [ip]]\n");
+                     "usage: tyrax-editor --build <projectDir> "
+                     "[--run | --run-ps2 [ip]] [--rebuild]\n");
         return 2;
     }
-    const bool run = argc > 3 && std::strcmp(argv[3], "--run") == 0;
-    const bool runPs2 = argc > 3 && std::strcmp(argv[3], "--run-ps2") == 0;
+    // --rebuild may sit anywhere among the optional arguments, so the flags are
+    // scanned rather than read positionally; the first bare word after
+    // --run-ps2 is still the console's IP.
+    bool run = false, runPs2 = false, rebuild = false;
+    std::string ps2Ip;
+    for (int i = 3; i < argc; i++) {
+        if (std::strcmp(argv[i], "--run") == 0)
+            run = true;
+        else if (std::strcmp(argv[i], "--run-ps2") == 0)
+            runPs2 = true;
+        else if (std::strcmp(argv[i], "--rebuild") == 0)
+            rebuild = true;
+        else if (runPs2 && ps2Ip.empty())
+            ps2Ip = argv[i];
+    }
 
     Project p;
     std::string err = project::load(p, argv[2]);
@@ -316,14 +330,14 @@ static int buildFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    if (runPs2 && argc > 4) p.ps2LinkIp = argv[4];
+    if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
 
     Runner runner;
     if (runPs2)
-        runner.buildAndRunPs2(p, true);
+        runner.buildAndRunPs2(p, true, rebuild);
     else
-        runner.buildAndRun(p, run);
+        runner.buildAndRun(p, run, rebuild);
     size_t printed = 0;
     auto flushLog = [&] {
         std::string log = runner.log();
@@ -1750,7 +1764,7 @@ int main(int argc, char** argv) {
             "tyrax-editor [projectDir]                 open the GUI\n"
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
-            "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
+            "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild]\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
