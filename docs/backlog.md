@@ -22,6 +22,14 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **VU authoring: the user-facing half of the VU framework.** Model + codegen
+  for a program someone composes from stages, per-mesh parameters, the VU panel,
+  and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and
+  verified on hardware; see `.claude/plans/vu-authoring.md` for the plan, the
+  decisions already made and the traps.
+- **VU0 as a target.** Parser and VS Code already handle it; the simulator's
+  memory size is VU1's and the generator's skeleton is the VU1 pipeline. Same
+  plan file has the steps, smallest first.
 - **VU framework: bit-exact replay on REAL hardware.** `--vu-replay` reproduces
   a PCSX2 capture exactly (36/36 GS vertices) but not one taken over ps2link
   from a physical PS2 - there the closest candidate is off by far more than

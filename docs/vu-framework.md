@@ -326,6 +326,23 @@ in high memory, which an expression-level DSL will not express. The honest shape
 there is a declarative skeleton with hand-written instruction blocks plugged into
 it — 80% generated, the clipper still artisanal.
 
+## VU1 or VU0?
+
+The parser and the VS Code language handle both - the engine's one VU0 program,
+the raytracer kernel, parses with no diagnostics. Beyond that the framework is
+VU1-only, and deliberately says so rather than half-supporting VU0:
+
+- `vusim` hardcodes 1024 quadwords of data memory. **VU0 has 256.** An address
+  the hardware would wrap wraps somewhere else here and the out-of-range warning
+  never fires, so a VU0 run looks plausible and is not trustworthy.
+- `vugen`'s skeleton *is* the VU1 pipeline: `xtop` a double-buffer half, emit
+  the GIF tag block, loop over vertex triples, `xgkick`. A VU0 program has none
+  of it - the raytracer is called with `vcallms` from the EE, restarts at
+  instruction 0 each time, uses fixed data addresses and never touches the GIF.
+
+`.claude/plans/vu-authoring.md` lists what VU0 support would take; parameterising
+the simulator's memory size is the small honest first step.
+
 ## Notes on vclpp
 
 Two documented limitations are surfaced as `Program::notes` rather than silently
