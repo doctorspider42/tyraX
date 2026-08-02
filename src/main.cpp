@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <algorithm>
@@ -1651,6 +1652,7 @@ static int vuReplayFromCli(int argc, char** argv) {
         std::string file, name;
         int tops = 0, kick = 0, verts = 0, mismatched = 0;
         std::string regs, prim;
+        std::vector<std::string> worst;  // the biggest per-vertex deltas
     };
     std::vector<Hit> exact, near;
     int ran = 0, kicked = 0, echo = 0;
@@ -1687,6 +1689,7 @@ static int vuReplayFromCli(int argc, char** argv) {
             }
 
             int bad = 0;
+            std::vector<std::pair<long long, std::string>> deltas;
             for (size_t i = 0; i < mine.verts.size(); ++i) {
                 const vucap::GsVertex& a = theirs.verts[i];
                 const vucap::GsVertex& b = mine.verts[i];
@@ -1697,9 +1700,26 @@ static int vuReplayFromCli(int argc, char** argv) {
                 if (a.x != b.x || a.y != b.y || a.z != b.z || a.r != b.r ||
                     a.g != b.g || a.b != b.b || a.a != b.a ||
                     std::memcmp(&a.s, &b.s, 4) != 0 ||
-                    std::memcmp(&a.t, &b.t, 4) != 0)
+                    std::memcmp(&a.t, &b.t, 4) != 0) {
                     ++bad;
+                    const long long dx = std::llabs((long long)a.x - b.x);
+                    const long long dy = std::llabs((long long)a.y - b.y);
+                    const long long dz =
+                        std::llabs((long long)a.z - (long long)b.z);
+                    char line[192];
+                    std::snprintf(line, sizeof line,
+                                  "v%-3d dx=%lld dy=%lld dz=%lld   hw "
+                                  "(%d,%d,%u) sim (%d,%d,%u)",
+                                  (int)i, dx, dy, dz, a.x, a.y, a.z, b.x, b.y,
+                                  b.z);
+                    deltas.push_back({dx + dy + dz, line});
+                }
             }
+            std::sort(deltas.begin(), deltas.end(),
+                      [](const std::pair<long long, std::string>& p,
+                         const std::pair<long long, std::string>& q) {
+                          return p.first > q.first;
+                      });
             Hit h{fs::path(f).filename().string(),
                   prog.name,
                   tops,
@@ -1707,7 +1727,10 @@ static int vuReplayFromCli(int argc, char** argv) {
                   (int)mine.verts.size(),
                   bad,
                   mine.regs,
-                  mine.primName()};
+                  mine.primName(),
+                  {}};
+            for (size_t k = 0; k < deltas.size() && k < 4; ++k)
+                h.worst.push_back(deltas[k].second);
             (bad == 0 ? exact : near).push_back(h);
         }
     }
@@ -1747,6 +1770,16 @@ static int vuReplayFromCli(int argc, char** argv) {
             std::printf("  %-32s half %d, kick %d: %d of %d vertices differ\n",
                         near[i].file.c_str(), near[i].tops, near[i].kick,
                         near[i].mismatched, near[i].verts);
+        // HOW they differ decides what the near miss means, and printing the
+        // count alone is not enough to tell those apart: a handful of vertices
+        // off by one unit in the last place is arithmetic, every vertex off by
+        // hundreds is the wrong program or the wrong input.
+        if (!near[0].worst.empty()) {
+            std::printf("\nWorst vertices of the closest candidate (%s):\n",
+                        near[0].file.c_str());
+            for (const std::string& w : near[0].worst)
+                std::printf("  %s\n", w.c_str());
+        }
         std::printf(
             "\nA near miss is worth reading, not dismissing: identical vertex\n"
             "counts with differing values means the right program ran and one\n"

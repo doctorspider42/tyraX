@@ -22,13 +22,13 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
-- **VU framework: adopt a generated microprogram** (`docs/vu-framework.md`). The
-  five `as_is` programs are generated and proven bit-identical to the handwritten
-  ones in the simulator, and the simulator itself is now validated against a real
-  console capture (`--vu-replay` on `examples/vu-lab`, 36/36 GS vertices). What is
-  left is the step no host check can cover: `--vu-emit` into `vendor/tyra`, build
-  in Docker, boot, and A/B a screenshot against the handwritten build. Until that
-  happens nothing in the engine tree is generated.
+- **VU framework: bit-exact replay on REAL hardware.** `--vu-replay` reproduces
+  a PCSX2 capture exactly (36/36 GS vertices) but not one taken over ps2link
+  from a physical PS2 - there the closest candidate is off by far more than
+  rounding, which points at the reconstruction (the per-mesh constants come
+  from a chain the capture does not contain) rather than at the VU's
+  arithmetic. Capturing the object-data chain is the prerequisite; until then
+  the simulator is validated against the emulator, not the console.
 - **VU framework: describe the `cull` family, then `clip`.** `cull` is `as_is`
   plus an MVP transform and the ADC clip check - the builder already has
   `transform`, and `clipw`/`fcand` are in the IR. `clip` is the hard one and
