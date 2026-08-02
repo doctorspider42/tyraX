@@ -312,7 +312,8 @@ capture does not contain. Whether the real VU also differs from the simulator in
 the last bits is UNKNOWN and not claimed either way; settling it needs that chain
 captured (see docs/backlog.md).
 
-**Not done:** the `cull`, `clip` and `billboard` families are still handwritten. The generated programs
+**Not done:** the `clip` and `billboard` families are still handwritten, and of
+the `cull` family only the colour variant is described so far. The generated programs
 are proven equivalent in the simulator, but no generated microcode has been built
 in Docker or run on hardware. That is the next step and it needs the full e2e
 pass (`tyra-testing`), not a host check.

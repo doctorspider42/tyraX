@@ -156,6 +156,25 @@ class Vu {
     void fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch);
     /** MatrixMultiplyVertex: dst = m * v, the four-register mula/madd chain. */
     void transform(Val dst, const Val m[4], Val v);
+    /** ResetClipFlags: clear the clip-flag shift register before the loop. */
+    void resetClipFlags();
+    /** MakeTyraAdcMask: build the 0x8000 ADC bit once (iaddiu immediates are
+     * 15-bit, so it takes two adds). */
+    void makeAdcMask(IVal dst);
+    /** VertexPersCorr: the perspective divide, xyz only so the clip-space W
+     * survives. WRITES Q. */
+    void persCorrect(Val dst, Val v);
+    /** PerformTyraFogClipCheck: the frustum test whose verdict rides in the ADC
+     * bit of the vertex's W word, with the fog coefficient OR-ed in beside it.
+     * `judge` and `adcBit` are caller-owned scratch (see fogCoefficient on why
+     * these are not minted per call). */
+    void fogClipCheck(Val vertex, IVal destAddress, int offset, IVal fogInt,
+                      IVal adcMask, IVal adcBit);
+    /** CalculateTyraSpotLight: the flashlight cone, added onto the baked vertex
+     * colour. Runs on the OBJECT-space vertex, so it must come before the MVP
+     * multiply. `scratch` supplies seven temporaries. */
+    void spotLight(Val color, Val vertex, Val spotPos, Val spotDir, Val spotCol,
+                   const Val scratch[7]);
     /** CalculateTyraEnvStq: turns the object-space normal carried in the ST
      * slot into a sphere-map (matcap) ST, in place.
      *   s = 0.5 + 0.5 * dot(normalize(n), cameraRight)
@@ -198,6 +217,13 @@ struct Desc {
     bool texture = false;     // carries an ST stream
     bool dirLights = false;   // carries normals, shades on VU
     bool env = false;         // matcap: the ST slot holds an object-space normal
+    /** The cull family: same skeleton, but the MVP multiply, the ADC frustum
+     * test and the spot light run on VU1. Resident in BOTH clipping modes -
+     * `as_is` is only uploaded with the EE clipper, `clip` only with VU1
+     * clipping, so cull is the one family a custom program can build on and
+     * still draw under the default settings. */
+    bool cull = false;
+    std::string dir = "as_is";  // sub-directory under programs/
 };
 
 /** The five as_is variants, exactly as the engine ships them. */
@@ -206,6 +232,7 @@ Desc descAsIsTextureColor();
 Desc descAsIsDirLights();
 Desc descAsIsTextureDirLights();
 Desc descAsIsTextureEnv();
+Desc descCullColor();
 std::vector<Desc> allAsIsDescs();
 
 /** Everything generated for one program. */

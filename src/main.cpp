@@ -1347,7 +1347,7 @@ static int vuCheckFromCli(int argc, char** argv) {
         std::string err;
         const std::string path =
             (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" / "static" /
-             "core" / "programs" / "as_is" / (d.fileStem + ".vclpp"))
+             "core" / "programs" / d.dir / (d.fileStem + ".vclpp"))
                 .string();
         if (!vuasm::parseFile(path, opt, hand, err)) {
             std::printf("  %-16s could not read the reference: %s\n",

@@ -486,6 +486,89 @@ void Vu::envStq(Val stq, Val envRight, Val envUp, Val envConsts,
     maddInto(stq, zero(), zero().broadcast(0), MZ);
 }
 
+void Vu::resetClipFlags() {
+    Instr in;
+    in.op = Op::Fcset;
+    in.imm = 0;
+    in.comment = "ResetClipFlags";
+    emit(in);
+}
+
+void Vu::makeAdcMask(IVal dst) {
+    iaddiuInto(dst, izero(), 0x4000);
+    p_->code.back().comment = "MakeTyraAdcMask: 0x8000 in two 15-bit adds";
+    Instr in;
+    in.op = Op::Iadd;
+    in.dst = dst.reg;
+    in.s1 = dst.reg;
+    in.s2 = dst.reg;
+    emit(in);
+}
+
+void Vu::persCorrect(Val dst, Val v) {
+    divQ(zero(), 3, v, 3);
+    p_->code.back().comment = "VertexPersCorr";
+    mulQInto(dst, v, MXYZ);
+}
+
+void Vu::fogClipCheck(Val vertex, IVal destAddress, int offset, IVal fogInt,
+                      IVal adcMask, IVal adcBit) {
+    Instr clip;
+    clip.op = Op::Clipw;
+    clip.s1 = vertex.reg;
+    clip.s2 = vertex.reg;
+    clip.mask = MXYZ;
+    clip.comment = "PerformTyraFogClipCheck";
+    emit(clip);
+    Instr fc;
+    fc.op = Op::Fcand;
+    fc.dst = p_->vi("VI01");
+    fc.imm = 0x3FFFF;  // three vertices' worth of clip flags
+    emit(fc);
+    iaddiuInto(adcBit, IVal{p_->vi("VI01")}, 0x7FFF);
+    Instr andi;
+    andi.op = Op::Iand;
+    andi.dst = adcBit.reg;
+    andi.s1 = adcBit.reg;
+    andi.s2 = adcMask.reg;
+    emit(andi);
+    Instr ori;
+    ori.op = Op::Ior;
+    ori.dst = adcBit.reg;
+    ori.s1 = adcBit.reg;
+    ori.s2 = fogInt.reg;
+    emit(ori);
+    isw(adcBit, destAddress, offset, 3);
+}
+
+void Vu::spotLight(Val color, Val vertex, Val spotPos, Val spotDir, Val spotCol,
+                   const Val scratch[7]) {
+    const Val d = scratch[0], sq2 = scratch[1], dist = scratch[2],
+              tm = scratch[3], t = scratch[4], c = scratch[5], a = scratch[6];
+    emit(floatOp(Op::Sub, d.reg, vertex, spotPos, MXYZ));
+    p_->code.back().comment = "CalculateTyraSpotLight";
+    mulInto(sq2, d, d, MXYZ);
+    addInto(dist, sq2, sq2.broadcast(1), MX);
+    addInto(dist, dist, sq2.broadcast(2), MX);
+    mulInto(tm, d, spotDir, MXYZ);
+    addInto(t, tm, tm.broadcast(1), MX);
+    addInto(t, t, tm.broadcast(2), MX);
+    maximumInto(t, t, zero().broadcast(0), MX);
+    mulInto(t, t, t, MX);
+    mulInto(c, dist, spotDir.broadcast(3), MX);
+    emit(floatOp(Op::Sub, c.reg, t, c, MX));
+    mulInto(c, c, spotCol.broadcast(3), MX);
+    minimumInto(c, c, zero().broadcast(3), MX);
+    maximumInto(c, c, zero().broadcast(0), MX);
+    emit(floatOp(Op::Add, kAcc, zero(), zero().broadcast(3), MX));
+    msubInto(a, dist, spotPos.broadcast(3), MX);
+    minimumInto(a, a, zero().broadcast(3), MX);
+    maximumInto(a, a, zero().broadcast(0), MX);
+    mulInto(c, c, a, MX);
+    mulInto(d, spotCol, c.broadcast(0), MXYZ);  // reuse d as the addend
+    addInto(color, color, d, MXYZ);
+}
+
 void Vu::transform(Val dst, const Val m[4], Val v) {
     mulAcc(m[0], v.broadcast(0), MALL);
     p_->code.back().comment = "MatrixMultiplyVertex";
@@ -558,9 +641,23 @@ Desc descAsIsTextureEnv() {
     return d;
 }
 
+Desc descCullColor() {
+    Desc d;
+    d.vclName = "StaPipVU1CullC";
+    d.asmName = "StaPipVU1Cull_C";
+    d.fileStem = "stapip_cull_c_vu1";
+    d.className = "StaPipCullCVU1Program";
+    d.programEnum = "StaPipCullColor";
+    d.title = "StaPip - Cull - C";
+    d.cull = true;
+    d.dir = "cull";
+    return d;
+}
+
 std::vector<Desc> allAsIsDescs() {
-    return {descAsIsColor(), descAsIsTextureColor(), descAsIsDirLights(),
-            descAsIsTextureDirLights(), descAsIsTextureEnv()};
+    return {descAsIsColor(),      descAsIsTextureColor(),
+            descAsIsDirLights(),  descAsIsTextureDirLights(),
+            descAsIsTextureEnv(), descCullColor()};
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +719,7 @@ void buildAsIsBody(const Desc& d, Program& prog) {
     const int stq = 0, rgba = d.texture ? 1 : 0, xyz = d.texture ? 2 : 1;
 
     // --- preamble: the per-mesh constants ---------------------------------
+    if (d.cull) b.resetClipFlags();
     const Val gifSetTag = b.named("gifSetTag");
     {
         Instr in;
@@ -631,6 +729,24 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         in.imm = kSetGifTagAddr;
         in.comment = "VU1_SET_GIFTAG_ADDR";
         prog.code.push_back(in);
+    }
+
+    // The cull family transforms on VU1, so it needs the MVP.
+    Val mvp[4];
+    if (d.cull) {
+        static const char* mn[4] = {"mvp[0]", "mvp[1]", "mvp[2]", "mvp[3]"};
+        for (int i = 0; i < 4; ++i) {
+            mvp[i] = b.named(mn[i]);
+            prog.code.push_back([&] {
+                Instr in;
+                in.op = Op::Lq;
+                in.dst = mvp[i].reg;
+                in.base = b.izero().reg;
+                in.imm = kMvpMatrixAddr + i;
+                if (i == 0) in.comment = "MatrixLoad - VU1_MVP_MATRIX_ADDR";
+                return in;
+            }());
+        }
     }
 
     Val singleColor{}, lightMatrix[3], lightDirs[3], lightColors[3], ambient{};
@@ -769,6 +885,30 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         in.comment = "VU1_OPTIONS_ADDR.zw = GS hardware fog";
         return in;
     }());
+
+    // The ADC mask and the spot light, both cull-only.
+    const IVal adcMask = b.inamed("adcMask");
+    Val spotPos{}, spotDirV{}, spotColV{};
+    if (d.cull) {
+        b.makeAdcMask(adcMask);
+        static const char* sn[3] = {"spotPos", "spotDirV", "spotColV"};
+        Val* slot[3] = {&spotPos, &spotDirV, &spotColV};
+        for (int i = 0; i < 3; ++i) {
+            *slot[i] = b.named(sn[i]);
+            prog.code.push_back([&] {
+                Instr in;
+                in.op = Op::Lq;
+                in.dst = slot[i]->reg;
+                in.base = b.izero().reg;
+                in.imm = kLightsDirsAddr + i;
+                if (i == 0)
+                    in.comment =
+                        "LoadTyraSpotLight - reuses the dir-lights slots, free "
+                        "in the colour programs";
+                return in;
+            }());
+        }
+    }
 
     Val envRight{}, envUp{}, envConsts{};
     if (d.env) {
@@ -955,7 +1095,31 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
     }
 
-    for (int i = 0; i < 3; ++i) {
+    // The cull family does its whole per-vertex chain inline, including the fog
+    // word - its clip check and the fog coefficient share one store, so there is
+    // no separate fog pass afterwards the way as_is has.
+    Val spotScratch[7];
+    const IVal cullFogInt = b.inamed("fogInt");
+    const IVal adcBit = b.inamed("adcBit");
+    const Val cullFogAccum = b.named("fogAccum");
+    if (d.cull) {
+        static const char* sn[7] = {"spotD",  "spotSq", "spotDist", "spotTm",
+                                    "spotT",  "spotC",  "spotA"};
+        for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
+        for (int i = 0; i < 3; ++i) {
+            b.spotLight(color[i], vertex[i], spotPos, spotDirV, spotColV,
+                        spotScratch);
+            b.transform(vertex[i], mvp, vertex[i]);
+            b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
+            b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
+                           adcMask, adcBit);
+            b.persCorrect(vertex[i], vertex[i]);
+            b.scaleToGsFormat(vertex[i], scale);
+            b.fixColor(color[i]);
+        }
+    }
+
+    for (int i = 0; i < 3 && !d.cull; ++i) {
         // The env ST goes FIRST: its rsqrt writes Q, so the position divide
         // below has to be the last Q write before the perspective mulq.
         if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
@@ -999,7 +1163,7 @@ void buildAsIsBody(const Desc& d, Program& prog) {
     // this must not be a fresh register per call.
     const Val fogScratch = b.named("fogAccum");
     const IVal fogInt = b.inamed("fogInt");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 3 && !d.cull; ++i) {
         b.fogCoefficient(fogInt, vertex[i], fogParams, fogScratch);
         b.isw(fogInt, destAddress, xyz + i * stride, 3);
     }
@@ -1142,7 +1306,7 @@ std::string emitEeSource(const Desc& d) {
     s += "// ONE description, so they cannot drift apart - which is the whole\n";
     s += "// reason this file is generated (docs/vu-framework.md).\n\n";
     s += "#include \"debug/debug.hpp\"\n";
-    s += "#include \"renderer/3d/pipeline/static/core/programs/as_is/" +
+    s += "#include \"renderer/3d/pipeline/static/core/programs/" + d.dir + "/" +
          d.fileStem + "_program.hpp\"\n\n";
     s += "extern u32 " + d.asmName + "_CodeStart __attribute__((section(\".vudata\")));\n";
     s += "extern u32 " + d.asmName + "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
