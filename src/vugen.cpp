@@ -569,6 +569,38 @@ void Vu::spotLight(Val color, Val vertex, Val spotPos, Val spotDir, Val spotCol,
     addInto(color, color, d, MXYZ);
 }
 
+void Vu::dirLightShade(Val color, Val normal, const Val lightMatrix[3],
+                       const Val lightDirs[3], const Val lightColors[3],
+                       Val ambient) {
+    // CalculateTyraDirectionalLights, instruction for instruction. `normal` is
+    // OVERWRITTEN with its world-space self on the way - the handwritten macro
+    // does that too, and an extra move would break bit-identity.
+    mulAcc(lightMatrix[0], normal.broadcast(0), MXYZ);
+    p_->code.back().comment = "CalculateTyraDirectionalLights";
+    maddAcc(lightMatrix[1], normal.broadcast(1), MXYZ);
+    maddInto(normal, lightMatrix[2], normal.broadcast(2), MXYZ);
+    mulAcc(lightDirs[0], normal.broadcast(0), MXYZ);
+    maddAcc(lightDirs[1], normal.broadcast(1), MXYZ);
+    maddInto(color, lightDirs[2], normal.broadcast(2), MXYZ);
+    minimumInto(color, color, zero().broadcast(3), MXYZ);
+    maximumInto(color, color, zero().broadcast(0), MXYZ);
+    mulAcc(lightColors[0], color.broadcast(0), MXYZ);
+    maddAcc(lightColors[1], color.broadcast(1), MXYZ);
+    maddAcc(lightColors[2], color.broadcast(2), MXYZ);
+    maddInto(color, ambient, zero().broadcast(3), MXYZ);
+    // Alpha 128 = the GS "1.0" - a lit mesh carries no colour stream to take
+    // one from.
+    loadI(128.0f);
+    Instr in;
+    in.op = Op::Add;
+    in.dst = color.reg;
+    in.s1 = zero().reg;
+    in.s2 = kI;
+    in.s2kind = Src::I;
+    in.mask = vuir::MW;
+    emit(in);
+}
+
 void Vu::transform(Val dst, const Val m[4], Val v) {
     mulAcc(m[0], v.broadcast(0), MALL);
     p_->code.back().comment = "MatrixMultiplyVertex";
@@ -654,10 +686,60 @@ Desc descCullColor() {
     return d;
 }
 
-std::vector<Desc> allAsIsDescs() {
-    return {descAsIsColor(),      descAsIsTextureColor(),
-            descAsIsDirLights(),  descAsIsTextureDirLights(),
-            descAsIsTextureEnv(), descCullColor()};
+Desc descCullTextureColor() {
+    Desc d = descCullColor();
+    d.vclName = "StaPipVU1CullTC";
+    d.asmName = "StaPipVU1Cull_TC";
+    d.fileStem = "stapip_cull_tc_vu1";
+    d.className = "StaPipCullTCVU1Program";
+    d.programEnum = "StaPipCullTextureColor";
+    d.title = "StaPip - Cull - TC";
+    d.texture = true;
+    return d;
+}
+
+Desc descCullDirLights() {
+    Desc d = descCullColor();
+    d.vclName = "StaPipVU1CullD";
+    d.asmName = "StaPipVU1Cull_D";
+    d.fileStem = "stapip_cull_d_vu1";
+    d.className = "StaPipCullDVU1Program";
+    d.programEnum = "StaPipCullDirLights";
+    d.title = "StaPip - Cull - D";
+    d.dirLights = true;
+    return d;
+}
+
+Desc descCullTextureDirLights() {
+    Desc d = descCullDirLights();
+    d.vclName = "StaPipVU1CullTD";
+    d.asmName = "StaPipVU1Cull_TD";
+    d.fileStem = "stapip_cull_td_vu1";
+    d.className = "StaPipCullTDVU1Program";
+    d.programEnum = "StaPipCullTextureDirLights";
+    d.title = "StaPip - Cull - TD";
+    d.texture = true;
+    return d;
+}
+
+Desc descCullTextureEnv() {
+    Desc d = descCullTextureColor();
+    d.vclName = "StaPipVU1CullTCE";
+    d.asmName = "StaPipVU1Cull_TCE";
+    d.fileStem = "stapip_cull_tce_vu1";
+    d.className = "StaPipCullTCEVU1Program";
+    d.programEnum = "StaPipCullTextureEnv";
+    d.title = "StaPip - Cull - TCE";
+    d.env = true;
+    return d;
+}
+
+std::vector<Desc> allDescs() {
+    return {descAsIsColor(),          descAsIsTextureColor(),
+            descAsIsDirLights(),      descAsIsTextureDirLights(),
+            descAsIsTextureEnv(),     descCullColor(),
+            descCullTextureColor(),   descCullDirLights(),
+            descCullTextureDirLights(), descCullTextureEnv()};
 }
 
 // ---------------------------------------------------------------------------
@@ -886,11 +968,16 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         return in;
     }());
 
-    // The ADC mask and the spot light, both cull-only.
+    // The ADC mask and the spot light, both cull-only. The flashlight is added
+    // onto a per-vertex COLOUR, so the lit variants have nowhere to put it (they
+    // compute their colour from normals further down) and an env bag carries no
+    // lighting at all - the handwritten cull_d/td/tce skip the load for exactly
+    // that reason, and so must this.
     const IVal adcMask = b.inamed("adcMask");
+    const bool spot = d.cull && colorStream && !d.env;
     Val spotPos{}, spotDirV{}, spotColV{};
-    if (d.cull) {
-        b.makeAdcMask(adcMask);
+    if (d.cull) b.makeAdcMask(adcMask);
+    if (spot) {
         static const char* sn[3] = {"spotPos", "spotDirV", "spotColV"};
         Val* slot[3] = {&spotPos, &spotDirV, &spotColV};
         for (int i = 0; i < 3; ++i) {
@@ -1102,21 +1189,35 @@ void buildAsIsBody(const Desc& d, Program& prog) {
     const IVal cullFogInt = b.inamed("fogInt");
     const IVal adcBit = b.inamed("adcBit");
     const Val cullFogAccum = b.named("fogAccum");
-    if (d.cull) {
+    if (spot) {
         static const char* sn[7] = {"spotD",  "spotSq", "spotDist", "spotTm",
                                     "spotT",  "spotC",  "spotA"};
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
-        for (int i = 0; i < 3; ++i) {
+    }
+    for (int i = 0; i < 3 && d.cull; ++i) {
+        // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
+        // WRITES Q, and the position's perspective divide below has to be the
+        // last Q write before the texture mulq reads it.
+        if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
+        if (spot)
             b.spotLight(color[i], vertex[i], spotPos, spotDirV, spotColV,
                         spotScratch);
-            b.transform(vertex[i], mvp, vertex[i]);
-            b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
-            b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
-                           adcMask, adcBit);
-            b.persCorrect(vertex[i], vertex[i]);
-            b.scaleToGsFormat(vertex[i], scale);
-            b.fixColor(color[i]);
+        b.transform(vertex[i], mvp, vertex[i]);
+        b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
+        b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
+                       adcMask, adcBit);
+        b.persCorrect(vertex[i], vertex[i]);
+        b.scaleToGsFormat(vertex[i], scale);
+        if (d.texture) {
+            // No div of its own: persCorrect above already put 1/w in Q, and
+            // that is exactly the factor the ST needs.
+            b.mulQInto(outStq[i], st[i], MALL);
+            prog.code.back().comment = "PerformTexturePerspectiveCorrection";
         }
+        if (!colorStream)
+            b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
+                            lightColors, ambient);
+        b.fixColor(color[i]);
     }
 
     for (int i = 0; i < 3 && !d.cull; ++i) {
@@ -1129,33 +1230,9 @@ void buildAsIsBody(const Desc& d, Program& prog) {
             b.mulQInto(outStq[i], st[i], MALL);
             prog.code.back().comment = "PerformTexturePerspectiveCorrection";
         }
-        if (!colorStream) {
-            // CalculateTyraDirectionalLights, instruction for instruction.
-            b.mulAcc(lightMatrix[0], normal[i].broadcast(0), MXYZ);
-            prog.code.back().comment = "CalculateTyraDirectionalLights";
-            b.maddAcc(lightMatrix[1], normal[i].broadcast(1), MXYZ);
-            b.maddInto(normal[i], lightMatrix[2], normal[i].broadcast(2), MXYZ);
-            b.mulAcc(lightDirs[0], normal[i].broadcast(0), MXYZ);
-            b.maddAcc(lightDirs[1], normal[i].broadcast(1), MXYZ);
-            b.maddInto(color[i], lightDirs[2], normal[i].broadcast(2), MXYZ);
-            b.minimumInto(color[i], color[i], b.zero().broadcast(3), MXYZ);
-            b.maximumInto(color[i], color[i], b.zero().broadcast(0), MXYZ);
-            b.mulAcc(lightColors[0], color[i].broadcast(0), MXYZ);
-            b.maddAcc(lightColors[1], color[i].broadcast(1), MXYZ);
-            b.maddAcc(lightColors[2], color[i].broadcast(2), MXYZ);
-            b.maddInto(color[i], ambient, b.zero().broadcast(3), MXYZ);
-            b.loadI(128.0f);
-            {
-                Instr in;
-                in.op = Op::Add;
-                in.dst = color[i].reg;
-                in.s1 = b.zero().reg;
-                in.s2 = kI;
-                in.s2kind = Src::I;
-                in.mask = MW;
-                prog.code.push_back(in);
-            }
-        }
+        if (!colorStream)
+            b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
+                            lightColors, ambient);
         b.fixColor(color[i]);
     }
 

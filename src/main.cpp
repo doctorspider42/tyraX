@@ -1333,9 +1333,9 @@ static int vuCheckFromCli(int argc, char** argv) {
     int mismatches = 0;
     std::vector<std::pair<std::string, const vuir::Program*>> set;
     std::vector<vugen::Built> built;
-    built.reserve(vugen::allAsIsDescs().size());
+    built.reserve(vugen::allDescs().size());
     std::printf("-- generated vs handwritten, in the simulator --\n");
-    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+    for (const vugen::Desc& d : vugen::allDescs()) {
         built.push_back(vugen::build(d));
         const vugen::Built& b = built.back();
         for (const std::string& n : b.notes) std::printf("  note: %s\n", n.c_str());
@@ -1379,7 +1379,7 @@ static int vuCheckFromCli(int argc, char** argv) {
     for (size_t i = 0; i < built.size(); ++i) {
         const vugen::Built& b = built[i];
         if (b.program.code.empty() || b.vclpp.empty()) continue;
-        const vugen::Desc d = vugen::allAsIsDescs()[i];
+        const vugen::Desc d = vugen::allDescs()[i];
         vuasm::Options opt;  // the emitted source has no #includes by design
         vuir::Program back;
         std::string err;
@@ -1447,7 +1447,7 @@ static int vuEmitFromCli(int argc, char** argv) {
     std::error_code ec;
     fs::create_directories(out, ec);
     int written = 0;
-    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+    for (const vugen::Desc& d : vugen::allDescs()) {
         const vugen::Built b = vugen::build(d);
         for (const std::string& n : b.notes) std::printf("note: %s\n", n.c_str());
         if (b.vclpp.empty()) continue;

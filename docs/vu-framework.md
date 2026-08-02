@@ -260,8 +260,12 @@ write.
 
 ## State: what is covered
 
-**Generated and proven bit-identical:** the five `as_is` programs (`c`, `tc`,
-`d`, `td`, `tce`) — the family the EE clipper feeds.
+**Generated and proven bit-identical: all ten programs StaPip keeps resident** —
+the five `as_is` (the family the EE clipper feeds) and the five `cull` (the
+family that transforms and frustum-tests on VU1). The `cull` half emits the same
+instruction COUNT as the handwritten file in every variant (225/183/197/210
+against 225/183/197/210), which is a stronger statement than equivalence alone:
+the generator is not buying agreement with extra work.
 
 **Parsed and simulatable, not yet described:** everything else the engine ships —
 all twenty-five `.vclpp` files parse with no diagnostics, including the five
@@ -312,19 +316,26 @@ capture does not contain. Whether the real VU also differs from the simulator in
 the last bits is UNKNOWN and not claimed either way; settling it needs that chain
 captured (see docs/backlog.md).
 
-**Not done:** the `clip` and `billboard` families are still handwritten, and of
-the `cull` family only the colour variant is described so far. The generated programs
-are proven equivalent in the simulator, but no generated microcode has been built
-in Docker or run on hardware. That is the next step and it needs the full e2e
-pass (`tyra-testing`), not a host check.
+**Not done:** the `clip` and `billboard` families are still handwritten. Of the
+ten described programs only the five `as_is` are *adopted* — the generated `cull`
+family is proven equivalent in the simulator but has not been built in Docker or
+run on hardware, and adoption needs the full e2e pass (`tyra-testing`), not a
+host check.
 
-The `cull` and `clip` families are the useful next targets, in that order —
-`cull` is `as_is` plus an MVP transform and the ADC clip check, both of which the
-builder already has (`transform`, and `clipw`/`fcand` in the IR). `clip` is the
-harder one: Sutherland–Hodgman with real control flow and scratch polygon buffers
-in high memory, which an expression-level DSL will not express. The honest shape
-there is a declarative skeleton with hand-written instruction blocks plugged into
-it — 80% generated, the clipper still artisanal.
+The `cull` family cost almost nothing to describe once `as_is` existed, and the
+shape of that diff is the argument for the whole approach: five new descriptions
+(seven lines each) plus **one** structural change to the shared body, because
+`cull` is `as_is` with the MVP multiply, the ADC frustum test and the spot light
+moved onto VU1 — all three of which the method library already had. The one
+genuinely new fact the exercise turned up is that the flashlight has nowhere to
+go in the lit and env variants (they compute their colour from normals, and an
+env bag carries no lighting at all), which is why `spot` is
+`cull && colorStream && !env` rather than just `cull`.
+
+`clip` is the harder one: Sutherland–Hodgman with real control flow and scratch
+polygon buffers in high memory, which an expression-level DSL will not express.
+The honest shape there is a declarative skeleton with hand-written instruction
+blocks plugged into it — 80% generated, the clipper still artisanal.
 
 ## VU1 or VU0?
 

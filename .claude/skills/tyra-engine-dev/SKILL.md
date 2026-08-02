@@ -338,11 +338,14 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
   registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
   is not authoritatively simulated).
-- The five `as_is` programs also have C++ descriptions that generate them; a
-  generated program is proven **bit-identical** to the handwritten one by
-  simulating both on randomized input. If you change one of those five by hand,
-  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
-  the two have genuinely diverged and you should say which is right.
+- **All ten resident programs** (five `as_is` + five `cull`) also have C++
+  descriptions that generate them; a generated program is proven
+  **bit-identical** to the handwritten one by simulating both on randomized
+  input. If you change one of those ten by hand, `--vu-check` starts failing -
+  update the description in `vugen.cpp` too, or the two have genuinely diverged
+  and you should say which is right. (Only the `as_is` five are *adopted* so
+  far: the files in `vendor/tyra` ARE the generated ones. The `cull` five are
+  still the handwritten originals.)
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can

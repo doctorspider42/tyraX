@@ -156,6 +156,13 @@ class Vu {
     void fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch);
     /** MatrixMultiplyVertex: dst = m * v, the four-register mula/madd chain. */
     void transform(Val dst, const Val m[4], Val v);
+    /** CalculateTyraDirectionalLights: three directional lights plus ambient,
+     * from an OBJECT-space normal. `normal` is overwritten with its world-space
+     * self on the way (the handwritten macro does the same), and the alpha is
+     * set to the GS "1.0" of 128 because a lit mesh carries no colour stream. */
+    void dirLightShade(Val color, Val normal, const Val lightMatrix[3],
+                       const Val lightDirs[3], const Val lightColors[3],
+                       Val ambient);
     /** ResetClipFlags: clear the clip-flag shift register before the loop. */
     void resetClipFlags();
     /** MakeTyraAdcMask: build the 0x8000 ADC bit once (iaddiu immediates are
@@ -226,14 +233,20 @@ struct Desc {
     std::string dir = "as_is";  // sub-directory under programs/
 };
 
-/** The five as_is variants, exactly as the engine ships them. */
+/** The ten programs the StaPip pipeline keeps resident, exactly as the engine
+ * ships them: five `as_is` (fed by the EE clipper) crossed with five `cull`
+ * (transform + frustum test on VU1). The `clip` family is still handwritten. */
 Desc descAsIsColor();
 Desc descAsIsTextureColor();
 Desc descAsIsDirLights();
 Desc descAsIsTextureDirLights();
 Desc descAsIsTextureEnv();
 Desc descCullColor();
-std::vector<Desc> allAsIsDescs();
+Desc descCullTextureColor();
+Desc descCullDirLights();
+Desc descCullTextureDirLights();
+Desc descCullTextureEnv();
+std::vector<Desc> allDescs();
 
 /** Everything generated for one program. */
 struct Built {
