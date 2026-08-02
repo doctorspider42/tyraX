@@ -4329,9 +4329,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                 scaleM(0.3f, 0.3f, 0.3f));
             draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
                  s.color[2], 0, &om);
-            // View > Scroller preview hides the GHOSTS only - the origin marker
-            // above is drawn either way, or a hidden belt would be unfindable.
-            if (!scrollerPreview_ || s.scrollSegments.empty()) continue;
+            // Hiding a belt hides its GHOSTS only - the origin marker above is
+            // drawn either way, or a hidden belt would be unfindable. An index
+            // past the mask draws (an unset mask means "show all").
+            const bool ghosts =
+                si >= scrollerGhosts_.size() || scrollerGhosts_[si] != 0;
+            if (!ghosts || s.scrollSegments.empty()) continue;
             const float beltScroll = (float)animClock_ * s.scrollSpeed;
             for (const scrollsim::Placement& pl :
                  scrollsim::placements(objects, s, beltScroll)) {

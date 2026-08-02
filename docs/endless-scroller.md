@@ -172,12 +172,18 @@ semi-transparent **ghost belt** — so what you preview is exactly what ships.
 
 A running belt fills its whole ahead/behind window with those copies, which is
 exactly what you cannot see past while editing the member objects they are made
-of. **View > Scroller preview** turns them off (and so does *Show belt preview*
-in a Scroller's Properties — one setting, two places to reach it). The belt's
-origin markers stay, because they are how a belt is found and selected, and
-nothing else changes: the clone count, the warnings and the layout maths are all
-still live. It is an editor setting, not project data — it does not travel with
-the `.tyra` and the game never hears about it.
+of. So the ghosts are hideable at two scopes:
+
+- **Show belt preview**, in a Scroller's own Properties, hides *that* belt.
+- **View > Scroller preview** hides *every* belt in the scene at once, and
+  wins while it is off (the per-belt checkbox greys out, because there is
+  nothing left for it to say).
+
+The belt's origin markers stay either way — they are how an invisible,
+intangible marker object is found and selected — and nothing else changes: the
+clone count, the warnings and the layout maths are all still live. Both are
+editor settings, not project data: they do not travel with the `.tyra` and the
+game never hears about them.
 
 ## Seams: making the joints invisible
 

@@ -958,16 +958,27 @@ void App::drawPropertiesWindow() {
             "Seeds the per-cell variation set up on each segment member below\n"
             "(Appears in / Variant group / the jitters). Changing it deals a\n"
             "different infinite level from the same pieces.");
-        // Editor-only, and deliberately NOT part of the object: the same flag
-        // the View menu holds, offered here because this panel is where you
-        // are when the ghosts are in your way. No commitChange() - hiding a
-        // preview is not an edit to the scene.
-        ImGui::Checkbox("Show belt preview", &showScrollerPreview_);
+        // THIS belt's ghosts only - a checkbox inside one scroller's properties
+        // that silenced every scroller in the scene reads as a bug. View >
+        // Scroller preview is the all-at-once switch, and it wins while it is
+        // off. Editor-only and deliberately NOT part of the object: no
+        // commitChange(), because hiding a preview is not an edit to the scene.
+        bool beltGhosts = !scrollGhostsOff_.count(o.id);
+        ImGui::BeginDisabled(!showScrollerPreview_);
+        if (ImGui::Checkbox("Show belt preview", &beltGhosts)) {
+            if (beltGhosts) scrollGhostsOff_.erase(o.id);
+            else scrollGhostsOff_.insert(o.id);
+        }
+        ImGui::EndDisabled();
         ImGui::SetItemTooltip(
-            "Draw the sliding ghost copies in the viewport (View > Scroller\n"
-            "preview). Off leaves the belt marker and every readout below\n"
-            "alone - it only stops the copies from covering the member\n"
-            "objects you are editing. An editor setting, not project data.");
+            showScrollerPreview_
+                ? "Draw THIS belt's sliding ghost copies in the viewport. Off\n"
+                  "leaves the belt marker and every readout below alone - it\n"
+                  "only stops the copies from covering the member objects you\n"
+                  "are editing. An editor setting, not project data.\n"
+                  "View > Scroller preview does the same for every belt."
+                : "View > Scroller preview is off, which already hides every\n"
+                  "belt. Turn it back on to hide belts one at a time.");
 
         // Cost readout: how many clone objects this belt bakes into the scene.
         if (!o.scrollSegments.empty()) {

@@ -205,12 +205,20 @@ public:
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
 
-    // Endless-scroller ghost belts (View > Scroller preview). Off draws the
-    // belt origin markers and nothing else: a belt fills its whole window with
-    // semi-transparent copies, which is exactly what you cannot see past while
-    // editing the member objects those copies are made of. The markers stay -
-    // they are how a belt is found and selected, not part of its output.
-    void setScrollerPreview(bool on) { scrollerPreview_ = on; }
+    // Which endless scrollers draw their ghost belts, one flag per object
+    // (indices parallel the objects passed to render, like hiddenMask_). A belt
+    // fills its whole window with semi-transparent copies, which is exactly
+    // what you cannot see past while editing the member objects those copies
+    // are made of - so it is hideable per belt (Properties) and all at once
+    // (View > Scroller preview). ONE mask for both, because "hide this one" and
+    // "hide every one" are the same question asked at different scopes.
+    // Anything not in the mask draws its ghosts: an empty mask is "show all",
+    // which is what a caller that never sets it should get.
+    // The belt origin MARKERS are drawn either way - they are how an invisible,
+    // intangible object is found and selected, not part of its output.
+    void setScrollerGhosts(std::vector<char> mask) {
+        scrollerGhosts_ = std::move(mask);
+    }
 
     // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
     // over the walkable cells of the app-baked grid (navmesh::bake - the app
@@ -551,7 +559,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool navOverlayOn_ = false;
-    bool scrollerPreview_ = true;
+    std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;

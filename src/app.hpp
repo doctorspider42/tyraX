@@ -1267,13 +1267,23 @@ private:
     // would be a worse lie than the geometry being in the way.
     bool showProcPreview_ = true;
 
-    // View > Scroller preview, and the same checkbox in a Scroller's
-    // Properties. Same reason as the procedural one: a belt fills its whole
-    // ahead/behind window with semi-transparent copies of its members, which is
-    // exactly what you cannot see past while editing those members. Session
-    // state like the rest of the Preview group - the belt's origin markers and
-    // the layout maths are untouched, only the ghosts go.
+    // Endless-scroller ghost belts, hideable at two scopes. Same reason as the
+    // procedural preview: a belt fills its whole ahead/behind window with
+    // semi-transparent copies of its members, which is exactly what you cannot
+    // see past while editing those members.
+    //
+    // `showScrollerPreview_` is View > Scroller preview - every belt at once.
+    // `scrollGhostsOff_` holds the OBJECT IDS of individual belts turned off
+    // from their own Properties, which is the scope that panel implies (a
+    // checkbox inside one belt's properties that silenced every belt in the
+    // scene reads as a bug, and was reported as one). Ids, not indices: the
+    // object list is reordered by inserts, deletes and the procedural bake.
+    //
+    // Both are session state like the rest of the Preview group - the belt's
+    // origin markers, the layout maths and the clone-count readout are
+    // untouched either way, and nothing here reaches the .tyra or the game.
     bool showScrollerPreview_ = true;
+    std::set<std::string> scrollGhostsOff_;
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =

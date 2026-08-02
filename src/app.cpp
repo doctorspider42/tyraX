@@ -1273,11 +1273,12 @@ void App::drawMenuBar() {
                 showScrollerPreview_ = !showScrollerPreview_;
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip(
-                    "Draw the sliding ghost copies of every endless scroller's\n"
+                    "Draw the sliding ghost copies of EVERY endless scroller's\n"
                     "segments. Turn it off to work on the member objects the\n"
                     "copies are made of - a running belt fills its whole window\n"
-                    "with them. The belt markers stay, and the clone count and\n"
-                    "warnings in Properties stay live.");
+                    "with them. One belt at a time is 'Show belt preview' in\n"
+                    "that scroller's Properties. The belt markers stay either\n"
+                    "way, and the clone count and warnings stay live.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -2256,7 +2257,19 @@ void App::drawViewportWindow() {
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
         }
-        viewport_.setScrollerPreview(showScrollerPreview_);
+        // Scroller ghost belts: the View toggle covers every belt, the
+        // per-object set covers the ones switched off in their own Properties.
+        {
+            std::vector<char> ghosts(project_.objects().size(), 1);
+            for (size_t i = 0; i < project_.objects().size(); ++i) {
+                const SceneObject& o = project_.objects()[i];
+                if (o.type != PrimitiveType::Scroller) continue;
+                ghosts[i] = (showScrollerPreview_ && !scrollGhostsOff_.count(o.id))
+                                ? (char)1
+                                : (char)0;
+            }
+            viewport_.setScrollerGhosts(std::move(ghosts));
+        }
         // Non-destructive clip edits + the project's animation-fps ratio, so
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
