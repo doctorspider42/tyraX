@@ -31,6 +31,16 @@ the verification, and any fact worth reusing belongs in the relevant
   Until that happens the feature is *unproven on hardware*, and
   docs/freedvdboot.md says so.
 
+- **Direct boot for Tyra games, if FreeDVDBoot ever allows it.** The loader
+  stays resident and reserves `0x84000-0x85FFF` + `0x250000-0x29FFFF`; a Tyra
+  ELF links at `0x100000` with a BSS past `0x38F000`, so it covers the second
+  range and cannot be the initial program. Discs therefore chainload through
+  uLaunchELF (one menu selection). CTurt's README says the restriction may be
+  lifted in a later payload - if it is, nothing needs designing: the exporter
+  already chooses per-ELF, so a game that clears the ranges boots directly on
+  its own. The other direction - shrinking a Tyra ELF below `0x250000` - is not
+  worth chasing; it is the engine's BSS, not slack.
+
 - **Phat FreeDVDBoot (2.10-2.13)** is deliberately unsupported. That variant has
   no filesystem step - the ELF is written into a fixed offset (`0x5bb000`) of a
   prebuilt 7 MB `dvd.base.iso`, which leaves nowhere to put a game's assets. It
@@ -96,6 +106,24 @@ the verification, and any fact worth reusing belongs in the relevant
   the parser now exposes the real AABB, the viewport pick could use it)
 - HUD images draggable directly in the viewport
 - Positional audio (volume falloff by distance to an object)
+- **Game build speed, what is left after the incremental pass.** The build is
+  incremental now (nothing-changed builds went ~75 s -> ~5 s; see the numbers
+  in `tyra-testing`), so the remaining cost is the case that legitimately
+  recompiles: an edit to `inc/scene_data.hpp` - which moving one object
+  produces - invalidates most translation units, ~47 s on
+  `examples/showcase`. Two candidates, in order of payoff:
+  - **Get the scene DATA out of the header.** The generated tables live in
+    `scene_data.hpp`, so a position change is a header change. Emitting them
+    into one `.cpp` with `extern` declarations behind a header that only moves
+    when the SHAPE changes would turn "moved an object" into a one-file
+    recompile. The catch is every `constexpr`/array-size use of those tables;
+    worth an audit before committing to it.
+  - **Precompiled header for `<tyra>`.** Measured 3 s -> 1 s and 2 s -> 1 s on
+    two TUs, at 95 MB of `.gch` per flag set - re-measure under `-j`, where
+    six readers of a 95 MB file may cost more than they save.
+  - `ccache` in the build image is the cheap third option (it would cover
+    branch switches and revert-and-rebuild), but it needs a Dockerfile again -
+    the per-project image was deliberately removed.
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots

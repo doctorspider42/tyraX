@@ -1341,6 +1341,15 @@ void App::drawMenuBar() {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
                 runner_.buildAndRun(projectForBuild(), false);
+            if (ImGui::MenuItem("Rebuild", nullptr, false, !busy))
+                runner_.buildAndRun(projectForBuild(), false, true);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Full rebuild: recreates the build container, then compiles "
+                    "the engine\n(VU1 microprograms included) and every game "
+                    "source from scratch.\nSlow on purpose - it is the way out "
+                    "when an incremental build\nmisbehaves. Clean also wipes "
+                    "bin\\ on this machine; Rebuild does not.");
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
                 runner_.buildAndRun(projectForBuild(), true);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))

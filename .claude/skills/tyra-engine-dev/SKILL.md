@@ -43,15 +43,38 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
-   `tyra-engine-shared` (mounted at `/tyra`), shared by all projects.
-3. If anything changed, `libtyra` is rebuilt once (VU1 microprograms are
-   force-rebuilt too) and the game ELF is dropped so it relinks.
+   `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
+   by every project built from the same checkout — parallel worktrees get their
+   own, or they would rsync diverging engines over each other forever.
+3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
+   it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
+
+**The VU1 microprograms are the expensive special case.** They sit outside
+make's dependency tracking (a `.vclpp` `#include`s `.i`/`.h` files nothing
+declares), so the Runner force-rebuilds them — but only when the rsync reports a
+changed `.vclpp`/`.vcl`/`.vsm`/`.i`/`.h`. Rebuilding the set costs **109 s**
+(measured, `-j6`; `vcl` is slow enough that its optimizer times out on some
+programs and says so). It used to run on *any* engine change, so a one-line
+comment in a `.cpp` paid it in full; now that same edit is a ~7 s build. If you
+ever change what a VU source may include, widen that extension list in
+`runner.cpp` — a missed extension means stale microprograms, which is the kind
+of bug that looks like a renderer bug.
 
 So the loop is: edit a file under `vendor/tyra/engine`, run a game build, and
 the change is in the ELF. No container restarts needed. If the shared volume
 gets into a weird state, `git checkout` inside `/tyra` restores originals (it's
-a git checkout of the fork).
+a git checkout of the fork) — and **Build > Rebuild** (`--build --rebuild`)
+throws away the whole compiled engine, VU1 objects included, and builds it
+again from source.
+
+`vendor/tyra/Makefile.base` is shared by the engine build and every generated
+game, so an edit there moves both. TyraX changes in it: single-pass dependency
+generation (`-MMD -MP`; it used to run the compiler a second time per file just
+to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
+reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+byte-identical: the same project built with the old and new rules produced the
+same `md5` for its stripped ELF.
 
 ## Engine layout
 

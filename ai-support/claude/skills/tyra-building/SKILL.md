@@ -43,6 +43,13 @@ own DVD Player, the ISO9660 side is the disc the game reads its assets from.
 Burn to DVD-R at the lowest speed, finalised, with the console's system language
 set to English - nothing has to be installed on the PS2.
 
+The disc comes up in **uLaunchELF** and you run `<NAME>.ELF` from its browser.
+That is not a shortcut: FreeDVDBoot's loader stays in RAM, and a Tyra game's
+BSS covers it (even an empty project reaches `0x38F000`, over the loader's
+`0x250000-0x29FFFF`), so booting the game ELF directly would hang the console.
+The exporter reads the ELF's program headers, says which mode it chose, and
+boots directly when an ELF is small enough to clear the loader.
+
 Needs a one-time setup: the user downloads the FreeDVDBoot filesystem folder for
 their console's DVD Player version and sets it in the editor's
 `Edit > Preferences` (or passes `--fdvdb-dir <folder>`). Those files carry no

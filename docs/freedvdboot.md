@@ -42,13 +42,49 @@ describe the *same* sectors, and both are needed, for different readers:
 
 - `VIDEO_TS.IFO` — the exploit trigger, **yours** (see below),
 - `VTS_01_0.IFO` — exploit setup, **yours**,
-- `VTS_02_0.IFO` — **your game's ELF**, under an IFO name. This is what
-  FreeDVDBoot's loader launches; the file name is what the payload looks for,
-  the contents are a plain PS2 ELF.
+- `VTS_02_0.IFO` — the program the exploit launches, under an IFO name. Which
+  program that is depends on your ELF; see below.
 
-The ELF is on the disc twice: once as `VTS_02_0.IFO` for the exploit, once under
-its own name for `SYSTEM.CNF`. That costs a few MB out of 4.7 GB and buys a disc
-that also boots the ordinary way on a modded console.
+Your game's ELF is always on the disc root under its own name too, so
+`SYSTEM.CNF` names something real and a modded console can boot the disc the
+ordinary way.
+
+### Which program the disc launches, and why it is usually uLaunchELF
+
+FreeDVDBoot's loader is **still resident** when the program it launches takes
+over, so that program must not cover the loader's own code at
+`0x84000-0x85FFF` or `0x250000-0x29FFFF`.
+
+A Tyra game does not fit. Even a freshly generated, empty project links at
+`0x100000` with a BSS running past `0x38F000` — straight through the second
+range:
+
+```
+$ readelf -l bin/fdbuild.elf
+  LOAD  0x000080 0x00100000 0x00100000 0x268d24 0x28f748 RWE 0x80
+```
+
+So the exporter picks the mode for you:
+
+| Your ELF | `VTS_02_0.IFO` becomes | On the console |
+| --- | --- | --- |
+| clears both ranges | your game | insert the disc, the game starts |
+| covers either range (every real Tyra game) | **uLaunchELF**, unmodified from your FreeDVDBoot folder | uLaunchELF comes up; open the DVD and run `<NAME>.ELF` |
+
+The chainloaded route is CTurt's own recommended setup — uLaunchELF has no such
+memory restriction, and he notes that programs launched *through* it are more
+compatible than ones the loader boots directly. It costs one menu selection.
+
+The exporter tells you which mode it used and why:
+
+```
+[editor] ELF covers FreeDVDBoot's loader (segment 0x00100000-0x0038F747
+         overlaps the loader's 0x250000-0x29FFFF), so the disc boots
+         uLaunchELF - pick FDBUILD.ELF from its browser to start the game.
+```
+
+This is also why you must download the **complete** version folder: its
+`VTS_02_0.IFO` *is* uLaunchELF, and the export needs it.
 
 The UDF side deliberately exposes **only** `VIDEO_TS/`. Your assets do not need
 UDF entries — the game reads them through `cdrom0:`, which is the ISO9660 side.
@@ -104,20 +140,16 @@ all, so the exploit path is unreachable there. `-fdvdb.iso` still boots in PCSX2
 as a plain PS2 disc (the ISO9660 side), which verifies your game — but *not*
 that FreeDVDBoot fires. Only real hardware answers that.
 
-**It cannot fix an ELF that lands on the loader.** FreeDVDBoot's loader is still
-resident when your ELF takes over, so an ELF whose segments cover
-`0x84000-0x85FFF` or `0x250000-0x29FFFF` hangs the console. The exporter parses
-your ELF's program headers and **refuses to write the image** if they clash,
-naming the segment:
+**It cannot boot a Tyra game directly.** As above, the game is launched from
+uLaunchELF's browser rather than the moment the disc spins up. Removing that
+step would take a FreeDVDBoot payload that relocates itself out of the way —
+CTurt's README says he may lift the restriction some day, and if a later release
+does, this exporter picks direct boot up automatically: the ELF check is what
+decides, not a setting.
 
-```
-error: the ELF overlaps FreeDVDBoot's loader and would hang the console:
-  - segment 0x00240000-0x002BFFFF overlaps the loader's 0x250000-0x29FFFF
-```
-
-A stock Tyra game links at `0x100000` and is nowhere near either range, so this
-should never fire — but a linker-script change could put you there, and finding
-out on hardware costs an evening.
+The one case it refuses outright is an ELF that clashes **and** a FreeDVDBoot
+folder with no `VTS_02_0.IFO` to chainload through — i.e. an incomplete
+download. It says so rather than writing a disc that hangs.
 
 ## CLI
 

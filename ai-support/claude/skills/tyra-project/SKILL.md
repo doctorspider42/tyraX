@@ -37,7 +37,7 @@ build. Two kinds of files coexist here:
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
-| `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
+| `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
 | `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |
 | `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |

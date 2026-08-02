@@ -399,17 +399,35 @@ std::string buildFreeDvdBoot(const Project& p, const std::string& exploitDir, co
     if (!err.empty()) return err;
     if (manual) log("[editor] Applied pinned order from iso-layout.txt.");
 
-    // The ELF is launched by the exploit, not by SYSTEM.CNF, so it has to
-    // co-exist with the loader still sitting in RAM.
+    // Which program the exploit launches. Booting the game ELF *directly* is
+    // the nicer disc - insert it and the game runs - but FreeDVDBoot's loader
+    // is still resident when that ELF takes over, so it only works for an ELF
+    // that stays clear of the loader's code. A Tyra game does NOT: even an
+    // empty project links at 0x100000 and its BSS runs past 0x38F000, straight
+    // through 0x250000-0x29FFFF. So the normal disc chainloads through
+    // uLaunchELF instead - the initial program CTurt ships in the same folder,
+    // which has no such restriction - and the game is picked from its browser.
     std::vector<std::string> clashes;
     if (err = checkElfAgainstLoader(fs::path(p.elfPath()), &clashes); !err.empty()) return err;
-    if (!clashes.empty()) {
-        std::string msg = "the ELF overlaps FreeDVDBoot's loader and would hang the console:";
+    const bool directBoot = clashes.empty();
+    std::error_code uec;
+    const bool haveULaunchElf = fs::is_regular_file(vts / kFdvdbProgram, uec);
+    if (!directBoot && !haveULaunchElf) {
+        std::string msg =
+            "this ELF cannot be launched directly by FreeDVDBoot, and the folder has no "
+            + std::string(kFdvdbProgram) + " (uLaunchELF) to chainload through:";
         for (const std::string& c : clashes) msg += "\n  - " + c;
+        msg += "\n  Download the complete Filesystems/<version>/ folder - "
+               "VTS_02_0.IFO is uLaunchELF and this export needs it.";
         return msg;
     }
-    log("[editor] ELF clears FreeDVDBoot's reserved ranges (0x84000-0x85FFF, "
-        "0x250000-0x29FFFF).");
+    if (directBoot)
+        log("[editor] ELF clears FreeDVDBoot's reserved ranges (0x84000-0x85FFF, "
+            "0x250000-0x29FFFF) - the disc boots straight into the game.");
+    else
+        log("[editor] ELF covers FreeDVDBoot's loader (" + clashes.front() +
+            "), so the disc boots uLaunchELF - pick " + upper(p.elfName()) +
+            " from its browser to start the game.");
 
     fs::path cnf;
     if (err = writeSystemCnf(upper(p.elfName()), &cnf); !err.empty()) return err;
@@ -425,7 +443,11 @@ std::string buildFreeDvdBoot(const Project& p, const std::string& exploitDir, co
     const std::array<std::pair<const char*, fs::path>, 3> videoTs{{
         {kFdvdbTrigger, vts / kFdvdbTrigger},
         {kFdvdbSetup, vts / kFdvdbSetup},
-        {kFdvdbProgram, fs::path(p.elfPath())},
+        // Either the game itself or uLaunchELF - see the mode choice above.
+        // The game ELF is on the disc under its own name regardless, so the
+        // chainloaded case has something to find (and SYSTEM.CNF something to
+        // name on a modded console).
+        {kFdvdbProgram, directBoot ? fs::path(p.elfPath()) : vts / kFdvdbProgram},
     }};
     if (err.empty()) {
         std::vector<iso9660::FileEntry> withVts;
@@ -487,10 +509,14 @@ std::string buildFreeDvdBoot(const Project& p, const std::string& exploitDir, co
              "[editor] FreeDVDBoot ISO written: %s (%.1f MB, %zu files)", iso.string().c_str(),
              (double)fs::file_size(iso, ec) / (1024.0 * 1024.0), placed.size());
     log(sum);
-    log("[editor] Burn to DVD-R at the lowest speed, finalised. Set the console's "
-        "system language to English, then just insert the disc - nothing has to be "
-        "installed on the PS2. PCSX2 cannot boot this path (it does not emulate the "
-        "DVD Player); it still boots the disc as a plain PS2 image.");
+    log(std::string("[editor] Burn to DVD-R at the lowest speed, finalised. Set the "
+                    "console's system language to English, then insert the disc - "
+                    "nothing has to be installed on the PS2. ") +
+        (directBoot ? "The game starts on its own."
+                    : "uLaunchELF comes up; open the DVD and run " + upper(p.elfName()) +
+                          ".") +
+        " PCSX2 cannot boot this path (it does not emulate the DVD Player); it still "
+        "boots the disc as a plain PS2 image.");
     return "";
 }
 
