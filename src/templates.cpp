@@ -10236,6 +10236,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.matrixMode = localSpace;
+  o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
@@ -12525,7 +12526,19 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
-    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Something that moves EVERY frame asked for the matrix path (an endless
+    // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
+    // bake buys it a whole belt's worth of per-frame motion at the price of a
+    // matrix refresh; without it a running belt re-bakes every clone's world
+    // vertices every frame, which is what held the endless-runner example at
+    // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
+    // itself on the frame it asks, and a world-space rebuild would clear the
+    // flag and leave it asking again forever.
+    if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
+        physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    else if (runtimeObjects[i].dirty)
+      rebuildObjectGeometry(i);
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
@@ -16883,6 +16896,21 @@ struct RuntimeObject {
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
+  // The per-object matrix path, as a Script can see it. Setting `dirty`
+  // rebuilds an object's whole WORLD-space vertex array on the EE, which is
+  // right for a one-shot move and ruinous for something that moves every
+  // frame - such an object is better baked ONCE in local space and then moved
+  // by refreshing its matrix (ObjectGeometry::objMat), which VU1 applies for
+  // free. Scripts have no access to objectGeometry, so the two flags mirror it:
+  // set `wantsMatrixPath` to ask for the promotion (renderScene does it as
+  // soon as the object is eligible), and read `onMatrixPath` to know whether
+  // it happened - while it is true, writing position/rotation is enough and
+  // `dirty` must be left alone. Scale is baked into the local vertices, so
+  // changing it still needs a `dirty` re-bake (the object is demoted and
+  // re-promoted on the next frame). Inherited trade-off, same as physics:
+  // baked shading freezes at the pose the object was promoted in.
+  bool wantsMatrixPath = false;
+  bool onMatrixPath = false;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
   // its geometry/assets may be freed. Managed by the game's layer streaming
@@ -18613,13 +18641,20 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         float phase;        // scrollsim phase (baseOffset + copy*patternLength)
         float segLen;       // its segment's effective length
         float home[3];      // the member's authored position (belt slide origin)
+        float homeRotY;     // authored Y rotation (per-cell yaw is added to it)
+        float homeScale[3]; // authored scale + seam overlap (jitter multiplies)
+        int copy;           // which copy of its segment - the cell arithmetic
+        scrollsim::MemberVary vary;  // this member's per-cell variation
     };
     struct ScrollerRec {
         int scene;
         int objIndex;       // the scroller's authored index in its scene table
         float axis[3];
+        float side[3];      // horizontal perpendicular (lateral offset jitter)
         float speed, wmin, wmax, span;
         int autostart;
+        int cells;          // copies per segment - the cell index step
+        int varySeed;
     };
     struct HiddenRec {
         int scene, objIndex;
@@ -18633,30 +18668,38 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             const SceneObject& sc = scene.objects[oi];
             if (sc.type != PrimitiveType::Scroller || sc.scrollSegments.empty())
                 continue;
-            float axis[3];
+            float axis[3], side[3];
             scrollsim::beltAxis(sc.rotation, axis);
+            scrollsim::sideAxis(axis, side);
             const float pat = scrollsim::patternLength(scene.objects, sc);
             const int cells = scrollsim::cellsPerSegment(scene.objects, sc);
             const int scrRec = (int)scrollers.size();
             scrollers.push_back({si, (int)oi,
                                  {axis[0], axis[1], axis[2]},
+                                 {side[0], side[1], side[2]},
                                  sc.scrollSpeed, scrollsim::windowMin(sc),
                                  scrollsim::windowMax(sc), cells * pat,
-                                 sc.scrollAutostart ? 1 : 0});
+                                 sc.scrollAutostart ? 1 : 0, cells,
+                                 sc.scrollVarySeed});
             // Hide the authored member templates (dedup per scroller).
             for (const ScrollSegment& seg : sc.scrollSegments)
-                for (int mi : scrollsim::segmentMembers(scene.objects, seg)) {
+                for (const scrollsim::MemberRef& ref :
+                     scrollsim::segmentMembers(scene.objects, seg)) {
                     bool seen = false;
                     for (const HiddenRec& hr : hiddenMembers)
-                        seen |= (hr.scene == si && hr.objIndex == mi);
-                    if (!seen) hiddenMembers.push_back({si, mi});
+                        seen |= (hr.scene == si && hr.objIndex == ref.object);
+                    if (!seen) hiddenMembers.push_back({si, ref.object});
                 }
-            // One clone per (placement, member).
+            // One clone per (placement, member). The rest layout is the belt at
+            // scroll 0; everything a clone needs to resolve LATER cells (its
+            // copy index, its member's variation) is baked next to it, so the
+            // runtime never needs the segment list.
             for (const scrollsim::Placement& pl :
                  scrollsim::placements(scene.objects, sc, 0.0f)) {
                 const ScrollSegment& seg = sc.scrollSegments[pl.segment];
-                for (int mi : scrollsim::segmentMembers(scene.objects, seg)) {
-                    const SceneObject& src = scene.objects[mi];
+                for (const scrollsim::MemberInstance& in :
+                     scrollsim::memberInstances(scene.objects, sc, pl)) {
+                    const SceneObject& src = scene.objects[in.object];
                     SceneClone cl;
                     cl.obj = src;
                     cl.obj.id.clear();
@@ -18664,18 +18707,24 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     cl.obj.scripts.clear();
                     cl.obj.flowGraph = FlowGraph{};
                     cl.obj.type = src.type;
-                    // Seam overlap: stretch along the belt so consecutive
-                    // pieces interpenetrate instead of z-fighting at exactly
-                    // coplanar end faces (scrollsim::seamScale, shared with
-                    // the viewport ghosts).
-                    scrollsim::seamScale(src, axis, sc.scrollOverlap, cl.obj.scale);
+                    // memberInstances already folded in the seam overlap (the
+                    // anti-z-fighting stretch, scrollsim::seamScale) and cell
+                    // 0's variation, so the baked rest pose IS what the editor
+                    // ghosts drew at scroll 0.
                     for (int a = 0; a < 3; ++a) {
                         cl.home[a] = src.position[a];
-                        cl.obj.position[a] = src.position[a] + pl.u * axis[a];
+                        cl.obj.position[a] = in.position[a];
+                        cl.obj.rotation[a] = in.rotation[a];
+                        cl.obj.scale[a] = in.scale[a];
+                        cl.homeScale[a] = src.scale[a];
                     }
+                    scrollsim::seamScale(src, axis, sc.scrollOverlap, cl.homeScale);
+                    cl.homeRotY = src.rotation[1];
                     cl.scroller = scrRec;
                     cl.phase = pl.phase;
                     cl.segLen = pl.segLen;
+                    cl.copy = pl.copy;
+                    cl.vary = scrollsim::memberVary(seg, pl.segment, in.slot);
                     sceneClones[si].push_back(std::move(cl));
                 }
             }
@@ -18810,9 +18859,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             const ScrollerRec& s = scrollers[i];
             srecs << (i ? ",\n    " : "    ") << "{" << s.scene << ", " << s.objIndex
                   << ", {" << floatLit(s.axis[0]) << ", " << floatLit(s.axis[1]) << ", "
-                  << floatLit(s.axis[2]) << "}, " << floatLit(s.speed) << ", "
+                  << floatLit(s.axis[2]) << "}, {" << floatLit(s.side[0]) << ", "
+                  << floatLit(s.side[1]) << ", " << floatLit(s.side[2]) << "}, "
+                  << floatLit(s.speed) << ", "
                   << floatLit(s.wmin) << ", " << floatLit(s.wmax) << ", "
-                  << floatLit(s.span) << ", " << s.autostart << "}";
+                  << floatLit(s.span) << ", " << s.autostart << ", " << s.cells
+                  << ", " << s.varySeed << "}";
         }
         for (int si = 0; si < sceneCount; ++si) {
             const size_t authored = p.scenes[si].objects.size();
@@ -18822,7 +18874,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                       << (authored + ci) << ", " << cl.scroller << ", "
                       << floatLit(cl.phase) << ", " << floatLit(cl.segLen) << ", {"
                       << floatLit(cl.home[0]) << ", " << floatLit(cl.home[1]) << ", "
-                      << floatLit(cl.home[2]) << "}}";
+                      << floatLit(cl.home[2]) << "}, " << floatLit(cl.homeRotY)
+                      << ", {" << floatLit(cl.homeScale[0]) << ", "
+                      << floatLit(cl.homeScale[1]) << ", "
+                      << floatLit(cl.homeScale[2]) << "}, " << cl.copy << ", "
+                      << cl.vary.key << "U, " << floatLit(cl.vary.chance) << ", "
+                      << cl.vary.variantIndex << ", " << cl.vary.variantCount << ", "
+                      << cl.vary.variantKey << "U, " << floatLit(cl.vary.yawVary)
+                      << ", " << floatLit(cl.vary.offsetVary) << ", "
+                      << floatLit(cl.vary.scaleVary) << "}";
                 ++cloneTotal;
             }
         }
@@ -18834,25 +18894,37 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "// belt phase; SCROLLER_HIDDEN lists the authored member templates\n"
                "// the director deactivates. Object indices are into the clone's\n"
                "// own scene table (SCENE_*_OBJECTS).\n"
+               "// `cells` and the per-clone `copy` are the cell arithmetic that\n"
+               "// makes an endless belt stop repeating: together with the belt's\n"
+               "// fold counter they give each instance an absolute cell index,\n"
+               "// which the per-cell variation fields hash on (see\n"
+               "// docs/endless-scroller.md and src/scrollsim.cpp).\n"
                "struct ScrollerData {\n"
-               "  int scene; int object; float axis[3]; float speed;\n"
+               "  int scene; int object; float axis[3]; float side[3]; float speed;\n"
                "  float windowMin; float windowMax; float span; int autostart;\n"
+               "  int cells; int varySeed;\n"
                "};\n"
                "struct ScrollerClone {\n"
                "  int scene; int object; int scroller; float phase; float segLen;\n"
-               "  float home[3];\n"
+               "  float home[3]; float homeRotY; float homeScale[3];\n"
+               "  int copy; unsigned varyKey; float chance;\n"
+               "  int variantIndex; int variantCount; unsigned variantKey;\n"
+               "  float yawVary; float offsetVary; float scaleVary;\n"
                "};\n"
                "struct ScrollerHidden { int scene; int object; };\n"
             << "constexpr int SCROLLER_COUNT = " << scrollers.size() << ";\n"
             << "constexpr ScrollerData SCROLLERS[" << (scrollers.empty() ? 1 : scrollers.size())
             << "] = {\n"
-            << (scrollers.empty() ? "    {0, -1, {0,0,1}, 0.0F, 0.0F, 0.0F, 1.0F, 0}"
-                                  : srecs.str())
+            << (scrollers.empty()
+                    ? "    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}"
+                    : srecs.str())
             << "\n};\n"
             << "constexpr int SCROLLER_CLONE_COUNT = " << cloneTotal << ";\n"
             << "constexpr ScrollerClone SCROLLER_CLONES[" << (cloneTotal ? cloneTotal : 1)
             << "] = {\n"
-            << (cloneTotal ? crecs.str() : "    {0, -1, 0, 0.0F, 1.0F, {0,0,0}}")
+            << (cloneTotal ? crecs.str()
+                           : "    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, "
+                             "0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}")
             << "\n};\n"
             << "constexpr int SCROLLER_HIDDEN_COUNT = " << hiddenMembers.size() << ";\n"
             << "constexpr ScrollerHidden SCROLLER_HIDDEN["
@@ -21607,9 +21679,11 @@ bool liveLogicOn(const Project& p) {
 // Script slides every baked clone object (SCROLLER_CLONES in scene_data.hpp)
 // along its belt each frame and hides the authored member templates. The
 // Start/Stop/Set Scroller Speed flow nodes call the scroller:: API. The
-// per-frame wrap (sc_wrapU) + visibility test are the twin of scrollsim::wrapU
-// and scrollsim::placements - keep them in sync (the editor preview uses the
-// host originals).
+// per-frame wrap (sc_wrapU), the cell arithmetic, the visibility test AND the
+// per-cell variation (sc_varyHash / the cellShow_ block) are all twins of
+// scrollsim.cpp - keep them in sync (the editor preview uses the host
+// originals, and a belt is only authorable while the preview predicts the
+// console).
 // ---------------------------------------------------------------------------
 std::string scrollerHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -21652,6 +21726,27 @@ static float sc_wrapU(float nominal, float wmin, float span) {
   return wmin + x;
 }
 
+// Per-cell variation - the twin of scrollsim::varyHash / cellAdjust
+// (src/scrollsim.cpp). The editor previews a belt by running the host copy, so
+// these must resolve a cell to the same look or the preview stops predicting
+// the console. Channels: 0 chance, 1 variant, 2 yaw, 3 offset, 4 scale.
+static unsigned sc_varyHash(int seed, int cell, unsigned key, int channel) {
+  unsigned h = (unsigned)seed * 0x9E3779B1U + 0x85EBCA6BU;
+  h ^= (unsigned)cell * 0xC2B2AE35U;
+  h ^= key + (h << 6) + (h >> 2);
+  h ^= (unsigned)channel * 0x27D4EB2FU;
+  h ^= h >> 15;
+  h *= 0x2545F491U;
+  h ^= h >> 13;
+  h *= 0x9E3779B1U;
+  h ^= h >> 16;
+  return h;
+}
+
+static float sc_varyRand(int seed, int cell, unsigned key, int channel) {
+  return (float)(sc_varyHash(seed, cell, key, channel) >> 8) * (1.0F / 16777216.0F);
+}
+
 // Slides baked scroller clones along their belts and hides the authored member
 // templates. Advances by real frame dt so the belt runs at a fixed wall-clock
 // speed on PAL and NTSC alike.
@@ -21659,7 +21754,21 @@ class ScrollerDirector : public Script {
   float scroll_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
   float speed_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
   bool running_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
+  // How many whole belt periods scroll_ has been folded by. scroll_ is kept
+  // bounded for float precision, which also makes the layout exactly periodic
+  // - this counter is the periodicity put back, and it is the only reason a
+  // cell index can keep growing while the accumulator does not. int32 at a few
+  // folds per second lasts far longer than any console session.
+  int folds_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
   float lastU_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  // This clone's current cell and what the variation resolved for it. Cached
+  // because a cell changes only when the clone recycles, while u changes every
+  // frame - so the hashes are paid per recycle, not per frame.
+  int lastCell_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  bool cellShow_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellYaw_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellOff_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellScl_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
   int scene_ = -1;
 
   // Arm every belt to its authored state. Called from the CONSTRUCTOR (not
@@ -21670,13 +21779,17 @@ class ScrollerDirector : public Script {
   void seed() {
     for (int i = 0; i < SCROLLER_COUNT; ++i) {
       scroll_[i] = 0.0F;
+      folds_[i] = 0;
       speed_[i] = SCROLLERS[i].speed;
       running_[i] = SCROLLERS[i].autostart != 0;
     }
     forcePlace();
   }
   void forcePlace() {
-    for (int i = 0; i < SCROLLER_CLONE_COUNT; ++i) lastU_[i] = 1e30F;
+    for (int i = 0; i < SCROLLER_CLONE_COUNT; ++i) {
+      lastU_[i] = 1e30F;
+      lastCell_[i] = 0x7FFFFFFF;
+    }
   }
 
  public:
@@ -21726,7 +21839,11 @@ class ScrollerDirector : public Script {
       // visible jumps and then stops moving at all. Twin: the same fold at the
       // top of scrollsim::placements.
       const float span = SCROLLERS[i].span;
-      if (span > 1e-6F) scroll_[i] -= span * floorf(scroll_[i] / span);
+      if (span > 1e-6F) {
+        const float f = floorf(scroll_[i] / span);
+        scroll_[i] -= span * f;
+        folds_[i] += (int)f;
+      }
     }
     // Place every clone: wrap its phase into the window and slide along the axis.
     for (int c = 0; c < SCROLLER_CLONE_COUNT; ++c) {
@@ -21734,17 +21851,63 @@ class ScrollerDirector : public Script {
       if (cl.scene != ctx.scene || cl.object < 0 || cl.object >= ctx.objectCount)
         continue;
       const ScrollerData& s = SCROLLERS[cl.scroller];
-      const float u = sc_wrapU(cl.phase - scroll_[cl.scroller], s.windowMin, s.span);
-      const bool vis = (u < s.windowMax) && (u + cl.segLen > s.windowMin);
+      const float nominal = cl.phase - scroll_[cl.scroller];
+      const float lap = s.span > 1e-6F ? floorf((nominal - s.windowMin) / s.span) : 0.0F;
+      const float u = sc_wrapU(nominal, s.windowMin, s.span);
+      // Which repetition of the pattern this clone currently IS. Twin of
+      // scrollsim::placements: the fold counter is added back, so this keeps
+      // climbing while u and scroll_ stay bounded - that is what lets the
+      // variation below never come back around.
+      const int cell = cl.copy - ((int)lap - folds_[cl.scroller]) * s.cells;
+      bool vis = (u < s.windowMax) && (u + cl.segLen > s.windowMin);
       RuntimeObject& o = ctx.objects[cl.object];
+      // Per-cell variation. Recomputed only when the clone recycles into a new
+      // cell - a few hashes per recycle, nothing per frame.
+      const bool newCell = cell != lastCell_[c];
+      if (newCell) {
+        lastCell_[c] = cell;
+        cellShow_[c] = true;
+        if (cl.variantCount > 1)
+          cellShow_[c] =
+              (int)(sc_varyHash(s.varySeed, cell, cl.variantKey, 1) %
+                    (unsigned)cl.variantCount) == cl.variantIndex;
+        else if (cl.chance < 1.0F)
+          cellShow_[c] = sc_varyRand(s.varySeed, cell, cl.varyKey, 0) < cl.chance;
+        cellYaw_[c] =
+            cl.yawVary != 0.0F
+                ? (sc_varyRand(s.varySeed, cell, cl.varyKey, 2) * 2.0F - 1.0F) * cl.yawVary
+                : 0.0F;
+        cellOff_[c] = cl.offsetVary != 0.0F
+                          ? (sc_varyRand(s.varySeed, cell, cl.varyKey, 3) * 2.0F - 1.0F) *
+                                cl.offsetVary
+                          : 0.0F;
+        cellScl_[c] = cl.scaleVary != 0.0F
+                          ? 1.0F + (sc_varyRand(s.varySeed, cell, cl.varyKey, 4) * 2.0F -
+                                    1.0F) * cl.scaleVary
+                          : 1.0F;
+      }
+      vis = vis && cellShow_[c];
       o.visible = vis;
-      // Only re-bake geometry when the clone actually moved (a stopped belt
+
+      // A clone moves every single frame, so it is the per-object MATRIX path's
+      // natural citizen: ask for the promotion once and from then on writing
+      // the position is the whole cost, instead of re-baking the clone's world
+      // vertices on the EE every frame (measured on examples/endless-runner:
+      // 16 FPS re-baking, 50 FPS on the matrix). `dirty` is then only for what
+      // the matrix cannot carry - the per-cell SCALE, which is baked into the
+      // local vertices - and for a clone the fast path refused.
+      o.wantsMatrixPath = true;
+      // Only touch geometry when the clone actually moved (a stopped belt
       // costs nothing; a running one moves every frame).
-      if (vis && fabsf(u - lastU_[c]) > 1e-4F) {
-        o.data.position[0] = cl.home[0] + u * s.axis[0];
-        o.data.position[1] = cl.home[1] + u * s.axis[1];
-        o.data.position[2] = cl.home[2] + u * s.axis[2];
-        o.dirty = true;
+      if (vis && (newCell || fabsf(u - lastU_[c]) > 1e-4F)) {
+        o.data.position[0] = cl.home[0] + u * s.axis[0] + cellOff_[c] * s.side[0];
+        o.data.position[1] = cl.home[1] + u * s.axis[1] + cellOff_[c] * s.side[1];
+        o.data.position[2] = cl.home[2] + u * s.axis[2] + cellOff_[c] * s.side[2];
+        o.data.rotation[1] = cl.homeRotY + cellYaw_[c];
+        o.data.scale[0] = cl.homeScale[0] * cellScl_[c];
+        o.data.scale[1] = cl.homeScale[1] * cellScl_[c];
+        o.data.scale[2] = cl.homeScale[2] * cellScl_[c];
+        if (!o.onMatrixPath || (newCell && cl.scaleVary != 0.0F)) o.dirty = true;
         lastU_[c] = u;
       }
     }

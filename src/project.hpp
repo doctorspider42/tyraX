@@ -203,10 +203,41 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
 // members' extent along the belt axis (see scrollsim::segmentLength). Segments
 // repeat in list order forever. A dangling name is skipped (the chunk just
 // carries fewer objects).
+// One member of a segment: the scene object it clones, plus how that clone is
+// allowed to differ from CELL to CELL. A belt cell is one pass of the pattern
+// past the window (scrollsim::Placement::cell, a monotonically increasing
+// integer), and every field below is resolved from a hash of (belt seed, cell,
+// member) - so the variation is deterministic, costs no geometry, and does not
+// repeat with the belt's period. Defaults = the plain tiling this feature
+// shipped with. See docs/endless-scroller.md.
+struct ScrollMember {
+    std::string name;         // scene object cloned down the belt
+    float chance = 1.0f;      // 0..1 = fraction of cells this member appears in
+    int variant = 0;          // >0: members of one segment sharing this id are
+                              // alternatives - exactly one shows per cell
+    float yawVary = 0.0f;     // +- degrees of random yaw around the authored one
+    float offsetVary = 0.0f;  // +- world units perpendicular to the belt
+    float scaleVary = 0.0f;   // +- fraction of the authored scale (0.2 = +-20%)
+};
+
+inline bool operator==(const ScrollMember& a, const ScrollMember& b) {
+    return a.name == b.name && a.chance == b.chance && a.variant == b.variant &&
+           a.yawVary == b.yawVary && a.offsetVary == b.offsetVary &&
+           a.scaleVary == b.scaleVary;
+}
+
+// True when a member is a plain always-there clone. The serializer writes those
+// as a bare name string (the pre-variation format), so a belt that varies
+// nothing produces a byte-identical .tyra.
+inline bool scrollMemberIsPlain(const ScrollMember& m) {
+    return m.chance >= 1.0f && m.variant == 0 && m.yawVary == 0.0f &&
+           m.offsetVary == 0.0f && m.scaleVary == 0.0f;
+}
+
 struct ScrollSegment {
     std::string name = "segment";
     float length = 0.0f;  // belt units; <= 0 = auto from member extent
-    std::vector<std::string> objects;
+    std::vector<ScrollMember> objects;
 };
 
 inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
@@ -555,6 +586,9 @@ struct SceneObject {
     // interpenetrate instead of butting up with exactly coplanar end faces
     // (coplanar faces flicker on the GS). 0 = exact tiling.
     float scrollOverlap = 0.02f;
+    // Seed of the belt's per-cell variation (ScrollMember above). Changing it
+    // reshuffles the whole infinite stream without touching any member.
+    int scrollVarySeed = 1;
 
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
@@ -736,6 +770,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.scrollAutostart == b.scrollAutostart &&
            a.scrollMaxClones == b.scrollMaxClones &&
            a.scrollOverlap == b.scrollOverlap &&
+           a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&

@@ -679,13 +679,30 @@ std::string objectJson(const SceneObject& o) {
                 ", \"autostart\": " + (o.scrollAutostart ? "true" : "false") +
                 ", \"maxClones\": " + std::to_string(o.scrollMaxClones) +
                 ", \"overlap\": " + fmtFloat(o.scrollOverlap) +
+                ", \"varySeed\": " + std::to_string(o.scrollVarySeed) +
                 ", \"segments\": [";
         for (size_t i = 0; i < o.scrollSegments.size(); ++i) {
             const ScrollSegment& s = o.scrollSegments[i];
             json += (i ? ", " : "") + std::string("{ \"name\": \"") + s.name +
                     "\", \"length\": " + fmtFloat(s.length) + ", \"objects\": [";
-            for (size_t k = 0; k < s.objects.size(); ++k)
-                json += (k ? ", \"" : "\"") + s.objects[k] + "\"";
+            for (size_t k = 0; k < s.objects.size(); ++k) {
+                const ScrollMember& m = s.objects[k];
+                json += k ? ", " : "";
+                // A member that varies nothing stays a bare name, so belts
+                // authored before per-cell variation round-trip unchanged.
+                if (scrollMemberIsPlain(m)) {
+                    json += "\"" + m.name + "\"";
+                    continue;
+                }
+                json += "{ \"n\": \"" + m.name + "\"";
+                if (m.chance < 1.0f) json += ", \"chance\": " + fmtFloat(m.chance);
+                if (m.variant != 0) json += ", \"variant\": " + std::to_string(m.variant);
+                if (m.yawVary != 0.0f) json += ", \"yaw\": " + fmtFloat(m.yawVary);
+                if (m.offsetVary != 0.0f)
+                    json += ", \"offset\": " + fmtFloat(m.offsetVary);
+                if (m.scaleVary != 0.0f) json += ", \"scale\": " + fmtFloat(m.scaleVary);
+                json += " }";
+            }
             json += "] }";
         }
         json += "] }";
@@ -3193,6 +3210,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = sr->find("overlap"))
                 o.scrollOverlap = (float)v->numberOr(0.02);
             if (o.scrollOverlap < 0.0f) o.scrollOverlap = 0.0f;
+            if (const auto* v = sr->find("varySeed"))
+                o.scrollVarySeed = (int)v->numberOr(1);
             if (const auto* segs = sr->find("segments");
                 segs && segs->type == json::Value::Type::Array) {
                 for (const auto& js : segs->arr) {
@@ -3203,9 +3222,32 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         seg.length = (float)v->numberOr(0.0);
                     if (const auto* v = js.find("objects");
                         v && v->type == json::Value::Type::Array) {
-                        for (const auto& s : v->arr)
-                            if (s.type == json::Value::Type::String && !s.str.empty())
-                                seg.objects.push_back(s.str);
+                        // Two spellings, mixable in one list: a bare name (a
+                        // member that varies nothing) or an object carrying the
+                        // per-cell variation fields.
+                        for (const auto& s : v->arr) {
+                            ScrollMember m;
+                            if (s.type == json::Value::Type::String) {
+                                m.name = s.str;
+                            } else if (s.type == json::Value::Type::Object) {
+                                if (const auto* f = s.find("n")) m.name = f->stringOr("");
+                                if (const auto* f = s.find("chance"))
+                                    m.chance = (float)f->numberOr(1.0);
+                                if (const auto* f = s.find("variant"))
+                                    m.variant = (int)f->numberOr(0);
+                                if (const auto* f = s.find("yaw"))
+                                    m.yawVary = (float)f->numberOr(0.0);
+                                if (const auto* f = s.find("offset"))
+                                    m.offsetVary = (float)f->numberOr(0.0);
+                                if (const auto* f = s.find("scale"))
+                                    m.scaleVary = (float)f->numberOr(0.0);
+                            }
+                            if (m.name.empty()) continue;
+                            if (m.chance < 0.0f) m.chance = 0.0f;
+                            if (m.chance > 1.0f) m.chance = 1.0f;
+                            if (m.variant < 0) m.variant = 0;
+                            seg.objects.push_back(std::move(m));
+                        }
                     }
                     o.scrollSegments.push_back(std::move(seg));
                 }
@@ -4988,10 +5030,15 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.scrollAutostart ? 1 : 0));
     fnvMix(h, (uint64_t)o.scrollMaxClones);
     fnvMixF(h, o.scrollOverlap);
+    fnvMix(h, (uint64_t)(uint32_t)o.scrollVarySeed);
     for (const ScrollSegment& s : o.scrollSegments) {
         fnvMixS(h, s.name);
         fnvMixF(h, s.length);
-        for (const auto& n : s.objects) fnvMixS(h, n);
+        for (const ScrollMember& m : s.objects) {
+            fnvMixS(h, m.name);
+            fnvMixF(h, m.chance), fnvMix(h, (uint64_t)(uint32_t)m.variant);
+            fnvMixF(h, m.yawVary), fnvMixF(h, m.offsetVary), fnvMixF(h, m.scaleVary);
+        }
     }
     // Build-time-baked transforms: a projected decal's transform IS the
     // projector, a point light's pose/color/falloff is baked into nearby
@@ -5066,11 +5113,16 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixF(h, o.scrollSpeed), fnvMixF(h, o.scrollAhead);
             fnvMixF(h, o.scrollBehind), fnvMix(h, o.scrollAutostart ? 1 : 0);
             fnvMixF(h, o.scrollOverlap);
+            fnvMix(h, (uint64_t)(uint32_t)o.scrollVarySeed);
             fnvMix3(h, o.rotation);  // belt axis
             for (const ScrollSegment& s : o.scrollSegments) {
                 fnvMixS(h, s.name), fnvMixF(h, s.length);
-                for (const std::string& name : s.objects) {
+                for (const ScrollMember& sm : s.objects) {
+                    const std::string& name = sm.name;
                     fnvMixS(h, name);
+                    fnvMixF(h, sm.chance), fnvMix(h, (uint64_t)(uint32_t)sm.variant);
+                    fnvMixF(h, sm.yawVary), fnvMixF(h, sm.offsetVary);
+                    fnvMixF(h, sm.scaleVary);
                     for (const SceneObject& m : sc.objects)
                         if (m.name == name) {
                             fnvMix3(h, m.position), fnvMix3(h, m.rotation);

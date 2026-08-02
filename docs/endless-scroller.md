@@ -16,9 +16,12 @@ A Scroller is invisible and intangible in the game (it is just a marker that
 drives its clones). Use its **Rotation** to aim the belt: the belt runs along
 the scroller's local **+Z** axis.
 
-A ready-to-run demonstration lives in
-[examples/endless-scroller](../examples/endless-scroller) — a first-person
-endless tunnel streaming past at 7 units/s, built from a single 3-unit chunk.
+Two ready-to-run demonstrations:
+[examples/endless-scroller](../examples/endless-scroller), a first-person
+endless tunnel streaming past at 7 units/s built from a single 3-unit chunk;
+and [examples/endless-runner](../examples/endless-runner), a track that never
+repeats, with a roadside generated once by a Procedural volume and then tiled
+forever.
 
 ## Segments
 
@@ -55,6 +58,7 @@ across the width).
 | **Run at start** | On = the belt moves from scene start. Off = it waits for a *Start Scroller* flow node. |
 | **Max clones** | Safety cap on baked clone objects. Past it the belt recycles fewer copies and a gap may appear (the editor warns). |
 | **Seam overlap** | Anti-z-fighting: every clone is stretched this much along the belt (default 0.02), so consecutive pieces interpenetrate slightly instead of butting up with exactly coplanar end faces, which flicker. 0 = exact tiling. See *Seams* below. |
+| **Variation seed** | Seeds the per-cell variation below. Changing it deals a different infinite level out of the same pieces. |
 
 The Properties panel shows the live **clone cost** ("28 clone objects, 14
 copies/segment, period 4.0") so you can see how heavy a belt is before you
@@ -74,6 +78,45 @@ missing.
 Shortcut: select the objects that make up a chunk, and in the multi-object
 Properties click **"Make endless scroller from selection"** — it creates a
 scroller at the group's centroid with those objects as its first segment.
+
+## Per-cell variation: making the belt stop repeating
+
+A plain belt tiles a fixed pattern, so it comes back around every
+`copies × pattern length` — and a player watching it for a minute sees that. The
+variation layer breaks the repeat **without adding a single triangle**.
+
+The belt is divided into **cells**: one pass of the pattern past the window. Each
+cell has an index that counts along the infinite belt — it holds still while a
+piece is on screen and advances every time that piece recycles to the front. Fold
+open any segment member in *Properties* and it gets its own knobs, all resolved
+from a hash of (belt seed, cell, member):
+
+| Setting | What it does |
+|---|---|
+| **Appears in** | Fraction of cells this member shows up in. 1 = every cell (plain tiling); 0.35 = roughly a third of them. |
+| **Variant group** | 0 = off. Members of one segment sharing a group number are *alternatives*: exactly one shows per cell. Three obstacle shapes in one lane, a different one each time. A grouped member ignores *Appears in* — the group always fills. |
+| **Yaw jitter** | ± degrees of random spin around Y, per cell. Free variety for rocks, trees and debris. |
+| **Side jitter** | ± world units across the belt (perpendicular to the axis, horizontal), per cell. |
+| **Scale jitter** | ± fraction of the authored size, per cell (0.20 = ±20%). |
+
+Two rules of thumb. **Leave a tiling surface alone** — a floor slab or a rail has
+to line up with its neighbour, so yaw, side and scale jitter all belong on the
+props riding on top, not on the surface itself. And **use a variant group when
+something must always be there but should differ**, `Appears in` when it should
+sometimes not be there at all; they compose (a group for the obstacle, a chance
+for the lamp post).
+
+It costs nothing at runtime: a member's look is resolved once, when its clone
+recycles into a new cell — four hashes — and nothing at all on the frames in
+between. The editor's ghost preview runs the identical code, so the belt you
+watch in the viewport is the belt that ships.
+
+> **Why it really never repeats.** The runtime keeps its scroll accumulator
+> folded into one belt period (see *How it works*), which is what stops float
+> precision from decaying — but that fold is also what would make the layout
+> eternally periodic. The director counts the folds, and the cell index adds them
+> back. So the accumulator stays small while the cell index keeps climbing, and
+> the stream does not come back around.
 
 ## Controlling the belt from logic
 
@@ -101,8 +144,18 @@ both the editor preview and the build:
   `SCROLLER_HIDDEN` (the authored templates to deactivate).
 - At runtime, the generated `ScrollerDirector` script (`scroller.gen.cpp`)
   advances each belt by the real frame time, wraps every clone with the same
-  `wrapU` formula, slides it along the axis and hides the templates. A clone's
-  geometry is only re-baked when it actually moves.
+  `wrapU` formula, slides it along the axis and hides the templates.
+- **A clone rides the per-object matrix path.** Moving an object normally means
+  re-baking its whole world-space vertex array on the EE — right for a one-shot
+  move, ruinous for something that moves every single frame. A clone is
+  therefore baked ONCE in local space and afterwards moved by refreshing its
+  matrix, which VU1 applies for free; that is its entire per-frame render cost.
+  Measured on [examples/endless-runner](../examples/endless-runner): the same
+  116-clone scene ran at **16 FPS** re-baking and **50 FPS** on the matrix. The
+  inherited trade-off is that a clone's baked shading freezes at the pose it was
+  promoted in — invisible on a belt, which slides along one axis under
+  direction-only lighting. A clone the fast path refuses (a usable, a reflective
+  material) silently falls back to the re-bake and just costs more.
 - **The scroll accumulator is folded back into one belt period every frame**, in
   the runtime *and* in `scrollsim::placements`. The layout is periodic, so this
   changes nothing you can see — it is what makes "endless" literally true. A
@@ -141,11 +194,46 @@ along the belt so neighbors interpenetrate instead of merely touching. Raise it
 if you still see cracks between pieces; lower it toward 0 if a *textured*
 surface shimmers in the overlapped strip (the two copies' UVs disagree there).
 
+## Procedural content on a belt
+
+A belt tiles scene objects, and the chunk meshes a **Procedural volume** bakes
+are ordinary `Model` scene objects — so generating a piece of world once and then
+streaming it forever needs no new machinery at all:
+
+1. Author a Procedural volume over the strip you want (*Tools > Procedural*) and
+   let it bake. It produces one `Model` per asset per world chunk, named
+   `<volume>#<asset>-x<i>z<j>`.
+2. Add those objects as members of a scroller segment, and give the segment an
+   explicit **Length** matching the strip's extent along the belt (the
+   auto-measure reads an object's scale, which is 1 for a chunk mesh).
+3. Give each member a **Side jitter** and a **Scale jitter** so consecutive
+   copies of the same strip do not read as copies.
+
+The mesh's own origin is its world-chunk centre, so author the volume's content
+between 0 and the segment length along the belt axis and the tiling lines up on
+its own. Keep the volumes small — a chunk mesh is re-submitted per clone, and the
+whole belt is on screen at once. [examples/endless-runner](../examples/endless-runner)
+does this with two 20 x 16 volumes that bake down to 508 triangles.
+
+What this does **not** do is generate new content per cell: the strip is baked
+once and the variation above is what keeps its copies from reading as identical.
+Generating fresh geometry as cells recycle would mean running the evaluator
+inside a frame, which is what [runtime procedural volumes](procedural-runtime.md)
+are for — and their output is merged world-space vertex bags with nothing to
+slide, so the two features do not compose that way today.
+
 ## Notes and limits
 
 - A **uniform** belt (identical segments) looks visually static while scrolling,
-  because every piece is interchangeable. Vary the segments, or add a landmark
-  member, to see the motion.
+  because every piece is interchangeable. Vary the segments, turn on per-cell
+  variation, or add a landmark member, to see the motion.
+- **A belt takes no baked lighting at either end.** Its member templates are
+  deactivated in the game, so they cast no shadow and emit no light (baking them
+  used to leave a permanent dark patch at the belt origin, cast by objects the
+  player can never see), and the clones move, so a lightmap could not follow
+  them. Belt geometry is lit by the per-vertex bake like anything else that
+  moves. Put the scene's baked shadows and emissive pools on the static world
+  around the belt.
 - Keep member objects off streaming **layers** — the scroller owns their
   residency (clones are always resident; templates are deactivated).
 - Live Link cannot restripe a belt, so editing a scroller (or moving any of its

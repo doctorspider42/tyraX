@@ -346,6 +346,12 @@ identity (and with it live link and collaboration) survives.
 Deleting a volume deletes its chunk objects and their mesh files. *Clear bake*
 does the same without deleting the volume.
 
+Because a chunk is an ordinary `Model` scene object, anything that consumes
+scene objects consumes a bake for free. The one worth knowing about: list them
+as members of an [endless scroller](endless-scroller.md) segment and a strip of
+world you generated once tiles past the camera **forever** — see
+[examples/endless-runner](../examples/endless-runner).
+
 ---
 
 ## Budgets, in practice

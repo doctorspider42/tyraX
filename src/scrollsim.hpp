@@ -23,10 +23,31 @@ namespace scrollsim {
 // generated geometry builder use). Output is a unit vector.
 void beltAxis(const float rotationDeg[3], float outAxis[3]);
 
-// Object indices (into `objects`) named by a segment, dangling names skipped.
-// Order follows ScrollSegment::objects.
-std::vector<int> segmentMembers(const std::vector<SceneObject>& objects,
-                                const ScrollSegment& seg);
+// One resolved member of a segment: where its template lives in the scene, and
+// which SLOT of ScrollSegment::objects named it (the slot is what keys the
+// per-cell variation hash, so a dangling name must not shift the ones after it).
+struct MemberRef {
+    int object;  // index into `objects`
+    int slot;    // index into seg.objects
+};
+
+// Members named by a segment, dangling names skipped. Order follows
+// ScrollSegment::objects.
+std::vector<MemberRef> segmentMembers(const std::vector<SceneObject>& objects,
+                                      const ScrollSegment& seg);
+
+// One flag per object: is it a member TEMPLATE of some Scroller in this scene?
+//
+// The game DEACTIVATES every such object (SCROLLER_HIDDEN) the moment the
+// director's first update runs and draws sliding clones instead - so an
+// authored member is a piece of authoring, not a piece of the world. Anything
+// that bakes the scene as authored has to leave it out, or it contributes
+// something nothing on screen accounts for: aobake burned the members' contact
+// shadow into the terrain AO map and the lightmap atlas, which put a permanent
+// dark patch at the belt origin cast by objects the player can never see. The
+// clones are not eligible either - they move every frame, and a baked shadow
+// cannot follow them - so a belt simply casts no baked light or shadow.
+std::vector<char> memberTemplateFlags(const std::vector<SceneObject>& objects);
 
 // Effective belt length of a segment: the authored `length` when > 0, else
 // auto-measured from the members' extent projected on the belt axis (with a
@@ -82,6 +103,14 @@ struct Placement {
     float phase;    // baseOffset[segment] + copy*patternLength (scroll-invariant)
     float segLen;   // this segment's effective length
     bool visible;   // the cell [u, u+segLen) overlaps [windowMin, windowMax]
+    // Which repetition of the pattern this instance currently IS, counted along
+    // the infinite belt: it holds still while the instance is on screen and
+    // advances by cellsPerSegment every time the instance recycles to the
+    // front. This integer is what makes an endless belt able to stop repeating
+    // - it keeps growing even though `u` (and the runtime's folded scroll
+    // accumulator) stay bounded, so it is the one input the per-cell variation
+    // below hashes on. Derived from the UNFOLDED scroll distance.
+    int cell;
 };
 
 // Every (segment, copy) placement at scroll distance `beltScroll` (belt units
@@ -103,5 +132,83 @@ int cloneCount(const std::vector<SceneObject>& objects, const SceneObject& scrol
 // preview so both show identical geometry.
 void seamScale(const SceneObject& member, const float beltAxis[3], float overlap,
                float outScale[3]);
+
+// The belt's horizontal perpendicular: the direction a member's per-cell
+// lateral offset moves along. cross((0,1,0), axis), or +X for a vertical belt.
+void sideAxis(const float beltAxis[3], float outSide[3]);
+
+// ---------------------------------------------------------------------------
+// Per-cell variation (docs/endless-scroller.md).
+//
+// A belt tiles a fixed pattern, so on its own it repeats with period
+// cellsPerSegment*patternLength - and a player watching it for a minute sees
+// that. The variation layer breaks the repeat without adding a single triangle:
+// every member of every CELL (Placement::cell) resolves its own presence, yaw,
+// lateral offset and scale from a hash of (belt seed, cell, member slot). No
+// state, no generation, no allocation - just four hashes per clone per frame,
+// and because `cell` counts along the infinite belt rather than around the
+// pattern, the stream never comes back around.
+//
+// EVERYTHING BELOW HAS A TWIN in the generated ScrollerDirector
+// (scroller.gen.cpp, templates.cpp) - the console must resolve the same cell to
+// the same look the editor previewed. Change one, change both.
+// ---------------------------------------------------------------------------
+
+// 32-bit mixer. The channel separates the four draws a member makes per cell.
+unsigned varyHash(int seed, int cell, unsigned key, int channel);
+// varyHash mapped to [0,1).
+float varyRand(int seed, int cell, unsigned key, int channel);
+
+// Hash key of one member slot. Slot-based, not name-based: renaming a member
+// must not reshuffle the world, while inserting one deliberately does.
+inline unsigned memberKey(int segment, int slot) {
+    return (unsigned)(segment + 1) * 0x9E3779B1u + (unsigned)(slot + 1) * 0x85EBCA77u;
+}
+
+// The variation parameters of one member slot, with its variant group already
+// resolved against the rest of its segment. Baked into SCROLLER_CLONES so the
+// runtime needs no segment list of its own.
+struct MemberVary {
+    unsigned key = 0;         // memberKey(segment, slot)
+    float chance = 1.0f;      // fraction of cells this member shows in
+    int variantIndex = 0;     // position within its variant group
+    int variantCount = 0;     // group size; <= 1 = no group, `chance` decides
+    unsigned variantKey = 0;  // hash key shared by the whole group
+    float yawVary = 0.0f;     // +- degrees
+    float offsetVary = 0.0f;  // +- world units along sideAxis
+    float scaleVary = 0.0f;   // +- fraction of the authored scale
+};
+
+MemberVary memberVary(const ScrollSegment& seg, int segmentIndex, int slot);
+
+// What one member looks like in one cell. Twin: the generated director.
+struct CellAdjust {
+    bool visible = true;
+    float yaw = 0.0f;     // degrees to ADD to the member's authored Y rotation
+    float offset = 0.0f;  // world units along sideAxis
+    float scale = 1.0f;   // multiplier on the member's authored scale
+};
+
+CellAdjust cellAdjust(int varySeed, int cell, const MemberVary& v);
+
+// True when any member of any segment asks for variation. The editor uses it
+// for the cost readout; codegen uses it to skip emitting the variation pass.
+bool hasVariation(const SceneObject& scroller);
+
+// One member instance placed on the belt: everything the viewport ghost pass
+// and the clone bake need, with the seam overlap and this cell's variation
+// already folded in. `pl` comes from placements().
+struct MemberInstance {
+    int object;         // index into `objects` (the authored template)
+    int slot;           // its slot in the segment
+    bool visible;       // placement visibility AND this cell's variation
+    float position[3];
+    float rotation[3];
+    float scale[3];
+};
+
+std::vector<MemberInstance> memberInstances(const std::vector<SceneObject>& objects,
+                                            const SceneObject& scroller,
+                                            const Placement& pl);
 
 }  // namespace scrollsim

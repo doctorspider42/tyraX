@@ -4324,8 +4324,6 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t si = 0; si < objects.size(); ++si) {
             const SceneObject& s = objects[si];
             if (s.type != PrimitiveType::Scroller || hiddenAt(si)) continue;
-            float axis[3];
-            scrollsim::beltAxis(s.rotation, axis);
             // origin marker so the invisible belt object is locatable
             const Mat4 om = mul(translation(s.position[0], s.position[1], s.position[2]),
                                 scaleM(0.3f, 0.3f, 0.3f));
@@ -4336,17 +4334,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             for (const scrollsim::Placement& pl :
                  scrollsim::placements(objects, s, beltScroll)) {
                 if (!pl.visible) continue;
-                const ScrollSegment& seg = s.scrollSegments[pl.segment];
-                for (int mi : scrollsim::segmentMembers(objects, seg)) {
-                    // Same seam-overlap stretch the build bakes into the
-                    // clones, so the preview shows the shipped geometry.
-                    SceneObject mem = objects[(size_t)mi];
-                    scrollsim::seamScale(objects[(size_t)mi], axis, s.scrollOverlap,
-                                         mem.scale);
-                    const Mat4 gm = mul(translation(pl.u * axis[0], pl.u * axis[1],
-                                                    pl.u * axis[2]),
-                                        modelMatrix(mem));
-                    ghostDraw(mem, gm, 0.55f);
+                // memberInstances carries the seam-overlap stretch AND this
+                // cell's variation (which member shows, its yaw / lateral
+                // offset / scale), so the ghosts are exactly what the build
+                // bakes and the console resolves - including the fact that the
+                // belt stops repeating as it runs.
+                for (const scrollsim::MemberInstance& in :
+                     scrollsim::memberInstances(objects, s, pl)) {
+                    if (!in.visible) continue;
+                    SceneObject mem = objects[(size_t)in.object];
+                    for (int a = 0; a < 3; ++a) {
+                        mem.position[a] = in.position[a];
+                        mem.rotation[a] = in.rotation[a];
+                        mem.scale[a] = in.scale[a];
+                    }
+                    ghostDraw(mem, modelMatrix(mem), 0.55f);
                 }
             }
         }

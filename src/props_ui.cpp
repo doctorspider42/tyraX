@@ -244,8 +244,8 @@ void App::drawPropertiesWindow() {
             for (SceneObject& sc : project_.objects())
                 if (sc.type == PrimitiveType::Scroller)
                     for (ScrollSegment& seg : sc.scrollSegments)
-                        for (std::string& t : seg.objects)
-                            if (t == from) t = o.name;
+                        for (ScrollMember& t : seg.objects)
+                            if (t.name == from) t.name = o.name;
             // Camera feed view lists + per-object texture-feed refs
             // ("camera:<name>" / "mirror:<name>").
             for (SceneObject& m : project_.objects()) {
@@ -952,6 +952,12 @@ void App::drawPropertiesWindow() {
             "Each clone is stretched this much along the belt so consecutive\n"
             "pieces interpenetrate slightly - exactly-coplanar end faces\n"
             "z-fight (flickering seams). 0 = exact tiling.");
+        ImGui::DragInt("Variation seed", &o.scrollVarySeed, 1.0f, 0, 1000000);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Seeds the per-cell variation set up on each segment member below\n"
+            "(Appears in / Variant group / the jitters). Changing it deals a\n"
+            "different infinite level from the same pieces.");
 
         // Cost readout: how many clone objects this belt bakes into the scene.
         if (!o.scrollSegments.empty()) {
@@ -960,6 +966,14 @@ void App::drawPropertiesWindow() {
             const float pat = scrollsim::patternLength(scene.objects, o);
             ImGui::Text("Belt: %d clone objects (%d copies/segment, period %.1f)",
                         clones, cells, pat);
+            if (scrollsim::hasVariation(o))
+                ImGui::TextColored(ImVec4(0.5f, 0.85f, 0.55f, 1.0f),
+                                   "Per-cell variation on - the belt does not repeat.");
+            else
+                ImGui::TextDisabled(
+                    "Plain tiling: the belt repeats every %.1f units. Fold a member "
+                    "open to vary it.",
+                    cells * pat);
             if (scrollsim::cloneCapped(scene.objects, o))
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
                                    "Clone cap hit - raise Max clones or shorten the "
@@ -1006,20 +1020,78 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled("(0 = auto: %.1f)",
                                 scrollsim::segmentLength(scene.objects, o, seg));
 
-            // Member object list (add / remove by name, like Mirror).
+            // Member object list (add / remove by name, like Mirror). Each row
+            // folds open into that member's per-cell variation.
             int removeAt = -1;
             for (size_t i = 0; i < seg.objects.size(); ++i) {
+                ScrollMember& m = seg.objects[i];
                 ImGui::PushID((int)i);
                 if (ImGui::SmallButton("x")) removeAt = (int)i;
                 ImGui::SameLine();
                 bool exists = false;
                 for (const SceneObject& t : scene.objects)
-                    if (t.name == seg.objects[i]) { exists = true; break; }
-                if (exists)
-                    ImGui::TextUnformatted(seg.objects[i].c_str());
-                else
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s (missing)",
-                                       seg.objects[i].c_str());
+                    if (t.name == m.name) { exists = true; break; }
+                // Folded rows still have to say what varies, or a belt's whole
+                // behavior hides behind closed triangles.
+                std::string summary;
+                if (m.variant > 0)
+                    summary += "  [variant " + std::to_string(m.variant) + "]";
+                else if (m.chance < 1.0f) {
+                    char pct[16];
+                    std::snprintf(pct, sizeof(pct), "%.0f%%", m.chance * 100.0f);
+                    summary += std::string("  [") + pct + "]";
+                }
+                if (m.yawVary != 0.0f || m.offsetVary != 0.0f || m.scaleVary != 0.0f)
+                    summary += "  [jitter]";
+                if (!exists) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.4f, 0.3f, 1));
+                const bool open = ImGui::TreeNodeEx(
+                    "##member", ImGuiTreeNodeFlags_SpanAvailWidth, "%s%s%s",
+                    m.name.c_str(), exists ? "" : " (missing)", summary.c_str());
+                if (!exists) ImGui::PopStyleColor();
+                if (open) {
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::BeginDisabled(m.variant > 0);
+                    ImGui::SliderFloat("Appears in", &m.chance, 0.0f, 1.0f, "%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::EndDisabled();
+                    ImGui::SetItemTooltip(
+                        "Fraction of belt cells this member shows up in.\n"
+                        "1 = every cell (the plain tiling). 0.35 = roughly a\n"
+                        "third of them, drawn from the cell's own hash - so the\n"
+                        "belt stops repeating without any extra geometry.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragInt("Variant group", &m.variant, 0.1f, 0, 16);
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "0 = off. Members of this segment sharing a group number\n"
+                        "are alternatives: exactly ONE of them shows per cell\n"
+                        "(three obstacle shapes in one lane, say). A grouped\n"
+                        "member ignores Appears in - the group always fills.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Yaw jitter", &m.yawVary, 0.5f, 0.0f, 180.0f,
+                                     "+-%.0f deg");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random spin around Y, per cell. Free variety for rocks,\n"
+                        "trees and debris; leave at 0 for anything that has to\n"
+                        "line up with its neighbour (floors, rails, walls).");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Side jitter", &m.offsetVary, 0.05f, 0.0f, 50.0f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random offset across the belt (world units,\n"
+                        "perpendicular to the axis and horizontal), per cell.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Scale jitter", &m.scaleVary, 0.005f, 0.0f, 0.9f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random uniform scale, per cell, as a fraction of the\n"
+                        "authored size (0.20 = +-20%). Keep it off for tiling\n"
+                        "surfaces - a resized floor slab opens a gap.");
+                    ImGui::TreePop();
+                }
                 ImGui::PopID();
             }
             if (removeAt >= 0) {
@@ -1037,11 +1109,11 @@ void App::drawPropertiesWindow() {
                         t.type != PrimitiveType::SpawnPoint && t.name != o.name;
                     if (!ok) continue;
                     bool listed = false;
-                    for (const std::string& n : seg.objects)
-                        if (n == t.name) { listed = true; break; }
+                    for (const ScrollMember& n : seg.objects)
+                        if (n.name == t.name) { listed = true; break; }
                     if (listed) continue;
                     if (ImGui::Selectable(t.name.c_str())) {
-                        seg.objects.push_back(t.name);
+                        seg.objects.push_back(ScrollMember{t.name});
                         committed = true;
                     }
                 }
@@ -1857,7 +1929,7 @@ void App::drawMultiProperties() {
             for (int a = 0; a < 3; ++a) sc.position[a] = c[a];
             ScrollSegment seg;
             seg.name = "segment-1";
-            seg.objects = names;
+            for (const std::string& n : names) seg.objects.push_back(ScrollMember{n});
             sc.scrollSegments.push_back(seg);
             commitChange();
         }
