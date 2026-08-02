@@ -6872,6 +6872,57 @@ void App::drawSceneSection() {
         // layer (plus an Unassigned group); without layers it stays flat.
         const bool grouped = !sc.layers.empty();
 
+        // --- filters: name search + object type ------------------------------
+        // A scene outgrows a 130 px list long before it outgrows a PS2, so the
+        // list carries the Asset Browser's two filters. Both are pure view
+        // state - nothing below edits the model, and the selection is left
+        // alone (a filtered-out object stays selected and stays editable in
+        // Properties).
+        ImGui::SetNextItemWidth(-scaled(112.0f));
+        char search[128];
+        std::snprintf(search, sizeof(search), "%s", sceneFilterName_.c_str());
+        if (ImGui::InputTextWithHint("##objsearch", "Search name...", search,
+                                     sizeof(search)))
+            sceneFilterName_ = search;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // Only the types the scene actually contains are offered, each with its
+        // count - a filter that can only come back empty is not worth a row.
+        // The names are the ones the object rows print, so the two agree.
+        const char* typePreview =
+            sceneFilterType_ < 0 ? "All types"
+                                 : primitiveTypeName((PrimitiveType)sceneFilterType_);
+        if (ImGui::BeginCombo("##objtype", typePreview)) {
+            int counts[kPrimitiveTypeCount] = {};
+            for (const SceneObject& o : sc.objects) {
+                const int t = (int)o.type;
+                if (t >= 0 && t < kPrimitiveTypeCount) ++counts[t];
+            }
+            if (ImGui::Selectable("All types", sceneFilterType_ < 0))
+                sceneFilterType_ = -1;
+            for (int t = 0; t < kPrimitiveTypeCount; ++t) {
+                if (!counts[t]) continue;
+                const std::string lbl =
+                    std::string(primitiveTypeName((PrimitiveType)t)) + "  (" +
+                    std::to_string(counts[t]) + ")##objtype" + std::to_string(t);
+                if (ImGui::Selectable(lbl.c_str(), sceneFilterType_ == t))
+                    sceneFilterType_ = t;
+            }
+            ImGui::EndCombo();
+        }
+
+        const bool filtering = !sceneFilterName_.empty() || sceneFilterType_ >= 0;
+        auto lowered = [](std::string s) {
+            for (char& c : s) c = (char)tolower((unsigned char)c);
+            return s;
+        };
+        const std::string needle = lowered(sceneFilterName_);
+        auto passesFilter = [&](const SceneObject& o) {
+            if (sceneFilterType_ >= 0 && (int)o.type != sceneFilterType_) return false;
+            return needle.empty() ||
+                   lowered(o.name).find(needle) != std::string::npos;
+        };
+
         auto layerExists = [&](const std::string& name) {
             for (const SceneLayer& l : sc.layers)
                 if (l.name == name) return true;
@@ -7013,26 +7064,36 @@ void App::drawSceneSection() {
             }
         };
 
-        // Indices of the scene's objects, in order, that pass `keep`.
+        // Indices of the scene's objects, in order, that pass `keep` AND the
+        // search/type filters - one place, so every group is filtered the same
+        // way and the counts below cannot disagree with the rows.
         auto indicesWhere = [&](auto keep) {
             std::vector<int> out;
-            for (int i = 0; i < (int)project_.objects().size(); ++i)
-                if (keep(project_.objects()[i])) out.push_back(i);
+            for (int i = 0; i < (int)project_.objects().size(); ++i) {
+                const SceneObject& o = project_.objects()[i];
+                if (passesFilter(o) && keep(o)) out.push_back(i);
+            }
             return out;
         };
 
         ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
                           ImGuiChildFlags_Borders);
         if (!grouped) {
-            emitRows(indicesWhere([](const SceneObject&) { return true; }));
+            const std::vector<int> rows =
+                indicesWhere([](const SceneObject&) { return true; });
+            if (rows.empty()) ImGui::TextDisabled("No object matches the filter.");
+            emitRows(rows);
         } else {
             const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
                                               ImGuiTreeNodeFlags_SpanAvailWidth;
             for (int li = 0; li < (int)sc.layers.size(); ++li) {
                 const SceneLayer& l = sc.layers[li];
+                // The count follows the filter, so an open group and its header
+                // tell the same story. Empty groups stay listed: they are still
+                // drop targets for a layer reassignment.
                 int count = 0;
                 for (const SceneObject& o : sc.objects)
-                    if (o.layer == l.name) ++count;
+                    if (o.layer == l.name && passesFilter(o)) ++count;
                 std::string header = l.name + "  (" + std::to_string(count) + ")" +
                                      (l.editorVisible ? "" : "  [hidden]") +
                                      "##layergrp" + std::to_string(li);
@@ -7053,7 +7114,8 @@ void App::drawSceneSection() {
             // Unassigned: no layer, or a stale name left by a deleted layer.
             int count = 0;
             for (const SceneObject& o : sc.objects)
-                if (o.layer.empty() || !layerExists(o.layer)) ++count;
+                if ((o.layer.empty() || !layerExists(o.layer)) && passesFilter(o))
+                    ++count;
             std::string header =
                 "Unassigned  (" + std::to_string(count) + ")##layergrp_none";
             const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
@@ -7066,6 +7128,20 @@ void App::drawSceneSection() {
             }
         }
         ImGui::EndChild();
+
+        // What a filter hides has to be stated, or a scene reads as smaller
+        // than it is - with the way back out on the same line.
+        if (filtering) {
+            const int shown =
+                (int)indicesWhere([](const SceneObject&) { return true; }).size();
+            ImGui::TextDisabled("%d of %d objects shown", shown,
+                                (int)sc.objects.size());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear filters")) {
+                sceneFilterName_.clear();
+                sceneFilterType_ = -1;
+            }
+        }
 
         if (grouped)
             ImGui::TextDisabled("Drag objects onto a layer to assign them.");

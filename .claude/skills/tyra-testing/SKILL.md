@@ -528,7 +528,15 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **The same goes for any widget whose whole label is
+  hidden behind `##`** - a compact search field (`##assetsearch`,
+  `##objsearch`) or a bare combo (`##objtype`) dumps as `-` with a rect and
+  nothing to name, so a filter row like the Scene panel's is only reachable by
+  CLICKING ITS RECT: read the rect off `dump`, add the editor window's screen
+  offset (compare one `dump` rect against one full-screen `shot` to get it -
+  ~67,70 on this box) and drive it with `wayland-control.py click --at x,y` /
+  `type`. Everything else about the run stays the same, and the assertion is
+  the `shot` you crop afterwards.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per
