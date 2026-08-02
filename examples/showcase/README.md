@@ -9,7 +9,7 @@ build\tyrax-editor.exe --build examples\showcase --run
 ```
 
 The source of truth is `showcase.tyra` + the authored assets under `res/` +
-the `terrain-*.heights` files. The generated game sources, `Dockerfile`,
+the `terrain-*.heights` files. The generated game sources,
 `Makefile`, etc. are rewritten on every build (see `refreshGenerated` in
 `src/project.cpp`); `obj/`, `bin/`, `.res-baked/` and `*.history` are not
 checked in.
