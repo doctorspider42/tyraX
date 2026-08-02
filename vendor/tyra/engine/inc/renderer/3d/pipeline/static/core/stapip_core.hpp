@@ -58,6 +58,14 @@ class StaPipCore {
     qbufferRenderer.setVU1Clipping(enabled);
   }
 
+  /** TyraX addition: install a game-supplied VU1 microprogram over a built-in
+   * slot (docs/vu-framework.md). Reachable from game code as
+   * engine.renderer.renderer3D.staticPipeline.core.setProgramOverride(...). */
+  void setProgramOverride(const StaPipProgramName& name,
+                          StaPipVU1Program* program) {
+    qbufferRenderer.setProgramOverride(name, program);
+  }
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 

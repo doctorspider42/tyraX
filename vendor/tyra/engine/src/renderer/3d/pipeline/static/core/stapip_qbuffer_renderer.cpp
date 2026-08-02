@@ -517,6 +517,18 @@ void StaPipQBufferRenderer::setProgramsCache() {
   }
 }
 
+// TyraX addition: see the header.
+void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
+                                               StaPipVU1Program* program) {
+  repository.setOverride(name, program);
+  if (programsPacket == nullptr) return;  // init() will pick it up
+
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
+}
+
 void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   if (vu1Clipping == enabled) return;
   vu1Clipping = enabled;

@@ -68,6 +68,13 @@ class StaPipQBufferRenderer {
    * once), so call it right after setRenderer() / between frames only.
    */
   void setVU1Clipping(const bool& enabled);
+
+  /** TyraX addition: install a game-supplied microprogram over a built-in slot
+   * and make it resident (docs/vu-framework.md). Rebuilds the program cache and
+   * re-uploads it, so it is safe to call after init - and it must be, because a
+   * game only learns about its own programs once its scene is up. */
+  void setProgramOverride(const StaPipProgramName& name,
+                          StaPipVU1Program* program);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
 
   /**
