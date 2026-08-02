@@ -1602,8 +1602,10 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
 // Budget
 // ---------------------------------------------------------------------------
 
-Budget budget(const std::vector<std::pair<std::string, const Program*>>& set) {
+Budget budget(const std::vector<std::pair<std::string, const Program*>>& set,
+              int ceiling) {
     Budget out;
+    out.ceiling = ceiling;
     for (const auto& e : set) {
         if (!e.second) continue;
         int n = 0;

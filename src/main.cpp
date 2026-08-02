@@ -1279,6 +1279,147 @@ static std::string vuEngineDir(const char* override) {
     return "vendor/tyra/engine";
 }
 
+// The VU0 half of --vu-check.
+//
+// The engine ships exactly one VU0 program - the raytracer kernel behind the
+// raytraced mirrors - and until now the framework could only PARSE it. It is now
+// RUN, under the VU0 machine model: 256 quadwords of data memory rather than
+// VU1's 1024, 512 micro slots rather than 2048, and the vcallms entry contract
+// (restart at instruction 0, data memory persists between calls). That target
+// choice is the whole point - the kernel addresses quadwords up to 247, which is
+// inside 256 by six quadwords, and against the VU1 model an overrun would wrap
+// somewhere harmless and the out-of-range warning would never fire.
+//
+// The scene is staged the way vu0_raytracer.cpp stages it (its data-memory
+// contract is written out at the top of the .vclpp): a single sphere dead ahead
+// of the eye and a four-texel row that walks off it, so the first texel is a
+// sphere hit and the last is a sky miss. The assertions are on the SHAPE of the
+// answer - a direct-colour texel, channels in range, the sphere's own hue, a sky
+// colour between the two gradient stops - because the kernel's shading constants
+// are its business and pinning them here would make this a change detector
+// rather than a check.
+static int vuCheckVu0(const std::string& engine) {
+    namespace fs = std::filesystem;
+    std::printf("-- VU0: the raytracer kernel, run under the VU0 model --\n");
+    const std::string path = (fs::path(engine) / "src" / "renderer" / "rt" /
+                              "vu0_rt_kernel.vclpp").string();
+    vuasm::Options opt;
+    opt.includeRoot = engine;
+    vuir::Program k;
+    std::string err;
+    if (!vuasm::parseFile(path, opt, k, err)) {
+        std::printf("  could not read the kernel: %s\n\n", err.c_str());
+        return 1;
+    }
+
+    auto bits = [](float f) {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    };
+    std::vector<uint32_t> mem((size_t)vusim::memWords(vusim::Target::VU0), 0u);
+    auto putf = [&](int qw, int f, float v) { mem[(size_t)qw * 4 + f] = bits(v); };
+    auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
+
+    // A ray STARTS at its texel on the mirror plane and points away from the
+    // reflected eye - the eye is only there to give the direction. So the eye
+    // goes behind the row, not on top of the sphere.
+    const int kTexels = 4;
+    putf(0, 0, 0.0f), putf(0, 1, 0.0f), putf(0, 2, -10.0f);    // eye
+    putf(1, 0, 0.0f), putf(1, 1, 0.0f), putf(1, 2, 0.0f);      // rowBase
+    putf(2, 0, 1.0f), putf(2, 1, 0.5f), putf(2, 2, 0.0f);      // du: +X +Y per texel
+    putf(3, 0, 0.0f), putf(3, 1, 1.0f), putf(3, 2, 0.0f);      // light: straight up
+    putf(4, 0, 40.0f), putf(4, 1, 90.0f), putf(4, 2, 170.0f);  // sky zenith
+    putf(5, 0, 180.0f), putf(5, 1, 210.0f), putf(5, 2, 235.0f);  // sky horizon
+    puti(6, 0, 1), puti(6, 1, (uint32_t)kTexels), puti(6, 2, 0), puti(6, 3, 0);
+    putf(7, 0, 0.30f), putf(7, 1, 0.70f), putf(7, 2, 0.5f), putf(7, 3, 1e38f);
+    putf(8, 0, 0.01f), putf(8, 1, 1e-8f), putf(8, 2, 255.0f), putf(8, 3, 4096.0f);
+    putf(9, 3, 0.0f), putf(10, 3, 0.0f);  // no triangle groups: r^2 = 0 misses
+    puti(11, 0, 104), puti(11, 1, 0), puti(11, 2, 104), puti(11, 3, 0);
+    // One sphere on the row's forward axis, ten units out. w is the RADIUS
+    // SQUARED, which is what the kernel's discriminant wants.
+    putf(12, 0, 0.0f), putf(12, 1, 0.0f), putf(12, 2, 10.0f), putf(12, 3, 9.0f);
+    putf(20, 0, 200.0f), putf(20, 1, 100.0f), putf(20, 2, 50.0f);
+
+    vusim::Config cfg;
+    cfg.target = vusim::Target::VU0;
+    // One vcallms, through the kernel-call harness so the persistence contract
+    // is the one being exercised rather than a plain run().
+    const std::vector<vusim::Result> calls =
+        vusim::runKernel(k, mem, {{}}, cfg);
+    if (calls.empty() || !calls.back().ok) {
+        std::printf("  the kernel did not run: %s\n\n",
+                    calls.empty() ? "no result" : calls.back().error.c_str());
+        return 1;
+    }
+    const vusim::Result& r = calls.back();
+
+    int fails = 0;
+    for (const vusim::Warning& w : r.warnings) {
+        std::printf("  warning at pc %d: %s\n", w.pc, w.text.c_str());
+        ++fails;  // every warning here is a real finding: the kernel is VU0-honest
+    }
+
+    // The row comes back as INTEGERS - the kernel's last act is an ftoi0, so
+    // the EE can pack the texel without touching a float.
+    const int kOutBase = 40;
+    int32_t rgb[4][3];
+    for (int i = 0; i < kTexels; ++i) {
+        const size_t q = (size_t)(kOutBase + i) * 4;
+        for (int c = 0; c < 3; ++c) rgb[i][c] = (int32_t)r.mem[q + c];
+        const int32_t w = (int32_t)r.mem[q + 3];
+        if (w >= 0) {
+            std::printf("  texel %d came back as a TRIANGLE hit (w %d) - this "
+                        "scene has no triangle groups\n", i, (int)w);
+            ++fails;
+        }
+        for (int c = 0; c < 3; ++c)
+            if (rgb[i][c] < 0 || rgb[i][c] > 255) {
+                std::printf("  texel %d channel %d is %d, outside 0..255\n", i, c,
+                            (int)rgb[i][c]);
+                ++fails;
+            }
+    }
+    // Texel 0's ray is (0,0,1) and runs straight into the sphere; the shade
+    // scales the sphere colour, so the RATIO is what survives it.
+    const bool hitHue = rgb[0][0] > rgb[0][1] * 3 / 2 &&
+                        rgb[0][1] > rgb[0][2] * 3 / 2 && rgb[0][0] > 1;
+    if (!hitHue) {
+        std::printf("  texel 0 is (%d, %d, %d) - not the sphere's 200:100:50\n",
+                    (int)rgb[0][0], (int)rgb[0][1], (int)rgb[0][2]);
+        ++fails;
+    }
+    // Texel 3 is 3 units off the axis and misses by a wide margin, so it must be
+    // a blend of the two sky stops.
+    const bool sky = rgb[3][0] >= 40 && rgb[3][0] <= 180 && rgb[3][2] >= 170 &&
+                     rgb[3][2] <= 235;
+    if (!sky) {
+        std::printf("  texel 3 is (%d, %d, %d) - not between the sky stops\n",
+                    (int)rgb[3][0], (int)rgb[3][1], (int)rgb[3][2]);
+        ++fails;
+    }
+
+    std::printf("  %d instructions, %lld steps, %d quadwords of data memory\n",
+                (int)k.code.size(), (long long)r.steps,
+                vusim::memQuads(vusim::Target::VU0));
+    std::printf("  sphere texel (%d, %d, %d)   sky texel (%d, %d, %d)\n",
+                (int)rgb[0][0], (int)rgb[0][1], (int)rgb[0][2], (int)rgb[3][0],
+                (int)rgb[3][1], (int)rgb[3][2]);
+    const std::vector<std::pair<std::string, const vuir::Program*>> kset = {
+        {k.name.empty() ? "Vu0RtKernel" : k.name, &k}};
+    const vugen::Budget kb = vugen::budget(kset, vugen::kVu0MicroCeiling);
+    std::printf("  micro memory: %d instructions -> %d..%d of %d VU0 slots  %s\n",
+                kb.entries.empty() ? 0 : kb.entries[0].emitted, kb.totalMin,
+                kb.totalMax, kb.ceiling,
+                kb.certainlyFits()         ? "fits"
+                : kb.certainlyOverflows()  ? "OVERFLOWS"
+                                           : "depends on how VCL pairs them");
+    std::printf("  %s\n\n", fails == 0 ? "OK - runs, stays inside VU0's 256 "
+                                         "quadwords, and shades what it should"
+                                       : "FAILED");
+    return fails == 0 ? 0 : 1;
+}
+
 // Usage:
 //   tyrax-editor --vu-check [engineDir]
 //
@@ -1423,7 +1564,11 @@ static int vuCheckFromCli(int argc, char** argv) {
         "   64-bit slot when it can, so the exact size is only known after it "
         "runs)\n\n");
 
-    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0;
+    // 5. VU0 - run the engine's one VU0 program under the VU0 machine model.
+    const int vu0Fails = vuCheckVu0(engine);
+
+    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
+                    vu0Fails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
                              "handwritten twin bit for bit"
                            : "FAIL");

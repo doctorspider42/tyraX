@@ -295,6 +295,12 @@ Equivalence equivalence(const vuir::Program& a, const vuir::Program& b,
  * draw-finish helper at the very top - overwriting it hangs the post-fx PATH1
  * barrier forever (see path1.cpp). The pipeline set must fit below that. */
 constexpr int kMicroMemSlots = 2048;
+/** Measured headroom below the draw-finish helper. */
+constexpr int kVu1MicroCeiling = 2042;
+/** VU0 micro memory is 4 KB - 512 slots - and nothing is parked in it, so a
+ * kernel gets all of them. The engine's raytracer kernel is 504 emitted
+ * instructions, which is how close to that ceiling real VU0 code runs. */
+constexpr int kVu0MicroCeiling = 512;
 
 struct BudgetEntry {
     std::string name;
@@ -307,7 +313,7 @@ struct Budget {
     std::vector<BudgetEntry> entries;
     int totalMin = 0;
     int totalMax = 0;
-    int ceiling = 2042;  // measured headroom below the draw-finish helper
+    int ceiling = kVu1MicroCeiling;
     bool certainlyFits() const { return totalMax <= ceiling; }
     bool certainlyOverflows() const { return totalMin > ceiling; }
 };
@@ -317,6 +323,7 @@ struct Budget {
  * ceil(N/2) and N slots. The exact number is only known after VCL runs - which
  * is why the engine's own guard is a runtime assert. Reporting the range is
  * honest; reporting a single number would not be. */
-Budget budget(const std::vector<std::pair<std::string, const vuir::Program*>>& set);
+Budget budget(const std::vector<std::pair<std::string, const vuir::Program*>>& set,
+              int ceiling = kVu1MicroCeiling);
 
 }  // namespace vugen
