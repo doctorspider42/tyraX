@@ -1279,6 +1279,230 @@ static std::string vuEngineDir(const char* override) {
     return "vendor/tyra/engine";
 }
 
+// The stage-library half of --vu-check.
+//
+// Two claims, and each stage has to satisfy BOTH or it is not shippable.
+//
+// 1. IDENTITY AT ZERO. Every stage's strength parameters are bound to per-mesh
+//    slots and the mesh asks for nothing; the program must then produce output
+//    bit-identical to the engine's own handwritten cull program. That is the
+//    contract the whole design rests on - a project's program REPLACES a
+//    material class, so it runs on every mesh of that class, and the only thing
+//    that makes that acceptable is that a mesh which wants no effect gets
+//    exactly the pixels it would have got. "Approximately identical" would mean
+//    installing a program silently re-shades the whole scene.
+//
+// 2. IT DOES SOMETHING. The same program with a non-zero mesh parameter must
+//    produce DIFFERENT output. Without this, a stage that quietly folded to
+//    nothing would sail through claim 1 with full marks.
+//
+// The identity direction is the one that catches real bugs: it is an exact
+// bit-for-bit comparison against a program nobody generated, over randomized
+// vertices, so an off-by-one field mask or a broadcast on the wrong operand
+// shows up immediately.
+static int vuCheckStages(const std::string& engine) {
+    namespace fs = std::filesystem;
+    std::printf("-- stage library: identity at zero, and an effect above it --\n");
+    int fails = 0;
+
+    // The two handwritten programs a custom one is measured against.
+    auto readHand = [&](const vugen::Desc& d, vuir::Program& out) {
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        std::string err;
+        const std::string path =
+            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
+             "static" / "core" / "programs" / "cull" / (d.fileStem + ".vclpp"))
+                .string();
+        return vuasm::parseFile(path, opt, out, err);
+    };
+
+    for (const vugen::StageDef& sd : vugen::stageDefs()) {
+        const std::string base =
+            sd.needsTexture ? "cullTextureColor" : "cullColor";
+        vugen::Desc d = vugen::descCustomBase(base);
+        vugen::Stage st = vugen::makeStage(sd.key);
+        // Bind every strength to its own mesh slot; leave the rest at the
+        // catalogue defaults, which is how someone would actually author it.
+        int slot = 0;
+        for (int i = 0; i < sd.paramCount; ++i)
+            if (sd.params[i].strength && slot < 4) st.params[i].meshSlot = slot++;
+        d.stages.push_back(st);
+        const vugen::Built b = vugen::build(d);
+        if (!b.errors.empty()) {
+            std::printf("  %-14s BUILD REFUSED: %s\n", sd.key, b.errors[0].c_str());
+            ++fails;
+            continue;
+        }
+
+        // The reference: the engine's own program for the same base, which the
+        // custom one is a stage-weave of.
+        vugen::Desc refDesc = base == "cullTextureColor"
+                                  ? vugen::descCullTextureColor()
+                                  : vugen::descCullColor();
+        vuir::Program hand;
+        if (!readHand(refDesc, hand)) {
+            std::printf("  %-14s could not read the reference program\n", sd.key);
+            ++fails;
+            continue;
+        }
+
+        const float zeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        const vugen::Equivalence idle =
+            vugen::equivalence(hand, b.program, d, 24, 0x51A6E00Du, zeros, 0.0f);
+        // Something every strength can be set to that is not zero. The values
+        // differ per stage only in magnitude; the point is "not the default".
+        const float live[4] = {0.7f, 0.4f, 0.9f, 0.55f};
+        const vugen::Equivalence busy =
+            vugen::equivalence(hand, b.program, d, 24, 0x51A6E00Du, live, 1.3f);
+
+        const bool ok = idle.identical && !busy.identical;
+        std::printf("  %-14s %-9s +%3d instructions   %s\n", sd.key,
+                    ok ? "OK" : "FAILED", b.stageInstrs,
+                    !idle.identical ? "NOT the identity at zero strength"
+                    : busy.identical ? "changes nothing at full strength"
+                                     : "");
+        if (!idle.identical && !idle.detail.empty())
+            std::printf("      %s\n", idle.detail.c_str());
+        if (!idle.identical && !idle.error.empty())
+            std::printf("      %s\n", idle.error.c_str());
+        if (!ok) ++fails;
+
+        // And the emitted text has to behave like the IR it came from - the
+        // same round trip the engine programs get, for the same reason.
+        vuasm::Options opt;
+        vuir::Program back;
+        std::string err;
+        if (!vuasm::parseText(b.vclpp, std::string(sd.key) + ".vclpp", opt, back,
+                              err)) {
+            std::printf("      emitted source does not parse: %s\n", err.c_str());
+            ++fails;
+            continue;
+        }
+        const vugen::Equivalence rt =
+            vugen::equivalence(b.program, back, d, 12, 0x0FF1CE00u, live, 1.3f);
+        if (!rt.identical) {
+            std::printf("      emitted source does not match the IR: %s%s\n",
+                        rt.detail.c_str(), rt.error.c_str());
+            ++fails;
+        }
+    }
+    std::printf("  %s\n\n", fails == 0
+                                ? "every stage is a no-op at zero and an effect "
+                                  "above it, in the emitted text too"
+                                : "FAILED");
+    return fails == 0 ? 0 : 1;
+}
+
+// The kernel half of --vu-check: build a VU0 kernel from the same stage
+// library, run it on the host, and check the numbers against arithmetic done
+// here in C++. `squash` is the one to pin exactly - it is three multiplies with
+// no approximation anywhere, so an exact comparison is fair and any drift is a
+// real bug rather than a tolerance argument.
+static int vuCheckKernel() {
+    std::printf("-- VU0 kernel: built from the stage library, run on the host --\n");
+    vugen::KernelDesc k;
+    k.title = "vu-check scratch kernel";
+    vugen::Stage sq = vugen::makeStage("squash");
+    sq.params[0].value = 0.5f;   // x * 1.5
+    sq.params[1].value = -0.25f; // y * 0.75
+    sq.params[2].value = 1.0f;   // z * 2.0
+    k.stages.push_back(sq);
+
+    vugen::BuiltKernel b = vugen::buildKernel(k);
+    if (!b.errors.empty()) {
+        std::printf("  build refused: %s\n\n", b.errors[0].c_str());
+        return 1;
+    }
+    int fails = 0;
+    const int n = 6;
+    std::vector<float> in((size_t)n * 4);
+    for (int i = 0; i < n; ++i) {
+        in[(size_t)i * 4 + 0] = 1.0f + (float)i;
+        in[(size_t)i * 4 + 1] = -2.0f * (float)i;
+        in[(size_t)i * 4 + 2] = 0.5f * (float)i;
+        in[(size_t)i * 4 + 3] = 7.0f;
+    }
+    const float params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    std::string err;
+    const std::vector<float> out =
+        vugen::simulateKernel(b, k, in, params, 0.0f, &err);
+    if (out.size() != in.size()) {
+        std::printf("  the kernel did not run: %s\n\n", err.c_str());
+        return 1;
+    }
+    for (int i = 0; i < n; ++i) {
+        const float want[3] = {in[(size_t)i * 4 + 0] * 1.5f,
+                               in[(size_t)i * 4 + 1] * 0.75f,
+                               in[(size_t)i * 4 + 2] * 2.0f};
+        for (int c = 0; c < 3; ++c)
+            if (out[(size_t)i * 4 + c] != want[c]) {
+                std::printf("  element %d field %c: %g, expected %g\n", i,
+                            "xyz"[c], (double)out[(size_t)i * 4 + c],
+                            (double)want[c]);
+                ++fails;
+            }
+    }
+
+    // A wobble kernel exercises the sine, whose error IS the thing to state:
+    // the approximation is worth about 0.2%, so the check is that every
+    // displacement stays inside the amplitude it was given plus that margin -
+    // not that it matches a libm sine.
+    vugen::KernelDesc kw;
+    kw.title = "vu-check wobble kernel";
+    vugen::Stage wb = vugen::makeStage("wobble");
+    wb.params[0].value = 3.0f;  // amplitude
+    wb.params[1].value = 0.4f;  // frequency
+    wb.params[2].value = 0.0f;  // frozen, so the check does not need a clock
+    kw.stages.push_back(wb);
+    const vugen::BuiltKernel bw = vugen::buildKernel(kw);
+    if (!bw.errors.empty()) {
+        std::printf("  wobble kernel refused: %s\n", bw.errors[0].c_str());
+        ++fails;
+    } else {
+        const std::vector<float> ow =
+            vugen::simulateKernel(bw, kw, in, params, 0.0f, &err);
+        if (ow.size() != in.size()) {
+            std::printf("  the wobble kernel did not run: %s\n", err.c_str());
+            ++fails;
+        } else {
+            float peak = 0.0f;
+            bool moved = false;
+            for (int i = 0; i < n; ++i) {
+                const float dy = ow[(size_t)i * 4 + 1] - in[(size_t)i * 4 + 1];
+                if (dy != 0.0f) moved = true;
+                if (dy > peak) peak = dy;
+                if (-dy > peak) peak = -dy;
+                if (ow[(size_t)i * 4 + 0] != in[(size_t)i * 4 + 0]) {
+                    std::printf("  wobble moved X, which it must not\n");
+                    ++fails;
+                    break;
+                }
+            }
+            if (!moved) {
+                std::printf("  wobble displaced nothing\n");
+                ++fails;
+            }
+            if (peak > 3.0f * 1.005f) {
+                std::printf("  wobble overshot its amplitude: %g > 3\n",
+                            (double)peak);
+                ++fails;
+            }
+            std::printf("  wobble: peak displacement %.4f of an amplitude of 3, "
+                        "%d instructions per element\n", (double)peak,
+                        bw.perElement);
+        }
+    }
+
+    std::printf("  squash: %d elements exact, %d instructions per element\n", n,
+                b.perElement);
+    std::printf("  %s\n\n", fails == 0
+                                ? "OK - a kernel built from stages computes what "
+                                  "the same arithmetic computes here"
+                                : "FAILED");
+    return fails == 0 ? 0 : 1;
+}
+
 // The VU0 half of --vu-check.
 //
 // The engine ships exactly one VU0 program - the raytracer kernel behind the
@@ -1564,11 +1788,15 @@ static int vuCheckFromCli(int argc, char** argv) {
         "   64-bit slot when it can, so the exact size is only known after it "
         "runs)\n\n");
 
-    // 5. VU0 - run the engine's one VU0 program under the VU0 machine model.
-    const int vu0Fails = vuCheckVu0(engine);
+    // 5. The authoring layer: every stage, both directions.
+    const int stageFails = vuCheckStages(engine);
+
+    // 6. VU0 - the engine's own kernel under the VU0 machine model, and a
+    //    generated one built from the same stage library.
+    const int vu0Fails = vuCheckVu0(engine) + vuCheckKernel();
 
     const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
-                    vu0Fails == 0;
+                    stageFails == 0 && vu0Fails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
                              "handwritten twin bit for bit"
                            : "FAIL");

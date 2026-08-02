@@ -387,11 +387,18 @@ texel, channels in range, the sphere's own hue, a sky between the two stops), no
 on those exact triples: the kernel's shading constants are its business, and
 pinning them here would make this a change detector instead of a check.
 
-**What is still VU1-only, and honestly so:** `vugen` generates VU1 pipeline
-programs — its skeleton *is* `xtop`, the GIF tag block, the vertex triple loop
-and `xgkick`, none of which a VU0 kernel has. The micro-memory ceiling of 2042 is
-a VU1 fact too (it is the room below `Path1`'s draw-finish helper; VU0 has
-nothing parked in its 512 slots, hence the separate `kVu0MicroCeiling`).
+**The generator has two skeletons.** The StaPip one is the VU1 pipeline —
+`xtop` a double-buffer half, emit the GIF tag block, loop over vertex triples,
+`xgkick`. `buildKernel` is the VU0 shape — fixed input and output ranges in data
+memory, one element per loop iteration, no double buffer, no GIF, and nothing to
+branch back to. Both take the same stage list. See
+[docs/vu-authoring.md](vu-authoring.md).
+
+**What is still VU1-only, and honestly so:** most of the stage library assumes a
+vertex pipeline — only the four stages that touch nothing but the position are
+`kernelSafe`. The micro-memory ceiling of 2042 is a VU1
+fact too (it is the room below `Path1`'s draw-finish helper; VU0 has nothing
+parked in its 512 slots, hence the separate `kVu0MicroCeiling`).
 
 And one caveat no simulator can catch, so it belongs in prose: **VU0's register
 file is shared with COP2 macro mode**, which is the engine's own `Vec4`/`M4x4`

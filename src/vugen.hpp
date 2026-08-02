@@ -110,6 +110,12 @@ class Vu {
     void ftoi0Into(Val dst, Val a, uint8_t mask = vuir::MALL);
     void mulInto(Val dst, Val a, Val b, uint8_t mask = vuir::MALL);
     void addInto(Val dst, Val a, Val b, uint8_t mask = vuir::MALL);
+    void subInto(Val dst, Val a, Val b, uint8_t mask = vuir::MALL);
+    void absInto(Val dst, Val a, uint8_t mask = vuir::MALL);
+    /** 1.0 in every field, from vf00 alone - two instructions, no `loi`. A
+     * broadcast is only legal on the SECOND operand of a VU instruction, so
+     * `vf00[w]` cannot stand in for it wherever the 1.0 has to come first. */
+    void onesInto(Val dst);
     void minimumIInto(Val dst, Val a, uint8_t mask = vuir::MALL);
     void minimumInto(Val dst, Val a, Val b, uint8_t mask = vuir::MALL);
     void maximumInto(Val dst, Val a, Val b, uint8_t mask = vuir::MALL);
@@ -182,6 +188,37 @@ class Vu {
      * multiply. `scratch` supplies seven temporaries. */
     void spotLight(Val color, Val vertex, Val spotPos, Val spotDir, Val spotCol,
                    const Val scratch[7]);
+    /** Builds a register holding four different literals, one per field, so a
+     * body that needs constants reads them as broadcasts instead of spending a
+     * `loi` per use. Costs eight instructions ONCE, in the preamble. */
+    void constants(Val dst, float x, float y, float z, float w);
+    /** sin(angle), to about 0.2% - the parabolic approximation with one
+     * correction term, which is what a per-vertex effect needs and a Taylor
+     * series is not (it needs range reduction to converge and the VU has no
+     * cheap one).
+     *
+     * `phase` is the quarter-turn offset added to t: pass `kc[y]` (0.5) for a
+     * sine and a literal 0.75 for a COSINE. Adding pi/2 to the angle instead
+     * looks equivalent and is not - pi/2 is not exactly a quarter turn in
+     * float, so cos(0) comes back as 1 - 6e-8 and a "rotate by zero" stage
+     * stops being the identity. Phasing t is exact at every quarter turn.
+     *
+     *   t  = angle/2pi + phase
+     *   u  = t - floor(t)                floor via the 2^23 add/sub trick
+     *   x  = 2u - 1                      in [-1,1), so angle = pi*x
+     *   y  = 4x(1-|x|)                   ~= sin(pi x), 5.6% error
+     *   r  = y + 0.225*(y|y| - y)        ~= sin(pi x), 0.2% error
+     *
+     * `kc` must be `constants(1/2pi, 0.5, 8388608.0, 0.225)` and `one` a
+     * register whose fields are 1.0. `scratch` supplies three temporaries, and
+     * they are the CALLER's - see fogCoefficient on why. Seventeen
+     * instructions, and it runs on whichever fields `mask` selects, so three
+     * components cost the same as one. */
+    void sineApprox(Val dst, Val angle, uint8_t mask, Val kc, Val one,
+                    const Val scratch[3], Val phase);
+    /** Truncate toward zero, componentwise - `trunc` is two instructions on the
+     * VU (ftoi0 then itof0) and several stages want it. */
+    void truncate(Val dst, Val a, uint8_t mask);
     /** CalculateTyraEnvStq: turns the object-space normal carried in the ST
      * slot into a sphere-map (matcap) ST, in place.
      *   s = 0.5 + 0.5 * dot(normalize(n), cameraRight)
@@ -208,6 +245,105 @@ class Vu {
 };
 
 // ---------------------------------------------------------------------------
+// Stages - the authoring layer (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+/** Where in the chain a stage runs. The slot is the whole of what a stage
+ * author has to understand about the pipeline, which is why it is an enum with
+ * five entries rather than a hook system. */
+enum class Slot : uint8_t {
+    /** On the OBJECT-space position, before the MVP multiply. The only place
+     * geometry means anything a modeller would recognise, and the only place a
+     * displacement is in the mesh's own units. Also the last point where the
+     * colour and the untransformed position are both in hand. */
+    ObjectSpace,
+    /** On the CLIP-space position (xyzw), after the MVP multiply and before the
+     * perspective divide. For depth work: w is the view distance. */
+    ClipSpace,
+    /** On the NDC position, after the perspective divide and before the scale
+     * into the GS 12.4 screen format. Screen-space effects live here. */
+    Ndc,
+    /** On the vertex COLOUR, before FixColor clamps it to 0..255. */
+    Color,
+    /** On the ST, right after it is loaded and before the perspective
+     * correction. Textured bases only. */
+    Texture,
+    /** A VU0 kernel's element body - see KernelDesc. Not a StaPip slot. */
+    Kernel,
+};
+
+const char* slotName(Slot s);
+
+struct StageParamDef {
+    const char* name = "";
+    const char* tip = "";
+    float def = 0.0f;
+    float lo = 0.0f;
+    float hi = 1.0f;
+    /** A literal-only parameter cannot be bound to a per-mesh slot: the
+     * generator needs its value at build time (a reciprocal it folds, a count
+     * it unrolls). Say so instead of silently ignoring the binding. */
+    bool literalOnly = false;
+    /** This parameter is the stage's STRENGTH. When every strength parameter of
+     * a stage is the literal 0 the stage is not emitted at all - which is what
+     * makes "leave it in the list at zero" free rather than merely harmless. */
+    bool strength = false;
+};
+
+struct StageDef {
+    const char* key = "";     // stable id, serialized
+    const char* title = "";   // what the panel shows
+    Slot slot = Slot::ObjectSpace;
+    const char* desc = "";
+    int paramCount = 0;
+    StageParamDef params[4];
+    bool needsTime = false;     // reads the animation clock
+    bool needsTexture = false;  // textured base only
+    /** Emitted instructions per vertex, measured by building the stage alone.
+     * A budget number, not a cycle count - VCL still pairs what it can. */
+    int perVertex = 0;
+    /** Legal inside a VU0 kernel. A kernel element is one quadword and
+     * nothing else: a stage that reads a colour or an ST has nothing to read,
+     * so it is REFUSED rather than silently reinterpreted. */
+    bool kernelSafe = false;
+};
+
+/** The catalogue. Ordered by slot, then by how often you would reach for it. */
+const std::vector<StageDef>& stageDefs();
+/** nullptr when the key names nothing - an unknown stage is DROPPED rather
+ * than guessed at, the flowLegacyNodes rule. */
+const StageDef* stageDef(const std::string& key);
+
+/** One authored parameter value: a literal, or field `meshSlot` of the per-mesh
+ * quadword the game uploads (VU1_CUSTOM_PARAMS_ADDR). */
+struct StageParam {
+    float value = 0.0f;
+    int meshSlot = -1;  // -1 = the literal above; 0..3 = x/y/z/w of the quad
+    bool operator==(const StageParam& o) const {
+        return value == o.value && meshSlot == o.meshSlot;
+    }
+};
+
+struct Stage {
+    std::string key;
+    bool enabled = true;
+    StageParam params[4];
+    bool operator==(const Stage& o) const {
+        if (key != o.key || enabled != o.enabled) return false;
+        for (int i = 0; i < 4; ++i)
+            if (!(params[i] == o.params[i])) return false;
+        return true;
+    }
+};
+
+/** A stage list with its defaults filled in - what the panel edits. */
+Stage makeStage(const std::string& key);
+
+/** True when the stage would emit nothing: disabled, unknown, or every
+ * strength parameter is a literal zero. */
+bool stageIsNoOp(const Stage& s);
+
+// ---------------------------------------------------------------------------
 // Program descriptions
 // ---------------------------------------------------------------------------
 
@@ -231,7 +367,26 @@ struct Desc {
      * still draw under the default settings. */
     bool cull = false;
     std::string dir = "as_is";  // sub-directory under programs/
+
+    /** A PROJECT's own program: the same skeleton with a stage list woven in.
+     * Only the cull family can carry one - it is the only family resident in
+     * both clipping modes, and it is the only one that still has the
+     * object-space position in hand (the as_is family is fed NDC by the EE
+     * clipper, so there is nothing left to displace). */
+    std::vector<Stage> stages;
+    /** Set for a generated project program: changes the emitted file's header,
+     * makes the preamble load the per-mesh parameter and time quadwords, and
+     * stops `--vu-check` looking for a handwritten twin. */
+    bool custom = false;
 };
+
+/** The three engine programs a project's own program may replace. All are cull
+ * (object-space vertices, transform on VU1) and none carries lighting, which is
+ * what leaves VU1_LIGHTS_COLORS_ADDR free for the per-mesh parameters. */
+Desc descCustomBase(const std::string& base);
+/** "cullColor" / "cullTextureColor" / "cullTextureEnv", in that order. */
+const std::vector<std::string>& customBases();
+const char* customBaseTitle(const std::string& base);
 
 /** The ten programs the StaPip pipeline keeps resident, exactly as the engine
  * ships them: five `as_is` (fed by the EE clipper) crossed with five `cull`
@@ -258,9 +413,78 @@ struct Built {
     int regsPerVertex = 0;   // GS registers per vertex (the store stride)
     int attrStreams = 0;     // per-vertex input arrays the EE unpacks
     std::vector<std::string> notes;
+    /** What the stage list cost, MEASURED: the same description is built once
+     * without its stages and the difference reported. Not a sum of the
+     * catalogue's per-stage estimates, which would drift the moment a stage
+     * folded a literal away. */
+    int stageInstrs = 0;
+    /** Stages that emitted nothing, and why (disabled, zero strength, unknown
+     * key) - so "I added it and nothing happened" has an answer on screen. */
+    std::vector<std::string> droppedStages;
+    /** Non-empty means the description is not buildable as written: a stage on
+     * a base that cannot carry it, a mesh binding on a baked parameter. */
+    std::vector<std::string> errors;
 };
 
 Built build(const Desc& d);
+
+// ---------------------------------------------------------------------------
+// VU0 kernels - the second skeleton
+// ---------------------------------------------------------------------------
+
+/** A VU0 compute kernel: N quadwords in, N quadwords out, one stage list run
+ * per element.
+ *
+ * Nothing about the VU1 skeleton survives here and that is the point. There is
+ * no `xtop` (VIF0 is not double-buffered - the EE stores straight into VU0 data
+ * memory at fixed addresses), no GIF tag block and no `xgkick` (VU0 has no path
+ * to the GS), and no branch back to a buffer loop - a kernel ENDS, and the EE
+ * re-enters it at instruction 0 with `vcallms` on the next call. Data memory
+ * persists across those calls, so the parameter quadword is stored once and
+ * only the batch changes.
+ *
+ * The size limit is real and small: 256 quadwords TOTAL. The default layout
+ * below leaves room for 112 elements in and 112 out. */
+struct KernelDesc {
+    std::string vclName = "TyraXKernel";      // #vuprog name
+    std::string asmName = "TyraXKernel";      // .name / linker symbol stem
+    std::string fileStem = "vu0_kernel";      // <stem>.vclpp, <stem>_kernel.*
+    std::string className = "TyraXVu0Kernel";  // the emitted EE driver
+    std::string title = "TyraX VU0 kernel";
+
+    /** Data-memory map, in quadwords. Defaults leave 112 elements each way
+     * inside VU0's 256 - `build` refuses a layout that does not fit. */
+    int controlAddr = 0;  // .x = element count for this call
+    int paramAddr = 1;    // the four user parameters, as a quadword
+    int inputAddr = 8;
+    int outputAddr = 120;
+    int maxElements = 112;
+
+    /** Run per element. Stages see the element in the `vertex` role, so the
+     * ObjectSpace geometry stages work unchanged; anything reading a colour or
+     * an ST is not offered for a kernel. */
+    std::vector<Stage> stages;
+};
+
+struct BuiltKernel {
+    vuir::Program program;
+    std::string vclpp;
+    std::string eeHeader;
+    std::string eeSource;
+    std::vector<std::string> notes;
+    std::vector<std::string> errors;  // non-empty = do not emit this
+    int perElement = 0;               // emitted instructions inside the loop
+};
+
+BuiltKernel buildKernel(const KernelDesc& k);
+
+/** Runs a built kernel on the host over `in` (4 floats per element) and returns
+ * the output the same way, so the panel can show what a kernel does before
+ * anything is built in Docker. `params` is the parameter quadword. */
+std::vector<float> simulateKernel(const BuiltKernel& b, const KernelDesc& k,
+                                  const std::vector<float>& in,
+                                  const float params[4], float time,
+                                  std::string* error);
 
 // ---------------------------------------------------------------------------
 // Checking
@@ -285,7 +509,9 @@ struct Equivalence {
  * the framework's central check: not "the text looks similar" but "the bits the
  * GS would receive are the same". */
 Equivalence equivalence(const vuir::Program& a, const vuir::Program& b,
-                        const Desc& d, int trials, uint32_t seed);
+                        const Desc& d, int trials, uint32_t seed,
+                        const float customParams[4] = nullptr,
+                        float customTime = 0.0f);
 
 // ---------------------------------------------------------------------------
 // Micro-memory budget

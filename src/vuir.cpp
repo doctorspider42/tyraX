@@ -199,7 +199,16 @@ std::string disassemble(const Program& p, const Instr& in) {
             return buf;
         }
         case Op::Loi: {
-            std::snprintf(buf, sizeof buf, "loi        %g", (double)in.fimm);
+            // %.9g, not %g. Nine significant decimal digits are what it takes
+            // to round-trip a float, and %g's six silently rewrote the two
+            // constants that matter: the sine's 1/2pi became 0.159155 and its
+            // 2^23 floor bias became 8.38861e+06 - a DIFFERENT number, 8388610,
+            // which makes the floor step land one integer out. Every earlier
+            // `loi` in this codebase happened to be 255 or 128, which %g prints
+            // exactly, so the bug arrived with the first constant that was not.
+            // Found by --vu-check's round-trip stage, which is the second time
+            // that stage has caught an emitter losing something the IR had.
+            std::snprintf(buf, sizeof buf, "loi        %.9g", (double)in.fimm);
             return buf;
         }
         case Op::Mtir: {

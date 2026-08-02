@@ -1,5 +1,6 @@
 #include "vugen.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -44,6 +45,13 @@ constexpr int kAlphaAddr = 21;
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
 constexpr int kEnvBasisAddr = kLightsMatrixAddr;
 constexpr int kVertDataAddr = 2;  // relative to the double-buffer base
+// TyraX addition: the two quadwords a project's own program reads. They sit in
+// the DIRECTIONAL LIGHTS area, which is free in exactly the programs that can
+// carry a custom stage list - the colour ones - and is why the engine only
+// uploads them for a bag with no lighting. Putting them anywhere else would
+// have meant growing the per-mesh constant block for every project.
+constexpr int kCustomParamsAddr = 15;  // the four per-mesh parameters
+constexpr int kCustomTimeAddr = 16;    // (time, sin time, cos time, 1.0)
 
 }  // namespace
 
@@ -184,6 +192,9 @@ void Vu::mulInto(Val dst, Val a, Val b, uint8_t mask) {
 }
 void Vu::addInto(Val dst, Val a, Val b, uint8_t mask) {
     emit(floatOp(Op::Add, dst.reg, a, b, mask));
+}
+void Vu::subInto(Val dst, Val a, Val b, uint8_t mask) {
+    emit(floatOp(Op::Sub, dst.reg, a, b, mask));
 }
 void Vu::maximumInto(Val dst, Val a, Val b, uint8_t mask) {
     emit(floatOp(Op::Max, dst.reg, a, b, mask));
@@ -569,6 +580,73 @@ void Vu::spotLight(Val color, Val vertex, Val spotPos, Val spotDir, Val spotCol,
     addInto(color, color, d, MXYZ);
 }
 
+void Vu::constants(Val dst, float x, float y, float z, float w) {
+    const float v[4] = {x, y, z, w};
+    for (int f = 0; f < 4; ++f) {
+        loadI(v[f]);
+        if (f == 0) p_->code.back().comment = "constants";
+        Instr in = floatOp(Op::Add, dst.reg, zero(), Val{kI, kNoBc},
+                           (uint8_t)(1 << f));
+        in.s2kind = Src::I;
+        emit(in);
+    }
+}
+
+void Vu::truncate(Val dst, Val a, uint8_t mask) {
+    ftoi0Into(dst, a, mask);
+    Instr in;
+    in.op = Op::Itof0;
+    in.dst = dst.reg;
+    in.s2 = dst.reg;
+    in.mask = mask;
+    emit(in);
+}
+
+void Vu::absInto(Val dst, Val a, uint8_t mask) {
+    Instr in;
+    in.op = Op::Abs;
+    in.dst = dst.reg;
+    in.s2 = a.reg;
+    in.bc2 = a.bc;
+    in.mask = mask;
+    emit(in);
+}
+
+void Vu::onesInto(Val dst) {
+    // vf00 is (0,0,0,1), so xyz come from an add against its w and the w lane
+    // from a MULTIPLY by it - adding would make it 2.
+    addInto(dst, zero(), zero().broadcast(3), MXYZ);
+    p_->code.back().comment = "1.0 in every field";
+    mulInto(dst, zero(), zero().broadcast(3), MW);
+}
+
+void Vu::sineApprox(Val dst, Val angle, uint8_t mask, Val kc, Val one,
+                    const Val scratch[3], Val phase) {
+    const Val t = scratch[0], f = scratch[1], y = scratch[2];
+    mulInto(t, angle, kc.broadcast(0), mask);
+    p_->code.back().comment = "sin(): angle -> [-1,1) turns";
+    addInto(t, t, phase, mask);
+    // floor(t) with the 2^23 trick: the VU truncates toward zero, and adding a
+    // number big enough to push every fractional bit off the mantissa makes
+    // that truncation a floor. Valid for |t| well under 2^23, which is why the
+    // engine wraps the clock before it ever reaches the microprogram.
+    addInto(f, t, kc.broadcast(2), mask);
+    subInto(f, f, kc.broadcast(2), mask);
+    subInto(t, t, f, mask);              // frac in [0,1)
+    addInto(t, t, t, mask);              // 2*frac
+    subInto(t, t, one, mask);            // x in [-1,1), angle = pi*x
+    absInto(f, t, mask);
+    subInto(f, one, f, mask);            // 1 - |x|
+    mulInto(y, t, f, mask);
+    addInto(y, y, y, mask);
+    addInto(y, y, y, mask);              // 4x(1-|x|) ~ sin(pi x), 5.6% error
+    absInto(f, y, mask);
+    mulInto(f, y, f, mask);              // y|y|
+    subInto(f, f, y, mask);
+    mulInto(f, f, kc.broadcast(3), mask);  // * 0.225
+    addInto(dst, y, f, mask);              // 0.2% error
+}
+
 void Vu::dirLightShade(Val color, Val normal, const Val lightMatrix[3],
                        const Val lightDirs[3], const Val lightColors[3],
                        Val ambient) {
@@ -607,6 +685,204 @@ void Vu::transform(Val dst, const Val m[4], Val v) {
     maddAcc(m[1], v.broadcast(1), MALL);
     maddAcc(m[2], v.broadcast(2), MALL);
     maddInto(dst, m[3], v.broadcast(3), MALL);
+}
+
+// ---------------------------------------------------------------------------
+// Stages - the authoring layer (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+const char* slotName(Slot s) {
+    switch (s) {
+        case Slot::ObjectSpace: return "Object space";
+        case Slot::ClipSpace: return "Clip space";
+        case Slot::Ndc: return "Screen (NDC)";
+        case Slot::Color: return "Colour";
+        case Slot::Texture: return "Texture (ST)";
+        case Slot::Kernel: return "Kernel element";
+    }
+    return "?";
+}
+
+const std::vector<StageDef>& stageDefs() {
+    // THE catalogue. Two conventions every entry keeps, and both are load
+    // bearing rather than stylistic:
+    //
+    // 1. A stage is the IDENTITY when its strength parameters are zero. That is
+    //    what makes "one program per material class" workable at all - the
+    //    program runs on every mesh of that class, and a mesh that wants
+    //    nothing gets nothing by leaving its parameters at zero. It also lets
+    //    the generator DROP a stage whose strengths are all literal zero, so an
+    //    experiment left in the list costs no micro memory.
+    // 2. Every parameter carries a tip, and the tip says what THAT knob does -
+    //    the `.desc` says what the stage is for. Same split as the flow-graph
+    //    node registry, and for the same reason: a paragraph on the stage is
+    //    not an answer to "what does Frequency mean here".
+    static const std::vector<StageDef> defs = {
+        {"wobble", "Wobble", Slot::ObjectSpace,
+         "A travelling sine wave along Y, phased by the vertex's own X+Z - "
+         "water, cloth, a heat shimmer. The cheapest stage that reads as "
+         "animation, and the one to try first.",
+         3,
+         {{"Amplitude", "How far a vertex moves, in the model's own units. 0 "
+                        "switches the stage off entirely.", 0.0f, 0.0f, 8.0f,
+           false, true},
+          {"Frequency", "Waves per unit across the mesh. Big meshes want small "
+                        "numbers; 0 makes the whole mesh move as one.", 0.5f,
+           0.0f, 8.0f},
+          {"Speed", "Radians per second. 0 freezes the wave in place, which is "
+                    "how you author the shape before animating it.", 2.0f,
+           0.0f, 20.0f}},
+         true, false, 23, true},
+
+        {"twist", "Twist", Slot::ObjectSpace,
+         "Rotates the mesh about its own Y axis by an angle that grows with "
+         "height - a wrung cloth, a tornado, a spiral column. The most "
+         "expensive stage in the catalogue: it needs a sine AND a cosine.",
+         2,
+         {{"Strength", "Radians of twist per unit of height. 0 is the "
+                       "identity.", 0.0f, -3.0f, 3.0f, false, true},
+          {"Speed", "Radians per second added to the whole twist, so the mesh "
+                    "turns as it wrings.", 0.0f, -10.0f, 10.0f}},
+         true, false, 47, true},
+
+        {"inflate", "Inflate", Slot::ObjectSpace,
+         "Scales the mesh about its object origin, optionally breathing. Note "
+         "it pushes along the direction FROM THE ORIGIN, not along the normal - "
+         "the colour programs carry no normals, so a true shell is not "
+         "available here.",
+         3,
+         {{"Amount", "Constant swell, as a fraction of the model's size. 0.1 = "
+                     "ten per cent bigger.", 0.0f, -0.9f, 2.0f, false, true},
+          {"Pulse", "How much the swell breathes around Amount. Left at a "
+                    "literal 0 the sine is not generated at all.", 0.0f, 0.0f,
+           2.0f, false, true},
+          {"Speed", "Breaths per second, in radians.", 2.0f, 0.0f, 20.0f}},
+         true, false, 26, true},
+
+        {"squash", "Squash / stretch", Slot::ObjectSpace,
+         "Per-axis scale about the object origin. Constant, so it costs four "
+         "instructions - the cheap way to make a batch of identical props stop "
+         "looking identical, one parameter slot each.",
+         3,
+         {{"X", "Extra scale along X, as a fraction. 0 is unchanged.", 0.0f,
+           -0.9f, 3.0f, false, true},
+          {"Y", "Extra scale along Y.", 0.0f, -0.9f, 3.0f, false, true},
+          {"Z", "Extra scale along Z.", 0.0f, -0.9f, 3.0f, false, true}},
+         false, false, 4, true},
+
+        {"heightShade", "Height shade", Slot::ObjectSpace,
+         "Darkens or brightens the vertex by its object-space height - a free "
+         "gradient down a wall, dirt at the base of a prop. Runs in object "
+         "space because that is the last point where the height means "
+         "anything.",
+         3,
+         {{"Amount", "How far the shade swings, 1.0 = full black to double "
+                     "brightness. 0 is the identity.", 0.0f, 0.0f, 1.0f, false,
+           true},
+          {"Scale", "Height units per unit of shade. Negative flips it.", 0.1f,
+           -4.0f, 4.0f},
+          {"Bias", "Shifts where the gradient sits. -1 puts the dark end at "
+                   "the model's origin.", 0.0f, -4.0f, 4.0f}},
+         false, false, 7},
+
+        {"zbias", "Depth bias", Slot::ClipSpace,
+         "Pulls the vertex toward or away from the camera in clip space, "
+         "proportionally to its distance - so it is a CONSTANT bias in screen "
+         "depth rather than a world offset. What a decal or a coplanar overlay "
+         "needs to stop z-fighting.",
+         1,
+         {{"Bias", "Fraction of the NDC depth range. 0.001 is usually enough; "
+                   "0 is the identity.", 0.0f, -0.05f, 0.05f, false, true}},
+         false, false, 2},
+
+        {"snap", "Vertex snap", Slot::Ndc,
+         "Quantises the screen position to a grid - the PlayStation 1 wobble, "
+         "on purpose. Runs after the perspective divide, so the grid is in "
+         "SCREEN space and a distant vertex jitters more, which is exactly the "
+         "artefact being imitated.",
+         2,
+         {{"Steps", "Grid divisions across the screen. 160 is roughly a PS1 "
+                    "look; 640 is subtle. Baked into the microprogram, so it "
+                    "cannot be bound to a mesh.", 160.0f, 8.0f, 1024.0f, true},
+          {"Strength", "Blend toward the snapped position. 1 is full snap, 0 "
+                       "the identity.", 0.0f, 0.0f, 1.0f, false, true}},
+         false, false, 8},
+
+        {"pulse", "Pulse colour", Slot::Color,
+         "Brightens and dims the vertex colour on a sine - a beacon, a "
+         "heartbeat, a damage flash. Multiplies, so a black vertex stays "
+         "black.",
+         2,
+         {{"Amount", "Peak swing as a fraction of the colour. 0.5 = half as "
+                     "dark to half as bright. 0 is the identity.", 0.0f, 0.0f,
+           2.0f, false, true},
+          {"Speed", "Radians per second.", 4.0f, 0.0f, 30.0f}},
+         true, false, 22},
+
+        {"posterize", "Posterize", Slot::Color,
+         "Rounds the colour down to N levels per channel. Cheap stylisation, "
+         "and it composes: put it after Pulse and the pulse steps instead of "
+         "sliding.",
+         2,
+         {{"Levels", "Steps per channel. 4 is a poster, 16 is subtle. Baked "
+                     "into the microprogram, so it cannot be bound to a mesh.",
+           4.0f, 2.0f, 64.0f, true},
+          {"Strength", "Blend toward the posterized colour. 0 is the "
+                       "identity.", 0.0f, 0.0f, 1.0f, false, true}},
+         false, false, 7},
+
+        {"desaturate", "Desaturate", Slot::Color,
+         "Drains the vertex colour toward its luminance. Bound to a per-mesh "
+         "slot this is how an object goes grey when it is disabled, dead or "
+         "out of power - with no second material and no texture swap.",
+         1,
+         {{"Amount", "1 is fully grey, 0 the identity.", 0.0f, 0.0f, 1.0f,
+           false, true}},
+         false, false, 6},
+
+        {"scrollUv", "Scroll UV", Slot::Texture,
+         "Slides the texture across the surface. A conveyor, a waterfall, a "
+         "starfield - the effect that would otherwise need a new texture per "
+         "frame.",
+         2,
+         {{"Speed U", "Texture widths per second along U. 0 is the identity.",
+           0.0f, -4.0f, 4.0f, false, true},
+          {"Speed V", "Texture heights per second along V.", 0.0f, -4.0f, 4.0f,
+           false, true}},
+         true, true, 4},
+    };
+    return defs;
+}
+
+const StageDef* stageDef(const std::string& key) {
+    for (const StageDef& d : stageDefs())
+        if (key == d.key) return &d;
+    return nullptr;
+}
+
+Stage makeStage(const std::string& key) {
+    Stage s;
+    s.key = key;
+    const StageDef* d = stageDef(key);
+    if (d)
+        for (int i = 0; i < d->paramCount; ++i) s.params[i].value = d->params[i].def;
+    return s;
+}
+
+bool stageIsNoOp(const Stage& s) {
+    if (!s.enabled) return true;
+    const StageDef* d = stageDef(s.key);
+    if (!d) return true;
+    // "Every strength is a literal zero" is the whole of the folding rule. A
+    // parameter bound to a mesh slot is NOT known here, so it never folds - the
+    // game may write anything into it.
+    bool sawStrength = false;
+    for (int i = 0; i < d->paramCount; ++i) {
+        if (!d->params[i].strength) continue;
+        sawStrength = true;
+        if (s.params[i].meshSlot >= 0 || s.params[i].value != 0.0f) return false;
+    }
+    return sawStrength;
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +1010,39 @@ Desc descCullTextureEnv() {
     return d;
 }
 
+const std::vector<std::string>& customBases() {
+    static const std::vector<std::string> b = {"cullColor", "cullTextureColor",
+                                               "cullTextureEnv"};
+    return b;
+}
+
+const char* customBaseTitle(const std::string& base) {
+    if (base == "cullTextureColor") return "Textured (vertex colour + map_Kd)";
+    if (base == "cullTextureEnv") return "Reflective (matcap materials)";
+    return "Untextured (vertex colour only)";
+}
+
+Desc descCustomBase(const std::string& base) {
+    Desc d = base == "cullTextureColor"  ? descCullTextureColor()
+             : base == "cullTextureEnv"  ? descCullTextureEnv()
+                                         : descCullColor();
+    d.custom = true;
+    d.dir = "gen";
+    d.fileStem = "vu_custom_" + std::string(base == "cullTextureColor" ? "tc"
+                                            : base == "cullTextureEnv" ? "tce"
+                                                                       : "c");
+    d.className = "TyraXCustom" + std::string(base == "cullTextureColor" ? "TC"
+                                              : base == "cullTextureEnv" ? "TCE"
+                                                                         : "C") +
+                  "VU1Program";
+    d.vclName = "TyraXCustom" + std::string(base == "cullTextureColor" ? "TC"
+                                            : base == "cullTextureEnv" ? "TCE"
+                                                                       : "C");
+    d.asmName = d.vclName;
+    d.title = std::string("TyraX custom - ") + customBaseTitle(base);
+    return d;
+}
+
 std::vector<Desc> allDescs() {
     return {descAsIsColor(),          descAsIsTextureColor(),
             descAsIsDirLights(),      descAsIsTextureDirLights(),
@@ -795,10 +1104,333 @@ std::vector<AttrBlock> attrBlocks(const Desc& d) {
 
 int attrStreams(const Desc& d) { return (int)attrBlocks(d).size(); }
 
-void buildAsIsBody(const Desc& d, Program& prog) {
+// ---------------------------------------------------------------------------
+// Weaving a stage list into the skeleton
+// ---------------------------------------------------------------------------
+
+/** Literals a stage list needs, packed four to a register.
+ *
+ * A `loi` costs an instruction per USE, which for a value read three times a
+ * vertex (once per corner) is nine instructions of pure constant loading. Four
+ * literals in one register cost eight instructions ONCE, in the preamble, and
+ * every read afterwards is a free broadcast field. */
+struct LitPool {
+    std::vector<float> values;
+    std::vector<Val> regs;
+    int index(float v) {
+        for (size_t i = 0; i < values.size(); ++i)
+            if (values[i] == v) return (int)i;
+        values.push_back(v);
+        return (int)values.size() - 1;
+    }
+    /** Emits the build sequence. Call once, in the preamble, AFTER every
+     * literal has been registered. */
+    void emit(Vu& b) {
+        const int groups = ((int)values.size() + 3) / 4;
+        for (int g = 0; g < groups; ++g) {
+            char name[32];
+            std::snprintf(name, sizeof name, "stageK%d", g);
+            const Val r = b.named(name);
+            regs.push_back(r);
+            float v[4] = {0, 0, 0, 0};
+            for (int f = 0; f < 4; ++f)
+                if ((size_t)(g * 4 + f) < values.size()) v[f] = values[g * 4 + f];
+            b.constants(r, v[0], v[1], v[2], v[3]);
+        }
+    }
+    Val read(int idx) const {
+        return regs[idx / 4].broadcast(idx % 4);
+    }
+};
+
+/** Everything a stage emitter is allowed to touch. Registers are the CALLER's
+ * throughout - a stage that mints its own would inflate the VF pressure VCL
+ * has to allocate against, and that pressure is invisible on the host (see the
+ * fogCoefficient note). */
+struct StageCtx {
+    Vu* b = nullptr;
+    Program* p = nullptr;
+    Val vertex{};    // the position, in whatever space the slot says
+    Val color{};
+    Val st{};
+    Val params{};    // the per-mesh quadword
+    Val timeV{};     // (time, sin time, cos time, 1.0)
+    Val kc{};        // (1/2pi, 0.5, 2^23, 0.225) - sineApprox's constants
+    Val one{};       // 1.0 in every field
+    Val lumaW{};     // (0.299, 0.587, 0.114, 0) - only built when needed
+    Val s[6];        // stage scratch
+    Val sinS[3];     // sineApprox scratch, never aliased with s[]
+    const LitPool* lits = nullptr;
+    bool hasColor = false;
+    bool hasSt = false;
+};
+
+/** One stage with its parameters already turned into readable operands. */
+struct Resolved {
+    const StageDef* def = nullptr;
+    Stage stage;
+    Val param[4];
+    float literal[4] = {0, 0, 0, 0};
+    bool isLiteral[4] = {false, false, false, false};
+    int litIndex[4] = {-1, -1, -1, -1};   // into LitPool, when isLiteral
+    int extraLit[4] = {-1, -1, -1, -1};   // stage-private derived literals
+};
+
+/** True when the parameter is a literal ZERO, which several stages use to drop
+ * their expensive half (a Pulse of 0 needs no sine at all). */
+bool literalZero(const Resolved& r, int i) {
+    return r.isLiteral[i] && r.literal[i] == 0.0f;
+}
+
+void emitStage(StageCtx& c, const Resolved& r) {
+    Vu& b = *c.b;
+    const std::string key = r.stage.key;
+    const Val* s = c.s;
+    const Val v = c.vertex;
+    auto P = [&](int i) { return r.param[i]; };
+
+    if (key == "wobble") {
+        // angle = (v.x + v.z) * frequency + time * speed
+        b.addInto(s[0], v, v.broadcast(2), MX);
+        c.p->code.back().comment = "Wobble";
+        b.mulInto(s[0], s[0], P(1), MX);
+        b.mulInto(s[1], c.timeV, P(2), MX);
+        b.addInto(s[0], s[0], s[1], MX);
+        b.sineApprox(s[2], s[0], MX, c.kc, c.one, c.sinS, c.kc.broadcast(1));
+        b.mulInto(s[2], s[2], P(0), MX);
+        b.addInto(v, v, s[2].broadcast(0), MY);
+        return;
+    }
+    if (key == "twist") {
+        // angle = v.y * strength + time * speed, then rotate X/Z by it.
+        b.mulInto(s[0], v, P(0), MY);
+        c.p->code.back().comment = "Twist";
+        b.mulInto(s[1], c.timeV, P(1), MX);
+        b.addInto(s[0], s[1], s[0].broadcast(1), MX);
+        b.sineApprox(s[1], s[0], MX, c.kc, c.one, c.sinS, c.kc.broadcast(1));
+        // The cosine is the same series a QUARTER TURN further on, phased
+        // inside the reduction rather than by adding pi/2 to the angle - see
+        // sineApprox. That is what keeps a twist of zero the exact identity.
+        b.sineApprox(s[2], s[0], MX, c.kc, c.one, c.sinS,
+                     c.lits->read(r.extraLit[0]));
+        b.mulInto(s[3], v, s[2].broadcast(0), MX);   // x*cos
+        b.mulInto(s[3], v, s[1].broadcast(0), MZ);   // z*sin
+        b.subInto(s[4], s[3], s[3].broadcast(2), MX);  // x' = x cos - z sin
+        b.mulInto(s[5], v, s[1].broadcast(0), MX);   // x*sin
+        b.mulInto(s[5], v, s[2].broadcast(0), MZ);   // z*cos
+        b.addInto(s[4], s[5], s[5].broadcast(0), MZ);  // z' = z cos + x sin
+        b.addInto(v, c.b->zero(), s[4].broadcast(0), MX);
+        b.addInto(v, c.b->zero(), s[4].broadcast(2), MZ);
+        return;
+    }
+    if (key == "inflate") {
+        if (literalZero(r, 1)) {
+            // No breathing: the sine is not generated at all.
+            b.mulInto(s[2], v, P(0), MXYZ);
+            c.p->code.back().comment = "Inflate (constant)";
+            b.addInto(v, v, s[2], MXYZ);
+            return;
+        }
+        b.mulInto(s[0], c.timeV, P(2), MX);
+        c.p->code.back().comment = "Inflate";
+        b.sineApprox(s[1], s[0], MX, c.kc, c.one, c.sinS, c.kc.broadcast(1));
+        b.mulInto(s[1], s[1], P(1), MX);
+        b.addInto(s[1], s[1], P(0), MX);
+        b.mulInto(s[2], v, s[1].broadcast(0), MXYZ);
+        b.addInto(v, v, s[2], MXYZ);
+        return;
+    }
+    if (key == "squash") {
+        b.addInto(s[0], c.one, P(0), MX);
+        c.p->code.back().comment = "Squash / stretch";
+        b.addInto(s[0], c.one, P(1), MY);
+        b.addInto(s[0], c.one, P(2), MZ);
+        b.mulInto(v, v, s[0], MXYZ);
+        return;
+    }
+    if (key == "heightShade") {
+        b.mulInto(s[0], v, P(1), MY);
+        c.p->code.back().comment = "Height shade";
+        b.addInto(s[0], s[0], P(2), MY);
+        b.minimumInto(s[0], s[0], c.one, MY);
+        b.maximumInto(s[0], s[0], c.lits->read(r.extraLit[0]), MY);  // -1
+        b.mulInto(s[0], s[0], P(0), MY);
+        b.addInto(s[0], c.one, s[0].broadcast(1), MX);
+        b.mulInto(c.color, c.color, s[0].broadcast(0), MXYZ);
+        return;
+    }
+    if (key == "zbias") {
+        b.mulInto(s[0], v, P(0), MW);
+        c.p->code.back().comment = "Depth bias";
+        b.addInto(v, v, s[0].broadcast(3), MZ);
+        return;
+    }
+    if (key == "snap") {
+        const uint8_t xy = (uint8_t)(MX | MY);
+        b.mulInto(s[0], v, c.lits->read(r.extraLit[0]), xy);  // * steps
+        c.p->code.back().comment = "Vertex snap";
+        b.truncate(s[0], s[0], xy);
+        b.mulInto(s[0], s[0], c.lits->read(r.extraLit[1]), xy);  // * 1/steps
+        b.subInto(s[0], s[0], v, xy);
+        b.mulInto(s[0], s[0], P(1), xy);
+        b.addInto(v, v, s[0], xy);
+        return;
+    }
+    if (key == "pulse") {
+        b.mulInto(s[0], c.timeV, P(1), MX);
+        c.p->code.back().comment = "Pulse colour";
+        b.sineApprox(s[1], s[0], MX, c.kc, c.one, c.sinS, c.kc.broadcast(1));
+        b.mulInto(s[1], s[1], P(0), MX);
+        b.addInto(s[1], c.one, s[1].broadcast(0), MX);
+        b.mulInto(c.color, c.color, s[1].broadcast(0), MXYZ);
+        return;
+    }
+    if (key == "posterize") {
+        b.mulInto(s[0], c.color, c.lits->read(r.extraLit[0]), MXYZ);
+        c.p->code.back().comment = "Posterize";
+        b.truncate(s[0], s[0], MXYZ);
+        b.mulInto(s[0], s[0], c.lits->read(r.extraLit[1]), MXYZ);
+        b.subInto(s[0], s[0], c.color, MXYZ);
+        b.mulInto(s[0], s[0], P(1), MXYZ);
+        b.addInto(c.color, c.color, s[0], MXYZ);
+        return;
+    }
+    if (key == "desaturate") {
+        b.mulInto(s[0], c.color, c.lumaW, MXYZ);
+        c.p->code.back().comment = "Desaturate";
+        b.addInto(s[0], s[0], s[0].broadcast(1), MX);
+        b.addInto(s[0], s[0], s[0].broadcast(2), MX);  // s0.x = luminance
+        b.subInto(s[1], c.color, s[0].broadcast(0), MXYZ);
+        b.mulInto(s[1], s[1], P(0), MXYZ);
+        b.subInto(c.color, c.color, s[1], MXYZ);
+        return;
+    }
+    if (key == "scrollUv") {
+        // The clock has to be BROADCAST into a register first: a VU broadcast
+        // is only legal on the second operand, and timeV.y is sin(t), not t.
+        b.addInto(s[0], b.zero(), c.timeV.broadcast(0), MXYZ);
+        c.p->code.back().comment = "Scroll UV";
+        b.mulInto(s[1], s[0], P(0), MX);
+        b.mulInto(s[1], s[0], P(1), MY);
+        b.addInto(c.st, c.st, s[1], (uint8_t)(MX | MY));
+        return;
+    }
+}
+
+/** Turns an authored stage list into emitter-ready form, registering every
+ * literal it needs (including the DERIVED ones - a reciprocal folded on the
+ * host, a level count turned into two scale factors) in the pool. */
+struct StagePlan {
+    std::vector<Resolved> stages;
+    LitPool lits;
+    bool needsTime = false;
+    bool needsParams = false;
+    bool needsLuma = false;
+    bool needsSine = false;
+    std::vector<std::string> errors;
+    std::vector<std::string> dropped;  // key + why, for the panel and notes
+};
+
+StagePlan planStages(const std::vector<Stage>& stages, const Desc& d) {
+    StagePlan plan;
+    for (const Stage& s : stages) {
+        const StageDef* def = stageDef(s.key);
+        if (!def) {
+            // Unknown key: dropped, never guessed at. Same rule as a retired
+            // flow-graph node - a project written by a newer editor must not
+            // silently get a different program.
+            plan.dropped.push_back(s.key + " (no such stage)");
+            continue;
+        }
+        if (!s.enabled) {
+            plan.dropped.push_back(std::string(def->title) + " (disabled)");
+            continue;
+        }
+        if (stageIsNoOp(s)) {
+            plan.dropped.push_back(std::string(def->title) +
+                                   " (every strength is a literal zero)");
+            continue;
+        }
+        if (def->needsTexture && !d.texture) {
+            plan.errors.push_back(std::string(def->title) +
+                                  " needs a textured base, and this program has "
+                                  "no ST stream");
+            continue;
+        }
+        if (def->slot == Slot::Texture && d.env) {
+            plan.errors.push_back(
+                std::string(def->title) +
+                " cannot run on a reflective base: the ST slot carries an "
+                "object-space normal there, not a texture coordinate");
+            continue;
+        }
+        Resolved r;
+        r.def = def;
+        r.stage = s;
+        for (int i = 0; i < def->paramCount; ++i) {
+            const StageParam& sp = s.params[i];
+            const bool literal = sp.meshSlot < 0 || def->params[i].literalOnly;
+            if (sp.meshSlot >= 0 && def->params[i].literalOnly)
+                plan.errors.push_back(std::string(def->title) + ": " +
+                                      def->params[i].name +
+                                      " is baked into the microprogram and "
+                                      "cannot be bound to a mesh slot");
+            r.isLiteral[i] = literal;
+            r.literal[i] = sp.value;
+            if (literal)
+                r.litIndex[i] = plan.lits.index(sp.value);
+            else
+                plan.needsParams = true;
+        }
+        // Stage-private derived literals.
+        // 0.75 turns = the cosine phase (see Vu::sineApprox).
+        if (s.key == "twist") r.extraLit[0] = plan.lits.index(0.75f);
+        if (s.key == "heightShade") r.extraLit[0] = plan.lits.index(-1.0f);
+        if (s.key == "snap") {
+            float steps = s.params[0].value;
+            if (!(steps >= 1.0f)) steps = 1.0f;
+            r.extraLit[0] = plan.lits.index(steps);
+            r.extraLit[1] = plan.lits.index(1.0f / steps);
+        }
+        if (s.key == "posterize") {
+            float lv = s.params[0].value;
+            if (!(lv >= 2.0f)) lv = 2.0f;
+            r.extraLit[0] = plan.lits.index(lv / 255.0f);
+            r.extraLit[1] = plan.lits.index(255.0f / lv);
+        }
+        if (s.key == "desaturate") plan.needsLuma = true;
+        if (def->needsTime) plan.needsTime = true;
+        if (def->perVertex >= 20) plan.needsSine = true;
+        plan.stages.push_back(r);
+    }
+    return plan;
+}
+
+/** Second half of the resolve, and it cannot happen earlier: the literal pool's
+ * registers only exist after `LitPool::emit`, and the per-mesh parameter
+ * register only after the preamble has loaded it. */
+void bindOperands(StagePlan& plan, Val params) {
+    for (Resolved& r : plan.stages)
+        for (int i = 0; i < r.def->paramCount; ++i)
+            r.param[i] = r.isLiteral[i]
+                             ? plan.lits.read(r.litIndex[i])
+                             : params.broadcast(r.stage.params[i].meshSlot);
+}
+
+void applyStages(StageCtx& c, const StagePlan& plan, Slot slot) {
+    for (const Resolved& r : plan.stages)
+        if (r.def->slot == slot) emitStage(c, r);
+}
+
+void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     Vu b(prog);
     const int stride = regsPerVertex(d);
     const int stq = 0, rgba = d.texture ? 1 : 0, xyz = d.texture ? 2 : 1;
+
+    // A project's own stage list. Planned BEFORE anything is emitted, because
+    // the preamble has to know which constant registers to build.
+    StagePlan plan = planStages(d.stages, d);
+    const bool hasStages = !plan.stages.empty();
 
     // --- preamble: the per-mesh constants ---------------------------------
     if (d.cull) b.resetClipFlags();
@@ -1018,6 +1650,57 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         }
     }
 
+    // --- the stage list's own constants -------------------------------------
+    //
+    // All of this is preamble: it runs once per BUFFER, not once per vertex, so
+    // a stage list pays for its constants at the cost of a handful of slots and
+    // then reads them as broadcasts for the rest of the program.
+    Val stageParams{}, stageTime{}, stageKc{}, stageOne{}, stageLuma{};
+    if (hasStages) {
+        if (plan.needsParams) {
+            stageParams = b.named("vuParams");
+            prog.code.push_back([&] {
+                Instr in;
+                in.op = Op::Lq;
+                in.dst = stageParams.reg;
+                in.base = b.izero().reg;
+                in.imm = kCustomParamsAddr;
+                in.comment =
+                    "VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the "
+                    "lights-colour area; a bag carrying these has no lighting)";
+                return in;
+            }());
+        }
+        if (plan.needsTime) {
+            stageTime = b.named("vuTime");
+            prog.code.push_back([&] {
+                Instr in;
+                in.op = Op::Lq;
+                in.dst = stageTime.reg;
+                in.base = b.izero().reg;
+                in.imm = kCustomTimeAddr;
+                in.comment =
+                    "VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)";
+                return in;
+            }());
+        }
+        stageOne = b.named("vuOne");
+        b.onesInto(stageOne);
+        if (plan.needsSine) {
+            stageKc = b.named("vuSinK");
+            b.constants(stageKc, 0.15915494f, 0.5f, 8388608.0f, 0.225f);
+            prog.code[prog.code.size() - 8].comment =
+                "sineApprox constants: 1/2pi, 0.5, 2^23 (the floor trick), 0.225";
+        }
+        if (plan.needsLuma) {
+            stageLuma = b.named("vuLuma");
+            b.constants(stageLuma, 0.299f, 0.587f, 0.114f, 0.0f);
+            prog.code[prog.code.size() - 8].comment = "luminance weights";
+        }
+        plan.lits.emit(b);
+        bindOperands(plan, stageParams);
+    }
+
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
@@ -1194,19 +1877,58 @@ void buildAsIsBody(const Desc& d, Program& prog) {
                                     "spotT",  "spotC",  "spotA"};
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
     }
+    // Stage scratch, allocated ONCE and shared by every stage and all three
+    // vertices - a stage that minted its own would multiply VF pressure by
+    // three invisibly (fogCoefficient's trap, in a form that scales).
+    StageCtx sc;
+    sc.b = &b;
+    sc.p = &prog;
+    sc.params = stageParams;
+    sc.timeV = stageTime;
+    sc.kc = stageKc;
+    sc.one = stageOne;
+    sc.lumaW = stageLuma;
+    sc.lits = &plan.lits;
+    if (hasStages) {
+        static const char* sn[6] = {"vuS0", "vuS1", "vuS2",
+                                    "vuS3", "vuS4", "vuS5"};
+        static const char* qn[3] = {"vuSinA", "vuSinB", "vuSinC"};
+        for (int i = 0; i < 6; ++i) sc.s[i] = b.named(sn[i]);
+        for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
+    }
     for (int i = 0; i < 3 && d.cull; ++i) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
         // last Q write before the texture mulq reads it.
         if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
+        sc.vertex = vertex[i];
+        sc.color = color[i];
+        sc.st = d.texture ? st[i] : Val{};
+        if (hasStages) {
+            // The ST is touched here, before the perspective correction: after
+            // it the value is divided by w and an author-space offset would be
+            // scaled by the distance to the camera.
+            if (d.texture) applyStages(sc, plan, Slot::Texture);
+            // Object space - the vertex is still in the model's own units and
+            // the colour is still the mesh's own.
+            applyStages(sc, plan, Slot::ObjectSpace);
+        }
         if (spot)
             b.spotLight(color[i], vertex[i], spotPos, spotDirV, spotColV,
                         spotScratch);
         b.transform(vertex[i], mvp, vertex[i]);
+        // Clip space: xyzw, w is the view distance. This is BEFORE the fog
+        // coefficient and the frustum test on purpose - a stage that moves a
+        // vertex in depth must move its fog and its clip verdict with it.
+        if (hasStages) applyStages(sc, plan, Slot::ClipSpace);
         b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
         b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
                        adcMask, adcBit);
         b.persCorrect(vertex[i], vertex[i]);
+        // NDC, and the last chance before the 12.4 conversion makes the
+        // position an integer. Nothing here may write Q: the texture
+        // correction below is still holding persCorrect's.
+        if (hasStages) applyStages(sc, plan, Slot::Ndc);
         b.scaleToGsFormat(vertex[i], scale);
         if (d.texture) {
             // No div of its own: persCorrect above already put 1/w in Q, and
@@ -1217,6 +1939,9 @@ void buildAsIsBody(const Desc& d, Program& prog) {
         if (!colorStream)
             b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
                             lightColors, ambient);
+        // Colour, before FixColor clamps it - so a stage may overshoot and the
+        // clamp catches it, exactly like the lighting above.
+        if (hasStages) applyStages(sc, plan, Slot::Color);
         b.fixColor(color[i]);
     }
 
@@ -1268,11 +1993,14 @@ void buildAsIsBody(const Desc& d, Program& prog) {
     b.cont();
     b.branch(begin);
     b.finish();
+    if (planOut) *planOut = plan;
 }
 
 // ---------------------------------------------------------------------------
 // The .vclpp emitter
 // ---------------------------------------------------------------------------
+
+std::string emitBodyText(const Program& p);
 
 std::string emitVclpp(const Desc& d, const Program& p) {
     std::string out;
@@ -1299,7 +2027,28 @@ std::string emitVclpp(const Desc& d, const Program& p) {
     line("");
     line("#vuprog " + d.vclName);
     line("");
+    out += emitBodyText(p);
+    line("");
+    line("#endvuprog");
+    line("");
+    line("--exit");
+    line("--endexit");
+    return out;
+}
 
+// ---------------------------------------------------------------------------
+// The EE-side emitter
+// ---------------------------------------------------------------------------
+
+/** The instruction listing itself - shared by the StaPip and kernel emitters,
+ * because the branch-label rewriting below is exactly the sort of thing that
+ * gets fixed in one copy and not the other. */
+std::string emitBodyText(const Program& p) {
+    std::string out;
+    auto line = [&](const std::string& s) {
+        out += s;
+        out += "\n";
+    };
     // Which instructions are branch targets, so labels can be emitted.
     std::vector<int> isTarget(p.code.size(), 0);
     for (const Instr& in : p.code)
@@ -1333,18 +2082,8 @@ std::string emitVclpp(const Desc& d, const Program& p) {
         }
         line("    " + text + (in.comment.empty() ? "" : "  ; " + in.comment));
     }
-
-    line("");
-    line("#endvuprog");
-    line("");
-    line("--exit");
-    line("--endexit");
     return out;
 }
-
-// ---------------------------------------------------------------------------
-// The EE-side emitter
-// ---------------------------------------------------------------------------
 
 std::string emitEeHeader(const Desc& d) {
     std::string s;
@@ -1433,10 +2172,416 @@ Built build(const Desc& d) {
     out.tagQuads = tagQuads(d);
     out.regsPerVertex = regsPerVertex(d);
     out.attrStreams = attrStreams(d);
-    buildAsIsBody(d, out.program);
+    StagePlan plan;
+    buildAsIsBody(d, out.program, &plan);
+    out.errors = plan.errors;
+    out.droppedStages = plan.dropped;
+    if (!d.stages.empty()) {
+        // The stage cost, measured against the same description with the list
+        // removed. A sum of the catalogue's estimates would be a second answer
+        // to the same question and would drift the day a stage folds a literal.
+        Desc bare = d;
+        bare.stages.clear();
+        Program plain;
+        buildAsIsBody(bare, plain);
+        out.stageInstrs = (int)out.program.code.size() - (int)plain.code.size();
+    }
     out.vclpp = emitVclpp(d, out.program);
     out.eeHeader = emitEeHeader(d);
     out.eeSource = emitEeSource(d);
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// VU0 kernels - the second skeleton
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
+    Vu b(prog);
+
+    const IVal count = b.inamed("count");
+    {
+        Instr in;
+        in.op = Op::Ilw;
+        in.dst = count.reg;
+        in.base = b.izero().reg;
+        in.imm = k.controlAddr;
+        in.mask = MX;
+        in.comment = "elements in THIS call - the EE rewrites it per vcallms";
+        prog.code.push_back(in);
+    }
+
+    Val params{}, timeV{}, one{}, kc{};
+    if (plan.needsParams) {
+        params = b.named("params");
+        Instr in;
+        in.op = Op::Lq;
+        in.dst = params.reg;
+        in.base = b.izero().reg;
+        in.imm = k.paramAddr;
+        in.comment =
+            "the four user parameters - stored ONCE, they survive every "
+            "vcallms because VU0 data memory persists";
+        prog.code.push_back(in);
+    }
+    if (plan.needsTime) {
+        // A kernel has no renderer clock behind it, so the time quadword is
+        // written by its driver, next to the parameters.
+        timeV = b.named("time");
+        Instr in;
+        in.op = Op::Lq;
+        in.dst = timeV.reg;
+        in.base = b.izero().reg;
+        in.imm = k.paramAddr + 1;
+        in.comment = "(time, sin time, cos time, 1.0), written by the driver";
+        prog.code.push_back(in);
+    }
+    one = b.named("one");
+    b.onesInto(one);
+    if (plan.needsSine) {
+        kc = b.named("sinK");
+        b.constants(kc, 0.15915494f, 0.5f, 8388608.0f, 0.225f);
+    }
+    Val luma{};
+    if (plan.needsLuma) {
+        luma = b.named("luma");
+        b.constants(luma, 0.299f, 0.587f, 0.114f, 0.0f);
+    }
+    plan.lits.emit(b);
+    bindOperands(plan, params);
+
+    const IVal inAddr = b.inamed("inAddr");
+    b.iaddiuInto(inAddr, b.izero(), k.inputAddr);
+    prog.code.back().comment = "the input block - a FIXED address, not an xtop";
+    const IVal outAddr = b.inamed("outAddr");
+    b.iaddiuInto(outAddr, b.izero(), k.outputAddr);
+
+    const Lbl done = b.label("done");
+    b.branchIfLez(count, done);
+
+    StageCtx sc;
+    sc.b = &b;
+    sc.p = &prog;
+    sc.params = params;
+    sc.timeV = timeV;
+    sc.kc = kc;
+    sc.one = one;
+    sc.lumaW = luma;
+    sc.lits = &plan.lits;
+    static const char* sn[6] = {"s0", "s1", "s2", "s3", "s4", "s5"};
+    static const char* qn[3] = {"sinA", "sinB", "sinC"};
+    for (int i = 0; i < 6; ++i) sc.s[i] = b.named(sn[i]);
+    for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
+
+    const Lbl loop = b.label("elementLoop");
+    b.bind(loop);
+    const Val elem = b.named("elem");
+    {
+        Instr in;
+        in.op = Op::Lq;
+        in.dst = elem.reg;
+        in.base = inAddr.reg;
+        in.imm = 0;
+        prog.code.push_back(in);
+    }
+    sc.vertex = elem;
+    sc.color = elem;
+    sc.st = elem;
+    applyStages(sc, plan, Slot::ObjectSpace);
+    applyStages(sc, plan, Slot::ClipSpace);
+    b.sq(elem, outAddr, 0);
+    b.iaddiuInto(inAddr, inAddr, 1);
+    b.iaddiuInto(outAddr, outAddr, 1);
+    b.iaddiuInto(count, count, -1);
+    b.branchIfNotEq(count, b.izero(), loop);
+    b.bind(done);
+    // A kernel ENDS - there is no buffer to branch back to, and the EE
+    // re-enters at instruction 0 on the next vcallms. VCL puts the E bit on the
+    // last instruction of the #vuprog block, which is what this nop is for: a
+    // bare label at the end of the block has nothing to carry it.
+    {
+        Instr in;
+        in.op = Op::Nop;
+        prog.code.push_back(in);
+    }
+    b.finish();
+}
+
+std::string emitKernelVclpp(const KernelDesc& k, const Program& p) {
+    std::string out;
+    auto line = [&](const std::string& s) {
+        out += s;
+        out += "\n";
+    };
+    line("; Generated by TyraX (src/vugen.cpp). Do not edit - regenerate from");
+    line("; the description with: tyrax-editor --vu-emit <dir>");
+    line(";");
+    line("; " + k.title + " - a VU0 COMPUTE KERNEL.");
+    line(";");
+    line("; Nothing of the VU1 pipeline is here and that is the point: no xtop");
+    line("; (VIF0 is not double-buffered - the EE stores straight into VU0 data");
+    line("; memory), no GIF tag block and no xgkick (VU0 has no path to the GS),");
+    line("; and no branch back to a buffer loop - the program ENDS and the EE");
+    line("; re-enters it at instruction 0 with the next vcallms.");
+    line(";");
+    line("; Data memory (quadword addresses, 256 TOTAL on VU0):");
+    line(";   " + std::to_string(k.controlAddr) +
+         "  .x = element count for this call");
+    line(";   " + std::to_string(k.paramAddr) + "  user parameters");
+    line(";   " + std::to_string(k.paramAddr + 1) +
+         "  (time, sin time, cos time, 1.0)");
+    line(";   " + std::to_string(k.inputAddr) + ".." +
+         std::to_string(k.inputAddr + k.maxElements - 1) + "  input elements");
+    line(";   " + std::to_string(k.outputAddr) + ".." +
+         std::to_string(k.outputAddr + k.maxElements - 1) + "  output elements");
+    line(";");
+    line("; VU0's register file is SHARED with COP2 macro mode - the engine's own");
+    line("; Vec4/M4x4 math. Nothing may run this kernel concurrently with that;");
+    line("; the emitted driver blocks the EE for exactly this reason.");
+    line("");
+    line(".syntax new");
+    line(".name " + k.asmName);
+    line(".vu");
+    line(".init_vf_all");
+    line(".init_vi_all");
+    line("");
+    line("--enter");
+    line("--endenter");
+    line("");
+    line("#vuprog " + k.vclName);
+    line("");
+    out += emitBodyText(p);
+    line("");
+    line("#endvuprog");
+    line("");
+    line("--exit");
+    line("--endexit");
+    return out;
+}
+
+std::string emitKernelHeader(const KernelDesc& k) {
+    std::string s;
+    s += "// Generated by TyraX (src/vugen.cpp). Do not edit.\n";
+    s += "//\n";
+    s += "// " + k.title + " - a VU0 compute kernel.\n";
+    s += "//\n";
+    s += "// Usage from a script (inc/scripts/script.hpp):\n";
+    s += "//   static Tyra::" + k.className + " kernel;\n";
+    s += "//   kernel.setParams(0.5F, 2.0F, 0.0F, 0.0F);\n";
+    s += "//   kernel.setTime(elapsedSeconds);\n";
+    s += "//   kernel.run(in, out, count);   // count <= " +
+         std::to_string(k.maxElements) + "\n";
+    s += "//\n";
+    s += "// run() BLOCKS the EE until the kernel finishes. That is not a\n";
+    s += "// simplification: VU0's register file is the same one COP2 macro mode\n";
+    s += "// uses, which is the engine's Vec4/M4x4 math, so nothing else may be\n";
+    s += "// doing vector arithmetic while this runs.\n";
+    s += "#pragma once\n\n";
+    s += "#include <tamtypes.h>\n";
+    s += "#include \"math/vec4.hpp\"\n\n";
+    s += "namespace Tyra {\n\n";
+    s += "class " + k.className + " {\n";
+    s += " public:\n";
+    s += "  static constexpr int MaxElements = " +
+         std::to_string(k.maxElements) + ";\n\n";
+    s += "  /** Uploads the microprogram to VU0 micro memory. Idempotent. */\n";
+    s += "  void init();\n";
+    s += "  void setParams(float x, float y, float z, float w);\n";
+    s += "  /** Seconds. Wrap it yourself if your game runs for hours - the\n";
+    s += "   * kernel's sine folds through a 2^23 add and loses precision long\n";
+    s += "   * before a float would. */\n";
+    s += "  void setTime(float seconds);\n";
+    s += "  /** count elements in, count elements out. Blocks. */\n";
+    s += "  void run(const Vec4* in, Vec4* out, int count);\n\n";
+    s += " private:\n";
+    s += "  bool uploaded = false;\n";
+    s += "  float params[4] = {0.0F, 0.0F, 0.0F, 0.0F};\n";
+    s += "  float timeQ[4] = {0.0F, 0.0F, 1.0F, 1.0F};\n";
+    s += "};\n\n";
+    s += "}  // namespace Tyra\n";
+    return s;
+}
+
+std::string emitKernelSource(const KernelDesc& k) {
+    std::string s;
+    s += "// Generated by TyraX (src/vugen.cpp). Do not edit.\n\n";
+    s += "#include <math.h>\n";
+    s += "#include \"" + k.fileStem + "_kernel.hpp\"\n";
+    s += "#include \"debug/debug.hpp\"\n\n";
+    s += "extern u32 " + k.asmName +
+         "_CodeStart __attribute__((section(\".vudata\")));\n";
+    s += "extern u32 " + k.asmName +
+         "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
+    s += "namespace Tyra {\n\n";
+    s += "namespace {\n";
+    s += "// VU0 micro/data memory as the EE sees it (identity-mapped,\n";
+    s += "// uncached). Only legal to touch while VU0 is idle.\n";
+    s += "volatile u32* const kMicro = reinterpret_cast<volatile u32*>(0x11000000);\n";
+    s += "volatile u32* const kData = reinterpret_cast<volatile u32*>(0x11004000);\n\n";
+    s += "inline void waitIdle() {\n";
+    s += "  u32 stat = 0;\n";
+    s += "  int spins = 0;\n";
+    s += "  do {\n";
+    s += "    asm volatile(\"cfc2 %0, $29\" : \"=r\"(stat));\n";
+    s += "    TYRA_ASSERT(++spins < 8000000, \"" + k.className +
+         ": VU0 kernel timeout (VPU STAT stuck)\");\n";
+    s += "  } while (stat & 1);\n";
+    s += "}\n\n";
+    s += "inline void storeQ(int qw, const float* v) {\n";
+    s += "  const u32* src = reinterpret_cast<const u32*>(v);\n";
+    s += "  volatile u32* d = kData + qw * 4;\n";
+    s += "  d[0] = src[0]; d[1] = src[1]; d[2] = src[2]; d[3] = src[3];\n";
+    s += "}\n";
+    s += "inline void loadQ(int qw, float* v) {\n";
+    s += "  u32* dst = reinterpret_cast<u32*>(v);\n";
+    s += "  volatile u32* srcp = kData + qw * 4;\n";
+    s += "  dst[0] = srcp[0]; dst[1] = srcp[1]; dst[2] = srcp[2]; dst[3] = srcp[3];\n";
+    s += "}\n";
+    s += "}  // namespace\n\n";
+    s += "void " + k.className + "::init() {\n";
+    s += "  if (uploaded) return;\n";
+    s += "  waitIdle();\n";
+    s += "  const u32 words = static_cast<u32>(&" + k.asmName + "_CodeEnd - &" +
+         k.asmName + "_CodeStart);\n";
+    s += "  TYRA_ASSERT(words > 0 && words * 4 <= 4096,\n";
+    s += "              \"" + k.className +
+         " does not fit in VU0's 4KB of micro memory\");\n";
+    s += "  const u32* src = &" + k.asmName + "_CodeStart;\n";
+    s += "  for (u32 i = 0; i < words; i++) kMicro[i] = src[i];\n";
+    s += "  asm volatile(\"sync.l\");\n";
+    s += "  uploaded = true;\n";
+    s += "}\n\n";
+    s += "void " + k.className +
+         "::setParams(float x, float y, float z, float w) {\n";
+    s += "  params[0] = x; params[1] = y; params[2] = z; params[3] = w;\n";
+    s += "}\n\n";
+    s += "void " + k.className + "::setTime(float seconds) {\n";
+    s += "  timeQ[0] = seconds;\n";
+    s += "  timeQ[1] = sinf(seconds);\n";
+    s += "  timeQ[2] = cosf(seconds);\n";
+    s += "  timeQ[3] = 1.0F;\n";
+    s += "}\n\n";
+    s += "void " + k.className +
+         "::run(const Vec4* in, Vec4* out, int count) {\n";
+    s += "  if (count <= 0) return;\n";
+    s += "  if (count > MaxElements) count = MaxElements;\n";
+    s += "  init();\n";
+    s += "  waitIdle();\n";
+    s += "  storeQ(" + std::to_string(k.paramAddr) + ", params);\n";
+    s += "  storeQ(" + std::to_string(k.paramAddr + 1) + ", timeQ);\n";
+    s += "  for (int i = 0; i < count; i++)\n";
+    s += "    storeQ(" + std::to_string(k.inputAddr) +
+         " + i, reinterpret_cast<const float*>(&in[i]));\n";
+    s += "  volatile u32* ctrl = kData + " + std::to_string(k.controlAddr) +
+         " * 4;\n";
+    s += "  ctrl[0] = static_cast<u32>(count);\n";
+    s += "  // Drain the EE write buffer, then restart the microprogram at 0.\n";
+    s += "  asm volatile(\"sync.l\");\n";
+    s += "  asm volatile(\"vcallms 0\" ::: \"memory\");\n";
+    s += "  waitIdle();\n";
+    s += "  for (int i = 0; i < count; i++)\n";
+    s += "    loadQ(" + std::to_string(k.outputAddr) +
+         " + i, reinterpret_cast<float*>(&out[i]));\n";
+    s += "}\n\n";
+    s += "}  // namespace Tyra\n";
+    return s;
+}
+
+}  // namespace
+
+BuiltKernel buildKernel(const KernelDesc& k) {
+    BuiltKernel out;
+    out.program.name = k.vclName;
+
+    // The layout has to fit VU0's 256 quadwords, and a kernel that overruns it
+    // wraps silently on hardware - so it is refused here, with the arithmetic.
+    const int need = k.outputAddr + k.maxElements;
+    if (need > vusim::kVu0MemQuads)
+        out.errors.push_back(
+            "the layout needs " + std::to_string(need) +
+            " quadwords and VU0 has " + std::to_string(vusim::kVu0MemQuads) +
+            " - shrink the batch or move the output block down");
+    if (k.inputAddr + k.maxElements > k.outputAddr)
+        out.errors.push_back("the input block runs into the output block");
+    if (k.paramAddr + 1 >= k.inputAddr)
+        out.errors.push_back(
+            "the parameter block (2 quadwords) runs into the input block");
+
+    Desc fake;  // stages are validated against a description; a kernel is not
+    fake.texture = false;
+    StagePlan plan = planStages(k.stages, fake);
+    for (const Resolved& r : plan.stages)
+        if (!r.def->kernelSafe)
+            out.errors.push_back(
+                std::string(r.def->title) +
+                " is a rendering stage and has no meaning in a kernel - it "
+                "reads a colour or an ST that a kernel element does not have");
+    for (const std::string& e : plan.errors) out.errors.push_back(e);
+    out.notes = plan.dropped;
+    if (!out.errors.empty()) return out;
+
+    StagePlan built = planStages(k.stages, fake);
+    buildKernelBody(k, out.program, built);
+    out.vclpp = emitKernelVclpp(k, out.program);
+    out.eeHeader = emitKernelHeader(k);
+    out.eeSource = emitKernelSource(k);
+    // The loop body, measured against the same kernel with no stages.
+    KernelDesc bare = k;
+    bare.stages.clear();
+    Program plain;
+    StagePlan emptyPlan = planStages({}, fake);
+    buildKernelBody(bare, plain, emptyPlan);
+    out.perElement = (int)out.program.code.size() - (int)plain.code.size();
+    return out;
+}
+
+std::vector<float> simulateKernel(const BuiltKernel& b, const KernelDesc& k,
+                                  const std::vector<float>& in,
+                                  const float params[4], float time,
+                                  std::string* error) {
+    std::vector<float> out;
+    if (error) error->clear();
+    if (b.program.code.empty()) {
+        if (error) *error = "the kernel did not build";
+        return out;
+    }
+    const int count = (int)in.size() / 4;
+    if (count <= 0 || count > k.maxElements) {
+        if (error)
+            *error = "element count must be 1.." + std::to_string(k.maxElements);
+        return out;
+    }
+    std::vector<uint32_t> mem((size_t)vusim::memWords(vusim::Target::VU0), 0u);
+    auto put = [&](int qw, int f, float v) {
+        uint32_t bits;
+        std::memcpy(&bits, &v, 4);
+        mem[(size_t)qw * 4 + f] = bits;
+    };
+    for (int f = 0; f < 4; ++f) put(k.paramAddr, f, params[f]);
+    put(k.paramAddr + 1, 0, time);
+    put(k.paramAddr + 1, 1, std::sin(time));
+    put(k.paramAddr + 1, 2, std::cos(time));
+    put(k.paramAddr + 1, 3, 1.0f);
+    mem[(size_t)k.controlAddr * 4] = (uint32_t)count;
+    for (int i = 0; i < count; ++i)
+        for (int f = 0; f < 4; ++f) put(k.inputAddr + i, f, in[(size_t)i * 4 + f]);
+
+    vusim::Config cfg;
+    cfg.target = vusim::Target::VU0;
+    const vusim::Result r = vusim::run(b.program, mem, cfg);
+    if (!r.ok) {
+        if (error) *error = r.error;
+        return out;
+    }
+    out.resize((size_t)count * 4);
+    for (int i = 0; i < count; ++i)
+        for (int f = 0; f < 4; ++f) {
+            float v;
+            std::memcpy(&v, &r.mem[(size_t)(k.outputAddr + i) * 4 + f], 4);
+            out[(size_t)i * 4 + f] = v;
+        }
     return out;
 }
 
@@ -1467,7 +2612,8 @@ uint32_t asBits(float f) {
 /** Stages one randomized draw exactly as the EE would: the per-mesh constants,
  * the buffer header and the attribute arrays. */
 std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
-                                 bool singleColor) {
+                                 bool singleColor, const float* customParams,
+                                 float customTime) {
     std::vector<uint32_t> mem(vusim::kMemWords, 0u);
     auto putf = [&](int qw, int f, float v) { mem[(size_t)qw * 4 + f] = asBits(v); };
     auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
@@ -1505,8 +2651,48 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     puti(top + 1, 2, d.texture ? (0x2u | (0x1u << 4) | (0x4u << 8))
                                : (0x1u | (0x4u << 4)));
 
+    // A project's own program reads two more quadwords, and they sit in the
+    // lights-colour block the loop above just filled with noise - so they are
+    // written LAST and unconditionally. Zeros here are what make the identity
+    // check meaningful: a stage bound to a mesh slot must produce output
+    // bit-identical to the base program when the mesh asks for nothing.
+    if (d.custom) {
+        for (int f = 0; f < 4; ++f)
+            putf(kCustomParamsAddr, f, customParams ? customParams[f] : 0.0f);
+        putf(kCustomTimeAddr, 0, customTime);
+        putf(kCustomTimeAddr, 1, std::sin(customTime));
+        putf(kCustomTimeAddr, 2, std::cos(customTime));
+        putf(kCustomTimeAddr, 3, 1.0f);
+    }
+
+    // The cull family transforms on VU1, so it needs an MVP - and without one
+    // the matrix is all zeros, every transformed vertex collapses to the
+    // origin, and the whole per-vertex chain downstream is being compared at a
+    // degenerate point. Two programs still agree there, which is why the gap
+    // survived: it makes the check PASS while testing almost nothing. A
+    // plausible view-projection instead, chosen so the clip W stays comfortably
+    // positive (w = 60 - z over object-space z in +-5) - persCorrect divides by
+    // it, and a w through zero would put the comparison in the saturation
+    // region rather than in the arithmetic.
+    if (d.cull) {
+        const float mvp[4][4] = {{1.2f, 0.0f, 0.0f, 0.0f},
+                                 {0.0f, 1.6f, 0.0f, 0.0f},
+                                 {0.0f, 0.0f, -1.002f, -1.0f},
+                                 {0.0f, 0.0f, -2.0f, 60.0f}};
+        for (int r = 0; r < 4; ++r)
+            for (int f = 0; f < 4; ++f) putf(kMvpMatrixAddr + r, f, mvp[r][f]);
+    }
+
     int addr = top + kVertDataAddr;
     for (int i = 0; i < verts; ++i) {
+        if (d.cull) {
+            // Object space, and W is 1 - a mesh vertex, not a clipper output.
+            putf(addr + i, 0, randomFloat(s, -5.0f, 5.0f));
+            putf(addr + i, 1, randomFloat(s, -5.0f, 5.0f));
+            putf(addr + i, 2, randomFloat(s, -5.0f, 5.0f));
+            putf(addr + i, 3, 1.0f);
+            continue;
+        }
         // NDC positions with a healthy clip W: as_is never sees w <= 0, the EE
         // clipper removed those before the packet was built.
         putf(addr + i, 0, randomFloat(s, -1.2f, 1.2f));
@@ -1535,7 +2721,8 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
 }  // namespace
 
 Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
-                        int trials, uint32_t seed) {
+                        int trials, uint32_t seed, const float* customParams,
+                        float customTime) {
     Equivalence eq;
     eq.handwrittenInstrs = (int)a.code.size();
     eq.generatedInstrs = (int)b.code.size();
@@ -1553,8 +2740,10 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
         const int verts = 3 * (1 + (int)(xorshift(s) % 8));
         const bool single = !d.dirLights && (xorshift(s) & 1) != 0;
         uint32_t sa = s, sb = s;
-        const std::vector<uint32_t> memA = stageInput(d, top, verts, sa, single);
-        const std::vector<uint32_t> memB = stageInput(d, top, verts, sb, single);
+        const std::vector<uint32_t> memA =
+            stageInput(d, top, verts, sa, single, customParams, customTime);
+        const std::vector<uint32_t> memB =
+            stageInput(d, top, verts, sb, single, customParams, customTime);
 
         vusim::Config cfg;
         cfg.top = top;
