@@ -573,12 +573,43 @@ int tagQuads(const Desc& d) { return d.texture ? 9 : 7; }
 
 /** Per-vertex input arrays the EE unpacks: positions, then ST when textured,
  * then normals (lit) or colors. */
-int attrStreams(const Desc& d) {
-    int n = 1;
-    if (d.texture) n += 1;
-    n += 1;  // colors, or normals for the lit variants
-    return n;
+/** One per-vertex input array the EE unpacks into VU1 memory, in the order the
+ * blocks sit in memory. */
+struct AttrBlock {
+    const char* comment;   // what the emitted EE code calls it
+    const char* member;    // the StaPipQBuffer member holding it
+    bool singleColorOpt;   // skipped when the mesh draws in one flat colour
+};
+
+/** THE memory layout of the per-vertex input, and the only place it is written
+ * down. Three things have to agree on it and used to each spell it out
+ * separately: the microprogram's pointer arithmetic in `buildAsIsBody`
+ * (`stqData = vertexData + vertexCount`, and so on), the equivalence harness in
+ * `stageInput`, and the EE-side `addProgramQBufferDataToPacket` this file emits.
+ * They drifted: the emitted `c` put colours one block too far and the emitted
+ * `td` put normals ON TOP of the ST block, neither of which `--vu-check` can see
+ * because it stages memory itself and only diffs the microprogram's GS output.
+ * Derive from this list, never restate it. */
+std::vector<AttrBlock> attrBlocks(const Desc& d) {
+    std::vector<AttrBlock> b;
+    b.push_back({"Vertices", "vertices", false});
+    if (d.texture)
+        b.push_back({d.env ? "Normals - they ride in the ST slot (StaPipTextureBag)"
+                           : "ST",
+                     "sts", false});
+    // The last block is normals for the lit variants and colours otherwise -
+    // never both. The lit programs stage their GIF packet directly after the
+    // normals (`kickAddress = normalData + vertexCount`), so they never read a
+    // colour stream and unpacking one only burns DMA bandwidth.
+    if (d.dirLights)
+        b.push_back({"Normals", "normals", false});
+    else
+        b.push_back({"Colors - absent when the mesh draws in a single colour",
+                     "colors", true});
+    return b;
 }
+
+int attrStreams(const Desc& d) { return (int)attrBlocks(d).size(); }
 
 void buildAsIsBody(const Desc& d, Program& prog) {
     Vu b(prog);
@@ -1122,30 +1153,24 @@ std::string emitEeSource(const Desc& d) {
     s += "}\n\n";
     s += "void " + d.className + "::addProgramQBufferDataToPacket(\n";
     s += "    packet2_t* packet, StaPipQBuffer* qbuffer) const {\n";
-    s += "  u32 addr = VU1_STAPIP_VERT_DATA_ADDR;\n\n";
-    s += "  // Vertices\n";
-    s += "  packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->vertices,\n";
-    s += "                                   qbuffer->size, true);\n";
-    s += "  addr += qbuffer->size;\n";
-    if (d.texture) {
-        s += d.env ? "\n  // Normals - they ride in the ST slot (StaPipTextureBag)\n"
-                   : "\n  // ST\n";
-        s += "  packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->sts, "
-             "qbuffer->size,\n";
-        s += "                                   true);\n";
-    }
-    if (d.dirLights) {
-        s += "\n  // Normals\n";
-        s += "  packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->normals,\n";
-        s += "                                   qbuffer->size, true);\n";
-    } else {
-        s += "\n  // Colors - absent when the mesh draws in a single colour\n";
-        s += "  if (qbuffer->bag->color->single == nullptr) {\n";
-        s += "    addr += qbuffer->size;\n";
-        s += "    packet2_utils_vu_add_unpack_data(packet, addr, "
-             "qbuffer->colors,\n";
-        s += "                                     qbuffer->size, true);\n";
-        s += "  }\n";
+    s += "  u32 addr = VU1_STAPIP_VERT_DATA_ADDR;\n";
+    // Straight off attrBlocks(): each block sits one `qbuffer->size` past the
+    // previous one, so the advance belongs BEFORE every block but the first.
+    const std::vector<AttrBlock> blocks = attrBlocks(d);
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        const AttrBlock& blk = blocks[i];
+        const std::string ind = blk.singleColorOpt ? "    " : "  ";
+        s += "\n  // ";
+        s += blk.comment;
+        s += "\n";
+        if (blk.singleColorOpt)
+            s += "  if (qbuffer->bag->color->single == nullptr) {\n";
+        if (i > 0) s += ind + "addr += qbuffer->size;\n";
+        s += ind + "packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->";
+        s += blk.member;
+        s += ",\n";
+        s += ind + "                                 qbuffer->size, true);\n";
+        if (blk.singleColorOpt) s += "  }\n";
     }
     s += "}\n\n";
     s += "}  // namespace Tyra\n";

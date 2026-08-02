@@ -32,6 +32,41 @@ uint32_t floatToBits(float f) {
     return b;
 }
 
+/** The largest float the VU can hold: 0x7F7FFFFF. Not a coincidence that it is
+ * also what a division by zero yields - there is no other "infinity" here. */
+constexpr float kVuMax = 3.4028235e38f;
+/** Smallest normal float. Anything below this is a denormal, which the VU FPU
+ * does not have: it reads as zero. */
+constexpr float kVuMinNormal = 1.17549435e-38f;
+
+/** The VU FPU is NOT IEEE-754, and the difference is not academic: it has no
+ * infinities and no NaN. An overflowing result SATURATES to +/-kVuMax, and a
+ * denormal is zero. Host floats do neither, so without this an overflow becomes
+ * an `inf` here, the next subtraction turns that into a `nan`, and the whole run
+ * downstream is a fiction the console could never have produced - the exact
+ * failure mode that makes an unfaithful simulator worse than no simulator.
+ *
+ * Every float the machine WRITES goes through here (see `put`/`writeQ`). Raw bit
+ * moves (`move`, `mr32`, `mfir`, `ftoi*`, `lq`/`sq`) deliberately do NOT: those
+ * carry integer payloads - a packed GIF tag or an ftoi4 result - and clamping
+ * one as if it were a float is how you corrupt it. */
+float vuFloat(float v) {
+    if (v != v) return 0.0f;  // no NaN on the VU
+    if (v > kVuMax) return kVuMax;
+    if (v < -kVuMax) return -kVuMax;
+    if (v != 0.0f && std::fabs(v) < kVuMinNormal) return v < 0.0f ? -0.0f : 0.0f;
+    return v;
+}
+
+/** `ftoi0`/`ftoi4` saturate on hardware. In C++ the same conversion is UNDEFINED
+ * once the value leaves the int32 range, so clamp in double before narrowing. */
+int32_t vuToInt(double d) {
+    if (d != d) return 0;
+    if (d >= 2147483647.0) return 2147483647;
+    if (d <= -2147483648.0) return -2147483647 - 1;
+    return (int32_t)d;
+}
+
 /** VU integer registers are 16 bit. Keeping them sign-extended in an int32 is
  * what makes both halves of the engine's ADC trick work: `iaddiu adcBit, VI01,
  * 0x7FFF` wraps to 0x8000 (bit 15 = ADC) while `iblez` still compares as a
@@ -68,11 +103,10 @@ namespace {
  * 2048, so it is where a single-ULP mantissa difference first shows.
  *
  * Switching the host rounding mode for the duration of a run is the whole fix:
- * every add/mul/madd below then rounds the way VU1 does.
- *
- * Still NOT modelled, and neither has shown up in a capture yet: the VU has no
- * denormals (it flushes them to zero) and no infinities (it saturates to the
- * largest representable value). */
+ * every add/mul/madd below then rounds the way VU1 does. It composes with
+ * `vuFloat` above rather than replacing it - that one handles the RANGE the VU
+ * has (saturation, no NaN, no denormals), this one handles how it rounds inside
+ * that range. Both are needed; the capture only matched once both were in. */
 struct RoundTowardZero {
     int saved;
     RoundTowardZero() : saved(std::fegetround()) { std::fesetround(FE_TOWARDZERO); }
@@ -114,7 +148,8 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
         m.qPending = false;
         return m.q;
     };
-    auto writeQ = [&](float v, int pc, int line) {
+    auto writeQ = [&](float vRaw, int pc, int line) {
+        const float v = vuFloat(vRaw);
         if (m.qPending) {
             ++res.qClobbers;
             warn(pc, line,
@@ -167,11 +202,14 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
         // "a"-variant ops write the accumulator whatever the written dst says.
         const bool toAcc = in.dst == kAcc || in.op == Op::Mula ||
                            in.op == Op::Madda || in.op == Op::Msuba;
-        auto put = [&](int f, float v) {
+        // Every arithmetic result lands here, so this is the one place the VU's
+        // saturate-and-flush float behaviour has to be applied.
+        auto put = [&](int f, float vRaw) {
+            const uint32_t bits = floatToBits(vuFloat(vRaw));
             if (toAcc)
-                m.acc[f] = floatToBits(v);
+                m.acc[f] = bits;
             else
-                writeF(f, floatToBits(v));
+                writeF(f, bits);
         };
         auto putBits = [&](int f, uint32_t b) {
             if (toAcc)
@@ -248,8 +286,18 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                 break;
 
             case Op::Mr32:
-                for (int f = 0; f < 4; ++f)
-                    if (in.mask & (1 << f)) put(f, src2((f + 1) & 3));
+                // Move family, like `move`: a raw field ROTATION (dst[f] takes
+                // src[f+1]), not arithmetic. It must carry integer bit patterns
+                // through untouched, and must not be clamped as a float. There
+                // is no broadcast form - rotating IS the operation.
+                for (int f = 0; f < 4; ++f) {
+                    if (!(in.mask & (1 << f))) continue;
+                    const int sf = (f + 1) & 3;
+                    putBits(f, in.s2 == kAcc ? m.acc[sf]
+                               : (in.s2 >= 0 && (size_t)in.s2 < m.vf.size())
+                                   ? m.vf[in.s2][sf]
+                                   : 0u);
+                }
                 break;
 
             case Op::Abs:
@@ -264,8 +312,9 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                 // in the register for the following sq to store.
                 for (int f = 0; f < 4; ++f) {
                     if (!(in.mask & (1 << f))) continue;
-                    const float v = src2(f) * (in.op == Op::Ftoi4 ? 16.0f : 1.0f);
-                    putBits(f, (uint32_t)(int32_t)v);
+                    const double v =
+                        (double)src2(f) * (in.op == Op::Ftoi4 ? 16.0 : 1.0);
+                    putBits(f, (uint32_t)vuToInt(v));
                 }
                 break;
 
@@ -342,9 +391,12 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                 if (b == 0.0f) {
                     ++res.divByZero;
                     warn(pc, in.line, "division by zero");
-                    writeQ(a == 0.0f ? 0.0f
-                                     : (a > 0.0f ? 3.4028235e38f : -3.4028235e38f),
-                           pc, in.line);
+                    // Hardware yields the max float SIGNED BY BOTH OPERANDS
+                    // (the D flag for x/0, the I flag for 0/0 - but the result
+                    // is the saturated value either way, never zero).
+                    const bool neg =
+                        std::signbit(a) != std::signbit(b);
+                    writeQ(neg ? -kVuMax : kVuMax, pc, in.line);
                 } else {
                     writeQ(a / b, pc, in.line);
                 }
@@ -357,7 +409,7 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                 if (b == 0.0f) {
                     ++res.divByZero;
                     warn(pc, in.line, "rsqrt of zero");
-                    writeQ(3.4028235e38f, pc, in.line);
+                    writeQ(std::signbit(a) ? -kVuMax : kVuMax, pc, in.line);
                 } else {
                     writeQ(a / std::sqrt(b), pc, in.line);
                 }
