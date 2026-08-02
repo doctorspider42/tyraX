@@ -126,7 +126,8 @@ static std::vector<uint8_t> renderDir(const Prepared& img, const Dir& d) {
     return out;
 }
 
-static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
+static std::string prepare(const std::vector<FileEntry>& files, Prepared& img,
+                           const Options& opt) {
     if (files.empty()) return "no files to write";
 
     // --- Build the directory tree --------------------------------------
@@ -225,7 +226,10 @@ static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
     img.now = *std::localtime(&nowT);
 #endif
 
-    uint32_t lba = 16 + 2;  // system area + PVD + terminator
+    // System area + PVD + terminator, unless the caller reserved a bigger head
+    // for a second filesystem's volume structures.
+    uint32_t lba = 16 + 2;
+    if (opt.firstDataLba > lba) lba = opt.firstDataLba;
     img.ptL = lba;
     img.ptM = lba + img.ptSectors;
     lba = img.ptM + img.ptSectors;
@@ -240,13 +244,14 @@ static std::string prepare(const std::vector<FileEntry>& files, Prepared& img) {
         lba += (f.size + SECTOR - 1) / SECTOR;
         if (f.size == 0) lba += 1;  // give empty files a real (zeroed) sector
     }
-    img.totalSectors = lba;
+    img.totalSectors = lba + opt.tailReserveSectors;
     return "";
 }
 
-std::string plan(const std::vector<FileEntry>& files, PlannedImage* out) {
+std::string plan(const std::vector<FileEntry>& files, PlannedImage* out,
+                 const Options& opt) {
     Prepared img;
-    std::string err = prepare(files, img);
+    std::string err = prepare(files, img, opt);
     if (!err.empty()) return err;
     out->files.clear();
     for (const auto& f : img.files) out->files.push_back({f.isoPath, f.lba, f.size});
@@ -256,9 +261,10 @@ std::string plan(const std::vector<FileEntry>& files, PlannedImage* out) {
 }
 
 std::string write(const fs::path& isoFile, const std::string& volumeId,
-                  const std::vector<FileEntry>& files, std::vector<PlacedFile>* outPlacement) {
+                  const std::vector<FileEntry>& files, std::vector<PlacedFile>* outPlacement,
+                  const Options& opt) {
     Prepared img;
-    std::string err = prepare(files, img);
+    std::string err = prepare(files, img, opt);
     if (!err.empty()) return err;
     std::vector<Dir>& dirs = img.dirs;
     std::vector<File>& fileNodes = img.files;
@@ -329,6 +335,10 @@ std::string write(const fs::path& isoFile, const std::string& volumeId,
         out.write((const char*)term.data(), SECTOR);
     }
 
+    // Head reserved for another filesystem's volume structures (udf.hpp fills
+    // these in afterwards); zeroed here so the image is contiguous either way.
+    for (uint32_t lba = 18; lba < ptL; ++lba) out.write((const char*)zeros.data(), SECTOR);
+
     // Path tables (L: little-endian fields, M: big-endian)
     auto writePathTable = [&](bool bigEndian) {
         std::vector<uint8_t> pt;
@@ -373,6 +383,11 @@ std::string write(const fs::path& isoFile, const std::string& volumeId,
         const uint32_t pad = (SECTOR - written % SECTOR) % SECTOR + (written == 0 ? SECTOR : 0);
         out.write((const char*)zeros.data(), pad);
     }
+
+    // Tail reserved for another filesystem's metadata, counted in the PVD's
+    // volume space size so the image length matches what the descriptors claim.
+    for (uint32_t i = 0; i < opt.tailReserveSectors; ++i)
+        out.write((const char*)zeros.data(), SECTOR);
 
     out.flush();
     if (!out) return "write failed: " + isoFile.string();

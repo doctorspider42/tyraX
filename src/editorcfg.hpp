@@ -26,4 +26,10 @@ std::vector<std::string> recentProjects();
  * work has to look here too. */
 std::string defaultProjectsDir();
 
+/** The FreeDVDBoot filesystem folder set in Edit > Preferences, or "" if it is
+ * unset. The --export-fdvdb CLI reads it so a machine that already configured
+ * the editor does not have to repeat the path on every invocation
+ * (docs/freedvdboot.md). */
+std::string freeDvdBootDir();
+
 }  // namespace editorcfg

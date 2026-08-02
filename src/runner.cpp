@@ -158,6 +158,19 @@ void Runner::exportIso(const Project& p) {
     });
 }
 
+void Runner::exportFreeDvdBoot(const Project& p, const std::string& exploitDir) {
+    if (busy()) return;
+    join();
+    state_ = State::Running;
+    thread_ = std::thread([this, p, exploitDir] {
+        appendLine("[editor] === FreeDVDBoot ISO export: " + p.name + " ===");
+        const std::string err = isoexport::buildFreeDvdBoot(
+            p, exploitDir, [this](const std::string& l) { appendLine(l); });
+        if (!err.empty()) appendLine("[editor] FreeDVDBoot export failed: " + err);
+        state_ = err.empty() ? State::Success : State::Failed;
+    });
+}
+
 void Runner::cancel() {
     if (!busy()) return;
     cancelRequested_ = true;

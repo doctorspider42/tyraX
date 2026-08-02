@@ -146,6 +146,12 @@ guides. What is queued is in [Backlog](backlog.md).
   build actually costs in code and RAM, and the release audit that PROVES a
   shipped ELF carries none of it (`--audit-release`, run automatically after
   every release build).
+- [Booting on an unmodified PS2](freedvdboot.md) - why a burned disc normally
+  does nothing, and the one path that still works: the DVD Player's own IFO
+  parser. What `Export FreeDVDBoot ISO` writes (a UDF/ISO9660 hybrid - UDF for
+  the DVD Player's `VIDEO_TS`, ISO9660 for the game's `cdrom0:`), why the
+  exploit files are downloaded rather than shipped, the ELF memory ranges that
+  hang the console, and why PCSX2 cannot test any of it.
 - [The time machine (put the running game back)](time-machine.md) - the game
   captures everything it mutates a few times a second, the editor keeps a
   history of those captures in memory, and pushing one back puts the console

@@ -82,6 +82,7 @@ Then in the editor:
 - **Copy/paste** — duplicate scene objects with `Ctrl+C` / `Ctrl+V`. The copy is not dropped where it lay: it **follows the cursor** across the viewport (outlined, snapped onto whatever is under it) until a **left click** — or a second `Ctrl+V` — puts it down; `Esc` throws it away, and nothing enters the scene (or the undo history) until it lands. A multi-object paste moves as one rigid arrangement. See [docs/object-placement.md](docs/object-placement.md).
 - **Surface snapping** — with *Surface snap* on (the viewport tool row, or *View > Placement*), an object that enters the scene **rests on what is under it** instead of sinking into it: the terrain under its footprint, or the top of the object below — insert a box over a table and it lands *on* the table; insert three in one spot and they stack. Rotation and real model bounds are accounted for (a box rolled 45° rests on its corner, a character authored with its feet at the origin stands on the ground, not half-buried); only solid, collision-enabled geometry counts as a surface, so lights, markers and decals never lift anything. Applies to the Add menu, imported models, generated trees and the paste above; **`End`** drops the current selection onto the first surface *below* it as a one-shot. A machine preference (`editor.ini`), not project data. See [docs/object-placement.md](docs/object-placement.md).
 - **AI flow-graph generation** — *Flow Graph* window → **Generate with AI...**: describe the logic in plain language and the configured backend (Claude CLI, GitHub Copilot CLI or the OpenAI API — pick the backend, a model from the dropdown (or *Custom...* to type any model id) and a *Thinking* toggle in `Edit > Preferences > AI assistant`) builds the graph. An existing graph is sent along automatically, so "make the timer 5 seconds" or "also play a sound" **edits it in place** — the model returns the complete updated graph, unchanged nodes keep their ids and positions. The reply is validated against the live node registry (including your custom `.flownode` nodes) and applied as one undo step; a spinner + **Cancel** cover the wait. Also headless: `--ai-graph`. [docs/ai-flow-graph.md](docs/ai-flow-graph.md).
+- **Boot on an unmodified PS2** (`Project > Export FreeDVDBoot ISO`) — export your game as a disc a **stock** console boots: no modchip, no FreeMcBoot, no ESR, nothing installed. It is a UDF/ISO9660 hybrid whose UDF side carries a `VIDEO_TS` that fires CTurt's [FreeDVDBoot](https://github.com/CTurt/FreeDVDBoot) exploit in the PS2's own DVD Player, which then launches your ELF — while the ISO9660 side is the ordinary disc your game reads its assets from. Because the exploit files carry no licence they are **not** shipped: you download the `Filesystems/<your DVD Player version>/` folder once and point `Edit > Preferences` at it. The exporter also parses your ELF and refuses to write an image whose segments would land on the loader and hang the console. Headless: `--export-fdvdb`. [docs/freedvdboot.md](docs/freedvdboot.md).
 - **AI-agent CLI** — the editor exe doubles as a headless toolbox for AI assistants and scripts: `--dump` (project summary), `--list-nodes` (node catalog), `--dump-graph`/`--apply-graph` (validated graph I/O), `--refresh-gen` (regenerate game sources without Docker). [docs/ai-tools.md](docs/ai-tools.md).
 - **AI support in projects** — the **New Project** dialog (and later `Project > Preferences > AI support`) can install assistant guidance into the game project: Claude Code skills + `CLAUDE.md` and/or `.github/copilot-instructions.md`, teaching an AI assistant the project structure, the ownership markers, flow graphs, custom scripting and the CLI above. Refreshable with the same delete-the-marker-to-own rule as generated sources. [docs/ai-support.md](docs/ai-support.md).
 
@@ -187,6 +188,7 @@ Projects can also be created and built headlessly:
 ```bash
 tyrax-editor --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 tyrax-editor --build <projectDir> [--run]
+tyrax-editor --export-fdvdb <projectDir> [--fdvdb-dir <dir>]   # disc that boots on a STOCK PS2
 tyrax-editor --resave <projectDir>        # load + save (runs format migrations)
 tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
 tyrax-editor --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
@@ -205,6 +207,11 @@ preset and `unitsPerMeter` = 1 when omitted, the **debug** profile with Live
 Link on and USB keyboard & mouse off. It prints the terrain size and the world
 scale it used. The preset argument takes the same three values the dialog
 offers (`fpp`, `thirdperson`, `empty`); anything else is treated as `empty`.
+
+`--export-fdvdb` is export-only, like the rest of the disc tooling: it writes the
+image from whatever is in `bin/`, so run `--build` first (that keeps it
+Docker-free and scriptable). Without `--fdvdb-dir` the FreeDVDBoot folder comes
+from `editor.ini`. See [docs/freedvdboot.md](docs/freedvdboot.md).
 
 A second family of commands targets AI assistants working inside a generated
 project — `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
@@ -308,6 +315,7 @@ Deep-dive guides for the bigger features live in [docs/](docs) (indexed in
 [the Live Debugger](docs/live-debugger.md), [Live Logic](docs/live-logic.md),
 [the Remote Pad](docs/remote-pad.md),
 [the devkit's zero-cost promise](docs/devkit.md),
+[booting on an unmodified PS2](docs/freedvdboot.md),
 [live collaboration sessions](docs/collaboration.md),
 [the terrain (and building without one)](docs/terrain.md),
 [terrain painting](docs/terrain-painting.md),
@@ -382,6 +390,12 @@ This project stands on the shoulders of the PS2 homebrew community:
   The license text ships as [`vendor/tyra/LICENSE`](vendor/tyra/LICENSE),
   recovered from upstream history — upstream's own copy was deleted by accident
   in 2022 and never restored (see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)).
+- **[FreeDVDBoot](https://github.com/CTurt/FreeDVDBoot)** by CTurt — the DVD
+  Player exploit that lets an unmodified console boot a disc you burned, and the
+  [writeup](https://cturt.github.io/freedvdboot.html) explaining it. Nothing of
+  it is redistributed here: the repository carries **no license**, so its files
+  are all-rights-reserved and `Export FreeDVDBoot ISO` reads a copy **you**
+  download instead ([docs/freedvdboot.md](docs/freedvdboot.md)).
 - **[ps2client](https://github.com/ps2dev/ps2client)** and
   **[ps2link](https://github.com/ps2dev/ps2link)** by the
   [ps2dev project](https://ps2dev.github.io/) contributors — the network link

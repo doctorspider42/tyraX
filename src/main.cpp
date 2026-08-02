@@ -15,6 +15,7 @@
 #include "aisupport.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
+#include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "livedbg.hpp"
@@ -295,6 +296,41 @@ static void bakeProcedural(Project& p) {
     if (std::string err = project::save(p); !err.empty())
         std::fprintf(stderr, "warning: could not save the baked scene: %s\n",
                      err.c_str());
+}
+
+// --export-fdvdb <projectDir> [--fdvdb-dir <dir>]
+//
+// Export-only on purpose, like the rest of the disc tooling: it writes the
+// image from whatever is in bin/, so run --build first. That keeps it
+// Docker-free and usable from a script. Without --fdvdb-dir the folder comes
+// from editor.ini, so a machine that has it set in Preferences needs no flag.
+static int exportFdvdbFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --export-fdvdb <projectDir> "
+                     "[--fdvdb-dir <FreeDVDBoot Filesystems/<version> folder>]\n");
+        return 2;
+    }
+    std::string exploitDir;
+    for (int i = 3; i + 1 < argc; ++i)
+        if (std::strcmp(argv[i], "--fdvdb-dir") == 0) exploitDir = argv[i + 1];
+    if (exploitDir.empty()) exploitDir = editorcfg::freeDvdBootDir();
+
+    Project p;
+    std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    err = isoexport::buildFreeDvdBoot(p, exploitDir, [](const std::string& l) {
+        std::fprintf(stdout, "%s\n", l.c_str());
+        std::fflush(stdout);
+    });
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    return 0;
 }
 
 static int buildFromCli(int argc, char** argv) {
@@ -1258,6 +1294,8 @@ int main(int argc, char** argv) {
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--export-fdvdb") == 0)
+        return exportFdvdbFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
@@ -1280,6 +1318,9 @@ int main(int argc, char** argv) {
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]]\n"
+            "  --export-fdvdb <projectDir> [--fdvdb-dir <dir>]\n"
+            "                                          disc that boots on a "
+            "STOCK PS2 (docs/freedvdboot.md)\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "

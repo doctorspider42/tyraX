@@ -313,6 +313,21 @@ patch, and its build clones ps2link from upstream itself.
 If the ps2dev project ever states an explicit license, this entry should be
 replaced with it.
 
+## FreeDVDBoot — no license, and therefore NOT redistributed
+
+[CTurt/FreeDVDBoot](https://github.com/CTurt/FreeDVDBoot) declares no license
+file at all. Unlike ps2client above — where an unlicensed homebrew *tool* is
+redistributed in the spirit of the ps2dev SDK — nothing of FreeDVDBoot ships
+here, in source or binary form: no `VIDEO_TS.IFO`, no `VTS_01_0.IFO`, no
+payloads, no prebuilt ISOs. `Project > Export FreeDVDBoot ISO` reads a copy the
+**user** downloaded to their own machine and points the editor at
+(`Edit > Preferences`), and writes it into an image on that user's disk.
+
+This is a deliberate design constraint, not an oversight — it is why the feature
+has a configuration step instead of working out of the box. Do not "simplify" it
+by vendoring the files. If upstream ever states a license, this entry is where
+that changes. See [docs/freedvdboot.md](docs/freedvdboot.md).
+
 ## PS2SDK `audsrv` — Academic Free License v2.0
 
 `vendor/tyra/audsrv-pan` is a prebuilt module derived from the PS2SDK `audsrv`

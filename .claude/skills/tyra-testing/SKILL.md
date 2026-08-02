@@ -241,6 +241,36 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   `secname ...`), crashing to a null PC before the Tyra banner — which looks
   exactly like an engine bug and is not one.
 
+### Verifying a disc image (`--export-fdvdb`, `Export PS2 ISO`)
+
+Disc images are the one thing in this repo you can verify **better than PCSX2
+can**, because Linux mounts both of the filesystems a hybrid disc carries:
+
+```bash
+sudo mount -t udf     -o loop,ro <name>-fdvdb.iso /mnt/x   # what the PS2 DVD Player reads
+sudo mount -t iso9660 -o loop,ro <name>-fdvdb.iso /mnt/x   # what the game reads via cdrom0:
+```
+
+Then `find /mnt/x` and `cmp` the files against `bin/`. Do this — a hand-written
+structural validator is **not** a substitute. When `udf.cpp` was first written
+every descriptor tag, checksum and CRC validated and a 274-check validator
+passed clean, while the kernel refused the image outright (`dmesg`: *"No fileset
+found"*) because in-partition tags carried absolute sectors instead of
+partition-relative blocks. `dmesg` after a failed mount is the most useful
+error message available at this layer.
+
+`--export-fdvdb` needs no Docker and no real build: fabricate `bin/` (an ELF
+plus a few blobs) and a stand-in FreeDVDBoot folder holding
+`VIDEO_TS/VIDEO_TS.IFO` + `VTS_01_0.IFO`, and the exporter runs end to end.
+The ELF must be a **real** ELF — the exporter parses its program headers and
+rejects segments overlapping FreeDVDBoot's loader, which is itself worth a
+negative test (link one at `0x240000` and confirm the refusal).
+
+What this layer still cannot answer: whether the exploit actually **fires**.
+PCSX2 does not emulate the DVD Player, so a real console is the only judge —
+say so plainly rather than implying the feature is proven
+([docs/freedvdboot.md](../../../docs/freedvdboot.md)).
+
 ## Layer 2 — codegen checks without Docker
 
 Most features live or die in the generated code, and you can inspect it

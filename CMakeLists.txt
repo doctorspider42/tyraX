@@ -163,6 +163,7 @@ add_executable(tyrax-editor
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
+    src/udf.cpp
     src/menubake.cpp
     src/meshlod.cpp
     src/pcsx2_config.cpp
