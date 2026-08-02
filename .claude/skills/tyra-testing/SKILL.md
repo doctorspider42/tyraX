@@ -12,18 +12,25 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a PROGRESS.md entry or
+  "how do I know this works?" — including before writing a commit message or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-PROGRESS.md about which layer you reached (the existing entries distinguish
-"verified in PCSX2" from "compiles, needs a pad test by a human").
+your commit message and PR body about which layer you reached — the established
+wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
+human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
+the honesty convention outlived the file.)
 
 ## Layer 0 — build the editor
 
@@ -88,7 +95,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+build scripts** needs a build on both, or say so in the commit. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -560,11 +567,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in
-  PROGRESS.md and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in the
+  commit and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -723,8 +730,57 @@ Notes:
   tools. Anything wanted from them is a **ps2link patch**, which is the normal
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
-  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
-  PCSX2 runs no ps2link. (Verified: a session
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md).
+
+  **ps2link is no longer hardware-only: it runs in PCSX2.** A SECOND, portable
+  copy of the emulator (`-portable`, its own `inis/bios/logs`, so it cannot
+  disturb a parallel session or the editor's own launches) with **DEV9 bridged**
+  onto the LAN boots `ps2link.elf` and answers the real `ps2client` — same
+  subnet, same ports, `reset` and `execee` included. A wedge then costs
+  `Stop-Process` instead of a walk to the console, which is what makes a
+  Run → Stop → Run A/B a two-minute scripted test: measured 2026-07-31, r4 falls
+  through to the BIOS browser and drops off the LAN where r6 comes back and runs
+  the payload again. The full recipe, the four gotchas (`[DEV9/Eth]` is the ini
+  section, `EthDevice` is the bare adapter GUID, `host:` is served by PCSX2's
+  HostFs relative to the `-elf` directory and NOT by ps2client, ping proves
+  nothing in either direction) and the limits are in
+  **docs/ps2link-setup.md — "Testing a change without a console"**. The limit
+  that matters: **the emulator cannot produce an EE exception** — replayed the
+  r4 `BadAddr 8` crash there and the `printf` returned normally, because main
+  RAM starts at address 0, so a NULL dereference is an ordinary load. Faults,
+  `crash.txt` and the crash handler stay hardware tests; sequencing, restarts,
+  IOP reboots and the protocol do not.
+
+  **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
+  (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub
+  IOP/lwip headers in `test/shim/` and drives it with a scripted fake socket —
+  framing, EOF, short reads, buffer clamps. What makes it evidence rather than
+  decoration is the `-Pristine` / `--pristine` mode: the same tests against the
+  untouched upstream file, which must FAIL (it does, 7 of 18, three of them by
+  spinning past a 2000-call `recv()` ceiling). Use this layer for any change to
+  the `host:` protocol code before reaching for hardware; threads, the SIF and
+  the GS are still console-only. Note the `#include "net_fio.c"` trick — the
+  harness pulls the .c in so it can place `pko_fileio_sock`, which is static.
+
+  Since r2 of the patch, several "the console is hung, hit Reset" failures are
+  gone: a closed `ps2client` socket used to spin the IOP `host:` thread forever
+  while holding its semaphore, an unexpected reply desynced the stream for good,
+  and `pkoReset()` waited on an inverted `SifIopSync()` on every deploy. **r3**
+  adds `spu2Silence()`, so the SPU2 no longer drones the dead game's voices
+  through a reset — which means **"Stop on PS2" no longer deploys
+  `tools/silencer/silencer.elf` and no longer sleeps ~7 s**; if you are timing
+  Stop, that is why it got faster. The tool stays as a manual fallback for a
+  pre-r3 console. Check the boot banner reads `TyraX ps2link r3` and the log has
+  `SPU2 silenced` before blaming anything else. The
+  `dumpmem`/`scrdump` uselessness above is NOT explained by any of that and is
+  still open — r2 only stops the failure leaking a `host:` fd each attempt. (A
+  tempting theory, recorded so it is not re-tried: that the EE side passes
+  newlib `O_*` values where the wire wants `FIO_O_*` (`O_RDONLY` = 0, but
+  `FIO_O_RDONLY` = 1). It is wrong — the engine's asset loads use plain
+  `fopen("rb")` through the same path and work fine, so newlib values are what
+  this `host:` expects.)
+
+  (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
@@ -875,7 +931,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in PROGRESS.md, that's the established convention.
+  problem) - say so in the commit message, that's the established convention.
 
 ### The unattended input test, end to end
 

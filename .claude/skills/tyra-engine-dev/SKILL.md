@@ -14,6 +14,11 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 ## Fork policy
 
 `vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
@@ -627,7 +632,7 @@ on the same scene now that classification is cheap. When touching
 classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
-test. Known next target (from PROGRESS.md backlog): retire the EE clipper —
+test. Known next target (from `docs/backlog.md`): retire the EE clipper —
 flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
 on a real-PS2 pass).
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before

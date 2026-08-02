@@ -64,7 +64,8 @@ Then in the editor:
 
 - **New project** (`File > New Project`, `Ctrl+N`) — name, location (defaults to the folder set in `Edit > Preferences > New projects`, otherwise `~/TyraProjects`), the **world scale**, flat terrain size (width × depth in world units, **100 × 100** by default) and one of three **presets**: **FPP (first person)** — a Player entity you walk with the left analog stick and look around with using the right one; **Third person** — the same Player entity with the camera on a boom behind it, its avatar being that object's own animated model (`.glb`/`.fbx`, assigned later in *Properties* — the rig and the movement work without one); or **Empty (no objects)** — an empty scene whose camera does not move on its own: add a player, or drive the camera from your own code, a Camera object or a cutscene. (The camera still circles the terrain in any scene that has no Player object *and* a non-zero `Preferences > Camera > Orbit speed`; the Empty preset just starts that at 0, and projects made before this keep their turntable.) The preset is **fixed for the project's life**: it decides which game-template sources are generated, and those are user-ownable, so switching afterwards would either overwrite your work or leave an owned source no longer matching what the project builds. `Project > Preferences` shows it greyed out and says so; the player's own camera settings (mode, boom distance/height/shoulder, camera style) stay editable on the Player object. Generates a complete Tyra game project: `Makefile`, `Dockerfile`, `docker-compose.yml`, C++ sources rendering the scene (StaticPipeline, no asset files needed) and the single `<name>.tyra` project file. **World scale** — how many world units a real-world meter is ([docs/world-scale.md](docs/world-scale.md)) — is asked here because it is the one setting that is genuinely awkward to change later: it deliberately rescales nothing, so a world built at the wrong scale stays that size. The metric-by-definition defaults follow the choice, so the FPP preset is a 1.8 m player walking 5 m/s whatever you pick. A fresh project is also set up for **authoring** rather than shipping: the **debug** build profile with **Live Link** on (edit the running game; the overlays are one tick away) and **USB keyboard & mouse off**, so a pad game doesn't load drivers it never uses. New projects additionally start with **PAL picture: Full-height 576i** — on a PAL console the region-following interlaced mode boots the true 512-line frame instead of the letterboxed NTSC-size picture, which is what a 50 Hz signal is for; NTSC consoles are unaffected and still get their own 448 lines. All are in `Project > Preferences > Build` — the dialog says so, and the `(?)` next to each line explains why.
 - **Open project** (`Ctrl+O`) — pick the project's `<name>.tyra` file.
-- **Recent projects** — with no project open, the *Viewport* is a welcome screen: **New project** / **Open project** plus the last ten projects you opened (name over path, most recent first). One click opens one — the common "carry on with yesterday's project" needs no file dialog. An entry whose folder moved or was deleted stays listed but greyed with *(missing)*, and every row has an **x** that drops it from the list (it only forgets the shortcut — nothing on disk is touched). The list lives in `editor.ini`, so it follows the PC rather than any project.
+- **Recent projects** — with no project open, the *Viewport* is a welcome screen: **New project** / **Open project** plus the last ten projects you opened (name over path, most recent first). One click opens one — the common "carry on with yesterday's project" needs no file dialog. An entry whose folder moved or was deleted stays listed but greyed with *(missing)*, and every row has an **x** that drops it from the list (it only forgets the shortcut — nothing on disk is touched). The same list is in **`File > Recent Projects`** while a project *is* open (name in the item, full folder in its tooltip, **Clear list** at the bottom), so switching to another project is two clicks instead of close-then-file-dialog. The list lives in `editor.ini`, so it follows the PC rather than any project.
+- **Close project** (`File > Close Project`) — puts the editor back on that welcome screen without quitting it: the project is released, the panels go back to *No project open*, and the recent list is right there to pick the next one. Unsaved edits prompt first (the same Save / Don't Save / Cancel dialog as *Exit*). Anything bound to the project lets go with it — a live collaboration session ends, a running build is cancelled, a phone-camera recording is baked into its cutscene and stopped, a GI bake is cancelled — while a game already running in PCSX2 is left alone. Deliberately **no keyboard shortcut**: `Ctrl+W` sits one slip away from the `W` that flies the viewport camera.
 - **Spawn point** — a special scene object (marker with a direction arrow, no geometry in the game). In the FPP template the player starts at the first spawn point, facing its Y rotation.
 - **Scene objects** — insert simple 3D primitives (box, sphere, cylinder, cone) via the *Scene* menu or the buttons in the *Project* panel. Each object has a name, position, rotation, scale and color, editable in the *Project* panel and saved to its own `objects/<id>.json` file (one file per object, keyed by a stable id). Objects render both in the editor viewport and on the PS2 (scene data is regenerated into `inc/scene_data.hpp` on every build).
 - **Decals** (signs, posters, text on walls, fake shadows) — insert a *Decal*, assign a material whose `map_Kd` PNG has transparency, and it draws as an alpha-cutout image. A flat decal is a simple quad you stick on a flat surface; tick **"Project onto surfaces"** and it instead **wraps onto the receiver geometry** (angled/curved walls, models, terrain) so wall text and fake blob shadows conform to what they cover. The projection is computed entirely on the host at build time and baked to static geometry — it draws through the normal pipeline with **zero extra PS2 CPU cost** (no runtime projection or clipping).
@@ -237,9 +238,17 @@ The console side is **always our own [ps2link](https://github.com/ps2dev/ps2link
 a pinned upstream plus this repo's patch, built in Docker by
 [`tools/ps2link/build.ps1`](tools/ps2link/README.md) (`build.sh` on Linux) and
 flashed onto the memory card once — nothing downloads a ps2link for you, and
-stock ps2link is not a supported target (ours bakes in the USB keyboard/mouse
-stack, and more patches will follow). The one-time console setup — hardware,
-flashing, `IPCONFIG.DAT`, firewall ports, what every failure message means — is
+stock ps2link is not a supported target: ours bakes in the USB keyboard/mouse
+stack, and **fixes the hangs that made a network session need a console reset**
+(upstream's `host:` receive loop spun forever when the PC closed the socket, its
+reply parser desynced permanently on any unexpected packet, its IOP exception
+handler faulted before it could report a crash, and its IOP reset waited on an
+inverted condition). It also **silences the SPU2 on reset**, so a redeploy no
+longer leaves the dead game's voices looping — the chip keeps its registers
+across an IOP reset, which is why that used to need a separate silencer ELF
+deployed after every Stop. The boot banner carries an `r<n>` revision so you can
+tell which fixes a flashed card has. The one-time console setup — hardware, flashing,
+`IPCONFIG.DAT`, firewall ports, what every failure message means — is
 **[docs/ps2link-setup.md](docs/ps2link-setup.md)**.
 
 ## The in-tree Tyra engine
@@ -328,7 +337,7 @@ architecture guides live under [.claude/skills/](.claude/skills).
 - `examples/` — example projects: a general playground (`script-demo`), a large multi-feature `showcase`, and focused per-feature demos.
 - `vendor/tyra/engine` — the in-tree Tyra engine fork (versioned; Apache License 2.0).
 - `vendor/` (rest) — editor dependencies (not versioned; fetched at a **pinned commit** by `setup.ps1` / `setup.sh` from the single list in `deps.ps1` / `deps.sh`, which `build.ps1` / `build.sh` also check before configuring — add a new dependency to **both** lists and nothing else needs to know). `build.cmd` / `setup.cmd` are cmd.exe wrappers over the PowerShell scripts and deliberately contain no logic of their own — note that a bare `build` in PowerShell resolves to `build.cmd` first.
-- `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
+- `tools/` — PS2 network-deploy tools: `ps2client` (versioned, the rest fetched by `setup.ps1` / `setup.sh`) and the [TyraX ps2link](tools/ps2link/README.md) (`ps2link` — the patch + Docker build for the only ps2link the F6 deploy supports, plus `ps2link/test`, a host harness that drives the real `host:` protocol code against a fake socket without a console; see [docs/ps2link-setup.md](docs/ps2link-setup.md)), plus the [VS Code extension](docs/vscode-extension.md) (`vscode-tyrax`) for `.flownode`/`.screenfx` files.
 
 ## Dependency policy
 
@@ -405,21 +414,34 @@ This project stands on the shoulders of the PS2 homebrew community:
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
 ## License
 
-TyraX is licensed under the **Apache License 2.0** — see [LICENSE](LICENSE) and
-[NOTICE](NOTICE). Apache-2.0 was the natural choice rather than a deliberate
-one: the engine this editor is built around is already Apache-2.0, so matching
-it keeps the whole tree under a single set of terms with no compatibility
-question to answer.
+TyraX — the editor — is licensed under the **Apache License 2.0**, see
+[LICENSE](LICENSE) and [NOTICE](NOTICE). Apache-2.0 was the natural choice rather
+than a deliberate one: the engine this editor is built around is already
+Apache-2.0, so matching it keeps the whole tree under a single set of terms with
+no compatibility question to answer.
+
+**Games you generate are not covered by that** — see below.
 
 Third-party notices are in [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md);
 what may be added as a dependency, and on what conditions, is in the
 [Dependency policy](#dependency-policy) above.
 
-**Games you generate**: TyraX writes a project's C++ from templates that live in
-this repository (`src/templates.cpp`), so the generated sources start out as a
-copy of Apache-2.0-licensed code and carry those terms with them. In practice
-Apache-2.0 asks very little of you — keep the license and notice, state what you
-changed, don't use the project's name to endorse yours — and it does not reach
-your own game logic, art or audio. If you want generated projects released under
-terms of your own choosing instead, that needs an explicit exception added here
-by the copyright holder; until one exists, assume the above.
+### Games you generate — the game is yours
+
+**You can release a game made with TyraX commercially, with closed source.**
+TyraX writes a project's C++ from templates in this repository, and
+[LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md) grants that generated output to you
+with **no conditions at all** — no attribution, no license text, no notice, no
+source disclosure. Sell it, keep it closed, license it however you like.
+
+One thing an exception cannot waive, because the rights are not TyraX's to waive:
+a generated game links the **Tyra engine** (Apache-2.0) and **PS2SDK** (Academic
+Free License v2.0). Neither is copyleft — neither obliges you to publish source,
+restricts commercial use, or reaches your own game logic, art, audio or levels.
+Both ask only that the credit travels with the binary.
+
+That is handled for you: every project TyraX creates gets a
+**`THIRD-PARTY-NOTICES.txt`** at its root, pre-filled with exactly those notices.
+Ship it beside the ELF, in the package, or as an in-game credits screen and you
+are compliant. It is written once and never regenerated, so your own credits
+added to it survive every build. Older projects pick it up on their next build.

@@ -227,6 +227,26 @@ source line. **PCSX2 cannot produce EE exceptions at all** - the same forced
 overflow and an illegal opcode both execute as no-ops there - so the report is a
 hardware-only sight even though the feature is now harmless everywhere.
 
+Re-verified 2026-07-31 on the **low** ps2link build (image at `0x00094000`, i.e.
+sitting just below the game rather than at the top of RAM), because that is the
+layout where the report has the least room between itself and the game:
+`excCode 12`, `epc 0x0013144c`, the two operands still visible in the dump as
+`v0 7fffffff` / `v1 00000001`, `bin/crash.txt` written over `host:`, the screen
+taken with `CRASH: Arithmetic overflow`, and `--symbolize` resolving the EPC to
+`Drone::TerrainGame::loop()` at the exact line. So the whole chain - catch,
+escape the exception context, write through the IOP-served filesystem, symbolize
+on the host - works on both builds.
+
+Forcing one for a test needs inline asm: MIPS `add` traps on signed overflow but
+`addu` does not, and the compiler only ever emits `addu` for `int` arithmetic, so
+plain C overflow optimises into nothing to catch.
+
+```c
+volatile int a = 0x7FFFFFFF, b = 1;
+int r;
+asm volatile("add %0, %1, %2" : "=r"(r) : "r"(a), "r"(b));
+```
+
 It stays **opt-in** so nobody's debug build changes behaviour by surprise. Since
 installation is also what LINKS the handler out of `libtyra.a`, a project that
 leaves it off carries none of it - and neither does any release build.
