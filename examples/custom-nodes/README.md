@@ -44,6 +44,28 @@ nodes live in `flow-nodes/`:
   On Button (Square) ──exec──▶ Spin By (crate-2, 45°)
   ```
 
+  It is kept here as the smallest possible inline-node example. For real work
+  the editor now has built-ins that do this and more: **Rotate Object By** (the
+  same nudge, any axis) and **Spin Object** (continuous rotation the game
+  integrates itself). Reach for a custom node when the editor has no built-in,
+  not to re-implement one.
+
+## Both files document themselves
+
+Each `.flownode` here carries the documentation keys, and they are worth copying
+because they are what stops a project's own node needing a person next to it:
+
+- `desc` — what the NODE does. Shown when you hover the node in the Flow Graph
+  or its entry in the add-menu, and fed to the AI flow-graph generator.
+- `tip0`…`tip3` and `tip_string` — what each PARAMETER does. Shown when the
+  cursor rests on that widget inside the node, and listed under `desc` in the
+  node's own tooltip.
+
+`Spin By` has both (see its `tip0`: what Degrees means, and that firing it twice
+turns twice as far); `Nearest Visible` takes no parameters, so `desc` alone is
+its documentation. The built-in registry holds itself to the same split — see
+[docs/custom-flow-nodes.md](../../docs/custom-flow-nodes.md).
+
 ## Reusing these nodes
 
 A node's identity is its **file name**. To use `Spin By` in another project,

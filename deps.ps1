@@ -10,49 +10,90 @@
 # "Cannot find source file: vendor/<dep>/..." + "No SOURCES given to target".
 #
 # Fields:
-#   Probe - a file the build actually needs, not just the directory, so an
-#           interrupted or partial clone counts as missing.
-#   Build - $true when CMake compiles it into tyrax-editor, i.e. build.ps1
-#           blocks on it. vendor/tyra is the in-tree PS2 engine fork: its
-#           sources are tracked in this repo and compiled inside Docker, never
-#           by the editor build, so it is listed for provenance only.
+#   Commit - the EXACT commit fetched. Never a branch name. A branch is a
+#            moving target: two people running setup.ps1 a month apart used to
+#            get two different imgui, and because the loop skips a directory
+#            whose probe already exists, nobody ever noticed their vendor/ had
+#            frozen at whatever HEAD happened to be that day. Pinning is what
+#            makes a build of this repo reproducible. To bump a dependency,
+#            change the SHA here and in deps.sh, delete the vendor directory,
+#            re-run setup and actually build.
+#   Ref    - the branch or tag that commit came from. Documentation only: it is
+#            what you `git log` to pick the next SHA. Nothing fetches it.
+#   Mirror - our fork of the upstream, tried when the upstream fetch fails.
+#            Every pinned SHA above is reachable there, so the editor still
+#            builds if an upstream repo is deleted, renamed or force-pushed.
+#            Mirrors are plain GitHub forks (doctorspider42/tyrax-vendor-*);
+#            refresh one with `gh repo sync doctorspider42/<fork>` before
+#            bumping its SHA.
+#   Probe  - a file the build actually needs, not just the directory, so an
+#            interrupted or partial clone counts as missing.
+#   Build  - $true when CMake compiles it into tyrax-editor, i.e. build.ps1
+#            blocks on it. vendor/tyra is the in-tree PS2 engine fork: its
+#            sources are tracked in this repo and compiled inside Docker, never
+#            by the editor build, so it is listed for provenance only - its
+#            commit is the upstream fork point recorded in .gitignore, not
+#            something setup.ps1 checks out over the tracked engine sources.
 
 $VendorDeps = @(
     @{ Url = 'https://github.com/ocornut/imgui.git'
-       Branch = 'docking'; Dir = 'vendor/imgui'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-imgui.git'
+       Commit = 'b334d19b667958ed970000073644d911fae17e57'; Ref = 'docking'
+       Dir = 'vendor/imgui'
        Probe = 'vendor/imgui/imgui.cpp'; Build = $true },
     @{ Url = 'https://github.com/glfw/glfw.git'
-       Branch = '3.4'; Dir = 'vendor/glfw'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-glfw.git'
+       Commit = '7b6aead9fb88b3623e3b3725ebb42670cbe4c579'; Ref = '3.4'
+       Dir = 'vendor/glfw'
        Probe = 'vendor/glfw/CMakeLists.txt'; Build = $true },
     @{ Url = 'https://github.com/CedricGuillemet/ImGuizmo.git'
-       Branch = 'master'; Dir = 'vendor/imguizmo'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-imguizmo.git'
+       Commit = 'dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d'; Ref = 'master'
+       Dir = 'vendor/imguizmo'
        Probe = 'vendor/imguizmo/src/ImGuizmo.cpp'; Build = $true },
     @{ Url = 'https://github.com/Nelarius/imnodes.git'
-       Branch = 'master'; Dir = 'vendor/imnodes'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-imnodes.git'
+       Commit = 'eb36902c892548ef94f88f51ad7e7c9c7058a71c'; Ref = 'master'
+       Dir = 'vendor/imnodes'
        Probe = 'vendor/imnodes/imnodes.cpp'; Build = $true },
     @{ Url = 'https://github.com/nothings/stb.git'
-       Branch = 'master'; Dir = 'vendor/stb'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-stb.git'
+       Commit = '31c1ad37456438565541f4919958214b6e762fb4'; Ref = 'master'
+       Dir = 'vendor/stb'
        Probe = 'vendor/stb/stb_image.h'; Build = $true },
     @{ Url = 'https://github.com/ufbx/ufbx.git'
-       Branch = 'master'; Dir = 'vendor/ufbx'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-ufbx.git'
+       Commit = 'fcc5d6ba444cfd3eb80677dba5e37e493941abe5'; Ref = 'master'
+       Dir = 'vendor/ufbx'
        Probe = 'vendor/ufbx/ufbx.c'; Build = $true },
+    @{ Url = 'https://github.com/mackron/miniaudio.git'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-miniaudio.git'
+       Commit = '9634bedb5b5a2ca38c1ee7108a9358a4e233f14d'; Ref = 'master'
+       Dir = 'vendor/miniaudio'
+       Probe = 'vendor/miniaudio/miniaudio.h'; Build = $true },
     @{ Url = 'https://github.com/h4570/tyra.git'
-       Branch = 'master'; Dir = 'vendor/tyra'
+       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-tyra.git'
+       Commit = '92734168a21f8071643a49b9573eeb7b4aba2110'; Ref = 'master'
+       Dir = 'vendor/tyra'
        Probe = 'vendor/tyra/Makefile.base'; Build = $false }
 )
 
 # stb ships single headers we #include directly; back-fill any that a stale or
-# partial vendor/stb is missing (setup.ps1 does the fetching).
+# partial vendor/stb is missing (setup.ps1 does the fetching). Fetched from the
+# pinned stb commit, NOT from master - a back-filled header from a newer stb
+# than the rest of vendor/stb is exactly the silent version skew the pins exist
+# to prevent.
 $StbHeaders = @('stb_image.h', 'stb_truetype.h', 'stb_image_write.h')
 
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client.exe
-# talks to a console running ps2link. The Runner looks for it in
-# tools/ps2client/bin; ps2link goes onto the console's memory card once
-# (edit IPCONFIG.DAT for your LAN - format: "ip netmask gateway"). Not needed
-# to build the editor, so build.ps1 never blocks on these.
+# talks to a console running the TyraX ps2link. The Runner looks for it in
+# tools/ps2client/bin. Not needed to build the editor, so build.ps1 never
+# blocks on it.
+#
+# ps2link itself is NOT downloaded: the console side is always OUR ps2link,
+# built from tools/ps2link/ (a pinned upstream + tyrax.patch, in Docker) and
+# flashed onto the memory card once. See docs/ps2link-setup.md.
 $Ps2Tools = @(
     @{ Url = 'https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-windows-latest.tar.gz'
-       Dir = 'tools/ps2client'; Probe = 'tools/ps2client/bin/ps2client.exe' },
-    @{ Url = 'https://github.com/ps2dev/ps2link/releases/download/RenameMe/ps2link-0269a955-highloading.tar.gz'
-       Dir = 'tools/ps2link';   Probe = 'tools/ps2link/ps2link/PS2LINK.ELF' }
+       Dir = 'tools/ps2client'; Probe = 'tools/ps2client/bin/ps2client.exe' }
 )

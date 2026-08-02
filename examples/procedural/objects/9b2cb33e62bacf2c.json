@@ -1,0 +1,1 @@
+{ "id": "9b2cb33e62bacf2c", "name": "cairn#rock-x0zm1", "type": "model", "position": [48, 0, -48], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/procgen-9e14c7a8-rock-x0zm1.obj", "procSource": "9e14c7a80b5d2f63" }

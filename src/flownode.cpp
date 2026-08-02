@@ -96,11 +96,19 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
             outList = val;
         } else if (key == "exec_out") {
             execOut = (val == "true" || val == "1" || val == "yes");
+        } else if (key == "tip_string") {
+            out.strTipStore = val;
         } else if (key.size() == 4 && key.rfind("num", 0) == 0 && key[3] >= '0' &&
                    key[3] <= '3') {
             const int i = key[3] - '0';
             out.numLabelStore[i] = val.empty() ? "Value" : val;
             numSet[i] = true;
+        } else if (key.size() == 4 && key.rfind("tip", 0) == 0 && key[3] >= '0' &&
+                   key[3] <= '3') {
+            // A tip is INDEPENDENT of the label run: `tip2` without `num2` is a
+            // line about a param that does not exist, and is simply dropped
+            // below rather than shifting anything.
+            out.numTipStore[key[3] - '0'] = val;
         }
     }
 
@@ -120,8 +128,11 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
     ty.trigger = false;
     ty.strKind = strKind;
     ty.numCount = numCount;
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 4; ++i) {
         ty.numLabels[i] = (i < numCount) ? out.numLabelStore[i].c_str() : "";
+        ty.numTips[i] = (i < numCount) ? out.numTipStore[i].c_str() : "";
+    }
+    ty.strTip = (strKind == FlowParamKind::None) ? "" : out.strTipStore.c_str();
     ty.numKind = FlowParamKind::None;
     // Pins. `string = object` and `in = object` both give the object input pin
     // that resolveTarget reads (the node's "target"). Outputs are only
@@ -147,11 +158,17 @@ const char* kExampleTemplate =
     "# it will not resolve. Header keys (before the --- line):\n"
     "#   title     display name in the add-menu / node title bar\n"
     "#   category  add-menu submenu (default: Custom)\n"
-    "#   desc      one-line behavior description - shown as the node's tooltip\n"
-    "#             in the editor and fed to the AI flow-graph generator, so\n"
-    "#             the node documents itself. Write one!\n"
+    "#   desc      what the NODE does - shown as the node's tooltip in the\n"
+    "#             editor and fed to the AI flow-graph generator, so the node\n"
+    "#             documents itself. Write one!\n"
     "#   string    the string param: none | text | object (default: none)\n"
     "#   num0..3   labels for up to four numeric params (define them in order)\n"
+    "#   tip0..3   what each numeric param DOES - one line, shown when the\n"
+    "#             cursor rests on that widget in the node and listed under\n"
+    "#             desc in the node's own tooltip. Write these too: `desc`\n"
+    "#             explains the node, a tip explains the knob, and a knob with\n"
+    "#             no tip is the half of the help the reader is looking at.\n"
+    "#   tip_string  the same for the string param\n"
     "#   in        input pins besides params: any of  object position bool text\n"
     "#   out       output pins:               any of  object position bool text\n"
     "#   exec_out  true = a follow-up exec output that fires downstream after\n"

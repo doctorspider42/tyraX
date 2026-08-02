@@ -66,18 +66,34 @@ class Pad {
    * update() rebuilds the state from hardware, so a skipped frame simply
    * drops the overlay. held = buttons currently down; the joy args are
    * -127..127 offsets added to the stick axes (0 = leave alone). Click
-   * edges are derived from the previous overlay internally. */
+   * edges are derived from the previous overlay internally.
+   *
+   * `slot` picks which overlay's history the click edges come from, so two
+   * independent virtual sources can both inject in one frame: 0 = the USB
+   * keyboard/mouse fold, 1 = the editor's Remote Pad (docs/remote-pad.md).
+   * Sharing a slot between two sources makes each call look like the other
+   * one released everything, which turns held buttons into a click every
+   * frame - hence one slot per source, not one shared previous state. */
   void injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
-                     s16 rightJoyH, s16 rightJoyV);
+                     s16 rightJoyH, s16 rightJoyV, u8 slot = 0);
+
+  /** Overlay slots - see injectVirtual. */
+  static const int VIRT_SLOTS = 2;
 
  private:
+  /** TyraX: how long waitPadReady() gives a controller to settle, in ~1 ms
+   * polls. Generous, because it only ever costs this much when there is no
+   * usable pad - and then the game boots without one instead of hanging. */
+  static const int PAD_READY_POLLS = 3000;
+
   char padBuf[256] alignas(sizeof(char) * 256);
   char actAlign[6];
   int actuators, ret, port, slot;
   padButtonStatus buttons;
   u32 padData, oldPad, newPad;
   PadButtons pressed, clicked;
-  PadButtons virtPrev;  // TyraX: last frame's injectVirtual held set
+  // TyraX: last frame's injectVirtual held set, per overlay slot.
+  PadButtons virtPrev[VIRT_SLOTS];
   PadJoy leftJoyPad, rightJoyPad;
   bool optional, opened, ready, connected;
 

@@ -1,7 +1,8 @@
 # Stage 2: true skeletal animation runtime ("the 2002 flex")
 
 Follow-up to PR #12 (animated models stage 1: .glb baked to morph frames).
-Read `docs/animated-models.md` and PROGRESS.md entry (25) first; this plan
+Read `docs/animated-models.md` first (and, for the stage-1 write-up, entry (25)
+of the retired `PROGRESS.md` from git history — see `docs/backlog.md`); this plan
 assumes stage 1 is merged.
 
 ## Goal

@@ -133,6 +133,17 @@ processing:
         CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
         CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
 
+        ; Ceiling before the clipper interpolates - see the same block in
+        ; stapip_clip_c_vu1.vclpp (unclamped saturated colors made lit
+        ; objects brighten at screen edges; upper bound only, micro memory
+        ; has no room for the floor the emitter already applies).
+        loi         255
+        mini.xyz    color1,     color1,     i
+        loi         255
+        mini.xyz    color2,     color2,     i
+        loi         255
+        mini.xyz    color3,     color3,     i
+
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }

@@ -1,0 +1,1 @@
+{ "id": "bench000000000007", "name": "b7", "type": "sphere", "position": [-16.24, 14, 8.8], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.33, 0.5, 0.8], "physics": true, "physMass": 1, "physBounce": 0.88, "physFriction": 0.08, "physTumble": true, "physSleep": 3 }

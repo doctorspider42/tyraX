@@ -36,6 +36,7 @@ class PipelineInfoBag {
     zTestType = PipelineZTest_Standard;
     fogDisabled = false;
     additiveBlendFix = 0;
+    dynLightPick = true;
   }
   ~PipelineInfoBag() {}
 
@@ -81,6 +82,17 @@ class PipelineInfoBag {
    * draw. Consumed by the static pipeline only (StaPipCore::render).
    */
   u8 additiveBlendFix;
+
+  /**
+   * Modified by TyraX: opt-out from the per-bag scene-dynamic-light pick
+   * (RendererCore::pickDynLight). The color programs light each mesh with
+   * ONE light, so a mesh split into several bags (terrain chunks) shows a
+   * hard seam wherever neighboring bags pick different lights - such bags
+   * set this false and keep only the global flashlight state, while the
+   * game paints the scene lights' ground pools as smooth additive patches
+   * instead. Also for bags a nearby light must never tint (the sky dome).
+   */
+  bool dynLightPick;
 };
 
 }  // namespace Tyra

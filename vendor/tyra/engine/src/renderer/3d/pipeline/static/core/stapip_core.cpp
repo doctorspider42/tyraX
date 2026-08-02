@@ -9,6 +9,7 @@
 */
 
 #include <gs_gp.h>
+#include <math.h>
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
@@ -203,6 +204,38 @@ void StaPipCore::render(StaPipBag* bag) {
   qbufferRenderer.ensureProgramSet(bag->billboard != nullptr);
 
   qbufferRenderer.clearLastProgramName();
+
+  // Modified by TyraX: pick this bag's dynamic light (flashlight vs scene
+  // point lights - the color programs have ONE light slot per mesh). The
+  // pick runs on the bag's world-space bounding sphere; without a bbox
+  // (frustumCulling != Precise, e.g. the sky dome) the model translation
+  // stands in with radius 0. Bags with dynLightPick = false (terrain
+  // chunks, the sky dome) keep the global flashlight state - a per-chunk
+  // pick shows a hard seam wherever neighbors pick different lights.
+  if (!bag->lighting && !bag->info->dynLightPick) {
+    qbufferRenderer.setBagLight(nullptr);
+  } else if (!bag->lighting) {
+    const M4x4& m = *bag->info->model;
+    Vec4 center(m.data[12], m.data[13], m.data[14], 1.0F);
+    float radius = 0.0F;
+    if (bbox) {
+      const auto* mb = bbox->getMainBBox();
+      const Vec4& lo = (*mb)[0];
+      const Vec4& hi = (*mb)[7];
+      const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
+                     (lo.z + hi.z) * 0.5F, 1.0F);
+      center = m * mid;
+      // Near-uniform scale assumed (same as the light's object-space
+      // transform in sendObjectData) - column 0 length is the scale.
+      const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                                m.data[2] * m.data[2]);
+      const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
+      radius = 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) * scale;
+    }
+    qbufferRenderer.setBagLight(rendererCore->pickDynLight(center, radius));
+  } else {
+    qbufferRenderer.setBagLight(nullptr);
+  }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
