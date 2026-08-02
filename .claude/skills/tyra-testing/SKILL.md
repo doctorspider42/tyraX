@@ -559,7 +559,13 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **A TAB can** - it could not until recently, and the
+  reason is worth knowing if a widget ever turns up in `dump` with a rect and no
+  label: `TabItemEx` reports its LABEL before its RECT (the reverse of every
+  other widget), the registry dropped an info for an id it had not seen, and so
+  every tab in the editor was an unnamed rectangle and no tabbed panel could be
+  driven past its first tab. Unmatched info is now held until the rect arrives,
+  so `click "VU Programs/Generated"` resolves.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per

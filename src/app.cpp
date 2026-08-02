@@ -810,6 +810,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
@@ -1447,6 +1448,13 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                    "posterize - and see the micro memory it costs, the VCL it\n"
+                    "generates and what it computes, without a console. Also\n"
+                    "VU0 compute kernels.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -4036,6 +4044,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
@@ -4060,7 +4069,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad",      "proc",     "prefabs"};
+    "pad",      "proc",     "prefabs", "vu"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether

@@ -146,6 +146,7 @@ add_executable(tyrax-editor
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
     src/procui.cpp
+    src/vu_ui.cpp
     src/props_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp

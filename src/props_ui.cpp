@@ -707,6 +707,43 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // The four numbers this mesh hands the project's own VU1 microprogram.
+    // Shown ONLY when the project has such a program: otherwise they are four
+    // sliders that do nothing, on every object, forever. Which stage reads
+    // which slot is a property of the program, so the labels come from the
+    // stage list rather than being named here.
+    if (isSolid && !project_.vu.programs.empty()) {
+        ImGui::SeparatorText("VU program");
+        std::string uses[4];
+        for (const VuProgram& pr : project_.vu.programs) {
+            if (!pr.enabled) continue;
+            for (const VuStage& st : pr.stages) {
+                const vugen::StageDef* def = vugen::stageDef(st.kind);
+                if (!def || !st.enabled) continue;
+                for (int i = 0; i < def->paramCount; ++i)
+                    if (st.bind[i] >= 0 && st.bind[i] < 4) {
+                        std::string& u = uses[st.bind[i]];
+                        if (!u.empty()) u += ", ";
+                        u += std::string(def->title) + " " + def->params[i].name;
+                    }
+            }
+        }
+        static const char* kAxis[4] = {"X", "Y", "Z", "W"};
+        for (int i = 0; i < 4; ++i) {
+            ImGui::PushID(i);
+            const std::string label =
+                uses[i].empty() ? std::string(kAxis[i]) + " (unused)"
+                                : uses[i] + "##vu" + kAxis[i];
+            ImGui::DragFloat(label.c_str(), &o.vuParams[i], 0.01f);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::PopID();
+        }
+        ImGui::TextDisabled(
+            "All zero = this mesh renders exactly as it would with no custom\n"
+            "program at all. Objects merged into one static batch share a\n"
+            "bag, and therefore share these numbers.");
+    }
+
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
     // distance; collision, sounds and scripts keep running. For a mirror it
     // gates the glass AND every reflected copy - the whole illusion.

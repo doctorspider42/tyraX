@@ -10,6 +10,34 @@ without it.
 
 ---
 
+## The panel
+
+*Tools > VU Programs*, four tabs.
+
+- **Micro memory** — the resident set as a bar against the real 2042-slot
+  ceiling, one row per material class with what that class costs, and the mask
+  **auto-detected from the scenes and prefabs**. A class the project draws but
+  the mask drops is flagged: dropping it does not crash (the engine walks down
+  to a resident relative) but those meshes lose the feature, which reads as a
+  material bug rather than a settings one.
+- **Programs** — the stage list per base. A stage that would emit nothing is
+  drawn dimmed with the reason on hover, so "I added it and nothing happened"
+  has an answer on screen. Each parameter is a value or a mesh-slot binding.
+- **Generated** — the `.vclpp` this exact stage list produces, and **Run it on
+  the host**: the program executed in the VU simulator over a small synthetic
+  mesh, printed as GS vertices, *twice* — once with the panel's mesh parameters
+  and once with them at zero. The second column is the identity the whole design
+  rests on, and having it next to the first is what makes it a fact rather than
+  a promise. It also reports Q clobbers, which is the one mistake the assembler
+  will not catch.
+- **VU0 kernel** — the same stages on the other unit, with the instruction count
+  against VU0's 512 slots.
+
+Per-mesh numbers are set in the object inspector, under **VU program** — and
+only when the project has one, otherwise they would be four sliders that do
+nothing on every object forever. Each slot is labelled with what actually reads
+it (`Wobble Amplitude`), pulled from the stage list rather than named there.
+
 ## The shape of the thing
 
 A project's own VU1 program is **a base plus an ordered list of stages**.

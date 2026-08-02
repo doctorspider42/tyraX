@@ -5006,6 +5006,12 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
+    // The four numbers this mesh hands the project's own VU1 microprogram.
+    // They are BAKED into SCENE_OBJECTS and the live-link record carries only
+    // transform + colour, so an edit of them cannot show without a rebuild -
+    // and without this the chip would claim LIVE while the effect did not
+    // change (docs/vu-authoring.md).
+    for (int i = 0; i < 4; ++i) fnvMixF(h, o.vuParams[i]);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
