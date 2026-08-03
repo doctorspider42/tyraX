@@ -181,7 +181,7 @@ not a way to pretend the VU is a GPU.
 | `Ndc` | after the perspective divide | screen-space snapping |
 | `Color` (default) | — colour after lighting and texturing, before the clamp | shading, palettes, tints |
 
-### Three rules the compiler will not tell you
+### Four rules the compiler will not tell you
 
 **Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
 writes the I register; a run of them inside the per-vertex body is something vcl
@@ -189,6 +189,15 @@ schedules around, and the hardware then reads an I the host simulator never saw.
 Building constants by hand through `c.raw()` inside the body is the one way to
 reproduce this - the first console run of the script above came out as rainbow
 noise until the constants were hoisted.
+
+**Multiply, never add.** An object is drawn by more than one bag, and the extra
+ones are MODULATION passes: a baked lightmap's vertex colour is literally
+`Color(0, 0, 0, 128)` with the occlusion living in its texture. Add a constant
+to "lift the dark end" and you lift that black to grey — the shadow pass becomes
+a grey wash, dithered because it is blended, and it reads exactly like z-fighting
+under the texture. Multiplying leaves zero at zero, so a modulation pass passes
+through untouched. The same rule is why the sample writes `c.color.rgb()`:
+alpha is what the GS blends with.
 
 **Registers run out before micro memory does.** VCL allocates 31, and the
 directional-light program already keeps about 30 of them live. Cell shading

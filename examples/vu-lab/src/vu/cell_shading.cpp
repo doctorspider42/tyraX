@@ -34,29 +34,26 @@ struct CellShading : vu::Program {
     vu::Slot slot() const override { return vu::Slot::Color; }
 
     void vertex(vu::Ctx& c) override {
-        // Straight in the GS's own 0..255 scale, and that is not laziness: a
-        // trip through 0..1 and back costs two more constants, and the lit
-        // program has no room for them - the directional-light class already
-        // keeps ~30 of VCL's 31 registers live, and going over does not
-        // degrade, it fails as `no opt table` out of vcl (measured, on this
-        // very file).
+        // MULTIPLY, NEVER ADD. An object is drawn by more than one bag, and the
+        // extra ones are MODULATION passes: a baked lightmap's vertex colour is
+        // literally Color(0,0,0,128) with the occlusion in its texture. Adding
+        // a constant lifts that black to grey, so the shadow pass turns into a
+        // grey wash - dithered, because it is blended - that reads exactly like
+        // z-fighting under the texture. Multiplying leaves zero at zero, so a
+        // modulation pass passes through untouched.
         //
-        // Lift the floor first. Without it the darkest band is pure black and
-        // the result reads as "unlit" rather than "shaded", the same reason a
-        // toon ramp rarely starts at zero.
-        vu::Vec lit = c.color + vu::splat(c, 46.0F);  // 0.18 of 255
+        // Straight in the GS's own 0..255 scale: a trip through 0..1 and back
+        // costs two more constants, and the lit program has no room for them
+        // (it keeps ~30 of VCL's 31 registers live and going over fails as
+        // `no opt table`, measured on this file).
+        vu::Vec lit = c.color * vu::splat(c, 1.15F);  // a little gain
 
         // Four bands. floor(lit * 4/255) * 255/4 - one truncate, two constants,
         // no branch and no table.
-        vu::Vec steps = vu::splat(c, kBands / 255.0F);
-        vu::Vec back = vu::splat(c, 255.0F / kBands);
-        vu::Vec q = lit * steps;
+        vu::Vec q = lit * vu::splat(c, kBands / 255.0F);
         c.raw().truncate(q.val(), q.val(), vuir::MALL);
         // .rgb(), not the whole register: ALPHA IS WHAT THE GS BLENDS WITH.
-        // Banding it too turned the matcap sphere's reflection pass into grey
-        // stippled patches that read exactly like z-fighting (seen on the
-        // console; the host simulator cannot show it, it has no GS).
-        c.color.rgb() = q * back;
+        c.color.rgb() = q * vu::splat(c, 255.0F / kBands);
     }
 
     static constexpr float kBands = 4.0F;
