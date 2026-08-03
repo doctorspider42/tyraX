@@ -388,6 +388,34 @@ Notes:
   is not enough), and is `bin/livepad.bin` being written where the RUNNING ELF
   lives (`Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'"` prints the
   `-elf` path; a second fixture directory is the classic mix-up).
+  **Two Windows-only ways this looks broken when it is not** (both cost an
+  afternoon on 2026-08-03, both diagnosed):
+  - **`Start-Process -ArgumentList` does not quote its array elements**, so
+    `-ArgumentList "--pad",$P,"wait 1; stick r 110 0; neutral"` reaches the
+    editor as loose argv words, the script it parses is the single word `wait`,
+    and it dies with `error: line 1: wait needs seconds` — on the **stderr of a
+    hidden process**, where nobody ever sees it. The game then does exactly
+    nothing, which reads as a dead pad channel. Put the whole `--pad` call in a
+    `.ps1` with the script as a LITERAL and `Start-Process powershell -File`
+    that (a `param()` does not help: the mangling happens at the outer boundary
+    too), or add the quotes to the array elements yourself. Same trap for any
+    `;`-separated script argument, `--ui-script` included.
+  - **The atomic replace of `livepad.bin` races the reader** (fixed since; the
+    symptom is worth recognising because a stale editor binary still has it).
+    `livepad::write` renames a `.tmp` over the target, and the running game
+    re-opens that same file about every frame through PCSX2's HostFs — Windows
+    refuses to rename over or delete a file another process has open, so a
+    replace comes back `Access is denied` roughly **once per 200 writes** at the
+    driver's 40 Hz refresh (zero denials with the emulator stopped; Linux is
+    immune, `rename(2)` over an open file is legal there). The driver used to
+    abort on the FIRST failed write, so a long hold died with nothing but
+    `error: cannot replace ...livepad.bin: Permission denied` and exit 1 — one 9 s
+    script in five, measured, and every single one when the file was contended
+    harder. `write` now retries (5 tries, 4 ms apart — absorbs a 60 ms exclusive
+    hold) and only a **step** write is fatal: a lost *refresh* is a warning, and
+    the run says so in its summary (`pad released (27 refresh write(s) lost to
+    the reader)`). So on Windows: **read the driver's stderr and its exit code**,
+    and treat "no motion, exit 1" as this rather than as a dead channel.
 - **Synthetic input into PCSX2** (the older, focus-dependent path - still the
   only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
@@ -498,14 +526,15 @@ Notes:
     (verified at 5%, which kept 6 of 11 frames and marked the rest `-`).
     `-IdleStop 2` verified on a static window: it stopped on the second
     consecutive 0.000% frame.
-  - It only CAPTURES, so it composes with whatever drives the game. The sheet
-    above was driven by **PCSX2's own held keys**, because `--pad` reached
-    neither week-old prebuilt fixture on this box (the file lands in the running
-    ELF's `bin/`, the runtime is compiled in and the wire version matches, so
-    that is its own unrelated puzzle — a freshly built fixture is the first thing
-    to try). Note this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
-    the section above quotes: read `[Pad1]` out of PCSX2.ini rather than trusting
-    either. Held keys need the window in front, which `-Watch` arranges anyway.
+  - It only CAPTURES, so it composes with whatever drives the game. A background
+    `--pad` is the usual partner — one `-Watch` over a 1.5 s right-stick hold
+    read **17.6 / 27.7 / 21.5%** during the turn and **0.000%** after the
+    release — but mind the two Windows traps in the `--pad` bullet above (the
+    unquoted `Start-Process` script, and the replace race that used to abort long
+    holds); both make a working channel look dead. PCSX2's own held keys are the
+    fallback, and this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
+    the section above quotes. Held keys need the window in front, which `-Watch`
+    arranges anyway.
 
   **On Linux/Wayland use the bundled `wayland-control.py`** — screenshots *and*
   synthetic keyboard/mouse, no human in the loop:
