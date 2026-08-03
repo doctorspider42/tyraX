@@ -69,30 +69,14 @@ vertexLoop:
     lq.xyz     normal2, 1(normalData)
     lq         vertex3, 2(vertexData)
     lq.xyz     normal3, 2(normalData)
-    loi        0.298999995  ; constants
+    loi        0  ; constants
     add.x      k0, vf00, i
-    loi        0.587000012
+    loi        0.0156862754
     add.y      k0, vf00, i
-    loi        0.114
+    loi        63.75
     add.z      k0, vf00, i
-    loi        0
-    mul.w      k0, vf00, i
-    loi        64  ; constants
-    add.x      k1, vf00, i
-    loi        128
-    add.y      k1, vf00, i
-    loi        192
-    add.z      k1, vf00, i
-    loi        0.25
-    mul.w      k1, vf00, i
-    loi        0.166669995  ; constants
-    add.x      k2, vf00, i
     loi        0.5
-    add.y      k2, vf00, i
-    loi        1
-    add.z      k2, vf00, i
-    loi        0
-    mul.w      k2, vf00, i
+    mul.w      k0, vf00, i
     mula       acc, mvp[0], vertex1[x]  ; MatrixMultiplyVertex
     madda      acc, mvp[1], vertex1[y]
     madda      acc, mvp[2], vertex1[z]
@@ -130,19 +114,11 @@ vertexLoop:
     madd.xyz   outputColor1, ambientColor, vf00[w]
     loi        128
     add.w      outputColor1, vf00, i
-    mul.xyz    vuS0, outputColor1, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k1[w]
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k2[z]
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k2[x]
-    add.x      vuS2, vuS2, k2[y]
-    mul.xyz    outputColor1, outputColor1, vuS2[x]
+    mul.xyz    vuS0, outputColor1, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    outputColor1, vuS0, k0[z]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor1, outputColor1, i
     max.xyz    outputColor1, outputColor1, vf00[x]
@@ -184,19 +160,11 @@ vertexLoop:
     madd.xyz   outputColor2, ambientColor, vf00[w]
     loi        128
     add.w      outputColor2, vf00, i
-    mul.xyz    vuS0, outputColor2, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k1[w]
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k2[z]
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k2[x]
-    add.x      vuS2, vuS2, k2[y]
-    mul.xyz    outputColor2, outputColor2, vuS2[x]
+    mul.xyz    vuS0, outputColor2, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    outputColor2, vuS0, k0[z]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor2, outputColor2, i
     max.xyz    outputColor2, outputColor2, vf00[x]
@@ -238,19 +206,11 @@ vertexLoop:
     madd.xyz   outputColor3, ambientColor, vf00[w]
     loi        128
     add.w      outputColor3, vf00, i
-    mul.xyz    vuS0, outputColor3, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k1[w]
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k2[z]
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k2[x]
-    add.x      vuS2, vuS2, k2[y]
-    mul.xyz    outputColor3, outputColor3, vuS2[x]
+    mul.xyz    vuS0, outputColor3, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    outputColor3, vuS0, k0[z]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor3, outputColor3, i
     max.xyz    outputColor3, outputColor3, vf00[x]

@@ -14781,8 +14781,19 @@ void TerrainGame::buildHighlightProxy(int index) {
     const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
     cx *= inv, cy *= inv, cz *= inv;
     g.hullProxyCols.reserve(g.hullProxyVerts.size());
+    // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
+    // and half the props in a scene are - it leans toward the long axis, so a
+    // constant step along it grows the squashed sides more than the stretched
+    // ones and the line comes out thick on one edge and thin on the other. The
+    // ellipsoid normal divides each axis by its own squared radius, which
+    // costs three multiplies here and nothing at all on VU1.
+    const float rx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float ry = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float rz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 1.0F;
+    const float ix = 1.0F / (rx * rx), iy = 1.0F / (ry * ry),
+                iz = 1.0F / (rz * rz);
     for (const Vec4& v : g.hullProxyVerts) {
-      float dx = v.x - cx, dy = v.y - cy, dz = v.z - cz;
+      float dx = (v.x - cx) * ix, dy = (v.y - cy) * iy, dz = (v.z - cz) * iz;
       const float l = sqrtf(dx * dx + dy * dy + dz * dz);
       if (l > 0.0001F)
         dx /= l, dy /= l, dz /= l;
