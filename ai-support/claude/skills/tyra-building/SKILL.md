@@ -30,6 +30,36 @@ PS2DEV container; the first build pulls it and takes minutes, warm rebuilds are
 fast) and, for `--run`, PCSX2 installed. The build output streams to stdout and
 ends in `bin/<name>.elf`. The same pipeline runs from the editor GUI (F5).
 
+## Shipping the game on a disc
+
+```
+"{TYRAX_EXE}" --export-fdvdb <projectDir>   # disc that boots on a STOCK PS2
+```
+
+Writes `<name>-fdvdb.iso` from whatever is already in `bin/`, so run `--build`
+first (the export itself needs no Docker). It is a UDF/ISO9660 hybrid: the UDF
+side carries the `VIDEO_TS` that fires the FreeDVDBoot exploit in the console's
+own DVD Player, the ISO9660 side is the disc the game reads its assets from.
+Burn to DVD-R at the lowest speed, finalised, with the console's system language
+set to English - nothing has to be installed on the PS2.
+
+The disc comes up in **uLaunchELF** and you run `<NAME>.ELF` from its browser.
+That is not a shortcut: FreeDVDBoot's loader stays in RAM, and a Tyra game's
+BSS covers it (even an empty project reaches `0x38F000`, over the loader's
+`0x250000-0x29FFFF`), so booting the game ELF directly would hang the console.
+The exporter reads the ELF's program headers, says which mode it chose, and
+boots directly when an ELF is small enough to clear the loader.
+
+Needs a one-time setup: the user downloads the FreeDVDBoot filesystem folder for
+their console's DVD Player version and sets it in the editor's
+`Edit > Preferences` (or passes `--fdvdb-dir <folder>`). Those files carry no
+licence, so the editor never ships them - if the flag and the setting are both
+missing, the command fails with instructions rather than guessing.
+
+**PCSX2 cannot test this path** (it does not emulate the DVD Player). The image
+still boots there as a plain PS2 disc, which checks the game but not the
+exploit; only real hardware can confirm that.
+
 Manual alternative from the project directory: `docker compose up -d --build`
 then `docker compose exec` + `make` - but the CLI wrapper handles staging,
 asset conversion (WAV→ADPCM, texture quantization, menu baking) and the ELF

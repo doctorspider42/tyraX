@@ -44,6 +44,11 @@ public:
     void stopEmulator();
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
+    // Builds <project>/<name>-fdvdb.iso: the same disc plus the UDF/VIDEO_TS
+    // side that boots it on a STOCK PS2 through the FreeDVDBoot DVD Player
+    // exploit. exploitDir is the user's downloaded FreeDVDBoot filesystem
+    // folder (docs/freedvdboot.md).
+    void exportFreeDvdBoot(const Project& p, const std::string& exploitDir);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the
     // container's game volume plus the host bin/ mirror. The next build
     // recompiles the game from scratch (the shared engine volume stays).

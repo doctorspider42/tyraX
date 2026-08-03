@@ -993,6 +993,9 @@ private:
     // the "Run on PS2" actions.
     std::string globalEmulatorPath_;
     std::string globalPs2Ip_;
+    // FreeDVDBoot filesystem folder (docs/freedvdboot.md). Downloaded by the
+    // user, never shipped with the editor - the files carry no licence.
+    std::string globalFreeDvdBootDir_;
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
@@ -2056,6 +2059,7 @@ private:
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
     char prefDisplayName_[48] = "";          // session display name (editor.ini)
     char prefSessionCacheDir_[512] = "";     // remote-project cache root override
+    char prefFreeDvdBootDir_[512] = "";      // FreeDVDBoot Filesystems/<version> folder
     int prefAiBackend_ = 0;            // index into aigen::backendIds()
     char prefAiModel_[128] = "";       // "" = the backend's default model
     // Model combo shows "Custom..." + a free-text field when the staged model

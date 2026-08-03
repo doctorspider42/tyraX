@@ -1,15 +1,19 @@
 #include "isoexport.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
+#include <utility>
 
 #include "iso9660.hpp"
 #include "menubake.hpp"
 #include "templates.hpp"  // bakedModelPath - bin/ holds artifacts, not sources
+#include "udf.hpp"
 
 namespace fs = std::filesystem;
 
@@ -285,6 +289,234 @@ std::string build(const Project& p, const LogFn& log) {
     log(sum);
     log("[editor] Boot it in PCSX2 (System > Start File) or burn to DVD-R. Tip: "
         "Project > Disc Layout... reorders files on the disc.");
+    return "";
+}
+
+// --- FreeDVDBoot -----------------------------------------------------------
+//
+// The exploit lives entirely in two files the user supplies; the third name in
+// VIDEO_TS/ is the ELF to launch. We only place them - see docs/freedvdboot.md
+// for what actually happens on the console.
+static constexpr const char* kFdvdbTrigger = "VIDEO_TS.IFO";
+static constexpr const char* kFdvdbSetup = "VTS_01_0.IFO";
+static constexpr const char* kFdvdbProgram = "VTS_02_0.IFO";  // = our ELF
+
+// Partition logical block 0. It has to clear the anchor at sector 256, and
+// sitting immediately after it keeps every file addressable by a short_ad.
+static constexpr uint32_t kFdvdbPartitionStart = 257;
+
+// The user may point at the version directory or at the VIDEO_TS inside it;
+// both are the obvious thing to pick in a file dialog, so accept either.
+static fs::path resolveVideoTs(const std::string& exploitDir) {
+    std::error_code ec;
+    const fs::path root(exploitDir);
+    if (fs::is_regular_file(root / "VIDEO_TS" / kFdvdbTrigger, ec))
+        return root / "VIDEO_TS";
+    if (fs::is_regular_file(root / kFdvdbTrigger, ec)) return root;
+    return {};
+}
+
+bool isFreeDvdBootDir(const std::string& exploitDir, std::string* why) {
+    auto fail = [&](const std::string& msg) {
+        if (why) *why = msg;
+        return false;
+    };
+    if (exploitDir.empty()) return fail("no FreeDVDBoot folder set");
+    std::error_code ec;
+    if (!fs::is_directory(fs::path(exploitDir), ec))
+        return fail("not a folder: " + exploitDir);
+    const fs::path vts = resolveVideoTs(exploitDir);
+    if (vts.empty())
+        return fail(std::string("no VIDEO_TS/") + kFdvdbTrigger + " under " + exploitDir);
+    if (!fs::is_regular_file(vts / kFdvdbSetup, ec))
+        return fail(std::string("missing ") + kFdvdbSetup + " in " + vts.string());
+    if (why) why->clear();
+    return true;
+}
+
+// FreeDVDBoot's loader is still resident when the ELF it launches takes over,
+// so an ELF whose segments cover the loader's own code hangs the console. The
+// two ranges are documented in CTurt's README (github.com/CTurt/FreeDVDBoot).
+struct MemRange {
+    uint32_t lo, hi;  // inclusive
+};
+static constexpr MemRange kFdvdbLoaderRanges[] = {{0x84000, 0x85fff}, {0x250000, 0x29ffff}};
+
+static uint32_t rd32(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+static uint16_t rd16(const uint8_t* p) {
+    return (uint16_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8));
+}
+
+// Reports every PT_LOAD segment that overlaps the loader. Returns an error only
+// when the ELF cannot be parsed at all; a clash is reported through out.
+static std::string checkElfAgainstLoader(const fs::path& elf, std::vector<std::string>* clashes) {
+    std::ifstream f(elf, std::ios::binary);
+    if (!f) return "cannot read " + elf.string();
+    uint8_t hdr[52];
+    if (!f.read((char*)hdr, sizeof(hdr))) return "not an ELF (too short): " + elf.string();
+    if (memcmp(hdr, "\x7f" "ELF", 4) != 0 || hdr[4] != 1 || hdr[5] != 1)
+        return "not a 32-bit little-endian ELF: " + elf.string();
+
+    const uint32_t phoff = rd32(&hdr[0x1c]);
+    const uint16_t phentsize = rd16(&hdr[0x2a]);
+    const uint16_t phnum = rd16(&hdr[0x2c]);
+    if (phentsize < 32 || phnum == 0) return "ELF has no program headers: " + elf.string();
+
+    for (uint16_t i = 0; i < phnum; ++i) {
+        f.seekg((std::streamoff)phoff + (std::streamoff)i * phentsize);
+        uint8_t ph[32];
+        if (!f.read((char*)ph, sizeof(ph))) return "truncated program header: " + elf.string();
+        if (rd32(&ph[0]) != 1) continue;  // PT_LOAD only
+        const uint32_t vaddr = rd32(&ph[0x08]), memsz = rd32(&ph[0x14]);
+        if (memsz == 0) continue;
+        const uint32_t end = vaddr + memsz - 1;
+        for (const MemRange& r : kFdvdbLoaderRanges) {
+            if (vaddr > r.hi || end < r.lo) continue;
+            char msg[160];
+            snprintf(msg, sizeof(msg),
+                     "segment 0x%08X-0x%08X overlaps the loader's 0x%X-0x%X", vaddr, end,
+                     r.lo, r.hi);
+            clashes->push_back(msg);
+        }
+    }
+    return "";
+}
+
+std::string buildFreeDvdBoot(const Project& p, const std::string& exploitDir, const LogFn& log) {
+    std::string why;
+    if (!isFreeDvdBootDir(exploitDir, &why))
+        return "FreeDVDBoot folder: " + why +
+               " - download Filesystems/<your DVD Player version>/ from "
+               "github.com/CTurt/FreeDVDBoot and set it in Edit > Preferences.";
+    const fs::path vts = resolveVideoTs(exploitDir);
+
+    std::vector<OrderedFile> ordered;
+    bool manual = false;
+    std::string err = orderFiles(p, ordered, &manual, log);
+    if (!err.empty()) return err;
+    if (manual) log("[editor] Applied pinned order from iso-layout.txt.");
+
+    // Which program the exploit launches. Booting the game ELF *directly* is
+    // the nicer disc - insert it and the game runs - but FreeDVDBoot's loader
+    // is still resident when that ELF takes over, so it only works for an ELF
+    // that stays clear of the loader's code. A Tyra game does NOT: even an
+    // empty project links at 0x100000 and its BSS runs past 0x38F000, straight
+    // through 0x250000-0x29FFFF. So the normal disc chainloads through
+    // uLaunchELF instead - the initial program CTurt ships in the same folder,
+    // which has no such restriction - and the game is picked from its browser.
+    std::vector<std::string> clashes;
+    if (err = checkElfAgainstLoader(fs::path(p.elfPath()), &clashes); !err.empty()) return err;
+    const bool directBoot = clashes.empty();
+    std::error_code uec;
+    const bool haveULaunchElf = fs::is_regular_file(vts / kFdvdbProgram, uec);
+    if (!directBoot && !haveULaunchElf) {
+        std::string msg =
+            "this ELF cannot be launched directly by FreeDVDBoot, and the folder has no "
+            + std::string(kFdvdbProgram) + " (uLaunchELF) to chainload through:";
+        for (const std::string& c : clashes) msg += "\n  - " + c;
+        msg += "\n  Download the complete Filesystems/<version>/ folder - "
+               "VTS_02_0.IFO is uLaunchELF and this export needs it.";
+        return msg;
+    }
+    if (directBoot)
+        log("[editor] ELF clears FreeDVDBoot's reserved ranges (0x84000-0x85FFF, "
+            "0x250000-0x29FFFF) - the disc boots straight into the game.");
+    else
+        log("[editor] ELF covers FreeDVDBoot's loader (" + clashes.front() +
+            "), so the disc boots uLaunchELF - pick " + upper(p.elfName()) +
+            " from its browser to start the game.");
+
+    fs::path cnf;
+    if (err = writeSystemCnf(upper(p.elfName()), &cnf); !err.empty()) return err;
+
+    std::vector<iso9660::FileEntry> entries;
+    err = makeEntries(p, ordered, cnf, &entries, log);
+
+    fs::path iso;
+    std::vector<iso9660::PlacedFile> placed;
+    uint32_t tailStart = 0;
+    // The three VIDEO_TS files go in right behind SYSTEM.CNF and the ELF, so
+    // the DVD Player's reads stay near the front of the disc.
+    const std::array<std::pair<const char*, fs::path>, 3> videoTs{{
+        {kFdvdbTrigger, vts / kFdvdbTrigger},
+        {kFdvdbSetup, vts / kFdvdbSetup},
+        // Either the game itself or uLaunchELF - see the mode choice above.
+        // The game ELF is on the disc under its own name regardless, so the
+        // chainloaded case has something to find (and SYSTEM.CNF something to
+        // name on a modded console).
+        {kFdvdbProgram, directBoot ? fs::path(p.elfPath()) : vts / kFdvdbProgram},
+    }};
+    if (err.empty()) {
+        std::vector<iso9660::FileEntry> withVts;
+        withVts.push_back(entries[0]);  // SYSTEM.CNF
+        if (entries.size() > 1) withVts.push_back(entries[1]);  // the ELF
+        for (const auto& [name, src] : videoTs)
+            withVts.push_back({src, std::string("VIDEO_TS/") + name});
+        for (size_t i = 2; i < entries.size(); ++i) withVts.push_back(entries[i]);
+        entries.swap(withVts);
+
+        std::string volume = upper(p.name).substr(0, 32);
+        for (char& c : volume)
+            if (std::string("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_").find(c) ==
+                std::string::npos)
+                c = '_';
+
+        iso9660::Options opt;
+        // Sectors 0..256 belong to the UDF volume structures and the anchor;
+        // the File Set Descriptor and its terminator take the two after that.
+        opt.firstDataLba = udf::firstFreeLba(kFdvdbPartitionStart);
+        opt.tailReserveSectors = udf::tailSectors(videoTs.size());
+
+        iso9660::PlannedImage img;
+        err = iso9660::plan(entries, &img, opt);
+        if (err.empty()) {
+            tailStart = img.totalSectors - opt.tailReserveSectors;
+            iso = fs::path(p.dir) / (p.name + "-fdvdb.iso");
+            err = iso9660::write(iso, volume, entries, &placed, opt);
+        }
+    }
+    std::error_code ec;
+    fs::remove(cnf, ec);
+    if (!err.empty()) return err;
+
+    // Second filesystem over the same data: what the DVD Player actually reads.
+    udf::Options uopt;
+    uopt.volumeId = "TYRAX";
+    uopt.partitionStartLba = kFdvdbPartitionStart;
+    uopt.tailStartLba = tailStart;
+    for (const auto& [name, src] : videoTs) {
+        (void)src;
+        const std::string iso9660Path = std::string("VIDEO_TS/") + name;
+        const auto it = std::find_if(placed.begin(), placed.end(), [&](const auto& f) {
+            return f.isoPath == iso9660Path;
+        });
+        if (it == placed.end()) return std::string("internal: ") + name + " was not placed";
+        uopt.videoTs.push_back({name, it->lba, it->size});
+    }
+    if (err = udf::overlay(iso, uopt); !err.empty()) return err;
+
+    for (const udf::FileRef& f : uopt.videoTs) {
+        char line[256];
+        snprintf(line, sizeof(line), "[editor]   UDF /VIDEO_TS/%-14s LBA %6u  %9u B",
+                 f.name.c_str(), f.lba, f.size);
+        log(line);
+    }
+    char sum[512];
+    snprintf(sum, sizeof(sum),
+             "[editor] FreeDVDBoot ISO written: %s (%.1f MB, %zu files)", iso.string().c_str(),
+             (double)fs::file_size(iso, ec) / (1024.0 * 1024.0), placed.size());
+    log(sum);
+    log(std::string("[editor] Burn to DVD-R at the lowest speed, finalised. Set the "
+                    "console's system language to English, then insert the disc - "
+                    "nothing has to be installed on the PS2. ") +
+        (directBoot ? "The game starts on its own."
+                    : "uLaunchELF comes up; open the DVD and run " + upper(p.elfName()) +
+                          ".") +
+        " PCSX2 cannot boot this path (it does not emulate the DVD Player); it still "
+        "boots the disc as a plain PS2 image.");
     return "";
 }
 

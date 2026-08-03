@@ -142,6 +142,13 @@ struct EditorConfig {
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
     bool runOnPs2 = false;
+    // FreeDVDBoot filesystem folder (docs/freedvdboot.md): the
+    // `Filesystems/<DVD Player version>/` directory the user downloaded from
+    // CTurt's repository. Machine-global because it is a copy of a third-party
+    // tool sitting on THIS PC - and because it can never be checked in: those
+    // files carry no licence, so the editor reads them and never ships them.
+    // Empty = the FreeDVDBoot export is unavailable.
+    std::string freeDvdBootDir;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -219,6 +226,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
+        else if (match("freeDvdBootDir", v)) cfg.freeDvdBootDir = v;
         else if (match("timeMachineBudgetMb", v))
             cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
@@ -285,6 +293,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
+      << "freeDvdBootDir=" << cfg.freeDvdBootDir << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
@@ -371,6 +380,7 @@ std::vector<std::string> recentProjects() {
 std::string defaultProjectsDir() {
     return defaultNewProjectLocation(loadEditorConfig().defaultProjectsDir);
 }
+std::string freeDvdBootDir() { return loadEditorConfig().freeDvdBootDir; }
 }  // namespace editorcfg
 
 // WAV format inspection + in-place 16-bit conversion live in wavconvert.*.
@@ -526,6 +536,7 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
         runOnPs2_ = cfg.runOnPs2;
+        globalFreeDvdBootDir_ = cfg.freeDvdBootDir;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
@@ -975,7 +986,7 @@ void App::saveGlobalConfig() {
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
-                      std::move(recent)});
+                      globalFreeDvdBootDir_, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1088,6 +1099,8 @@ void App::drawMenuBar() {
                          globalDisplayName_.c_str());
                 snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
                          globalSessionCacheDir_.c_str());
+                snprintf(prefFreeDvdBootDir_, sizeof(prefFreeDvdBootDir_), "%s",
+                         globalFreeDvdBootDir_.c_str());
                 prefAiBackend_ = 0;
                 {
                     const auto ids = aigen::backendIds();
@@ -1317,6 +1330,18 @@ void App::drawMenuBar() {
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(projectForBuild());
+            // Greyed out until the FreeDVDBoot folder is set, because without
+            // it there is nothing to build the disc's VIDEO_TS from.
+            {
+                const bool haveFdvdb = isoexport::isFreeDvdBootDir(globalFreeDvdBootDir_);
+                if (ImGui::MenuItem("Export FreeDVDBoot ISO", nullptr, false,
+                                    !busy && haveFdvdb))
+                    runner_.exportFreeDvdBoot(projectForBuild(), globalFreeDvdBootDir_);
+                if (!haveFdvdb && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(
+                        "Boots on an unmodified PS2 (no modchip, nothing installed).\n"
+                        "Set the FreeDVDBoot folder in Edit > Preferences first.");
+            }
             if (ImGui::MenuItem("Disc Layout...")) {
                 showDiscLayout_ = true;
                 discPlanDirty_ = true;
@@ -12036,6 +12061,32 @@ void App::drawEditorPreferencesModal() {
         "files never transfer twice). Leave empty for\n"
         "the editor config folder (remote-cache).");
 
+    ImGui::SeparatorText("FreeDVDBoot (unmodified PS2)");
+    ImGui::InputText("FreeDVDBoot folder", prefFreeDvdBootDir_, sizeof(prefFreeDvdBootDir_));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse...##fdvdb")) {
+        const std::string dir = pickFolder();
+        if (!dir.empty())
+            snprintf(prefFreeDvdBootDir_, sizeof(prefFreeDvdBootDir_), "%s", dir.c_str());
+    }
+    // Validated as you type: the two exploit files have to be there, and the
+    // one thing a person is likely to get wrong is picking the repository root
+    // instead of the folder for THEIR console's DVD Player version.
+    if (prefFreeDvdBootDir_[0]) {
+        std::string why;
+        if (isoexport::isFreeDvdBootDir(prefFreeDvdBootDir_, &why))
+            ImGui::TextColored(theme::semantics().ok, "Looks good.");
+        else
+            ImGui::TextColored(theme::semantics().warn, "%s", why.c_str());
+    }
+    ImGui::TextDisabled(
+        "Enables Project > Export FreeDVDBoot ISO: a disc that boots on a STOCK\n"
+        "PS2 - no modchip, no FreeMcBoot, nothing installed on the console.\n"
+        "Point this at Filesystems/<your DVD Player version>/ from CTurt's\n"
+        "FreeDVDBoot (github.com/CTurt/FreeDVDBoot); press Triangle on a\n"
+        "disc-less PS2 to read that version. Those files carry no licence, so\n"
+        "you download them yourself - the editor never ships them.");
+
     ImGui::SeparatorText("AI assistant");
     {
         const auto ids = aigen::backendIds();
@@ -12094,6 +12145,7 @@ void App::drawEditorPreferencesModal() {
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
         globalDisplayName_ = prefDisplayName_;
         globalSessionCacheDir_ = prefSessionCacheDir_;
+        globalFreeDvdBootDir_ = prefFreeDvdBootDir_;
         globalAi_.backend = aigen::backendIds()[prefAiBackend_];
         globalAi_.model = prefAiModel_;
         globalAi_.thinking = prefAiThinking_;

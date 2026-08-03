@@ -49,6 +49,23 @@ std::string plan(const Project& p, Plan* out, const LogFn& log = nullptr);
 // Writes the image. Returns "" on success, an error message otherwise.
 std::string build(const Project& p, const LogFn& log);
 
+// Writes <project>/<name>-fdvdb.iso: the same disc, plus a UDF side exposing a
+// VIDEO_TS/ that boots the game through the FreeDVDBoot DVD Player exploit on a
+// STOCK PlayStation 2 - no modchip, no FreeMcBoot, nothing installed.
+//
+// exploitDir is one of the `Filesystems/<version>/` directories from CTurt's
+// FreeDVDBoot repository, which the user downloads themselves: those files are
+// all-rights-reserved, so the editor reads them and never ships them. It must
+// contain VIDEO_TS/VIDEO_TS.IFO and VIDEO_TS/VTS_01_0.IFO; the third file, the
+// program to launch, is this project's ELF. See docs/freedvdboot.md.
+std::string buildFreeDvdBoot(const Project& p, const std::string& exploitDir,
+                             const LogFn& log);
+
+// True if exploitDir looks like a FreeDVDBoot filesystem directory. why (when
+// it returns false, optional) receives a human-readable reason - the
+// Preferences field uses it to validate what was typed.
+bool isFreeDvdBootDir(const std::string& exploitDir, std::string* why = nullptr);
+
 // Persists a manual order into <project>/iso-layout.txt (bin-relative paths;
 // the ELF and SYSTEM.CNF stay first regardless). Empty list = reset to the
 // automatic group order (deletes the file).

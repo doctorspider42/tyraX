@@ -22,6 +22,32 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Boot a FreeDVDBoot disc on real hardware.** `Export FreeDVDBoot ISO` is
+  verified as far as this machine can go: both filesystems of the hybrid image
+  mount under Linux (`-t udf` and `-t iso9660`) and every file reads back
+  byte-identical to `bin/`. What no test here can answer is whether the exploit
+  actually fires, because PCSX2 does not emulate the DVD Player. Owed by a
+  human: burn `<name>-fdvdb.iso` to a DVD-R and boot it on a stock console.
+  Until that happens the feature is *unproven on hardware*, and
+  docs/freedvdboot.md says so.
+
+- **Direct boot for Tyra games, if FreeDVDBoot ever allows it.** The loader
+  stays resident and reserves `0x84000-0x85FFF` + `0x250000-0x29FFFF`; a Tyra
+  ELF links at `0x100000` with a BSS past `0x38F000`, so it covers the second
+  range and cannot be the initial program. Discs therefore chainload through
+  uLaunchELF (one menu selection). CTurt's README says the restriction may be
+  lifted in a later payload - if it is, nothing needs designing: the exporter
+  already chooses per-ELF, so a game that clears the ranges boots directly on
+  its own. The other direction - shrinking a Tyra ELF below `0x250000` - is not
+  worth chasing; it is the engine's BSS, not slack.
+
+- **Phat FreeDVDBoot (2.10-2.13)** is deliberately unsupported. That variant has
+  no filesystem step - the ELF is written into a fixed offset (`0x5bb000`) of a
+  prebuilt 7 MB `dvd.base.iso`, which leaves nowhere to put a game's assets. It
+  would need a different design (patch the base image *and* graft an asset
+  filesystem onto it) and it is unclear the payload would tolerate the result.
+  Users on those consoles are pointed at FreeMcBoot instead.
+
 - **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
   *recommends* (does not require) attaching its short header comment to each
   source file. TyraX is Apache-2.0 (`LICENSE`) but no source file carries the
