@@ -34,10 +34,10 @@ struct CellShading : vu::Program {
   vu::Slot slot() const override { return vu::Slot::Color; }
 
   void vertex(vu::Ctx& c) override {
-    vu::Vec lit = c.color + vu::splat(c, 46.0F);        // lift the floor
+    vu::Vec lit = c.color * vu::splat(c, 1.15F);         // gain, never an add
     vu::Vec q = lit * vu::splat(c, 4.0F / 255.0F);
     c.raw().truncate(q.val(), q.val(), vuir::MALL);      // floor to 4 bands
-    c.color = q * vu::splat(c, 255.0F / 4.0F);
+    c.color.rgb() = q * vu::splat(c, 255.0F / 4.0F);     // rgb: alpha is blend
   }
 };
 VU_PROGRAM(CellShading);
