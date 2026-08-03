@@ -56,12 +56,13 @@ until recently the pitch was clamped to keep the eye *above* the pivot - the sky
 and with it the sun, the moon and the whole night sky, was simply unreachable
 while the game could look wherever it liked.
 
-Dragging up now tilts past the horizon, and the orbit **climbs** as it does: the
-pivot rises just enough to keep the eye clear of the floor. Without that, a
-negative pitch puts the camera *under* the terrain and you get its underside with
-the ground above the horizon (measured at -23 degrees from the default framing:
-unmistakably underground) rather than the sky. The lift only ever raises, and
-only while looking up, so an ordinary downward orbit is untouched.
+Dragging up now tilts past the horizon, and the camera **passes through the
+terrain** like any other DCC camera. An intermediate version lifted the pivot to
+keep the eye above ground; it was worse than the problem, because the camera
+appeared to lie on the terrain and then jump upward. To put the sky in frame,
+raise the pivot yourself — pan, or the **right+middle drag** which pans forward
+and back along the view direction (`Viewport::dolly`) and climbs while you are
+looking up.
 
 The bound is +/-85.9 degrees rather than 90: `camView`'s up vector is world +Y,
 so at exactly 90 it aligns with the view axis, the basis degenerates and yaw
@@ -314,6 +315,26 @@ colour, which is what aerial perspective does.
 It is **one `postFx.setGrading` call**, cheaper than anything it stands in for,
 and it is **identity at the baked hour** — which is the property that makes
 leaving it on safe.
+
+#### The grade must not darken the sky
+
+A full-screen pass hits the sky, the sun and moon discs and the stars too — and
+those **already follow the hour**, so grading them is darkening them twice.
+Measured on the example's night before this was fixed: the sky went from
+(9, 11, 28) to (2, 3, 10) and the moon from a 110 grey to 26..38. It read exactly
+like "everything is mega dark", because it was.
+
+So everything that is already hour-correct is **pre-multiplied by 1/gain** before
+it is drawn (`ambience::driftCompensation`), and the grade brings it back where it
+was authored. That is why `kMinDriftGain` (0.5) exists: the colour bags carry 2x
+headroom over their nominal 128, so a floor of 0.5 keeps the compensation exactly
+reachable instead of clipping. Verified end to end — sky authored (9, 11, 28) →
+drawn (18, 23, 56) → on screen (9, 11, 28); moon 110 → 220 → 110; and at the
+baked hour every factor is 1.
+
+The floor has a second effect worth knowing: the world is now darkened by at most
+2x rather than 4x, so a night with the grade on reads as night without going to
+mud.
 
 Measured on the console over a two-minute day, sampling one frame every 5.5 s
 (the arch is baked at noon with neutral light):

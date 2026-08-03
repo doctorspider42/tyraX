@@ -243,6 +243,20 @@ struct Grade {
 };
 Grade driftGrade(const Resolved& now, const Resolved& baked);
 
+// The grade is a FULL-SCREEN pass, so it darkens the sky, the sun and moon discs
+// and the stars along with the geometry - and those already follow the hour, so
+// grading them is darkening them twice. Measured on the example's night: the sky
+// went from (9,11,28) to (2,3,10) and the moon from a 110 grey to 26..38, which
+// is exactly the "everything is mega dark" it looked like.
+//
+// So anything that is already hour-correct is pre-multiplied by this before it is
+// drawn, and the grade then brings it back to where it was authored. The 1/gain
+// this needs is why kMinDriftGain exists: the colour bags carry 2x headroom over
+// their nominal 128, so a floor of 0.5 keeps the compensation exactly reachable
+// instead of clipping.
+constexpr float kMinDriftGain = 0.5f;
+void driftCompensation(const Grade& g, float out[3]);
+
 // A sensible five-stop 24 hours (night, dawn, day, dusk, night) - what the
 // Ambience Editor's "Seed a default day" button writes.
 std::vector<DayKey> defaultKeys();

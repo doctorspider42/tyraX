@@ -2242,9 +2242,9 @@ void App::drawViewportWindow() {
                 // authored hour - exactly the overlay project::resolvedSettings
                 // applies for the bake, so dragging the time slider previews
                 // the light the build will actually use.
+                ambience::Resolved d{};
                 if (a.cycle.enabled) {
-                    const ambience::Resolved d =
-                        ambience::evaluate(a.cycle, a.cycle.time);
+                    d = ambience::evaluate(a.cycle, a.cycle.time);
                     viewport_.setSky(d.skyColor, d.skyTopColor, a.skyDome,
                                      a.zenithSize);
                     viewport_.setLighting(d.lightDir, d.ambient, d.diffuse,
@@ -2277,6 +2277,20 @@ void App::drawViewportWindow() {
                     }
                     cg.tintAmount = g.mixAmount;
                     viewport_.setGrading(true, compileGrading(cg));
+                    // Pre-compensate the sky the same way the game does, or the
+                    // preview shows a night the console will not.
+                    ambience::driftCompensation(g, skyBodyComp_);
+                    float sky[3], top[3], fog[3];
+                    for (int i = 0; i < 3; ++i) {
+                        sky[i] = std::min(1.0f, d.skyColor[i] * skyBodyComp_[i]);
+                        top[i] = std::min(1.0f, d.skyTopColor[i] * skyBodyComp_[i]);
+                        fog[i] = std::min(1.0f, d.fogColor[i] * skyBodyComp_[i]);
+                    }
+                    viewport_.setSky(sky, top, a.skyDome, a.zenithSize);
+                    viewport_.setFog(a.fogEnabled && showFog_, fog, a.fogStart,
+                                     a.fogEnd);
+                } else {
+                    skyBodyComp_[0] = skyBodyComp_[1] = skyBodyComp_[2] = 1.0f;
                 }
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
@@ -2781,6 +2795,11 @@ void App::drawViewportWindow() {
             const bool alt = io.KeyAlt, shift = io.KeyShift;
             bool doOrbit = false, doPan = false;
             float dolly = 0.0f;  // extra wheel-equivalent zoom from a drag
+            // Right + middle together: pan the pivot FORWARD/BACK along the view
+            // direction. Checked before the scheme switch because it has to beat
+            // whatever those two buttons mean on their own - and it is scheme
+            // independent, since every scheme leaves the pair unused.
+            const bool doDollyPan = rmb && mmb;
             switch (nav_.scheme) {
                 case NavScheme::Blender:
                     doOrbit = mmb && !shift;
@@ -2802,6 +2821,12 @@ void App::drawViewportWindow() {
                     doOrbit = rmb;
                     doPan = mmb;
                     break;
+            }
+            if (doDollyPan) {
+                doOrbit = doPan = false;  // the pair is its own gesture
+                // Dragging UP (negative dy) moves forward - the same sense as a
+                // scroll-up zooming in.
+                viewport_.dolly(-io.MouseDelta.y * nav_.panSensitivity);
             }
             if (doOrbit) {
                 const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
@@ -9117,8 +9142,6 @@ void App::updateSkyBodyPreview(int presetIndex) {
     }
 
     const ambience::Resolved d = ambience::evaluate(*c, c->time);
-    viewport_.setStarField(skyBodyStars_, d.stars, c->starTwinkle,
-                           (float)ImGui::GetTime());
     Viewport::SkyBodies b;
     b.enabled = true;
     for (int i = 0; i < 3; ++i) {
@@ -9135,6 +9158,11 @@ void App::updateSkyBodyPreview(int presetIndex) {
         d.moonElevation < -10.0f ? 0.0f : std::tan(c->moonSize * 0.5f * kDeg);
     b.moonRoll = d.moonUpAngle;
     b.moonOpacity = c->moonOpacity;
+    for (int i = 0; i < 3; ++i) b.compensation[i] = skyBodyComp_[i];
+    viewport_.setStarField(skyBodyStars_,
+                           d.stars * (skyBodyComp_[0] + skyBodyComp_[1] +
+                                      skyBodyComp_[2]) / 3.0f,
+                           c->starTwinkle, (float)ImGui::GetTime());
     viewport_.setSkyBodies(b);
 }
 

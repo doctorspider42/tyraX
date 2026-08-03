@@ -3420,13 +3420,18 @@ void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
         glUniform1f(uOpacity_, 1.0f);
     };
 
-    const float white[3] = {1.0f, 1.0f, 1.0f};
     // The sun takes the scene's light colour, so a red sunset sun is red with
-    // nothing extra authored - the generated game tints it the same way.
+    // nothing extra authored - the generated game tints it the same way. Both
+    // discs carry the grade compensation on top.
+    float sunTint[3], moonTint[3];
+    for (int i = 0; i < 3; ++i) {
+        sunTint[i] = skyBodies_.sunColor[i] * skyBodies_.compensation[i];
+        moonTint[i] = skyBodies_.compensation[i];
+    }
     draw(skySpriteTex_[SkySun], skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
-         skyBodies_.sunColor, true, 1.0f);
+         sunTint, true, 1.0f);
     draw(skySpriteTex_[SkyMoon], skyBodies_.moonDir, skyBodies_.moonRadius,
-         skyBodies_.moonRoll, white, false, skyBodies_.moonOpacity);
+         skyBodies_.moonRoll, moonTint, false, skyBodies_.moonOpacity);
 }
 
 void Viewport::setStarField(const std::vector<starfield::Star>& stars,
@@ -3563,22 +3568,11 @@ void Viewport::orbit(float dx, float dy) {
     if (pitch_ < -kOrbitPitchLimit) pitch_ = -kOrbitPitchLimit;
     if (pitch_ > kOrbitPitchLimit) pitch_ = kOrbitPitchLimit;
 
-    // Tilting up is not enough on its own. The pivot normally sits ON the
-    // ground, so a negative pitch puts the EYE under it - and instead of the sky
-    // you get the underside of the terrain, with the ground above the horizon.
-    // Measured at -23 degrees from the default framing: unmistakably
-    // underground.
-    //
-    // So the orbit CLIMBS: the pivot rises just enough to keep the eye clear of
-    // the floor, which is what "standing up to look at the sky" does. It only
-    // ever raises, and only while looking up - a downward tilt computes a
-    // negative bound and changes nothing, so the ordinary orbit is untouched.
-    // The raised pivot stays after the drag on purpose: the view you left is
-    // the view you get back.
-    const float floorY = terrainHeight(target_[0], target_[2]);
-    const float clearance = distance_ * 0.02f + 1.0f;
-    const float minTargetY = floorY + clearance - distance_ * std::sin(pitch_);
-    if (target_[1] < minTargetY) target_[1] = minTargetY;
+    // Deliberately NO floor here. An earlier pass lifted the pivot to keep the
+    // eye above the terrain while tilting up, and it was worse than the problem
+    // it solved: the camera appeared to lie on the ground and then jump upward.
+    // The editor camera passes THROUGH the terrain like any other DCC camera -
+    // to look at the sky, raise the pivot yourself (pan, or the forward dolly).
 }
 
 void Viewport::zoom(float wheel) {
@@ -3617,6 +3611,17 @@ void Viewport::pan(float dx, float dy) {
     const float s = distance_ * 0.0016f;
     for (int k = 0; k < 3; ++k)
         target_[k] += (-c.right[k] * dx + c.up[k] * dy) * s;
+}
+
+void Viewport::dolly(float dPixels) {
+    // Along the FULL view direction, not its horizontal projection: dragging
+    // forward while looking up has to climb, which is what makes this the way to
+    // get the pivot off the ground. Scaled by distance like pan(), so a pixel of
+    // drag covers the same fraction of the view at any zoom.
+    if (dPixels == 0.0f) return;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float s = distance_ * 0.0016f * dPixels;
+    for (int k = 0; k < 3; ++k) target_[k] += c.fwd[k] * s;
 }
 
 void Viewport::fly(float forward, float strafe, float dt) {

@@ -252,7 +252,7 @@ Grade driftGrade(const Resolved& now, const Resolved& baked) {
     for (int i = 0; i < 3; ++i) {
         const float cb = baked.lightColor[i] < 0.02f ? 0.02f : baked.lightColor[i];
         const float cn = now.lightColor[i];
-        g.gain[i] = clampf(k * (0.45f + 0.55f * (cn / cb)), 0.05f, 2.0f);
+        g.gain[i] = clampf(k * (0.45f + 0.55f * (cn / cb)), kMinDriftGain, 2.0f);
         // A tiny lift toward the sky at night: real darkness is not black, it is
         // the sky reflected off everything, and pure gain alone crushes to mud.
         g.lift[i] = clampf(now.skyColor[i] * 0.06f * (1.0f - k), 0.0f, 0.12f);
@@ -264,6 +264,11 @@ Grade driftGrade(const Resolved& now, const Resolved& baked) {
     g.mixAmount = clampf(0.30f * (1.0f - k) + (k > 1.0f ? 0.10f * (k - 1.0f) : 0.0f),
                          0.0f, 0.35f);
     return g;
+}
+
+void driftCompensation(const Grade& g, float out[3]) {
+    for (int i = 0; i < 3; ++i)
+        out[i] = clampf(g.gain[i] > 1e-4f ? 1.0f / g.gain[i] : 1.0f, 1.0f, 2.0f);
 }
 
 std::vector<DayKey> defaultKeys() {

@@ -2028,7 +2028,7 @@
       "fogEnd": 150,
       "cycle": {
         "enabled": true,
-        "time": 5,
+        "time": 22.5,
         "sunAzimuth": 75,
         "sunTilt": 28,
         "sunrise": 6,
@@ -2041,7 +2041,7 @@
         "moonPhase": 0.62,
         "moonTexture": "",
         "runtime": true,
-        "dayLength": 120,
+        "dayLength": 600.0,
         "bakeHour": 12,
         "runtimeGrade": true,
         "starsEnabled": true,

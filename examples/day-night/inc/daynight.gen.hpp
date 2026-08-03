@@ -24,6 +24,11 @@ inline float g_gain[3] = {1.0F, 1.0F, 1.0F};
 inline float g_lift[3] = {0.0F, 0.0F, 0.0F};
 inline float g_mixColor[3] = {0.0F, 0.0F, 0.0F};
 inline float g_mixAmount = 0.0F;
+// 1/gain, clamped to the colour bags' 2x headroom: what the sky, the
+// discs and the stars are pre-multiplied by so the full-screen grade
+// brings them back to the hour they were authored at instead of
+// darkening them a second time (ambience::driftCompensation).
+inline float g_comp[3] = {1.0F, 1.0F, 1.0F};
 
 inline bool active(int scene) {
   return DAYCYCLE_USED && scene >= 0 && scene < SCENE_COUNT &&
@@ -186,6 +191,7 @@ inline void evaluate(int scene, float hour) {
   if (!gradeOn(scene)) {
     g_gain[0] = g_gain[1] = g_gain[2] = 1.0F;
     g_lift[0] = g_lift[1] = g_lift[2] = 0.0F;
+    g_comp[0] = g_comp[1] = g_comp[2] = 1.0F;
     g_mixAmount = 0.0F;
     return;
   }
@@ -196,13 +202,16 @@ inline void evaluate(int scene, float hour) {
   const float ratio = clampf(lit > 1e-4F ? want / lit : 1.0F, 0.15F, 2.0F);
   for (int i = 0; i < 3; ++i) {
     const float cb = bk.lit[i] < 0.02F ? 0.02F : bk.lit[i];
-    g_gain[i] = clampf(ratio * (0.45F + 0.55F * (k.lit[i] / cb)), 0.05F, 2.0F);
+    g_gain[i] = clampf(ratio * (0.45F + 0.55F * (k.lit[i] / cb)),
+                       0.5F, 2.0F);  // ambience::kMinDriftGain
     g_lift[i] = clampf(k.sky[i] * 0.06F * (1.0F - ratio), 0.0F, 0.12F);
     g_mixColor[i] = k.sky[i];
   }
   g_mixAmount = clampf(0.30F * (1.0F - ratio) +
                            (ratio > 1.0F ? 0.10F * (ratio - 1.0F) : 0.0F),
                        0.0F, 0.35F);
+  for (int i = 0; i < 3; ++i)
+    g_comp[i] = clampf(g_gain[i] > 1e-4F ? 1.0F / g_gain[i] : 1.0F, 1.0F, 2.0F);
 }
 
 // Called on every scene load: park the clock at the authored hour so

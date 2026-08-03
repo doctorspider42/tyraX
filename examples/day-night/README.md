@@ -15,7 +15,7 @@ Press **Triangle** to step to the next moment: dawn → noon → dusk → night 
 
 The fifth scene, `live`, is the other half of the
 [hybrid](../../docs/day-night-cycle.md): same geometry again, but the **game
-advances the clock** through a two-minute day. Its lighting is baked at noon and
+advances the clock** through a ten-minute day, opening at 22:30. Its lighting is baked at noon and
 never re-baked — what carries it from a blue afternoon through a red sunset into
 a moonlit night is the sun and moon moving, the sky and fog retinting, the
 shadows sweeping, and a per-frame drift grade. Stand still and watch a whole day
@@ -90,9 +90,9 @@ byte writes a frame rather than any geometry work.
   adjusted.
 - **Turn bloom up.** The star cores and the low sun are sized to feed the bloom
   bright-pass — *Preferences > Post effects*, `Threshold` around 0.6.
-- **Slow the day down.** `live` runs a two-minute day because that is watchable
-  in a screenshot series. Ten minutes reads far better in play — *Day length* on
-  the Day / night tab.
+- **Change the day length.** `live` runs a ten-minute day, which is about the
+  slowest that still reads as time passing while you stand there. Two minutes is
+  better for a screenshot series — *Day length* on the Day / night tab.
 - **Turn the drift grade off** on the `live` preset and look at midnight. That is
   what the grade is for, and it is the clearest way to see it.
 - **Bake global illumination** (*Ambience Editor > Global illumination*). It is

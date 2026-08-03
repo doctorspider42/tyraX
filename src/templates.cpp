@@ -8859,6 +8859,10 @@ void TerrainGame::renderStarField() {
           g_starTime * (0.7F + 0.45F * (float)t) + (float)t * 2.1F;
       k *= 1.0F - SCENE_STARS_TWINKLE * 0.35F * (0.5F - 0.5F * cosf(phase));
     }
+    // ...and the same compensation, averaged over the channels because the FIX
+    // is a single scalar for the whole bag.
+    if (liveSky)
+      k *= (daynight::g_comp[0] + daynight::g_comp[1] + daynight::g_comp[2]) / 3.0F;
     float fix = 128.0F * k;
     sb.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
@@ -8880,18 +8884,25 @@ void TerrainGame::dayNightTick() {
   // watches (and which a Set Ambience node also writes - last writer in the
   // frame wins, and a running clock is the more specific statement). The
   // zenith is staged for the same check.
-  scriptCtx.skyColor = Color(daynight::g_sky[0] * 255.0F,
-                             daynight::g_sky[1] * 255.0F,
-                             daynight::g_sky[2] * 255.0F);
+  // g_comp cancels the full-screen grade on everything that is already
+  // hour-correct - see ambience::driftCompensation. Without it the night sky is
+  // graded a second time and comes out nearly black.
+  auto c255 = [](float v, float comp) {
+    const float x = v * 255.0F * comp;
+    return x > 255.0F ? 255.0F : x;
+  };
+  scriptCtx.skyColor = Color(c255(daynight::g_sky[0], daynight::g_comp[0]),
+                             c255(daynight::g_sky[1], daynight::g_comp[1]),
+                             c255(daynight::g_sky[2], daynight::g_comp[2]));
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
-  dayNightTopR = daynight::g_top[0] * 255.0F;
-  dayNightTopG = daynight::g_top[1] * 255.0F;
-  dayNightTopB = daynight::g_top[2] * 255.0F;
+  dayNightTopR = c255(daynight::g_top[0], daynight::g_comp[0]);
+  dayNightTopG = c255(daynight::g_top[1], daynight::g_comp[1]);
+  dayNightTopB = c255(daynight::g_top[2], daynight::g_comp[2]);
 
   if (FOG_ENABLED)
-    engine->renderer.core.setFog(Color(daynight::g_fog[0] * 255.0F,
-                                      daynight::g_fog[1] * 255.0F,
-                                      daynight::g_fog[2] * 255.0F),
+    engine->renderer.core.setFog(Color(c255(daynight::g_fog[0], daynight::g_comp[0]),
+                                      c255(daynight::g_fog[1], daynight::g_comp[1]),
+                                      c255(daynight::g_fog[2], daynight::g_comp[2])),
                                  FOG_START, FOG_END);
 
   // The drift grade. setGrading is a handful of register writes, so this is
@@ -9043,15 +9054,21 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
   // instead of the baked instant; without one they are the same constants they
   // always were. Two branches, no duplicated placement code.
   const bool live = daynight::active(currentScene);
-  const float lr = live ? 1.0F : SCENE_LIGHT_COL_R;
-  const float lg = live ? 1.0F : SCENE_LIGHT_COL_G;
-  const float lb = live ? 1.0F : SCENE_LIGHT_COL_B;
+  // The discs are hour-correct already, so they carry the grade compensation
+  // (1..2x, which is exactly the headroom a 128-nominal colour bag has).
+  const float cr = live ? daynight::g_comp[0] : 1.0F;
+  const float cg = live ? daynight::g_comp[1] : 1.0F;
+  const float cb2 = live ? daynight::g_comp[2] : 1.0F;
+  const float lr = (live ? 1.0F : SCENE_LIGHT_COL_R) * cr;
+  const float lg = (live ? 1.0F : SCENE_LIGHT_COL_G) * cg;
+  const float lb = (live ? 1.0F : SCENE_LIGHT_COL_B) * cb2;
   sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
   // The moon is an alpha-blended bag, so its VERTEX COLOUR ALPHA is its
   // opacity - no second texture and no extra pass for the slider.
   {
     const float op = live ? DAYCYCLE_MOON_ALPHAS[currentScene] : SCENE_MOON_ALPHA;
-    moonBody.color.set(128.0F, 128.0F, 128.0F, 128.0F * (op < 0.0F ? 0.0F : (op > 1.0F ? 1.0F : op)));
+    moonBody.color.set(128.0F * cr, 128.0F * cg, 128.0F * cb2,
+                       128.0F * (op < 0.0F ? 0.0F : (op > 1.0F ? 1.0F : op)));
   }
   if (live) {
     place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
@@ -18628,7 +18645,12 @@ static std::string dayNightHeader(const Project& p) {
            "inline float g_gain[3] = {1.0F, 1.0F, 1.0F};\n"
            "inline float g_lift[3] = {0.0F, 0.0F, 0.0F};\n"
            "inline float g_mixColor[3] = {0.0F, 0.0F, 0.0F};\n"
-           "inline float g_mixAmount = 0.0F;\n\n"
+           "inline float g_mixAmount = 0.0F;\n"
+           "// 1/gain, clamped to the colour bags' 2x headroom: what the sky, the\n"
+           "// discs and the stars are pre-multiplied by so the full-screen grade\n"
+           "// brings them back to the hour they were authored at instead of\n"
+           "// darkening them a second time (ambience::driftCompensation).\n"
+           "inline float g_comp[3] = {1.0F, 1.0F, 1.0F};\n\n"
            "inline bool active(int scene) {\n"
            "  return DAYCYCLE_USED && scene >= 0 && scene < SCENE_COUNT &&\n"
            "         DAYCYCLE_RUNTIMES[scene];\n"
@@ -18786,6 +18808,7 @@ static std::string dayNightHeader(const Project& p) {
            "  if (!gradeOn(scene)) {\n"
            "    g_gain[0] = g_gain[1] = g_gain[2] = 1.0F;\n"
            "    g_lift[0] = g_lift[1] = g_lift[2] = 0.0F;\n"
+           "    g_comp[0] = g_comp[1] = g_comp[2] = 1.0F;\n"
            "    g_mixAmount = 0.0F;\n"
            "    return;\n"
            "  }\n"
@@ -18796,13 +18819,16 @@ static std::string dayNightHeader(const Project& p) {
            "  const float ratio = clampf(lit > 1e-4F ? want / lit : 1.0F, 0.15F, 2.0F);\n"
            "  for (int i = 0; i < 3; ++i) {\n"
            "    const float cb = bk.lit[i] < 0.02F ? 0.02F : bk.lit[i];\n"
-           "    g_gain[i] = clampf(ratio * (0.45F + 0.55F * (k.lit[i] / cb)), 0.05F, 2.0F);\n"
+           "    g_gain[i] = clampf(ratio * (0.45F + 0.55F * (k.lit[i] / cb)),\n"
+           "                       0.5F, 2.0F);  // ambience::kMinDriftGain\n"
            "    g_lift[i] = clampf(k.sky[i] * 0.06F * (1.0F - ratio), 0.0F, 0.12F);\n"
            "    g_mixColor[i] = k.sky[i];\n"
            "  }\n"
            "  g_mixAmount = clampf(0.30F * (1.0F - ratio) +\n"
            "                           (ratio > 1.0F ? 0.10F * (ratio - 1.0F) : 0.0F),\n"
            "                       0.0F, 0.35F);\n"
+           "  for (int i = 0; i < 3; ++i)\n"
+           "    g_comp[i] = clampf(g_gain[i] > 1e-4F ? 1.0F / g_gain[i] : 1.0F, 1.0F, 2.0F);\n"
            "}\n\n"
            "// Called on every scene load: park the clock at the authored hour so\n"
            "// the first frame of a scene matches what the editor previewed.\n"

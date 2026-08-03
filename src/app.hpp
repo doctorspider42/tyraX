@@ -1451,6 +1451,9 @@ private:
     // buy nothing and cost a mesh rebuild.
     std::vector<starfield::Star> skyBodyStars_;
     starfield::Params skyBodyStarParams_;
+    // 1/gain of the runtime drift grade, so the previewed sky/discs/stars cancel
+    // it exactly as the console does (ambience::driftCompensation).
+    float skyBodyComp_[3] = {1.0f, 1.0f, 1.0f};
     // Which key row the cycle tab has selected (-1 = none).
     int selectedDayKey_ = -1;
 

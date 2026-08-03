@@ -125,6 +125,9 @@ public:
         float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
         float moonOpacity = 1.0f;
         float sunColor[3] = {1.0f, 1.0f, 1.0f};
+        // Cancels the drift grade on the discs, which are hour-correct already
+        // (ambience::driftCompensation). 1,1,1 without a runtime grade.
+        float compensation[3] = {1.0f, 1.0f, 1.0f};
     };
     void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
     // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
@@ -494,6 +497,12 @@ public:
     void orbit(float dxPixels, float dyPixels);
     void zoom(float wheel);
     void pan(float dxPixels, float dyPixels);
+    // Moves the pivot ALONG the view direction - a forward/back pan rather than
+    // a zoom: the eye travels with the target instead of closing in on it, so
+    // the framing keeps its perspective and the distance is untouched. Bound to
+    // a right+middle drag, and the natural way to lift the pivot off the ground
+    // so the sky comes into view.
+    void dolly(float dPixels);
     void fly(float forward, float strafe, float dt);
 
     // Snap the orbit pivot to a world-space point (e.g. the selected object),
