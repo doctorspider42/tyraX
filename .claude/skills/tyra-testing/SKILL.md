@@ -882,6 +882,22 @@ Notes:
   means exactly that; ask them to close it, or link a check binary under
   another name).
 
+  **On Linux the mirror-image trap is worse, because it does NOT fail.** Windows
+  refuses to replace a running `.exe`; Linux lets the linker unlink it happily,
+  and the editor someone left open keeps running with a **deleted** binary
+  (`/proc/<pid>/exe` then reads `... (deleted)`). Before the `exePath()` fix that
+  made every path question it asked answer `""`, and `engineSourceDir()` baked
+  `"."` into every `docker-compose.yml` that editor regenerated - so the next
+  build died with *"Engine sources not mounted at /engine-src"*, minutes later,
+  with nothing pointing at the rebuild that caused it. A stale process also keeps
+  a stale CONTAINER: the mount is baked in at create time, so the compose file
+  being right again is not enough on its own - `--build --rebuild` recreates it.
+  So when a build fails on `/engine-src` (or any path lookup goes strange), check
+  `ls -l /proc/$(pgrep -x tyrax-editor)/exe` for `(deleted)` FIRST and restart the
+  editor; and prefer `--dev` (its own `build-dev/`) while someone else has the
+  Release binary open.
+
+
   **On a real PS2 there is no game process to find, and the channel dies with
   the editor.** A ps2link deploy is served by a `ps2client.exe` that the RUNNER
   spawns (`src/runner.cpp`), so closing the editor takes the file server with
