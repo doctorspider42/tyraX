@@ -258,6 +258,11 @@ class TerrainGame : public Tyra::Game {
     // ride in without changing the bag's material class - and a shell paints
     // itself flat anyway, so nothing is lost by spending it.
     std::vector<Tyra::Color> hullProxyCols;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL

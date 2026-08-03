@@ -8,8 +8,9 @@ namespace vuscript {
 constexpr bool ENABLED = true;
 
 // The scripts, in the order the generator found them.
-constexpr int kCellShading = 0;
-constexpr int COUNT = 1;
+constexpr int kCellOutline = 0;
+constexpr int kCellShading = 1;
+constexpr int COUNT = 2;
 
 /** Installs the scripts marked activeAtBoot(), over the material
  * classes they claim. Call AFTER setRenderer and setVU1Clipping -
@@ -28,5 +29,14 @@ void deactivate(int script);
 void deactivateAll();
 bool active(int script);
 const char* name(int script);
+
+/** Whether an ACTIVE script asked the game for a shell pass -
+ * a second submission of each object, grown by the program
+ * itself (outlines, fur, anything built from a grown copy).
+ * The game draws it; the program only moves the vertices.
+ * shellWidth() is in screen units at one metre, scaled by
+ * distance so the result keeps its thickness across a scene. */
+bool shellActive();
+float shellWidth();
 
 }  // namespace vuscript

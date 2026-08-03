@@ -230,6 +230,11 @@ int main(int argc, char** argv) {
         h += "void activate(int script);\n";
         h += "void deactivate(int script);\n";
         h += "void deactivateAll();\n";
+        h += "/** Both halves of a LOOK in one drain and one upload. A look\n";
+        h += " * built from several programs - a shading pass and the outline\n";
+        h += " * that finishes it - is switched as a unit, and toggling them\n";
+        h += " * one at a time would pay the pipeline for each. */\n";
+        h += "void activateAll();\n";
         h += "bool active(int script);\n";
         h += "const char* name(int script);\n\n";
         h += "/** Whether an ACTIVE script asked the game for a shell pass -\n";
@@ -312,6 +317,10 @@ int main(int argc, char** argv) {
         c += "void deactivateAll() {\n";
         c += "  bool any = false;\n";
         c += "  for (int i = 0; i < COUNT; ++i) { any |= g_on[i]; g_on[i] = false; }\n";
+        c += "  if (any) apply();\n}\n\n";
+        c += "void activateAll() {\n";
+        c += "  bool any = false;\n";
+        c += "  for (int i = 0; i < COUNT; ++i) { any |= !g_on[i]; g_on[i] = true; }\n";
         c += "  if (any) apply();\n}\n\n";
         c += "void install(Tyra::StaPipCore& core) {\n";
         c += "  g_core = &core;\n";

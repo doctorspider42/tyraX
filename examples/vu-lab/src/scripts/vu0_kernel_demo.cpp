@@ -60,13 +60,19 @@ class Vu0KernelDemo : public Script {
     // Only what is ACTIVE occupies micro memory, so this is how a game carries
     // more programs than fit at once - and it is one pipeline drain and one
     // upload, which belongs on a button and not in this update loop.
+    // The LOOK, not one program of it. Cell shading and the outline that
+    // finishes it are two programs because they claim different material
+    // classes, but they are one thing to look at - toggling only the shading
+    // left every object still wearing its ink line, which reads as a button
+    // that does nothing.
     if (ctx.engine->pad.getClicked().Triangle && vuscript::COUNT > 0) {
-      const bool on = vuscript::active(vuscript::kCellShading);
+      bool on = false;
+      for (int i = 0; i < vuscript::COUNT; ++i) on |= vuscript::active(i);
       if (on)
-        vuscript::deactivate(vuscript::kCellShading);
+        vuscript::deactivateAll();
       else
-        vuscript::activate(vuscript::kCellShading);
-      TYRA_LOG("VU script cell shading -> ", on ? "off" : "on");
+        vuscript::activateAll();
+      TYRA_LOG("VU scripts -> ", on ? "off" : "on");
     }
     // NO clipping switch bound here on purpose. vuprog::setVU1Clipping()
     // exists and works, but THIS project does not fit in VU1 clipping: the

@@ -41,16 +41,22 @@ struct CellShading : vu::Program {
         // seconds a timeout. Packing the constants (see prepare) took six
         // registers to three, which is what makes the claim affordable.
         //
-        // The UNLIT classes are dropped for the same reason, from the other
-        // side: kColour and kTextured carry no lighting, so a face arrives as
-        // one colour, lands in one band and leaves as itself times a constant.
-        // kColour also belongs to cell_outline.cpp now, and two programs
-        // cannot both own a class - the second override would simply replace
-        // the first.
+        // kTextured is in, and the reasoning that once left it out was wrong.
+        // "Unlit means nothing to band" is only true of a mesh whose vertex
+        // colours are CONSTANT. The terrain is unlit and textured, but it
+        // carries baked shading in its vertex colours, and banding that is
+        // what turns the checkerboard gradient into flat poster colour - the
+        // most cell-shaded thing in the scene. Any vertex-painted mesh is the
+        // same. Lighting is one source of a colour gradient, not the only one.
+        //
+        // kColour is out because cell_outline.cpp owns it, and two programs
+        // cannot both own a class - the second override just replaces the
+        // first. Flat-colour objects lose nothing by it: a constant colour
+        // really does band to itself.
         //
         // Matcap stays out: banding a reflection posterises the sky it is
         // sampling, which reads as a bug rather than a style.
-        return vu::kLit | vu::kLitTextured;
+        return vu::kTextured | vu::kLit | vu::kLitTextured;
     }
 
     // After lighting and texturing, before the colour is clamped: the last

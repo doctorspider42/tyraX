@@ -3,20 +3,36 @@
 #include "scripts/vu_scripts.gen.hpp"
 
 #include "vu_script0_c_program.hpp"
-#include "vu_script0_c_ai_program.hpp"
-#include "vu_script0_tc_program.hpp"
-#include "vu_script0_tc_ai_program.hpp"
+#include "vu_script1_d_program.hpp"
+#include "vu_script1_d_ai_program.hpp"
+#include "vu_script1_td_program.hpp"
+#include "vu_script1_td_ai_program.hpp"
 
 namespace vuscript {
 namespace {
 Tyra::TyraXScript0CVU1Program g_TyraXScript0CVU1Program;
-Tyra::TyraXScript0CAIVU1Program g_TyraXScript0CAIVU1Program;
-Tyra::TyraXScript0TCVU1Program g_TyraXScript0TCVU1Program;
-Tyra::TyraXScript0TCAIVU1Program g_TyraXScript0TCAIVU1Program;
+Tyra::TyraXScript1DVU1Program g_TyraXScript1DVU1Program;
+Tyra::TyraXScript1DAIVU1Program g_TyraXScript1DAIVU1Program;
+Tyra::TyraXScript1TDVU1Program g_TyraXScript1TDVU1Program;
+Tyra::TyraXScript1TDAIVU1Program g_TyraXScript1TDAIVU1Program;
 Tyra::StaPipCore* g_core = nullptr;
-bool g_on[COUNT] = {false};
-const char* const kNames[] = {"Cell shading"};
+bool g_on[COUNT] = {false, false};
+const char* const kNames[] = {"Cell outline", "Cell shading"};
+const bool kShell[] = {true, false};
+const float kShellW[] = {0.0299999993F, 0.0199999996F};
 }  // namespace
+
+bool shellActive() {
+  for (int i = 0; i < COUNT; ++i)
+    if (g_on[i] && kShell[i]) return true;
+  return false;
+}
+
+float shellWidth() {
+  for (int i = 0; i < COUNT; ++i)
+    if (g_on[i] && kShell[i]) return kShellW[i];
+  return 0.0F;
+}
 
 const char* name(int s) {
   return (s >= 0 && s < COUNT) ? kNames[s] : "";
@@ -28,17 +44,19 @@ bool active(int s) {
 
 static void apply() {
   if (!g_core) return;
-  Tyra::StaPipProgramName slots[4];
-  Tyra::StaPipVU1Program* progs[4];
+  Tyra::StaPipProgramName slots[5];
+  Tyra::StaPipVU1Program* progs[5];
   unsigned n = 0;
   slots[n] = Tyra::StaPipCullColor;
   progs[n++] = g_on[0] ? &g_TyraXScript0CVU1Program : nullptr;
-  slots[n] = Tyra::StaPipAsIsColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0CAIVU1Program : nullptr;
-  slots[n] = Tyra::StaPipCullTextureColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TCVU1Program : nullptr;
-  slots[n] = Tyra::StaPipAsIsTextureColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TCAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipCullDirLights;
+  progs[n++] = g_on[1] ? &g_TyraXScript1DVU1Program : nullptr;
+  slots[n] = Tyra::StaPipAsIsDirLights;
+  progs[n++] = g_on[1] ? &g_TyraXScript1DAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipCullTextureDirLights;
+  progs[n++] = g_on[1] ? &g_TyraXScript1TDVU1Program : nullptr;
+  slots[n] = Tyra::StaPipAsIsTextureDirLights;
+  progs[n++] = g_on[1] ? &g_TyraXScript1TDAIVU1Program : nullptr;
   g_core->setProgramOverrides(slots, progs, n);
 }
 
@@ -63,6 +81,7 @@ void deactivateAll() {
 void install(Tyra::StaPipCore& core) {
   g_core = &core;
   g_on[0] = true;
+  g_on[1] = true;
   apply();
   core.setVuCustomEnabled(true);
 }

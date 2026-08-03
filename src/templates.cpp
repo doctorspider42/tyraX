@@ -812,6 +812,11 @@ class TerrainGame : public Tyra::Game {
     // ride in without changing the bag's material class - and a shell paints
     // itself flat anyway, so nothing is lost by spending it.
     std::vector<Tyra::Color> hullProxyCols;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -1871,6 +1876,11 @@ class TerrainGame : public Tyra::Game {
     // ride in without changing the bag's material class - and a shell paints
     // itself flat anyway, so nothing is lost by spending it.
     std::vector<Tyra::Color> hullProxyCols;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -14629,6 +14639,8 @@ void TerrainGame::renderOutlineShells() {
     const RuntimeObject& o = runtimeObjects[i];
     if (!o.active) continue;
     ObjectGeometry& g = objectGeometry[i];
+    if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
+      g.hullProxyVerts.clear();  // built coarse before this program came on
     if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
     if (g.hullProxyVerts.empty()) continue;  // marker-only object
     if (g.hullProxyCols.size() != g.hullProxyVerts.size()) continue;
@@ -14648,7 +14660,13 @@ void TerrainGame::renderOutlineShells() {
     // units that does not change - the same reason a pen keeps its nib across
     // a drawing. The eye-scale below preserves projected size, so it does not
     // undo this.
-    const float grow = wScreen * (dist > 0.5F ? dist : 0.5F);
+    float grow = wScreen * (dist > 0.5F ? dist : 0.5F);
+    // But a constant nib is not what the eye reads as constant. A small object
+    // far away gets a line that is a large FRACTION of the thing it outlines,
+    // and a scene of them turns into a row of black rings. Cap the line at a
+    // share of the object's own size and the far ones thin out on their own.
+    const float growMax = 0.25F * half;
+    if (grow > growMax) grow = growMax;
 
     float behind = dist - half;
     if (behind < 0.5F) behind = 0.5F;
@@ -14698,11 +14716,22 @@ void TerrainGame::buildHighlightProxy(int index) {
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;
+    // A SHELL PASS cannot use a coarser stand-in, and this is the difference
+    // between an outline and a handful of black plates. The proxy's vertices
+    // sit ON the object's surface but its faces are CHORDS, so they run below
+    // it - by the sagitta, which at detail 12 against a detail-24 sphere is
+    // far more than a line is wide. Push the proxy out by a constant and it
+    // emerges only near its vertices and stays buried across each face: caps
+    // at the poles, nothing at the equator. The highlight can afford the
+    // coarse version because a glow is forgiving about its own silhouette; a
+    // drawn line is exactly a silhouette, so it pays the full detail.
+    const bool shell = vuscript::shellActive();
     switch (o.data.type) {
       case 1:
       case 2:
       case 3:
-        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        low.primDetail = (shell || o.data.primDetail < 12) ? o.data.primDetail
+                                                           : 12;
         break;
       default:
         break;  // boxes, planes, decals: detail 1
@@ -14756,6 +14785,7 @@ void TerrainGame::buildHighlightProxy(int index) {
                                       dz * 128.0F + 128.0F, 128.0F));
     }
   }
+  g.hullProxyFine = vuscript::shellActive();
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
@@ -32293,6 +32323,7 @@ std::string vuScriptsStubHeader() {
     s += "inline void activate(int) {}\n";
     s += "inline void deactivate(int) {}\n";
     s += "inline void deactivateAll() {}\n";
+    s += "inline void activateAll() {}\n";
     s += "inline bool active(int) { return false; }\n";
     s += "inline const char* name(int) { return \"\"; }\n";
     s += "inline bool shellActive() { return false; }\n";
