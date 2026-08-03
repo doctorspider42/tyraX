@@ -487,6 +487,40 @@ void App::drawVuProgramsWindow() {
             ImGui::Spacing();
             ImGui::Separator();
 
+            // WHAT RUNS THERE, as a list, because that is the question this tab
+            // is actually asked. The material classes below are an
+            // implementation axis - a reader wants "clipping, my cell shading,
+            // the stock shading" and has to translate. So the clipping mode
+            // leads, as the one resident feature that is neither a class nor a
+            // program of yours.
+            ImGui::SeparatorText("Resident on VU1 - this is the budget");
+            {
+                bool onVu1 = project_.settings.clipping == "vu1";
+                if (ImGui::Checkbox("Clipping on VU1", &onVu1)) {
+                    project_.settings.clipping = onVu1 ? "vu1" : "precise";
+                    commitChange();
+                }
+                ImGui::SameLine(scaled(250));
+                int clipTot = 0, asIsTot = 0;
+                for (const ClassRow& c : kClasses) {
+                    if ((mask & c.bit) == 0) continue;
+                    const int ci = classBitIndex(c.bit);
+                    clipTot += engineSizes().instr[ci][1];
+                    asIsTot += engineSizes().instr[ci][2];
+                }
+                ImGui::TextDisabled("%d slots, against %d for the EE clipper",
+                                    clipTot, asIsTot);
+                if (ImGui::IsItemHovered() || ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Every material class is a PAIR: its cull program plus\n"
+                        "the twin that draws whatever the frustum cut. This\n"
+                        "picks which twin - the VU1 clipper, precise and about\n"
+                        "twice the size, or the as_is program with the EE doing\n"
+                        "the cutting. The game can flip it while it runs with\n"
+                        "vuprog::setVU1Clipping().");
+            }
+            ImGui::Spacing();
+
             bool autoMode = project_.vu.residentAuto;
             if (ImGui::Checkbox("Detect from the scenes", &autoMode)) {
                 project_.vu.residentAuto = autoMode;
@@ -577,6 +611,23 @@ void App::drawVuProgramsWindow() {
             // previewable here - they are compiled by the build container - but
             // they are the biggest thing in this budget when they exist, and a
             // budget screen that omits them is worse than useless.
+            // The looks belong in this list too, or "what is running there"
+            // is only two thirds true.
+            if (!vuPreview_.empty()) {
+                ImGui::Spacing();
+                ImGui::SeparatorText("Looks (stage lists)");
+                for (size_t i = 0; i < vuPreview_.size(); ++i) {
+                    ImGui::Bullet();
+                    ImGui::SameLine();
+                    ImGui::Text("%s", i < vuPreviewLabel_.size()
+                                          ? vuPreviewLabel_[i].c_str()
+                                          : "look");
+                    ImGui::SameLine(scaled(430));
+                    ImGui::TextDisabled("+%d over the engine's",
+                                        vuPreview_[i].stageInstrs);
+                }
+            }
+
             ImGui::Spacing();
             ImGui::SeparatorText("VU scripts (src\\vu)");
             if (scriptRows.empty()) {
@@ -616,6 +667,38 @@ void App::drawVuProgramsWindow() {
                     }
                 }
             }
+
+            // Everything else the console runs on a VU. None of it is in the
+            // bar, and saying so is the point: the first thing a budget screen
+            // is asked is "can I turn animation off to get room", and the
+            // answer is that there is nothing resident to turn off.
+            ImGui::Spacing();
+            ImGui::SeparatorText("Also on the VUs - not in this budget");
+            auto elsewhere = [&](const char* what, const char* where,
+                                 const char* why) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", what);
+                ImGui::SameLine(scaled(250));
+                ImGui::TextDisabled("%s", where);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", why);
+            };
+            elsewhere("Animated models, drawing", "VU1, four programs",
+                      "The dynamic pipeline uploads its own set over the same\n"
+                      "micro-memory addresses when it draws, so it SWAPS with\n"
+                      "the static set rather than sharing it.");
+            elsewhere("Skeletal skinning", "VU0, macro mode",
+                      "COP2 instructions issued by the EE - there is no\n"
+                      "microprogram to upload, so it occupies no micro memory\n"
+                      "at all. Pose evaluation runs on the EE.");
+            elsewhere("Particle billboards", "VU1, own small set",
+                      "Swapped in on demand (ensureProgramSet) - the resident\n"
+                      "set has no room for them.");
+            if (project_.vu.kernel.enabled)
+                elsewhere("Your VU0 kernel", "VU0, micro mode",
+                          "Against VU0's own 512 slots - see the VU0 kernel\n"
+                          "tab. Independent of everything above.");
+
             ImGui::EndTabItem();
         }
 
