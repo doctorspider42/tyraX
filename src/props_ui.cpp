@@ -1109,7 +1109,7 @@ void App::drawPropertiesWindow() {
                     committed |= ImGui::IsItemDeactivatedAfterEdit();
                     ImGui::SetItemTooltip(
                         "Random uniform scale, per cell, as a fraction of the\n"
-                        "authored size (0.20 = +-20%). Keep it off for tiling\n"
+                        "authored size (0.20 = +-20%%). Keep it off for tiling\n"
                         "surfaces - a resized floor slab opens a gap.");
                     ImGui::TreePop();
                 }
