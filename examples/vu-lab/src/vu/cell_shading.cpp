@@ -78,8 +78,15 @@ struct CellShading : vu::Program {
         // three, which is the difference between vcl scheduling this and vcl
         // giving up with `time out.. failed to normal via processing`.
         // A broadcast costs nothing: any operand can name its component.
-        kThresh_ = vu::constant(c, 40.0F, 90.0F, 150.0F, 0.25F);  // .w = sharp
-        kRamp_ = vu::constant(c, 0.15F, 0.55F, 1.0F, 0.0F);  // step/floor/one
+        // EVENLY ACROSS THE RANGE, and that is the whole trick to placing
+        // them. A vertex colour here is the object's own colour times its
+        // shade, so it can sit anywhere in 0..255 - and band edges bunched
+        // low (40/90/150 was the first attempt) leave everything painted
+        // around the neutral 128 sitting inside ONE band, where the program
+        // reduces to a brightness slider. Quarters of the range put an edge
+        // near wherever the data actually is.
+        kThresh_ = vu::constant(c, 64.0F, 128.0F, 192.0F, 0.25F);  // .w = sharp
+        kRamp_ = vu::constant(c, 0.16667F, 0.5F, 1.0F, 0.0F);  // step/floor/one
     }
     vu::Vec kWeights_, kThresh_, kRamp_;
 

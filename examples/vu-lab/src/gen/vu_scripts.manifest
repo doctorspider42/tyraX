@@ -3,3 +3,5 @@ Cell shading	Directional lights	248	StaPipCullDirLights	2	main	boot
 Cell shading	Directional lights	208	StaPipAsIsDirLights	2	twin	boot
 Cell shading	Textured + lights	262	StaPipCullTextureDirLights	4	main	boot
 Cell shading	Textured + lights	225	StaPipAsIsTextureDirLights	4	twin	boot
+Cell shading	Textured	286	StaPipCullTextureColor	8	main	boot
+Cell shading	Textured	183	StaPipAsIsTextureColor	8	twin	boot

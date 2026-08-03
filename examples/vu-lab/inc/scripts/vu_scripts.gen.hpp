@@ -27,6 +27,11 @@ void install(Tyra::StaPipCore& core);
 void activate(int script);
 void deactivate(int script);
 void deactivateAll();
+/** Both halves of a LOOK in one drain and one upload. A look
+ * built from several programs - a shading pass and the outline
+ * that finishes it - is switched as a unit, and toggling them
+ * one at a time would pay the pipeline for each. */
+void activateAll();
 bool active(int script);
 const char* name(int script);
 

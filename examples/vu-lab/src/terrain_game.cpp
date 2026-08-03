@@ -11991,7 +11991,15 @@ void TerrainGame::renderOutlineShells() {
     outlineInfoBag->model = &outlineMat;
     outlineInfoBag->shadingType = TyraShadingFlat;
     outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    outlineInfoBag->fullClipChecks = true;
+    // NO per-package clip checks, and this is the rule for any program that
+    // displaces vertices - the same one vuprog::movesGeometry states for the
+    // stage looks. The EE clipper cuts against the frustum BEFORE VU1 pushes
+    // the shell outward, so a package at the edge of the screen is cut on the
+    // un-grown silhouette and then grown past the cut: the line tears into
+    // blobs exactly where an object meets the edge. Whole-mesh cull path
+    // instead. Safe here for the reason it is not safe in general - shells are
+    // props, and a prop is small enough to submit unclipped.
+    outlineInfoBag->fullClipChecks = false;
     // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
     // relationships on the close-up clipped path - that is what commit
     // 67e2893f found on the reflection pass, and an outline is close-up

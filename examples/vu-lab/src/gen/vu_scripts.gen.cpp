@@ -7,6 +7,8 @@
 #include "vu_script1_d_ai_program.hpp"
 #include "vu_script1_td_program.hpp"
 #include "vu_script1_td_ai_program.hpp"
+#include "vu_script1_tc_program.hpp"
+#include "vu_script1_tc_ai_program.hpp"
 
 namespace vuscript {
 namespace {
@@ -15,6 +17,8 @@ Tyra::TyraXScript1DVU1Program g_TyraXScript1DVU1Program;
 Tyra::TyraXScript1DAIVU1Program g_TyraXScript1DAIVU1Program;
 Tyra::TyraXScript1TDVU1Program g_TyraXScript1TDVU1Program;
 Tyra::TyraXScript1TDAIVU1Program g_TyraXScript1TDAIVU1Program;
+Tyra::TyraXScript1TCVU1Program g_TyraXScript1TCVU1Program;
+Tyra::TyraXScript1TCAIVU1Program g_TyraXScript1TCAIVU1Program;
 Tyra::StaPipCore* g_core = nullptr;
 bool g_on[COUNT] = {false, false};
 const char* const kNames[] = {"Cell outline", "Cell shading"};
@@ -44,8 +48,8 @@ bool active(int s) {
 
 static void apply() {
   if (!g_core) return;
-  Tyra::StaPipProgramName slots[5];
-  Tyra::StaPipVU1Program* progs[5];
+  Tyra::StaPipProgramName slots[7];
+  Tyra::StaPipVU1Program* progs[7];
   unsigned n = 0;
   slots[n] = Tyra::StaPipCullColor;
   progs[n++] = g_on[0] ? &g_TyraXScript0CVU1Program : nullptr;
@@ -57,6 +61,10 @@ static void apply() {
   progs[n++] = g_on[1] ? &g_TyraXScript1TDVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureDirLights;
   progs[n++] = g_on[1] ? &g_TyraXScript1TDAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipCullTextureColor;
+  progs[n++] = g_on[1] ? &g_TyraXScript1TCVU1Program : nullptr;
+  slots[n] = Tyra::StaPipAsIsTextureColor;
+  progs[n++] = g_on[1] ? &g_TyraXScript1TCAIVU1Program : nullptr;
   g_core->setProgramOverrides(slots, progs, n);
 }
 
@@ -75,6 +83,12 @@ void deactivate(int s) {
 void deactivateAll() {
   bool any = false;
   for (int i = 0; i < COUNT; ++i) { any |= g_on[i]; g_on[i] = false; }
+  if (any) apply();
+}
+
+void activateAll() {
+  bool any = false;
+  for (int i = 0; i < COUNT; ++i) { any |= !g_on[i]; g_on[i] = true; }
   if (any) apply();
 }
 
