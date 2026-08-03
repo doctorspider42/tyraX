@@ -2156,12 +2156,20 @@ static int vuReplayFromCli(int argc, char** argv) {
         return 1;
     }
 
-    // Every microprogram the engine ships is a candidate.
+    // Every microprogram the engine ships is a candidate - AND every one the
+    // project generated. Leaving the project's own out is not a gap in
+    // coverage, it is a wrong answer: a packet drawn by a project's script
+    // cannot match any shipped program, so the tool reports "not reproduced"
+    // for the one case the author most wants explained.
     const std::string engine = vuEngineDir(argc > 3 ? argv[3] : nullptr);
     std::error_code ec;
     std::vector<std::string> files;
     for (const auto& e : fs::recursive_directory_iterator(fs::path(engine) / "src", ec))
         if (e.is_regular_file() && e.path().extension() == ".vclpp")
+            files.push_back(e.path().string());
+    for (const auto& e :
+         fs::directory_iterator(fs::path(proj.dir) / "src" / "gen", ec))
+        if (!ec && e.is_regular_file() && e.path().extension() == ".vclpp")
             files.push_back(e.path().string());
     std::sort(files.begin(), files.end());
     if (files.empty()) {

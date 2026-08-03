@@ -243,6 +243,12 @@ which is the honest answer: for a mesh entirely inside the frustum the clip
 program's Sutherland-Hodgman pass changes nothing, so the two stage identical
 output and nothing in the output can separate them.
 
+The candidate list is every microprogram the engine ships **plus every one the
+project generated** (`src/gen/*.vclpp`). Leaving the project's own out is not a
+gap in coverage, it is a wrong answer: a packet drawn by a project's script
+cannot match any shipped program, so the tool would report "not reproduced" for
+exactly the case its author most wants explained.
+
 Two limits worth knowing before using it. Only the **last mesh of a chain** can
 be replayed - everything before it has been overwritten in VU1 memory by
 definition, so a flush carrying fourteen terrain chunks is not resolvable and the
