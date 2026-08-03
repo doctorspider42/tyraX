@@ -12043,7 +12043,10 @@ void TerrainGame::renderOutlineShells() {
     // far away gets a line that is a large FRACTION of the thing it outlines,
     // and a scene of them turns into a row of black rings. Cap the line at a
     // share of the object's own size and the far ones thin out on their own.
-    const float growMax = 0.25F * half;
+    // A quarter of the object was the first guess and it is a tyre, not a
+    // line: on a sphere it reads as a black ring half as wide as the thing it
+    // surrounds. A line wants low single-digit percent.
+    const float growMax = 0.06F * half;
     if (grow > growMax) grow = growMax;
 
     float behind = dist - half;

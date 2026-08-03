@@ -84,22 +84,51 @@ processing:
     add.z      k0, vf00, i
     loi        0.0078125
     mul.w      k0, vf00, i
-    loi        1  ; constants
+    loi        0.298999995  ; constants
     add.x      k1, vf00, i
-    loi        1000
+    loi        0.587000012
     add.y      k1, vf00, i
-    loi        0
+    loi        0.114
     add.z      k1, vf00, i
     loi        0
     mul.w      k1, vf00, i
+    loi        64  ; constants
+    add.x      k2, vf00, i
+    loi        128
+    add.y      k2, vf00, i
+    loi        192
+    add.z      k2, vf00, i
+    loi        0.25
+    mul.w      k2, vf00, i
+    loi        1  ; constants
+    add.x      k3, vf00, i
+    loi        0.5
+    add.y      k3, vf00, i
+    loi        0.166669995
+    add.z      k3, vf00, i
+    loi        1000
+    mul.w      k3, vf00, i
     sub.xyz    vuS0, color1, k0
     mul.xyz    vuS0, vuS0, k0[w]
     mul.xyz    vuS0, vuS0, vuParams[x]
     add.xyz    vertex1, vertex1, vuS0
-    mul.x      vuS1, vuParams, k1[y]
-    mini.x     vuS1, vuS1, k1[x]
-    sub.x      vuS2, k1, vuS1[x]
-    mul.xyz    color1, color1, vuS2[x]
+    mul.x      vuS1, vuParams, k3[w]
+    mini.x     vuS1, vuS1, k3[x]
+    sub.x      vuS2, k3, vuS1[x]
+    mul.xyz    vuS3, color1, k1
+    add.x      vuS3, vuS3, vuS3[y]
+    add.x      vuS3, vuS3, vuS3[z]
+    add.xyz    vf00, vf00, vuS3[x]
+    sub.xyz    vf00, vf00, k2
+    mul.xyz    vf00, vf00, k2[w]
+    max.xyz    vf00, vf00, vf00
+    mini.xyz   vf00, vf00, k3[x]
+    add.x      vuS3, vf00, vf00[y]
+    add.x      vuS3, vuS3, vf00[z]
+    mul.x      vuS3, vuS3, k3[z]
+    add.x      vuS3, vuS3, k3[y]
+    mul.x      vuS3, vuS3, vuS2[x]
+    mul.xyz    color1, color1, vuS3[x]
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -152,10 +181,23 @@ processing:
     mul.xyz    vuS0, vuS0, k0[w]
     mul.xyz    vuS0, vuS0, vuParams[x]
     add.xyz    vertex2, vertex2, vuS0
-    mul.x      vuS1, vuParams, k1[y]
-    mini.x     vuS1, vuS1, k1[x]
-    sub.x      vuS2, k1, vuS1[x]
-    mul.xyz    color2, color2, vuS2[x]
+    mul.x      vuS1, vuParams, k3[w]
+    mini.x     vuS1, vuS1, k3[x]
+    sub.x      vuS2, k3, vuS1[x]
+    mul.xyz    vuS3, color2, k1
+    add.x      vuS3, vuS3, vuS3[y]
+    add.x      vuS3, vuS3, vuS3[z]
+    add.xyz    vf00, vf00, vuS3[x]
+    sub.xyz    vf00, vf00, k2
+    mul.xyz    vf00, vf00, k2[w]
+    max.xyz    vf00, vf00, vf00
+    mini.xyz   vf00, vf00, k3[x]
+    add.x      vuS3, vf00, vf00[y]
+    add.x      vuS3, vuS3, vf00[z]
+    mul.x      vuS3, vuS3, k3[z]
+    add.x      vuS3, vuS3, k3[y]
+    mul.x      vuS3, vuS3, vuS2[x]
+    mul.xyz    color2, color2, vuS3[x]
     sub.xyz    spotD, vertex2, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -208,10 +250,23 @@ processing:
     mul.xyz    vuS0, vuS0, k0[w]
     mul.xyz    vuS0, vuS0, vuParams[x]
     add.xyz    vertex3, vertex3, vuS0
-    mul.x      vuS1, vuParams, k1[y]
-    mini.x     vuS1, vuS1, k1[x]
-    sub.x      vuS2, k1, vuS1[x]
-    mul.xyz    color3, color3, vuS2[x]
+    mul.x      vuS1, vuParams, k3[w]
+    mini.x     vuS1, vuS1, k3[x]
+    sub.x      vuS2, k3, vuS1[x]
+    mul.xyz    vuS3, color3, k1
+    add.x      vuS3, vuS3, vuS3[y]
+    add.x      vuS3, vuS3, vuS3[z]
+    add.xyz    vf00, vf00, vuS3[x]
+    sub.xyz    vf00, vf00, k2
+    mul.xyz    vf00, vf00, k2[w]
+    max.xyz    vf00, vf00, vf00
+    mini.xyz   vf00, vf00, k3[x]
+    add.x      vuS3, vf00, vf00[y]
+    add.x      vuS3, vuS3, vf00[z]
+    mul.x      vuS3, vuS3, k3[z]
+    add.x      vuS3, vuS3, k3[y]
+    mul.x      vuS3, vuS3, vuS2[x]
+    mul.xyz    color3, color3, vuS3[x]
     sub.xyz    spotD, vertex3, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]

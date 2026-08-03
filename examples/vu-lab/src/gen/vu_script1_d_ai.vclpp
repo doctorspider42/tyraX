@@ -70,17 +70,17 @@ vertexLoop:
     add.z      k0, vf00, i
     loi        0
     mul.w      k0, vf00, i
-    loi        40  ; constants
+    loi        64  ; constants
     add.x      k1, vf00, i
-    loi        90
+    loi        128
     add.y      k1, vf00, i
-    loi        150
+    loi        192
     add.z      k1, vf00, i
     loi        0.25
     mul.w      k1, vf00, i
-    loi        0.150000006  ; constants
+    loi        0.166669995  ; constants
     add.x      k2, vf00, i
-    loi        0.550000012
+    loi        0.5
     add.y      k2, vf00, i
     loi        1
     add.z      k2, vf00, i

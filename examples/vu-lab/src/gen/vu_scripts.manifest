@@ -1,4 +1,4 @@
-Cell outline	Untextured (vertex colour)	249	StaPipCullColor	1	main	boot
+Cell outline	Untextured (vertex colour)	304	StaPipCullColor	1	main	boot
 Cell shading	Directional lights	248	StaPipCullDirLights	2	main	boot
 Cell shading	Directional lights	208	StaPipAsIsDirLights	2	twin	boot
 Cell shading	Textured + lights	262	StaPipCullTextureDirLights	4	main	boot
