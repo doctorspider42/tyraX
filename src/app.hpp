@@ -589,6 +589,7 @@ private:
     void drawVuProgramsWindow();
     void drawVuStageList(std::vector<VuStage>& stages, bool kernel);
     void vuRebuildPreview();
+    int vuObjectsInClass(unsigned classBit) const;
     void vuSimulate();
 
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
@@ -1170,6 +1171,7 @@ private:
     // listing, the budget bar and the simulation are one answer rather than
     // three that can drift.
     std::vector<vugen::Built> vuPreview_;
+    std::vector<std::string> vuPreviewLabel_;
     std::vector<std::string> vuPreviewErrors_;
     int vuPreviewSel_ = 0;
     float vuSimParams_[4] = {1.0f, 0.0f, 0.0f, 0.0f};

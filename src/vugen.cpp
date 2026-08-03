@@ -1018,36 +1018,45 @@ Desc descCullTextureEnv() {
     return d;
 }
 
-const std::vector<std::string>& customBases() {
-    static const std::vector<std::string> b = {"cullColor", "cullTextureColor",
-                                               "cullTextureEnv"};
-    return b;
+const std::vector<unsigned>& customClasses() {
+    static const std::vector<unsigned> c = {1u << 0, 1u << 1, 1u << 2,
+                                            1u << 3, 1u << 4};
+    return c;
 }
 
-const char* customBaseTitle(const std::string& base) {
-    if (base == "cullTextureColor") return "Textured (vertex colour + map_Kd)";
-    if (base == "cullTextureEnv") return "Reflective (matcap materials)";
-    return "Untextured (vertex colour only)";
+const char* classTitle(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 0: return "Untextured (vertex colour)";
+        case 1u << 1: return "Directional lights";
+        case 1u << 2: return "Textured + lights";
+        case 1u << 3: return "Textured";
+        case 1u << 4: return "Reflective (matcap)";
+        default: return "no geometry";
+    }
 }
 
-Desc descCustomBase(const std::string& base) {
-    Desc d = base == "cullTextureColor"  ? descCullTextureColor()
-             : base == "cullTextureEnv"  ? descCullTextureEnv()
-                                         : descCullColor();
+Desc descForClass(unsigned classBit) {
+    Desc d;
+    const char* tag = "c";    // file stem, lowercase like every generated file
+    const char* upper = "C";  // symbol stem, matching the engine's own spelling
+    switch (classBit) {
+        case 1u << 1: d = descCullDirLights(); tag = "d"; upper = "D"; break;
+        case 1u << 2:
+            d = descCullTextureDirLights(), tag = "td", upper = "TD";
+            break;
+        case 1u << 3: d = descCullTextureColor(); tag = "tc"; upper = "TC"; break;
+        case 1u << 4:
+            d = descCullTextureEnv(), tag = "tce", upper = "TCE";
+            break;
+        default: d = descCullColor(); break;
+    }
     d.custom = true;
     d.dir = "gen";
-    d.fileStem = "vu_custom_" + std::string(base == "cullTextureColor" ? "tc"
-                                            : base == "cullTextureEnv" ? "tce"
-                                                                       : "c");
-    d.className = "TyraXCustom" + std::string(base == "cullTextureColor" ? "TC"
-                                              : base == "cullTextureEnv" ? "TCE"
-                                                                         : "C") +
-                  "VU1Program";
-    d.vclName = "TyraXCustom" + std::string(base == "cullTextureColor" ? "TC"
-                                            : base == "cullTextureEnv" ? "TCE"
-                                                                       : "C");
+    d.fileStem = std::string("vu_custom_") + tag;
+    d.vclName = std::string("TyraXCustom") + upper;
     d.asmName = d.vclName;
-    d.title = std::string("TyraX custom - ") + customBaseTitle(base);
+    d.className = d.vclName + "VU1Program";
+    d.title = std::string("TyraX look - ") + classTitle(classBit);
     return d;
 }
 
@@ -1365,17 +1374,21 @@ StagePlan planStages(const std::vector<Stage>& stages, const Desc& d) {
                                    " (every strength is a literal zero)");
             continue;
         }
+        // A LOOK spans several material classes, and not every stage can run
+        // on every one of them - a UV scroll has no UV on untextured geometry.
+        // That is a DROP with a stated reason, not an error: refusing the whole
+        // look would mean a scene-wide treatment could never include a stage
+        // that only some classes can carry, which is most of them.
         if (def->needsTexture && !d.texture) {
-            plan.errors.push_back(std::string(def->title) +
-                                  " needs a textured base, and this program has "
-                                  "no ST stream");
+            plan.dropped.push_back(std::string(def->title) +
+                                   " (no ST stream on this class)");
             continue;
         }
         if (def->slot == Slot::Texture && d.env) {
-            plan.errors.push_back(
+            plan.dropped.push_back(
                 std::string(def->title) +
-                " cannot run on a reflective base: the ST slot carries an "
-                "object-space normal there, not a texture coordinate");
+                " (the ST slot carries an object-space normal on a reflective "
+                "class, not a texture coordinate)");
             continue;
         }
         Resolved r;

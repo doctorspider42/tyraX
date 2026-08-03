@@ -28,14 +28,20 @@ The scene keeps VU1 clipping on (*Preferences > Rendering*), which is the defaul
 
 ## What it authors
 
-*Tools > VU Programs* shows all of it: **two** microprograms, on two different
-material classes, plus a **VU0 compute kernel**.
+*Tools > VU Programs* shows all of it: **two looks** — which become **three**
+microprograms, because one of them covers two material classes — plus a **VU0
+compute kernel**.
 
-| Program | Base | Stages | Parameters |
+| Look | Classes | Stages | Parameters |
 |---|---|---|---|
-| colour | `StaPipCullColor` | Wobble, Desaturate | Amplitude ← mesh **X**, Amount ← mesh **Y** |
-| textured | `StaPipCullTextureColor` | Scroll UV, Posterize | Speed U/V ← mesh **X**/**Y**, Strength ← mesh **Z** |
-| kernel | VU0 | Wobble, Squash | literals |
+| **Underwater** | Untextured | Wobble, Desaturate | Amplitude ← mesh **X**, Amount ← mesh **Y** |
+| **Toon** | Textured + Reflective | Posterize, Scroll UV | Posterize is a plain **value** (every mesh of both classes); Speed U/V ← mesh **X**/**Y** |
+| kernel | VU0 | Wobble, Squash | values |
+
+`Toon` is the shape the feature is for: one stage list, a whole-scene treatment,
+authored once. `Scroll UV` is silently **skipped on Reflective** — that class's
+ST slot carries an object-space normal, not a texture coordinate — and the panel
+says so rather than refusing the look.
 
 That is the whole design in one screen. The program replaces a **material
 class**, not an object - VU1 micro memory has no room for one program per mesh -

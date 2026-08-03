@@ -714,10 +714,44 @@ void App::drawPropertiesWindow() {
     // stage list rather than being named here.
     if (isSolid && !project_.vu.programs.empty()) {
         ImGui::SeparatorText("VU program");
-        std::string uses[4];
-        for (const VuProgram& pr : project_.vu.programs) {
-            if (!pr.enabled) continue;
-            for (const VuStage& st : pr.stages) {
+        // A program is installed over a material CLASS, so the only thing that
+        // decides whether it touches this object is which class the object is
+        // in. Labelling the four slots from every program in the project - as
+        // this did at first - is worse than saying nothing: an untextured box
+        // would show "Scroll UV Speed U" on its X slot, from a program that
+        // will never draw it.
+        const unsigned cls = project::vuClassOfObject(project_, o);
+        const VuProgram* mine = nullptr;
+        for (const VuProgram& pr : project_.vu.programs)
+            if (pr.enabled && (pr.classes & cls) != 0) { mine = &pr; break; }
+
+        ImGui::Text("Class: %s%s%s", project::vuClassName(cls),
+                    mine ? "   look: " : "", mine ? mine->name.c_str() : "");
+        prefHelp(
+            "Which VU1 microprogram draws this object, decided by what it\n"
+            "carries: a texture puts it in Textured, a material with a refl\n"
+            "map in Reflective, Dynamic lighting in one of the lit classes.\n"
+            "A program is installed over a CLASS, so it reaches this object\n"
+            "only if it was built on this one.");
+
+        if (!mine) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+            ImGui::TextWrapped(
+                "No look covers this class, so these numbers do nothing here.");
+            ImGui::PopStyleColor();
+            const bool set = o.vuParams[0] || o.vuParams[1] || o.vuParams[2] ||
+                             o.vuParams[3];
+            if (set)
+                ImGui::TextDisabled(
+                    "It carries values anyway - either tick %s on a look in\n"
+                    "Tools > VU Programs, or clear them.",
+                    project::vuClassName(cls));
+            ImGui::TextDisabled(
+                "Objects merged into one static batch share a bag, and\n"
+                "therefore share these numbers.");
+        } else {
+            std::string uses[4];
+            for (const VuStage& st : mine->stages) {
                 const vugen::StageDef* def = vugen::stageDef(st.kind);
                 if (!def || !st.enabled) continue;
                 for (int i = 0; i < def->paramCount; ++i)
@@ -727,21 +761,24 @@ void App::drawPropertiesWindow() {
                         u += std::string(def->title) + " " + def->params[i].name;
                     }
             }
+            static const char* kAxis[4] = {"X", "Y", "Z", "W"};
+            for (int i = 0; i < 4; ++i) {
+                ImGui::PushID(i);
+                const std::string label =
+                    uses[i].empty()
+                        ? std::string(kAxis[i]) + " (nothing reads this)"
+                        : uses[i] + "##vu" + kAxis[i];
+                ImGui::BeginDisabled(uses[i].empty());
+                ImGui::DragFloat(label.c_str(), &o.vuParams[i], 0.01f);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+            ImGui::TextDisabled(
+                "All zero = this mesh renders exactly as it would with no\n"
+                "custom program at all. Objects merged into one static batch\n"
+                "share a bag, and therefore share these numbers.");
         }
-        static const char* kAxis[4] = {"X", "Y", "Z", "W"};
-        for (int i = 0; i < 4; ++i) {
-            ImGui::PushID(i);
-            const std::string label =
-                uses[i].empty() ? std::string(kAxis[i]) + " (unused)"
-                                : uses[i] + "##vu" + kAxis[i];
-            ImGui::DragFloat(label.c_str(), &o.vuParams[i], 0.01f);
-            committed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::PopID();
-        }
-        ImGui::TextDisabled(
-            "All zero = this mesh renders exactly as it would with no custom\n"
-            "program at all. Objects merged into one static batch share a\n"
-            "bag, and therefore share these numbers.");
     }
 
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the

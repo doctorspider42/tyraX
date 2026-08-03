@@ -1318,9 +1318,8 @@ static int vuCheckStages(const std::string& engine) {
     };
 
     for (const vugen::StageDef& sd : vugen::stageDefs()) {
-        const std::string base =
-            sd.needsTexture ? "cullTextureColor" : "cullColor";
-        vugen::Desc d = vugen::descCustomBase(base);
+        const unsigned cls = sd.needsTexture ? (1u << 3) : (1u << 0);
+        vugen::Desc d = vugen::descForClass(cls);
         vugen::Stage st = vugen::makeStage(sd.key);
         // Bind every strength to its own mesh slot; leave the rest at the
         // catalogue defaults, which is how someone would actually author it.
@@ -1337,9 +1336,8 @@ static int vuCheckStages(const std::string& engine) {
 
         // The reference: the engine's own program for the same base, which the
         // custom one is a stage-weave of.
-        vugen::Desc refDesc = base == "cullTextureColor"
-                                  ? vugen::descCullTextureColor()
-                                  : vugen::descCullColor();
+        vugen::Desc refDesc = sd.needsTexture ? vugen::descCullTextureColor()
+                                              : vugen::descCullColor();
         vuir::Program hand;
         if (!readHand(refDesc, hand)) {
             std::printf("  %-14s could not read the reference program\n", sd.key);

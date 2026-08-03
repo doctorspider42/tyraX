@@ -385,13 +385,20 @@ struct Desc {
     bool custom = false;
 };
 
-/** The three engine programs a project's own program may replace. All are cull
- * (object-space vertices, transform on VU1) and none carries lighting, which is
- * what leaves VU1_LIGHTS_COLORS_ADDR free for the per-mesh parameters. */
-Desc descCustomBase(const std::string& base);
-/** "cullColor" / "cullTextureColor" / "cullTextureEnv", in that order. */
-const std::vector<std::string>& customBases();
-const char* customBaseTitle(const std::string& base);
+/** The cull program a look replaces on one material class, as a
+ * StaPipProgramClass bit (1<<0 colour, 1<<1 dirLights, 1<<2 textureDirLights,
+ * 1<<3 textureColor, 1<<4 textureEnv). All five are available: the cull family
+ * is the only one resident in both clipping modes and the only one that still
+ * has the object-space position. The lighting classes are usable as long as no
+ * stage binds a PER-MESH parameter - those live in the directional-lights
+ * colour block, which a lit program needs (project::vuClassCanBind). */
+Desc descForClass(unsigned classBit);
+/** Every class bit, low to high. */
+const std::vector<unsigned>& customClasses();
+/** "Untextured (vertex colour)", "Textured", ... - THE label for a class, used
+ * by the panel, the inspector, the diagnostics and the generated file headers.
+ * project::vuClassName forwards here. */
+const char* classTitle(unsigned classBit);
 
 /** The ten programs the StaPip pipeline keeps resident, exactly as the engine
  * ships them: five `as_is` (fed by the EE clipper) crossed with five `cull`

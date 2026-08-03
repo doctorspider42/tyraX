@@ -20,9 +20,14 @@ without it.
   the mask drops is flagged: dropping it does not crash (the engine walks down
   to a resident relative) but those meshes lose the feature, which reads as a
   material bug rather than a settings one.
-- **Programs** — the stage list per base. A stage that would emit nothing is
-  drawn dimmed with the reason on hover, so "I added it and nothing happened"
-  has an answer on screen. Each parameter is a value or a mesh-slot binding.
+- **Programs** — the looks. Each carries a name, the classes it applies to
+  (with the object count per class, so an abstract class name becomes *these
+  things*) and its stage list. A new look starts covering **everything the
+  project draws**: narrowing it should be a decision, not something the default
+  makes for you by omission. A stage that would emit nothing is drawn dimmed
+  with the reason on hover, so "I added it and nothing happened" has an answer
+  on screen. Each parameter is a plain value — meaning every mesh — or a
+  mesh-slot binding.
 - **Generated** — the `.vclpp` this exact stage list produces, and **Run it on
   the host**: the program executed in the VU simulator over a small synthetic
   mesh, printed as GS vertices, *twice* — once with the panel's mesh parameters
@@ -33,30 +38,62 @@ without it.
 - **VU0 kernel** — the same stages on the other unit, with the instruction count
   against VU0's 512 slots.
 
-Per-mesh numbers are set in the object inspector, under **VU program** — and
-only when the project has one, otherwise they would be four sliders that do
-nothing on every object forever. Each slot is labelled with what actually reads
-it (`Wobble Amplitude`), pulled from the stage list rather than named there.
+Per-mesh numbers are set in the object inspector, under **VU program**, which
+first names the **class this object is in** and the look covering it. The four
+sliders are labelled with what actually reads them (`Wobble Amplitude`) — from
+THAT look only, because labelling them from every look in the project is worse
+than saying nothing: an untextured box would offer "Scroll UV Speed U" from a
+program that will never draw it. When no look covers the object's class the
+sliders are gone and it says so, rather than showing four numbers that do
+nothing.
+
+## What this is for
+
+**A look, not an effect on one object.** This is the layer for giving a whole
+scene a treatment — cell shading, an underwater wobble, a posterized palette.
+It is not the way to make one barrel wobble; that is an animation's job, and
+paying a microprogram for it would be absurd.
+
+That framing decides the shape of everything below, so it is worth being blunt
+about it: a **literal** parameter means *every mesh of every class this look
+covers*, and that is the normal case. Binding a parameter to a **per-mesh slot**
+is the exception, for when the treatment has to vary in strength across the
+scene.
 
 ## The shape of the thing
 
-A project's own VU1 program is **a base plus an ordered list of stages**.
+A look is **one ordered list of stages, installed over every material class it
+claims**.
 
 ```
-base:  which material class it replaces  (cullColor / cullTextureColor / cullTextureEnv)
-stages: [ Wobble(amp, freq, speed), Desaturate(amount), ... ]
+name:    "Underwater"
+classes: Untextured + Textured + Reflective   (a StaPipProgramClass mask)
+stages:  [ Wobble(amp, freq, speed), Desaturate(amount), ... ]
 ```
+
+Codegen emits **one microprogram per claimed class**, all from that one list —
+so you author once. A treatment that stops at one class is not a treatment: cell
+shading on untextured props but not on textured ones just reads as broken.
 
 Each stage has up to four parameters, and each parameter is either
 
-- a **literal**, baked into the microprogram — free, and constant for the whole
-  project; or
+- a **value**, baked into the microprogram — free, constant, and applied to
+  every mesh of every claimed class; or
 - bound to one of **four per-mesh slots**, a quadword the game uploads next to
-  the MVP matrix, so every object can drive the same effect differently.
+  the MVP matrix, so individual objects can drive the same effect differently.
 
-That split is the whole design, and it comes from a hardware constraint rather
-than a preference. Read the next section before authoring anything, because
-everything else follows from it.
+A stage a class cannot carry — a UV scroll on untextured geometry — is **skipped
+for that class with the reason shown**, not refused. Refusing would mean a
+scene-wide look could never include a stage that only some classes support,
+which is most of them.
+
+Two rules the class mask is subject to:
+
+- **One look per class.** `setProgramOverride` replaces a slot and a slot holds
+  one program, so a second look claiming a taken class is skipped and said so.
+- **A per-mesh binding restricts the mask to the unlit classes.** See below —
+  and note it is the *binding* that restricts, not the look: an all-values look
+  reaches lit geometry perfectly well.
 
 ## Why one program per material class
 
@@ -88,15 +125,10 @@ A per-object *program* would also break static batching outright — a merged ba
 cannot hold two programs, so every such object would become a batch blocker.
 Parameters cost neither micro memory nor batching.
 
-## Which bases exist, and why only three
+## Which classes a look can claim
 
-| Base | Replaces | Carries |
-|---|---|---|
-| `cullColor` | `StaPipCullColor` | vertex colour |
-| `cullTextureColor` | `StaPipCullTextureColor` | vertex colour + an ST stream |
-| `cullTextureEnv` | `StaPipCullTextureEnv` | matcap — the ST slot holds a **normal** |
-
-All three are `cull` programs, and that is not arbitrary:
+All five, with one condition. Every one of them is a `cull` program, and that is
+not arbitrary:
 
 - **`cull` is the only family resident in both clipping modes.** `as_is` is
   uploaded only with the EE clipper, `clip` only with VU1 clipping (the default)
@@ -105,14 +137,28 @@ All three are `cull` programs, and that is not arbitrary:
 - **`cull` is the only family that still has the object-space position.** The
   `as_is` family is fed NDC positions by the EE clipper: by the time it runs
   there is nothing left to displace in model space.
-- **None of the three carries lighting**, which is what leaves
-  `VU1_LIGHTS_COLORS_ADDR` free for the per-mesh parameter quadword. A lit mesh
-  (`cullDirLights`, `cullTextureDirLights`) fills those addresses with light
-  colours, so it cannot carry parameters and is not offered as a base.
 
-On `cullTextureEnv` the ST slot holds an object-space normal rather than a
-texture coordinate, so `Scroll UV` is refused there rather than silently
-scrambling the matcap.
+| Class | Replaces | Carries |
+|---|---|---|
+| Untextured | `StaPipCullColor` | vertex colour |
+| Directional lights | `StaPipCullDirLights` | normals, shaded on VU1 |
+| Textured + lights | `StaPipCullTextureDirLights` | ST + normals |
+| Textured | `StaPipCullTextureColor` | vertex colour + an ST stream |
+| Reflective | `StaPipCullTextureEnv` | matcap — the ST slot holds a **normal** |
+
+**The condition is about per-mesh parameters, not about the classes.** The four
+numbers and the clock live at `VU1_LIGHTS_COLORS_ADDR`, which a lit program
+needs for its own light colours — so a look that **binds** a parameter to a mesh
+slot cannot claim `Directional lights` or `Textured + lights`. A look made only
+of values never reads those addresses and may claim anything.
+
+That distinction is the difference between "cell shading works on unlit props"
+and "cell shading works on the scene", so the panel greys the two lit classes
+out only while a binding exists, and says why.
+
+On `Reflective` the ST slot holds an object-space normal rather than a texture
+coordinate, so `Scroll UV` is skipped there rather than silently scrambling the
+matcap.
 
 ### The honest limitation: which packages your program actually draws
 

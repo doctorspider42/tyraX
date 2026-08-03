@@ -581,7 +581,12 @@ struct VuStage {
     std::string kind;
     bool enabled = true;
     float params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    // -1 = the literal above; 0..3 = that field of the per-mesh quadword.
+    // -1 = the literal above, which means EVERY MESH of the claimed classes -
+    // and that is the common case, because a look is a whole-scene treatment.
+    // 0..3 names a field of the per-mesh quadword instead, for the rarer "this
+    // prop, that much" case. Any such binding restricts the look to the classes
+    // that carry no lighting: the quadword lives in the directional-lights
+    // colour block (see vuClassCanBind).
     int bind[4] = {-1, -1, -1, -1};
 };
 
@@ -592,18 +597,29 @@ inline bool operator==(const VuStage& a, const VuStage& b) {
 }
 inline bool operator!=(const VuStage& a, const VuStage& b) { return !(a == b); }
 
-// A program the project installs over one of the engine's material classes.
-// `base` is a vugen::customBases() key ("cullColor" / "cullTextureColor" /
-// "cullTextureEnv") - at most one program per base, because installing two over
-// one slot is not a thing setProgramOverride can express.
+// A LOOK: one stage list, installed over every material class it claims.
+//
+// It is a look and not "a program" because that is what the feature is for. A
+// VU program is how you give a whole scene a treatment - cell shading, an
+// underwater wobble - not how you wiggle one barrel; a barrel is an animation's
+// job. And a treatment has to reach every class the scene draws with, or it
+// stops halfway: cell shading that covers untextured props and not textured
+// ones is not cell shading.
+//
+// `classes` is a StaPipProgramClass bit mask. Codegen emits ONE microprogram
+// per claimed class, all from this one list - so authoring is done once. At
+// most one enabled look may claim a given class: setProgramOverride replaces a
+// slot, and two programs cannot occupy one.
 struct VuProgram {
-    std::string base = "cullColor";
+    std::string name = "look";
+    unsigned classes = 1u << 0;
     bool enabled = true;
     std::vector<VuStage> stages;
 };
 
 inline bool operator==(const VuProgram& a, const VuProgram& b) {
-    return a.base == b.base && a.enabled == b.enabled && a.stages == b.stages;
+    return a.name == b.name && a.classes == b.classes &&
+           a.enabled == b.enabled && a.stages == b.stages;
 }
 inline bool operator!=(const VuProgram& a, const VuProgram& b) { return !(a == b); }
 
@@ -2627,6 +2643,23 @@ bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
 // a second implementation would let the editor promise room the build does not
 // make. Colour is always set: it is what everything else falls back to.
 unsigned vuNeededClasses(const Project& p);
+// Which single class ONE object draws with, as a StaPipProgramClass bit. The
+// host twin of the engine's `getDrawProgramTypeByBag`, and the answer to the
+// question the authoring UI kept failing to ask: a program is installed over a
+// CLASS, so "will this program touch this object" is exactly "is this the
+// object's class". Returns 0 for anything with no geometry.
+unsigned vuClassOfObject(const Project& p, const SceneObject& o);
+// Whether a class can carry a look with PER-MESH parameters. The four numbers
+// and the clock live in the directional-lights colour block, so a lit class
+// needs those addresses for its light colours - but a look made only of
+// literals never reads them, and may go anywhere. That distinction is what
+// lets a global treatment reach lit geometry at all.
+bool vuClassCanBind(unsigned classBit);
+// True when any stage of the look binds a parameter to a mesh slot.
+bool vuLookBindsPerMesh(const VuProgram& look);
+// "Untextured (vertex colour)", "Textured", ... - one label for the panel, the
+// inspector and the diagnostics.
+const char* vuClassName(unsigned classBit);
 // What the build will actually install: the auto-detected set, or the mask the
 // project pinned by hand.
 unsigned vuResidentClasses(const Project& p);

@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
 #include <algorithm>
 #include <cmath>
@@ -1985,11 +1986,11 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << "\"vu\": { \"residentClasses\": " << v.residentClasses
          << ", \"residentAuto\": " << (v.residentAuto ? "true" : "false");
     if (!v.programs.empty()) {
-        json << ", \"programs\": [";
+        json << ", \"looks\": [";
         for (size_t i = 0; i < v.programs.size(); ++i) {
             const VuProgram& pr = v.programs[i];
-            json << (i ? ",\n      " : "\n      ") << "{ \"base\": \""
-                 << jsonEscape(pr.base) << "\"";
+            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+                 << jsonEscape(pr.name) << "\", \"classes\": " << pr.classes;
             if (!pr.enabled) json << ", \"off\": true";
             json << ", \"stages\": ";
             writeVuStages(json, pr.stages);
@@ -2015,18 +2016,33 @@ static void readVuSection(const json::Value& root, Project& out) {
         out.vu.residentClasses = (unsigned)x->numberOr(0x1F) & 0x1Fu;
     if (const json::Value* x = v->find("residentAuto"))
         out.vu.residentAuto = x->boolOr(true);
-    if (const json::Value* arr = v->find("programs"))
-        if (arr->type == json::Value::Type::Array)
-            for (const json::Value& e : arr->arr) {
-                VuProgram pr;
-                if (const json::Value* x = e.find("base")) pr.base = x->stringOr("");
-                if (pr.base.empty()) continue;
-                if (const json::Value* x = e.find("off"))
-                    pr.enabled = !x->boolOr(false);
-                if (const json::Value* x = e.find("stages"))
-                    readVuStages(*x, pr.stages);
-                out.vu.programs.push_back(std::move(pr));
+    // "looks" is the current key. "programs" with a "base" string is the
+    // one-day-old shape from before a look could span classes, migrated here so
+    // a project written in between still opens.
+    const json::Value* arr = v->find("looks");
+    const bool legacy = arr == nullptr;
+    if (legacy) arr = v->find("programs");
+    if (arr && arr->type == json::Value::Type::Array)
+        for (const json::Value& e : arr->arr) {
+            VuProgram pr;
+            if (legacy) {
+                const json::Value* b = e.find("base");
+                const std::string base = b ? b->stringOr("") : "";
+                if (base.empty()) continue;
+                pr.name = base;
+                pr.classes = base == "cullTextureColor" ? (1u << 3)
+                             : base == "cullTextureEnv" ? (1u << 4)
+                                                        : (1u << 0);
+            } else {
+                if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
+                if (const json::Value* x = e.find("classes"))
+                    pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
             }
+            if (const json::Value* x = e.find("off")) pr.enabled = !x->boolOr(false);
+            if (const json::Value* x = e.find("stages")) readVuStages(*x, pr.stages);
+            if (pr.classes == 0) continue;
+            out.vu.programs.push_back(std::move(pr));
+        }
     if (const json::Value* k = v->find("kernel")) {
         if (const json::Value* x = k->find("name")) out.vu.kernel.name = x->stringOr("kernel");
         if (const json::Value* x = k->find("enabled"))
@@ -2974,33 +2990,69 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
     return nullptr;
 }
 
-unsigned vuNeededClasses(const Project& p) {
-    unsigned mask = 1u << 0;  // colour: the fallback floor, always resident
-    auto scan = [&](const SceneObject& o) {
-        const bool lit = o.dynamicLighting;
-        const bool textured = !o.materialPath.empty() || !o.modelPath.empty();
-        bool matcap = false;
-        if (!o.materialPath.empty()) {
-            // A `refl` statement is what makes a material a matcap - the same
-            // line objparser and the engine's lean_obj_loader read.
-            std::ifstream in(p.filePath(o.materialPath), std::ios::binary);
-            if (in) {
-                std::string line;
-                while (std::getline(in, line)) {
-                    size_t a = line.find_first_not_of(" 	");
-                    if (a == std::string::npos) continue;
-                    if (line.compare(a, 5, "refl ") == 0) {
-                        matcap = true;
-                        break;
-                    }
-                }
+unsigned vuClassOfObject(const Project& p, const SceneObject& o) {
+    // Markers, areas, cameras and the rest draw nothing, so they belong to no
+    // class - and must not be offered VU parameters.
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::Model:
+            break;
+        default:
+            return 0;
+    }
+    const bool lit = o.dynamicLighting;
+    const bool textured = !o.materialPath.empty() || !o.modelPath.empty();
+    if (!o.materialPath.empty()) {
+        // A `refl` statement is what makes a material a matcap - the same line
+        // objparser and the engine's lean_obj_loader read. It wins over
+        // everything: the engine checks coordinatesAreNormals first.
+        std::ifstream in(p.filePath(o.materialPath), std::ios::binary);
+        if (in) {
+            std::string line;
+            while (std::getline(in, line)) {
+                size_t a = line.find_first_not_of(" 	");
+                if (a == std::string::npos) continue;
+                if (line.compare(a, 5, "refl ") == 0) return 1u << 4;
             }
         }
-        if (matcap) mask |= 1u << 4;
-        if (lit && textured) mask |= 1u << 2;
-        else if (lit) mask |= 1u << 1;
-        else if (textured) mask |= 1u << 3;
-    };
+    }
+    if (lit && textured) return 1u << 2;
+    if (lit) return 1u << 1;
+    if (textured) return 1u << 3;
+    return 1u << 0;
+}
+
+bool vuClassCanBind(unsigned classBit) {
+    // Colour, Textured and Reflective carry no lighting, so the
+    // directional-lights colour block - where the per-mesh quadword and the
+    // clock live - is free in them and ONLY in them. A look made of plain
+    // values never reads those addresses and may go anywhere, which is what
+    // lets a scene-wide treatment reach lit geometry at all.
+    return classBit == (1u << 0) || classBit == (1u << 3) ||
+           classBit == (1u << 4);
+}
+
+bool vuLookBindsPerMesh(const VuProgram& look) {
+    for (const VuStage& st : look.stages) {
+        if (!st.enabled) continue;
+        for (int i = 0; i < 4; ++i)
+            if (st.bind[i] >= 0) return true;
+    }
+    return false;
+}
+
+const char* vuClassName(unsigned classBit) {
+    // One list, in vugen - the generated file headers name the class too.
+    return vugen::classTitle(classBit);
+}
+
+unsigned vuNeededClasses(const Project& p) {
+    unsigned mask = 1u << 0;  // colour: the fallback floor, always resident
+    auto scan = [&](const SceneObject& o) { mask |= vuClassOfObject(p, o); };
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects) scan(o);
     // A prefab member can reach the world without being in any scene (stamped

@@ -31225,11 +31225,15 @@ std::vector<vugen::Stage> vuStagesOf(const std::vector<VuStage>& in) {
     return out;
 }
 
-/** The engine's StaPipProgramName a base installs over. */
-const char* vuProgramEnum(const std::string& base) {
-    if (base == "cullTextureColor") return "StaPipCullTextureColor";
-    if (base == "cullTextureEnv") return "StaPipCullTextureEnv";
-    return "StaPipCullColor";
+/** The engine's StaPipProgramName for one material class. */
+const char* vuProgramEnum(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "StaPipCullDirLights";
+        case 1u << 2: return "StaPipCullTextureDirLights";
+        case 1u << 3: return "StaPipCullTextureColor";
+        case 1u << 4: return "StaPipCullTextureEnv";
+        default: return "StaPipCullColor";
+    }
 }
 
 struct VuBuild {
@@ -31246,35 +31250,66 @@ struct VuBuild {
 VuBuild buildVuFiles(const Project& p) {
     VuBuild out;
     out.residentMask = project::vuResidentClasses(p);
+    // A look claims a set of classes and produces ONE microprogram per class -
+    // that is the whole of what "a look" means here. Two enabled looks cannot
+    // claim the same class: setProgramOverride replaces a slot, and a slot
+    // holds one program.
+    unsigned taken = 0;
     for (const VuProgram& pr : p.vu.programs) {
         if (!pr.enabled) continue;
-        vugen::Desc d = vugen::descCustomBase(pr.base);
-        d.stages = vuStagesOf(pr.stages);
-        // A program whose whole stage list folded away is not a program: it
-        // would install a byte-for-byte copy of the engine's own microprogram
-        // over the engine's own slot, burning micro memory to change nothing.
+        const bool binds = project::vuLookBindsPerMesh(pr);
+        // A stage list that folds away entirely is not a look: it would install
+        // a byte-for-byte copy of the engine's own microprogram over the
+        // engine's own slot, burning micro memory to change nothing.
         bool anyLive = false;
-        for (const vugen::Stage& s : d.stages)
+        for (const vugen::Stage& s : vuStagesOf(pr.stages))
             if (!vugen::stageIsNoOp(s)) anyLive = true;
         if (!anyLive) {
-            out.warnings.push_back(
-                "program on " + std::string(vugen::customBaseTitle(pr.base)) +
-                " has no live stage (every strength is a literal zero) - not "
-                "generated");
+            out.warnings.push_back("look \"" + pr.name +
+                                   "\" has no live stage (every strength is a "
+                                   "literal zero) - not generated");
             continue;
         }
-        const vugen::Built b = vugen::build(d);
-        for (const std::string& e : b.errors)
-            out.warnings.push_back(vugen::customBaseTitle(pr.base) +
-                                   std::string(": ") + e);
-        if (!b.errors.empty()) continue;
-        out.files.push_back({"src\\gen\\" + d.fileStem + ".vclpp", b.vclpp});
-        out.files.push_back(
-            {"src\\gen\\" + d.fileStem + "_program.hpp", b.eeHeader});
-        out.files.push_back(
-            {"src\\gen\\" + d.fileStem + "_program.cpp", b.eeSource});
-        out.installs.push_back({d.className, vuProgramEnum(pr.base)});
-        out.anyProgram = true;
+        for (unsigned cls : vugen::customClasses()) {
+            if ((pr.classes & cls) == 0) continue;
+            if ((out.residentMask & cls) == 0) {
+                out.warnings.push_back(
+                    "look \"" + pr.name + "\" claims " +
+                    project::vuClassName(cls) +
+                    ", which this project does not draw - skipped");
+                continue;
+            }
+            if (taken & cls) {
+                out.warnings.push_back(
+                    "look \"" + pr.name + "\" also claims " +
+                    project::vuClassName(cls) +
+                    ", already taken by an earlier look - skipped (one program "
+                    "per class)");
+                continue;
+            }
+            if (binds && !project::vuClassCanBind(cls)) {
+                out.warnings.push_back(
+                    "look \"" + pr.name + "\" binds a per-mesh parameter and "
+                    "claims " + project::vuClassName(cls) +
+                    ", whose light colours occupy those addresses - skipped");
+                continue;
+            }
+            vugen::Desc d = vugen::descForClass(cls);
+            d.stages = vuStagesOf(pr.stages);
+            const vugen::Built b = vugen::build(d);
+            for (const std::string& e : b.errors)
+                out.warnings.push_back(pr.name + " on " +
+                                       project::vuClassName(cls) + ": " + e);
+            if (!b.errors.empty()) continue;
+            out.files.push_back({"src\\gen\\" + d.fileStem + ".vclpp", b.vclpp});
+            out.files.push_back(
+                {"src\\gen\\" + d.fileStem + "_program.hpp", b.eeHeader});
+            out.files.push_back(
+                {"src\\gen\\" + d.fileStem + "_program.cpp", b.eeSource});
+            out.installs.push_back({d.className, vuProgramEnum(cls)});
+            out.anyProgram = true;
+            taken |= cls;
+        }
     }
 
     if (p.vu.kernel.enabled && !p.vu.kernel.stages.empty()) {

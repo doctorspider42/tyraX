@@ -494,6 +494,18 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 
 **The project's own VU programs** (docs/vu-authoring.md) - `VuSettings vu` on
 `Project` (`Section::VuPrograms`, key `"vu"`) plus `SceneObject::vuParams[4]`.
+The unit of authoring is a **LOOK**: one stage list plus a MASK of material
+classes, and codegen emits one microprogram per claimed class. That shape is not
+cosmetic - this layer exists for whole-scene treatments (cell shading, an
+underwater wobble), not for wiggling one prop, which is an animation's job. So a
+plain-VALUE parameter means "every mesh of every claimed class" and is the
+normal case; a per-mesh binding is the exception. The binding is also the ONLY
+thing that restricts the mask: the four numbers live at
+`VU1_LIGHTS_COLORS_ADDR`, so a look that binds cannot claim a lit class, while
+an all-values look can claim all five. `project::vuClassOfObject` /
+`vuClassCanBind` / `vugen::classTitle` are the single answers to "which class",
+"can it bind" and "what is it called" - the inspector, the panel, codegen and
+the generated file headers all read them.
 The load-bearing constraint is that VU1 micro memory has no room for a program
 per object, so `setProgramOverride` replaces a whole MATERIAL CLASS: the KIND of
 effect is per class and its STRENGTH is per mesh. Two rules follow and both are

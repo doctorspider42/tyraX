@@ -22,7 +22,7 @@ TyraXCustomCVU1Program::TyraXCustomCVU1Program()
 TyraXCustomCVU1Program::~TyraXCustomCVU1Program() {}
 
 std::string TyraXCustomCVU1Program::getStringName() const {
-  return std::string("TyraX custom - Untextured (vertex colour only)");
+  return std::string("TyraX look - Untextured (vertex colour)");
 }
 
 void TyraXCustomCVU1Program::addProgramQBufferDataToPacket(

@@ -147,23 +147,69 @@ const char* bindLabel(int slot) {
 // simulation from being three answers to one question.
 void App::vuRebuildPreview() {
     vuPreview_.clear();
+    vuPreviewLabel_.clear();
     vuPreviewErrors_.clear();
+    // One entry per (look, CLASS) pair - which is what the build emits, so the
+    // panel and the build cannot disagree about how many microprograms exist.
+    const unsigned resident = project::vuResidentClasses(project_);
+    unsigned taken = 0;
     for (const VuProgram& pr : project_.vu.programs) {
-        vugen::Desc d = vugen::descCustomBase(pr.base);
-        for (const VuStage& s : pr.stages) {
-            vugen::Stage st = vugen::makeStage(s.kind);
-            st.enabled = s.enabled;
-            for (int i = 0; i < 4; ++i) {
-                st.params[i].value = s.params[i];
-                st.params[i].meshSlot = s.bind[i];
+        if (!pr.enabled) continue;
+        const bool binds = project::vuLookBindsPerMesh(pr);
+        for (unsigned cls : vugen::customClasses()) {
+            if ((pr.classes & cls) == 0) continue;
+            if ((resident & cls) == 0) {
+                vuPreviewErrors_.push_back(
+                    pr.name + ": claims " + project::vuClassName(cls) +
+                    ", which this project does not draw - not generated.");
+                continue;
             }
-            d.stages.push_back(st);
+            if (taken & cls) {
+                vuPreviewErrors_.push_back(
+                    pr.name + ": " + project::vuClassName(cls) +
+                    " is already taken by an earlier look. One program per "
+                    "class - a slot holds one.");
+                continue;
+            }
+            if (binds && !project::vuClassCanBind(cls)) {
+                vuPreviewErrors_.push_back(
+                    pr.name + ": binds a per-mesh parameter, so it cannot go on " +
+                    project::vuClassName(cls) + " - that class needs those "
+                    "addresses for its light colours. Make every parameter a "
+                    "value, or drop the class.");
+                continue;
+            }
+            vugen::Desc d = vugen::descForClass(cls);
+            for (const VuStage& s : pr.stages) {
+                vugen::Stage st = vugen::makeStage(s.kind);
+                st.enabled = s.enabled;
+                for (int i = 0; i < 4; ++i) {
+                    st.params[i].value = s.params[i];
+                    st.params[i].meshSlot = s.bind[i];
+                }
+                d.stages.push_back(st);
+            }
+            vuPreview_.push_back(vugen::build(d));
+            vuPreviewLabel_.push_back(pr.name + " - " +
+                                      project::vuClassName(cls));
+            for (const std::string& e : vuPreview_.back().errors)
+                vuPreviewErrors_.push_back(vuPreviewLabel_.back() + ": " + e);
+            taken |= cls;
         }
-        vuPreview_.push_back(vugen::build(d));
-        for (const std::string& e : vuPreview_.back().errors)
-            vuPreviewErrors_.push_back(vugen::customBaseTitle(pr.base) +
-                                       std::string(": ") + e);
     }
+}
+
+// How many objects in the project a class actually draws - the number that
+// turns an abstract class name into "these things".
+int App::vuObjectsInClass(unsigned classBit) const {
+    int n = 0;
+    for (const SceneData& sc : project_.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (project::vuClassOfObject(project_, o) == classBit) ++n;
+    for (const Prefab& pf : project_.prefabs)
+        for (const SceneObject& o : pf.objects)
+            if (project::vuClassOfObject(project_, o) == classBit) ++n;
+    return n;
 }
 
 void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
@@ -413,12 +459,14 @@ void App::drawVuProgramsWindow() {
         // --- the programs --------------------------------------------------
         if (ImGui::BeginTabItem("Programs")) {
             ImGui::TextWrapped(
-                "A program replaces one MATERIAL CLASS, not one object - VU1 "
-                "micro memory has no room for a program per mesh. So the kind "
-                "of effect is per class and its STRENGTH is per mesh: bind a "
-                "parameter to a mesh slot and set it per object in the "
-                "inspector. A mesh whose numbers are all zero renders exactly "
-                "as it would with no program at all.");
+                "A LOOK is one stage list installed over every material class "
+                "you tick - a whole-scene treatment, which is what VU1 is for. "
+                "One prop that wiggles is an animation's job. So a plain VALUE "
+                "means every mesh of every ticked class, and that is the normal "
+                "case; binding a parameter to a mesh slot is the exception, for "
+                "when the treatment has to vary in strength. A mesh whose "
+                "numbers are all zero renders exactly as it would with no "
+                "program at all.");
             ImGui::Spacing();
 
             for (const std::string& e : vuPreviewErrors_) {
@@ -427,25 +475,60 @@ void App::drawVuProgramsWindow() {
                 ImGui::PopStyleColor();
             }
 
+            const unsigned needed = project::vuNeededClasses(project_);
             int removeProg = -1;
             for (size_t i = 0; i < project_.vu.programs.size(); ++i) {
                 VuProgram& pr = project_.vu.programs[i];
                 ImGui::PushID((int)(1000 + i));
-                ImGui::SeparatorText(vugen::customBaseTitle(pr.base));
+                ImGui::SeparatorText(pr.name.c_str());
+                char nameBuf[64];
+                std::snprintf(nameBuf, sizeof nameBuf, "%s", pr.name.c_str());
+                ImGui::SetNextItemWidth(scaled(200));
+                if (ImGui::InputText("Name", nameBuf, sizeof nameBuf))
+                    pr.name = nameBuf;
+                if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+                ImGui::SameLine();
                 bool en = pr.enabled;
-                if (ImGui::Checkbox("Build this program", &en)) {
+                if (ImGui::Checkbox("Build it", &en)) {
                     pr.enabled = en;
                     commitChange();
                 }
                 ImGui::SameLine(ImGui::GetWindowWidth() - scaled(90));
                 if (ImGui::SmallButton("Remove")) removeProg = (int)i;
-                if (i < vuPreview_.size()) {
-                    const vugen::Built& b = vuPreview_[i];
-                    ImGui::TextDisabled(
-                        "%d instructions, %d of them from stages",
-                        (int)b.program.code.size(), b.stageInstrs);
-                    for (const std::string& d : b.droppedStages)
-                        ImGui::TextDisabled("  not generated: %s", d.c_str());
+
+                // Which classes this look covers. This is the whole point of a
+                // look: a treatment that stops at one material class is not a
+                // treatment - cell shading on untextured props but not textured
+                // ones just reads as broken.
+                const bool binds = project::vuLookBindsPerMesh(pr);
+                ImGui::TextDisabled("Applies to:");
+                for (const ClassRow& c : kClasses) {
+                    ImGui::PushID((int)c.bit);
+                    bool on = (pr.classes & c.bit) != 0;
+                    const bool drawn = (needed & c.bit) != 0;
+                    const bool blocked = binds && !project::vuClassCanBind(c.bit);
+                    ImGui::BeginDisabled(blocked);
+                    char lbl[96];
+                    const int n = vuObjectsInClass(c.bit);
+                    std::snprintf(lbl, sizeof lbl, "%s (%d object%s)", c.label,
+                                  n, n == 1 ? "" : "s");
+                    if (ImGui::Checkbox(lbl, &on)) {
+                        pr.classes = on ? (pr.classes | c.bit)
+                                        : (pr.classes & ~c.bit);
+                        commitChange();
+                    }
+                    ImGui::EndDisabled();
+                    if (blocked)
+                        paramTip(
+                            "This look binds a parameter to a per-mesh slot, and "
+                            "those four numbers live in the directional-lights "
+                            "colour block - which a lit class needs for its own "
+                            "light colours. Make every parameter a plain value "
+                            "and this class opens up.");
+                    else if (!drawn && on)
+                        paramTip("Nothing in the project draws with this class, "
+                                 "so no program is generated for it.");
+                    ImGui::PopID();
                 }
                 drawVuStageList(pr.stages, false);
                 ImGui::PopID();
@@ -457,24 +540,27 @@ void App::drawVuProgramsWindow() {
             }
 
             ImGui::Spacing();
-            if (ImGui::Button("Add program...")) ImGui::OpenPopup("addVuProg");
-            if (ImGui::BeginPopup("addVuProg")) {
-                for (const std::string& base : vugen::customBases()) {
-                    bool taken = false;
-                    for (const VuProgram& pr : project_.vu.programs)
-                        if (pr.base == base) taken = true;
-                    if (taken) continue;
-                    const std::string item = std::string(
-                        vugen::customBaseTitle(base)) + "##base" + base;
-                    if (ImGui::Selectable(item.c_str())) {
-                        VuProgram pr;
-                        pr.base = base;
-                        project_.vu.programs.push_back(pr);
-                        commitChange();
-                    }
-                }
-                ImGui::EndPopup();
+            if (ImGui::Button("Add a look")) {
+                VuProgram pr;
+                pr.name = "look";
+                // Everything the project actually draws: a treatment is
+                // scene-wide by default, and narrowing it should be a decision
+                // the author makes on purpose rather than one the default makes
+                // for them by omission.
+                pr.classes = needed;
+                project_.vu.programs.push_back(pr);
+                commitChange();
             }
+            paramTip(
+                "A look is ONE stage list installed over every material class "
+                "you tick. It starts covering everything this project draws, "
+                "which is what a scene-wide treatment - cell shading, an "
+                "underwater wobble - actually wants.");
+            ImGui::Spacing();
+            ImGui::TextDisabled(
+                "A stage a class cannot carry is skipped for that class with the "
+                "reason shown,\nnot refused - a UV scroll has no UV on "
+                "untextured geometry.");
             ImGui::EndTabItem();
         }
 
@@ -487,8 +573,8 @@ void App::drawVuProgramsWindow() {
                 for (size_t i = 0; i < vuPreview_.size(); ++i) {
                     if (i) ImGui::SameLine();
                     const std::string tab =
-                        std::string(vugen::customBaseTitle(
-                            project_.vu.programs[i].base)) +
+                        (i < vuPreviewLabel_.size() ? vuPreviewLabel_[i]
+                                                    : std::string("?")) +
                         "##sel" + std::to_string(i);
                     if (ImGui::RadioButton(tab.c_str(), vuPreviewSel_ == (int)i))
                         vuPreviewSel_ = (int)i;
