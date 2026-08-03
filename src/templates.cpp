@@ -4562,7 +4562,8 @@ void TerrainGame::init() {
   buildScene();
 
   // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
-  // after the deferred scene load - scripts' onStart must see scene 0's objects.
+  // after the deferred scene load - scripts' onStart must see the START scene's
+  // objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -4644,7 +4645,7 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = 0;
+        loadingTarget = START_SCENE;
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
@@ -4655,7 +4656,7 @@ void TerrainGame::loop() {
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
@@ -16010,7 +16011,9 @@ void TerrainGame::init() {
   // and join mid-game (Start, see the loop).
   if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
 
-  // Player start: the first spawn point in the scene (if any)
+  // Player start: the first spawn point in the scene (if any). This runs before
+  // the deferred boot load, so it is SCENE 0's spawn; the boot re-places the
+  // player at the start scene's own (fppSpawnPending in the loop).
   float spawnY = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
@@ -16029,7 +16032,8 @@ void TerrainGame::init() {
   buildScene();
 
   // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
-  // after the deferred scene load - scripts' onStart must see scene 0's objects.
+  // after the deferred scene load - scripts' onStart must see the START scene's
+  // objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -16096,10 +16100,18 @@ void TerrainGame::loop() {
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
-  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  //   phase 1 - load START_SCENE behind the loading screen (when enabled).
   // Everything runs from the loop, not init(): a frame presented from init()
   // (before the main loop) isn't vsync-paced and flashes by, so the boot
   // visuals were invisible; from the loop they pace normally.
+  //
+  // Declared here, ahead of the boot block, because the BOOT load needs it too:
+  // init() placed the built-in FPP player at scene 0's spawn point, and the
+  // scene the game boots into is not necessarily scene 0 (Scene > Preferences >
+  // Startup). Without this a start scene other than the first one dropped the
+  // player on the FIRST scene's spawn coordinates - inside a wall or off the
+  // level, depending on the project.
+  static bool fppSpawnPending = false;
   if (bootPhase < 2) {
     if (bootPhase == 0) {
       if (splashIndex < SPLASH_COUNT) {
@@ -16111,20 +16123,24 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = 0;
+        loadingTarget = START_SCENE;
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
       if (!LOADING_SCREEN) {
         bootFirstScene();
+        fppSpawnPending = true;
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == loadingTotal - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) {
+            bootFirstScene();
+            fppSpawnPending = true;
+          }
           return;
         }
         bootPhase = 2;
@@ -16217,7 +16233,6 @@ void TerrainGame::loop() {
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
   // player respawns at the new scene's spawn point.
-  static bool fppSpawnPending = false;
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
@@ -16242,7 +16257,9 @@ void TerrainGame::loop() {
     return;
   }
   if (fppSpawnPending) {
-    // The built-in FPP player respawns at the new scene's spawn point.
+    // The built-in FPP player respawns at the new scene's spawn point - after a
+    // switch, and after the boot load (which is a scene switch in every way
+    // that matters here).
     fppSpawnPending = false;
     playerX = 0.0F;
     playerZ = 0.0F;

@@ -218,6 +218,15 @@ motion to handle. (4) Codegen clamps again on the way out, because
 show a wrong number. Omit it from the JSON at its default so existing projects
 don't change shape.
 
+And the part that cost the most: **the generated game's boot path had scene 0
+baked into it in places that are not a `loadScene` call** - the built-in FPP
+player was positioned from scene 0's spawn point in `init()` (which runs before
+the deferred boot load) and the boot loading screen was scene 0's. When you make
+something that was always 0 configurable, grep the generated template for the
+OTHER uses of that 0, not just the obvious one - and remember the game .cpp is
+assembled from an ORBIT or FPP head around a shared middle, so a loop-level fix
+usually has two homes.
+
 **An asset path the GAME will open must be `lexically_normal()`.** The PS2
 cannot walk `..`, and a Wavefront reference is resolved relative to the file
 that named it — so joining a `.mtl`'s folder with its `map_Kd` yields

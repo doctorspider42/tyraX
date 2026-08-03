@@ -106,6 +106,20 @@ the first one), and a value that somehow ends up out of range — a hand-edited
 `.tyra`, a collaboration peer with a different scene list — is folded back to
 the first scene on load rather than booting the game into nothing.
 
+Two more follow it because the generated game's boot path used to assume scene 0
+in places that are not a scene load, and a start scene elsewhere would have been
+wrong in ways that look like a broken level:
+
+- **The player starts on the start scene's own spawn point.** A Player object is
+  placed by the scene load itself, but the built-in FPP player (a scene with a
+  *spawn point* marker and no Player object) was positioned before the boot load,
+  from scene 0 — so booting scene 3 put the player on scene 0's coordinates.
+  Measured on the console: a start scene whose spawn sits at (25, 25) placed the
+  player at (0, 0) before the fix and at (25, 25) after. In a real level those
+  borrowed coordinates can be inside a wall or off the map.
+- **The loading screen shown at boot is the start scene's**, not the first
+  scene's — which matters once scenes name different screens.
+
 ## Assigning a screen
 
 - **Per scene** — *Scene > Preferences > Loading screen*. Pick a screen by name,
