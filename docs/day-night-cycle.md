@@ -340,6 +340,26 @@ The floor has a second effect worth knowing: the world is now darkened by at mos
 2x rather than 4x, so a night with the grade on reads as night without going to
 mud.
 
+Measured on the console, same night, same view, grade on against grade off as the
+reference:
+
+| | whole frame | zenith | brightest pixel | px over 60 |
+| --- | --- | --- | --- | --- |
+| grade **on** (compensated) | 4.1, 6.6, 19.3 | 3.0, 5.0, 17.1 | 100 | 69 |
+| grade **off** (reference) | 4.3, 5.5, 17.1 | 2.8, 3.8, 14.2 | 138 | 127 |
+
+The **sky matches** — without the compensation it would sit at 0.24..0.34x of the
+reference, i.e. a zenith around (1, 1.5, 5) rather than (3.0, 5.0, 17.1).
+
+The **stars keep about 72 % of their un-graded peak**, and that residue is
+structural rather than a bug to chase: the compensation cancels the grade's
+*gain*, but the grade also **mixes toward the sky colour** (up to 0.35), and a
+star core already sitting at the colour bag's ceiling cannot be pre-brightened
+past it to survive being pulled toward a near-black target. A core at 255 mixed
+0.2 toward a sky of 10 lands at 206, which is the 0.81x the measurement is a
+slightly noisier version of. On a night sky a 100 against a 4 background is still
+plainly a star, so this is documented rather than fought.
+
 Measured on the console over a two-minute day, sampling one frame every 5.5 s
 (the arch is baked at noon with neutral light):
 
