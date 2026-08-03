@@ -6,26 +6,26 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_custom_d_program.hpp"
+#include "vu_look0_d_program.hpp"
 
-extern u32 TyraXCustomD_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXCustomD_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXLook0D_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXLook0D_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXCustomDVU1Program::TyraXCustomDVU1Program()
-    : StaPipVU1Program(StaPipCullDirLights, &TyraXCustomD_CodeStart,
-                       &TyraXCustomD_CodeEnd,
+TyraXLook0DVU1Program::TyraXLook0DVU1Program()
+    : StaPipVU1Program(StaPipCullDirLights, &TyraXLook0D_CodeStart,
+                       &TyraXLook0D_CodeEnd,
                        ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4,
                        2, 2) {}
 
-TyraXCustomDVU1Program::~TyraXCustomDVU1Program() {}
+TyraXLook0DVU1Program::~TyraXLook0DVU1Program() {}
 
-std::string TyraXCustomDVU1Program::getStringName() const {
+std::string TyraXLook0DVU1Program::getStringName() const {
   return std::string("TyraX look - Directional lights");
 }
 
-void TyraXCustomDVU1Program::addProgramQBufferDataToPacket(
+void TyraXLook0DVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 

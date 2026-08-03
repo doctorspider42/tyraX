@@ -8,7 +8,8 @@ running console and re-run it on your PC bit for bit - and **authoring**
 microprogram of its own, composed out of stages, with no assembly anywhere.
 
 Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
-`tyrax-editor --build <this folder> --run`.
+`tyrax-editor --build <this folder> --run`. **TRIANGLE** cycles the look
+(Toon → Underwater → Toon); everything else is the usual first-person controls.
 
 ## What is in it
 
@@ -17,27 +18,45 @@ drawing path, plus a small 40x40 terrain:
 
 | Object | Why it is there | VU parameters |
 |---|---|---|
-| `flat-ball` | Plain vertex colour, **baked lighting off** (it is displaced). | `0.45, 0, 0, 0` - Wobble amplitude |
+| `flat-ball` | Plain vertex colour, **baked lighting off** (it is displaced). | `0, 1, 0, 0` - Desaturate amount |
 | `lit-ball` | `Dynamic lighting` on, so it is in a LIT class - the one a look can only reach with plain values. | none |
-| `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | `0, 1, 0, 0` - Desaturate |
-| `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below). | `0, 1, 0, 0` - Desaturate |
+| `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | none |
+| `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below). | `0, 1, 0, 0` - Desaturate, written every frame by the VU0 kernel |
 | `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | none |
 | `chrome-ball` | A `refl` (matcap) material - the ST slot carries a normal instead. | none |
 
-The scene keeps VU1 clipping on (*Preferences > Rendering*), which is the default
-- so the programs that actually run are the `clip` family, not `as_is`.
-
 ## What it authors
 
-*Tools > VU Programs* shows all of it: **two looks** — which become **three**
-microprograms, because one of them covers two material classes — plus a **VU0
-compute kernel**.
+*Tools > VU Programs* shows all of it: **three looks** — which become 18
+microprograms, because a look emits one per class it claims *and* the as_is twin
+of each — plus a **VU0 compute kernel**.
 
 | Look | Classes | Stages | Parameters |
 |---|---|---|---|
-| **Underwater** | Untextured | Wobble, Desaturate | Amplitude ← mesh **X**, Amount ← mesh **Y** |
-| **Toon** | Textured + Reflective + **Directional lights** | Posterize, Scroll UV | all plain **values** — every mesh of all three classes |
+| **Toon** (active at boot) | all four the scene draws | Posterize (6 levels), Scroll UV | all plain **values** |
+| **Underwater** | Untextured + Textured | Wobble | plain **values** — the whole scene ripples |
+| **Power down** | Untextured + Textured + Reflective | Desaturate | Amount ← mesh **Y** |
 | kernel | VU0 | Wobble, Squash | values |
+
+**Press TRIANGLE to cycle the look.** That is `vuprog::activate(next)` in
+`src/scripts/vu0_kernel_demo.cpp`, three lines. The three of them are chosen to
+show the two halves of the design in one scene: Toon and Underwater are
+whole-scene treatments driven by plain values — which is what VU1 is *for* — and
+Power down is the exception, one stage whose strength comes from a per-mesh slot,
+so the ball goes grey and its neighbours do not.
+
+Every look is in the ELF; only the active one occupies VU1 micro memory, which
+is why the budget bar in the panel is per look. Measured on the console (PAL,
+frozen camera): 50 FPS in Toon at EE 38%, 49.4 in Underwater at EE 41%, 50 in
+Power down at EE 43%.
+
+The scene is on the **EE clipper** (*Preferences > Rendering*) rather than the
+default VU1 clipping, and that is the point of the setting here rather than an
+oversight: a material class is a *pair* of resident programs, the second of which
+draws whatever the frustum cuts. A look replaces both halves — but the VU1
+clipper has no generated twin, so under VU1 clipping every prop at the edge of
+the screen would silently keep the engine's own shading. See
+[docs/vu-authoring.md](../../docs/vu-authoring.md), "One class is two programs".
 
 `Toon` is the shape the feature is for, and it reaches a **lit** class because
 every one of its parameters is a plain value: the four per-mesh numbers live in
@@ -46,6 +65,16 @@ it out, not the class. `lit-ball` is there to make that path real rather than
 theoretical. `Scroll UV` is skipped on Reflective (its ST slot carries a normal)
 and on Directional lights (no ST at all), each with the reason shown.
 
+**What Underwater does NOT cover, and why it is worth seeing.** `chrome-ball`
+draws twice - an untextured base plus an env (matcap) pass on its own class - and
+a look can only displace the pass whose class it claims. So the base ripples, the
+reflection stays where it was and cuts through it. The fix is not available here:
+a sine on the matcap program runs out of VF registers. That is the shape of the
+rule in the docs - a displacing look has to claim EVERY class an object's passes
+land in - made visible, which is what this scene is for. `lit-ball` is the same
+story from the other side: its lit pass is on a class no look here claims, so it
+sits still while the scene ripples around it.
+
 `flat-ball` has **Baked lighting off**, and that is not tidying: a lightmap pass
 carries the AO atlas, which makes it a *Textured* bag even on an untextured
 mesh, so `Underwater` displaced the ball's main geometry and left its lightmap
@@ -53,27 +82,29 @@ behind as a translucent ghost of the undeformed sphere. See
 [docs/vu-authoring.md](../../docs/vu-authoring.md) — the inspector now warns
 about that combination.
 
-That is the whole design in one screen. The program replaces a **material
-class**, not an object - VU1 micro memory has no room for one program per mesh -
-so the KIND of effect is shared and its STRENGTH is per mesh. `flat-ball` asks
-for wobble, the pillar asks to go grey, `tex-box` and `chrome-ball` are on other
-classes entirely and never see it, and anything that leaves its four numbers at
-zero renders exactly as it would with no program at all.
+That is the whole design in one screen. A look replaces a **material class**, not
+an object - VU1 micro memory has no room for one program per mesh - so the KIND
+of effect is shared and its STRENGTH is per mesh. `flat-ball` asks for wobble,
+the pillar asks to go grey, and anything that leaves its four numbers at zero
+renders exactly as it would with no program at all (`--vu-check` proves the
+bit-exact zero-strength identity on the host, for every stage of every class).
 
-That last claim is not a promise, it is measured. Freeze the camera
-(`walkSpeed`/`lookSpeed` 0) and take two shots, one with the parameters as
-shipped and one with every object's set to zero:
+What the swap is worth is measured, not asserted. Freeze the camera
+(`walkSpeed`/`lookSpeed` 0), shoot one frame in Toon, press TRIANGLE, shoot
+another:
 
 ```
-scene-only difference: 116 591 pixels, in exactly three column bands
-  x  617.. 913   tex-box   (UV scrolled, colour posterized)
-  x  935..1002   the pillar (blue -> grey, driven by the VU0 kernel)
-  x 1043..1267   the ball   (round -> wobbling)
+scene rect        111 482 / 1 254 500 px differ
+  sky                    0 px   a separate pass - no material class, no look
+  the yellow ball   40 763 / 50 400   hard toon bands -> smooth shading
+  the pillar        18 720 / 18 850   posterized -> desaturated by the VU0 kernel
+  the terrain          666 / 252 000  flat tiles: already at the posterize step
+  the red box            4 / 61 250   likewise
 ```
 
-Nothing else in the frame moves. The chrome ball (a different material class
-entirely), the terrain, the sky and `flat-box` are pixel-identical between the
-two runs.
+The last two lines are the interesting ones. A look is global, but posterizing a
+surface that is already one flat colour is a no-op — what a look changes is what
+had a gradient to quantize. Nothing outside the pipeline moves at all.
 
 ## The VU0 kernel, actually running
 

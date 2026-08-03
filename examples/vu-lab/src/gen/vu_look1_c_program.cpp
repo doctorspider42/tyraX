@@ -6,26 +6,26 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_custom_c_program.hpp"
+#include "vu_look1_c_program.hpp"
 
-extern u32 TyraXCustomC_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXCustomC_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXLook1C_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXLook1C_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXCustomCVU1Program::TyraXCustomCVU1Program()
-    : StaPipVU1Program(StaPipCullColor, &TyraXCustomC_CodeStart,
-                       &TyraXCustomC_CodeEnd,
+TyraXLook1CVU1Program::TyraXLook1CVU1Program()
+    : StaPipVU1Program(StaPipCullColor, &TyraXLook1C_CodeStart,
+                       &TyraXLook1C_CodeEnd,
                        ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4,
                        2, 2) {}
 
-TyraXCustomCVU1Program::~TyraXCustomCVU1Program() {}
+TyraXLook1CVU1Program::~TyraXLook1CVU1Program() {}
 
-std::string TyraXCustomCVU1Program::getStringName() const {
+std::string TyraXLook1CVU1Program::getStringName() const {
   return std::string("TyraX look - Untextured (vertex colour)");
 }
 
-void TyraXCustomCVU1Program::addProgramQBufferDataToPacket(
+void TyraXLook1CVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 

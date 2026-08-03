@@ -11,11 +11,35 @@ namespace vuprog {
 
 constexpr bool ENABLED = true;
 
-/** Installs the generated programs over their engine slots and
- * turns on the per-mesh parameter upload. Call once, AFTER
- * setRenderer and setVU1Clipping - both rebuild the program
- * cache, and an override installed first would be rebuilt away. */
+constexpr int LOOK_COUNT = 3;
+
+// look 0: Toon
+// look 1: Underwater
+// look 2: Power down
+
+/** Installs the look that starts active and turns on the
+ * per-mesh parameter upload. Call once, AFTER setRenderer and
+ * setVU1Clipping - both rebuild the program cache, and an
+ * override installed first would be rebuilt away. */
 void install(Tyra::StaPipCore& core);
+/** Swap the whole look at run time. EVERY generated look is in
+ * the ELF; only the active one occupies VU1 micro memory, so
+ * this is one pipeline drain and one upload rather than a
+ * rebuild of anything. Fine on an event - a trigger, a button,
+ * a zone boundary - and NOT fine per frame. An index outside
+ * 0..LOOK_COUNT-1 restores the engine's own programs, which is
+ * how you turn every look off. */
+void activate(int look);
+/** The active look, or -1 for the engine's own programs. */
+int active();
+const char* lookName(int look);
+/** True when the ACTIVE look displaces vertices. Such a stage
+ * cannot run on a package the frustum cut - those vertices are
+ * already transformed - so the caller turns the per-package
+ * clip checks off for the meshes it draws and the whole mesh
+ * takes the cull path. PROPS ONLY: the terrain and the sky are
+ * far too big to submit unclipped (docs/vu-authoring.md). */
+bool movesGeometry();
 /** The clock the time-varying stages read. WRAPPED - the
  * microprogram's range reduction folds through a 2^23 add. */
 void setTime(Tyra::StaPipCore& core, float seconds);

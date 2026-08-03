@@ -31236,13 +31236,49 @@ const char* vuProgramEnum(unsigned classBit) {
     }
 }
 
+// The other half of the class's resident pair. The engine draws a package that
+// crosses a frustum plane with this one, so a look that replaces only the cull
+// program leaves every prop at the edge of the screen with the stock shading -
+// which is what a "my effect only applies to some objects" report looks like.
+const char* vuAsIsProgramEnum(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "StaPipAsIsDirLights";
+        case 1u << 2: return "StaPipAsIsTextureDirLights";
+        case 1u << 3: return "StaPipAsIsTextureColor";
+        case 1u << 4: return "StaPipAsIsTextureEnv";
+        default: return "StaPipAsIsColor";
+    }
+}
+
 struct VuBuild {
     std::vector<File> files;
     bool anyProgram = false;
     bool anyKernel = false;
     std::string kernelClass;
     std::string kernelHeader;
-    std::vector<std::pair<std::string, std::string>> installs;  // class, enum
+    struct LookClass {
+        unsigned classBit = 0;
+        std::string className;    // the emitted EE program class
+        std::string programEnum;  // the engine slot it replaces
+        // The as_is twin of the same class - see vuAsIsProgramEnum. Empty when
+        // that half failed to build, which leaves the engine's own program in
+        // that slot rather than half a look.
+        std::string asIsClassName;
+        std::string asIsProgramEnum;
+    };
+    struct LookBuild {
+        std::string name;
+        int index = 0;  // index in Project::vu.programs
+        // A displacing look has to see every package of a mesh or none, or a
+        // mesh at the frame edge comes out torn in two - setVuUniformGeometry.
+        bool movesGeometry = false;
+        std::vector<LookClass> perClass;
+    };
+    // EVERY enabled look, not just the active one: they all reach the ELF so a
+    // run-time swap has something to swap to. Only the active set is uploaded
+    // to VU1, so the others cost EE RAM and no micro memory.
+    std::vector<LookBuild> looks;
+    int activeLook = 0;  // index into `looks`
     std::vector<std::string> warnings;
     unsigned residentMask = 0x1Fu;
 };
@@ -31254,9 +31290,14 @@ VuBuild buildVuFiles(const Project& p) {
     // that is the whole of what "a look" means here. Two enabled looks cannot
     // claim the same class: setProgramOverride replaces a slot, and a slot
     // holds one program.
-    unsigned taken = 0;
+    int lookIndex = -1;
     for (const VuProgram& pr : p.vu.programs) {
+        ++lookIndex;
         if (!pr.enabled) continue;
+        VuBuild::LookBuild lb;
+        lb.name = pr.name;
+        lb.index = lookIndex;
+        lb.movesGeometry = project::vuLookMovesGeometry(pr);
         const bool binds = project::vuLookBindsPerMesh(pr);
         // A stage list that folds away entirely is not a look: it would install
         // a byte-for-byte copy of the engine's own microprogram over the
@@ -31279,14 +31320,6 @@ VuBuild buildVuFiles(const Project& p) {
                     ", which this project does not draw - skipped");
                 continue;
             }
-            if (taken & cls) {
-                out.warnings.push_back(
-                    "look \"" + pr.name + "\" also claims " +
-                    project::vuClassName(cls) +
-                    ", already taken by an earlier look - skipped (one program "
-                    "per class)");
-                continue;
-            }
             if (binds && !project::vuClassCanBind(cls)) {
                 out.warnings.push_back(
                     "look \"" + pr.name + "\" binds a per-mesh parameter and "
@@ -31294,7 +31327,7 @@ VuBuild buildVuFiles(const Project& p) {
                     ", whose light colours occupy those addresses - skipped");
                 continue;
             }
-            vugen::Desc d = vugen::descForClass(cls);
+            vugen::Desc d = vugen::descForClass(cls, lookIndex);
             d.stages = vuStagesOf(pr.stages);
             const vugen::Built b = vugen::build(d);
             for (const std::string& e : b.errors)
@@ -31306,11 +31339,57 @@ VuBuild buildVuFiles(const Project& p) {
                 {"src\\gen\\" + d.fileStem + "_program.hpp", b.eeHeader});
             out.files.push_back(
                 {"src\\gen\\" + d.fileStem + "_program.cpp", b.eeSource});
-            out.installs.push_back({d.className, vuProgramEnum(cls)});
+            VuBuild::LookClass lc{cls, d.className, vuProgramEnum(cls), "", ""};
+            // The class's other resident program. A package that crosses a
+            // frustum plane is drawn by this one, so without it the look stops
+            // at the edge of the screen.
+            vugen::Desc ai = vugen::descForClass(cls, lookIndex, true);
+            // COLOUR AND TEXTURE STAGES ONLY. The as_is program has no MVP
+            // multiply: it is handed vertices the EE clipper already
+            // transformed, so a stage that displaces "the position" would be
+            // displacing a clip-space coordinate. On the console that reads as
+            // torn geometry with smeared texels on exactly the meshes the
+            // frustum cuts - which is what it did before this filter.
+            for (const vugen::Stage& st : vuStagesOf(pr.stages)) {
+                const vugen::StageDef* sd = vugen::stageDef(st.key);
+                if (!sd) continue;
+                if (sd->slot != vugen::Slot::Color &&
+                    sd->slot != vugen::Slot::Texture)
+                    continue;
+                ai.stages.push_back(st);
+            }
+            const vugen::Built ab =
+                ai.stages.empty() ? vugen::Built{} : vugen::build(ai);
+            if (ai.stages.empty())
+                out.warnings.push_back(
+                    "look \"" + pr.name +
+                    "\" only moves geometry, so a mesh the frustum cuts keeps "
+                    "the engine's own program - the effect stops at the edge "
+                    "of the screen (docs/vu-authoring.md)");
+            for (const std::string& e : ab.errors)
+                out.warnings.push_back(pr.name + " on " +
+                                       project::vuClassName(cls) +
+                                       " (edge-of-screen half): " + e);
+            if (ab.errors.empty() && !ai.stages.empty()) {
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + ".vclpp", ab.vclpp});
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + "_program.hpp", ab.eeHeader});
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + "_program.cpp", ab.eeSource});
+                lc.asIsClassName = ai.className;
+                lc.asIsProgramEnum = vuAsIsProgramEnum(cls);
+            }
+            lb.perClass.push_back(lc);
             out.anyProgram = true;
-            taken |= cls;
         }
+        if (!lb.perClass.empty()) out.looks.push_back(lb);
     }
+    // The look installed at boot. Out of range - or naming one that generated
+    // nothing - falls back to the first that did: a project with a look and no
+    // program installed reads as the whole feature being broken.
+    for (size_t i = 0; i < out.looks.size(); ++i)
+        if (out.looks[i].index == p.vu.activeLook) out.activeLook = (int)i;
 
     if (p.vu.kernel.enabled && !p.vu.kernel.stages.empty()) {
         vugen::KernelDesc k;
@@ -31369,12 +31448,35 @@ std::string vuProgramsHeader(const VuBuild& vb) {
     // These take the pipeline CORE, not an Engine: the static pipeline is the
     // GAME's own member (TerrainGame::stapip), not something hanging off the
     // engine, and StaPipCore is where setProgramOverride lives.
+    s += std::string("constexpr int LOOK_COUNT = ") +
+         std::to_string(vb.looks.size()) + ";\n\n";
     if (vb.anyProgram) {
-        s += "/** Installs the generated programs over their engine slots and\n";
-        s += " * turns on the per-mesh parameter upload. Call once, AFTER\n";
-        s += " * setRenderer and setVU1Clipping - both rebuild the program\n";
-        s += " * cache, and an override installed first would be rebuilt away. */\n";
+        for (size_t i = 0; i < vb.looks.size(); ++i)
+            s += "// look " + std::to_string(i) + ": " + vb.looks[i].name + "\n";
+        s += "\n";
+        s += "/** Installs the look that starts active and turns on the\n";
+        s += " * per-mesh parameter upload. Call once, AFTER setRenderer and\n";
+        s += " * setVU1Clipping - both rebuild the program cache, and an\n";
+        s += " * override installed first would be rebuilt away. */\n";
         s += "void install(Tyra::StaPipCore& core);\n";
+        s += "/** Swap the whole look at run time. EVERY generated look is in\n";
+        s += " * the ELF; only the active one occupies VU1 micro memory, so\n";
+        s += " * this is one pipeline drain and one upload rather than a\n";
+        s += " * rebuild of anything. Fine on an event - a trigger, a button,\n";
+        s += " * a zone boundary - and NOT fine per frame. An index outside\n";
+        s += " * 0..LOOK_COUNT-1 restores the engine's own programs, which is\n";
+        s += " * how you turn every look off. */\n";
+        s += "void activate(int look);\n";
+        s += "/** The active look, or -1 for the engine's own programs. */\n";
+        s += "int active();\n";
+        s += "const char* lookName(int look);\n";
+        s += "/** True when the ACTIVE look displaces vertices. Such a stage\n";
+        s += " * cannot run on a package the frustum cut - those vertices are\n";
+        s += " * already transformed - so the caller turns the per-package\n";
+        s += " * clip checks off for the meshes it draws and the whole mesh\n";
+        s += " * takes the cull path. PROPS ONLY: the terrain and the sky are\n";
+        s += " * far too big to submit unclipped (docs/vu-authoring.md). */\n";
+        s += "bool movesGeometry();\n";
         s += "/** The clock the time-varying stages read. WRAPPED - the\n";
         s += " * microprogram's range reduction folds through a 2^23 add. */\n";
         s += "void setTime(Tyra::StaPipCore& core, float seconds);\n";
@@ -31382,6 +31484,10 @@ std::string vuProgramsHeader(const VuBuild& vb) {
         s += "void setParams(Tyra::StaPipCore& core, const float* p);\n";
     } else {
         s += "inline void install(Tyra::StaPipCore&) {}\n";
+        s += "inline void activate(int) {}\n";
+        s += "inline int active() { return -1; }\n";
+        s += "inline const char* lookName(int) { return \"\"; }\n";
+        s += "inline bool movesGeometry() { return false; }\n";
         s += "inline void setTime(Tyra::StaPipCore&, float) {}\n";
         s += "inline void setParams(Tyra::StaPipCore&, const float*) {}\n";
     }
@@ -31412,9 +31518,77 @@ std::string vuProgramsSource(const VuBuild& vb) {
     }
     s += "\nnamespace vuprog {\n\n";
     s += "namespace {\n";
-    for (const auto& e : vb.installs)
-        s += "Tyra::" + e.first + " g_" + e.first + ";\n";
+    for (const auto& lk : vb.looks)
+        for (const auto& e : lk.perClass) {
+            s += "Tyra::" + e.className + " g_" + e.className + ";\n";
+            if (!e.asIsClassName.empty())
+                s += "Tyra::" + e.asIsClassName + " g_" + e.asIsClassName +
+                     ";\n";
+        }
+    s += "Tyra::StaPipCore* g_core = nullptr;\n";
+    s += "int g_active = -1;\n";
+    s += "const char* const kNames[] = {";
+    for (size_t i = 0; i < vb.looks.size(); ++i)
+        s += (i ? ", " : "") + std::string("\"") + vb.looks[i].name + "\"";
+    s += vb.looks.empty() ? "\"\"};\n" : "};\n";
     s += "}  // namespace\n\n";
+    s += "int active() { return g_active; }\n\n";
+    s += "const char* lookName(int look) {\n";
+    s += "  return (look >= 0 && look < LOOK_COUNT) ? kNames[look] : \"\";\n";
+    s += "}\n\n";
+    // Frustum classification is per PACKAGE, so a displacing look has to see
+    // all of a mesh or none of it - otherwise half a wobbling sphere stays put
+    // and the mesh visibly splits in two along the edge of the screen.
+    s += "bool movesGeometry() {\n";
+    s += "  static const bool kMoves[] = {";
+    for (size_t i = 0; i < vb.looks.size(); ++i)
+        s += (i ? ", " : "") +
+             std::string(vb.looks[i].movesGeometry ? "true" : "false");
+    s += vb.looks.empty() ? "false};\n" : "};\n";
+    s += "  return g_active >= 0 && g_active < LOOK_COUNT && "
+         "kMoves[g_active];\n";
+    s += "}\n\n";
+    // ONE call for the whole set. Per class it would be a pipeline drain and a
+    // program-cache upload EACH - five of them for a single swap.
+    s += "void activate(int look) {\n";
+    s += "  if (!g_core) return;  // install() has not run yet\n";
+    // TEN slots, not five: every material class is a PAIR of resident
+    // programs. The cull half draws a package wholly inside the frustum, the
+    // as_is half (or the VU1 clipper's twin, when that mode is on) draws one
+    // that crosses a plane - so a look that replaces only the cull half stops
+    // at the edge of the screen, on exactly the props a player walks up to.
+    s += "  static const Tyra::StaPipProgramName kSlots[] = {\n";
+    for (unsigned cls : vugen::customClasses())
+        s += std::string("      Tyra::") + vuProgramEnum(cls) + ",\n";
+    for (unsigned cls : vugen::customClasses())
+        s += std::string("      Tyra::") + vuAsIsProgramEnum(cls) + ",\n";
+    s += "  };\n";
+    s += "  Tyra::StaPipVU1Program* progs[10] = {nullptr, nullptr, nullptr, "
+         "nullptr, nullptr,\n";
+    s += "                                       nullptr, nullptr, nullptr, "
+         "nullptr, nullptr};\n";
+    s += "  switch (look) {\n";
+    for (size_t i = 0; i < vb.looks.size(); ++i) {
+        s += "    case " + std::to_string(i) + ":  // " + vb.looks[i].name + "\n";
+        for (const auto& e : vb.looks[i].perClass) {
+            int slot = 0;
+            for (unsigned cls : vugen::customClasses()) {
+                if (cls == e.classBit) break;
+                ++slot;
+            }
+            s += "      progs[" + std::to_string(slot) + "] = &g_" +
+                 e.className + ";\n";
+            if (!e.asIsClassName.empty())
+                s += "      progs[" + std::to_string(slot + 5) + "] = &g_" +
+                     e.asIsClassName + ";\n";
+        }
+        s += "      break;\n";
+    }
+    s += "    default: break;  // every slot null = the engine's own programs\n";
+    s += "  }\n";
+    s += "  g_core->setProgramOverrides(kSlots, progs, 10);\n";
+    s += "  g_active = (look >= 0 && look < LOOK_COUNT) ? look : -1;\n";
+    s += "}\n\n";
     s += "void install(Tyra::StaPipCore& core) {\n";
     // Drop the material classes the project never draws BEFORE installing
     // anything. Each class is a cull program plus its clipped-or-as_is twin,
@@ -31426,9 +31600,8 @@ std::string vuProgramsSource(const VuBuild& vb) {
     if (vb.residentMask != 0x1Fu)
         s += "  core.setResidentClasses(" + std::to_string(vb.residentMask) +
              ");  // only the classes this project draws\n";
-    for (const auto& e : vb.installs)
-        s += "  core.setProgramOverride(Tyra::" + e.second + ", &g_" + e.first +
-             ");\n";
+    s += "  g_core = &core;\n";
+    s += "  activate(" + std::to_string(vb.activeLook) + ");\n";
     s += "  // Two extra quadwords per mesh, and only for a bag with no\n";
     s += "  // lighting - they live in the directional-lights colour block.\n";
     s += "  core.setVuCustomEnabled(true);\n";

@@ -512,9 +512,25 @@ effect is per class and its STRENGTH is per mesh. Two rules follow and both are
 checked by `--vu-check`: **every stage must be the bit-exact identity when its
 strength is zero** (it runs on every mesh of that class, including the ones that
 want nothing), and a stage must actually change the packet at full strength.
-Codegen emits `src/gen/vu_custom_*.vclpp` + the EE program class + an on/off
-seam whose predicate is a **compile-time constant** (`vuprog::ENABLED`), so a
-project without one folds every call site away. Five traps worth knowing. **AN OBJECT'S PASSES DO NOT ALL SHARE ITS CLASS** - a
+Codegen emits `src/gen/vu_look<i>_<class>.vclpp` + the EE program class + an
+on/off seam whose predicate is a **compile-time constant** (`vuprog::ENABLED`),
+so a project without one folds every call site away. EVERY look is in the ELF
+but only the active one is resident, so `vuprog::activate(i)` swaps a whole look
+at run time through ONE `setProgramOverrides(names, programs, count)` - the
+batched engine entry point exists precisely so five slots cost one cache rebuild,
+and a class the new look does not claim gets a null override, which is how the
+engine's own program comes back. Budget is therefore per look, not per project. A look emits BOTH halves of a class (cull + as_is) but only colour/texture
+stages go into the as_is twin - that program has no MVP multiply, its vertices
+are already transformed by the EE clipper, so a displacing stage there tears the
+mesh and smears texels (measured). Consequences of the geometry case, all
+measured on the console rather than reasoned about: classification is per
+PACKAGE, so a displaced mesh straddling the frame edge is displaced only in
+part; submitting it unclipped instead (fullClipChecks=false) trades that for GS
+raster wrap - the matcap sphere became a black dome and doing it to the terrain
+filled the screen with sky; and a displacing look moves only the passes whose
+class it claims, so a matcap prop ripples while its reflection pass stays put
+(the user diagnosed this one from a screenshot before the code did).
+Six traps worth knowing. **AN OBJECT'S PASSES DO NOT ALL SHARE ITS CLASS** - a
 baked lightmap adds a bag carrying the AO ATLAS, which makes it a TEXTURED bag
 even on an untextured mesh, so a look that displaces geometry on the Untextured
 class leaves that pass behind as a translucent ghost of the undeformed shape
@@ -533,7 +549,8 @@ rebuild the resident program cache; the per-mesh quadwords live at
 `VU1_CUSTOM_PARAMS_ADDR`/`VU1_CUSTOM_TIME_ADDR` = 15/16, INSIDE the
 directional-lights colour block, so the engine only uploads them for a bag with
 no lighting (which is also why only the colour bases can carry a program); and
-`refreshGenerated` SWEEPS `src/gen/vu_custom_*` / `src/gen/vu0_*` / `inc/vu0_*`
+`refreshGenerated` SWEEPS `src/gen/vu_look*` / `src/gen/vu_custom_*` /
+`src/gen/vu0_*` / `inc/vu0_*`
 that the current project does not produce, because `Makefile.base` globs
 `src/**.vclpp` and a leftover microprogram would still be assembled and linked.
 

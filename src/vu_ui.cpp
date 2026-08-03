@@ -467,6 +467,53 @@ void App::drawVuProgramsWindow() {
                 "when the treatment has to vary in strength. A mesh whose "
                 "numbers are all zero renders exactly as it would with no "
                 "program at all.");
+            // A material class is TWO resident programs and a look replaces
+            // both - but in VU1-clipping mode the second one is the CLIPPER,
+            // which has no generated twin. Anything the frustum cuts then
+            // keeps the engine's own shading, which reads as "my effect only
+            // applies to some objects" and is impossible to guess at.
+            if (!project_.vu.programs.empty() &&
+                project_.settings.clipping == "vu1") {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      theme::semantics().warn);
+                ImGui::TextWrapped(
+                    "VU1 clipping is on. A look replaces a class's cull "
+                    "program AND its as_is twin, but not the VU1 CLIPPER - so "
+                    "a mesh the frustum cuts (anything at the edge of the "
+                    "screen) renders with the engine's own program and no "
+                    "look. Switch Preferences > Rendering to the EE clipper "
+                    "for a look that covers every pixel.");
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+            }
+            // Even on the EE clipper, the twin has no MVP multiply, so only
+            // colour and texture stages travel with a clipped package.
+            {
+                bool moves = false;
+                for (const VuProgram& pr : project_.vu.programs)
+                    if (pr.enabled && project::vuLookMovesGeometry(pr))
+                        moves = true;
+                if (moves) {
+                    ImGui::PushStyleColor(ImGuiCol_Text,
+                                          theme::semantics().warn);
+                    ImGui::TextWrapped(
+                        "A look here moves geometry. That stage cannot run on "
+                        "a package the frustum cut - those vertices are "
+                        "already transformed - and classification is per "
+                        "PACKAGE, so a mesh straddling the EDGE OF THE SCREEN "
+                        "is displaced only in part, with a step where the two "
+                        "halves meet. It also moves only the passes whose "
+                        "class this look claims: a matcap prop ripples while "
+                        "its reflection pass stays put and cuts through it, "
+                        "and the same goes for a baked lightmap. Keep the "
+                        "amplitude small, and keep multi-pass props out of a "
+                        "displaced scene. Colour and texture stages have "
+                        "neither problem; vuprog::movesGeometry() reports this "
+                        "at run time.");
+                    ImGui::PopStyleColor();
+                    ImGui::Spacing();
+                }
+            }
             ImGui::Spacing();
 
             for (const std::string& e : vuPreviewErrors_) {
@@ -493,6 +540,23 @@ void App::drawVuProgramsWindow() {
                     pr.enabled = en;
                     commitChange();
                 }
+                ImGui::SameLine();
+                // Which look the game boots into. Every look is in the ELF and
+                // `vuprog::activate(i)` swaps them at run time, so this is only
+                // the starting one - but it IS what you see, so it belongs
+                // here rather than in the .tyra by hand.
+                ImGui::BeginDisabled(!pr.enabled);
+                bool boot = project_.vu.activeLook == (int)i;
+                if (ImGui::RadioButton("Active at boot", boot)) {
+                    project_.vu.activeLook = (int)i;
+                    commitChange();
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The look install() activates. The game can swap to "
+                        "any other with vuprog::activate(i) - see "
+                        "docs/vu-authoring.md.");
                 ImGui::SameLine(ImGui::GetWindowWidth() - scaled(90));
                 if (ImGui::SmallButton("Remove")) removeProg = (int)i;
 
@@ -536,6 +600,13 @@ void App::drawVuProgramsWindow() {
             if (removeProg >= 0) {
                 project_.vu.programs.erase(project_.vu.programs.begin() +
                                            removeProg);
+                // The boot look is an INDEX, so removing anything before it
+                // moves it. Removing the boot look itself falls back to the
+                // first one rather than leaving a dangling index.
+                if (project_.vu.activeLook > removeProg)
+                    --project_.vu.activeLook;
+                else if (project_.vu.activeLook == removeProg)
+                    project_.vu.activeLook = 0;
                 commitChange();
             }
 

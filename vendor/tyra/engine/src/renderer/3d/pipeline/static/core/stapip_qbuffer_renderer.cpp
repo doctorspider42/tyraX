@@ -652,6 +652,19 @@ void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
   clearLastProgramName();
 }
 
+// TyraX addition: see the header. Same work as setProgramOverride, once.
+void StaPipQBufferRenderer::setProgramOverrides(
+    const StaPipProgramName* names, StaPipVU1Program* const* programs,
+    u32 count) {
+  for (u32 i = 0; i < count; i++) repository.setOverride(names[i], programs[i]);
+  if (programsPacket == nullptr) return;  // init() will pick them up
+
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
+}
+
 void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   if (vu1Clipping == enabled) return;
   vu1Clipping = enabled;

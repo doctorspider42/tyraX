@@ -95,6 +95,17 @@ class StaPipQBufferRenderer {
    * game only learns about its own programs once its scene is up. */
   void setProgramOverride(const StaPipProgramName& name,
                           StaPipVU1Program* program);
+  /** TyraX addition: several overrides, ONE rebuild. Swapping a whole look at
+   * run time touches every material class, and doing that through the single
+   * setter above would drain the pipeline and re-upload the program cache once
+   * PER CLASS. A null entry restores the engine's own program for that slot.
+   *
+   * Microcode is a u32 range in EE memory and createProgramsCache assigns the
+   * micro-memory addresses when it builds the packet, so alternative programs
+   * cost EE RAM and nothing in VU1 micro memory - only the active set is ever
+   * uploaded. That is what makes swapping a look affordable at all. */
+  void setProgramOverrides(const StaPipProgramName* names,
+                           StaPipVU1Program* const* programs, u32 count);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
 
   /** TyraX addition: the two quadwords a project's own microprogram reads

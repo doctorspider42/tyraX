@@ -6,27 +6,27 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_custom_tc_program.hpp"
+#include "vu_look2_tce_ai_program.hpp"
 
-extern u32 TyraXCustomTC_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXCustomTC_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXLook2TCEAI_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXLook2TCEAI_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXCustomTCVU1Program::TyraXCustomTCVU1Program()
-    : StaPipVU1Program(StaPipCullTextureColor, &TyraXCustomTC_CodeStart,
-                       &TyraXCustomTC_CodeEnd,
+TyraXLook2TCEAIVU1Program::TyraXLook2TCEAIVU1Program()
+    : StaPipVU1Program(StaPipAsIsTextureEnv, &TyraXLook2TCEAI_CodeStart,
+                       &TyraXLook2TCEAI_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
-TyraXCustomTCVU1Program::~TyraXCustomTCVU1Program() {}
+TyraXLook2TCEAIVU1Program::~TyraXLook2TCEAIVU1Program() {}
 
-std::string TyraXCustomTCVU1Program::getStringName() const {
-  return std::string("TyraX look - Textured");
+std::string TyraXLook2TCEAIVU1Program::getStringName() const {
+  return std::string("TyraX look - Reflective (matcap)");
 }
 
-void TyraXCustomTCVU1Program::addProgramQBufferDataToPacket(
+void TyraXLook2TCEAIVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 
@@ -34,7 +34,7 @@ void TyraXCustomTCVU1Program::addProgramQBufferDataToPacket(
   packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->vertices,
                                    qbuffer->size, true);
 
-  // ST
+  // Normals - they ride in the ST slot (StaPipTextureBag)
   addr += qbuffer->size;
   packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->sts,
                                    qbuffer->size, true);

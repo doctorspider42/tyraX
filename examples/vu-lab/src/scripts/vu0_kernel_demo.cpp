@@ -27,6 +27,7 @@
 //     nothing has to be rebuilt: the value is uploaded with the next frame's
 //     object-data packet.
 #include "scripts/script.hpp"
+#include "scripts/vu_programs.gen.hpp"
 #include "vu0_points.gen.hpp"
 
 namespace Vu_lab {
@@ -50,6 +51,16 @@ class Vu0KernelDemo : public Script {
   }
 
   void update(ScriptContext& ctx) override {
+    // TRIANGLE swaps the whole look. Every generated look is already in the
+    // ELF - microcode is a byte range in EE memory - so this is one pipeline
+    // drain and one upload of the program cache, not a rebuild of anything.
+    // Fine on a button; NOT fine per frame.
+    if (ctx.engine->pad.getClicked().Triangle && vuprog::LOOK_COUNT > 1) {
+      const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;
+      vuprog::activate(next);
+      TYRA_LOG("VU look -> ", vuprog::lookName(next));
+    }
+
     clock += 1.0F / 50.0F;
     if (clock > 6433.98F) clock -= 6433.98F;  // 2*pi*1024, see setTime
 

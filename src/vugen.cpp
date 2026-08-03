@@ -1044,25 +1044,45 @@ const char* classTitle(unsigned classBit) {
     }
 }
 
-Desc descForClass(unsigned classBit) {
+Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
     Desc d;
     const char* tag = "c";    // file stem, lowercase like every generated file
     const char* upper = "C";  // symbol stem, matching the engine's own spelling
     switch (classBit) {
-        case 1u << 1: d = descCullDirLights(); tag = "d"; upper = "D"; break;
+        case 1u << 1:
+            d = asIs ? descAsIsDirLights() : descCullDirLights();
+            tag = "d";
+            upper = "D";
+            break;
         case 1u << 2:
-            d = descCullTextureDirLights(), tag = "td", upper = "TD";
+            d = asIs ? descAsIsTextureDirLights() : descCullTextureDirLights(),
+            tag = "td", upper = "TD";
             break;
-        case 1u << 3: d = descCullTextureColor(); tag = "tc"; upper = "TC"; break;
+        case 1u << 3:
+            d = asIs ? descAsIsTextureColor() : descCullTextureColor();
+            tag = "tc";
+            upper = "TC";
+            break;
         case 1u << 4:
-            d = descCullTextureEnv(), tag = "tce", upper = "TCE";
+            d = asIs ? descAsIsTextureEnv() : descCullTextureEnv(), tag = "tce",
+            upper = "TCE";
             break;
-        default: d = descCullColor(); break;
+        default: d = asIs ? descAsIsColor() : descCullColor(); break;
     }
     d.custom = true;
     d.dir = "gen";
-    d.fileStem = std::string("vu_custom_") + tag;
-    d.vclName = std::string("TyraXCustom") + upper;
+    // The look INDEX is in the name because several looks may target the same
+    // class - only one is installed at a time, but they all have to exist in
+    // the ELF for a run-time swap to be possible.
+    // A material class is TWO resident programs, not one: the cull program
+    // draws a package that is wholly inside the frustum, and its twin draws
+    // one that crosses a plane. Overriding only the cull half is what makes a
+    // look look broken - the props at the edge of the screen keep the engine's
+    // shading - so a look emits both.
+    const std::string ix = std::to_string(lookIndex);
+    const std::string half = asIs ? "_ai" : "";
+    d.fileStem = std::string("vu_look") + ix + "_" + tag + half;
+    d.vclName = std::string("TyraXLook") + ix + upper + (asIs ? "AI" : "");
     d.asmName = d.vclName;
     d.className = d.vclName + "VU1Program";
     d.title = std::string("TyraX look - ") + classTitle(classBit);

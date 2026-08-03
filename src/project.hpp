@@ -640,7 +640,14 @@ inline bool operator==(const VuKernel& a, const VuKernel& b) {
 inline bool operator!=(const VuKernel& a, const VuKernel& b) { return !(a == b); }
 
 struct VuSettings {
+    // Several looks may claim the same material class. Only ONE is installed
+    // at a time, but they all reach the ELF - microcode is a byte range in EE
+    // memory and only the active set is uploaded to VU1, so an alternative
+    // look costs EE RAM and nothing in micro memory. That is what makes
+    // switching a whole look at run time affordable (vuprog::activate).
     std::vector<VuProgram> programs;
+    // Which one is installed at boot. Out of range = the first enabled one.
+    int activeLook = 0;
     VuKernel kernel;
     // Which material classes keep a resident VU1 program
     // (StaPipQBufferRenderer::StaPipProgramClass; 0x1F = all five). Dropping
@@ -2657,6 +2664,9 @@ unsigned vuClassOfObject(const Project& p, const SceneObject& o);
 bool vuClassCanBind(unsigned classBit);
 // True when any stage of the look binds a parameter to a mesh slot.
 bool vuLookBindsPerMesh(const VuProgram& look);
+// True when any stage displaces the vertex - such a look cannot cover a package
+// the frustum cut (docs/vu-authoring.md, "One class is two programs").
+bool vuLookMovesGeometry(const VuProgram& look);
 // "Untextured (vertex colour)", "Textured", ... - one label for the panel, the
 // inspector and the diagnostics.
 const char* vuClassName(unsigned classBit);

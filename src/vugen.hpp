@@ -399,14 +399,19 @@ struct Desc {
     bool custom = false;
 };
 
-/** The cull program a look replaces on one material class, as a
+/** The program a look replaces on one material class, as a
  * StaPipProgramClass bit (1<<0 colour, 1<<1 dirLights, 1<<2 textureDirLights,
- * 1<<3 textureColor, 1<<4 textureEnv). All five are available: the cull family
- * is the only one resident in both clipping modes and the only one that still
- * has the object-space position. The lighting classes are usable as long as no
- * stage binds a PER-MESH parameter - those live in the directional-lights
- * colour block, which a lit program needs (project::vuClassCanBind). */
-Desc descForClass(unsigned classBit);
+ * 1<<3 textureColor, 1<<4 textureEnv). All five are available. The lighting
+ * classes are usable as long as no stage binds a PER-MESH parameter - those
+ * live in the directional-lights colour block, which a lit program needs
+ * (project::vuClassCanBind).
+ *
+ * `asIs` picks the other half of the class's resident PAIR: the cull program
+ * draws a package wholly inside the frustum, its twin (as_is, or the VU1
+ * clipper when that mode is on) draws one that crosses a plane. A look has to
+ * replace both or the props at the edge of the screen keep the stock shading.
+ */
+Desc descForClass(unsigned classBit, int lookIndex = 0, bool asIs = false);
 /** Every class bit, low to high. */
 const std::vector<unsigned>& customClasses();
 /** "Untextured (vertex colour)", "Textured", ... - THE label for a class, used

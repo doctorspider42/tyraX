@@ -2,13 +2,13 @@
 ; from the stage list in Tools > VU Programs (docs/vu-authoring.md).
 ;
 ; TyraX look - Directional lights
-; Installed over the engine's StaPipCullDirLights slot, so it
+; Installed over the engine's StaPipAsIsDirLights slot, so it
 ; draws EVERY mesh of that material class. A mesh whose four
 ; parameters are zero is rendered bit-identically to the engine's
 ; own program - that is the contract --vu-check enforces.
 
 .syntax new
-.name TyraXCustomD
+.name TyraXLook0DAI
 .vu
 .init_vf_all
 .init_vi_all
@@ -16,14 +16,9 @@
 --enter
 --endenter
 
-#vuprog TyraXCustomD
+#vuprog TyraXLook0DAI
 
-    fcset      0x000000  ; ResetClipFlags
     lq         gifSetTag, 19(vi00)  ; VU1_SET_GIFTAG_ADDR
-    lq         mvp[0], 0(vi00)  ; MatrixLoad - VU1_MVP_MATRIX_ADDR
-    lq         mvp[1], 1(vi00)
-    lq         mvp[2], 2(vi00)
-    lq         mvp[3], 3(vi00)
     lq.xyz     lightMatrix[0], 4(vi00)  ; LoadTyraDirectionalLights
     lq.xyz     lightMatrix[1], 5(vi00)
     lq.xyz     lightMatrix[2], 6(vi00)
@@ -38,17 +33,15 @@
     lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
-    iaddiu     adcMask, vi00, 16384  ; MakeTyraAdcMask: 0x8000 in two 15-bit adds
-    iadd       adcMask, adcMask, adcMask
     add.xyz    vuOne, vf00, vf00[w]  ; 1.0 in every field
     mul.w      vuOne, vf00, vf00[w]
-    loi        4  ; constants
+    loi        6  ; constants
     add.x      stageK0, vf00, i
-    loi        0.899999976
+    loi        1
     add.y      stageK0, vf00, i
-    loi        0.0156862754
+    loi        0.0235294122
     add.z      stageK0, vf00, i
-    loi        63.75
+    loi        42.5
     mul.w      stageK0, vf00, i
 begin:
     xtop       buffer
@@ -75,26 +68,6 @@ vertexLoop:
     lq.xyz     normal2, 1(normalData)
     lq         vertex3, 2(vertexData)
     lq.xyz     normal3, 2(normalData)
-    mula       acc, mvp[0], vertex1[x]  ; MatrixMultiplyVertex
-    madda      acc, mvp[1], vertex1[y]
-    madda      acc, mvp[2], vertex1[z]
-    madd       vertex1, mvp[3], vertex1[w]
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
-    add.x      fogAccum, fogAccum, fogParams[w]
-    loi        255
-    mini.x     fogAccum, fogAccum, i
-    max.x      fogAccum, fogAccum, vf00[x]
-    ftoi4.x    fogAccum, fogAccum
-    mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex1  ; PerformTyraFogClipCheck
-    fcand      VI01, 0x3FFFF
-    iaddiu     adcBit, VI01, 32767
-    iand       adcBit, adcBit, adcMask
-    ior        adcBit, adcBit, fogInt
-    isw.w      adcBit, 1(destAddress)
-    div        q, vf00[w], vertex1[w]  ; VertexPersCorr
-    mul.xyz    vertex1, vertex1, q
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex1, vertex1, scale
     ftoi4.xyz  vertex1, vertex1
@@ -112,37 +85,10 @@ vertexLoop:
     madd.xyz   outputColor1, ambientColor, vf00[w]
     loi        128
     add.w      outputColor1, vf00, i
-    mul.xyz    vuS0, outputColor1, stageK0[z]  ; Posterize
-    ftoi0.xyz  vuS0, vuS0
-    itof0.xyz  vuS0, vuS0
-    mul.xyz    vuS0, vuS0, stageK0[w]
-    sub.xyz    vuS0, vuS0, outputColor1
-    mul.xyz    vuS0, vuS0, stageK0[y]
-    add.xyz    outputColor1, outputColor1, vuS0
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor1, outputColor1, i
     max.xyz    outputColor1, outputColor1, vf00[x]
     ftoi0      outputColor1, outputColor1
-    mula       acc, mvp[0], vertex2[x]  ; MatrixMultiplyVertex
-    madda      acc, mvp[1], vertex2[y]
-    madda      acc, mvp[2], vertex2[z]
-    madd       vertex2, mvp[3], vertex2[w]
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
-    add.x      fogAccum, fogAccum, fogParams[w]
-    loi        255
-    mini.x     fogAccum, fogAccum, i
-    max.x      fogAccum, fogAccum, vf00[x]
-    ftoi4.x    fogAccum, fogAccum
-    mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex2  ; PerformTyraFogClipCheck
-    fcand      VI01, 0x3FFFF
-    iaddiu     adcBit, VI01, 32767
-    iand       adcBit, adcBit, adcMask
-    ior        adcBit, adcBit, fogInt
-    isw.w      adcBit, 3(destAddress)
-    div        q, vf00[w], vertex2[w]  ; VertexPersCorr
-    mul.xyz    vertex2, vertex2, q
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex2, vertex2, scale
     ftoi4.xyz  vertex2, vertex2
@@ -160,37 +106,10 @@ vertexLoop:
     madd.xyz   outputColor2, ambientColor, vf00[w]
     loi        128
     add.w      outputColor2, vf00, i
-    mul.xyz    vuS0, outputColor2, stageK0[z]  ; Posterize
-    ftoi0.xyz  vuS0, vuS0
-    itof0.xyz  vuS0, vuS0
-    mul.xyz    vuS0, vuS0, stageK0[w]
-    sub.xyz    vuS0, vuS0, outputColor2
-    mul.xyz    vuS0, vuS0, stageK0[y]
-    add.xyz    outputColor2, outputColor2, vuS0
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor2, outputColor2, i
     max.xyz    outputColor2, outputColor2, vf00[x]
     ftoi0      outputColor2, outputColor2
-    mula       acc, mvp[0], vertex3[x]  ; MatrixMultiplyVertex
-    madda      acc, mvp[1], vertex3[y]
-    madda      acc, mvp[2], vertex3[z]
-    madd       vertex3, mvp[3], vertex3[w]
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
-    add.x      fogAccum, fogAccum, fogParams[w]
-    loi        255
-    mini.x     fogAccum, fogAccum, i
-    max.x      fogAccum, fogAccum, vf00[x]
-    ftoi4.x    fogAccum, fogAccum
-    mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex3  ; PerformTyraFogClipCheck
-    fcand      VI01, 0x3FFFF
-    iaddiu     adcBit, VI01, 32767
-    iand       adcBit, adcBit, adcMask
-    ior        adcBit, adcBit, fogInt
-    isw.w      adcBit, 5(destAddress)
-    div        q, vf00[w], vertex3[w]  ; VertexPersCorr
-    mul.xyz    vertex3, vertex3, q
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex3, vertex3, scale
     ftoi4.xyz  vertex3, vertex3
@@ -208,17 +127,37 @@ vertexLoop:
     madd.xyz   outputColor3, ambientColor, vf00[w]
     loi        128
     add.w      outputColor3, vf00, i
-    mul.xyz    vuS0, outputColor3, stageK0[z]  ; Posterize
-    ftoi0.xyz  vuS0, vuS0
-    itof0.xyz  vuS0, vuS0
-    mul.xyz    vuS0, vuS0, stageK0[w]
-    sub.xyz    vuS0, vuS0, outputColor3
-    mul.xyz    vuS0, vuS0, stageK0[y]
-    add.xyz    outputColor3, outputColor3, vuS0
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   outputColor3, outputColor3, i
     max.xyz    outputColor3, outputColor3, vf00[x]
     ftoi0      outputColor3, outputColor3
+    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
+    mul.x      fogAccum, fogAccum, fogParams[z]
+    add.x      fogAccum, fogAccum, fogParams[w]
+    loi        255
+    mini.x     fogAccum, fogAccum, i
+    max.x      fogAccum, fogAccum, vf00[x]
+    ftoi4.x    fogAccum, fogAccum
+    mtir       fogInt, fogAccum[x]
+    isw.w      fogInt, 1(destAddress)
+    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
+    mul.x      fogAccum, fogAccum, fogParams[z]
+    add.x      fogAccum, fogAccum, fogParams[w]
+    loi        255
+    mini.x     fogAccum, fogAccum, i
+    max.x      fogAccum, fogAccum, vf00[x]
+    ftoi4.x    fogAccum, fogAccum
+    mtir       fogInt, fogAccum[x]
+    isw.w      fogInt, 3(destAddress)
+    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
+    mul.x      fogAccum, fogAccum, fogParams[z]
+    add.x      fogAccum, fogAccum, fogParams[w]
+    loi        255
+    mini.x     fogAccum, fogAccum, i
+    max.x      fogAccum, fogAccum, vf00[x]
+    ftoi4.x    fogAccum, fogAccum
+    mtir       fogInt, fogAccum[x]
+    isw.w      fogInt, 5(destAddress)
     sq         outputColor1, 0(destAddress)
     sq.xyz     vertex1, 1(destAddress)
     sq         outputColor2, 2(destAddress)

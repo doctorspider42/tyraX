@@ -8,7 +8,7 @@
 ; own program - that is the contract --vu-check enforces.
 
 .syntax new
-.name TyraXCustomTC
+.name TyraXLook0TC
 .vu
 .init_vf_all
 .init_vi_all
@@ -16,7 +16,7 @@
 --enter
 --endenter
 
-#vuprog TyraXCustomTC
+#vuprog TyraXLook0TC
 
     fcset      0x000000  ; ResetClipFlags
     lq         gifSetTag, 19(vi00)  ; VU1_SET_GIFTAG_ADDR
@@ -39,13 +39,13 @@
     lq         vuTime, 16(vi00)  ; VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)
     add.xyz    vuOne, vf00, vf00[w]  ; 1.0 in every field
     mul.w      vuOne, vf00, vf00[w]
-    loi        4  ; constants
+    loi        6  ; constants
     add.x      stageK0, vf00, i
-    loi        0.899999976
+    loi        1
     add.y      stageK0, vf00, i
-    loi        0.0156862754
+    loi        0.0235294122
     add.z      stageK0, vf00, i
-    loi        63.75
+    loi        42.5
     mul.w      stageK0, vf00, i
     loi        0.0500000007  ; constants
     add.x      stageK1, vf00, i

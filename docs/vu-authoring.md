@@ -189,6 +189,23 @@ The general rule, worth holding on to: **a displacement look has to claim every
 class an object's passes land in.** Colour stages do not have this problem — the
 lightmap pass carries its own colours.
 
+And a lightmap is not the only second pass. Measured on the console, in this
+order of nastiness:
+
+| Object | Passes | What a displacing look does to it |
+|---|---|---|
+| `refl` material (matcap) | untextured base + **env pass on TextureEnv** | the base ripples, the reflection stays put and cuts through it |
+| `Dynamic lighting` on | the lit bag on **Directional lights** | untouched by a Colour look — but it will tear if the look claims Colour *and* the object also has an unlit pass |
+| Baked lighting | main bag + **AO atlas on Textured** | the ghost above |
+
+And the trap inside the trap: those extra classes are exactly the ones a
+displacing stage often **cannot** be compiled into. A sine on top of the matcap
+or directional-light program runs out of VF registers (`no opt table`, see
+below), so "just claim that class too" is not always available. When it is not,
+the honest answer is that displacement and that object do not go together —
+which is a scene-authoring decision, and one the panel now states rather than
+leaving you to discover it on a TV.
+
 ### The honest limitation: which packages your program actually draws
 
 The renderer classifies each package by its bounding box and sends it to the
@@ -388,10 +405,11 @@ Makefile work: the game Makefile includes `/tyra/Makefile.base`, whose
 
 | File | What it is |
 |---|---|
-| `src/gen/vu_custom_<c\|tc\|tce>.vclpp` | the microprogram |
-| `src/gen/vu_custom_<...>_program.{hpp,cpp}` | the EE-side program class — unpack layout, GIF register list, store stride, all from the same description |
+| `src/gen/vu_look<i>_<c\|d\|tc\|tce\|td>.vclpp` | the microprogram — **one per (look, class)** |
+| `src/gen/vu_look<i>_<...>_ai.vclpp` | its as_is twin, see "One class is two programs" below — so a look claiming four classes emits **eight** |
+| `src/gen/vu_look<i>_<...>_program.{hpp,cpp}` | the EE-side program class — unpack layout, GIF register list, store stride, all from the same description |
 | `inc/scripts/vu_programs.gen.hpp` | the on/off seam |
-| `src/gen/vu_programs.gen.cpp` | `install` / `setTime` / `setParams` |
+| `src/gen/vu_programs.gen.cpp` | `install` / `activate` / `setTime` / `setParams` |
 | `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | a VU0 kernel and its driver |
 
 `vuprog::ENABLED` is a **compile-time constant**. A project with no program of
@@ -433,6 +451,98 @@ load like every other property, and a flow node or a script can write them at
 run time without a geometry rebuild (they are not vertex data; nothing needs
 `dirty`).
 
+### One class is two programs
+
+A material class is not one resident microprogram, it is a **pair**, and which
+half draws a given mesh is decided per package, per frame:
+
+| | drawn by |
+|---|---|
+| package wholly inside the frustum | the **cull** program |
+| package crossing a frustum plane | the **as_is** program (EE clipper), or the **VU1 clipper** when that mode is on |
+
+So a look that replaces only the cull half stops at the edge of the screen — and
+"the edge of the screen" is where the player walks. The symptom is maddening
+because it is not a per-object property: the same prop takes the effect in the
+middle of the frame and drops it as you turn. Codegen therefore emits **both**
+halves of every class a look claims and installs all ten slots in one
+`setProgramOverrides` call.
+
+**Colour and texture stages only, on the as_is half.** That program has no MVP
+multiply — it is handed vertices the EE clipper already transformed — so a stage
+that displaces "the position" there is displacing a *clip-space* coordinate. On
+the console that is not a subtle error: the mesh tears and its texels smear into
+black slabs. Codegen filters the twin's stage list to `Slot::Color` and
+`Slot::Texture`, and a look made only of geometry stages simply has no twin.
+
+Which leaves one real limitation, and it is worth stating plainly because it is
+the thing that will surprise you: classification is per PACKAGE, not per object,
+so **a mesh straddling the edge of the screen is displaced only in the packages
+the frustum did not cut** — half a wobbling sphere moves and half stays put, with
+a visible step between them. Colour and texture stages have no such problem; they
+run on both halves.
+
+`vuprog::movesGeometry()` reports whether the ACTIVE look displaces anything, so
+a game can react to it (fade the effect near the frame edge, hold a camera off a
+displaced prop). Two things that do NOT work, both measured on the console rather
+than reasoned about:
+
+- **Submitting the prop unclipped** (`fullClipChecks = false`) so the whole mesh
+  takes the cull path. It does displace uniformly — and then a mesh crossing a
+  frustum plane wraps the GS raster window: the matcap sphere at the frame edge
+  turned into a black blob, and doing it for the terrain filled the screen with
+  sky. Clipping is not optional for anything that touches the edge.
+- **Big displacement.** The step at the edge is exactly the displacement, so keep
+  amplitude small if props are going to walk past the frame border. Terrain and
+  large meshes are the good case: they are mostly interior, and the cut packages
+  are at the horizon.
+
+The clean fix is a generated clip twin, which needs a description of the engine's
+Sutherland–Hodgman clipper the generator does not have yet.
+
+**Under VU1 clipping the twin is the clipper itself**, which the generator has no
+description of at all, so there a clip-classified package keeps the stock shading
+whatever the stage does. Author the look on the EE clipper (*Preferences >
+Rendering*, what `examples/vu-lab` does) or accept it. The panel says so in as
+many words when it sees the combination.
+
+### Swapping the look at run time
+
+Every look you define is **in the ELF** — all of its microprograms, a pair per class
+it claims. Only the active one occupies VU1 micro memory. So the budget bar in
+the panel is per look, not per project, and a second look costs you EE memory,
+not VU1 memory.
+
+```cpp
+vuprog::activate(1);              // by index
+vuprog::active();                 // -1 = the engine's own programs
+vuprog::lookName(1);              // "Underwater"
+vuprog::LOOK_COUNT;               // compile-time
+```
+
+`activate` is one `setProgramOverrides` call — the engine takes all **ten** slots
+(five classes × the cull/as_is pair) at once and rebuilds the resident set
+**once**, which is the whole reason that batched entry point exists. A class the
+new look does not claim gets a null override, which is how the engine's own
+program comes back; an index outside `0..LOOK_COUNT-1` nulls all ten, which is
+how you turn every look off.
+
+It is a pipeline drain and an upload, so: fine on an **event** — a trigger volume,
+a button, entering water, a cutscene beat — and not fine per frame.
+
+Two things to know before you build a game around it:
+
+- **Micro memory is checked per look, at build time, against the classes that
+  look claims.** Two looks that individually fit can never collide, because they
+  are never resident together.
+- **Per-mesh parameters do not follow the look.** `vuParams` is object data; if
+  look 0 reads slot 0 as a posterize step and look 1 reads it as a wobble
+  amplitude, the same number means two things. Either agree on slot meanings
+  across looks or write the parameters when you switch.
+
+`examples/vu-lab` boots into Toon and swaps to Underwater on Triangle
+(`src/scripts/vu0_kernel_demo.cpp`) — that is the whole switch, three lines.
+
 ### Engine side
 
 Two quadwords, uploaded per mesh in `StaPipQBufferRenderer::sendObjectData`:
@@ -453,8 +563,10 @@ mesh.
 
 ### Files a removed program leaves behind
 
-`refreshGenerated` **sweeps** `src/gen/vu_custom_*`, `src/gen/vu0_*` and
-`inc/vu0_*` that the current project does not produce. This is not tidiness:
+`refreshGenerated` **sweeps** `src/gen/vu_look*`, `src/gen/vu_custom_*` (the old
+per-class naming), `src/gen/vu0_*` and `inc/vu0_*` that the current project does
+not produce. Deleting a look, or unticking one of its classes, therefore removes
+its microprogram rather than orphaning it. This is not tidiness:
 `Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
 assembled and **linked**, taking micro memory for a program nobody asked for.
 

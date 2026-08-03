@@ -1983,7 +1983,8 @@ static void writeVuSection(std::ostream& json, const Project& p) {
                          v.kernel.enabled || !v.residentAuto ||
                          v.residentClasses != 0x1Fu;
     if (!touched) return;
-    json << "\"vu\": { \"residentClasses\": " << v.residentClasses
+    json << "\"vu\": { \"activeLook\": " << v.activeLook
+         << ", \"residentClasses\": " << v.residentClasses
          << ", \"residentAuto\": " << (v.residentAuto ? "true" : "false");
     if (!v.programs.empty()) {
         json << ", \"looks\": [";
@@ -2016,6 +2017,8 @@ static void readVuSection(const json::Value& root, Project& out) {
         out.vu.residentClasses = (unsigned)x->numberOr(0x1F) & 0x1Fu;
     if (const json::Value* x = v->find("residentAuto"))
         out.vu.residentAuto = x->boolOr(true);
+    if (const json::Value* x = v->find("activeLook"))
+        out.vu.activeLook = (int)x->numberOr(0);
     // "looks" is the current key. "programs" with a "base" string is the
     // one-day-old shape from before a look could span classes, migrated here so
     // a project written in between still opens.
@@ -2052,6 +2055,12 @@ static void readVuSection(const json::Value& root, Project& out) {
         if (const json::Value* x = k->find("stages"))
             readVuStages(*x, out.vu.kernel.stages);
     }
+    // A look with no class is dropped above, so the boot index can outlive the
+    // look it named. Codegen would fall back to look 0 anyway; clamping here
+    // means the panel and the .tyra agree about which one that is.
+    if (out.vu.activeLook < 0 ||
+        out.vu.activeLook >= (int)out.vu.programs.size())
+        out.vu.activeLook = 0;
 }
 
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
@@ -3041,6 +3050,21 @@ bool vuLookBindsPerMesh(const VuProgram& look) {
         if (!st.enabled) continue;
         for (int i = 0; i < 4; ++i)
             if (st.bind[i] >= 0) return true;
+    }
+    return false;
+}
+
+// True when any stage of the look displaces the vertex. Such a stage cannot run
+// on the as_is twin (those vertices are already transformed), so the look stops
+// at a package the frustum cut - the panel and the inspector both say so.
+bool vuLookMovesGeometry(const VuProgram& look) {
+    for (const VuStage& st : look.stages) {
+        if (!st.enabled) continue;
+        const vugen::StageDef* d = vugen::stageDef(st.kind);
+        if (d && (d->slot == vugen::Slot::ObjectSpace ||
+                  d->slot == vugen::Slot::ClipSpace ||
+                  d->slot == vugen::Slot::Ndc))
+            return true;
     }
     return false;
 }
@@ -5285,7 +5309,9 @@ static bool isVuGenerated(const std::string& rel) {
         const size_t n = std::strlen(pre);
         return rel.size() >= n && rel.compare(0, n, pre) == 0;
     };
-    return startsWith("src\\gen\\vu_custom_") || startsWith("src\\gen\\vu0_") ||
+    return startsWith("src\\gen\\vu_look") ||
+           startsWith("src\\gen\\vu_custom_") ||  // pre-look name, still swept
+           startsWith("src\\gen\\vu0_") ||
            startsWith("inc\\vu0_");
 }
 

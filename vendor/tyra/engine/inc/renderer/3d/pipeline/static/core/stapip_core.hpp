@@ -74,6 +74,12 @@ class StaPipCore {
                           StaPipVU1Program* program) {
     qbufferRenderer.setProgramOverride(name, program);
   }
+  /** TyraX addition: swap a whole set at once - one pipeline drain and one
+   * upload instead of one per class. A null entry restores the built-in. */
+  void setProgramOverrides(const StaPipProgramName* names,
+                           StaPipVU1Program* const* programs, u32 count) {
+    qbufferRenderer.setProgramOverrides(names, programs, count);
+  }
 
   /** TyraX addition: the per-mesh numbers and the clock a project's own
    * microprogram reads (docs/vu-authoring.md). setVuParams is set before each
