@@ -397,7 +397,10 @@ void App::drawVuProgramsWindow() {
             // full of microprograms does not exist.
             struct ScriptRow {
                 std::string script, cls;
+                unsigned bit = 0;
+                bool twin = false, boot = true;
                 int instrs = 0;
+                int delta = 0;  // against the engine program it REPLACES
             };
             std::vector<ScriptRow> scriptRows;
             {
@@ -405,18 +408,33 @@ void App::drawVuProgramsWindow() {
                                  "gen" / "vu_scripts.manifest");
                 std::string line;
                 while (std::getline(mf, line)) {
+                    std::vector<std::string> f;
+                    for (size_t at = 0;;) {
+                        const size_t tab = line.find('	', at);
+                        f.push_back(line.substr(at, tab == std::string::npos
+                                                       ? std::string::npos
+                                                       : tab - at));
+                        if (tab == std::string::npos) break;
+                        at = tab + 1;
+                    }
+                    if (f.size() < 7) continue;
                     ScriptRow r;
-                    const size_t a1 = line.find('	');
-                    if (a1 == std::string::npos) continue;
-                    const size_t a2 = line.find('	', a1 + 1);
-                    if (a2 == std::string::npos) continue;
-                    const size_t a3 = line.find('	', a2 + 1);
-                    r.script = line.substr(0, a1);
-                    r.cls = line.substr(a1 + 1, a2 - a1 - 1);
-                    r.instrs = std::atoi(line.substr(a2 + 1).c_str());
-                    (void)a3;
+                    r.script = f[0];
+                    r.cls = f[1];
+                    r.instrs = std::atoi(f[2].c_str());
+                    r.bit = (unsigned)std::atoi(f[4].c_str());
+                    r.twin = f[5] == "twin";
+                    r.boot = f[6] == "boot";
+                    // A script REPLACES the engine's program for that class,
+                    // so only the difference is new weight. Adding the whole
+                    // thing on top is how this bar first said 3056 of 2042 for
+                    // a set that fits.
+                    const int ci = classBitIndex(r.bit);
+                    const int stock = r.twin ? engineSizes().instr[ci][fam]
+                                             : engineSizes().instr[ci][0];
+                    r.delta = r.instrs - stock;
+                    if (r.boot && (mask & r.bit)) totEmitted += r.delta;
                     scriptRows.push_back(r);
-                    totEmitted += r.instrs;
                 }
             }
             const int totLo = (totEmitted + 1) / 2, totHi = totEmitted;
@@ -504,9 +522,27 @@ void App::drawVuProgramsWindow() {
                     ImGui::Bullet();
                     ImGui::SameLine();
                     ImGui::Text("%s", r.script.c_str());
-                    ImGui::SameLine(scaled(200));
-                    ImGui::TextDisabled("%-26s %d..%d slots", r.cls.c_str(),
-                                        (r.instrs + 1) / 2, r.instrs);
+                    ImGui::SameLine(scaled(190));
+                    ImGui::TextDisabled("%s%s", r.cls.c_str(),
+                                        r.twin ? "  (frustum-cut half)" : "");
+                    ImGui::SameLine(scaled(430));
+                    // The number that matters is the DIFFERENCE: the class row
+                    // above already counts the engine's program, and this
+                    // replaces it.
+                    if (r.delta >= 0)
+                        ImGui::TextDisabled("%d slots, +%d over the engine's",
+                                            r.instrs, r.delta);
+                    else
+                        ImGui::TextDisabled("%d slots, %d under the engine's",
+                                            r.instrs, -r.delta);
+                    if (!r.boot) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("  [off at boot]");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "activeAtBoot() is false, so this costs no micro\n"
+                                "memory until the game calls vuscript::activate().");
+                    }
                 }
             }
             ImGui::EndTabItem();

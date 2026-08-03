@@ -1,8 +1,8 @@
-Cell shading	Untextured (vertex colour)	299	StaPipCullColor
-Cell shading	Untextured (vertex colour)	103	StaPipAsIsColor
-Cell shading	Directional lights	275	StaPipCullDirLights
-Cell shading	Directional lights	145	StaPipAsIsDirLights
-Cell shading	Textured	313	StaPipCullTextureColor
-Cell shading	Textured	120	StaPipAsIsTextureColor
-Cell shading	Reflective (matcap)	298	StaPipCullTextureEnv
-Cell shading	Reflective (matcap)	171	StaPipAsIsTextureEnv
+Cell shading	Untextured (vertex colour)	299	StaPipCullColor	1	main	boot
+Cell shading	Untextured (vertex colour)	103	StaPipAsIsColor	1	twin	boot
+Cell shading	Directional lights	275	StaPipCullDirLights	2	main	boot
+Cell shading	Directional lights	145	StaPipAsIsDirLights	2	twin	boot
+Cell shading	Textured	313	StaPipCullTextureColor	8	main	boot
+Cell shading	Textured	120	StaPipAsIsTextureColor	8	twin	boot
+Cell shading	Reflective (matcap)	298	StaPipCullTextureEnv	16	main	boot
+Cell shading	Reflective (matcap)	171	StaPipAsIsTextureEnv	16	twin	boot

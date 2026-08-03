@@ -241,6 +241,20 @@ class Program {
      * the clamp; ObjectSpace is before the MVP multiply, which is where you
      * move geometry. */
     virtual Slot slot() const { return Slot::Color; }
+    /** Whether the game installs this at boot.
+     *
+     * `false` means the program is BUILT and sits in the ELF costing nothing
+     * but EE memory, and the game decides when it goes on VU1:
+     *
+     *     vuscript::activate(vuscript::kMyProgram);   // at a trigger, a cutscene
+     *     vuscript::deactivate(vuscript::kMyProgram); // engine's own program back
+     *
+     * That is one pipeline drain and one upload, so it belongs on an event and
+     * not in a per-frame update. Micro memory is what makes this worth caring
+     * about: only what is ACTIVE occupies VU1, so two heavy programs can exist
+     * in one game as long as they are not resident together. */
+    virtual bool activeAtBoot() const { return true; }
+
     /** Called once per VERTEX. The loop, the packet and the GIF tag are the
      * framework's - this is the part that is yours. */
     virtual void vertex(Ctx& c) = 0;

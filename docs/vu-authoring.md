@@ -46,6 +46,47 @@ VU_PROGRAM(CellShading);
 That is `examples/vu-lab/src/vu/cell_shading.cpp`, unabridged, and it runs on
 the console at 50 FPS.
 
+### Turning one on when the game says so
+
+By default a script installs at boot. Say so otherwise, in the same file:
+
+```cpp
+bool activeAtBoot() const override { return false; }
+```
+
+and the game decides:
+
+```cpp
+vuscript::activate(vuscript::kCellShading);    // a trigger, a cutscene beat
+vuscript::deactivate(vuscript::kCellShading);  // the engine's program comes back
+vuscript::deactivateAll();
+vuscript::active(vuscript::kCellShading);      // is it on?
+```
+
+The index constants are generated from the script's `name()`, so there is
+nothing to keep in step by hand.
+
+**Only what is ACTIVE occupies micro memory.** That is what makes this worth
+having rather than a flag inside the shader: a game can carry more programs than
+fit on VU1 at once, as long as it does not turn them all on together. The cost of
+a switch is one pipeline drain and one program-cache upload - fine on an event,
+not fine per frame.
+
+### Reading the micro-memory budget
+
+The bar is the RESIDENT set: for every material class the project draws, the
+engine's cull program plus its twin (the clipper under VU1 clipping, the as_is
+program otherwise). The class rows show what each one costs.
+
+A look or a script does not ADD to that - it REPLACES one of those programs, so
+what the script rows report is the **difference**: `299 slots, +94 over the
+engine's`. Only that +94 moves the bar. Each script appears twice per class
+because a class is two programs, and the second is labelled `(frustum-cut half)`
+- that is the one drawn when a mesh crosses the edge of the screen.
+
+A script with `activeAtBoot() false` is listed but not counted, marked
+`[off at boot]`.
+
 ### Where it shows up in the editor
 
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open

@@ -14,6 +14,7 @@
 // file; they see a C++ compiler error with their own line number when they get
 // something wrong, which is the entire point of doing it this way.
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -54,6 +55,20 @@ const char* classSym(unsigned bit) {
     }
 }
 
+/** "Cell shading" -> "CellShading", so the header can offer a named constant
+ * per script instead of making the game count them. */
+std::string symbolName(const std::string& in) {
+    std::string out;
+    bool up = true;
+    for (char ch : in) {
+        if (!isalnum((unsigned char)ch)) { up = true; continue; }
+        out += up ? (char)toupper((unsigned char)ch) : ch;
+        up = false;
+    }
+    if (out.empty() || isdigit((unsigned char)out[0])) out = "P" + out;
+    return out;
+}
+
 bool writeFile(const std::string& dir, const std::string& name,
                const std::string& body) {
     const std::string path = dir + "/" + name;
@@ -73,6 +88,10 @@ struct Emitted {
     std::string programEnum; // the engine slot it replaces
     std::string script;      // the vu::Program that produced it
     std::string classTitle;  // the material class, spelled the way the UI does
+    unsigned classBit = 0;
+    size_t scriptIndex = 0;  // which vu::Program, for activate/deactivate
+    bool asIs = false;       // the twin that draws what the frustum cut
+    bool activeAtBoot = true;
     int instructions = 0;
 };
 
@@ -141,7 +160,8 @@ int main(int argc, char** argv) {
                         ++instrs;
                 emitted.push_back({d.className, d.fileStem + "_program.hpp",
                                    d.programEnum, p->name(),
-                                   vugen::classTitle(cls), instrs});
+                                   vugen::classTitle(cls), cls, pi, asIs,
+                                   p->activeAtBoot(), instrs});
                 std::printf("[vugen] %s -> %s (%d instructions)\n", p->name(),
                             d.fileStem.c_str(), (int)b.program.code.size());
             }
@@ -158,11 +178,36 @@ int main(int argc, char** argv) {
          (emitted.empty() ? "false" : "true") + ";\n\n";
     if (emitted.empty()) {
         h += "inline void install(Tyra::StaPipCore&) {}\n";
+        h += "inline void activate(int) {}\n";
+        h += "inline void deactivate(int) {}\n";
+        h += "inline void deactivateAll() {}\n";
+        h += "inline bool active(int) { return false; }\n";
+        h += "constexpr int COUNT = 0;\n";
     } else {
-        h += "/** Installs every program the project's src/vu/*.cpp built, over\n";
-        h += " * the material classes they claim. Call AFTER setRenderer and\n";
-        h += " * setVU1Clipping - both rebuild the resident program cache. */\n";
-        h += "void install(Tyra::StaPipCore& core);\n";
+        // One index per SCRIPT, not per emitted microprogram: a script claiming
+        // four classes is one thing the game turns on and off.
+        h += "// The scripts, in the order the generator found them.\n";
+        for (size_t i = 0; i < progs.size(); ++i)
+            h += "constexpr int k" + symbolName(progs[i]->name()) + " = " +
+                 std::to_string(i) + ";\n";
+        h += std::string("constexpr int COUNT = ") +
+             std::to_string(progs.size()) + ";\n\n";
+        h += "/** Installs the scripts marked activeAtBoot(), over the material\n";
+        h += " * classes they claim. Call AFTER setRenderer and setVU1Clipping -\n";
+        h += " * both rebuild the resident program cache, so an override\n";
+        h += " * installed first would be rebuilt away. */\n";
+        h += "void install(Tyra::StaPipCore& core);\n\n";
+        h += "/** Put a script on VU1, or take it off and give the class back to\n";
+        h += " * the engine's own program. One pipeline drain and one upload, so\n";
+        h += " * this belongs on an EVENT - a trigger, a cutscene beat, entering\n";
+        h += " * a room - and not in a per-frame update. Only what is active\n";
+        h += " * occupies micro memory, which is what lets a game carry more\n";
+        h += " * programs than fit at once. */\n";
+        h += "void activate(int script);\n";
+        h += "void deactivate(int script);\n";
+        h += "void deactivateAll();\n";
+        h += "bool active(int script);\n";
+        h += "const char* name(int script);\n";
     }
     h += "\n}  // namespace vuscript\n";
     if (!writeFile(incOut, "vu_scripts.gen.hpp", h)) return 1;
@@ -175,19 +220,53 @@ int main(int argc, char** argv) {
         c += "\nnamespace vuscript {\nnamespace {\n";
         for (const Emitted& e : emitted)
             c += "Tyra::" + e.className + " g_" + e.className + ";\n";
+        c += "Tyra::StaPipCore* g_core = nullptr;\n";
+        c += std::string("bool g_on[COUNT] = {") ;
+        for (size_t i = 0; i < progs.size(); ++i)
+            c += std::string(i ? ", " : "") + "false";
+        c += "};\n";
+        c += "const char* const kNames[] = {";
+        for (size_t i = 0; i < progs.size(); ++i)
+            c += std::string(i ? ", " : "") + "\"" + progs[i]->name() + "\"";
+        c += "};\n";
         c += "}  // namespace\n\n";
+        c += "const char* name(int s) {\n";
+        c += "  return (s >= 0 && s < COUNT) ? kNames[s] : \"\";\n}\n\n";
+        c += "bool active(int s) {\n";
+        c += "  return s >= 0 && s < COUNT && g_on[s];\n}\n\n";
+        // The whole set goes in ONE call. Per class it would be a pipeline
+        // drain and a program-cache upload each, and this runs while a game is
+        // on screen.
+        c += "static void apply() {\n";
+        c += "  if (!g_core) return;\n";
+        c += "  Tyra::StaPipProgramName slots[" +
+             std::to_string(emitted.size()) + "];\n";
+        c += "  Tyra::StaPipVU1Program* progs[" +
+             std::to_string(emitted.size()) + "];\n";
+        c += "  unsigned n = 0;\n";
+        for (const Emitted& e : emitted) {
+            c += "  slots[n] = Tyra::" + e.programEnum + ";\n";
+            c += "  progs[n++] = g_on[" + std::to_string(e.scriptIndex) +
+                 "] ? &g_" + e.className + " : nullptr;\n";
+        }
+        c += "  g_core->setProgramOverrides(slots, progs, n);\n";
+        c += "}\n\n";
+        c += "void activate(int s) {\n";
+        c += "  if (s < 0 || s >= COUNT || g_on[s]) return;\n";
+        c += "  g_on[s] = true;\n  apply();\n}\n\n";
+        c += "void deactivate(int s) {\n";
+        c += "  if (s < 0 || s >= COUNT || !g_on[s]) return;\n";
+        c += "  g_on[s] = false;\n  apply();\n}\n\n";
+        c += "void deactivateAll() {\n";
+        c += "  bool any = false;\n";
+        c += "  for (int i = 0; i < COUNT; ++i) { any |= g_on[i]; g_on[i] = false; }\n";
+        c += "  if (any) apply();\n}\n\n";
         c += "void install(Tyra::StaPipCore& core) {\n";
-        c += "  static const Tyra::StaPipProgramName kSlots[] = {\n";
-        for (const Emitted& e : emitted)
-            c += "      Tyra::" + e.programEnum + ",\n";
-        c += "  };\n";
-        c += "  Tyra::StaPipVU1Program* progs[] = {\n";
-        for (const Emitted& e : emitted) c += "      &g_" + e.className + ",\n";
-        c += "  };\n";
-        // One call for the whole set: per class it would be a pipeline drain
-        // and a program-cache upload EACH.
-        c += "  core.setProgramOverrides(kSlots, progs, " +
-             std::to_string(emitted.size()) + ");\n";
+        c += "  g_core = &core;\n";
+        for (size_t i = 0; i < progs.size(); ++i)
+            if (progs[i]->activeAtBoot())
+                c += "  g_on[" + std::to_string(i) + "] = true;\n";
+        c += "  apply();\n";
         c += "  core.setVuCustomEnabled(true);\n";
         c += "}\n\n}  // namespace vuscript\n";
     }
@@ -200,8 +279,10 @@ int main(int argc, char** argv) {
     // panel can read it after a build.
     std::string m;
     for (const Emitted& e : emitted)
-        m += e.script + "	" + e.classTitle + "	" +
-             std::to_string(e.instructions) + "	" + e.programEnum + "\n";
+        m += e.script + "\t" + e.classTitle + "\t" +
+             std::to_string(e.instructions) + "\t" + e.programEnum + "\t" +
+             std::to_string(e.classBit) + "\t" + (e.asIs ? "twin" : "main") +
+             "\t" + (e.activeAtBoot ? "boot" : "manual") + "\n";
     if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
 
     if (failures) {
