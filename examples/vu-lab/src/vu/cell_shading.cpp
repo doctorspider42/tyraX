@@ -34,26 +34,37 @@ struct CellShading : vu::Program {
     vu::Slot slot() const override { return vu::Slot::Color; }
 
     void vertex(vu::Ctx& c) override {
-        // MULTIPLY, NEVER ADD. An object is drawn by more than one bag, and the
-        // extra ones are MODULATION passes: a baked lightmap's vertex colour is
-        // literally Color(0,0,0,128) with the occlusion in its texture. Adding
-        // a constant lifts that black to grey, so the shadow pass turns into a
-        // grey wash - dithered, because it is blended - that reads exactly like
-        // z-fighting under the texture. Multiplying leaves zero at zero, so a
-        // modulation pass passes through untouched.
+        // Band the LIGHT, not the channels.
         //
-        // Straight in the GS's own 0..255 scale: a trip through 0..1 and back
-        // costs two more constants, and the lit program has no room for them
-        // (it keeps ~30 of VCL's 31 registers live and going over fails as
-        // `no opt table`, measured on this file).
-        vu::Vec lit = c.color * vu::splat(c, 1.15F);  // a little gain
+        // Posterising r, g and b independently is the obvious thing and it is
+        // wrong: at four levels a shaded yellow (160,131,25) lands on
+        // (127,127,0), so the hue slides to olive and the model looks dirty
+        // rather than stylised. Cell shading quantises BRIGHTNESS and keeps the
+        // colour, so: luminance, band it, scale the original colour by the
+        // ratio. That ratio is also why this MULTIPLIES - an object's extra
+        // bags are modulation passes whose vertex colour is black, and zero
+        // times anything is still zero.
+        //
+        // Two constants, and not one more: this program has to fit next to the
+        // directional-light code, which already keeps ~30 of VCL's 31 registers
+        // live. The version with four died as `no opt table` inside Docker.
+        vu::Vec u = vu::dot3(c.color, vu::constant(c, 0.299F, 0.587F, 0.114F,
+                                                   0.0F)) *
+                    vu::splat(c, kBands / 255.0F);
 
-        // Four bands. floor(lit * 4/255) * 255/4 - one truncate, two constants,
-        // no branch and no table.
-        vu::Vec q = lit * vu::splat(c, kBands / 255.0F);
-        c.raw().truncate(q.val(), q.val(), vuir::MALL);
+        // vf00.w is 1.0 - a free operand, no constant and no loi. It doubles as
+        // the divide-by-zero guard and as the floor of the darkest band, so a
+        // black vertex comes out unchanged instead of black-on-black.
+        u = vu::maximum(u, vu::Vec(&c.raw(), c.raw().zero().broadcast(3)));
+
+        // scale = floor(u) / u, in Q. Folding the 255/kBands back out of both
+        // sides is what removed the third constant.
+        vugen::Val t = c.scratch(0).val();
+        c.raw().truncate(t, u.val(), vuir::MALL);
+        c.raw().divQ(t, 0, u.val(), 0);
         // .rgb(), not the whole register: ALPHA IS WHAT THE GS BLENDS WITH.
-        c.color.rgb() = q * vu::splat(c, 255.0F / kBands);
+        c.color.rgb() =
+            vu::Vec(&c.raw(), c.raw().mulQ(c.color.val(), vuir::MXYZ));
     }
 
     static constexpr float kBands = 4.0F;

@@ -34,10 +34,15 @@ struct CellShading : vu::Program {
   vu::Slot slot() const override { return vu::Slot::Color; }
 
   void vertex(vu::Ctx& c) override {
-    vu::Vec lit = c.color * vu::splat(c, 1.15F);         // gain, never an add
-    vu::Vec q = lit * vu::splat(c, 4.0F / 255.0F);
-    c.raw().truncate(q.val(), q.val(), vuir::MALL);      // floor to 4 bands
-    c.color.rgb() = q * vu::splat(c, 255.0F / 4.0F);     // rgb: alpha is blend
+    // luminance * kBands/255, floored, over itself: bands the LIGHT and keeps
+    // the hue. vf00.w is a free 1.0 - the /0 guard and the darkest band's floor.
+    vu::Vec u = vu::dot3(c.color, vu::constant(c, .299F, .587F, .114F, 0)) *
+                vu::splat(c, 4.0F / 255.0F);
+    u = vu::maximum(u, vu::Vec(&c.raw(), c.raw().zero().broadcast(3)));
+    vugen::Val t = c.scratch(0).val();
+    c.raw().truncate(t, u.val(), vuir::MALL);
+    c.raw().divQ(t, 0, u.val(), 0);
+    c.color.rgb() = vu::Vec(&c.raw(), c.raw().mulQ(c.color.val(), vuir::MXYZ));
   }
 };
 VU_PROGRAM(CellShading);
@@ -181,7 +186,7 @@ not a way to pretend the VU is a GPU.
 | `Ndc` | after the perspective divide | screen-space snapping |
 | `Color` (default) | — colour after lighting and texturing, before the clamp | shading, palettes, tints |
 
-### Four rules the compiler will not tell you
+### Five rules the compiler will not tell you
 
 **Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
 writes the I register; a run of them inside the per-vertex body is something vcl
@@ -189,6 +194,13 @@ schedules around, and the hardware then reads an I the host simulator never saw.
 Building constants by hand through `c.raw()` inside the body is the one way to
 reproduce this - the first console run of the script above came out as rainbow
 noise until the constants were hoisted.
+
+**Band the light, not the channels.** Posterising r, g and b independently is
+the obvious way to write cell shading and it is wrong: at four levels a shaded
+yellow `(160,131,25)` lands on `(127,127,0)`, so the hue slides to olive and the
+model reads as dirty rather than stylised. Quantise LUMINANCE and scale the
+colour by the ratio — `examples/vu-lab/src/vu/cell_shading.cpp` does it in two
+constants, which is all the lit class has room for.
 
 **Multiply, never add.** An object is drawn by more than one bag, and the extra
 ones are MODULATION passes: a baked lightmap's vertex colour is literally
