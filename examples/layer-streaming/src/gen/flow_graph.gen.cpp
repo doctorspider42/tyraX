@@ -2,8 +2,12 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
+#include "scripts/scroller.gen.hpp"  // Start/Stop Scroller nodes
+#include "scripts/credits.gen.hpp"  // Play/Stop Credits, On Credits Finished
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
+#include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
+#include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
 #include <math.h>
 #include <stdio.h>
@@ -11,12 +15,20 @@
 #include <string>
 
 namespace Layer_streaming {
+class FlowGraphScript_0_21;
+FlowGraphScript_0_21* g_time_FlowGraphScript_0_21 = nullptr;
 
 // Scene "main": graph of "trig-unload-b" (object 21)
 class FlowGraphScript_0_21 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 21)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -25,29 +37,60 @@ class FlowGraphScript_0_21 : public Script {
       near1 = false;
     }
     frame++;
+    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
+      livedbg::hit(0);
+      livedbg::hit(1);
+      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 0;  // "building-b"
+    }
     {
       const float dx = ctx.playerPosition.x - ctx.objects[21].data.position[0];
       const float dz = ctx.playerPosition.z - ctx.objects[21].data.position[2];
       const bool isNear = dx * dx + dz * dz < 12.25F;
       if (isNear && !near1) {
+      livedbg::hit(0);
+      livedbg::hit(1);
       if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 0;  // "building-b"
       }
       near1 = isNear;
     }
   }
 
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_21() { g_time_FlowGraphScript_0_21 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
   bool near1 = false;
 };
+class FlowGraphScript_0_22;
+FlowGraphScript_0_22* g_time_FlowGraphScript_0_22 = nullptr;
 
 // Scene "main": graph of "trig-load-b" (object 22)
 class FlowGraphScript_0_22 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 22)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -56,29 +99,60 @@ class FlowGraphScript_0_22 : public Script {
       near1 = false;
     }
     frame++;
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
+      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "building-b"
+    }
     {
       const float dx = ctx.playerPosition.x - ctx.objects[22].data.position[0];
       const float dz = ctx.playerPosition.z - ctx.objects[22].data.position[2];
       const bool isNear = dx * dx + dz * dz < 12.25F;
       if (isNear && !near1) {
+      livedbg::hit(2);
+      livedbg::hit(3);
       if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "building-b"
       }
       near1 = isNear;
     }
   }
 
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_22() { g_time_FlowGraphScript_0_22 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
   bool near1 = false;
 };
+class FlowGraphScript_0_23;
+FlowGraphScript_0_23* g_time_FlowGraphScript_0_23 = nullptr;
 
 // Scene "main": graph of "trig-load-a" (object 23)
 class FlowGraphScript_0_23 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 23)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -87,46 +161,38 @@ class FlowGraphScript_0_23 : public Script {
       near1 = false;
     }
     frame++;
+    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
+      livedbg::hit(4);
+      livedbg::hit(5);
+      if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 1;  // "building-a"
+    }
     {
       const float dx = ctx.playerPosition.x - ctx.objects[23].data.position[0];
       const float dz = ctx.playerPosition.z - ctx.objects[23].data.position[2];
       const bool isNear = dx * dx + dz * dz < 12.25F;
       if (isNear && !near1) {
+      livedbg::hit(4);
+      livedbg::hit(5);
       if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 1;  // "building-a"
       }
       near1 = isNear;
     }
   }
 
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-  bool near1 = false;
-};
-
-// Scene "main": graph of "trig-unload-a" (object 24)
-class FlowGraphScript_0_24 : public Script {
  public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-      near1 = false;
-    }
-    frame++;
-    {
-      const float dx = ctx.playerPosition.x - ctx.objects[24].data.position[0];
-      const float dz = ctx.playerPosition.z - ctx.objects[24].data.position[2];
-      const bool isNear = dx * dx + dz * dz < 12.25F;
-      if (isNear && !near1) {
-      if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 0;  // "building-a"
-      }
-      near1 = isNear;
-    }
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_23() { g_time_FlowGraphScript_0_23 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
   }
 
  private:
@@ -135,6 +201,138 @@ class FlowGraphScript_0_24 : public Script {
   bool started = false;
   bool near1 = false;
 };
+class FlowGraphScript_0_24;
+FlowGraphScript_0_24* g_time_FlowGraphScript_0_24 = nullptr;
+
+// Scene "main": graph of "trig-unload-a" (object 24)
+class FlowGraphScript_0_24 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 24)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      near1 = false;
+    }
+    frame++;
+    if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
+      livedbg::hit(6);
+      livedbg::hit(7);
+      if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 0;  // "building-a"
+    }
+    {
+      const float dx = ctx.playerPosition.x - ctx.objects[24].data.position[0];
+      const float dz = ctx.playerPosition.z - ctx.objects[24].data.position[2];
+      const bool isNear = dx * dx + dz * dz < 12.25F;
+      if (isNear && !near1) {
+      livedbg::hit(6);
+      livedbg::hit(7);
+      if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 0;  // "building-a"
+      }
+      near1 = isNear;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_24() { g_time_FlowGraphScript_0_24 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool near1 = false;
+};
+
+// Live Debugger watch table (docs/live-debugger.md): the flow variables
+// in one shared order - ints, then bools, then positions.
+int flowDbgVarCount() { return 0; }
+void flowDbgReadVar(int index, float* out3) {
+  out3[0] = out3[1] = out3[2] = 0.0F;
+  (void)index;  // this project defines no flow variables
+}
+
+// Time machine (docs/time-machine.md): every graph's own state.
+unsigned int flowTimeScriptBytes() {
+  return FlowGraphScript_0_21::kTimeBytes +
+         FlowGraphScript_0_22::kTimeBytes +
+         FlowGraphScript_0_23::kTimeBytes +
+         FlowGraphScript_0_24::kTimeBytes;
+}
+void flowTimeScriptCapture(unsigned char* p) {
+  if (g_time_FlowGraphScript_0_21) g_time_FlowGraphScript_0_21->timeCapture(p);
+  p += FlowGraphScript_0_21::kTimeBytes;
+  if (g_time_FlowGraphScript_0_22) g_time_FlowGraphScript_0_22->timeCapture(p);
+  p += FlowGraphScript_0_22::kTimeBytes;
+  if (g_time_FlowGraphScript_0_23) g_time_FlowGraphScript_0_23->timeCapture(p);
+  p += FlowGraphScript_0_23::kTimeBytes;
+  if (g_time_FlowGraphScript_0_24) g_time_FlowGraphScript_0_24->timeCapture(p);
+  p += FlowGraphScript_0_24::kTimeBytes;
+}
+void flowTimeScriptRestore(const unsigned char* p) {
+  if (g_time_FlowGraphScript_0_21) g_time_FlowGraphScript_0_21->timeRestore(p);
+  p += FlowGraphScript_0_21::kTimeBytes;
+  if (g_time_FlowGraphScript_0_22) g_time_FlowGraphScript_0_22->timeRestore(p);
+  p += FlowGraphScript_0_22::kTimeBytes;
+  if (g_time_FlowGraphScript_0_23) g_time_FlowGraphScript_0_23->timeRestore(p);
+  p += FlowGraphScript_0_23::kTimeBytes;
+  if (g_time_FlowGraphScript_0_24) g_time_FlowGraphScript_0_24->timeRestore(p);
+  p += FlowGraphScript_0_24::kTimeBytes;
+}
+
+// Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
+int flowTimeVarCount() { return 0; }
+void flowTimeRead(int index, float* out3) {
+  out3[0] = out3[1] = out3[2] = 0.0F;
+  (void)index;  // this project defines no flow variables
+}
+void flowTimeWrite(int index, const float* in3) {
+  (void)index; (void)in3;
+}
+
+// Live Logic (docs/live-logic.md): flow-variable access for the
+// interpreter - patched graphs read and write the very same arrays the
+// compiled ones do, so a hot-patched graph shares state with the rest.
+void flowLiveSetVarInt(int index, int value) {
+  (void)index; (void)value;
+}
+void flowLiveSetVarBool(int index, bool value) {
+  (void)index; (void)value;
+}
+void flowLiveSetVarPos(int index, const float* v3) {
+  (void)index; (void)v3;
+}
+int flowLiveGetVarInt(int index) {
+  (void)index;
+  return 0;
+}
+bool flowLiveGetVarBool(int index) {
+  (void)index;
+  return false;
+}
+void flowLiveGetVarPos(int index, float* out3) {
+  (void)index; (void)out3;
+}
 
 }  // namespace Layer_streaming
 

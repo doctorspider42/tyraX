@@ -15,6 +15,10 @@ struct SceneObjectData {
              //    via PORTALS below)
              // 17=area (invisible volume, no geometry/collision:
              //    layer zones, In Area triggers - pointInArea below)
+             // 18=scatter volume (procedural authoring region; its
+             //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -65,6 +69,9 @@ struct SceneObjectData {
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
   int projShadow; // 1 = live projected silhouette shadow (the
                   // per-object AO 'castShadow' is baked, not here)
+  int dynLit;     // 1 = lit by the LIT VU1 program from the probe
+                  // grid every frame instead of baked vertex colors
+                  // (docs/global-illumination.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -189,20 +196,20 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[14] = {
-    {6, {-9.83634F, 0.0F, -29.5909F}, {-180.0F, -71.753F, 180.0F}, {0.999998F, 1.0F, 0.999998F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {9, {-5.0F, 2.4F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.58F, 0.22F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.3F, 11.0F, 1, 0.45F, 2, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-left
-    {9, {5.0F, 2.4F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.62F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.25F, 11.0F, 1, 0.35F, 2, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-right
-    {9, {-2.5F, 1.4F, 11.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {0.35F, 0.75F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 0.95F, 6.0F, 1, 0.0F, 1, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // crystal
-    {9, {10.0F, 2.6F, 13.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {0.4F, 0.6F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.5F, 8.0F, 0, 0.0F, 1, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // lamp-baked
-    {0, {0.0F, 1.6F, 16.0F}, {0.0F, 18.0F, 0.0F}, {1.6F, 3.2F, 0.9F}, {0.55F, 0.5F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // monolith
-    {1, {-6.0F, 1.1F, 13.0F}, {0.0F, 0.0F, 0.0F}, {1.4F, 1.4F, 1.4F}, {0.85F, 0.8F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // orb
-    {3, {6.0F, 1.25F, 15.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 2.5F, 1.6F}, {0.7F, 0.55F, 0.45F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // obelisk
-    {0, {-3.0F, 3.5F, 9.0F}, {0.0F, 25.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.45F, 0.3F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-1
-    {0, {3.2F, 5.0F, 10.0F}, {0.0F, -15.0F, 0.0F}, {0.8F, 0.8F, 0.8F}, {0.55F, 0.4F, 0.28F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-2
-    {0, {-9.0F, 2.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 4.0F, 1.2F}, {0.5F, 0.5F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // pillar
-    {9, {-1.71486F, 7.35505F, -24.9247F}, {0.0F, -0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.62F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.09F, 12.1F, 1, 0.35F, 1, 0, 0, 0.0F, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-right-copy
-    {1, {-0.142221F, 0.815477F, -22.3818F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.168541F, 0.206781F, 0.818627F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1
-    {0, {-1.31827F, 2.78907F, -28.6179F}, {0.0F, -0.0F, 0.0F}, {8.56945F, 6.21425F, 1.0F}, {0.441176F, 0.058391F, 0.058391F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
+    {6, {0.0F, 0.0F, 0.0F}, {-1.14962e-06F, 0.49807F, -4.75818e-05F}, {0.999996F, 1.0F, 0.999996F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {9, {-5.0F, 2.4F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.58F, 0.22F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.3F, 11.0F, 1, 0.45F, 2, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-left
+    {9, {5.0F, 2.4F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.62F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.25F, 11.0F, 1, 0.35F, 2, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-right
+    {9, {-2.5F, 1.4F, 11.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {0.35F, 0.75F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 0.95F, 6.0F, 1, 0.0F, 1, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // crystal
+    {9, {10.0F, 2.6F, 13.0F}, {0.0F, 0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {0.4F, 0.6F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.5F, 8.0F, 0, 0.0F, 1, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // lamp-baked
+    {0, {0.0F, 1.6F, 16.0F}, {0.0F, 18.0F, 0.0F}, {1.6F, 3.2F, 0.9F}, {0.55F, 0.5F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // monolith
+    {1, {-6.0F, 1.1F, 13.0F}, {0.0F, 0.0F, 0.0F}, {1.4F, 1.4F, 1.4F}, {0.85F, 0.8F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // orb
+    {3, {6.0F, 1.25F, 15.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 2.5F, 1.6F}, {0.7F, 0.55F, 0.45F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 1},  // obelisk
+    {0, {-3.0F, 3.5F, 9.0F}, {0.0F, 25.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.45F, 0.3F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-1
+    {0, {3.2F, 5.0F, 10.0F}, {0.0F, -15.0F, 0.0F}, {0.8F, 0.8F, 0.8F}, {0.55F, 0.4F, 0.28F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate-2
+    {0, {-9.0F, 2.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 4.0F, 1.2F}, {0.5F, 0.5F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // pillar
+    {9, {-1.71486F, 7.35505F, -24.9247F}, {0.0F, -0.0F, 0.0F}, {0.4F, 0.4F, 0.4F}, {1.0F, 0.62F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.09F, 12.1F, 1, 0.35F, 1, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // torch-right-copy
+    {1, {-0.142221F, 0.815477F, -22.3818F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.168541F, 0.206781F, 0.818627F}, 1, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 1, 1, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // sphere-1
+    {0, {-1.31827F, 2.78907F, -28.6179F}, {0.0F, -0.0F, 0.0F}, {8.56945F, 6.21425F, 1.0F}, {0.441176F, 0.058391F, 0.058391F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 1, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {14};
@@ -210,6 +217,40 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 
 constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[14] = {0xc1168488424f9ba9ULL, 0xf3effeb30c81fb2eULL, 0x07f538ccba5d86c2ULL, 0x9b21632d712c19f0ULL, 0x81146493f2c7307bULL, 0xe4441f50ed41715dULL, 0x4179dda2b2c05d61ULL, 0x641dbdb28dce1ff6ULL, 0xafecacbf4ac24e1dULL, 0x4b77a9ac88963fcdULL, 0xcbb5c6d2b0de93f3ULL, 0x6c2c5ff8b848a7fdULL, 0xba3d7c5126450c3aULL, 0xdb04f7ed6d3e54daULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
@@ -366,6 +407,10 @@ constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
@@ -386,9 +431,15 @@ constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {36.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
+constexpr float TERRAIN_VOID_Y = -1000000.0F;
+constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
@@ -523,6 +574,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
 #define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define SCENE_LAYER_STREAM_AREA SCENE_LAYER_STREAM_AREAS[g_activeScene]
+// Prefabs this scene can spawn (docs/prefabs.md) - the slice of
+// PREFAB_SCENE_LIST the asset residency keeps loaded.
+#define SCENE_PREFAB_FIRST PREFAB_SCENE_FIRST[g_activeScene]
+#define SCENE_PREFAB_COUNT PREFAB_SCENE_COUNT[g_activeScene]
+#define SCENE_PREFAB_LIST PREFAB_SCENE_LIST
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -567,8 +623,14 @@ inline int everyFrames(float seconds) {
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
+// Directional locomotion (face-camera / strafe mode).
+#define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
+#define PP_STRAFE_L_CLIP(pi) PP_TBL(pi, STRAFE_L_CLIPS)
+#define PP_STRAFE_R_CLIP(pi) PP_TBL(pi, STRAFE_R_CLIPS)
+#define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]

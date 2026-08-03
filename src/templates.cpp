@@ -680,9 +680,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -1068,6 +1070,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
@@ -1720,9 +1725,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -2108,6 +2115,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
@@ -10227,6 +10237,41 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+  u32 size = 0;
+  for (Tyra::StaPipBag* b : bags) {
+    if (!b || b->count == 0) continue;
+    b->packageSize = 0;  // ask for the DERIVED size, not the last pin
+    const u32 s = stapip.core.getMaxVertCountByBag(b);
+    if (s != 0 && (size == 0 || s < size)) size = s;
+  }
+  if (size == 0) return;
+  for (Tyra::StaPipBag* b : bags)
+    if (b && b->count != 0) b->packageSize = size;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -10738,6 +10783,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->color = part.colorBag.get();
       part.bag->lighting = nullptr;
     }
+
+    // Last, once every bag of this part has its final program shape (the
+    // dyn-lit swap above changes the base bag's): give the base pass and its
+    // coplanar companions ONE package size. LOD tiers only re-aim the
+    // pointers, never the program class, so this pin survives applyGeoLod.
+    pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
+                    part.emisBag.get()});
   }
   g_litNormals = nullptr;
   if (needsLitSeed) fillDynLitColors(index);
@@ -15076,6 +15128,20 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {
     ch.emisBag.reset();
+  }
+
+  // Every pass above draws ch.vertices, so they all have to split it the same
+  // way - an untextured terrain base under textured layer/lightmap passes is
+  // the exact split that makes baked shadows fight z-index with the ground.
+  {
+    std::vector<Tyra::StaPipBag*> pins;
+    pins.reserve(3 + ch.layerPasses.size());
+    pins.push_back(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      pins.push_back(lp.bag.get());
+    pins.push_back(ch.aoBag.get());
+    pins.push_back(ch.emisBag.get());
+    pinPackageSize(pins);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

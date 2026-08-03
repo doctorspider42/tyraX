@@ -64,8 +64,19 @@ void StaPipCore::onFrameEnd() { cacher.onFrameEnd(); }
 void StaPipCore::reinitVU1Programs() { qbufferRenderer.reinitVU1(); }
 
 u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
-  return qbufferRenderer.getCullProgramByBag(bag)->getMaxVertCount(
+  const u32 derived = qbufferRenderer.getCullProgramByBag(bag)->getMaxVertCount(
       bag->color->many == nullptr, qbufferRenderer.getBufferSize());
+
+  // Modified by TyraX: an explicit package size pins coplanar passes over one
+  // vertex array to the same package boundaries, so they classify against the
+  // frustum identically and take the same route (VU1 divide vs EE clipper) -
+  // see StaPipBag::packageSize. Never above the class's own capacity (that
+  // overflows the VU1 buffer) and always a multiple of 9, the invariant
+  // getMaxVertCount itself keeps: divisible by 3 for whole triangles, and the
+  // /3 subpackage split divisible by 3 again.
+  if (bag->packageSize == 0 || bag->packageSize >= derived) return derived;
+  const u32 pinned = (bag->packageSize / 9) * 9;
+  return pinned < 9 ? derived : pinned;
 }
 
 u32 StaPipCore::getMaxVertCountByParams(const bool& isSingleColor,

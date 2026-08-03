@@ -43,13 +43,13 @@ constexpr u32 TM_MAGIC = 0x4D545854;  // "TXTM"
 constexpr u32 TM_VERSION = 1;
 constexpr int TM_HEADER = 48;
 constexpr u32 TM_FOOTER_XOR = 0x5A5A5A5A;
-constexpr int TM_OBJ_STRIDE = 100;
+constexpr int TM_OBJ_STRIDE = 112;
 // Authored objects plus the runtime spawn pool: a capture covers the clones
 // too, or rewinding past a Spawn Object leaves the clone standing there.
 constexpr int TM_MAX_OBJECTS = 45;
 constexpr int TM_MAX_VARS = 1;
 constexpr int TM_MAX_SAVES = 1;
-constexpr tllu64 TM_LAYOUT = 11381564350981587665ull;
+constexpr tllu64 TM_LAYOUT = 7206525038784225959ull;
 constexpr int TM_GRAPH_BYTES = 8;
 constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 30 + 2 +
                              TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4 + 2 +
@@ -101,6 +101,7 @@ int capture(ScriptContext& ctx, unsigned char* p) {
                            (o.animRestart ? 4 : 0) | (o.animFinished ? 8 : 0)));
     putf(p + 92, o.animSpeed);
     putf(p + 96, o.animFade);
+    for (int k = 0; k < 3; ++k) putf(p + 100 + k * 4, o.spinRate[k]);
     p += TM_OBJ_STRIDE;
   }
 
@@ -186,6 +187,7 @@ void restore(ScriptContext& ctx, const unsigned char* p, int bytes) {
     o.animFinished = (af & 8) != 0;
     o.animSpeed = getf(p + 92);
     o.animFade = getf(p + 96);
+    for (int k = 0; k < 3; ++k) o.spinRate[k] = getf(p + 100 + k * 4);
     // ALWAYS dirty, whatever the capture said: a restored object has moved as
     // far as the renderer is concerned, and a batched member that is not
     // demoted keeps drawing at its old place (see staticBatchEligible).

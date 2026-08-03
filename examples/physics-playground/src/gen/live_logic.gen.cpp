@@ -52,8 +52,8 @@ const int MAX_STATE = 256;
 const int COND_STACK = 16;
 
 // --- the IR, generated from the editor's livelogic.hpp ----------------------
-enum { BK_OnStart = 0, BK_EverySeconds = 1, BK_OnButton = 2, BK_NearObject = 3, BK_OnCondition = 4, BK_Delay = 5 };
-enum { OP_SetObjectVisible = 0, OP_MoveObjectBy = 1, OP_SetObjectColor = 2, OP_SetPosition = 3, OP_MoveObjectTo = 4, OP_TeleportPlayer = 5, OP_SetSky = 6, OP_Delay = 7, OP_Log = 8, OP_SetVarInt = 9, OP_SetVarBool = 10, OP_SetVarPos = 11, OP_SetValue = 12, OP_AddValue = 13, OP_SetTextVisible = 14, OP_SetHudVisible = 15, OP_SwitchScene = 16, OP_SetFog = 17, OP_SetBloom = 18, OP_SetGrain = 19, OP_SetParticles = 20 };
+enum { BK_OnStart = 0, BK_EverySeconds = 1, BK_OnButton = 2, BK_NearObject = 3, BK_OnCondition = 4, BK_Delay = 5, BK_OnUpdate = 6 };
+enum { OP_SetObjectVisible = 0, OP_MoveObjectBy = 1, OP_SetObjectColor = 2, OP_SetPosition = 3, OP_MoveObjectTo = 4, OP_TeleportPlayer = 5, OP_SetSky = 6, OP_Delay = 7, OP_Log = 8, OP_SetVarInt = 9, OP_SetVarBool = 10, OP_SetVarPos = 11, OP_SetValue = 12, OP_AddValue = 13, OP_SetTextVisible = 14, OP_SetHudVisible = 15, OP_SwitchScene = 16, OP_SetFog = 17, OP_SetBloom = 18, OP_SetGrain = 19, OP_SetParticles = 20, OP_RotateObjectBy = 21, OP_SetRotation = 22, OP_SpinObject = 23 };
 enum { CO_End = 0, CO_IsVisible = 1, CO_VarBool = 2, CO_VarAtLeast = 3, CO_ValueAtLeast = 4, CO_And = 5, CO_Or = 6, CO_Not = 7, CO_Nand = 8, CO_Xor = 9, CO_Xnor = 10 };
 
 enum { PK_Literal = 0, PK_VarPos = 1, PK_ObjectPos = 2 };
@@ -477,6 +477,25 @@ void exec(ScriptContext& ctx, const Prog& pr, const Ins& in) {
     case OP_SetParticles:
       ctx.particles = in.num[0] != 0.0F ? 1 : 0;
       break;
+    case OP_RotateObjectBy:
+      if (!o) break;
+      for (int a = 0; a < 3; ++a) {
+        float d = o->data.rotation[a] + in.num[a];
+        if (d > 360.0F || d < -360.0F) d = fmodf(d, 360.0F);
+        o->data.rotation[a] = d;
+      }
+      o->dirty = true;
+      break;
+    case OP_SetRotation:
+      if (!o) break;
+      for (int a = 0; a < 3; ++a) o->data.rotation[a] = in.num[a];
+      o->dirty = true;
+      break;
+    case OP_SpinObject:
+      if (!o) break;
+      for (int a = 0; a < 3; ++a)
+        o->spinRate[a] = in.pin == 1 ? 0.0F : in.num[a];
+      break;
     default: break;
   }
 }
@@ -553,6 +572,9 @@ void runProgram(ScriptContext& ctx, const Prog& pr) {
             fire = true;
           }
         }
+        break;
+      case BK_OnUpdate:
+        fire = true;  // runProgram already runs once per frame
         break;
       case BK_OnButton:
         fire = padClicked(ctx, bk.aux);

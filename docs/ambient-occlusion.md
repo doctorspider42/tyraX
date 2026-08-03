@@ -94,5 +94,13 @@ anything the bake reads) need a rebuild - the LIVE chip flips amber.
   future optimization: merge the AO passes into the batch bags - they share
   one texture). A scene with emissive lamps pays one more terrain pass and one
   more pass per lit object for the additive light.
+- **Package size**: a lightmap pass draws the SAME vertex array as the base
+  pass it darkens, and both must split it into the same VU1 packages or the
+  two coplanar passes can classify a triangle differently against the frustum
+  and disagree about depth - that is what made baked shadows fight z-index
+  with the ground. The generated game pins every pass of an object (and of a
+  terrain chunk) to one package size; see
+  [docs/reflective-materials.md](reflective-materials.md), which explains the
+  mechanism and the measured cost.
 - **Build time**: the bakes are a few hundred ms per scene, re-run on every
   build (deterministic, no caching needed).

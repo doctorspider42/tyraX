@@ -127,9 +127,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -515,6 +517,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
