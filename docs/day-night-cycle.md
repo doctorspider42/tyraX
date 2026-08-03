@@ -61,8 +61,12 @@ terrain** like any other DCC camera. An intermediate version lifted the pivot to
 keep the eye above ground; it was worse than the problem, because the camera
 appeared to lie on the terrain and then jump upward. To put the sky in frame,
 raise the pivot yourself — pan, or the **right+middle drag** which pans forward
-and back along the view direction (`Viewport::dolly`) and climbs while you are
-looking up.
+and back along the view direction (`Viewport::dolly`; drag down = forward) and so
+climbs while you are looking up. Measured: 40 px of drag moves the pivot 5.73
+units along the view with `distance` untouched — it is a pan, not a zoom — and
+120 px while tilted up raises it 12.3 units. Its speed is its own setting
+(*View > Navigation controls > Forward pan*), because a value that suits sideways
+panning is too slow for crossing a scene.
 
 The bound is +/-85.9 degrees rather than 90: `camView`'s up vector is world +Y,
 so at exactly 90 it aligns with the view axis, the basis degenerates and yaw

@@ -181,6 +181,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("navMoveKeys", v)) cfg.nav.moveKeys = toI(v, 0) == 1 ? NavMoveKeys::Arrows : NavMoveKeys::WASD;
         else if (match("navOrbitSens", v)) cfg.nav.orbitSensitivity = toF(v, 1.0f);
         else if (match("navPanSens", v)) cfg.nav.panSensitivity = toF(v, 1.0f);
+        else if (match("navDollySens", v)) cfg.nav.dollySensitivity = toF(v, 1.0f);
         else if (match("navZoomSens", v)) cfg.nav.zoomSensitivity = toF(v, 1.0f);
         else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
         else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
@@ -248,6 +249,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navMoveKeys=" << (int)n.moveKeys << "\n"
       << "navOrbitSens=" << n.orbitSensitivity << "\n"
       << "navPanSens=" << n.panSensitivity << "\n"
+      << "navDollySens=" << n.dollySensitivity << "\n"
       << "navZoomSens=" << n.zoomSensitivity << "\n"
       << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
@@ -1124,6 +1126,21 @@ void App::drawMenuBar() {
             ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
+            // The one navigation setting worth reaching without opening a
+            // modal: it changes what a click DOES to the camera, so it gets
+            // toggled far more often than sensitivities are tuned. Same field
+            // the Navigation controls popup edits - one setting, two doors.
+            if (ImGui::MenuItem("Orbit around selected object", nullptr,
+                                nav_.orbitAroundSelection)) {
+                nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
+                saveGlobalConfig();
+                navFocusedIndex_ = -1;  // re-snap next frame if something is selected
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Selecting an object moves the camera pivot onto it, so a\n"
+                    "right-drag orbits around that object instead of the terrain\n"
+                    "centre. Pan, zoom and the forward drag still move freely.");
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
 
             // Theme next to the interface scale: both are "how the editor
@@ -2824,9 +2841,10 @@ void App::drawViewportWindow() {
             }
             if (doDollyPan) {
                 doOrbit = doPan = false;  // the pair is its own gesture
-                // Dragging UP (negative dy) moves forward - the same sense as a
-                // scroll-up zooming in.
-                viewport_.dolly(-io.MouseDelta.y * nav_.panSensitivity);
+                // Dragging DOWN moves forward. That is the pan sense, not the
+                // zoom sense: a pan drags the WORLD under the cursor, so pulling
+                // the mouse toward you pulls the scene toward you.
+                viewport_.dolly(io.MouseDelta.y * nav_.dollySensitivity);
             }
             if (doOrbit) {
                 const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
@@ -12832,6 +12850,15 @@ void App::drawNavigationModal() {
     changed |= ImGui::SliderFloat("Orbit", &nav_.orbitSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Pan", &nav_.panSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Zoom", &nav_.zoomSensitivity, 0.2f, 3.0f, "%.2fx");
+    // Wider than the others on purpose: this one crosses whole scenes, and 3x
+    // was not enough on a large terrain.
+    changed |= ImGui::SliderFloat("Forward pan", &nav_.dollySensitivity, 0.1f, 8.0f,
+                                  "%.2fx");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Speed of the right+middle drag, which pans forward and back along\n"
+            "the view direction (drag down = forward). It scales with zoom like\n"
+            "the other moves, so this is a multiplier on top of that.");
     changed |= ImGui::Checkbox("Invert horizontal", &nav_.invertX);
     ImGui::SameLine();
     changed |= ImGui::Checkbox("Invert vertical", &nav_.invertY);

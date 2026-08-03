@@ -500,8 +500,8 @@ public:
     // Moves the pivot ALONG the view direction - a forward/back pan rather than
     // a zoom: the eye travels with the target instead of closing in on it, so
     // the framing keeps its perspective and the distance is untouched. Bound to
-    // a right+middle drag, and the natural way to lift the pivot off the ground
-    // so the sky comes into view.
+    // a right+middle drag (down = forward, the pan sense), and the natural way
+    // to lift the pivot off the ground so the sky comes into view.
     void dolly(float dPixels);
     void fly(float forward, float strafe, float dt);
 

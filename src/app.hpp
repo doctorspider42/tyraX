@@ -60,6 +60,10 @@ struct NavConfig {
     NavMoveKeys moveKeys = NavMoveKeys::WASD;
     float orbitSensitivity = 1.0f;  // 0.2 .. 3.0, multiplies pixel deltas
     float panSensitivity = 1.0f;
+    // The right+middle forward/back pan gets its own speed: it travels along the
+    // VIEW direction, so a value that feels right for sideways panning is
+    // usually too slow for crossing a scene or climbing to the sky.
+    float dollySensitivity = 1.0f;
     float zoomSensitivity = 1.0f;
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
