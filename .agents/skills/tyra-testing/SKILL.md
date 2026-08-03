@@ -562,6 +562,20 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  **Mouse LOOK on Wayland needs XWayland**, and that is a real trap rather than
+  a tooling quirk: PCSX2's relative-mouse mode recentres the host cursor after
+  every motion event and reports the distance from the centre, and Wayland does
+  not let a client move the pointer, so the delta never resets and the camera
+  slams into the pitch limit and spins. The editor now launches PCSX2 with
+  `QT_QPA_PLATFORM=xcb` for keyboard/mouse projects (docs/keyboard-mouse.md) —
+  when driving PCSX2 by hand instead, export it yourself or every `movrel`
+  measures nonsense. The instrument that settles it in one run: five IDENTICAL
+  small `movrel 0 10` nudges with a `shot` after each, then read the horizon row
+  out of the crops. Equal steps (−17/−16/−15/−17/−16 px measured) = the deltas
+  are the movement; growing or off-the-screen steps = the recentring is a no-op.
+  A raw "did the picture change" diff cannot tell those apart, which is why the
+  first attempt at this looked fine and was not.
+
   **To WATCH the game over time, use `watch`** — the same one-session trick
   applied to TIME. It samples the screen on an interval off the
   already-negotiated stream and reports **one downscaled contact sheet** plus a

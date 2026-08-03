@@ -17921,6 +17921,19 @@ fi
 ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 [ -f "$ELF" ] || { echo "$ELF not found - build the project first." >&2; exit 1; }
 
+# Mouse look needs XWayland. PCSX2's relative-mouse mode warps the cursor back
+# to the window centre after every motion event and reports how far it had
+# moved from there; Wayland does not let a client move the pointer, so the warp
+# is a silent no-op and the emulated USB mouse gets the distance from the
+# centre instead of the movement - the camera slams into the pitch limit and
+# spins. Only for a keyboard/mouse project (src/main.cpp is regenerated on
+# every build, so this reads the LIVE preference); export QT_QPA_PLATFORM
+# yourself to opt out.
+if grep -qs 'loadUsbKbdMouse = true' src/main.cpp && [ -n "${WAYLAND_DISPLAY:-}" ] &&
+   [ -n "${DISPLAY:-}" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM=xcb
+fi
+
 pkill -x pcsx2-qt >/dev/null 2>&1 || true
 pkill -x pcsx2 >/dev/null 2>&1 || true
 exec $PCSX2 -elf "$PWD/$ELF"

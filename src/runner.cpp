@@ -252,6 +252,43 @@ static std::string resolveEmulator(const Project& p) {
     return findPCSX2();
 }
 
+// An environment prefix for the PCSX2 command line, or "" for none.
+//
+// PCSX2's relative-mouse mode - what the emulated USB mouse runs on, so what
+// mouse look in a generated game runs on (docs/keyboard-mouse.md) - works by
+// warping the host cursor back to the window centre after every motion event
+// and reporting the offset it had travelled from there. Wayland does not let a
+// client move the pointer, so on a native Wayland surface that warp is a
+// SILENT no-op: the cursor stays where the hand put it and every later event
+// reports the whole distance from the centre instead of the movement, again
+// and again. The camera slams into the pitch limit and spins - it reads as a
+// broken game rather than as a windowing-system mismatch. Measured on
+// GNOME/Wayland with five identical 10-count nudges: the horizon moved
+// 17/16/15/17/16 px per nudge through XWayland and 171 px then straight off
+// the screen natively. XWayland warps the cursor for real, so launching PCSX2
+// there is the whole fix.
+//
+// Only worth doing for a project that actually binds the mouse (a pad game
+// never reads it, and XWayland costs it fractional-scaling crispness for
+// nothing), only where XWayland is actually up, and never over a platform the
+// user picked themselves - exporting QT_QPA_PLATFORM is the opt-out.
+static std::string emulatorEnvPrefix(const Project& p) {
+#ifdef _WIN32
+    // No Wayland to work around: the Win32 cursor warp does what it says.
+    (void)p;
+    return "";
+#else
+    if (!p.settings.keyboardMouse) return "";
+    const char* wayland = std::getenv("WAYLAND_DISPLAY");
+    const char* x11 = std::getenv("DISPLAY");
+    const char* chosen = std::getenv("QT_QPA_PLATFORM");
+    if (!wayland || !*wayland) return "";  // not a Wayland session
+    if (!x11 || !*x11) return "";          // no XWayland to fall back to
+    if (chosen && *chosen) return "";      // the user picked one; leave it
+    return platform::envPrefix("QT_QPA_PLATFORM", "xcb");
+#endif
+}
+
 std::string Runner::emulatorLogPath(const Project& p) const {
     const std::string exe = resolveEmulator(p);
     if (exe.empty()) return "";
@@ -368,11 +405,19 @@ bool Runner::launchPCSX2(const Project& p) {
         }
     }
 
+    const std::string envPrefix = emulatorEnvPrefix(p);
+    if (!envPrefix.empty())
+        appendLine(
+            "[editor] Wayland session: launching PCSX2 through XWayland so mouse "
+            "look works (export QT_QPA_PLATFORM to override - see "
+            "docs/keyboard-mouse.md).");
+
     appendLine("[editor] Launching PCSX2: " + exe);
     // (The ELF path is native-separator already: Project::filePath() applies
     // make_preferred, which is what PCSX2 needs - it refuses a boot ELF whose
     // path mixes separators.)
-    if (!platform::Process::startDetached(platform::shellArg(exe) + " -elf " +
+    if (!platform::Process::startDetached(envPrefix + platform::shellArg(exe) +
+                                          " -elf " +
                                           platform::shellArg(p.elfPath()))) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;
