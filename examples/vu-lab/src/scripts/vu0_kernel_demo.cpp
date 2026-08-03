@@ -60,19 +60,32 @@ class Vu0KernelDemo : public Script {
     // Only what is ACTIVE occupies micro memory, so this is how a game carries
     // more programs than fit at once - and it is one pipeline drain and one
     // upload, which belongs on a button and not in this update loop.
-    // The LOOK, not one program of it. Cell shading and the outline that
-    // finishes it are two programs because they claim different material
-    // classes, but they are one thing to look at - toggling only the shading
-    // left every object still wearing its ink line, which reads as a button
-    // that does nothing.
-    if (ctx.engine->pad.getClicked().Triangle && vuscript::COUNT > 0) {
-      bool on = false;
-      for (int i = 0; i < vuscript::COUNT; ++i) on |= vuscript::active(i);
-      if (on)
+    // FOUR LOOKS, FOUR BUTTONS, one at a time.
+    //
+    // One at a time is not a limitation the demo works around, it is the thing
+    // the demo is showing. A material class carries ONE program: install a
+    // second over the same class and it simply replaces the first. So picking
+    // a look means swapping what is resident on VU1 - one pipeline drain and
+    // one upload - and Tools > VU Programs shows micro memory change as you
+    // press. Every one of these is in the ELF the whole time; only the chosen
+    // one occupies the chip.
+    //
+    // Pressing the button of the look that is already on turns it off and
+    // gives the classes back to the engine's own programs.
+    {
+      const Tyra::PadButtons& hit = ctx.engine->pad.getClicked();
+      int want = -1;
+      if (hit.Triangle) want = vuscript::kCellShading;
+      else if (hit.Square) want = vuscript::kVertexSnap;
+      else if (hit.Circle) want = vuscript::kWobble;
+      else if (hit.Cross) want = vuscript::kPalette;   // free: the scene has
+                                                       // the player's jump off
+      if (want >= 0 && want < vuscript::COUNT) {
+        const bool already = vuscript::active(want);
         vuscript::deactivateAll();
-      else
-        vuscript::activateAll();
-      TYRA_LOG("VU scripts -> ", on ? "off" : "on");
+        if (!already) vuscript::activate(want);
+        TYRA_LOG("VU look -> ", already ? "none" : vuscript::name(want));
+      }
     }
     // NO clipping switch bound here on purpose. vuprog::setVU1Clipping()
     // exists and works, but THIS project does not fit in VU1 clipping: the

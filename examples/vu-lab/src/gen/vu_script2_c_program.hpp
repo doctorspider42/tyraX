@@ -6,10 +6,10 @@
 
 namespace Tyra {
 
-class TyraXScript1TDVU1Program : public StaPipVU1Program {
+class TyraXScript2CVU1Program : public StaPipVU1Program {
  public:
-  TyraXScript1TDVU1Program();
-  ~TyraXScript1TDVU1Program();
+  TyraXScript2CVU1Program();
+  ~TyraXScript2CVU1Program();
 
   std::string getStringName() const;
   void addProgramQBufferDataToPacket(packet2_t* packet,

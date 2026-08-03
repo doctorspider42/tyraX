@@ -521,6 +521,48 @@ else will. And **a `Texture` stage after the perspective correction** would have
 its offset divided by W, so a fixed scroll speed would slide faster on distant
 geometry.
 
+## Moving geometry: declare it
+
+A program that writes `position` in `Slot::ObjectSpace` or `Slot::ClipSpace`
+must say so:
+
+```cpp
+bool movesGeometry() const override { return true; }
+```
+
+The EE clipper cuts a mesh against the frustum **before** any VU program runs.
+Move a vertex afterwards and it is moved past a cut computed without it, so the
+mesh tears wherever it touches the edge of the screen. With the flag, the game
+submits its **props** whole and they take the cull path instead — safe because a
+prop is small enough to draw unclipped. The terrain and the sky keep their clip
+checks; they are far too big to submit raw, and raw submission wraps the GS
+raster window.
+
+`Slot::Ndc` does **not** need it. The divide has already happened, the vertex is
+in screen space, and a nudge of a few pixels stays inside the guard band.
+
+Two things that cost a console build each to learn:
+
+* **There are four scratch registers** (`vu::Ctx::kScratchCount`). Asking for a
+  fifth used to hand back a register with no name in it: the instruction was
+  emitted, the program built, `--vu-check` passed, and the effect simply did not
+  happen. `scratch()` now clamps, so the worst case is aliasing rather than
+  silence — but count them.
+* **A wavelength shorter than a mesh tears the mesh open.** Displacement in
+  object space moves a mesh's own vertices by different amounts; long waves lift
+  whole objects, which is what water looks like.
+
+## One class, one program
+
+A material class carries exactly one program. Installing a second over the same
+class replaces the first — `overrides[slot] = program`, nothing more. So two
+scripts that both claim `kColour` cannot be active together, and a demo with
+several looks switches between them rather than stacking them. That is also why
+the generated runtime writes **one entry per engine slot** and not one per
+script: an entry per script meant an inactive script wrote `nullptr` over an
+active one's program, and every look but the last-listed installed cleanly, said
+so in the log, and did nothing.
+
 ## When one draw is not enough: the shell pass
 
 A program can move a vertex. It cannot make the game draw a mesh **twice** — and

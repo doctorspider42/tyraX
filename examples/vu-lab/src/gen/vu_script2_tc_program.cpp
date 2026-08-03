@@ -6,27 +6,27 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_script1_td_program.hpp"
+#include "vu_script2_tc_program.hpp"
 
-extern u32 TyraXScript1TD_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXScript1TD_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXScript2TC_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXScript2TC_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXScript1TDVU1Program::TyraXScript1TDVU1Program()
-    : StaPipVU1Program(StaPipCullTextureDirLights, &TyraXScript1TD_CodeStart,
-                       &TyraXScript1TD_CodeEnd,
+TyraXScript2TCVU1Program::TyraXScript2TCVU1Program()
+    : StaPipVU1Program(StaPipCullTextureColor, &TyraXScript2TC_CodeStart,
+                       &TyraXScript2TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
-TyraXScript1TDVU1Program::~TyraXScript1TDVU1Program() {}
+TyraXScript2TCVU1Program::~TyraXScript2TCVU1Program() {}
 
-std::string TyraXScript1TDVU1Program::getStringName() const {
-  return std::string("Cell shading - Textured + lights");
+std::string TyraXScript2TCVU1Program::getStringName() const {
+  return std::string("Vertex snap - Textured");
 }
 
-void TyraXScript1TDVU1Program::addProgramQBufferDataToPacket(
+void TyraXScript2TCVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 
@@ -39,10 +39,12 @@ void TyraXScript1TDVU1Program::addProgramQBufferDataToPacket(
   packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->sts,
                                    qbuffer->size, true);
 
-  // Normals
-  addr += qbuffer->size;
-  packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->normals,
-                                   qbuffer->size, true);
+  // Colors - absent when the mesh draws in a single colour
+  if (qbuffer->bag->color->single == nullptr) {
+    addr += qbuffer->size;
+    packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->colors,
+                                     qbuffer->size, true);
+  }
 }
 
 }  // namespace Tyra

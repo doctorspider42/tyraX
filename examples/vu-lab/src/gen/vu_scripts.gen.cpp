@@ -10,6 +10,16 @@
 #include "vu_script0_td_ai_program.hpp"
 #include "vu_script0_tc_program.hpp"
 #include "vu_script0_tc_ai_program.hpp"
+#include "vu_script1_c_program.hpp"
+#include "vu_script1_c_ai_program.hpp"
+#include "vu_script1_tc_program.hpp"
+#include "vu_script1_tc_ai_program.hpp"
+#include "vu_script2_c_program.hpp"
+#include "vu_script2_c_ai_program.hpp"
+#include "vu_script2_tc_program.hpp"
+#include "vu_script2_tc_ai_program.hpp"
+#include "vu_script3_c_program.hpp"
+#include "vu_script3_tc_program.hpp"
 
 namespace vuscript {
 namespace {
@@ -21,12 +31,29 @@ Tyra::TyraXScript0TDVU1Program g_TyraXScript0TDVU1Program;
 Tyra::TyraXScript0TDAIVU1Program g_TyraXScript0TDAIVU1Program;
 Tyra::TyraXScript0TCVU1Program g_TyraXScript0TCVU1Program;
 Tyra::TyraXScript0TCAIVU1Program g_TyraXScript0TCAIVU1Program;
+Tyra::TyraXScript1CVU1Program g_TyraXScript1CVU1Program;
+Tyra::TyraXScript1CAIVU1Program g_TyraXScript1CAIVU1Program;
+Tyra::TyraXScript1TCVU1Program g_TyraXScript1TCVU1Program;
+Tyra::TyraXScript1TCAIVU1Program g_TyraXScript1TCAIVU1Program;
+Tyra::TyraXScript2CVU1Program g_TyraXScript2CVU1Program;
+Tyra::TyraXScript2CAIVU1Program g_TyraXScript2CAIVU1Program;
+Tyra::TyraXScript2TCVU1Program g_TyraXScript2TCVU1Program;
+Tyra::TyraXScript2TCAIVU1Program g_TyraXScript2TCAIVU1Program;
+Tyra::TyraXScript3CVU1Program g_TyraXScript3CVU1Program;
+Tyra::TyraXScript3TCVU1Program g_TyraXScript3TCVU1Program;
 Tyra::StaPipCore* g_core = nullptr;
-bool g_on[COUNT] = {false};
-const char* const kNames[] = {"Cell shading"};
-const bool kShell[] = {true};
-const float kShellW[] = {0.0599999987F};
+bool g_on[COUNT] = {false, false, false, false};
+const char* const kNames[] = {"Cell shading", "Palette", "Vertex snap", "Wobble"};
+const bool kShell[] = {true, false, false, false};
+const bool kMoves[] = {false, false, false, true};
+const float kShellW[] = {0.0599999987F, 0.0199999996F, 0.0199999996F, 0.0199999996F};
 }  // namespace
+
+bool movesGeometry() {
+  for (int i = 0; i < COUNT; ++i)
+    if (g_on[i] && kMoves[i]) return true;
+  return false;
+}
 
 bool shellActive() {
   for (int i = 0; i < COUNT; ++i)
@@ -50,25 +77,25 @@ bool active(int s) {
 
 static void apply() {
   if (!g_core) return;
-  Tyra::StaPipProgramName slots[8];
-  Tyra::StaPipVU1Program* progs[8];
+  Tyra::StaPipProgramName slots[18];
+  Tyra::StaPipVU1Program* progs[18];
   unsigned n = 0;
   slots[n] = Tyra::StaPipCullColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0CVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3CVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0CAIVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CAIVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CAIVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullDirLights;
-  progs[n++] = g_on[0] ? &g_TyraXScript0DVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsDirLights;
-  progs[n++] = g_on[0] ? &g_TyraXScript0DAIVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DAIVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureDirLights;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TDVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureDirLights;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TDAIVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDAIVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TCVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureColor;
-  progs[n++] = g_on[0] ? &g_TyraXScript0TCAIVU1Program : nullptr;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCAIVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCAIVU1Program : nullptr;
   g_core->setProgramOverrides(slots, progs, n);
 }
 

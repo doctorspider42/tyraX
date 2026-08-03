@@ -9,7 +9,10 @@ constexpr bool ENABLED = true;
 
 // The scripts, in the order the generator found them.
 constexpr int kCellShading = 0;
-constexpr int COUNT = 1;
+constexpr int kPalette = 1;
+constexpr int kVertexSnap = 2;
+constexpr int kWobble = 3;
+constexpr int COUNT = 4;
 
 /** Installs the scripts marked activeAtBoot(), over the material
  * classes they claim. Call AFTER setRenderer and setVU1Clipping -
@@ -42,5 +45,13 @@ const char* name(int script);
  * distance so the result keeps its thickness across a scene. */
 bool shellActive();
 float shellWidth();
+
+/** Whether an ACTIVE script displaces vertices. The EE clipper
+ * cuts a mesh before any VU program sees it, so a vertex moved
+ * afterwards is moved past a cut computed without it and the
+ * mesh tears at the edge of the screen. The caller submits its
+ * PROPS whole when this is true - the terrain and the sky are
+ * far too big to draw unclipped and keep their checks. */
+bool movesGeometry();
 
 }  // namespace vuscript

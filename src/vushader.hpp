@@ -185,7 +185,20 @@ class Ctx {
      * long expressions: every temporary a `+` mints is another register VCL
      * has to fit into 31, and running out is a vcl failure with no line
      * number. Indices 0..3 are always available. */
-    Vec scratch(int i) { return {s_.b, s_.scratch[i & 7]}; }
+    Vec scratch(int i) {
+        // CLAMPED, because the alternative is silent nonsense. Only
+        // Desc::scriptScratch registers are actually named before a script
+        // runs; the rest of the array is default-constructed, and asking for
+        // one of those used to hand back a Val with no register in it. The
+        // emitter wrote the instruction anyway, the program built, --vu-check
+        // passed, and the effect simply did not happen - which cost a console
+        // build and a bisection to find. Reusing a real register can at worst
+        // alias; an unnamed one cannot even fail loudly.
+        const int last = kScratchCount - 1;
+        return {s_.b, s_.scratch[i < 0 ? 0 : (i > last ? last : i)]};
+    }
+    /** How many scratch registers `scratch()` can actually give you. */
+    static constexpr int kScratchCount = 4;
 
     /** Move the instructions emitted since `from` into the preamble. Every
      * constant a script builds goes through this - see vu::splat. */
@@ -267,6 +280,23 @@ class Program {
      * about: only what is ACTIVE occupies VU1, so two heavy programs can exist
      * in one game as long as they are not resident together. */
     virtual bool activeAtBoot() const { return true; }
+
+    /** Whether this program DISPLACES vertices - moves them somewhere the
+     * frustum classification did not expect them to be.
+     *
+     * It has to be declared, because the EE clipper runs FIRST: it cuts a mesh
+     * against the frustum before any VU program sees it, so a vertex moved
+     * afterwards is moved past a cut that was computed without it, and the
+     * mesh tears wherever it meets the edge of the screen. A game whose active
+     * script says yes submits its PROPS whole, taking the cull path instead,
+     * which is safe because a prop is small enough to draw unclipped - the
+     * terrain and the sky are not, and keep their clip checks.
+     *
+     * `Slot::Ndc` does not need this: the perspective divide has already
+     * happened there, the vertex is in screen space, and a nudge of a few
+     * pixels stays inside the guard band. It is displacement in OBJECT or CLIP
+     * space that outruns the clipper. */
+    virtual bool movesGeometry() const { return false; }
 
     /** Whether this program needs the game to draw a SHELL PASS for it.
      *

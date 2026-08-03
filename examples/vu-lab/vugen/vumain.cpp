@@ -74,9 +74,14 @@ std::string symbolName(const std::string& in) {
     return out;
 }
 
+/** Every path this run produced, so the ones a previous run produced and this
+ * one did not can be deleted - see the sweep at the end of main. */
+std::vector<std::string> g_written;
+
 bool writeFile(const std::string& dir, const std::string& name,
                const std::string& body) {
     const std::string path = dir + "/" + name;
+    g_written.push_back(path);
     // DO NOT TOUCH A FILE WHOSE CONTENT IS UNCHANGED. make compares mtimes, so
     // rewriting an identical .vclpp is what makes every single build pay for
     // vcl again - and vcl on these programs is the slowest thing in the whole
@@ -244,7 +249,14 @@ int main(int argc, char** argv) {
         h += " * shellWidth() is in screen units at one metre, scaled by\n";
         h += " * distance so the result keeps its thickness across a scene. */\n";
         h += "bool shellActive();\n";
-        h += "float shellWidth();\n";
+        h += "float shellWidth();\n\n";
+        h += "/** Whether an ACTIVE script displaces vertices. The EE clipper\n";
+        h += " * cuts a mesh before any VU program sees it, so a vertex moved\n";
+        h += " * afterwards is moved past a cut computed without it and the\n";
+        h += " * mesh tears at the edge of the screen. The caller submits its\n";
+        h += " * PROPS whole when this is true - the terrain and the sky are\n";
+        h += " * far too big to draw unclipped and keep their checks. */\n";
+        h += "bool movesGeometry();\n";
     }
     h += "\n}  // namespace vuscript\n";
     if (!writeFile(incOut, "vu_scripts.gen.hpp", h)) return 1;
@@ -271,6 +283,11 @@ int main(int argc, char** argv) {
             c += std::string(i ? ", " : "") +
                  (progs[i]->shellPass() ? "true" : "false");
         c += "};\n";
+        c += "const bool kMoves[] = {";
+        for (size_t i = 0; i < progs.size(); ++i)
+            c += std::string(i ? ", " : "") +
+                 (progs[i]->movesGeometry() ? "true" : "false");
+        c += "};\n";
         c += "const float kShellW[] = {";
         for (size_t i = 0; i < progs.size(); ++i) {
             char buf[32];
@@ -279,6 +296,10 @@ int main(int argc, char** argv) {
         }
         c += "};\n";
         c += "}  // namespace\n\n";
+        c += "bool movesGeometry() {\n";
+        c += "  for (int i = 0; i < COUNT; ++i)\n";
+        c += "    if (g_on[i] && kMoves[i]) return true;\n";
+        c += "  return false;\n}\n\n";
         c += "bool shellActive() {\n";
         c += "  for (int i = 0; i < COUNT; ++i)\n";
         c += "    if (g_on[i] && kShell[i]) return true;\n";
@@ -301,10 +322,33 @@ int main(int argc, char** argv) {
         c += "  Tyra::StaPipVU1Program* progs[" +
              std::to_string(emitted.size()) + "];\n";
         c += "  unsigned n = 0;\n";
+        // ONE ENTRY PER ENGINE SLOT, not one per (script, slot). The
+        // repository stores an override as `overrides[slot] = program`, so a
+        // later write to the same slot simply replaces the earlier one - and
+        // with an entry per script, every slot was written once per script.
+        // The last script to claim a class therefore decided it, and an
+        // inactive one wrote nullptr OVER the active one's program. Only the
+        // last-listed script worked; every other look installed cleanly, said
+        // so, and did nothing. Nothing in the engine or the runtime reported
+        // it, because both did exactly what they were told.
+        std::vector<std::string> slotOrder;
         for (const Emitted& e : emitted) {
-            c += "  slots[n] = Tyra::" + e.programEnum + ";\n";
-            c += "  progs[n++] = g_on[" + std::to_string(e.scriptIndex) +
-                 "] ? &g_" + e.className + " : nullptr;\n";
+            bool seen = false;
+            for (const std::string& s : slotOrder) seen |= (s == e.programEnum);
+            if (!seen) slotOrder.push_back(e.programEnum);
+        }
+        for (const std::string& slot : slotOrder) {
+            c += "  slots[n] = Tyra::" + slot + ";\n";
+            c += "  progs[n++] = ";
+            // Each program is its OWN class, so the arms of the chain have no
+            // common type and the conditional operator will not compile
+            // without saying which base it means.
+            for (const Emitted& e : emitted)
+                if (e.programEnum == slot)
+                    c += "g_on[" + std::to_string(e.scriptIndex) +
+                         "] ? (Tyra::StaPipVU1Program*)&g_" + e.className +
+                         " : ";
+            c += "nullptr;\n";
         }
         c += "  g_core->setProgramOverrides(slots, progs, n);\n";
         c += "}\n\n";
@@ -345,6 +389,48 @@ int main(int argc, char** argv) {
              std::to_string(e.classBit) + "\t" + (e.asIs ? "twin" : "main") +
              "\t" + (e.activeAtBoot ? "boot" : "manual") + "\n";
     if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
+
+    // DELETE WHAT THIS RUN NO LONGER PRODUCES. The project's Makefile builds
+    // every .vclpp in src/gen, so a microprogram left behind by an earlier run
+    // is still compiled - and a script that DROPS a material class leaves the
+    // program for that class sitting there, built against a claim nobody makes
+    // any more. That is not a theoretical tidiness problem: narrowing
+    // classes() from four classes to two left a stale lit-class program, vcl
+    // ran out of registers on it, and the build failed pointing at a file
+    // whose source no longer existed. Nothing in the error said "stale".
+    //
+    // A list rather than a directory scan, because the alternative is deleting
+    // by pattern and a pattern eventually matches something a person wrote.
+    const std::string ledger = out + "/vu_scripts.emitted";
+    std::string kept;
+    for (const std::string& p : g_written) kept += p + "\n";
+    kept += ledger + "\n";
+    if (FILE* prev = std::fopen(ledger.c_str(), "rb")) {
+        std::string old;
+        char buf[4096];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), prev)) > 0)
+            old.append(buf, n);
+        std::fclose(prev);
+        size_t at = 0;
+        while (at < old.size()) {
+            const size_t nl = old.find('\n', at);
+            const std::string line =
+                old.substr(at, nl == std::string::npos ? nl : nl - at);
+            at = nl == std::string::npos ? old.size() : nl + 1;
+            if (line.empty()) continue;
+            if (kept.find(line + "\n") != std::string::npos) continue;
+            if (std::remove(line.c_str()) == 0)
+                std::printf("[vugen] removed stale %s\n", line.c_str());
+        }
+    }
+    {
+        FILE* f = std::fopen(ledger.c_str(), "wb");
+        if (f) {
+            std::fwrite(kept.data(), 1, kept.size(), f);
+            std::fclose(f);
+        }
+    }
 
     if (failures) {
         std::fprintf(stderr, "[vugen] %d program(s) failed to build\n", failures);

@@ -6,37 +6,31 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_script1_tc_program.hpp"
+#include "vu_script2_c_ai_program.hpp"
 
-extern u32 TyraXScript1TC_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXScript1TC_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXScript2CAI_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXScript2CAI_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXScript1TCVU1Program::TyraXScript1TCVU1Program()
-    : StaPipVU1Program(StaPipCullTextureColor, &TyraXScript1TC_CodeStart,
-                       &TyraXScript1TC_CodeEnd,
-                       ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
-                           ((u64)GIF_REG_XYZF2) << 8,
-                       3, 3) {}
+TyraXScript2CAIVU1Program::TyraXScript2CAIVU1Program()
+    : StaPipVU1Program(StaPipAsIsColor, &TyraXScript2CAI_CodeStart,
+                       &TyraXScript2CAI_CodeEnd,
+                       ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4,
+                       2, 2) {}
 
-TyraXScript1TCVU1Program::~TyraXScript1TCVU1Program() {}
+TyraXScript2CAIVU1Program::~TyraXScript2CAIVU1Program() {}
 
-std::string TyraXScript1TCVU1Program::getStringName() const {
-  return std::string("Palette - Textured");
+std::string TyraXScript2CAIVU1Program::getStringName() const {
+  return std::string("Vertex snap - Untextured (vertex colour)");
 }
 
-void TyraXScript1TCVU1Program::addProgramQBufferDataToPacket(
+void TyraXScript2CAIVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 
   // Vertices
   packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->vertices,
-                                   qbuffer->size, true);
-
-  // ST
-  addr += qbuffer->size;
-  packet2_utils_vu_add_unpack_data(packet, addr, qbuffer->sts,
                                    qbuffer->size, true);
 
   // Colors - absent when the mesh draws in a single colour

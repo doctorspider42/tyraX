@@ -2761,8 +2761,8 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
-// The clock the project's own VU1 stages read, in seconds. Wrapped in the game
-// loop - see the setTime call there.
+// The clock the project's own VU1 stages AND scripts read, in seconds
+// (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
 float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
@@ -4953,10 +4953,15 @@ void TerrainGame::loop() {
   // range reduction folds through a 2^23 add, so an unbounded seconds counter
   // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
   // continuous across the wrap; any other speed shows a one-frame step there.
-  if (vuprog::ENABLED) {
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
     g_vuClock += g_frameDt;
     if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
-    vuprog::setTime(stapip.core, g_vuClock);
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
@@ -10607,7 +10612,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      part.infoBag->fullClipChecks = true;
+      // OFF while a script displaces vertices (vuscript::movesGeometry). The
+      // EE clipper cuts a mesh before any VU program sees it, so a vertex
+      // moved afterwards is moved past a cut computed without it and the prop
+      // tears at the edge of the screen. Whole-mesh cull path instead - safe
+      // for a prop, which is small enough to submit unclipped, and NOT done
+      // for the terrain or the sky, which are not.
+      part.infoBag->fullClipChecks = !vuscript::movesGeometry();
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -12646,6 +12657,8 @@ void TerrainGame::renderScene() {
     }
     stapip.core.render(part.envBag.get());
   };
+  // Once a frame, before anything is submitted: the clock every time-varying
+  // script reads. One quadword, and only when the project has a script at all.
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -16276,10 +16289,15 @@ void TerrainGame::loop() {
   // range reduction folds through a 2^23 add, so an unbounded seconds counter
   // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
   // continuous across the wrap; any other speed shows a one-frame step there.
-  if (vuprog::ENABLED) {
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
     g_vuClock += g_frameDt;
     if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
-    vuprog::setTime(stapip.core, g_vuClock);
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
@@ -32420,6 +32438,7 @@ std::string vuScriptsStubHeader() {
     s += "inline void activateAll() {}\n";
     s += "inline bool active(int) { return false; }\n";
     s += "inline const char* name(int) { return \"\"; }\n";
+    s += "inline bool movesGeometry() { return false; }\n";
     s += "inline bool shellActive() { return false; }\n";
     s += "inline float shellWidth() { return 0.0F; }\n\n";
     s += "}  // namespace vuscript\n";

@@ -167,6 +167,9 @@ add_executable(tyrax-editor
     src/vugen.cpp
     src/vushader.cpp
     src/vushader_sample.cpp
+    src/vushader_snap_sample.cpp
+    src/vushader_wobble_sample.cpp
+    src/vushader_palette_sample.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp

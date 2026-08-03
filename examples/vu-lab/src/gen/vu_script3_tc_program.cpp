@@ -6,27 +6,27 @@
 // reason this file is generated (docs/vu-framework.md).
 
 #include "debug/debug.hpp"
-#include "vu_script1_tc_ai_program.hpp"
+#include "vu_script3_tc_program.hpp"
 
-extern u32 TyraXScript1TCAI_CodeStart __attribute__((section(".vudata")));
-extern u32 TyraXScript1TCAI_CodeEnd __attribute__((section(".vudata")));
+extern u32 TyraXScript3TC_CodeStart __attribute__((section(".vudata")));
+extern u32 TyraXScript3TC_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
-TyraXScript1TCAIVU1Program::TyraXScript1TCAIVU1Program()
-    : StaPipVU1Program(StaPipAsIsTextureColor, &TyraXScript1TCAI_CodeStart,
-                       &TyraXScript1TCAI_CodeEnd,
+TyraXScript3TCVU1Program::TyraXScript3TCVU1Program()
+    : StaPipVU1Program(StaPipCullTextureColor, &TyraXScript3TC_CodeStart,
+                       &TyraXScript3TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}
 
-TyraXScript1TCAIVU1Program::~TyraXScript1TCAIVU1Program() {}
+TyraXScript3TCVU1Program::~TyraXScript3TCVU1Program() {}
 
-std::string TyraXScript1TCAIVU1Program::getStringName() const {
-  return std::string("Palette - Textured");
+std::string TyraXScript3TCVU1Program::getStringName() const {
+  return std::string("Wobble - Textured");
 }
 
-void TyraXScript1TCAIVU1Program::addProgramQBufferDataToPacket(
+void TyraXScript3TCVU1Program::addProgramQBufferDataToPacket(
     packet2_t* packet, StaPipQBuffer* qbuffer) const {
   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
 

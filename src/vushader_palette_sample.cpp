@@ -1,0 +1,79 @@
+// Two colours and a threshold: the whole scene re-inked.
+//
+// Every other program here MODIFIES the colour it is given. This one REPLACES
+// it - the brightness of a surface chooses between two colours that were never
+// in the scene, so a green terrain under a blue sky comes out as sepia, or
+// Game Boy green, or the two-tone of a silkscreen poster. It is the cheapest
+// program in the project after the vertex snap, and the biggest change to what
+// the frame looks like, which is a ratio worth knowing about.
+#include "vushader.hpp"
+
+namespace {
+
+/** Map luminance onto a two-colour ramp. */
+struct Palette : vu::Program {
+    const char* name() const override { return "Palette"; }
+
+    unsigned classes() const override {
+        // The unlit pair only, and that is not a compromise in THIS scene:
+        // it bakes shading into the vertex colours on the EE, so its props are
+        // flat-colour and its terrain is textured, and the lit classes are
+        // nearly empty. Claiming them costs two more microprograms per class
+        // through vcl and, for the palette, three live constant registers on
+        // the class that already holds ~30 of VCL's 31 - which is exactly
+        // where it failed with `failed to convert all uta linear->raw`.
+        return vu::kColour | vu::kTextured;
+    }
+
+    // OFF at boot. Every program here claims the same material classes, so
+    // only one can be resident at a time - the second override of a class
+    // simply replaces the first. The demo makes that a feature: one button per
+    // look, and micro memory shows exactly one of them.
+    bool activeAtBoot() const override { return false; }
+
+    vu::Slot slot() const override { return vu::Slot::Color; }
+
+    void prepare(vu::Ctx& c) {
+        // Rec.601 weights - the same ones every other program here uses, so
+        // "brightness" means one thing across the project.
+        kLuma_ = vu::constant(c, 0.299F, 0.587F, 0.114F, 0.0F);
+        // The dark end, and in w the 1/255 that turns a 0..255 luminance into
+        // the 0..1 blend factor.
+        kDark_ = vu::constant(c, 40.0F, 30.0F, 70.0F, 1.0F / 255.0F);
+        // The light end. Warm against the cold dark, because a ramp between
+        // two colours of the same temperature just looks like a faded photo.
+        kLight_ = vu::constant(c, 255.0F, 220.0F, 130.0F, 0.0F);
+    }
+    vu::Vec kLuma_, kDark_, kLight_;
+
+    void vertex(vu::Ctx& c) override {
+        vugen::Vu& b = c.raw();
+        const vugen::Val s0 = c.scratch(0).val();
+        const vugen::Val s1 = c.scratch(1).val();
+        const vugen::Val inv255 = vugen::Val{kDark_.val().reg, 3};
+
+        // s0.x = luminance, then scaled into 0..1 as the blend factor.
+        b.mulInto(s0, c.color.val(), kLuma_.val(), vuir::MXYZ);
+        b.addInto(s0, s0, vugen::Val{s0.reg, 1}, vuir::MX);
+        b.addInto(s0, s0, vugen::Val{s0.reg, 2}, vuir::MX);
+        b.mulInto(s0, s0, inv255, vuir::MX);
+
+        // colour = dark + (light - dark) * t. The subtract runs on whole
+        // registers and the scale is a broadcast, so the ramp costs three
+        // instructions however many colours are in it.
+        b.subInto(s1, kLight_.val(), kDark_.val(), vuir::MXYZ);
+        b.mulInto(s1, s1, vugen::Val{s0.reg, 0}, vuir::MXYZ);
+        b.addInto(c.color.val(), kDark_.val(), s1, vuir::MXYZ);
+
+        // No clamp needed: t comes from a luminance that the GS itself clamped
+        // to 0..255 before this program ever saw it, so the result cannot
+        // leave the segment between the two endpoints.
+        //
+        // xyz only - alpha is what the GS blends with, and a re-inked alpha
+        // turns every blended pass in the scene into stipple.
+    }
+};
+
+}  // namespace
+
+VU_PROGRAM(Palette);
