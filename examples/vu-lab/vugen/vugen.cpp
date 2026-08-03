@@ -1223,6 +1223,7 @@ struct StageCtx {
     Val normal{};    // the lit classes' object-space normal, for a script
     Val s[6];        // stage scratch
     int scriptPreambleAt = 0;  // where a script hoists its constants
+    bool scriptWroteQ = false;  // a script must not - see runScript
     Val sinS[3];     // sineApprox scratch, never aliased with s[]
     const LitPool* lits = nullptr;
     bool hasColor = false;
@@ -1386,6 +1387,8 @@ void emitStage(StageCtx& c, const Resolved& r) {
  * host, a level count turned into two scale factors) in the pool. */
 struct StagePlan {
     std::vector<Resolved> stages;
+    /** Set when a project's script emitted a Q write - see runScript. */
+    bool scriptWroteQ = false;
     LitPool lits;
     bool needsTime = false;
     bool needsParams = false;
@@ -1511,7 +1514,26 @@ void runScript(StageCtx& c, const Desc& d) {
     sc.hasColor = c.hasColor;
     sc.hasSt = c.hasSt;
     sc.hasNormal = c.normal.reg != 0;
+    const int before = c.b->mark();
     d.script(sc);
+    // A SCRIPT MUST NOT WRITE Q.
+    //
+    // Q carries the perspective divide - persCorrect puts 1/w there and the
+    // position and the ST both ride on it - and it has a latency the assembler
+    // schedules around. A div or an rsqrt emitted from a script body is
+    // independent in vcl's dataflow view, so it gets moved into that window and
+    // the vertex comes out at the wrong place. On the console that reads as
+    // grey stippled patches and shadows fighting for z, on a program that looks
+    // arithmetically perfect - and the host simulator cannot show it, because it
+    // runs in order and models no latency at all. Measured: removing exactly
+    // this divide from examples/vu-lab's script cleaned the frame.
+    for (int i = before; i < (int)c.p->code.size(); ++i) {
+        const Op op = c.p->code[i].op;
+        if (op == Op::Div || op == Op::Rsqrt || op == Op::Sqrt) {
+            c.scriptWroteQ = true;
+            break;
+        }
+    }
     // Constants the script hoisted moved everything after them along, so the
     // next vertex has to start from where this one left off.
     c.scriptPreambleAt = sc.preambleAt;
@@ -2155,7 +2177,10 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.cont();
     b.branch(begin);
     b.finish();
-    if (planOut) *planOut = plan;
+    if (planOut) {
+        plan.scriptWroteQ = sc.scriptWroteQ;
+        *planOut = plan;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2357,6 +2382,14 @@ Built build(const Desc& d) {
     StagePlan plan;
     buildAsIsBody(d, out.program, &plan);
     out.errors = plan.errors;
+    if (plan.scriptWroteQ)
+        out.errors.push_back(
+            "the script writes Q (a divide, an rsqrt or a sqrt). Q carries the "
+            "perspective divide and has a latency the assembler schedules "
+            "around, so a Q write from a script body gets moved into that "
+            "window and vertices land in the wrong place - grey stippled "
+            "patches and z-fighting on the console, with nothing wrong on the "
+            "host. Compute what you need without it (docs/vu-authoring.md)");
     out.droppedStages = plan.dropped;
     if (!d.stages.empty()) {
         // The stage cost, measured against the same description with the list

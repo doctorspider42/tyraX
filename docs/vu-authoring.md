@@ -186,7 +186,7 @@ not a way to pretend the VU is a GPU.
 | `Ndc` | after the perspective divide | screen-space snapping |
 | `Color` (default) | — colour after lighting and texturing, before the clamp | shading, palettes, tints |
 
-### Five rules the compiler will not tell you
+### Six rules the compiler will not tell you
 
 **Build constants in `prepare()`, not in `vertex()`.** Both hoist to the
 preamble, but `vertex()` runs once per VERTEX and the loop is unrolled three
@@ -204,6 +204,17 @@ schedules around, and the hardware then reads an I the host simulator never saw.
 Building constants by hand through `c.raw()` inside the body is the one way to
 reproduce this - the first console run of the script above came out as rainbow
 noise until the constants were hoisted.
+
+**Never write Q.** A divide, an rsqrt or a sqrt writes the Q register, and Q
+carries the perspective divide - `persCorrect` puts 1/w there and both the
+position and the ST ride on it. Q has a latency the assembler schedules around,
+and a Q write from a script body is independent in vcl's dataflow view, so it
+gets moved into that window and vertices land in the wrong place. On the console
+that reads as grey stippled patches on a mesh and shadows fighting for z; on the
+host it reads as nothing at all, because the simulator runs in order and models
+no latency. The build refuses it now, with that explanation. Cell shading wants
+a `band / luminance` and cannot have it - `examples/vu-lab` uses a step ramp
+built from min/max instead, which is a plain multiply and preserves hue exactly.
 
 **Band the light, not the channels.** Posterising r, g and b independently is
 the obvious way to write cell shading and it is wrong: at four levels a shaded

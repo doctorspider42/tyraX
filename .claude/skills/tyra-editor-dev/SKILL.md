@@ -544,7 +544,12 @@ compiler INSIDE THE BUILD CONTAINER (the ps2dev image ships none: g++ is
 apt-installed once, stamped like the audsrv overlay), linked with the framework
 the editor copies into `<project>/vugen/`, and RUN - what it writes is generated
 .vclpp that goes through the ordinary chain. So a script error is a plain C++
-error with the author's line. Four traps, all measured on hardware. MULTIPLY, NEVER ADD, and never touch
+error with the author's line. Five traps, all measured on hardware. A SCRIPT MUST NEVER WRITE Q (div, rsqrt,
+sqrt): Q carries the perspective divide, it has a latency vcl schedules around,
+and a Q write from a script body gets moved into that window - vertices land in
+the wrong place and it shows as grey stipple plus z-fighting shadows on the
+console while the host simulator, in order and latency-free, shows nothing.
+vugen refuses it now.  MULTIPLY, NEVER ADD, and never touch
 alpha: an object's extra bags are MODULATION passes (a baked lightmap's vertex
 colour is Color(0,0,0,128), the occlusion is in its texture), so a "+46 to lift
 the dark end" turns the shadow pass into a dithered grey wash that looks exactly
