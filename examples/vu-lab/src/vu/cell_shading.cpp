@@ -32,15 +32,34 @@ struct CellShading : vu::Program {
     const char* name() const override { return "Cell shading"; }
 
     unsigned classes() const override {
-        // Everything with a texture or a light. kColour is missing because
-        // cell_outline.cpp owns it - two programs cannot claim one class, the
-        // second override simply replaces the first - and that file posterises
-        // with these same numbers, so the look does not change at the seam.
+        // Every class that carries a colour anyone looks at. kColour matters
+        // most in a scene like this one: with shading baked into the vertex
+        // colours on the EE, the flat-colour class is where the light
+        // gradients actually are.
         //
         // Matcap stays out: posterising a reflection quantises the sky it is
         // sampling, which reads as a bug rather than a style.
-        return vu::kTextured | vu::kLit | vu::kLitTextured;
+        return vu::kColour | vu::kTextured | vu::kLit | vu::kLitTextured;
     }
+
+    // Ask the game for the outline pass (docs/vu-authoring.md). The growth
+    // itself is NOT done here, and that is a correctness decision rather than
+    // a performance one: the EE clipper cuts a mesh against the frustum BEFORE
+    // any VU program runs, so a vertex grown afterwards is grown past a cut
+    // that was computed without it, and the line tears wherever an object
+    // meets the edge of the screen. Turning the clip checks off to dodge that
+    // only trades it for the raster wrap that raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry, so the game
+    // grows the shell once, on the EE, when it builds it.
+    //
+    // What is left for this program is the part that cannot be baked: painting
+    // the shell flat. It arrives with 1 in x of the mesh parameters and every
+    // other mesh in the frame carries 0, so one multiply serves both.
+    bool shellPass() const override { return true; }
+    // A FRACTION of the object's own size, not a screen width - baked
+    // geometry cannot follow the camera, and an outline proportional to the
+    // object is what stops small props from wearing tyres anyway.
+    float shellWidth() const override { return 0.06F; }
 
     // After lighting and texturing, before the colour is clamped: the last
     // point where the value is still a float and still means "light".
@@ -54,8 +73,12 @@ struct CellShading : vu::Program {
         // VCL's 31, and a scalar per register is what produced `time out..
         // failed to normal via processing` - vcl does not fail there, it stops
         // OPTIMISING, at 45 seconds a go.
-        // y = levels/255, z = 255/levels, w = half a step.
-        kPost_ = vu::constant(c, 0.0F, kLevels / 255.0F, 255.0F / kLevels,
+        // x = 1, y = levels/255, z = 255/levels, w = half a step.
+        // The 1.0 is FIRST on purpose: `1 - flag` takes it from the x of the
+        // FIRST operand, and VU1 will only broadcast the SECOND one - parked
+        // anywhere else it is unreachable there, and the subtract quietly uses
+        // a different number with nothing to complain about.
+        kPost_ = vu::constant(c, 1.0F, kLevels / 255.0F, 255.0F / kLevels,
                               0.5F);
     }
     vu::Vec kPost_;
@@ -72,6 +95,7 @@ struct CellShading : vu::Program {
         // timeout. Scratch registers are the framework's answer.
         vugen::Vu& b = c.raw();
         const vugen::Val s0 = c.scratch(0).val();
+        const vugen::Val s1 = c.scratch(1).val();
         const vugen::Val down = vugen::Val{kPost_.val().reg, 1};
         const vugen::Val up = vugen::Val{kPost_.val().reg, 2};
         const vugen::Val halfStep = vugen::Val{kPost_.val().reg, 3};
@@ -79,7 +103,20 @@ struct CellShading : vu::Program {
         b.mulInto(s0, c.color.val(), down, vuir::MXYZ);  // into level units
         b.truncate(s0, s0, vuir::MXYZ);                  // drop the remainder
         b.addInto(s0, s0, halfStep, vuir::MXYZ);         // to the band CENTRE
-        b.mulInto(c.color.val(), s0, up, vuir::MXYZ);    // back to 0..255
+        b.mulInto(s0, s0, up, vuir::MXYZ);               // back to 0..255
+
+        // ...and flat black if this mesh is an outline shell. x of the mesh
+        // parameters is 1 there and 0 for everything else in the frame, so
+        // this is one subtract and one multiply rather than a branch - and a
+        // branch on per-mesh data would cost the dual-issue schedule for every
+        // mesh, not only the ones that take it.
+        //
+        // It cannot be done by handing the shell black VERTICES instead: the
+        // posterise above rounds to band CENTRES, so a black vertex would come
+        // out at half a step, and the ink line would be dark grey.
+        b.subInto(s1, kPost_.val(), vugen::Val{c.params.val().reg, 0},
+                  vuir::MX);
+        b.mulInto(c.color.val(), s0, vugen::Val{s1.reg, 0}, vuir::MXYZ);
 
         // Half a step is not decoration. Truncation always rounds DOWN, so
         // without it every level lands at the bottom of its band and the

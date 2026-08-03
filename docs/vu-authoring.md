@@ -534,42 +534,49 @@ float shellWidth() const override { return 0.03F; }   // screen units at 1 m
 ```
 
 With any shell-pass program active, the game draws every visible object once
-more from its **low-detail highlight proxy**, as a flat-colour bag, and hands
-your program three things:
+more from a copy of its proxy that is **already grown along the surface
+normals** by `shellWidth()` — a fraction of the object's own size — and pushed
+behind its own depth by a scale about the **eye**. Scaling about the eye leaves
+projected size untouched and multiplies depth, so the copy hides behind its own
+object and the z-buffer keeps only what sticks out past the silhouette. That
+sliver is the line.
 
-* per-vertex colours that are not colours — they carry the vertex's **outward
-  direction encoded around 128**, so `(c - 128) / 128` is a unit vector. A
-  flat-colour bag has no other stream to put one in, and a shell paints itself
-  flat anyway, so nothing is lost.
-* `params.x` = the width, in world units, already scaled by distance so a line
-  keeps its thickness across the scene. **Zero on every other mesh in the
-  frame**, which is what lets one program serve both the shells and ordinary
-  flat-colour objects without a branch — and a branch on per-mesh data would
-  cost the dual-issue schedule for every mesh, not only the ones that take it.
-* a model matrix that scales the object about the **eye**. Scaling about the eye
-  leaves projected size untouched and multiplies depth, so the copy hides behind
-  its own object and the z-buffer keeps only what sticks out past the
-  silhouette. That sliver is the line.
+**The growth is baked on the EE, not done by your program, and that is a
+correctness rule rather than a preference.** The EE clipper cuts a mesh against
+the frustum *before* any VU program runs. A vertex grown afterwards is grown
+past a cut that was computed without it, so the line tears into blobs wherever
+an object meets the edge of the screen — and turning the per-package clip checks
+off to avoid that only trades it for the raster wrap that raw submission gives
+anything half off-screen. The clipper has to see the final geometry, and the
+only place that can be arranged is where the geometry is built.
 
-Growing on VU1 instead of scaling the matrix is the entire reason this is a VU
-feature: a scale about the centre moves a far vertex further than a near one, so
-the line fattens at the ends of anything long, while a step along the vertex
-normal is the same length everywhere.
+What is left for the program is the part that cannot be baked: painting the
+shell flat. It arrives with **1 in `params.x`**, and every other mesh in the
+frame carries 0, so one subtract and one multiply serve both — no branch, which
+matters because a branch on per-mesh data costs the dual-issue schedule for
+every mesh, not only the ones that take it.
 
-`examples/vu-lab/src/vu/cell_outline.cpp` is eight instructions of this.
+Note that black *vertices* would not do instead. A posterising program rounds to
+band centres, so a black vertex comes back at half a step and the ink line is
+dark grey; the colour has to be zeroed after the quantise.
+
+`examples/vu-lab/src/vu/cell_shading.cpp` is the whole thing — one program over
+four material classes, posterise plus the flat-paint multiply.
 
 Three things to know before you use it:
 
 * **`params.x` is reserved** while a shell-pass program is active. A project
-  that already uses x of the mesh parameters for something on flat-colour
-  objects will see those objects walk along their own colours.
-* **The proxy is convex.** The outward direction is radial from the proxy's
-  centroid, which for a coarse convex stand-in *is* the smoothed normal — at a
-  box corner it is exactly the average of the three faces meeting there. A
-  genuinely concave mesh is the honest limit.
-* **It is a draw per object.** The pass costs what the objects cost, and the
-  bottom of an object standing on terrain is z-rejected by the ground, so the
-  line stops where the object meets the floor.
+  already using x of the mesh parameters will see those meshes paint themselves
+  black.
+* **The direction is the ellipsoid normal** from the proxy's centroid — radial
+  is only the surface normal on a sphere, and on an unevenly scaled prop it
+  leans toward the long axis and makes the line thick on one edge and thin on
+  the other. A genuinely concave mesh is the honest limit of the approach.
+* **It is a draw per object**, and the proxy is built at full detail whenever a
+  shell program is active - a coarse stand-in's faces are chords, they run
+  below the surface by more than a line is wide, and the outline breaks into
+  plates. The bottom of an object standing on terrain is z-rejected by the
+  ground, so the line stops where the object meets the floor.
 
 ## The stage catalogue
 

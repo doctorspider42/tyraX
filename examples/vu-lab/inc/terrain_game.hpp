@@ -127,9 +127,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -251,13 +253,14 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
-    // The same proxy's outward directions, ENCODED AS COLOURS around 128 -
-    // what a shell-pass program (vuscript::shellActive, e.g. a cell-shading
-    // outline) grows along. A flat-colour bag carries positions and colours
-    // and nothing else, so the colour slot is the only stream a normal can
-    // ride in without changing the bag's material class - and a shell paints
-    // itself flat anyway, so nothing is lost by spending it.
-    std::vector<Tyra::Color> hullProxyCols;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
     // Whether this proxy was built at the object's own detail (a shell pass
     // needs that) or at the highlight's coarser one. An object first seen with
     // no shell program active would otherwise keep its coarse proxy when one
@@ -527,6 +530,9 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> hudSprites;
 
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
@@ -713,6 +719,10 @@ class TerrainGame : public Tyra::Game {
   // size untouched and only moves depth, which is what hides the shell behind
   // its own object and leaves the sliver past the silhouette.
   Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
   std::unique_ptr<Tyra::StaPipBag> outlineBag;
   std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;

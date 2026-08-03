@@ -83,54 +83,14 @@ processing:
     lq         stq2, 1(stqData)
     lq         vertex3, 2(vertexData)
     lq         stq3, 2(stqData)
-    loi        0.298999995  ; constants
-    add.x      k0, vf00, i
-    loi        0.587000012
-    add.y      k0, vf00, i
-    loi        0.114
-    add.z      k0, vf00, i
-    loi        0
-    mul.w      k0, vf00, i
-    loi        40  ; constants
-    add.x      k1, vf00, i
-    loi        90
-    add.y      k1, vf00, i
-    loi        150
-    add.z      k1, vf00, i
-    loi        0
-    mul.w      k1, vf00, i
-    loi        0.25  ; constants
-    add.x      k2, vf00, i
-    loi        0.25
-    add.y      k2, vf00, i
-    loi        0.25
-    add.z      k2, vf00, i
-    loi        0.25
-    mul.w      k2, vf00, i
     loi        1  ; constants
-    add.x      k3, vf00, i
-    loi        1
-    add.y      k3, vf00, i
-    loi        1
-    add.z      k3, vf00, i
-    loi        1
-    mul.w      k3, vf00, i
-    loi        0.150000006  ; constants
-    add.x      k4, vf00, i
-    loi        0.150000006
-    add.y      k4, vf00, i
-    loi        0.150000006
-    add.z      k4, vf00, i
-    loi        0.150000006
-    mul.w      k4, vf00, i
-    loi        0.550000012  ; constants
-    add.x      k5, vf00, i
-    loi        0.550000012
-    add.y      k5, vf00, i
-    loi        0.550000012
-    add.z      k5, vf00, i
-    loi        0.550000012
-    mul.w      k5, vf00, i
+    add.x      k0, vf00, i
+    loi        0.0156862754
+    add.y      k0, vf00, i
+    loi        63.75
+    add.z      k0, vf00, i
+    loi        0.5
+    mul.w      k0, vf00, i
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -176,19 +136,13 @@ processing:
     madd.xyz   vertex1, vertex1, scale
     ftoi4.xyz  vertex1, vertex1
     mul        outputStq1, stq1, q  ; PerformTexturePerspectiveCorrection
-    mul.xyz    vuS0, color1, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k2
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k3
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k4
-    add.x      vuS2, vuS2, k5
-    mul.xyz    color1, color1, vuS2[x]
+    mul.xyz    vuS0, color1, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    vuS0, vuS0, k0[z]
+    sub.x      vuS1, k0, vuParams[x]
+    mul.xyz    color1, vuS0, vuS1[x]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color1, color1, i
     max.xyz    color1, color1, vf00[x]
@@ -238,19 +192,13 @@ processing:
     madd.xyz   vertex2, vertex2, scale
     ftoi4.xyz  vertex2, vertex2
     mul        outputStq2, stq2, q  ; PerformTexturePerspectiveCorrection
-    mul.xyz    vuS0, color2, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k2
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k3
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k4
-    add.x      vuS2, vuS2, k5
-    mul.xyz    color2, color2, vuS2[x]
+    mul.xyz    vuS0, color2, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    vuS0, vuS0, k0[z]
+    sub.x      vuS1, k0, vuParams[x]
+    mul.xyz    color2, vuS0, vuS1[x]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color2, color2, i
     max.xyz    color2, color2, vf00[x]
@@ -300,19 +248,13 @@ processing:
     madd.xyz   vertex3, vertex3, scale
     ftoi4.xyz  vertex3, vertex3
     mul        outputStq3, stq3, q  ; PerformTexturePerspectiveCorrection
-    mul.xyz    vuS0, color3, k0
-    add.x      vuS0, vuS0, vuS0[y]
-    add.x      vuS0, vuS0, vuS0[z]
-    add.xyz    vuS1, vf00, vuS0[x]
-    sub.xyz    vuS1, vuS1, k1
-    mul.xyz    vuS1, vuS1, k2
-    max.xyz    vuS1, vuS1, vf00
-    mini.xyz   vuS1, vuS1, k3
-    add.x      vuS2, vuS1, vuS1[y]
-    add.x      vuS2, vuS2, vuS1[z]
-    mul.x      vuS2, vuS2, k4
-    add.x      vuS2, vuS2, k5
-    mul.xyz    color3, color3, vuS2[x]
+    mul.xyz    vuS0, color3, k0[y]
+    ftoi0.xyz  vuS0, vuS0
+    itof0.xyz  vuS0, vuS0
+    add.xyz    vuS0, vuS0, k0[w]
+    mul.xyz    vuS0, vuS0, k0[z]
+    sub.x      vuS1, k0, vuParams[x]
+    mul.xyz    color3, vuS0, vuS1[x]
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color3, color3, i
     max.xyz    color3, color3, vf00[x]

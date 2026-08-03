@@ -8,9 +8,8 @@ namespace vuscript {
 constexpr bool ENABLED = true;
 
 // The scripts, in the order the generator found them.
-constexpr int kCellOutline = 0;
-constexpr int kCellShading = 1;
-constexpr int COUNT = 2;
+constexpr int kCellShading = 0;
+constexpr int COUNT = 1;
 
 /** Installs the scripts marked activeAtBoot(), over the material
  * classes they claim. Call AFTER setRenderer and setVU1Clipping -

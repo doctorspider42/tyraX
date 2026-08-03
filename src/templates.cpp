@@ -807,13 +807,14 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
-    // The same proxy's outward directions, ENCODED AS COLOURS around 128 -
-    // what a shell-pass program (vuscript::shellActive, e.g. a cell-shading
-    // outline) grows along. A flat-colour bag carries positions and colours
-    // and nothing else, so the colour slot is the only stream a normal can
-    // ride in without changing the bag's material class - and a shell paints
-    // itself flat anyway, so nothing is lost by spending it.
-    std::vector<Tyra::Color> hullProxyCols;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
     // Whether this proxy was built at the object's own detail (a shell pass
     // needs that) or at the highlight's coarser one. An object first seen with
     // no shell program active would otherwise keep its coarse proxy when one
@@ -1272,6 +1273,10 @@ class TerrainGame : public Tyra::Game {
   // size untouched and only moves depth, which is what hides the shell behind
   // its own object and leaves the sliver past the silhouette.
   Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
   std::unique_ptr<Tyra::StaPipBag> outlineBag;
   std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
@@ -1876,13 +1881,14 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
-    // The same proxy's outward directions, ENCODED AS COLOURS around 128 -
-    // what a shell-pass program (vuscript::shellActive, e.g. a cell-shading
-    // outline) grows along. A flat-colour bag carries positions and colours
-    // and nothing else, so the colour slot is the only stream a normal can
-    // ride in without changing the bag's material class - and a shell paints
-    // itself flat anyway, so nothing is lost by spending it.
-    std::vector<Tyra::Color> hullProxyCols;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
     // Whether this proxy was built at the object's own detail (a shell pass
     // needs that) or at the highlight's coarser one. An object first seen with
     // no shell program active would otherwise keep its coarse proxy when one
@@ -2341,6 +2347,10 @@ class TerrainGame : public Tyra::Game {
   // size untouched and only moves depth, which is what hides the shell behind
   // its own object and leaves the sliver past the silhouette.
   Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
   std::unique_ptr<Tyra::StaPipBag> outlineBag;
   std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
   std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
@@ -14673,15 +14683,15 @@ void TerrainGame::renderOutlineShells() {
     outlineInfoBag->model = &outlineMat;
     outlineInfoBag->shadingType = TyraShadingFlat;
     outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    // NO per-package clip checks, and this is the rule for any program that
-    // displaces vertices - the same one vuprog::movesGeometry states for the
-    // stage looks. The EE clipper cuts against the frustum BEFORE VU1 pushes
-    // the shell outward, so a package at the edge of the screen is cut on the
-    // un-grown silhouette and then grown past the cut: the line tears into
-    // blobs exactly where an object meets the edge. Whole-mesh cull path
-    // instead. Safe here for the reason it is not safe in general - shells are
-    // props, and a prop is small enough to submit unclipped.
-    outlineInfoBag->fullClipChecks = false;
+    // Clip checks ON, like any other prop - which is only correct because the
+    // shell arrives ALREADY GROWN. Growing it on VU1 instead put the clipper
+    // ahead of the growth: a package at the edge of the screen was cut on the
+    // un-grown silhouette and then grown past the cut, and the line tore into
+    // blobs exactly where an object met the edge. Turning these off to dodge
+    // that only traded it for the raster wrap raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry; the only
+    // place that can be arranged is where the geometry is built.
+    outlineInfoBag->fullClipChecks = true;
     // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
     // relationships on the close-up clipped path - that is what commit
     // 67e2893f found on the reflection pass, and an outline is close-up
@@ -14702,8 +14712,7 @@ void TerrainGame::renderOutlineShells() {
     if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
       g.hullProxyVerts.clear();  // built coarse before this program came on
     if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
-    if (g.hullProxyVerts.empty()) continue;  // marker-only object
-    if (g.hullProxyCols.size() != g.hullProxyVerts.size()) continue;
+    if (g.outlineVerts.empty()) continue;  // marker-only object
 
     float half = o.data.scale[0];
     if (o.data.scale[1] > half) half = o.data.scale[1];
@@ -14716,20 +14725,12 @@ void TerrainGame::renderOutlineShells() {
     const float dz = o.data.position[2] - cameraPosition.z;
     const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
 
-    // A width in WORLD units proportional to distance is a width in SCREEN
-    // units that does not change - the same reason a pen keeps its nib across
-    // a drawing. The eye-scale below preserves projected size, so it does not
-    // undo this.
-    float grow = wScreen * (dist > 0.5F ? dist : 0.5F);
-    // But a constant nib is not what the eye reads as constant. A small object
-    // far away gets a line that is a large FRACTION of the thing it outlines,
-    // and a scene of them turns into a row of black rings. Cap the line at a
-    // share of the object's own size and the far ones thin out on their own.
-    // A quarter of the object was the first guess and it is a tyre, not a
-    // line: on a sphere it reads as a black ring half as wide as the thing it
-    // surrounds. A line wants low single-digit percent.
-    const float growMax = 0.06F * half;
-    if (grow > growMax) grow = growMax;
+    // What buildHighlightProxy already walked each vertex by - needed here
+    // only to size the pushback. A fraction of the object rather than a screen
+    // width, because baked geometry cannot follow the camera, and because a
+    // line proportional to the thing it surrounds is what keeps small props
+    // from wearing tyres anyway.
+    const float grow = wScreen * half;
 
     float behind = dist - half;
     if (behind < 0.5F) behind = 0.5F;
@@ -14745,21 +14746,23 @@ void TerrainGame::renderOutlineShells() {
     outlineMat.data[13] = (1.0F - k) * cameraPosition.y;
     outlineMat.data[14] = (1.0F - k) * cameraPosition.z;
 
-    // x is the shell width and the program's own on/off switch in one number.
-    // Every other mesh this frame carries zero there, which is what lets one
-    // program serve outlines and ordinary flat-colour objects without a
-    // branch - and it is why x of the mesh parameters is RESERVED once a
-    // shell-pass program is active.
-    stapip.core.setVuParams(grow, 0.0F, 0.0F, 0.0F);
-    outlineColorBag->many = g.hullProxyCols.data();
-    outlineBag->vertices = g.hullProxyVerts.data();
-    outlineBag->count = static_cast<u32>(g.hullProxyVerts.size());
+    // x = 1 says "this mesh is a shell, paint it flat". Every other mesh this
+    // frame carries 0, so ONE program serves the shells and the ordinary
+    // objects without a branch - which is why x of the mesh parameters is
+    // RESERVED once a shell-pass program is active.
+    //
+    // The colour cannot simply be black vertices: the program rounds to band
+    // CENTRES, so black would come back at half a step and the ink line would
+    // be dark grey. It has to be zeroed after the quantise, on VU1.
+    stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
+    outlineColorBag->single = &outlineCol;
+    outlineBag->vertices = g.outlineVerts.data();
+    outlineBag->count = static_cast<u32>(g.outlineVerts.size());
     outlineBag->bboxVersion = g.hullProxyStamp;
     stapip.core.render(outlineBag.get());
   }
-  // Hand the parameters back. Anything drawn after this - a flat-colour prop,
-  // a later pass - would otherwise inherit the last shell's width and walk off
-  // along its own colours.
+  // Hand the parameters back, or the next flat-colour prop inherits the shell
+  // flag and paints itself black.
   stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
 }
 
@@ -14822,8 +14825,8 @@ void TerrainGame::buildHighlightProxy(int index) {
   // meeting there - which is what stops a grown box from splitting open along
   // its edges. Concave shapes are the honest limit of this, and the proxy is
   // deliberately too coarse to be concave.
-  g.hullProxyCols.clear();
-  if (!g.hullProxyVerts.empty()) {
+  g.outlineVerts.clear();
+  if (!g.hullProxyVerts.empty() && vuscript::shellActive()) {
     float cx = 0.0F, cy = 0.0F, cz = 0.0F;
     for (const Vec4& v : g.hullProxyVerts) {
       cx += v.x;
@@ -14832,7 +14835,14 @@ void TerrainGame::buildHighlightProxy(int index) {
     }
     const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
     cx *= inv, cy *= inv, cz *= inv;
-    g.hullProxyCols.reserve(g.hullProxyVerts.size());
+    g.outlineVerts.reserve(g.hullProxyVerts.size());
+    // How far to walk each vertex: a fraction of the object's own size, so
+    // small props do not wear tyres and nothing has to follow the camera.
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    const float grow = vuscript::shellWidth() * 0.5F * (half > 0.02F ? half
+                                                                    : 0.02F);
     // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
     // and half the props in a scene are - it leans toward the long axis, so a
     // constant step along it grows the squashed sides more than the stretched
@@ -14851,12 +14861,8 @@ void TerrainGame::buildHighlightProxy(int index) {
         dx /= l, dy /= l, dz /= l;
       else
         dx = 0.0F, dy = 1.0F, dz = 0.0F;
-      // Colours are floats the whole way to VU1, so this encoding is exact -
-      // it never has to survive a round trip through a byte, and the program
-      // decodes it with a subtract and a multiply.
-      g.hullProxyCols.push_back(Color(dx * 128.0F + 128.0F,
-                                      dy * 128.0F + 128.0F,
-                                      dz * 128.0F + 128.0F, 128.0F));
+      g.outlineVerts.push_back(
+          Vec4(v.x + dx * grow, v.y + dy * grow, v.z + dz * grow, 1.0F));
     }
   }
   g.hullProxyFine = vuscript::shellActive();

@@ -22,7 +22,7 @@ TyraXScript0CVU1Program::TyraXScript0CVU1Program()
 TyraXScript0CVU1Program::~TyraXScript0CVU1Program() {}
 
 std::string TyraXScript0CVU1Program::getStringName() const {
-  return std::string("Cell outline - Untextured (vertex colour)");
+  return std::string("Cell shading - Untextured (vertex colour)");
 }
 
 void TyraXScript0CVU1Program::addProgramQBufferDataToPacket(
