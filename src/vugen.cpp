@@ -699,6 +699,15 @@ void Vu::transform(Val dst, const Val m[4], Val v) {
 // Stages - the authoring layer (docs/vu-authoring.md)
 // ---------------------------------------------------------------------------
 
+bool stagesMoveGeometry(const std::vector<Stage>& stages) {
+    for (const Stage& s : stages) {
+        if (stageIsNoOp(s)) continue;
+        const StageDef* d = stageDef(s.key);
+        if (d && d->movesGeometry) return true;
+    }
+    return false;
+}
+
 const char* slotName(Slot s) {
     switch (s) {
         case Slot::ObjectSpace: return "Object space";
@@ -740,7 +749,7 @@ const std::vector<StageDef>& stageDefs() {
           {"Speed", "Radians per second. 0 freezes the wave in place, which is "
                     "how you author the shape before animating it.", 2.0f,
            0.0f, 20.0f}},
-         true, false, 23, true, 3},
+         true, false, 23, true, true, 3},
 
         {"twist", "Twist", Slot::ObjectSpace,
          "Rotates the mesh about its own Y axis by an angle that grows with "
@@ -751,7 +760,7 @@ const std::vector<StageDef>& stageDefs() {
                        "identity.", 0.0f, -3.0f, 3.0f, false, true},
           {"Speed", "Radians per second added to the whole twist, so the mesh "
                     "turns as it wrings.", 0.0f, -10.0f, 10.0f}},
-         true, false, 47, true, 6},
+         true, false, 47, true, true, 6},
 
         {"inflate", "Inflate", Slot::ObjectSpace,
          "Scales the mesh about its object origin, optionally breathing. Note "
@@ -765,7 +774,7 @@ const std::vector<StageDef>& stageDefs() {
                     "literal 0 the sine is not generated at all.", 0.0f, 0.0f,
            2.0f, false, true},
           {"Speed", "Breaths per second, in radians.", 2.0f, 0.0f, 20.0f}},
-         true, false, 26, true, 3},
+         true, false, 26, true, true, 3},
 
         {"squash", "Squash / stretch", Slot::ObjectSpace,
          "Per-axis scale about the object origin. Constant, so it costs four "
@@ -776,7 +785,7 @@ const std::vector<StageDef>& stageDefs() {
            -0.9f, 3.0f, false, true},
           {"Y", "Extra scale along Y.", 0.0f, -0.9f, 3.0f, false, true},
           {"Z", "Extra scale along Z.", 0.0f, -0.9f, 3.0f, false, true}},
-         false, false, 4, true, 1},
+         false, false, 4, true, true, 1},
 
         {"heightShade", "Height shade", Slot::ObjectSpace,
          "Darkens or brightens the vertex by its object-space height - a free "
@@ -791,7 +800,7 @@ const std::vector<StageDef>& stageDefs() {
            -4.0f, 4.0f},
           {"Bias", "Shifts where the gradient sits. -1 puts the dark end at "
                    "the model's origin.", 0.0f, -4.0f, 4.0f}},
-         false, false, 7, false, 1},
+         false, false, 7, false, false, 1},
 
         {"zbias", "Depth bias", Slot::ClipSpace,
          "Pulls the vertex toward or away from the camera in clip space, "
@@ -801,7 +810,7 @@ const std::vector<StageDef>& stageDefs() {
          1,
          {{"Bias", "Fraction of the NDC depth range. 0.001 is usually enough; "
                    "0 is the identity.", 0.0f, -0.05f, 0.05f, false, true}},
-         false, false, 2, false, 1},
+         false, false, 2, false, true, 1},
 
         {"snap", "Vertex snap", Slot::Ndc,
          "Quantises the screen position to a grid - the PlayStation 1 wobble, "
@@ -814,7 +823,7 @@ const std::vector<StageDef>& stageDefs() {
                     "cannot be bound to a mesh.", 160.0f, 8.0f, 1024.0f, true},
           {"Strength", "Blend toward the snapped position. 1 is full snap, 0 "
                        "the identity.", 0.0f, 0.0f, 1.0f, false, true}},
-         false, false, 8, false, 1},
+         false, false, 8, false, true, 1},
 
         {"pulse", "Pulse colour", Slot::Color,
          "Brightens and dims the vertex colour on a sine - a beacon, a "
@@ -825,7 +834,7 @@ const std::vector<StageDef>& stageDefs() {
                      "dark to half as bright. 0 is the identity.", 0.0f, 0.0f,
            2.0f, false, true},
           {"Speed", "Radians per second.", 4.0f, 0.0f, 30.0f}},
-         true, false, 22, false, 2},
+         true, false, 22, false, false, 2},
 
         {"posterize", "Posterize", Slot::Color,
          "Rounds the colour down to N levels per channel. Cheap stylisation, "
@@ -837,7 +846,7 @@ const std::vector<StageDef>& stageDefs() {
            4.0f, 2.0f, 64.0f, true},
           {"Strength", "Blend toward the posterized colour. 0 is the "
                        "identity.", 0.0f, 0.0f, 1.0f, false, true}},
-         false, false, 7, false, 1},
+         false, false, 7, false, false, 1},
 
         {"desaturate", "Desaturate", Slot::Color,
          "Drains the vertex colour toward its luminance. Bound to a per-mesh "
@@ -846,7 +855,7 @@ const std::vector<StageDef>& stageDefs() {
          1,
          {{"Amount", "1 is fully grey, 0 the identity.", 0.0f, 0.0f, 1.0f,
            false, true}},
-         false, false, 6, false, 2},
+         false, false, 6, false, false, 2},
 
         {"scrollUv", "Scroll UV", Slot::Texture,
          "Slides the texture across the surface. A conveyor, a waterfall, a "
@@ -857,7 +866,7 @@ const std::vector<StageDef>& stageDefs() {
            0.0f, -4.0f, 4.0f, false, true},
           {"Speed V", "Texture heights per second along V.", 0.0f, -4.0f, 4.0f,
            false, true}},
-         true, true, 4, false, 2},
+         true, true, 4, false, false, 2},
     };
     return defs;
 }

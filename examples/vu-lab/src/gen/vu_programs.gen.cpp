@@ -2,6 +2,7 @@
 
 #include "scripts/vu_programs.gen.hpp"
 #include "vu_custom_c_program.hpp"
+#include "vu_custom_d_program.hpp"
 #include "vu_custom_tc_program.hpp"
 #include "vu_custom_tce_program.hpp"
 
@@ -9,13 +10,15 @@ namespace vuprog {
 
 namespace {
 Tyra::TyraXCustomCVU1Program g_TyraXCustomCVU1Program;
+Tyra::TyraXCustomDVU1Program g_TyraXCustomDVU1Program;
 Tyra::TyraXCustomTCVU1Program g_TyraXCustomTCVU1Program;
 Tyra::TyraXCustomTCEVU1Program g_TyraXCustomTCEVU1Program;
 }  // namespace
 
 void install(Tyra::StaPipCore& core) {
-  core.setResidentClasses(25);  // only the classes this project draws
+  core.setResidentClasses(27);  // only the classes this project draws
   core.setProgramOverride(Tyra::StaPipCullColor, &g_TyraXCustomCVU1Program);
+  core.setProgramOverride(Tyra::StaPipCullDirLights, &g_TyraXCustomDVU1Program);
   core.setProgramOverride(Tyra::StaPipCullTextureColor, &g_TyraXCustomTCVU1Program);
   core.setProgramOverride(Tyra::StaPipCullTextureEnv, &g_TyraXCustomTCEVU1Program);
   // Two extra quadwords per mesh, and only for a bag with no

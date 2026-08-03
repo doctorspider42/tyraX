@@ -514,7 +514,15 @@ strength is zero** (it runs on every mesh of that class, including the ones that
 want nothing), and a stage must actually change the packet at full strength.
 Codegen emits `src/gen/vu_custom_*.vclpp` + the EE program class + an on/off
 seam whose predicate is a **compile-time constant** (`vuprog::ENABLED`), so a
-project without one folds every call site away. Four traps worth knowing. **VF REGISTERS run out before micro memory does** -
+project without one folds every call site away. Five traps worth knowing. **AN OBJECT'S PASSES DO NOT ALL SHARE ITS CLASS** - a
+baked lightmap adds a bag carrying the AO ATLAS, which makes it a TEXTURED bag
+even on an untextured mesh, so a look that displaces geometry on the Untextured
+class leaves that pass behind as a translucent ghost of the undeformed shape
+(seen on the console in examples/vu-lab). Turn baked lighting off for a
+displaced object - a lightmap baked for a shape the mesh no longer has is wrong
+anyway - or give the look the Textured class too; the inspector warns about the
+combination via `vugen::stagesMoveGeometry`.
+**VF REGISTERS run out before micro memory does** -
 a cull-family program already keeps ~23 of the 31 live and a sine costs five
 more, so the third stage on one program typically dies as `no opt table` from
 vcl, inside Docker, with no line number (measured: 35 allocated, 36 did not);

@@ -160,6 +160,35 @@ On `Reflective` the ST slot holds an object-space normal rather than a texture
 coordinate, so `Scroll UV` is skipped there rather than silently scrambling the
 matcap.
 
+### An object's passes do not all share its class
+
+This one is not obvious and it looks like a rendering bug when it bites.
+
+An object is not one bag. Its main geometry is one, and a **baked lightmap adds
+another** — carrying the AO atlas, which makes it a **Textured** bag *even on an
+untextured mesh* (`part.aoBag->texture = aoTexBag`, lighting null). Same for the
+additive emissive pass.
+
+So a look that **displaces** geometry on the Untextured class, applied to a mesh
+that has a baked lightmap, moves the main bag and leaves the lightmap pass
+where it was: a translucent ghost of the undeformed shape, sitting behind the
+wobbling one. That is exactly what `examples/vu-lab` showed on the console
+before anyone worked out why.
+
+Two ways out, and the first is usually the right one:
+
+- **Turn baked lighting off for that object.** A lightmap baked for a shape the
+  mesh no longer has is wrong anyway — it was computed against the undeformed
+  geometry. The inspector warns about this combination by name.
+- **Give the look the Textured class too**, so both passes are displaced by the
+  same stages with the same per-mesh numbers (`setVuParams` is staged per
+  OBJECT, before all of that object's bags, so they agree automatically). Costs
+  a second microprogram and its register pressure.
+
+The general rule, worth holding on to: **a displacement look has to claim every
+class an object's passes land in.** Colour stages do not have this problem — the
+lightmap pass carries its own colours.
+
 ### The honest limitation: which packages your program actually draws
 
 The renderer classifies each package by its bounding box and sends it to the

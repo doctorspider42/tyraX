@@ -17,7 +17,8 @@ drawing path, plus a small 40x40 terrain:
 
 | Object | Why it is there | VU parameters |
 |---|---|---|
-| `flat-ball` | Plain vertex colour. | `0.45, 0, 0, 0` - Wobble amplitude |
+| `flat-ball` | Plain vertex colour, **baked lighting off** (it is displaced). | `0.45, 0, 0, 0` - Wobble amplitude |
+| `lit-ball` | `Dynamic lighting` on, so it is in a LIT class - the one a look can only reach with plain values. | none |
 | `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | `0, 1, 0, 0` - Desaturate |
 | `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below). | `0, 1, 0, 0` - Desaturate |
 | `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | none |
@@ -35,13 +36,22 @@ compute kernel**.
 | Look | Classes | Stages | Parameters |
 |---|---|---|---|
 | **Underwater** | Untextured | Wobble, Desaturate | Amplitude ← mesh **X**, Amount ← mesh **Y** |
-| **Toon** | Textured + Reflective | Posterize, Scroll UV | Posterize is a plain **value** (every mesh of both classes); Speed U/V ← mesh **X**/**Y** |
+| **Toon** | Textured + Reflective + **Directional lights** | Posterize, Scroll UV | all plain **values** — every mesh of all three classes |
 | kernel | VU0 | Wobble, Squash | values |
 
-`Toon` is the shape the feature is for: one stage list, a whole-scene treatment,
-authored once. `Scroll UV` is silently **skipped on Reflective** — that class's
-ST slot carries an object-space normal, not a texture coordinate — and the panel
-says so rather than refusing the look.
+`Toon` is the shape the feature is for, and it reaches a **lit** class because
+every one of its parameters is a plain value: the four per-mesh numbers live in
+the directional-lights colour block, so it is the *binding* that would have shut
+it out, not the class. `lit-ball` is there to make that path real rather than
+theoretical. `Scroll UV` is skipped on Reflective (its ST slot carries a normal)
+and on Directional lights (no ST at all), each with the reason shown.
+
+`flat-ball` has **Baked lighting off**, and that is not tidying: a lightmap pass
+carries the AO atlas, which makes it a *Textured* bag even on an untextured
+mesh, so `Underwater` displaced the ball's main geometry and left its lightmap
+behind as a translucent ghost of the undeformed sphere. See
+[docs/vu-authoring.md](../../docs/vu-authoring.md) — the inspector now warns
+about that combination.
 
 That is the whole design in one screen. The program replaces a **material
 class**, not an object - VU1 micro memory has no room for one program per mesh -

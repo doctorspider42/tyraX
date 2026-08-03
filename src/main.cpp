@@ -1385,6 +1385,58 @@ static int vuCheckStages(const std::string& engine) {
             ++fails;
         }
     }
+    // The same two claims, but across ALL FIVE material classes with a stage
+    // made of plain VALUES. This is the path that was wrongly closed: the four
+    // per-mesh numbers live in the directional-lights colour block, so a look
+    // that BINDS one cannot go on a lit class - but a look of plain values
+    // never reads those addresses and may go anywhere. That distinction is the
+    // difference between "cell shading works on unlit props" and "cell shading
+    // works on the scene", so it gets a check rather than a comment.
+    std::printf("  -- a values-only stage, on every class --\n");
+    static const struct {
+        unsigned bit;
+        const char* stem;
+    } kClassRef[] = {
+        {1u << 0, "stapip_cull_c_vu1"},   {1u << 1, "stapip_cull_d_vu1"},
+        {1u << 2, "stapip_cull_td_vu1"},  {1u << 3, "stapip_cull_tc_vu1"},
+        {1u << 4, "stapip_cull_tce_vu1"},
+    };
+    for (const auto& cr : kClassRef) {
+        vugen::Desc d = vugen::descForClass(cr.bit);
+        vugen::Stage st = vugen::makeStage("posterize");
+        st.params[0].value = 4.0f;   // levels
+        st.params[1].value = 0.0f;   // strength: the identity, for now
+        d.stages.push_back(st);
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program hand;
+        std::string err;
+        const std::string path =
+            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
+             "static" / "core" / "programs" / "cull" /
+             (std::string(cr.stem) + ".vclpp")).string();
+        if (!vuasm::parseFile(path, opt, hand, err)) {
+            std::printf("    %-22s could not read %s\n",
+                        vugen::classTitle(cr.bit), cr.stem);
+            ++fails;
+            continue;
+        }
+        const vugen::Built idleB = vugen::build(d);
+        const vugen::Equivalence idle =
+            vugen::equivalence(hand, idleB.program, d, 16, 0x5AFE0001u);
+        d.stages[0].params[1].value = 0.9f;  // and now it must change things
+        const vugen::Built liveB = vugen::build(d);
+        const vugen::Equivalence busy =
+            vugen::equivalence(hand, liveB.program, d, 16, 0x5AFE0001u);
+        const bool ok = idle.identical && !busy.identical &&
+                        idleB.errors.empty() && liveB.errors.empty();
+        std::printf("    %-22s %s\n", vugen::classTitle(cr.bit),
+                    ok ? "OK"
+                       : !idle.identical ? "NOT the identity at zero"
+                                         : "changes nothing at full strength");
+        if (!ok) ++fails;
+    }
+
     std::printf("  %s\n\n", fails == 0
                                 ? "every stage is a no-op at zero and an effect "
                                   "above it, in the emitted text too"

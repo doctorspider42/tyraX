@@ -306,6 +306,13 @@ struct StageDef {
      * nothing else: a stage that reads a colour or an ST has nothing to read,
      * so it is REFUSED rather than silently reinterpreted. */
     bool kernelSafe = false;
+    /** This stage MOVES the geometry. It matters beyond the obvious because an
+     * object is drawn by more than one bag and those bags are not all in the
+     * same material class: a baked lightmap pass carries the AO ATLAS, so it is
+     * a TEXTURED bag even on an untextured mesh. Displace one and not the other
+     * and the lightmap stays behind as a ghost of the undeformed shape - which
+     * is what it looked like on the console. */
+    bool movesGeometry = false;
     /** How many of `StageCtx::s[]` this stage touches. The scratch pool is
      * allocated to the largest any PLANNED stage needs, not to the largest any
      * stage could need - three spare registers is a real cost when the sine's
@@ -347,6 +354,13 @@ Stage makeStage(const std::string& key);
 /** True when the stage would emit nothing: disabled, unknown, or every
  * strength parameter is a literal zero. */
 bool stageIsNoOp(const Stage& s);
+
+/** True when any live stage of the list DISPLACES geometry. Worth asking about
+ * a whole list because of what it implies elsewhere: an object is drawn by
+ * several bags and they are not all in the same material class - a baked
+ * lightmap pass carries the AO atlas, so it is a TEXTURED bag even on an
+ * untextured mesh. Move one and not the other and the lightmap stays behind. */
+bool stagesMoveGeometry(const std::vector<Stage>& stages);
 
 // ---------------------------------------------------------------------------
 // Program descriptions

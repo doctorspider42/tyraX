@@ -774,6 +774,42 @@ void App::drawPropertiesWindow() {
                 ImGui::EndDisabled();
                 ImGui::PopID();
             }
+            // An object is drawn by several bags and they are NOT all in the
+            // same material class: a baked lightmap pass carries the AO atlas,
+            // so it is a TEXTURED bag even on an untextured mesh. Displace the
+            // main bag and not that one and the lightmap stays behind as a
+            // translucent ghost of the undeformed shape - which is exactly what
+            // it looked like on the console before anyone worked out why.
+            // A baked lightmap on a mesh that moves is wrong anyway: it was
+            // baked for a shape the mesh no longer has.
+            std::vector<vugen::Stage> probe;
+            for (const VuStage& st : mine->stages) {
+                vugen::Stage g = vugen::makeStage(st.kind);
+                g.enabled = st.enabled;
+                for (int i = 0; i < 4; ++i) {
+                    g.params[i].value = st.params[i];
+                    g.params[i].meshSlot = st.bind[i];
+                }
+                probe.push_back(g);
+            }
+            const unsigned texCls = 1u << 3;
+            bool texCovered = false;
+            for (const VuProgram& pr : project_.vu.programs)
+                if (pr.enabled && (pr.classes & texCls) && &pr == mine)
+                    texCovered = true;
+            if (o.bakedLighting && vugen::stagesMoveGeometry(probe) &&
+                !texCovered && cls != texCls) {
+                ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+                ImGui::TextWrapped(
+                    "This look MOVES the geometry, and this object has a baked "
+                    "lightmap. That pass carries the AO atlas, so it is a "
+                    "Textured bag - a different class, drawn by a different "
+                    "program - and it will stay behind as a ghost of the "
+                    "undeformed shape. Turn Baked lighting off here (a lightmap "
+                    "baked for a shape the mesh no longer has is wrong anyway), "
+                    "or give the look the Textured class too.");
+                ImGui::PopStyleColor();
+            }
             ImGui::TextDisabled(
                 "All zero = this mesh renders exactly as it would with no\n"
                 "custom program at all. Objects merged into one static batch\n"

@@ -5290,7 +5290,13 @@ static bool isVuGenerated(const std::string& rel) {
 }
 
 std::string refreshGenerated(const Project& p) {
-    for (const auto& f : templates::generate(p)) {
+    // ONCE. generate() is the whole codegen pass - every scene table, every
+    // microprogram, every bake-derived header - and it also PRINTS the
+    // diagnostics a build reports (a skipped procedural volume, a look that
+    // could not claim a class). Calling it twice doubled both the work and
+    // those lines, which is how this was noticed.
+    const std::vector<templates::File> generated = templates::generate(p);
+    for (const auto& f : generated) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
@@ -5438,7 +5444,7 @@ std::string refreshGenerated(const Project& p) {
     // memory from the ones that are.
     {
         std::set<std::string> wanted;
-        for (const auto& f : templates::generate(p))
+        for (const auto& f : generated)
             if (isVuGenerated(f.relativePath)) wanted.insert(f.relativePath);
         std::error_code ec;
         for (const char* dir : {"src\\gen", "inc"}) {
