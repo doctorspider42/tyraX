@@ -858,8 +858,17 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           // cleaned obj/ regenerate anyway.
                           "md5sum /src/vugen/* /src/src/vu/*.cpp "
                           "> /tmp/vu.stamp 2>/dev/null; "
+                          // The guard checks the OUTPUTS, not just the inputs
+                          // and not the manifest. The manifest is copied back
+                          // to the host, so it survives a project whose
+                          // generated sources do not - and then the stamp says
+                          // "reuse" over a src/gen that has nothing in it. That
+                          // is a build failing on a symbol the header never
+                          // declared, from a cache that was sure it was fine.
                           "if cmp -s /tmp/vu.stamp /src/obj/.vu-stamp && "
-                          "test -f /src/src/gen/vu_scripts.manifest; then "
+                          "test -s /src/src/gen/vu_scripts.gen.cpp && "
+                          "ls /src/src/gen/vu_script*.vclpp >/dev/null 2>&1; "
+                          "then "
                           "  echo '[editor] VU scripts unchanged - reusing the "
                           "generated microprograms.'; "
                           "else "
