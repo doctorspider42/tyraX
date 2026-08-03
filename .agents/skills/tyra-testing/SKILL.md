@@ -473,6 +473,61 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  **To WATCH the game over time, use `watch`** — the same one-session trick
+  applied to TIME. It samples the screen on an interval off the
+  already-negotiated stream and reports **one downscaled contact sheet** plus a
+  changed-pixel table, so a minute of gameplay costs about as much context as a
+  single screenshot instead of thirty:
+
+  ```bash
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py \
+      watch <scratchpad>/w --auto --aspect 4:3 --every 1 --for 20 --tile 224
+  ```
+
+  Measured on the endless-runner fixture (1920x984 screen, 1157x868 render
+  area): 9 tiles at 224 px = a 696x576 sheet, **~534 tokens** where the nine
+  full-resolution frames would be ~12 000, and the run costs ~1.2 s of wall
+  clock per frame on top of the interval. The full-resolution crops stay on disk
+  as `frameNN.png`, so the sheet is what you READ and a single interesting
+  index is what you open afterwards — that split is the whole point.
+
+  What the flags are for, and the traps:
+  - **`--auto` finds the render area by MOTION** (there is no per-window
+    capture, see above): it diffs four samples ~0.5 s apart and takes the widest
+    and tallest contiguous band of moving columns/rows, so PCSX2's FPS readout
+    loses to the picture. It reports only what MOVES — a parked camera under a
+    static sky yielded `415,425,1157,536`, the ground half of the frame — so
+    add **`--aspect 4:3`** to grow it back to the PS2 picture from its bottom
+    edge (`415,80,1157,868` against a true `415,93,1157,868`: 13 px of menu bar
+    in the tile, harmless). The rect is cached in `DIR/area.txt` and reused, so
+    detection is a once-per-session cost.
+  - **A still scene defeats motion detection**, and that failure had to be made
+    loud: on the day-night fixture 1.5 s of a slow lighting gradient moved
+    **500 pixels of 1.9 M**, and the winner was the `Speed: 64%` text — an 8x10
+    box. `--auto` now refuses anything under 2% of the screen or outside a
+    0.9-2.6 aspect and tells you to read the rect off one `shot` and pass
+    `--area X,Y,W,H` (which is also cached). `--trim` shaves black letterbox
+    borders off whatever rect you give.
+  - **`--only-changed PCT`** drops frames that changed less than PCT **since the
+    last KEPT frame** (they still appear in the table, marked `-`), which is how
+    a long watch stays cheap. Beware that the metric SATURATES on a repeating
+    scene, exactly like the axis-aligned-walk trap above: the scrolling
+    checkerboard terrain never exceeded 25% between frames however long the gap,
+    so `--only-changed 25` kept a single tile. Calibrate it against the
+    frame-to-frame numbers of a first run, don't guess.
+  - **`--idle-stop K`** ends the run after K consecutive frames under
+    `--idle-below` (0.05% by default) — "watch until it settles" without a
+    fixed count. Verified against a pure-black crop: three 0.000% frames and it
+    stopped.
+  - `--every S` / `--count N` or `--for S`, `--tile W` (tile width, the only
+    real knob on context cost), `--cols N`, `--sheet NAME`, `--no-frames`.
+    `wayland-control.py area` prints the detected rect and exits.
+
+  It composes with the Remote Pad: run `--pad` in the background and `watch` in
+  the foreground (or the reverse) and one sheet shows the whole drive — turn,
+  walk, release — with the diff column as the numeric evidence the input
+  arrived, which is the measured-not-eyeballed rule below applied to a sequence.
+
   **To DRIVE the editor, use `--ui-script`** (docs/ui-scripting.md) - the editor
   runs for real and holds its own mouse and keyboard, naming WIDGETS instead of
   pixels, with **no window focus needed on either OS**:
@@ -959,5 +1014,5 @@ test rather than a screenshot:
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
-| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; on Linux `watch` collapses the whole drive into one contact sheet |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
