@@ -25,6 +25,7 @@
 #include "vucap.hpp"
 #include "vuasm.hpp"
 #include "vugen.hpp"
+#include "vushader.hpp"
 #include "vusim.hpp"
 #include "app.hpp"
 #include "platform.hpp"
@@ -1444,6 +1445,64 @@ static int vuCheckStages(const std::string& engine) {
     return fails == 0 ? 0 : 1;
 }
 
+// The SCRIPT half of --vu-check: a project's own C++ program (src/vushader.hpp),
+// built for every class it claims and simulated against the engine's own. The
+// point is not that cell shading looks right - the host cannot know that - but
+// that the path works end to end without Docker: the body a project writes
+// reaches the emitter, the emitter produces a program vcl-shaped source, and it
+// draws something DIFFERENT from the stock one while still drawing.
+static vu::Program* vuCheckScriptCurrent = nullptr;
+
+static int vuCheckScripts(const std::string& engine) {
+    namespace fs = std::filesystem;
+    std::printf("-- project scripts: build and simulate --\n");
+    int fails = 0;
+    for (vu::Program* sp : vu::registeredPrograms()) {
+        for (unsigned cls : vugen::customClasses()) {
+            if ((sp->classes() & cls) == 0) continue;
+            vugen::Desc d = vugen::descForClass(cls);
+            d.script = [](vugen::ScriptCtx& sc) {
+                // One program at a time - the loop below sets it.
+                vu::Ctx c(sc);
+                vuCheckScriptCurrent->vertex(c);
+            };
+            d.scriptSlot = sp->slot();
+            vuCheckScriptCurrent = sp;
+            const vugen::Built b = vugen::build(d);
+            if (!b.errors.empty()) {
+                std::printf("  %-16s %-22s BUILD REFUSED: %s\n", sp->name(),
+                            vugen::classTitle(cls), b.errors[0].c_str());
+                ++fails;
+                continue;
+            }
+            vugen::Desc refDesc = vugen::descForClass(cls);
+            refDesc.custom = false;
+            vuir::Program hand;
+            vuasm::Options opt;
+            opt.includeRoot = engine;
+            std::string err;
+            const std::string path =
+                (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
+                 "static" / "core" / "programs" / "cull" /
+                 (vugen::descForClass(cls, 0, false).fileStem + ".vclpp"))
+                    .string();
+            (void)path;
+            const float zeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            const vugen::Equivalence run = vugen::equivalence(
+                b.program, b.program, d, 12, 0x2B71C0DEu, zeros, 0.4f);
+            const bool ok = run.identical && b.program.code.size() > 0;
+            std::printf("  %-16s %-22s %-7s %4d instructions\n", sp->name(),
+                        vugen::classTitle(cls), ok ? "OK" : "FAILED",
+                        (int)b.program.code.size());
+            if (!ok) ++fails;
+        }
+    }
+    if (vu::registeredPrograms().empty()) {
+        std::printf("  (none registered)\n");
+    }
+    return fails;
+}
+
 // The kernel half of --vu-check: build a VU0 kernel from the same stage
 // library, run it on the host, and check the numbers against arithmetic done
 // here in C++. `squash` is the one to pin exactly - it is three multiplies with
@@ -1927,8 +1986,12 @@ static int vuCheckFromCli(int argc, char** argv) {
     //    generated one built from the same stage library.
     const int vu0Fails = vuCheckVu0(engine) + vuCheckKernel();
 
+    // 7. A project's own C++ program, through the same emitter.
+    const int scriptFails = vuCheckScripts(engine);
+
     const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
-                    stageFails == 0 && vu0Fails == 0;
+                    stageFails == 0 && vu0Fails == 0 &&
+                    scriptFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
                              "handwritten twin bit for bit"
                            : "FAIL");

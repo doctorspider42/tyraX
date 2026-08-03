@@ -369,6 +369,36 @@ bool stagesMoveGeometry(const std::vector<Stage>& stages);
 /** One StaPip "as is" program - the family the EE clipper feeds, i.e. positions
  * that are ALREADY in NDC with the clip-space W kept for fog and for the texture
  * perspective divide. */
+/** Everything a project's own C++ script is handed. These are the SAME
+ * registers the built-in stages get - the position in whatever space the slot
+ * says, the mesh's colour, its ST, its four numbers and the clock - so a script
+ * is not a second-class citizen of the generator, it is the same citizen with
+ * the body written by someone else.
+ *
+ * The scratch registers are the caller's, and that is not a detail: VU1 has 32
+ * float registers, VCL allocates 31 of them, and a script that minted its own
+ * per value would push the allocation over a cliff that is INVISIBLE on the
+ * host - it shows up as `no opt table` from vcl, inside Docker, with no line
+ * number. (docs/vu-authoring.md, "The other ceiling".) */
+struct ScriptCtx {
+    Vu* b = nullptr;
+    Val position{};  // the vertex, in the space the script's slot names
+    Val color{};     // vertex colour, 0..255 per channel in the GS sense
+    Val st{};        // texture coordinates, only when hasSt
+    Val params{};    // the object's four numbers (SceneObjectData::vuParams)
+    Val time{};      // (seconds, sin, cos, 1.0) - already range-reduced
+    Val one{};       // 1.0 in every field
+    Val normal{};    // OBJECT-space normal, only on a class that carries one
+    Val scratch[8];  // as many as Desc::scriptScratch asked for
+    bool hasColor = false;
+    bool hasSt = false;
+    bool hasNormal = false;
+};
+
+/** The body of a project's script. One call per VERTEX, three times per
+ * triangle - the loop, the packet and the GIF tag are the framework's. */
+using ScriptFn = void (*)(ScriptCtx&);
+
 struct Desc {
     std::string vclName;      // #vuprog name, e.g. "StaPipVU1AsIsTC"
     std::string asmName;      // .name / linker symbol stem, "StaPipVU1As_Is_TC"
@@ -397,6 +427,17 @@ struct Desc {
      * makes the preamble load the per-mesh parameter and time quadwords, and
      * stops `--vu-check` looking for a handwritten twin. */
     bool custom = false;
+
+    /** A project's own C++ SCRIPT, woven in at the same points a stage is. The
+     * stage list above is the shortcut for the common cases; this is the way
+     * out of it - the script sees the same registers the catalogue does and
+     * can do anything the builder can. Null unless the project wrote one. */
+    ScriptFn script = nullptr;
+    Slot scriptSlot = Slot::Color;
+    /** Scratch registers the script asked for, on top of what the stages take.
+     * The caller owns them for the same reason a stage does not mint its own:
+     * VF pressure is invisible on the host. */
+    int scriptScratch = 4;
 };
 
 /** The program a look replaces on one material class, as a

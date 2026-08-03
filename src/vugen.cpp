@@ -1204,6 +1204,7 @@ struct StageCtx {
     Val kc{};        // (1/2pi, 0.5, 2^23, 0.225) - sineApprox's constants
     Val one{};       // 1.0 in every field
     Val lumaW{};     // (0.299, 0.587, 0.114, 0) - only built when needed
+    Val normal{};    // the lit classes' object-space normal, for a script
     Val s[6];        // stage scratch
     Val sinS[3];     // sineApprox scratch, never aliased with s[]
     const LitPool* lits = nullptr;
@@ -1474,6 +1475,27 @@ void bindOperands(StagePlan& plan, Val params) {
                              : params.broadcast(r.stage.params[i].meshSlot);
 }
 
+/** Hand the project's own script the registers the built-in stages get. The
+ * ScriptCtx is a NARROW copy on purpose: StageCtx carries the sine scratch and
+ * the literal pool, which are bookkeeping for the catalogue and would only be
+ * traps in a script. */
+void runScript(StageCtx& c, const Desc& d) {
+    ScriptCtx sc;
+    sc.b = c.b;
+    sc.position = c.vertex;
+    sc.color = c.color;
+    sc.st = c.st;
+    sc.params = c.params;
+    sc.time = c.timeV;
+    sc.one = c.one;
+    for (int i = 0; i < 8 && i < 6; ++i) sc.scratch[i] = c.s[i];
+    sc.normal = c.normal;
+    sc.hasColor = c.hasColor;
+    sc.hasSt = c.hasSt;
+    sc.hasNormal = c.normal.reg != 0;
+    d.script(sc);
+}
+
 void applyStages(StageCtx& c, const StagePlan& plan, Slot slot) {
     for (const Resolved& r : plan.stages)
         if (r.def->slot == slot) emitStage(c, r);
@@ -1487,7 +1509,16 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // A project's own stage list. Planned BEFORE anything is emitted, because
     // the preamble has to know which constant registers to build.
     StagePlan plan = planStages(d.stages, d);
-    const bool hasStages = !plan.stages.empty();
+    // A project's own C++ script rides the SAME preamble as the stage list: it
+    // reads the per-mesh quadword and the clock from the same registers, so
+    // asking for them here is what makes a script and a stage interchangeable
+    // from the emitter's point of view.
+    if (d.script) {
+        plan.needsParams = true;
+        plan.needsTime = true;
+        if (plan.scratch < d.scriptScratch) plan.scratch = d.scriptScratch;
+    }
+    const bool hasStages = !plan.stages.empty() || d.script != nullptr;
 
     // --- preamble: the per-mesh constants ---------------------------------
     if (d.cull) b.resetClipFlags();
@@ -1971,6 +2002,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             // the colour is still the mesh's own.
             applyStages(sc, plan, Slot::ObjectSpace);
         }
+        if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
         if (spot)
             b.spotLight(color[i], vertex[i], spotPos, spotDirV, spotColV,
                         spotScratch);
@@ -1979,6 +2011,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // coefficient and the frustum test on purpose - a stage that moves a
         // vertex in depth must move its fog and its clip verdict with it.
         if (hasStages) applyStages(sc, plan, Slot::ClipSpace);
+        if (d.script && d.scriptSlot == Slot::ClipSpace) runScript(sc, d);
         b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
         b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
                        adcMask, adcBit);
@@ -1987,6 +2020,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // position an integer. Nothing here may write Q: the texture
         // correction below is still holding persCorrect's.
         if (hasStages) applyStages(sc, plan, Slot::Ndc);
+        if (d.script && d.scriptSlot == Slot::Ndc) runScript(sc, d);
         b.scaleToGsFormat(vertex[i], scale);
         if (d.texture) {
             // No div of its own: persCorrect above already put 1/w in Q, and
@@ -1994,12 +2028,21 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             b.mulQInto(outStq[i], st[i], MALL);
             prog.code.back().comment = "PerformTexturePerspectiveCorrection";
         }
-        if (!colorStream)
+        if (!colorStream) {
+            // dirLightShade OVERWRITES the normal with its WORLD-space self, so
+            // a script reading it at the colour slot gets the world normal -
+            // which is the one a rim term wants anyway.
             b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
                             lightColors, ambient);
+            sc.normal = normal[i];
+        }
         // Colour, before FixColor clamps it - so a stage may overshoot and the
         // clamp catches it, exactly like the lighting above.
         if (hasStages) applyStages(sc, plan, Slot::Color);
+        // The script runs LAST of everything at its slot: the stage list is a
+        // shortcut layered on the framework, the script IS the framework, and
+        // an author who writes both means "and then this".
+        if (d.script && d.scriptSlot == Slot::Color) runScript(sc, d);
         b.fixColor(color[i]);
     }
 
@@ -2013,9 +2056,14 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             b.mulQInto(outStq[i], st[i], MALL);
             prog.code.back().comment = "PerformTexturePerspectiveCorrection";
         }
-        if (!colorStream)
+        if (!colorStream) {
+            // dirLightShade OVERWRITES the normal with its WORLD-space self, so
+            // a script reading it at the colour slot gets the world normal -
+            // which is the one a rim term wants anyway.
             b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
                             lightColors, ambient);
+            sc.normal = normal[i];
+        }
         b.fixColor(color[i]);
     }
 
