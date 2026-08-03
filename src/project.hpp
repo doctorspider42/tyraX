@@ -2526,6 +2526,12 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 // Fold the editable ranges onto a cycle / one of its keys. Called by the
 // .tyra reader (a hand-edited file is not to be trusted) and by the Ambience
 // Editor after every edit, so both agree on what is representable.
+// A user-owned script left in a stale C++ namespace by a project rename cannot
+// possibly compile, and the PS2 toolchain's error for it says nothing useful.
+// Empty when everything lines up; otherwise a one-line explanation naming the
+// file and both namespaces. A build calls this BEFORE contacting Docker.
+std::string checkScriptNamespaces(const Project& p);
+
 void clampDayKey(DayKey& k);
 void clampDayCycle(DayCycle& c);
 

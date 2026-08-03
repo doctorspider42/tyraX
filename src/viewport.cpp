@@ -3551,8 +3551,34 @@ void Viewport::orbit(float dx, float dy) {
     }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
-    if (pitch_ < 0.05f) pitch_ = 0.05f;
-    if (pitch_ > 1.5f) pitch_ = 1.5f;
+    // Symmetric, so the camera can drop BELOW its pivot and look UP - at the
+    // sky, at the underside of a bridge, at a ceiling. The old floor of +0.05
+    // rad kept the eye permanently above the target, which made the sky (and
+    // with it the sun, the moon and the whole night sky) unreachable in the
+    // editor while the game could look wherever it liked.
+    //
+    // The +/-1.5 rad (85.9 deg) bound is NOT cosmetic: camView's up vector is
+    // world +Y, so at exactly +/-90 deg the view axis and the up vector align,
+    // the basis degenerates and yaw stops meaning anything. Keep the gap.
+    if (pitch_ < -kOrbitPitchLimit) pitch_ = -kOrbitPitchLimit;
+    if (pitch_ > kOrbitPitchLimit) pitch_ = kOrbitPitchLimit;
+
+    // Tilting up is not enough on its own. The pivot normally sits ON the
+    // ground, so a negative pitch puts the EYE under it - and instead of the sky
+    // you get the underside of the terrain, with the ground above the horizon.
+    // Measured at -23 degrees from the default framing: unmistakably
+    // underground.
+    //
+    // So the orbit CLIMBS: the pivot rises just enough to keep the eye clear of
+    // the floor, which is what "standing up to look at the sky" does. It only
+    // ever raises, and only while looking up - a downward tilt computes a
+    // negative bound and changes nothing, so the ordinary orbit is untouched.
+    // The raised pivot stays after the drag on purpose: the view you left is
+    // the view you get back.
+    const float floorY = terrainHeight(target_[0], target_[2]);
+    const float clearance = distance_ * 0.02f + 1.0f;
+    const float minTargetY = floorY + clearance - distance_ * std::sin(pitch_);
+    if (target_[1] < minTargetY) target_[1] = minTargetY;
 }
 
 void Viewport::zoom(float wheel) {

@@ -5384,6 +5384,50 @@ std::string liveLinkSigFile(const Project& p) {
     return out.str();
 }
 
+// User-owned scripts live in the project's C++ namespace, which is derived from
+// the project NAME - and renaming a project deliberately does not rewrite
+// user-owned files. So a rename (or copying a project directory and renaming it,
+// which is how people start from an example) silently leaves every script
+// registering into a namespace that no longer exists.
+//
+// The PS2 toolchain's answer to that is forty lines of template noise about
+// `no known conversion from 'Old::Thing*' to 'New::Script* const&'`, which says
+// nothing about what actually happened. This says it in one line, before Docker
+// is even contacted. TYRA_SCRIPT's argument is the check: the macro registers
+// into <ns>::getScripts(), so a script whose class is qualified with anything
+// else cannot compile, and there is no legitimate reason to write it that way.
+std::string checkScriptNamespaces(const Project& p) {
+    const fs::path dir = fs::path(p.dir) / "src" / "scripts";
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) return {};
+    const std::string want = templates::projectNamespace(p);
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        if (ec) break;
+        if (!e.is_regular_file() || e.path().extension() != ".cpp") continue;
+        std::ifstream in(e.path());
+        std::string line;
+        while (std::getline(in, line)) {
+            const size_t at = line.find("TYRA_SCRIPT(");
+            if (at == std::string::npos) continue;
+            const size_t open = at + 12;
+            const size_t sep = line.find("::", open);
+            if (sep == std::string::npos) continue;  // unqualified: nothing to check
+            std::string ns = line.substr(open, sep - open);
+            while (!ns.empty() && (ns.front() == ' ' || ns.front() == '\t')) ns.erase(0, 1);
+            while (!ns.empty() && (ns.back() == ' ' || ns.back() == '\t')) ns.pop_back();
+            if (ns.empty() || ns == want) continue;
+            return "Script " + e.path().filename().string() + " is in namespace \"" +
+                   ns + "\" but this project's namespace is \"" + want +
+                   "\" (it follows the project name). Renaming a project does not "
+                   "rewrite user-owned scripts - edit src/scripts/" +
+                   e.path().filename().string() + " and replace \"" + ns +
+                   "\" with \"" + want + "\" (both the namespace block and the "
+                   "TYRA_SCRIPT line), or delete the script if you do not need it.";
+        }
+    }
+    return {};
+}
+
 std::string refreshGenerated(const Project& p) {
     for (const auto& f : templates::generate(p)) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);

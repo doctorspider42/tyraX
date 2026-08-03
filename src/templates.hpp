@@ -112,6 +112,11 @@ const DayCycle* projectMoonCycle(const Project& p);
 // from. Null when no scene has stars on.
 const DayCycle* projectStarCycle(const Project& p);
 
+// The C++ namespace the generated sources and every user script live in,
+// derived from the project name. Exposed so a build can check a user-owned
+// script against it (renaming a project does not rewrite user-owned files).
+std::string projectNamespace(const Project& p);
+
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);

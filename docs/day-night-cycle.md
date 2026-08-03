@@ -49,6 +49,24 @@ correct, not a bug - `lightDir` is part of the bake's cache signature
 (`gibake.cpp`), so each authored hour caches separately and re-baking is what
 gives you that hour's bounce light.
 
+### Looking up in the editor
+
+The viewport is an orbit camera and its pivot normally sits on the ground, so
+until recently the pitch was clamped to keep the eye *above* the pivot - the sky,
+and with it the sun, the moon and the whole night sky, was simply unreachable
+while the game could look wherever it liked.
+
+Dragging up now tilts past the horizon, and the orbit **climbs** as it does: the
+pivot rises just enough to keep the eye clear of the floor. Without that, a
+negative pitch puts the camera *under* the terrain and you get its underside with
+the ground above the horizon (measured at -23 degrees from the default framing:
+unmistakably underground) rather than the sky. The lift only ever raises, and
+only while looking up, so an ordinary downward orbit is untouched.
+
+The bound is +/-85.9 degrees rather than 90: `camView`'s up vector is world +Y,
+so at exactly 90 it aligns with the view axis, the basis degenerates and yaw
+stops meaning anything.
+
 ### The preview previews a PRESET, not the scene
 
 The viewport shows whichever preset is selected in the Ambience Editor while the

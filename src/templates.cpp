@@ -21328,6 +21328,11 @@ inline int everyFrames(float seconds) {
     return out.str();
 }
 
+// The C++ namespace every generated file and every user script lives in. Public
+// because a build has to be able to CHECK a user-owned script against it - see
+// project::refreshGenerated.
+std::string projectNamespace(const Project& p) { return sanitizeNamespace(p.name); }
+
 static std::string sanitizeNamespace(const std::string& name) {
     // Project name -> valid C++ namespace: letters/digits/underscore, no leading digit
     std::string ns;

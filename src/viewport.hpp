@@ -645,6 +645,11 @@ private:
     ViewMode viewMode_ = ViewMode::Solid;
 
     // camera (orbit around a movable target, initially the terrain center)
+    // How far the orbit camera may tip, in radians, above AND below its pivot
+    // (85.9 deg). The limit exists because camView's up vector is world +Y: at
+    // exactly +/-90 deg it aligns with the view axis, the basis degenerates and
+    // yaw stops meaning anything.
+    static constexpr float kOrbitPitchLimit = 1.5f;
     float yaw_ = 0.8f;
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
