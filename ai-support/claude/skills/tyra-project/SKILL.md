@@ -36,6 +36,8 @@ build. Two kinds of files coexist here:
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
+| `iop/user_jobs.c` | Your own C running on the **IOP** (the R3000A that is a PS1 CPU in a fat PS2) when the project's *IOP compute* preference is on - integer only (no FPU), no libc, one function plus a line in the table at the bottom. Called from a script (`txiop::call` / `txiop::submit` + `txiop::poll`) or the **Run IOP Job** flow node, and ALWAYS behind `txiop::available()` | Only after deleting the ownership marker line |
+| `iop/txiop.c`, `iop/txiop.h`, `iop/imports.lst` | The IOP module around your jobs: RPC server, wire protocol, kernel imports | No - regenerated |
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
 | `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |

@@ -11464,6 +11464,30 @@ void App::drawPreferencesModal() {
         "an unattended input test possible. Works on real hardware over\n"
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
+    // NOT wrapped in BeginDisabled(profile == 0) like its neighbours above: the
+    // devkit layers are debug-only, and this is a GAME feature that ships.
+    ImGui::Checkbox("IOP compute", &prefSettings_.iopCompute);
+    prefHelp(
+        "Builds this project its own IOP module and lets game code hand\n"
+        "integer work to the IOP - the R3000A that sits in every PS2 so it can\n"
+        "be a PS1, and that Sony's documentation reserves for I/O. Your code\n"
+        "goes in iop/user_jobs.c; the EE calls it from a script\n"
+        "(txiop::submit / txiop::poll) or from the Run IOP Job flow node.\n"
+        "\n"
+        "Always gated: txiop::available() is false unless the module loaded,\n"
+        "its RPC answered AND the IOP returned the right answer to a\n"
+        "calibration sum, so a graph or script written against it simply takes\n"
+        "the EE path on hardware that cannot help. There is deliberately no\n"
+        "\"is this a fat PS2\" check - console identity cannot be read honestly\n"
+        "(the BIOS version tells you nothing under an emulator), so the gate is\n"
+        "a measurement instead. The Debug window reports what was found.\n"
+        "\n"
+        "The IOP is slow (measured several times slower than the EE at the same\n"
+        "integer loop) and it is not idle - it runs the pad, the audio and the\n"
+        "dev filesystem. This pays off for chunky integer work whose ANSWER can\n"
+        "wait a few frames, not for anything per-object per-frame, and never\n"
+        "for floating point: the IOP has no FPU. Unlike the devkit options\n"
+        "above this ships in release builds. See docs/iop-compute.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();

@@ -1148,6 +1148,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"remotePad\": " << (p.settings.remotePad ? "true" : "false")
          << ",\n"
+         << "    \"iopCompute\": " << (p.settings.iopCompute ? "true" : "false")
+         << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -3413,6 +3415,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("timeMachine"))
             st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("remotePad")) st.remotePad = v->boolOr(true);
+        if (const auto* v = s->find("iopCompute"))
+            st.iopCompute = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -5250,12 +5254,27 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\menu_data.gen.hpp" ||
             f.relativePath == "inc\\icon_data.gen.hpp" ||
             f.relativePath == "inc\\input_map.gen.hpp" ||
-            f.relativePath == "src\\gen\\input_map.gen.cpp") {
+            f.relativePath == "src\\gen\\input_map.gen.cpp" ||
+            // IOP co-processor compute (docs/iop-compute.md). The EE pair is
+            // always emitted (the header is the on/off seam, and src/main.cpp
+            // includes it unconditionally - so a project scaffolded before this
+            // feature existed regenerates that include and MUST get the header
+            // with it, the same trap the scroller pair above documents). The
+            // iop/ sources only appear while the preference is on; iop/
+            // user_jobs.c is deliberately absent from this list - it is the
+            // user's own code and lives in the ownable group below.
+            f.relativePath == "inc\\txiop.gen.hpp" ||
+            f.relativePath == "src\\gen\\txiop.gen.cpp" ||
+            f.relativePath == "iop\\txiop.h" ||
+            f.relativePath == "iop\\txiop.c" ||
+            f.relativePath == "iop\\imports.lst" ||
+            f.relativePath == "src\\gen\\txiop.irx-em") {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
                    f.relativePath == "inc\\controls.hpp" ||
                    f.relativePath == "inc\\scripts\\script.hpp" ||
+                   f.relativePath == "iop\\user_jobs.c" ||
                    f.relativePath == "inc\\scripts\\flow_nodes.hpp") {
             // Regenerate while the ownership marker is present, or when the
             // file is byte-identical to an old template (never user-edited).
@@ -5289,6 +5308,17 @@ std::string refreshGenerated(const Project& p) {
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
         }
+    }
+
+    // IOP compute turned OFF: remove the embed stub. It is the one generated
+    // file whose mere EXISTENCE does something - Makefile.base finds every
+    // src/**/*.irx-em and runs bin2s on it - so leaving a stale one behind
+    // would keep building (and embedding) an IRX for a project that no longer
+    // wants one. iop/ itself is left in place on purpose: user_jobs.c is the
+    // author's code and turning the preference off must not delete it.
+    if (!p.settings.iopCompute) {
+        std::error_code ec;
+        fs::remove(fs::path(p.dir) / "src" / "gen" / "txiop.irx-em", ec);
     }
 
     // Migration: res/.gitignore is written at project creation only (the user

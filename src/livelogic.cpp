@@ -503,7 +503,8 @@ bool compile(const Project& p, int sceneIndex, size_t ownerIndex, Program& out) 
                     // here, or every index after it shifts and a patched graph
                     // writes the wrong variable.
                     if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                        n.type == "GetVarIntText" || n.type == "GetVarInt")
+                        n.type == "GetVarIntText" || n.type == "GetVarInt" ||
+                        n.type == "IopRunJob")
                         collect(c.intVars, n.str);
                     else if (n.type == "SetVarBool" || n.type == "GetVarBool")
                         collect(c.boolVars, n.str);
