@@ -178,6 +178,11 @@ enum class ProcParamKind {
     ObjectName,  // scene object name (empty = the terrain / the volume)
     Attr,        // per-point attribute name (see procattr)
     Text,
+    // A terrain material: -1 = the terrain's base material, 0..N-1 = a painted
+    // layer (docs/terrain-painting.md). Stored as that index, picked by NAME -
+    // an index typed into a box is unreadable the moment a scene has more than
+    // one layer, and reordering the stack would silently retarget it anyway.
+    TerrainLayer,
 };
 
 struct ProcParamDef {
