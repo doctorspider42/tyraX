@@ -1,7 +1,7 @@
 # Loading screens
 
 A **loading screen** is what the game shows while a scene loads — at boot (the
-first scene) and on every *Switch Scene*. The editor lets you define several
+[start scene](#the-start-scene)) and on every *Switch Scene*. The editor lets you define several
 named loading screens, each with a background color, image and text elements,
 and **progress bars**, then assign one per scene or set a project default.
 
@@ -57,7 +57,7 @@ many assets to see it climb.)
 
 The very first scene is covered too. Boot order is: the engine's **Tyra logo**
 (held ~2 seconds) → any **boot splash screens** (below) → the loading screen
-while scene 0 loads → the scene. The first load is deferred into the game loop
+while the **start scene** loads → the scene. The first load is deferred into the game loop
 on purpose — a frame presented from `init()`, before the main loop, isn't
 vsync-paced and would flash by, so the boot loading screen would be invisible.
 (The ~2s logo hold lives in the engine's `banner.show()`, which re-renders the
@@ -83,13 +83,36 @@ They compile to a `SPLASHES[]` table in `inc/loading_data.gen.hpp` and, like the
 Tyra logo hold and the loading screen, are rendered from the game loop so each
 is shown for its full (vsync-paced) duration.
 
+## The start scene
+
+Which scene the game boots into is a project setting: **Scene > Preferences >
+Startup > "Boot into this scene"**, ticked on the scene you want. New projects
+boot the first scene, so nothing changes until you move it, and the *Project*
+panel marks whichever scene it is with **(start)** next to its name.
+
+The tick can only be *moved*, never cleared — some scene always has to be the
+one the game starts in, so the checkbox is disabled on the scene that already
+holds it and you set a different scene instead. Scene Preferences always edits
+the **active** scene, so switch to the scene first.
+
+It reaches the game as `START_SCENE` in `inc/scene_data.hpp`, which is the only
+argument the boot `loadScene()` takes — so a wrong value cannot desynchronize
+anything, and everything else about a scene (its ambience, its cycle, its
+loading screen) is unaffected by *being* the start scene.
+
+Two things follow it automatically: deleting a scene shifts the index so it
+still points at the same scene (deleting the start scene itself falls back to
+the first one), and a value that somehow ends up out of range — a hand-edited
+`.tyra`, a collaboration peer with a different scene list — is folded back to
+the first scene on load rather than booting the game into nothing.
+
 ## Assigning a screen
 
 - **Per scene** — *Scene > Preferences > Loading screen*. Pick a screen by name,
   or leave it on `<default>` to inherit the project default.
 - **Project default** — mark a screen "Default at game start" in the Loading
-  Screens editor. Scenes that don't name their own use it (including scene 0 at
-  boot).
+  Screens editor. Scenes that don't name their own use it (including the start
+  scene at boot).
 - **Built-in fallback** — with no screens defined (or a scene set to the default
   when there is no default), the game shows the classic centered
   `res/hud/loading.png` on black, exactly as before this feature existed. The

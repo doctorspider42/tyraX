@@ -2384,6 +2384,7 @@ private:
     SceneOverrides scenePrefOverrides_;
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
+    bool scenePrefStart_ = false;    // staged "this is Project::startScene"
 
     std::string statusMessage_;
 

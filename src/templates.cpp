@@ -5351,7 +5351,7 @@ void TerrainGame::buildScene() {
 // sequence so the load runs at vsync pace (a visible loading-screen progress
 // bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(0);
+  loadScene(START_SCENE);
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -19482,7 +19482,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // SCENE_OBJECT_TABLES[g_activeScene] (see the accessor macros in the
     // generated game cpp).
     const int sceneCount = (int)p.scenes.size();
-    out << "constexpr int SCENE_COUNT = " << sceneCount << ";\n\n";
+    out << "constexpr int SCENE_COUNT = " << sceneCount << ";\n";
+    // The scene the game boots into (Scene > Preferences). Clamped here as well
+    // as on load - codegen must never emit an index the runtime would walk off.
+    out << "constexpr int START_SCENE = "
+        << (p.startScene >= 0 && p.startScene < sceneCount ? p.startScene : 0)
+        << ";\n\n";
 
     // Endless scrollers (type 19): bake the belt. For every Scroller object we
     // append CLONE objects to its scene's table - enough copies of each

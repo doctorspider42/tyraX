@@ -2669,7 +2669,7 @@ void TerrainGame::buildScene() {
 // sequence so the load runs at vsync pace (a visible loading-screen progress
 // bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(0);
+  loadScene(START_SCENE);
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();

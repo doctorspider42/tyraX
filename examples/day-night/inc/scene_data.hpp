@@ -193,6 +193,7 @@ inline bool areaHoldsObject(const AreaBasis& b,
 }
 
 constexpr int SCENE_COUNT = 5;
+constexpr int START_SCENE = 0;
 
 // scene "dawn"
 constexpr SceneObjectData SCENE_0_OBJECTS[12] = {

@@ -1364,6 +1364,9 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         json << " }";
     }
     json << "\n  ]";
+    // Which of them the game boots into. Omitted at 0, so no existing .tyra
+    // changes shape until someone actually moves it.
+    if (p.startScene > 0) json << ",\n  \"startScene\": " << p.startScene;
 }
 
 // Fonts ride in the Hud section (HUD text + menus reference them), so they
@@ -2639,6 +2642,10 @@ bool applyScenesLayout(Project& p, const std::string& body) {
         return false;
     const auto* scenes = root.find("scenes");
     if (!scenes || scenes->type != json::Value::Type::Array) return false;
+    // The start scene indexes the list this message carries, so it travels with
+    // it. Absent means 0 - a peer on an older build simply boots the first.
+    p.startScene = 0;
+    if (const auto* v = root.find("startScene")) p.startScene = (int)v->numberOr(0.0);
 
     // Pool every current object by id, so a reorder / cross-scene move keeps
     // the object's live body (only membership + order come from the layout).
@@ -2713,6 +2720,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
     if (next.empty()) next.push_back(SceneData{});
     p.scenes = std::move(next);
     if (p.activeScene < 0 || p.activeScene >= (int)p.scenes.size()) p.activeScene = 0;
+    clampStartScene(p);
     ensureHeightmap(p);
     return true;
 }
@@ -4759,6 +4767,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
     // name strings plus a project-level "objects" array (single scene).
+    if (const auto* v = root.find("startScene")) out.startScene = (int)v->numberOr(0.0);
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
         if (scenes->arr[0].type == json::Value::Type::Object) {
@@ -4818,6 +4827,7 @@ std::string load(Project& out, const std::string& projectDir) {
     // project (loadHistory compares against out.scenes). Pre-id projects get
     // theirs here; they are written back on the next save.
     ensureObjectIds(out);
+    clampStartScene(out);
 
     readHudSection(root, out);
 
@@ -5426,6 +5436,14 @@ std::string checkScriptNamespaces(const Project& p) {
         }
     }
     return {};
+}
+
+void clampStartScene(Project& p) {
+    // A hand-edited .tyra, a deleted scene or a peer on a different scene list
+    // can all leave this pointing past the end - and it indexes the array the
+    // GAME boots from, so an out-of-range value is a crash on the console rather
+    // than a wrong-looking editor.
+    if (p.startScene < 0 || p.startScene >= (int)p.scenes.size()) p.startScene = 0;
 }
 
 std::string refreshGenerated(const Project& p) {

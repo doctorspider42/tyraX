@@ -2262,6 +2262,17 @@ struct Project {
     // presets at runtime (the switch persists across scene changes).
     std::vector<ColorGradingPreset> gradings;
     int defaultGrading = -1;
+    // The scene the GAME boots into (index into `scenes`). Until this existed
+    // the runtime hardcoded scene 0 and the editor merely LABELLED it "(start)",
+    // so the only way to change it was to reorder the list - and scene indices
+    // are baked into every generated table, so reordering is the one thing that
+    // must not be casual. An index costs nothing and shifts nothing.
+    //
+    // Travels in the scene TABLE rather than a Section, because it is
+    // structural scene data: that is what puts it on the collaboration wire
+    // alongside the scene list it indexes.
+    int startScene = 0;
+
     // Ambience presets (Tools > Ambience Editor): project-wide sky/lighting/fog
     // "mood" bundles. defaultAmbience is the preset a scene uses when it names
     // none (-1 = fall back to the raw project/scene settings). A scene picks
@@ -2531,6 +2542,11 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
 // Empty when everything lines up; otherwise a one-line explanation naming the
 // file and both namespaces. A build calls this BEFORE contacting Docker.
 std::string checkScriptNamespaces(const Project& p);
+
+// Folds Project::startScene back into range. Called after a load and after a
+// collaboration scene-layout apply - it indexes the array the GAME boots from,
+// so out of range is a console crash, not a cosmetic problem.
+void clampStartScene(Project& p);
 
 void clampDayKey(DayKey& k);
 void clampDayCycle(DayCycle& c);

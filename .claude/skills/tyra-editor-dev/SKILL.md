@@ -202,6 +202,22 @@ at their default) → properties UI in app.cpp (+ `commitChange()`) →
 `terrain_game.cpp` template (`TPL_*` strings in templates.cpp) → viewport
 rendering if it's visual.
 
+**A project-wide field that INDEXES THE SCENE LIST** (`Project::startScene` is
+the worked example) has four sites beyond the usual chain, all of them about the
+index going stale rather than about the value itself. (1) It travels in
+`writeScenesTable`/`applyScenesLayout`, NOT a `Section` — the collaboration wire
+sends the scene layout as one message, and an index that arrives without the
+list it indexes is meaningless. (2) It needs a clamp helper called from BOTH
+`project::load` and `applyScenesLayout` (`clampStartScene`), because a
+hand-edited `.tyra` and a peer with a different scene list are the same bug. (3)
+`scenes.erase` in app.cpp must shift it (`> deleted` decrements, `== deleted`
+falls back), the way `activeScene` is already fixed up — scene indices are baked
+into every generated table, so scenes are never REORDERED and delete is the only
+motion to handle. (4) Codegen clamps again on the way out, because
+`inc/scene_data.hpp` is read by C++ that will walk off the array rather than
+show a wrong number. Omit it from the JSON at its default so existing projects
+don't change shape.
+
 **An asset path the GAME will open must be `lexically_normal()`.** The PS2
 cannot walk `..`, and a Wavefront reference is resolved relative to the file
 that named it — so joining a `.mtl`'s folder with its `map_Kd` yields

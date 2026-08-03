@@ -4043,7 +4043,8 @@ void App::drawProjectWindow() {
         for (int i = 0; i < (int)project_.scenes.size(); ++i) {
             ImGui::PushID(i + 3000);
             const std::string label =
-                project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
+                project_.scenes[i].name +
+                (i == project_.startScene ? "  (start)" : "") + "##scene";
             if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
                                   ImGuiSelectableFlags_AllowOverlap) &&
                 project_.activeScene != i) {
@@ -10403,9 +10404,9 @@ void App::drawDeleteSceneModal() {
                         "go with it. Undo (Ctrl+Z) can bring the scene back,\n"
                         "but not its heightmap.",
                         (int)sc.objects.size());
-    if (deleteScenePending_ == 0)
+    if (deleteScenePending_ == project_.startScene)
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "This is the start scene - the next one takes its place.");
+                           "This is the start scene - the first one takes its place.");
 
     ImGui::Separator();
     if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
@@ -10413,6 +10414,14 @@ void App::drawDeleteSceneModal() {
         if (project_.activeScene >= (int)project_.scenes.size() ||
             project_.activeScene == deleteScenePending_)
             project_.activeScene = 0;
+        // Deleting shifts every later index down by one, so the start scene
+        // follows its scene rather than staying on a number. Deleting the start
+        // scene itself falls back to the first one.
+        if (project_.startScene == deleteScenePending_)
+            project_.startScene = 0;
+        else if (project_.startScene > deleteScenePending_)
+            --project_.startScene;
+        project::clampStartScene(project_);
         clearSelection();
         flowGraphObject_ = -1;
         flowPositionsApplied_ = false;
@@ -12897,6 +12906,7 @@ void App::openScenePreferences() {
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
+    scenePrefStart_ = project_.startScene == project_.activeScene;
     openScenePrefsPopup_ = true;
 }
 
@@ -12908,10 +12918,17 @@ void App::drawScenePreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // Every category is drawn whether it is overridden or not, so the content is
+    // ~1000 px tall: with AlwaysAutoResize the modal grew past the bottom of a
+    // 900 px screen and OK/Cancel could not be reached at all. An explicit
+    // height capped to the viewport keeps the footer on screen and lets the
+    // categories scroll (the window is still user-resizable from its corner).
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(1040), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
+    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr, 0))
         return;
     if (scenePrefScene_ < 0 || scenePrefScene_ >= (int)project_.scenes.size()) {
         ImGui::CloseCurrentPopup();
@@ -12925,6 +12942,10 @@ void App::drawScenePreferencesModal() {
     prefHelp(
         "Each category inherits Project > Preferences until you tick\n"
         "\"Override project settings\" for it.");
+    // -reserve for the footer (separator + button row) below.
+    ImGui::BeginChild("##sceneprefs_scroll",
+                      ImVec2(0, -(ImGui::GetFrameHeightWithSpacing() +
+                                  ImGui::GetStyle().ItemSpacing.y * 2.0f)));
 
     // One category: a header, an override toggle, then its widgets disabled
     // (grayed, previewing the inherited value) until the toggle is on.
@@ -12937,6 +12958,34 @@ void App::drawScenePreferencesModal() {
         ImGui::EndDisabled();
         ImGui::PopID();
     };
+
+    // Which scene the game boots into. Project-wide (Project::startScene), but
+    // it reads as a property OF a scene, so it is authored from here rather
+    // than from Project > Preferences.
+    ImGui::SeparatorText("Startup");
+    {
+        const bool isStart = project_.startScene == scenePrefScene_;
+        const char* startName =
+            project_.startScene >= 0 &&
+                    project_.startScene < (int)project_.scenes.size()
+                ? project_.scenes[project_.startScene].name.c_str()
+                : "?";
+        // Something must always be the start scene, so the tick can only be
+        // MOVED here, never cleared - untickable once it is this scene.
+        ImGui::BeginDisabled(isStart);
+        ImGui::Checkbox("Boot into this scene", &scenePrefStart_);
+        ImGui::EndDisabled();
+        const std::string tip =
+            isStart ? std::string(
+                          "The game boots into this scene. Some scene always "
+                          "has to, so the tick can only be MOVED: open another "
+                          "scene's preferences and tick it there.")
+                    : std::string("The game currently boots into \"") +
+                          startName +
+                          "\". Ticking this moves the start here on OK - the "
+                          "Project panel marks it (start).";
+        prefHelp(tip.c_str());
+    }
 
     // Ambience (sky + lighting + fog) comes from a preset, not per-scene
     // overrides. Empty = the project default preset.
@@ -13035,6 +13084,7 @@ void App::drawScenePreferencesModal() {
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
+    ImGui::EndChild();
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
         SceneData& sc = project_.scenes[scenePrefScene_];
@@ -13042,6 +13092,7 @@ void App::drawScenePreferencesModal() {
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
         sc.loadingScreen = scenePrefLoading_;
+        if (scenePrefStart_) project_.startScene = scenePrefScene_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();
