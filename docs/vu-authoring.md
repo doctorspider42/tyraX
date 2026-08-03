@@ -92,6 +92,27 @@ because a class is two programs, and the second is labelled `(frustum-cut half)`
 A script with `activeAtBoot() false` is listed but not counted, marked
 `[off at boot]`.
 
+### What actually competes for micro memory
+
+The budget bar is easy to read as "everything the console does on a VU". It is
+not - it is one thing: **the static pipeline's resident program set**. Worth
+knowing what is NOT in it, because the answer to "can I turn X off to free
+slots?" is usually no:
+
+| | Runs on | Costs micro memory? |
+|---|---|---|
+| Static geometry (StaPip) | VU1, one program per class + its twin | **Yes - this is the bar** |
+| Skeletal animation: pose | the EE | No |
+| Skeletal animation: skinning | VU0 in **macro mode** (COP2 instructions issued by the EE) | **No** - macro mode has no microprogram to upload |
+| Animated models, drawing | VU1, the dynamic pipeline's four programs | No - uploaded when that pipeline is used, over the same addresses, so it SWAPS with the static set rather than sharing it |
+| Particle billboards | VU1, their own small set | No - swapped in on demand (`ensureProgramSet`) |
+| A project's VU0 kernel | VU0 in **micro** mode | Yes, but against VU0's own 512 slots |
+
+So a scene with no animation frees EE time and VU0 cycles, not slots: there is
+nothing resident to drop. The two levers that do move the bar are the resident
+**classes** (the checkboxes above it, `setResidentClasses`) and how big your own
+programs are.
+
 ### Where it shows up in the editor
 
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
