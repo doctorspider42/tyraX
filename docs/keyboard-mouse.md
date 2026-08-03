@@ -149,6 +149,47 @@ either:
 grep -oE "libq(xcb|wayland)[a-z-]*\.so" /proc/$(pgrep -x pcsx2-qt)/maps | sort -u
 ```
 
+### In a VM: turn the guest's mouse integration OFF
+
+Same root cause from the other side, and this one the editor can only warn
+about. A virtual machine's guest-integration pointer — VMware's `VMMouse`,
+VirtualBox's *mouse integration*, a QEMU/SPICE tablet — is **absolute**: it is
+what lets the cursor cross between host and guest without grabbing, and it
+re-asserts the physical position the instant anything moves the pointer.
+
+PCSX2 recognises its own warp by the motion event arriving **from the window
+centre**. With an absolute pointer the echo does not arrive from the centre, so
+PCSX2 reads its own warp as movement and warps again — a feedback loop. Measured
+on a VMware guest, with the game logging every packet it received:
+
+- **42%** of the packets carried an exact multiple of **127** — the HID boot
+  protocol's `int8` limit, i.e. saturated packets, several per frame
+- **46%** carried **254+ counts in a single frame**; the worst frame carried
+  **762** (a synthetic 10-count nudge, for comparison, arrives as exactly `10`)
+- consecutive deltas alternated **−381/+381, −254/+254** — the warp bouncing
+
+What that looks like while playing, all four from the same loop: alt-tabbing to
+the window (focus, no click) spins the camera absurdly fast; clicking to capture
+works for about half a second and then goes dead; **moving the mouse drops the
+emulation speed**, because the event storm eats the emulator's main thread; and
+the pad and keyboard keep working perfectly throughout, which is what makes it
+look like a game bug.
+
+The editor prints a warning naming the offending device when it finds one
+(`absoluteVmPointer` in `src/runner.cpp` reads `/proc/bus/input/devices` for an
+ABS-without-REL pointer). The cure is on the **host**, with the VM powered off:
+
+| VM | Setting |
+| --- | --- |
+| VMware | `vmmouse.present = "FALSE"` in the `.vmx` |
+| VirtualBox | *Machine > Disable Mouse Integration* (Host+I) |
+| QEMU/libvirt | drop the `tablet` input device, leave the relative mouse |
+
+The guest keeps its ordinary relative PS/2 mouse (`/proc/bus/input/devices`
+lists both on VMware), so warps stick, the echo is recognised and mouse look
+behaves. The cost is that the cursor no longer glides between host and guest —
+you grab it into the VM like it's 2005, which is exactly what an FPS wants.
+
 ## Real hardware & ps2link
 
 On a real console the same build reads real USB HID devices — nothing to

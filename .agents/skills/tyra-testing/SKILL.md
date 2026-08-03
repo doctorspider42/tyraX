@@ -576,6 +576,20 @@ Notes:
   A raw "did the picture change" diff cannot tell those apart, which is why the
   first attempt at this looked fine and was not.
 
+  **In a VM, turn the guest's mouse integration off first.** VMware's VMMouse /
+  VirtualBox's mouse integration / a QEMU tablet are ABSOLUTE pointers, and they
+  fight PCSX2's warp-to-centre into a feedback loop: measured on a VMware guest,
+  42% of the packets the game received carried an exact multiple of 127 (the HID
+  int8 limit) and the worst single frame carried 762 counts, where a synthetic
+  10-count nudge arrives as exactly 10. The tell that it is THIS and not the game
+  is that **moving the mouse drops the emulation speed** - the event storm eats
+  the emulator's main thread - while the pad and keyboard stay perfect. The
+  editor names the device in Output; the cure is host-side and needs the VM
+  powered off (docs/keyboard-mouse.md has the table). Synthetic input through
+  `wayland-control.py` uses mutter's own virtual pointer and is NOT affected, so
+  a scripted run can pass on a box where a human cannot play - say which one you
+  measured.
+
   **To WATCH the game over time, use `watch`** — the same one-session trick
   applied to TIME. It samples the screen on an interval off the
   already-negotiated stream and reports **one downscaled contact sheet** plus a
