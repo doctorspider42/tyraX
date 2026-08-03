@@ -8549,7 +8549,24 @@ void TerrainGame::updateSunFx() {
     return;
   }
 
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // A lens flare is the SUN, not "the light". Without a day/night cycle those
+  // are the same thing and SCENE_LIGHT_* is the sun vector. With one they are
+  // not: after sunset the resolved light is the MOON (clamped above the horizon
+  // so the bake stays sane), and pointing the flare at it put a blue glow with
+  // ghost rings in the night sky - the moon wearing the sun's lens flare. So a
+  // cycle scene aims at SCENE_SUN_* and switches the whole effect off while the
+  // sun is down (SCENE_SUN_R is 0 exactly then, the same flag the disc uses).
+  float sxd, syd, szd;
+  if (DAYCYCLE_USED) {
+    if (SCENE_SUN_R <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = SCENE_SUN_X, syd = SCENE_SUN_Y, szd = SCENE_SUN_Z;
+  } else {
+    sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  }
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl < 0.0001F) {
     postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
