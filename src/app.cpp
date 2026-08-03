@@ -30,6 +30,7 @@
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
+#include "scrollsim.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -1268,6 +1269,17 @@ void App::drawMenuBar() {
                     "ground it grows on.\nThe graph keeps being evaluated, so "
                     "the budget readout and the seed\nsimulator stay live; only "
                     "the geometry goes.");
+            if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
+                                hasProject_))
+                showScrollerPreview_ = !showScrollerPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the sliding ghost copies of EVERY endless scroller's\n"
+                    "segments. Turn it off to work on the member objects the\n"
+                    "copies are made of - a running belt fills its whole window\n"
+                    "with them. One belt at a time is 'Show belt preview' in\n"
+                    "that scroller's Properties. The belt markers stay either\n"
+                    "way, and the clone count and warnings stay live.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -2252,6 +2264,19 @@ void App::drawViewportWindow() {
             for (size_t i = 0; i < project_.objects().size(); ++i)
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
+        }
+        // Scroller ghost belts: the View toggle covers every belt, the
+        // per-object set covers the ones switched off in their own Properties.
+        {
+            std::vector<char> ghosts(project_.objects().size(), 1);
+            for (size_t i = 0; i < project_.objects().size(); ++i) {
+                const SceneObject& o = project_.objects()[i];
+                if (o.type != PrimitiveType::Scroller) continue;
+                ghosts[i] = (showScrollerPreview_ && !scrollGhostsOff_.count(o.id))
+                                ? (char)1
+                                : (char)0;
+            }
+            viewport_.setScrollerGhosts(std::move(ghosts));
         }
         // Non-destructive clip edits + the project's animation-fps ratio, so
         // the scene preview retimes and trims exactly like the build bakes.
@@ -5747,6 +5772,16 @@ void App::addMirror() {
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
     saveAll("Saved");
 }
+void App::addScroller() {
+    addObject(PrimitiveType::Scroller);
+    SceneObject& o = project_.objects().back();
+    // an invisible belt marker; a bright arrow gizmo shows the scroll axis
+    o.position[1] = 1.0f;
+    o.color[0] = 0.2f, o.color[1] = 0.85f, o.color[2] = 1.0f;
+    o.collisionMode = 2;   // pure marker - never blocks the player
+    o.castShadow = false;  // no geometry - nothing to occlude with
+    saveAll("Saved");
+}
 void App::addPortal() {
     addObject(PrimitiveType::Portal);
     SceneObject& o = project_.objects().back();
@@ -6774,6 +6809,9 @@ void App::drawAddObjectMenu() {
         // Rectangle that re-draws its listed objects mirrored across its
         // plane (real geometry behind the glass - build it into a wall).
         if (ImGui::MenuItem("Mirror")) addMirror();
+        // Endless conveyor: tiles named segments of scene objects forever
+        // along its axis (the train-window level generator).
+        if (ImGui::MenuItem("Scroller (endless)")) addScroller();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {

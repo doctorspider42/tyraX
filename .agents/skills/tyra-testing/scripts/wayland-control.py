@@ -8,6 +8,10 @@ for native Wayland windows (the editor's GLFW window is one), which is what X11
 tools cannot do.
 
     wayland-control.py shot -o shot.png [--area X,Y,W,H] [--cursor] [--delay S]
+    wayland-control.py watch DIR [--auto|--area X,Y,W,H] [--every S]
+                                 [--count N|--for S] [--tile W] [--cols N]
+                                 [--only-changed PCT] [--idle-stop K]
+    wayland-control.py area                  # print the moving rect and exit
     wayland-control.py move X Y
     wayland-control.py movrel DX DY          # for pointer-locked clients
     wayland-control.py button left down|up   # held drags built by hand
@@ -29,6 +33,15 @@ between.  A script runs the whole interaction in a single session:
     sleep 0.3
     shot menu.png
     key Escape
+
+`watch` is the same session trick applied to TIME: it samples the screen on an
+interval off the already-negotiated stream and reports ONE downscaled contact
+sheet plus a per-frame changed-pixel table, so watching a game for a minute
+costs about as much context as a single screenshot.  `--auto` finds the
+emulator's picture by looking for the moving rectangle (there is no per-window
+capture on Wayland); the rect is cached in DIR/area.txt and reused.
+
+    wayland-control.py watch shots --auto --every 1 --for 20 --tile 224
 
 Requires python3-gi and gstreamer1.0-pipewire (both are on a stock Ubuntu
 GNOME).  Coordinates are global screen pixels, matching a full-screen `shot`.
@@ -148,7 +161,8 @@ class Desk:
         self.sink = self.pipeline.get_by_name("sink")
         self.pipeline.set_state(Gst.State.PLAYING)
 
-    def shot(self, path, area=None, settle=0.4):
+    def grab(self, area=None, settle=0.4):
+        """Newest frame off the live stream as a PIL image (cropped to area)."""
         from PIL import Image
         self._start_pipeline()
         # Mutter only pushes a buffer when something changed, so take whatever
@@ -174,8 +188,69 @@ class Desk:
         if area:
             x, y, aw, ah = area
             img = img.crop((x, y, x + aw, y + ah))
+        return img
+
+    def shot(self, path, area=None, settle=0.4):
+        img = self.grab(area, settle)
         img.save(path)
         print(f"{path} {img.width}x{img.height}")
+
+    def watch(self, outdir, area=None, every=1.0, count=8, tile=256, cols=None,
+              sheet="sheet.png", only_changed=0.0, idle_stop=0, idle_below=0.05,
+              frames=True, settle=None):
+        """Sample the screen on a timer and report ONE contact sheet.
+
+        The point is context cost: N separate screenshots of the emulator are N
+        images to read, while one grid of downscaled tiles is a single small
+        one, and the printed per-frame diff says which tile is worth opening at
+        full resolution afterwards.
+        """
+        import os
+        os.makedirs(outdir, exist_ok=True)
+        settle = settle if settle is not None else min(0.15, every / 4.0)
+        self._start_pipeline()
+        tiles, prev, kept_prev, idle = [], None, None, 0
+        t0 = time.monotonic()
+        for i in range(count):
+            due = t0 + i * every
+            now = time.monotonic()
+            if now < due:
+                time.sleep(due - now)
+            img = self.grab(area, settle)
+            t = time.monotonic() - t0
+            # The reported delta is against the last KEPT frame, so a skipped
+            # frame's number explains why it was skipped and the sheet's labels
+            # describe the tiles next to each other.
+            if kept_prev is None:
+                n, share, delta = 0, 0.0, "     -   "
+            else:
+                n, share = changed_pixels(kept_prev, img)
+                delta = f"{share * 100:7.3f}%"
+            live = 0.0 if prev is None else changed_pixels(prev, img)[1]
+            prev = img
+            keep = kept_prev is None or share * 100 >= only_changed
+            mark = " " if keep else "-"
+            name = f"frame{i:02d}.png"
+            if keep and frames:
+                img.save(os.path.join(outdir, name))
+            if keep:
+                tiles.append((img, f"#{i:02d} t={t:5.1f}s d={delta.strip()}"))
+                kept_prev = img
+            print(f"{mark}#{i:02d} t={t:6.2f}s d={delta} {n:9d}px {name if keep else '(skipped)'}",
+                  flush=True)
+            if idle_stop:
+                idle = idle + 1 if (i and live * 100 < idle_below) else 0
+                if idle >= idle_stop:
+                    print(f"idle-stop: {idle} frames under {idle_below}% in a row")
+                    break
+        if not tiles:
+            print("no frames kept")
+            return
+        path = sheet if os.path.isabs(sheet) else os.path.join(outdir, sheet)
+        s = contact_sheet(path, tiles, cols=cols, tile_w=tile)
+        print(f"{path} {s.width}x{s.height} -- {len(tiles)} tile(s), "
+              f"~{token_estimate(s)} tokens (one full frame would be "
+              f"~{token_estimate(tiles[0][0])})")
 
     # -- input ------------------------------------------------------------
     def move(self, x, y):
@@ -249,6 +324,159 @@ def parse_area(s):
     return tuple(int(v) for v in s.replace("x", ",").split(","))
 
 
+# -- watch: a downscaled contact sheet instead of N full screenshots ---------
+
+DIFF_THRESHOLD = 16  # per-pixel luma delta that counts as "changed"
+
+
+def changed_pixels(a, b):
+    """How many pixels differ between two same-size RGB images, and the share."""
+    from PIL import ImageChops
+    d = ImageChops.difference(a, b).convert("L")
+    hist = d.point(lambda v: 255 if v > DIFF_THRESHOLD else 0).histogram()
+    n = hist[255]
+    return n, n / float(a.width * a.height)
+
+
+def _bands(profile, floor):
+    """Contiguous runs of indices whose value is above floor, longest first."""
+    runs, start = [], None
+    for i, v in enumerate(profile):
+        if v > floor and start is None:
+            start = i
+        elif v <= floor and start is not None:
+            runs.append((start, i - 1))
+            start = None
+    if start is not None:
+        runs.append((start, len(profile) - 1))
+    runs.sort(key=lambda r: r[1] - r[0], reverse=True)
+    return runs
+
+
+def detect_area(desk, samples=4, gap=0.5):
+    """Find the moving rectangle on screen -- the emulator's render area.
+
+    Mutter gives no per-window capture (see the skill), so instead of a window
+    id we use the one thing that is true of a game being DRIVEN and of nothing
+    else on an idle desktop: its pixels change.  The widest/tallest contiguous
+    band of moving columns/rows is the picture; PCSX2's status bar (the FPS
+    readout) is a separate, much thinner band and loses.
+
+    This only works while something on screen actually moves.  A parked camera
+    over flat terrain, a paused emulator or a slow day-night gradient can all
+    come in under the threshold -- hence the plausibility check, which fails
+    loudly instead of handing back the FPS counter's bounding box.
+    """
+    frames = []
+    for i in range(samples):
+        if i:
+            time.sleep(gap)
+        frames.append(desk.grab(settle=0.1))
+    from PIL import ImageChops
+    acc = None
+    for a, b in zip(frames, frames[1:]):
+        d = ImageChops.difference(a, b).convert("L").point(
+            lambda v: 255 if v > DIFF_THRESHOLD else 0)
+        acc = d if acc is None else ImageChops.lighter(acc, d)
+    w, h = acc.size
+    px = acc.load()
+    rows = [sum(1 for x in range(0, w, 2) if px[x, y]) for y in range(h)]
+    cols = [sum(1 for y in range(0, h, 2) if px[x, y]) for x in range(w)]
+    rb, cb = _bands(rows, 2), _bands(cols, 2)
+    if rb and cb:
+        y0, y1 = rb[0]
+        x0, x1 = cb[0]
+        aw, ah = x1 - x0 + 1, y1 - y0 + 1
+        share = (aw * ah) / float(w * h)
+        if share >= 0.02 and 0.9 <= aw / float(ah) <= 2.6:
+            return (x0, y0, aw, ah)
+        got = f"{x0},{y0},{aw},{ah} ({share * 100:.2f}% of the screen)"
+    else:
+        got = "nothing"
+    raise SystemExit(
+        "detect_area: no plausible moving rectangle -- found " + got + ".\n"
+        "Nothing is moving enough (paused emulator, parked camera, or a change\n"
+        "too slow for the threshold).  Take one `shot`, read the render area off\n"
+        "it and pass --area X,Y,W,H; watch caches it in DIR/area.txt.")
+
+
+def fit_aspect(area, aspect, screen):
+    """Grow a rect to a known aspect, anchored at its bottom edge.
+
+    detect_area returns what MOVES, which on a game frame is the ground and not
+    the static sky above it.  The PS2 picture has a known shape (512x448 comes
+    out aspect-corrected to 4:3), and its bottom edge is where the terrain
+    scrolls, so growing upward from there recovers the whole frame.
+    """
+    x, y, w, h = area
+    sw, sh = screen
+    if w / float(h) > aspect:
+        nw, nh = w, int(round(w / aspect))
+    else:
+        nw, nh = int(round(h * aspect)), h
+    nw, nh = min(nw, sw), min(nh, sh)
+    nx = int(round(x + w / 2.0 - nw / 2.0))
+    ny = y + h - nh
+    return (max(0, min(nx, sw - nw)), max(0, min(ny, sh - nh)), nw, nh)
+
+
+def parse_aspect(s):
+    if ":" in s:
+        a, b = s.split(":")
+        return float(a) / float(b)
+    return float(s)
+
+
+def trim_black(img, area, floor=10):
+    """Shrink an area to the non-black content inside it (PCSX2's letterbox).
+
+    Deterministic, unlike detect_area -- it needs no motion, only the black
+    bars PCSX2 pads the 4:3 picture with.  Returns a screen-space rect so the
+    same crop can be applied to every later frame.
+    """
+    g = img.convert("L")
+    box = g.point(lambda v: 255 if v > floor else 0).getbbox()
+    if not box:
+        return area
+    x, y = (area[0], area[1]) if area else (0, 0)
+    return (x + box[0], y + box[1], box[2] - box[0], box[3] - box[1])
+
+
+def contact_sheet(path, tiles, cols=None, tile_w=256, bg=(24, 24, 24)):
+    """Lay labelled thumbnails out in a grid -- ONE image for N moments."""
+    from PIL import Image, ImageDraw, ImageFont
+    n = len(tiles)
+    cols = cols or min(n, max(1, int(n ** 0.5 + 0.999)))
+    rows = (n + cols - 1) // cols
+    tw = tile_w
+    th = max(1, round(tiles[0][0].height * tw / tiles[0][0].width))
+    pad, lab = 6, 16
+    sheet = Image.new("RGB", (cols * tw + (cols + 1) * pad,
+                             rows * (th + lab) + (rows + 1) * pad), bg)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+    except OSError:
+        font = ImageFont.load_default()
+    draw = ImageDraw.Draw(sheet)
+    for i, (img, label) in enumerate(tiles):
+        c, r = i % cols, i // cols
+        x = pad + c * (tw + pad)
+        y = pad + r * (th + lab + pad)
+        sheet.paste(img.resize((tw, th), Image.LANCZOS), (x, y))
+        draw.text((x + 1, y + th + 2), label, fill=(210, 210, 210), font=font)
+    sheet.save(path)
+    return sheet
+
+
+def token_estimate(img):
+    """Roughly what an image costs in a Claude context window."""
+    w, h = img.size
+    if max(w, h) > 1568:  # the API downscales past this
+        s = 1568.0 / max(w, h)
+        w, h = w * s, h * s
+    return int(w * h / 750)
+
+
 def run_op(desk, argv):
     op = argv[0]
     rest = argv[1:]
@@ -263,6 +491,53 @@ def run_op(desk, argv):
         if a.delay:
             time.sleep(a.delay)
         desk.shot(a.out2 or a.out, parse_area(a.area) if a.area else None, a.settle)
+    elif op == "watch":
+        import os
+        p = argparse.ArgumentParser(prog="watch", add_help=False)
+        p.add_argument("dir", nargs="?", default="watch")
+        p.add_argument("--area")
+        p.add_argument("--auto", action="store_true")
+        p.add_argument("--every", type=float, default=1.0)
+        p.add_argument("--count", type=int, default=8)
+        p.add_argument("--for", dest="secs", type=float)
+        p.add_argument("--tile", type=int, default=256)
+        p.add_argument("--cols", type=int)
+        p.add_argument("--sheet", default="sheet.png")
+        p.add_argument("--only-changed", dest="only", type=float, default=0.0)
+        p.add_argument("--idle-stop", dest="idle", type=int, default=0)
+        p.add_argument("--idle-below", dest="idle_below", type=float, default=0.05)
+        p.add_argument("--no-frames", dest="frames", action="store_false")
+        p.add_argument("--trim", action="store_true")
+        p.add_argument("--aspect")
+        p.add_argument("--settle", type=float)
+        a = p.parse_args(rest)
+        cache = os.path.join(a.dir, "area.txt")
+        origin = None
+        if a.auto or a.area == "auto":
+            area, origin = detect_area(desk), "detected"
+            if a.aspect:
+                area = fit_aspect(area, parse_aspect(a.aspect), desk.grab(settle=0.1).size)
+                origin = f"detected, fitted to {a.aspect}"
+        elif a.area:
+            area = parse_area(a.area)
+        elif os.path.exists(cache):
+            area, origin = parse_area(open(cache).read().strip()), "cached"
+        else:
+            area = None
+        if a.trim:
+            area, origin = trim_black(desk.grab(area, 0.2), area), "trimmed"
+        if origin != "cached":
+            os.makedirs(a.dir, exist_ok=True)
+            if area:
+                open(cache, "w").write(",".join(str(v) for v in area))
+        if area:
+            print(f"area {','.join(str(v) for v in area)} ({origin or 'given'})")
+        count = a.count if a.secs is None else max(1, int(a.secs / a.every) + 1)
+        desk.watch(a.dir, area, a.every, count, a.tile, a.cols, a.sheet,
+                   a.only, a.idle, a.idle_below, a.frames, a.settle)
+    elif op == "area":
+        area = detect_area(desk)
+        print(",".join(str(v) for v in area))
     elif op == "move":
         desk.move(float(rest[0]), float(rest[1]))
     elif op == "movrel":

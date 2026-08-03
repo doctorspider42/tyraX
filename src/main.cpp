@@ -988,9 +988,22 @@ static int padFromCli(int argc, char** argv) {
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
     bool failed = false;
-    auto push = [&](const livepad::State& s, bool attached) {
+    int lostRefreshes = 0;
+    // A write carries either a NEW state (a step: losing it means the game never
+    // sees that button) or the same state again (a refresh, one of ~25 per second
+    // - losing one costs nothing, because the next is 40 ms away and the game's
+    // staleness watchdog is 120 frames). Only the first kind is worth aborting a
+    // run for; treating the second as fatal is what let a lost race on Windows
+    // (see livepad::write) kill about one 9 s hold in five.
+    auto push = [&](const livepad::State& s, bool attached, bool isStep) {
         const std::string e = livepad::write(path, s, ++seq, attached);
         if (e.empty()) return true;
+        if (!isStep) {
+            if (++lostRefreshes <= 3)
+                std::fprintf(stderr, "warning: lost one pad refresh: %s\n",
+                             e.c_str());
+            return true;
+        }
         std::fprintf(stderr, "error: %s\n", e.c_str());
         failed = true;
         return false;
@@ -1000,29 +1013,38 @@ static int padFromCli(int argc, char** argv) {
     for (const livepad::Step& st : steps) {
         std::printf("[pad] %s\n", st.source.c_str());
         std::fflush(stdout);
-        if (!push(st.state, true)) break;
+        if (!push(st.state, true, true)) break;
         if (st.seconds <= 0.0) continue;
         // Keep refreshing while we hold: the seq is what tells the game we are
         // still here (see livepad::kStaleFrames), and a state written once
         // would expire mid-hold on a long wait.
         const auto until = std::chrono::steady_clock::now() +
                            std::chrono::milliseconds((int)(st.seconds * 1000.0));
+        // No break on failure here: a refresh push cannot fail the run (above),
+        // and a step that did already broke out of the outer loop.
         while (std::chrono::steady_clock::now() < until) {
             platform::sleepMs(40);
-            if (!push(st.state, true)) break;
+            push(st.state, true, false);
         }
-        if (failed) break;
     }
     // Detach: neutral AND flagged gone, so the game drops the overlay on its
     // next poll instead of holding the last state for the watchdog's two
-    // seconds.
-    push(livepad::State(), false);
+    // seconds. Not worth failing the run over either - the watchdog is the
+    // backstop that exists for exactly this.
+    push(livepad::State(), false, false);
     const double secs =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
             .count();
-    if (!failed)
-        std::printf("[pad] done - %zu step(s) in %.1fs, pad released\n",
-                    steps.size(), secs);
+    if (!failed) {
+        std::printf("[pad] done - %zu step(s) in %.1fs, pad released", steps.size(),
+                    secs);
+        // Report them rather than hiding them: a run that had to skip refreshes
+        // is still a run whose timing was disturbed.
+        if (lostRefreshes > 0)
+            std::printf(" (%d refresh write(s) lost to the reader)",
+                        lostRefreshes);
+        std::printf("\n");
+    }
     return failed ? 1 : 0;
 }
 

@@ -456,6 +456,14 @@ banner both, so a previously built ELF still reports.
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
   hardware show it. This was the root cause of a long-standing corruption bug —
   not the clipper patches (all were bisected; even pure upstream reproduced it).
+- **Nothing backface-culls — never emit two exactly coplanar faces.** Neither
+  the StaPip VU1 programs nor the GS reject back faces (the "cull" program
+  family is about the frustum, not winding), so a double-sided surface whose
+  front and back share one plane dither-fights itself across the whole surface
+  (dashed dark/light bands, worse with distance). The Plane primitive hit this
+  (its darker underside vs the lit top); the fix is a small offset between the
+  two faces (see `addPlane` in templates.cpp / `unitPlane` in primmesh.cpp,
+  0.01 local units). Same rule for any hand-built double-sided geometry.
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the

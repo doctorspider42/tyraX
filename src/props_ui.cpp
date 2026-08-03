@@ -38,6 +38,7 @@
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
+#include "scrollsim.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -82,6 +83,7 @@ static const char* typeLabel(PrimitiveType t) {
         // naming it after one source node is what made people expect the
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
+        case PrimitiveType::Scroller: return "Scroller";
     }
     return "Object";
 }
@@ -238,6 +240,12 @@ void App::drawPropertiesWindow() {
                 if (m.type == PrimitiveType::Mirror)
                     for (std::string& t : m.mirrorObjects)
                         if (t == from) t = o.name;
+            // Scroller segment member lists reference objects by name.
+            for (SceneObject& sc : project_.objects())
+                if (sc.type == PrimitiveType::Scroller)
+                    for (ScrollSegment& seg : sc.scrollSegments)
+                        for (ScrollMember& t : seg.objects)
+                            if (t.name == from) t.name = o.name;
             // Camera feed view lists + per-object texture-feed refs
             // ("camera:<name>" / "mirror:<name>").
             for (SceneObject& m : project_.objects()) {
@@ -517,6 +525,10 @@ void App::drawPropertiesWindow() {
     // the Y rotation yaws the footprint. Everything else about it lives in the
     // graph (Tools > Procedural), so no game-state fields apply.
     const bool isScatter = o.type == PrimitiveType::Scatter;
+    // Scroller: position is the belt origin, rotation aims the belt axis
+    // (local +Z); the scroller-specific block (segments, speed) sits below.
+    // Scale/color are the marker's own - it has no geometry in the game.
+    const bool isScroller = o.type == PrimitiveType::Scroller;
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -535,7 +547,8 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isScatter || (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
+        isScatter || isScroller ||
+        (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -1013,6 +1026,247 @@ void App::drawPropertiesWindow() {
         }
         if (o.mirrorObjects.empty() && !o.mirrorReflectPlayer)
             ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
+    }
+
+    if (isScroller) {
+        const SceneData& scene = project_.active();
+        ImGui::SeparatorText("Endless scroller");
+        ImGui::TextDisabled(
+            "Tiles named segments of scene objects forever along the belt\n"
+            "axis (this object's local +Z - use Rotation to aim it). The\n"
+            "segment members are templates: they are hidden in-game and\n"
+            "cloned down the belt. Great for tunnels, roads, terrain strips.");
+
+        ImGui::DragFloat("Speed (units/s)", &o.scrollSpeed, 0.1f, -200.0f, 200.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip("Belt speed along +Z. Negative reverses the flow.");
+        ImGui::DragFloat("Populate ahead", &o.scrollAhead, 0.5f, 0.0f, 2000.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Keep behind", &o.scrollBehind, 0.5f, 0.0f, 2000.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Run at start", &o.scrollAutostart)) committed = true;
+        ImGui::SetItemTooltip(
+            "Off = the belt is frozen until a Start Scroller flow node runs.");
+        ImGui::DragInt("Max clones", &o.scrollMaxClones, 1.0f, 1, 2000);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Safety cap on baked clone objects. Past it the belt recycles\n"
+            "fewer copies (a visible gap may appear).");
+        ImGui::DragFloat("Seam overlap", &o.scrollOverlap, 0.005f, 0.0f, 1.0f,
+                         "%.3f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Each clone is stretched this much along the belt so consecutive\n"
+            "pieces interpenetrate slightly - exactly-coplanar end faces\n"
+            "z-fight (flickering seams). 0 = exact tiling.");
+        ImGui::DragInt("Variation seed", &o.scrollVarySeed, 1.0f, 0, 1000000);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Seeds the per-cell variation set up on each segment member below\n"
+            "(Appears in / Variant group / the jitters). Changing it deals a\n"
+            "different infinite level from the same pieces.");
+        // THIS belt's ghosts only - a checkbox inside one scroller's properties
+        // that silenced every scroller in the scene reads as a bug. View >
+        // Scroller preview is the all-at-once switch, and it wins while it is
+        // off. Editor-only and deliberately NOT part of the object: no
+        // commitChange(), because hiding a preview is not an edit to the scene.
+        bool beltGhosts = !scrollGhostsOff_.count(o.id);
+        ImGui::BeginDisabled(!showScrollerPreview_);
+        if (ImGui::Checkbox("Show belt preview", &beltGhosts)) {
+            if (beltGhosts) scrollGhostsOff_.erase(o.id);
+            else scrollGhostsOff_.insert(o.id);
+        }
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip(
+            showScrollerPreview_
+                ? "Draw THIS belt's sliding ghost copies in the viewport. Off\n"
+                  "leaves the belt marker and every readout below alone - it\n"
+                  "only stops the copies from covering the member objects you\n"
+                  "are editing. An editor setting, not project data.\n"
+                  "View > Scroller preview does the same for every belt."
+                : "View > Scroller preview is off, which already hides every\n"
+                  "belt. Turn it back on to hide belts one at a time.");
+
+        // Cost readout: how many clone objects this belt bakes into the scene.
+        if (!o.scrollSegments.empty()) {
+            const int clones = scrollsim::cloneCount(scene.objects, o);
+            const int cells = scrollsim::cellsPerSegment(scene.objects, o);
+            const float pat = scrollsim::patternLength(scene.objects, o);
+            ImGui::Text("Belt: %d clone objects (%d copies/segment, period %.1f)",
+                        clones, cells, pat);
+            if (scrollsim::hasVariation(o))
+                ImGui::TextColored(ImVec4(0.5f, 0.85f, 0.55f, 1.0f),
+                                   "Per-cell variation on - the belt does not repeat.");
+            else
+                ImGui::TextDisabled(
+                    "Plain tiling: the belt repeats every %.1f units. Fold a member "
+                    "open to vary it.",
+                    cells * pat);
+            if (scrollsim::cloneCapped(scene.objects, o))
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                   "Clone cap hit - raise Max clones or shorten the "
+                                   "window to close the gap.");
+        }
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Segments (tiled in order):");
+
+        int removeSeg = -1;
+        for (size_t s = 0; s < o.scrollSegments.size(); ++s) {
+            ScrollSegment& seg = o.scrollSegments[s];
+            ImGui::PushID((int)s);
+            // Reorder + delete controls
+            const bool canUp = s > 0;
+            const bool canDown = s + 1 < o.scrollSegments.size();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::ArrowButton("##segup", ImGuiDir_Up)) {
+                std::swap(o.scrollSegments[s], o.scrollSegments[s - 1]);
+                committed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::BeginDisabled(!canDown);
+            if (ImGui::ArrowButton("##segdown", ImGuiDir_Down)) {
+                std::swap(o.scrollSegments[s], o.scrollSegments[s + 1]);
+                committed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete segment")) removeSeg = (int)s;
+
+            char segName[96];
+            std::snprintf(segName, sizeof(segName), "%s", seg.name.c_str());
+            ImGui::SetNextItemWidth(scaled(180));
+            if (ImGui::InputText("Name", segName, sizeof(segName))) seg.name = segName;
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+            ImGui::SetNextItemWidth(scaled(120));
+            ImGui::DragFloat("Length", &seg.length, 0.1f, 0.0f, 2000.0f,
+                             seg.length > 0.0f ? "%.1f" : "auto");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(0 = auto: %.1f)",
+                                scrollsim::segmentLength(scene.objects, o, seg));
+
+            // Member object list (add / remove by name, like Mirror). Each row
+            // folds open into that member's per-cell variation.
+            int removeAt = -1;
+            for (size_t i = 0; i < seg.objects.size(); ++i) {
+                ScrollMember& m = seg.objects[i];
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("x")) removeAt = (int)i;
+                ImGui::SameLine();
+                bool exists = false;
+                for (const SceneObject& t : scene.objects)
+                    if (t.name == m.name) { exists = true; break; }
+                // Folded rows still have to say what varies, or a belt's whole
+                // behavior hides behind closed triangles.
+                std::string summary;
+                if (m.variant > 0)
+                    summary += "  [variant " + std::to_string(m.variant) + "]";
+                else if (m.chance < 1.0f) {
+                    char pct[16];
+                    std::snprintf(pct, sizeof(pct), "%.0f%%", m.chance * 100.0f);
+                    summary += std::string("  [") + pct + "]";
+                }
+                if (m.yawVary != 0.0f || m.offsetVary != 0.0f || m.scaleVary != 0.0f)
+                    summary += "  [jitter]";
+                if (!exists) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.4f, 0.3f, 1));
+                const bool open = ImGui::TreeNodeEx(
+                    "##member", ImGuiTreeNodeFlags_SpanAvailWidth, "%s%s%s",
+                    m.name.c_str(), exists ? "" : " (missing)", summary.c_str());
+                if (!exists) ImGui::PopStyleColor();
+                if (open) {
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::BeginDisabled(m.variant > 0);
+                    ImGui::SliderFloat("Appears in", &m.chance, 0.0f, 1.0f, "%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::EndDisabled();
+                    ImGui::SetItemTooltip(
+                        "Fraction of belt cells this member shows up in.\n"
+                        "1 = every cell (the plain tiling). 0.35 = roughly a\n"
+                        "third of them, drawn from the cell's own hash - so the\n"
+                        "belt stops repeating without any extra geometry.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragInt("Variant group", &m.variant, 0.1f, 0, 16);
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "0 = off. Members of this segment sharing a group number\n"
+                        "are alternatives: exactly ONE of them shows per cell\n"
+                        "(three obstacle shapes in one lane, say). A grouped\n"
+                        "member ignores Appears in - the group always fills.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Yaw jitter", &m.yawVary, 0.5f, 0.0f, 180.0f,
+                                     "+-%.0f deg");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random spin around Y, per cell. Free variety for rocks,\n"
+                        "trees and debris; leave at 0 for anything that has to\n"
+                        "line up with its neighbour (floors, rails, walls).");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Side jitter", &m.offsetVary, 0.05f, 0.0f, 50.0f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random offset across the belt (world units,\n"
+                        "perpendicular to the axis and horizontal), per cell.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Scale jitter", &m.scaleVary, 0.005f, 0.0f, 0.9f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random uniform scale, per cell, as a fraction of the\n"
+                        "authored size (0.20 = +-20%%). Keep it off for tiling\n"
+                        "surfaces - a resized floor slab opens a gap.");
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (removeAt >= 0) {
+                seg.objects.erase(seg.objects.begin() + removeAt);
+                committed = true;
+            }
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::BeginCombo("##segAdd", "+ Add object...")) {
+                for (const SceneObject& t : scene.objects) {
+                    // scenery only - not markers or the scroller itself
+                    const bool ok =
+                        t.type != PrimitiveType::Scroller &&
+                        t.type != PrimitiveType::Player &&
+                        t.type != PrimitiveType::Camera &&
+                        t.type != PrimitiveType::SpawnPoint && t.name != o.name;
+                    if (!ok) continue;
+                    bool listed = false;
+                    for (const ScrollMember& n : seg.objects)
+                        if (n.name == t.name) { listed = true; break; }
+                    if (listed) continue;
+                    if (ImGui::Selectable(t.name.c_str())) {
+                        seg.objects.push_back(ScrollMember{t.name});
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (seg.objects.empty())
+                ImGui::TextDisabled("Empty segment - add scene objects above.");
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+        if (removeSeg >= 0) {
+            o.scrollSegments.erase(o.scrollSegments.begin() + removeSeg);
+            committed = true;
+        }
+        if (ImGui::Button("+ Add segment")) {
+            ScrollSegment seg;
+            seg.name = "segment-" + std::to_string(o.scrollSegments.size() + 1);
+            o.scrollSegments.push_back(seg);
+            committed = true;
+        }
+        if (o.scrollSegments.empty())
+            ImGui::TextDisabled("No segments yet - add one, then assign objects.");
     }
 
     if (isPortal) {
@@ -1786,6 +2040,36 @@ void App::drawMultiProperties() {
             }
         }
     }
+    ImGui::Separator();
+
+    // Turn the selection into one endless scroller: a new Scroller object at the
+    // group's centroid whose first segment lists every selected object. (Creates
+    // and re-selects the scroller, so we return right after - `objs` is stale.)
+    if (ImGui::Button("Make endless scroller from selection")) {
+        float c[3] = {0, 0, 0};
+        std::vector<std::string> names;
+        for (auto* p : objs) {
+            if (p->type == PrimitiveType::Scroller) continue;
+            names.push_back(p->name);
+            for (int a = 0; a < 3; ++a) c[a] += p->position[a];
+        }
+        if (!names.empty()) {
+            for (int a = 0; a < 3; ++a) c[a] /= (float)names.size();
+            addScroller();  // appends + selects the new scroller, commits
+            SceneObject& sc = project_.objects().back();
+            for (int a = 0; a < 3; ++a) sc.position[a] = c[a];
+            ScrollSegment seg;
+            seg.name = "segment-1";
+            for (const std::string& n : names) seg.objects.push_back(ScrollMember{n});
+            sc.scrollSegments.push_back(seg);
+            commitChange();
+        }
+        // Selection is now the single new scroller; the caller (drawProperties-
+        // Window) owns the Properties Begin/End, so just stop drawing this frame.
+        return;
+    }
+    ImGui::SetItemTooltip(
+        "Groups the selected objects into a new Scroller's first segment.");
     ImGui::Separator();
 
     // Which field groups apply = the intersection over the whole selection.

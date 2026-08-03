@@ -47,15 +47,15 @@ to Runtime.
 | Category | Runs at runtime |
 |---|---|
 | Sources | Scatter on Surface (**terrain only**), Scatter on Grid (including its 3D *Levels*), Scatter in Volume, Single Point, **Blocks Fill** |
-| Masks | Noise Mask, Terrain Mask (height / slope / curvature — **not** a painted layer), Combine Masks, Remap Mask |
+| Masks | Noise Mask, Terrain Mask (height / slope / curvature — **not** a painted terrain material), Combine Masks, Remap Mask |
 | Filters | Filter by Attribute, Filter by Mask, Minimum Distance, Merge Points, Limit Count |
 | Repeat | Array, Radial Array |
 | Attributes | Pick Asset, **Pick Prefab**, Vary Transform, Set Attribute |
 | Output | Output (Object Settings is accepted and ignored — there are no generated scene objects to set properties on) |
 
 Not available: **Curve** and **Scatter along Curve**, **Keep Away From**
-(both need geometry the console does not carry), and **Terrain Mask > Painted
-layer** (the splat map is a build-time asset). *Scatter on Surface* with a named
+(both need geometry the console does not carry), and **Terrain Mask > Terrain
+material** (the splat map is a build-time asset). *Scatter on Surface* with a named
 object is refused for the same reason — clear the field and it scatters over the
 terrain.
 
