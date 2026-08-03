@@ -58,12 +58,19 @@ bool operator==(const DayCycle& a, const DayCycle& b) {
            a.sunSize == b.sunSize && a.moonAzimuth == b.moonAzimuth &&
            a.moonTilt == b.moonTilt && a.moonOffset == b.moonOffset &&
            a.moonSize == b.moonSize && a.moonPhase == b.moonPhase &&
-           a.moonTexture == b.moonTexture && a.starsEnabled == b.starsEnabled &&
+           a.moonTexture == b.moonTexture && a.runtime == b.runtime &&
+           a.dayLength == b.dayLength && a.runtimeGrade == b.runtimeGrade &&
+           a.bakeHour == b.bakeHour &&
+           a.starsEnabled == b.starsEnabled &&
            a.starTwinkle == b.starTwinkle && a.starField == b.starField &&
            a.keys == b.keys;
 }
 
 namespace ambience {
+
+float bakedHour(const DayCycle& c) {
+    return wrap24(c.runtime ? c.bakeHour : c.time);
+}
 
 float wrap24(float hour) {
     float h = std::fmod(hour, 24.0f);
@@ -228,6 +235,34 @@ Resolved evaluate(const DayCycle& c, float hour) {
         r.moonUpAngle = std::atan2(sy, sx);
     }
     return r;
+}
+
+Grade driftGrade(const Resolved& now, const Resolved& baked) {
+    Grade g{};
+    // How much dimmer/brighter the world is than the hour it was baked at. The
+    // ambient term is what a baked vertex colour is mostly made of, so it is
+    // the honest ratio to use; brightness rides on top of it.
+    const float lit = (baked.ambient + 0.5f * baked.diffuse) * baked.brightness;
+    const float want = (now.ambient + 0.5f * now.diffuse) * now.brightness;
+    float k = lit > 1e-4f ? want / lit : 1.0f;
+    k = clampf(k, 0.15f, 2.0f);
+    // Per channel, so a night lit by a blue moon actually goes blue rather than
+    // just going grey: the light colour's ratio rides on top of the level.
+    for (int i = 0; i < 3; ++i) {
+        const float cb = baked.lightColor[i] < 0.02f ? 0.02f : baked.lightColor[i];
+        const float cn = now.lightColor[i];
+        g.gain[i] = clampf(k * (0.45f + 0.55f * (cn / cb)), 0.05f, 2.0f);
+        // A tiny lift toward the sky at night: real darkness is not black, it is
+        // the sky reflected off everything, and pure gain alone crushes to mud.
+        g.lift[i] = clampf(now.skyColor[i] * 0.06f * (1.0f - k), 0.0f, 0.12f);
+        g.mixColor[i] = now.skyColor[i];
+    }
+    // Mix toward the sky colour with distance from the baked hour - which is
+    // what aerial perspective does, and what stops a warm-baked prop staying
+    // warm under a cold sky.
+    g.mixAmount = clampf(0.30f * (1.0f - k) + (k > 1.0f ? 0.10f * (k - 1.0f) : 0.0f),
+                         0.0f, 0.35f);
+    return g;
 }
 
 std::vector<DayKey> defaultKeys() {

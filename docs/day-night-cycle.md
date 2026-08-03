@@ -13,9 +13,10 @@ grid, the runtime projected shadows, the blob shadows, the lens flare and the
 god rays are all built from. Move the slider from noon to five in the afternoon
 and every contact shadow in the scene leans east.
 
-The cycle is **static** in one specific sense: the authored `time` is baked, and
-the game does not advance it. What a moving cycle would cost is at the bottom of
-this page.
+The cycle can be **static or live**. Static, the authored `time` is baked and the
+game does not advance it - which is the whole of "which preset = which time of
+day". Live (*Let the clock run*), the game advances the hour and everything that
+costs nothing per frame follows: see "The hybrid" below.
 
 ## Where it lives
 
@@ -219,6 +220,93 @@ a 3-pixel core: present on screen, but reading as dirt rather than as a star.
 The generator now puts a bright one at ~3 degrees, i.e. a ~6-pixel core with a
 halo around it. Turn the **bloom** post-effect on and those cores flare, which
 is the look this is aiming at.
+
+## The hybrid: letting the clock run
+
+*Ambience Editor > Day / night > **Let the clock run***
+
+![The same arch through a running cycle: blue day, red sunset, dusk, and cold
+moonlit night - the geometry baked once, at noon.](img/day-night-runtime.png)
+
+Turn it on and the **game** advances the hour. What follows it live is everything
+that was already being computed per frame:
+
+| Follows the clock | How |
+| --- | --- |
+| the sun and moon discs | placed from the live directions, skipped below the horizon |
+| the sky gradient | horizon *and* zenith - the dome rebuild already existed for the horizon |
+| the fog colour | a register write |
+| projected silhouette shadows | they read the light vector every frame anyway, so they sweep |
+| the lens flare and god rays | they track the live sun |
+| the stars | the interpolated `DayKey::stars` on the bags' additive FIX |
+
+**What does NOT follow it is the baked half** - the vertex shading, the AO
+lightmap, any GI. Re-baking those is ~170 ms of EE work (the numbers are below),
+so they stay frozen at one hour.
+
+### Two hours, not one
+
+Once the clock moves, "the time" splits in two and the editor asks for both:
+
+- **Time of day** - where the clock *starts*, and what the viewport previews.
+- **Bake lighting at** (`bakeHour`) - the hour shadows, AO and GI are baked at.
+
+Noon is usually the right bake hour: it is the most neutral light for a lightmap,
+and it is what every other hour is measured against. `ambience::bakedHour` is the
+one function every bake-side consumer asks, so the two can never drift apart.
+
+### The drift grade
+
+The gap between those two hours is what `runtimeGrade` closes. Without it,
+geometry baked at noon sits brightly lit under a midnight sky. With it, the cycle
+computes a colour grade every frame — per-channel gain from how much dimmer the
+hour is than the baked one, a small lift toward the sky (real darkness is the sky
+reflected off everything, and pure gain crushes to mud), and a mix toward the sky
+colour, which is what aerial perspective does.
+
+It is **one `postFx.setGrading` call**, cheaper than anything it stands in for,
+and it is **identity at the baked hour** — which is the property that makes
+leaving it on safe.
+
+Measured on the console over a two-minute day, sampling one frame every 5.5 s
+(the arch is baked at noon with neutral light):
+
+| in-game | sky RGB | ground RGB | arch RGB |
+| --- | --- | --- | --- |
+| 00:00 | 62, 129, 210 | 78, 132, 57 | 120, 119, 114 |
+| 04:24 | 104, 102, 120 | 73, 109, 48 | 110, 98, 85 |
+| 05:30 | 145, 65, 51 | 73, 82, 34 | 106, 75, 59 |
+| 07:42 | 17, 14, 31 | 29, 41, 31 | 39, 37, 48 |
+| 09:54 | 3, 4, 13 | 16, 30, 22 | 24, 26, 36 |
+
+The arch never changes its baked vertex colours and still goes warm at sunset and
+cold blue at night. **50 FPS / 100 % speed throughout.**
+
+### The generated twin
+
+`inc/daynight.gen.hpp` is a generated header of `inline` functions - the
+`live_debug.gen.hpp` arrangement, because both game-cpp templates need it and
+neither should carry a copy. It is a **numeric twin** of `ambience::evaluate` +
+`ambience::driftGrade`: same arc formula, same cyclic key interpolation, same
+twilight zenith pull, same +5 degree clamp, same grade. Change one and change the
+other.
+
+That claim is checked rather than asserted. A harness runs both over all 1440
+minutes of a day and compares: worst disagreement **1.2e-7** on the sun, moon and
+light directions (float epsilon) and **exactly zero** on the sky, zenith, fog,
+star level and every grade term.
+
+The key list is emitted as **one flat table sliced per scene**
+(`DAYCYCLE_KEY_FIRSTS` / `_COUNTS`, the `CATCH_CANDIDATES` shape) and identical
+lists are shared, so four scenes on four presets with the same nine keys ship
+nine rows, not thirty-six.
+
+### What is still missing
+
+The third leg of the hybrid: **several baked slots, snapped under a fade**. The
+drift grade covers the level and the colour, but a shadow baked at noon is still
+a noon shadow at midnight. The costs that decide the shape of that work are
+immediately below.
 
 ## What a moving cycle would cost
 

@@ -1026,6 +1026,8 @@ void clampDayCycle(DayCycle& c) {
     clampf(c.sunSize, 0.25f, 30.0f);
     clampf(c.moonSize, 0.25f, 30.0f);
     clampf(c.moonPhase, 0.0f, 1.0f);
+    clampf(c.dayLength, 8.0f, 7200.0f);
+    c.bakeHour = ambience::wrap24(c.bakeHour);
     clampf(c.starTwinkle, 0.0f, 1.0f);
     clampf(c.starField.magnitudeSpread, 0.0f, 1.0f);
     clampf(c.starField.milkyWay, 0.0f, 1.0f);
@@ -1116,7 +1118,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         // projected shadows, blob shadows, lens flare and god rays - without a
         // single one of them knowing a cycle exists.
         if (a.cycle.enabled) {
-            const ambience::Resolved d = ambience::evaluate(a.cycle, a.cycle.time);
+            const ambience::Resolved d =
+                ambience::evaluate(a.cycle, ambience::bakedHour(a.cycle));
             for (int i = 0; i < 3; ++i) {
                 r.skyColor[i] = d.skyColor[i];
                 r.skyTopColor[i] = d.skyTopColor[i];
@@ -1591,7 +1594,11 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
                  << ", \"moonSize\": " << fmtFloat(c.moonSize)
                  << ", \"moonPhase\": " << fmtFloat(c.moonPhase)
                  << ", \"moonTexture\": \"" << jsonEscape(c.moonTexture)
-                 << "\", \"starsEnabled\": " << (c.starsEnabled ? "true" : "false")
+                 << "\", \"runtime\": " << (c.runtime ? "true" : "false")
+                 << ", \"dayLength\": " << fmtFloat(c.dayLength)
+                 << ", \"bakeHour\": " << fmtFloat(c.bakeHour)
+                 << ", \"runtimeGrade\": " << (c.runtimeGrade ? "true" : "false")
+                 << ", \"starsEnabled\": " << (c.starsEnabled ? "true" : "false")
                  << ", \"starTwinkle\": " << fmtFloat(c.starTwinkle)
                  << ", \"starSeed\": " << c.starField.seed
                  << ", \"starCount\": " << c.starField.count
@@ -4117,6 +4124,13 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
                     c.moonPhase = (float)v->numberOr(0.5);
                 if (const auto* v = jc->find("moonTexture"))
                     c.moonTexture = v->stringOr("");
+                if (const auto* v = jc->find("runtime")) c.runtime = v->boolOr(false);
+                if (const auto* v = jc->find("dayLength"))
+                    c.dayLength = (float)v->numberOr(240.0);
+                if (const auto* v = jc->find("runtimeGrade"))
+                    c.runtimeGrade = v->boolOr(true);
+                if (const auto* v = jc->find("bakeHour"))
+                    c.bakeHour = (float)v->numberOr(12.0);
                 if (const auto* v = jc->find("starsEnabled"))
                     c.starsEnabled = v->boolOr(false);
                 if (const auto* v = jc->find("starTwinkle"))
@@ -5420,6 +5434,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
+            f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\prefab_data.gen.hpp" ||
             f.relativePath == "inc\\procedural.gen.hpp" ||

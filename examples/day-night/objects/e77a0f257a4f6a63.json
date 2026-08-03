@@ -1,1 +1,1 @@
-{"id": "e77a0f257a4f6a63", "name": "pillar-3", "type": "box", "position": [0, 3.25, 6], "rotation": [0, 0, 0], "scale": [0.7, 6.5, 0.7], "color": [0.82, 0.79, 0.72], "physics": false, "projShadow": true}
+{ "id": "e77a0f257a4f6a63", "name": "pillar-3", "type": "box", "position": [0, 3.25, 6], "rotation": [0, 0, 0], "scale": [0.7, 6.5, 0.7], "color": [0.82, 0.79, 0.72], "physics": false, "projShadow": true }

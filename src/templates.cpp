@@ -1066,6 +1066,10 @@ class TerrainGame : public Tyra::Game {
   // set per frame, so following the camera costs nothing measurable.
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  // The zenith the dome was last built with. Without this the runtime cycle
+  // could only move the horizon and a midnight sky kept a daylight zenith -
+  // the gradient is the half of a sky people actually read.
+  float skyTopR = -1, skyTopG = -1, skyTopB = -1;
   std::vector<Tyra::Sprite> hudSprites;
 
   // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
@@ -1104,6 +1108,12 @@ class TerrainGame : public Tyra::Game {
   void renderStarField();
 
   void setupSkyBodies();
+  // The runtime day/night cycle (docs/day-night-cycle.md). dayNightTick
+  // advances the clock and stages everything the frame needs; the zenith is
+  // staged rather than written straight into skyTop* so the dome rebuild stays
+  // in one place (the retint check in renderScene).
+  float dayNightTopR = -1, dayNightTopG = -1, dayNightTopB = -1;
+  void dayNightTick();
   // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
   // portal or a camera feed needs them oriented for ITS eye, not the player's.
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
@@ -2146,6 +2156,10 @@ class TerrainGame : public Tyra::Game {
   // set per frame, so following the camera costs nothing measurable.
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  // The zenith the dome was last built with. Without this the runtime cycle
+  // could only move the horizon and a midnight sky kept a daylight zenith -
+  // the gradient is the half of a sky people actually read.
+  float skyTopR = -1, skyTopG = -1, skyTopB = -1;
   std::vector<Tyra::Sprite> hudSprites;
 
   // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
@@ -2184,6 +2198,12 @@ class TerrainGame : public Tyra::Game {
   void renderStarField();
 
   void setupSkyBodies();
+  // The runtime day/night cycle (docs/day-night-cycle.md). dayNightTick
+  // advances the clock and stages everything the frame needs; the zenith is
+  // staged rather than written straight into skyTop* so the dome rebuild stays
+  // in one place (the retint check in renderScene).
+  float dayNightTopR = -1, dayNightTopG = -1, dayNightTopB = -1;
+  void dayNightTick();
   // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
   // portal or a camera feed needs them oriented for ITS eye, not the player's.
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
@@ -2742,7 +2762,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"
+#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -4958,6 +4979,9 @@ void TerrainGame::loop() {
     // P1's camera and bottom half from P2's (players[1].camPos, written by
     // its walker). A cutscene camera override takes the whole screen. HUD /
     // menus / post fx stay full-screen, drawn after splitView.end().
+    // The runtime day/night clock, once per FRAME and before any pass: a split
+    // frame renders the scene twice and both halves must see the same instant.
+    dayNightTick();
     const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
                             players[1].objIndex >= 0 &&
                             !scriptCtx.cameraOverride;
@@ -6925,6 +6949,21 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
+    skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+    // Park the runtime clock at the authored hour, so a scene's first frame is
+    // what the editor previewed rather than wherever the last scene's clock got
+    // to. Must happen BEFORE buildSkyDome, which bakes the zenith in.
+    daynight::reset(sceneIndex);
+    if (daynight::active(sceneIndex)) {
+      skyHorizonR = daynight::g_sky[0] * 255.0F;
+      skyHorizonG = daynight::g_sky[1] * 255.0F;
+      skyHorizonB = daynight::g_sky[2] * 255.0F;
+      skyTopR = daynight::g_top[0] * 255.0F;
+      skyTopG = daynight::g_top[1] * 255.0F;
+      skyTopB = daynight::g_top[2] * 255.0F;
+      dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
+      scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
+    }
     buildSkyDome();
     buildStarField();
   }
@@ -8557,7 +8596,14 @@ void TerrainGame::updateSunFx() {
   // cycle scene aims at SCENE_SUN_* and switches the whole effect off while the
   // sun is down (SCENE_SUN_R is 0 exactly then, the same flag the disc uses).
   float sxd, syd, szd;
-  if (DAYCYCLE_USED) {
+  if (daynight::active(currentScene)) {
+    if (daynight::g_sunRad <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = daynight::g_sun[0], syd = daynight::g_sun[1], szd = daynight::g_sun[2];
+  } else if (DAYCYCLE_USED) {
     if (SCENE_SUN_R <= 0.0F) {
       postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
       flareVis = 0.0F;
@@ -8794,7 +8840,9 @@ void TerrainGame::buildStarField() {
 // additive FIX, so this is three byte writes and three submits - no geometry
 // touched, whatever the time of day.
 void TerrainGame::renderStarField() {
-  if (STAR_COUNT <= 0 || SCENE_STARS_BRIGHT <= 0.004F) return;
+  const bool liveSky = daynight::active(currentScene);
+  const float starLevel = liveSky ? daynight::g_stars : SCENE_STARS_BRIGHT;
+  if (STAR_COUNT <= 0 || starLevel <= 0.004F) return;
   if (!g_gameplayPaused) g_starTime += g_frameDt;
   starMat.identity();
   starMat.data[12] = cameraPosition.x;
@@ -8803,7 +8851,7 @@ void TerrainGame::renderStarField() {
   for (int t = 0; t < STAR_TIERS; ++t) {
     StarBag& sb = starBags[t];
     if (!sb.bag) continue;
-    float k = SCENE_STARS_BRIGHT;
+    float k = starLevel;
     if (SCENE_STARS_TWINKLE > 0.0F) {
       // Per TIER, not per star: each tier shimmers at its own rate, which is
       // enough to read as twinkling and costs three multiplies a frame.
@@ -8815,6 +8863,61 @@ void TerrainGame::renderStarField() {
     sb.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
     stapip.core.render(sb.bag.get());
+  }
+}
+
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). One call a frame, and everything it moves is something the frame was
+// already going to compute: the sun and moon directions, the sky gradient, the
+// fog colour, the star brightness and a colour grade. The BAKED half - vertex
+// shading, the AO lightmap, GI - stays at the hour the scene was built at,
+// which is exactly what the grade is here to paper over.
+void TerrainGame::dayNightTick() {
+  if (!daynight::active(currentScene)) return;
+  daynight::tick(currentScene, g_frameDt);
+
+  // The horizon rides scriptCtx.skyColor, which the dome retint already
+  // watches (and which a Set Ambience node also writes - last writer in the
+  // frame wins, and a running clock is the more specific statement). The
+  // zenith is staged for the same check.
+  scriptCtx.skyColor = Color(daynight::g_sky[0] * 255.0F,
+                             daynight::g_sky[1] * 255.0F,
+                             daynight::g_sky[2] * 255.0F);
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  dayNightTopR = daynight::g_top[0] * 255.0F;
+  dayNightTopG = daynight::g_top[1] * 255.0F;
+  dayNightTopB = daynight::g_top[2] * 255.0F;
+
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(daynight::g_fog[0] * 255.0F,
+                                      daynight::g_fog[1] * 255.0F,
+                                      daynight::g_fog[2] * 255.0F),
+                                 FOG_START, FOG_END);
+
+  // The drift grade. setGrading is a handful of register writes, so this is
+  // cheaper than any of the geometry it stands in for - and it is identity while
+  // the clock sits on the baked hour, so a parked cycle changes nothing.
+  if (daynight::gradeOn(currentScene)) {
+    // setGrading is fixed point: gain 128 = 1x, lift is a signed 0..255-scale
+    // offset, mixAmt 128 = full replace. The float globals stay the twin of the
+    // host's ambience::driftGrade; the conversion lives only here.
+    auto u8 = [](float v) {
+      const int n = (int)(v + 0.5F);
+      return (unsigned char)(n < 0 ? 0 : (n > 255 ? 255 : n));
+    };
+    const unsigned char gain[3] = {u8(daynight::g_gain[0] * 128.0F),
+                                   u8(daynight::g_gain[1] * 128.0F),
+                                   u8(daynight::g_gain[2] * 128.0F)};
+    const short lift[3] = {(short)(daynight::g_lift[0] * 255.0F),
+                           (short)(daynight::g_lift[1] * 255.0F),
+                           (short)(daynight::g_lift[2] * 255.0F)};
+    const unsigned char mixColor[3] = {u8(daynight::g_mixColor[0] * 255.0F),
+                                       u8(daynight::g_mixColor[1] * 255.0F),
+                                       u8(daynight::g_mixColor[2] * 255.0F)};
+    float amt = daynight::g_mixAmount * 128.0F;
+    if (amt > 128.0F) amt = 128.0F;
+    engine->renderer.core.postFx.setGrading(gain, lift, mixColor,
+                                            (unsigned char)(amt + 0.5F));
   }
 }
 
@@ -8935,11 +9038,24 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
 
   // The sun takes the scene's light colour, so a red sunset sun is red without
   // a second authored colour anywhere.
-  sunBody.color.set(128.0F * SCENE_LIGHT_COL_R, 128.0F * SCENE_LIGHT_COL_G,
-                    128.0F * SCENE_LIGHT_COL_B, 128.0F);
-  place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
-  place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
-        SCENE_MOON_ROLL);
+  // With a running clock every one of these comes from the live evaluation
+  // instead of the baked instant; without one they are the same constants they
+  // always were. Two branches, no duplicated placement code.
+  const bool live = daynight::active(currentScene);
+  const float lr = live ? 1.0F : SCENE_LIGHT_COL_R;
+  const float lg = live ? 1.0F : SCENE_LIGHT_COL_G;
+  const float lb = live ? 1.0F : SCENE_LIGHT_COL_B;
+  sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
+  if (live) {
+    place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
+          daynight::g_sunRad, 0.0F);
+    place(moonBody, daynight::g_moon[0], daynight::g_moon[1], daynight::g_moon[2],
+          daynight::g_moonRad, daynight::g_moonRoll);
+  } else {
+    place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
+    place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
+          SCENE_MOON_ROLL);
+  }
 }
 
 // Visible light beams (Point Light > Beam): per-scene setup. One additive
@@ -9449,7 +9565,12 @@ void TerrainGame::renderProjShadows() {
   // it, while a daylight scene still throws the sun shadow it always did.
   // Below ~15 degrees of elevation the ground projection runs away, so a low
   // sun is simply not a candidate.
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // The live light when the clock runs - this is the line that makes a
+  // projected shadow actually sweep across the ground as the sun moves.
+  const bool liveLight = daynight::active(currentScene);
+  float sxd = liveLight ? daynight::g_light[0] : SCENE_LIGHT_X;
+  float syd = liveLight ? daynight::g_light[1] : SCENE_LIGHT_Y;
+  float szd = liveLight ? daynight::g_light[2] : SCENE_LIGHT_Z;
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl > 0.0001F)
     sxd /= sl, syd /= sl, szd /= sl;
@@ -10549,10 +10670,13 @@ void TerrainGame::buildSkyDome() {
   if (radius > 450.0F) radius = 450.0F;
 
   const int stacks = 6, slices = 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
   auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
-    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
-                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
-                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
   auto domeVert = [&](int stack, int slice) {
     // Start slightly below the horizon so the seam is never visible
@@ -12725,10 +12849,13 @@ void TerrainGame::renderScene() {
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
-                      scriptCtx.skyColor.b != skyHorizonB)) {
+                      scriptCtx.skyColor.b != skyHorizonB ||
+                      dayNightTopR != skyTopR || dayNightTopG != skyTopG ||
+                      dayNightTopB != skyTopB)) {
     skyHorizonR = scriptCtx.skyColor.r;
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
+    skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
     buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
@@ -16334,6 +16461,9 @@ void TerrainGame::loop() {
     // P1's camera and bottom half from P2's (players[1].camPos, written by
     // its walker). A cutscene camera override takes the whole screen. HUD /
     // menus / post fx stay full-screen, drawn after splitView.end().
+    // The runtime day/night clock, once per FRAME and before any pass: a split
+    // frame renders the scene twice and both halves must see the same instant.
+    dayNightTick();
     const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
                             players[1].objIndex >= 0 &&
                             !scriptCtx.cameraOverride;
@@ -18454,6 +18584,238 @@ static std::string decalDataHeader(const Project& p) {
 // (aobake::collectOccluders - the single source of occluder SHAPES, shared
 // with the viewport); the game evaluates their contact darkening per vertex
 // at scene load (aoOccluderAt/aoShadeMul in the game cpp).
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). A generated header of `inline` functions rather than a .gen.cpp,
+// because both game-cpp templates need it and neither should carry a copy - the
+// live_debug.gen.hpp arrangement.
+//
+// It is a NUMERIC TWIN of ambience::evaluate + ambience::driftGrade in
+// src/ambience.cpp: same arc formula, same cyclic key interpolation, same
+// twilight zenith pull, same +5 degree light clamp, same grade. The editor
+// previews with one and the console runs the other, so a change to either is a
+// change to both.
+//
+// Nothing here allocates and nothing is called when a scene has no runtime
+// cycle - active() is the gate, and it folds to a constant per scene.
+static std::string dayNightHeader(const Project& p) {
+    std::ostringstream out;
+    const std::string ns = sanitizeNamespace(p.name);
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "#include <math.h>\n\n"
+           "#include \"scene_data.hpp\"\n\n"
+           "namespace " << ns << " {\n"
+           "namespace daynight {\n\n"
+           "// Live state, seeded by reset() and advanced by tick(). Every\n"
+           "// consumer reads these instead of the baked SCENE_* constants while\n"
+           "// active(scene) is true.\n"
+           "inline float g_hour = 12.0F;\n"
+           "inline float g_sun[3] = {0.0F, 1.0F, 0.0F};\n"
+           "inline float g_moon[3] = {0.0F, -1.0F, 0.0F};\n"
+           "inline float g_light[3] = {0.0F, 1.0F, 0.0F};\n"
+           "inline float g_sky[3] = {0.0F, 0.0F, 0.0F};\n"
+           "inline float g_top[3] = {0.0F, 0.0F, 0.0F};\n"
+           "inline float g_fog[3] = {0.0F, 0.0F, 0.0F};\n"
+           "inline float g_stars = 0.0F, g_sunRad = 0.0F, g_moonRad = 0.0F;\n"
+           "inline float g_moonRoll = 0.0F;\n"
+           "inline float g_gain[3] = {1.0F, 1.0F, 1.0F};\n"
+           "inline float g_lift[3] = {0.0F, 0.0F, 0.0F};\n"
+           "inline float g_mixColor[3] = {0.0F, 0.0F, 0.0F};\n"
+           "inline float g_mixAmount = 0.0F;\n\n"
+           "inline bool active(int scene) {\n"
+           "  return DAYCYCLE_USED && scene >= 0 && scene < SCENE_COUNT &&\n"
+           "         DAYCYCLE_RUNTIMES[scene];\n"
+           "}\n"
+           "inline bool gradeOn(int scene) {\n"
+           "  return DAYCYCLE_USED && scene >= 0 && scene < SCENE_COUNT &&\n"
+           "         DAYCYCLE_GRADES[scene];\n"
+           "}\n\n"
+           "inline float wrap24(float h) {\n"
+           "  h = fmodf(h, 24.0F);\n"
+           "  return h < 0.0F ? h + 24.0F : h;\n"
+           "}\n"
+           "inline float clampf(float v, float lo, float hi) {\n"
+           "  return v < lo ? lo : (v > hi ? hi : v);\n"
+           "}\n\n"
+           "// ambience::arcDirection. cos(t)*R + sin(t)*P over a great circle:\n"
+           "// R is the horizon crossing at `rise`, P the tilted peak a quarter\n"
+           "// turn later, and t runs 0..pi above the horizon and on beneath it.\n"
+           "inline void arcDir(float azDeg, float tiltDeg, float rise, float set,\n"
+           "                   float hour, float out[3]) {\n"
+           "  const float az = azDeg * 0.01745329252F;\n"
+           "  const float tilt = clampf(tiltDeg, -89.0F, 89.0F) * 0.01745329252F;\n"
+           "  const float Rx = sinf(az), Rz = cosf(az);\n"
+           "  const float Hx = cosf(az), Hz = -sinf(az);\n"
+           "  const float st = sinf(tilt), ct = cosf(tilt);\n"
+           "  float up = wrap24(set - rise);\n"
+           "  up = clampf(up, 0.25F, 23.75F);\n"
+           "  const float since = wrap24(hour - rise);\n"
+           "  const float t = since <= up ? 3.14159265F * (since / up)\n"
+           "                             : 3.14159265F +\n"
+           "                                   3.14159265F * ((since - up) / (24.0F - up));\n"
+           "  const float c = cosf(t), sn = sinf(t);\n"
+           "  out[0] = c * Rx + sn * st * Hx;\n"
+           "  out[1] = sn * ct;\n"
+           "  out[2] = c * Rz + sn * st * Hz;\n"
+           "  const float l = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);\n"
+           "  if (l > 1e-6F) {\n"
+           "    out[0] /= l;\n"
+           "    out[1] /= l;\n"
+           "    out[2] /= l;\n"
+           "  } else {\n"
+           "    out[0] = 0.0F, out[1] = 1.0F, out[2] = 0.0F;\n"
+           "  }\n"
+           "}\n\n"
+           "// ambience::sampleKeys. Cyclic: the last key of the day carries\n"
+           "// through midnight into the first, which is what makes a night that\n"
+           "// spans 00:00 one interval instead of two.\n"
+           "inline void sampleKeys(int scene, float hour, DayKeyData& k) {\n"
+           "  const int first = DAYCYCLE_KEY_FIRSTS[scene];\n"
+           "  const int n = DAYCYCLE_KEY_COUNTS[scene];\n"
+           "  if (n <= 0) return;\n"
+           "  if (n == 1) {\n"
+           "    k = DAY_KEYS[first];\n"
+           "    return;\n"
+           "  }\n"
+           "  const float h = wrap24(hour);\n"
+           "  int hi = 0;\n"
+           "  while (hi < n && wrap24(DAY_KEYS[first + hi].hour) <= h) ++hi;\n"
+           "  const int lo = (hi - 1 + n) % n;\n"
+           "  hi %= n;\n"
+           "  const DayKeyData& a = DAY_KEYS[first + lo];\n"
+           "  const DayKeyData& b = DAY_KEYS[first + hi];\n"
+           "  const float ha = wrap24(a.hour);\n"
+           "  const float span = wrap24(wrap24(b.hour) - ha);\n"
+           "  if (span < 1e-4F) {\n"
+           "    k = a;\n"
+           "    return;\n"
+           "  }\n"
+           "  const float t = clampf(wrap24(h - ha) / span, 0.0F, 1.0F);\n"
+           "  k.hour = h;\n"
+           "  for (int i = 0; i < 3; ++i) {\n"
+           "    k.sky[i] = a.sky[i] + (b.sky[i] - a.sky[i]) * t;\n"
+           "    k.top[i] = a.top[i] + (b.top[i] - a.top[i]) * t;\n"
+           "    k.lit[i] = a.lit[i] + (b.lit[i] - a.lit[i]) * t;\n"
+           "    k.fog[i] = a.fog[i] + (b.fog[i] - a.fog[i]) * t;\n"
+           "  }\n"
+           "  k.amb = a.amb + (b.amb - a.amb) * t;\n"
+           "  k.dif = a.dif + (b.dif - a.dif) * t;\n"
+           "  k.bright = a.bright + (b.bright - a.bright) * t;\n"
+           "  k.stars = a.stars + (b.stars - a.stars) * t;\n"
+           "}\n\n"
+           "// The whole cycle at `hour`, into the globals above. `grade` false\n"
+           "// skips the drift maths entirely.\n"
+           "inline void evaluate(int scene, float hour) {\n"
+           "  g_hour = wrap24(hour);\n"
+           "  DayKeyData k = DAY_KEYS[0];\n"
+           "  sampleKeys(scene, g_hour, k);\n"
+           "  for (int i = 0; i < 3; ++i) {\n"
+           "    g_sky[i] = k.sky[i];\n"
+           "    g_top[i] = k.top[i];\n"
+           "    g_fog[i] = k.fog[i];\n"
+           "  }\n"
+           "  g_stars = clampf(k.stars, 0.0F, 1.0F);\n"
+           "  const float sunrise = DAYCYCLE_SUNRISES[scene];\n"
+           "  const float sunset = DAYCYCLE_SUNSETS[scene];\n"
+           "  const float moff = DAYCYCLE_MOON_OFFS[scene];\n"
+           "  arcDir(DAYCYCLE_SUN_AZS[scene], DAYCYCLE_SUN_TILTS[scene], sunrise,\n"
+           "         sunset, g_hour, g_sun);\n"
+           "  arcDir(DAYCYCLE_MOON_AZS[scene], DAYCYCLE_MOON_TILTS[scene],\n"
+           "         wrap24(sunrise + moff), wrap24(sunset + moff), g_hour, g_moon);\n"
+           "  const float sunElev = asinf(clampf(g_sun[1], -1.0F, 1.0F)) * 57.2957795F;\n"
+           "  const float moonElev = asinf(clampf(g_moon[1], -1.0F, 1.0F)) * 57.2957795F;\n"
+           "  // Below -10 degrees a body stops being drawn - the same rule the\n"
+           "  // baked SCENE_SUN_R / SCENE_MOON_R use, so a setting sun slides out\n"
+           "  // of view instead of vanishing whole.\n"
+           "  g_sunRad = sunElev < -10.0F ? 0.0F : DAYCYCLE_SUN_RADS[scene];\n"
+           "  g_moonRad = moonElev < -10.0F ? 0.0F : DAYCYCLE_MOON_RADS[scene];\n"
+           "  // The twilight handover, zenith term and all - see ambience.cpp for\n"
+           "  // why the 4*w*(1-w) pull is not optional.\n"
+           "  float w = clampf((sunElev + 6.0F) / 12.0F, 0.0F, 1.0F);\n"
+           "  w = w * w * (3.0F - 2.0F * w);\n"
+           "  const float pull = 4.0F * w * (1.0F - w);\n"
+           "  float L[3];\n"
+           "  for (int i = 0; i < 3; ++i) L[i] = w * g_sun[i] + (1.0F - w) * g_moon[i];\n"
+           "  L[1] += pull;\n"
+           "  {\n"
+           "    const float l = sqrtf(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);\n"
+           "    if (l > 1e-6F) {\n"
+           "      L[0] /= l, L[1] /= l, L[2] /= l;\n"
+           "    } else {\n"
+           "      L[0] = 0.0F, L[1] = 1.0F, L[2] = 0.0F;\n"
+           "    }\n"
+           "  }\n"
+           "  const float minY = 0.0871557F;  // sin(5 degrees)\n"
+           "  if (L[1] < minY) {\n"
+           "    const float hl = sqrtf(L[0] * L[0] + L[2] * L[2]);\n"
+           "    const float want = sqrtf(1.0F - minY * minY);\n"
+           "    if (hl > 1e-5F) {\n"
+           "      L[0] = L[0] / hl * want;\n"
+           "      L[2] = L[2] / hl * want;\n"
+           "    }\n"
+           "    L[1] = minY;\n"
+           "  }\n"
+           "  for (int i = 0; i < 3; ++i) g_light[i] = L[i];\n"
+           "  // Moon roll: the sun projected into the disc's plane, so the lit\n"
+           "  // limb keeps facing the sun (the disc is baked lit-side-to-+X).\n"
+           "  {\n"
+           "    float rx = g_moon[2], rz = -g_moon[0];\n"
+           "    const float rl = sqrtf(rx * rx + rz * rz);\n"
+           "    if (rl < 1e-5F) {\n"
+           "      rx = 1.0F, rz = 0.0F;\n"
+           "    } else {\n"
+           "      rx /= rl, rz /= rl;\n"
+           "    }\n"
+           "    const float ux = g_moon[1] * rz;\n"
+           "    const float uy = -g_moon[0] * rz + g_moon[2] * rx;\n"
+           "    const float uz = -g_moon[1] * rx;\n"
+           "    const float sx = g_sun[0] * rx + g_sun[2] * rz;\n"
+           "    const float sy = g_sun[0] * ux + g_sun[1] * uy + g_sun[2] * uz;\n"
+           "    g_moonRoll = atan2f(sy, sx);\n"
+           "  }\n"
+           "  // ambience::driftGrade. Identity when the clock sits on the hour\n"
+           "  // the geometry was baked at, which is the property that makes this\n"
+           "  // safe to leave on.\n"
+           "  if (!gradeOn(scene)) {\n"
+           "    g_gain[0] = g_gain[1] = g_gain[2] = 1.0F;\n"
+           "    g_lift[0] = g_lift[1] = g_lift[2] = 0.0F;\n"
+           "    g_mixAmount = 0.0F;\n"
+           "    return;\n"
+           "  }\n"
+           "  DayKeyData bk = DAY_KEYS[0];\n"
+           "  sampleKeys(scene, DAYCYCLE_BAKEDS[scene], bk);\n"
+           "  const float lit = (bk.amb + 0.5F * bk.dif) * bk.bright;\n"
+           "  const float want = (k.amb + 0.5F * k.dif) * k.bright;\n"
+           "  const float ratio = clampf(lit > 1e-4F ? want / lit : 1.0F, 0.15F, 2.0F);\n"
+           "  for (int i = 0; i < 3; ++i) {\n"
+           "    const float cb = bk.lit[i] < 0.02F ? 0.02F : bk.lit[i];\n"
+           "    g_gain[i] = clampf(ratio * (0.45F + 0.55F * (k.lit[i] / cb)), 0.05F, 2.0F);\n"
+           "    g_lift[i] = clampf(k.sky[i] * 0.06F * (1.0F - ratio), 0.0F, 0.12F);\n"
+           "    g_mixColor[i] = k.sky[i];\n"
+           "  }\n"
+           "  g_mixAmount = clampf(0.30F * (1.0F - ratio) +\n"
+           "                           (ratio > 1.0F ? 0.10F * (ratio - 1.0F) : 0.0F),\n"
+           "                       0.0F, 0.35F);\n"
+           "}\n\n"
+           "// Called on every scene load: park the clock at the authored hour so\n"
+           "// the first frame of a scene matches what the editor previewed.\n"
+           "inline void reset(int scene) {\n"
+           "  if (!active(scene)) return;\n"
+           "  evaluate(scene, DAYCYCLE_STARTS[scene]);\n"
+           "}\n\n"
+           "// One frame. dt is real seconds; DAYCYCLE_DAYLEN is how many of them\n"
+           "// a whole 24 h takes.\n"
+           "inline void tick(int scene, float dt) {\n"
+           "  if (!active(scene)) return;\n"
+           "  const float len = DAYCYCLE_DAYLENS[scene];\n"
+           "  if (len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));\n"
+           "  evaluate(scene, g_hour);\n"
+           "}\n\n"
+           "}  // namespace daynight\n"
+           "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
 static std::string aoDataHeader(const Project& p) {
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
@@ -20328,7 +20690,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         auto bodyOf = [&](int si, int which, int axis) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
             if (!c) return floatLit(axis == 1 ? 1.0f : 0.0f);
-            const ambience::Resolved d = ambience::evaluate(*c, c->time);
+            const ambience::Resolved d = ambience::evaluate(*c, ambience::bakedHour(*c));
             const float* v = which == 0 ? d.sunDir : d.moonDir;
             return floatLit(v[axis]);
         };
@@ -20343,7 +20705,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         auto sizeOf = [&](int si, int which) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
             if (!c) return floatLit(0.0f);
-            const ambience::Resolved d = ambience::evaluate(*c, c->time);
+            const ambience::Resolved d = ambience::evaluate(*c, ambience::bakedHour(*c));
             const float elev = which == 0 ? d.sunElevation : d.moonElevation;
             // Keep drawing a little below the horizon so a setting body slides
             // out of view instead of vanishing whole.
@@ -20359,10 +20721,116 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         // the project - it is a sphere of points with no scene-specific content,
         // and three static bags is what it costs whether one scene uses it or
         // ten. Per scene we only emit how bright it is and how much it shimmers.
+        // --- the hybrid runtime half ---------------------------------------
+        // The arc parameters and the key list, so the game can re-evaluate the
+        // cycle itself instead of only reading the baked instant. The keys are
+        // ONE flat table sliced per scene (the CATCH_CANDIDATES shape), because
+        // two scenes can resolve to two presets with different key lists.
+        sceneBools("DAYCYCLE_RUNTIMES", [&](int si) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            return c && c->runtime;
+        });
+        sceneBools("DAYCYCLE_GRADES", [&](int si) {
+            const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+            return c && c->runtime && c->runtimeGrade;
+        });
+        auto cycFloat = [&](const char* name, float dflt,
+                            float (*get)(const DayCycle&)) {
+            sceneFloats(name, [&](int si) {
+                const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+                return floatLit(c ? get(*c) : dflt);
+            });
+        };
+        // The clock STARTS here...
+        cycFloat("DAYCYCLE_STARTS", 12.0f, [](const DayCycle& c) { return c.time; });
+        // ...and the geometry was BAKED here. Equal without a runtime clock;
+        // apart with one, and the gap is exactly what the drift grade measures.
+        cycFloat("DAYCYCLE_BAKEDS", 12.0f,
+                 [](const DayCycle& c) { return ambience::bakedHour(c); });
+        cycFloat("DAYCYCLE_DAYLENS", 240.0f,
+                 [](const DayCycle& c) { return c.dayLength; });
+        cycFloat("DAYCYCLE_SUN_AZS", 90.0f,
+                 [](const DayCycle& c) { return c.sunAzimuth; });
+        cycFloat("DAYCYCLE_SUN_TILTS", 25.0f,
+                 [](const DayCycle& c) { return c.sunTilt; });
+        cycFloat("DAYCYCLE_SUNRISES", 6.0f,
+                 [](const DayCycle& c) { return c.sunrise; });
+        cycFloat("DAYCYCLE_SUNSETS", 18.0f,
+                 [](const DayCycle& c) { return c.sunset; });
+        cycFloat("DAYCYCLE_MOON_AZS", 90.0f,
+                 [](const DayCycle& c) { return c.moonAzimuth; });
+        cycFloat("DAYCYCLE_MOON_TILTS", 35.0f,
+                 [](const DayCycle& c) { return c.moonTilt; });
+        cycFloat("DAYCYCLE_MOON_OFFS", 12.0f,
+                 [](const DayCycle& c) { return c.moonOffset; });
+        // Apparent radii as dome fractions, so the runtime never calls tan().
+        cycFloat("DAYCYCLE_SUN_RADS", 0.0f, [](const DayCycle& c) {
+            return std::tan(c.sunSize * 0.5f * 3.14159265358979f / 180.0f);
+        });
+        cycFloat("DAYCYCLE_MOON_RADS", 0.0f, [](const DayCycle& c) {
+            return std::tan(c.moonSize * 0.5f * 3.14159265358979f / 180.0f);
+        });
+        cycFloat("DAYCYCLE_TWINKLES", 0.0f, [](const DayCycle& c) {
+            return c.starsEnabled ? c.starTwinkle : 0.0f;
+        });
+        {
+            // Flat key table + a per-scene slice. Presets are shared, so the
+            // same list is emitted once per DISTINCT cycle and two scenes on one
+            // preset point at the same rows.
+            std::vector<const DayCycle*> cyc(sceneCount, nullptr);
+            std::vector<int> first(sceneCount, 0), count(sceneCount, 0);
+            std::vector<std::string> rows;
+            for (int si = 0; si < sceneCount; ++si) {
+                const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
+                cyc[si] = c;
+                if (!c || c->keys.empty()) continue;
+                // Reuse an identical earlier list rather than emitting it twice.
+                int reuse = -1;
+                for (int sj = 0; sj < si; ++sj)
+                    if (cyc[sj] && cyc[sj]->keys == c->keys) reuse = sj;
+                if (reuse >= 0) {
+                    first[si] = first[reuse];
+                    count[si] = count[reuse];
+                    continue;
+                }
+                first[si] = (int)rows.size();
+                count[si] = (int)c->keys.size();
+                for (const DayKey& k : c->keys) {
+                    std::ostringstream r;
+                    r << "{" << floatLit(k.hour) << ",{" << floatLit(k.skyColor[0])
+                      << "," << floatLit(k.skyColor[1]) << ","
+                      << floatLit(k.skyColor[2]) << "},{"
+                      << floatLit(k.skyTopColor[0]) << ","
+                      << floatLit(k.skyTopColor[1]) << ","
+                      << floatLit(k.skyTopColor[2]) << "},{"
+                      << floatLit(k.lightColor[0]) << ","
+                      << floatLit(k.lightColor[1]) << ","
+                      << floatLit(k.lightColor[2]) << "},{"
+                      << floatLit(k.fogColor[0]) << "," << floatLit(k.fogColor[1])
+                      << "," << floatLit(k.fogColor[2]) << "},"
+                      << floatLit(k.ambient) << "," << floatLit(k.diffuse) << ","
+                      << floatLit(k.brightness) << "," << floatLit(k.stars) << "}";
+                    rows.push_back(r.str());
+                }
+            }
+            out << "struct DayKeyData { float hour; float sky[3], top[3], "
+                   "lit[3], fog[3]; float amb, dif, bright, stars; };\n";
+            out << "constexpr int DAY_KEY_TOTAL = " << (int)rows.size() << ";\n";
+            out << "constexpr DayKeyData DAY_KEYS["
+                << (rows.empty() ? 1 : rows.size()) << "] = {";
+            if (rows.empty())
+                out << "{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}";
+            else
+                for (size_t i = 0; i < rows.size(); ++i)
+                    out << (i ? ",\n    " : "\n    ") << rows[i];
+            out << "};\n";
+            sceneInts("DAYCYCLE_KEY_FIRSTS", [&](int si) { return first[si]; });
+            sceneInts("DAYCYCLE_KEY_COUNTS", [&](int si) { return count[si]; });
+        }
         sceneFloats("SCENE_STARS_BRIGHTS", [&](int si) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
             if (!c || !c->starsEnabled) return floatLit(0.0f);
-            return floatLit(ambience::evaluate(*c, c->time).stars);
+            return floatLit(ambience::evaluate(*c, ambience::bakedHour(*c)).stars);
         });
         sceneFloats("SCENE_STARS_TWINKLES", [&](int si) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
@@ -20371,7 +20839,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         sceneFloats("SCENE_MOON_ROLLS", [&](int si) {
             const DayCycle* c = sceneDayCycle(p, p.scenes[si]);
             if (!c) return floatLit(0.0f);
-            return floatLit(ambience::evaluate(*c, c->time).moonUpAngle);
+            return floatLit(ambience::evaluate(*c, ambience::bakedHour(*c)).moonUpAngle);
         });
     }
     // Baked ambient occlusion (docs/ambient-occlusion.md): folded into the
@@ -32230,6 +32698,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},
+        {"inc\\daynight.gen.hpp", dayNightHeader(p)},
         {"inc\\probe_data.gen.hpp", probeDataHeader(p)},
         {"inc\\prefab_data.gen.hpp", prefabDataHeader(p)},
         {"inc\\save_system.gen.hpp", saveSystemHeader(p)},

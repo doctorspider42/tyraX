@@ -85,6 +85,32 @@ struct DayCycle {
     float starTwinkle = 0.35f;
     starfield::Params starField;
 
+    // --- the hybrid runtime half (docs/day-night-cycle.md) -----------------
+    // With this on the GAME advances the clock, and the half of the cycle that
+    // costs nothing per frame follows it live: the sun and moon move, the sky
+    // dome and the fog retint, the projected shadows swing, the lens flare and
+    // god rays track the sun, and the stars fade in.
+    //
+    // What does NOT follow is the baked half - the vertex shading, the AO
+    // lightmap and any GI. Those stay at the hour `time` names, because
+    // re-baking them is ~170 ms of EE work. `runtimeGrade` is the answer to
+    // that gap: a per-frame colour grade carries the world's overall
+    // brightness and warmth, so noon geometry does not sit brightly lit under
+    // a midnight sky.
+    bool runtime = false;
+    // Real seconds for a whole 24 h. 240 = a four-minute day, which is about
+    // the shortest that still reads as time passing rather than as a strobe.
+    float dayLength = 240.0f;
+    bool runtimeGrade = true;
+    // With the clock running, `time` and "the hour the geometry was baked at"
+    // stop being the same question: the clock STARTS at `time` and walks away
+    // from it, while shadows, AO and GI are frozen wherever they were baked.
+    // Keeping them apart is what lets you bake at noon (the most neutral light
+    // for a lightmap) and still open the level at dusk - and it is what the
+    // drift grade measures against. Ignored while `runtime` is off, where there
+    // is only one hour; use ambience::bakedHour rather than reading it raw.
+    float bakeHour = 12.0f;
+
     std::vector<DayKey> keys;  // sorted by hour; see ambience::sampleKeys
 };
 
@@ -197,9 +223,30 @@ DayKey sampleKeys(const DayCycle& c, float hour);
 // The whole cycle at `hour`.
 Resolved evaluate(const DayCycle& c, float hour);
 
+// The colour grade that carries the world's drift while the clock runs
+// (docs/day-night-cycle.md, "The hybrid"). `now` is the cycle resolved at the
+// live hour, `baked` at the hour the geometry was baked at; the result is what
+// turns noon vertex colours into a plausible midnight. Identity when the two
+// hours agree, so a clock parked on its baked hour changes nothing.
+//
+// This is a TWIN: the generated game computes the same thing per frame and
+// hands it to postFx.setGrading. Change one and change the other.
+struct Grade {
+    float gain[3];
+    float lift[3];
+    float mixColor[3];
+    float mixAmount;
+};
+Grade driftGrade(const Resolved& now, const Resolved& baked);
+
 // A sensible five-stop 24 hours (night, dawn, day, dusk, night) - what the
 // Ambience Editor's "Seed a default day" button writes.
 std::vector<DayKey> defaultKeys();
+
+// The hour the scene's geometry bakes at: the cycle's own `time` normally, and
+// the separate `bakeHour` once the clock runs. Every bake-side consumer asks
+// this rather than reading a field, so the two can never disagree.
+float bakedHour(const DayCycle& c);
 
 // hour folded into [0, 24).
 float wrap24(float hour);

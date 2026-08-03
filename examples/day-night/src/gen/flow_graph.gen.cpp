@@ -195,12 +195,12 @@ class FlowGraphScript_3_0 : public Script {
     if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
       livedbg::hit(6);
       livedbg::hit(7);
-      ctx.requestScene = 0;  // "dawn"
+      ctx.requestScene = 4;  // "live"
     }
     if (ctx.engine->pad.getClicked().Triangle) {
       livedbg::hit(6);
       livedbg::hit(7);
-      ctx.requestScene = 0;  // "dawn"
+      ctx.requestScene = 4;  // "live"
     }
   }
 
@@ -208,6 +208,58 @@ class FlowGraphScript_3_0 : public Script {
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
   FlowGraphScript_3_0() { g_time_FlowGraphScript_3_0 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_4_0;
+FlowGraphScript_4_0* g_time_FlowGraphScript_4_0 = nullptr;
+
+// Scene "live": graph of "player" (object 0)
+class FlowGraphScript_4_0 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 4) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(4, 0)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(8)) {  // Live Debugger: fired from the editor
+      livedbg::hit(8);
+      livedbg::hit(9);
+      ctx.requestScene = 0;  // "dawn"
+    }
+    if (ctx.engine->pad.getClicked().Triangle) {
+      livedbg::hit(8);
+      livedbg::hit(9);
+      ctx.requestScene = 0;  // "dawn"
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_4_0() { g_time_FlowGraphScript_4_0 = this; }
   static const unsigned int kTimeBytes = 5;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
@@ -237,7 +289,8 @@ unsigned int flowTimeScriptBytes() {
   return FlowGraphScript_0_0::kTimeBytes +
          FlowGraphScript_1_0::kTimeBytes +
          FlowGraphScript_2_0::kTimeBytes +
-         FlowGraphScript_3_0::kTimeBytes;
+         FlowGraphScript_3_0::kTimeBytes +
+         FlowGraphScript_4_0::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
   if (g_time_FlowGraphScript_0_0) g_time_FlowGraphScript_0_0->timeCapture(p);
@@ -248,6 +301,8 @@ void flowTimeScriptCapture(unsigned char* p) {
   p += FlowGraphScript_2_0::kTimeBytes;
   if (g_time_FlowGraphScript_3_0) g_time_FlowGraphScript_3_0->timeCapture(p);
   p += FlowGraphScript_3_0::kTimeBytes;
+  if (g_time_FlowGraphScript_4_0) g_time_FlowGraphScript_4_0->timeCapture(p);
+  p += FlowGraphScript_4_0::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
   if (g_time_FlowGraphScript_0_0) g_time_FlowGraphScript_0_0->timeRestore(p);
@@ -258,6 +313,8 @@ void flowTimeScriptRestore(const unsigned char* p) {
   p += FlowGraphScript_2_0::kTimeBytes;
   if (g_time_FlowGraphScript_3_0) g_time_FlowGraphScript_3_0->timeRestore(p);
   p += FlowGraphScript_3_0::kTimeBytes;
+  if (g_time_FlowGraphScript_4_0) g_time_FlowGraphScript_4_0->timeRestore(p);
+  p += FlowGraphScript_4_0::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
@@ -300,3 +357,4 @@ TYRA_SCRIPT(Day_night::FlowGraphScript_0_0);
 TYRA_SCRIPT(Day_night::FlowGraphScript_1_0);
 TYRA_SCRIPT(Day_night::FlowGraphScript_2_0);
 TYRA_SCRIPT(Day_night::FlowGraphScript_3_0);
+TYRA_SCRIPT(Day_night::FlowGraphScript_4_0);

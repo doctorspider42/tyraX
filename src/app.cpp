@@ -2259,6 +2259,25 @@ void App::drawViewportWindow() {
                 }
                 viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
                 ambiencePreviewPushed_ = true;
+                // With the runtime half on, the console also applies a drift
+                // grade every frame (docs/day-night-cycle.md). The slider is how
+                // you author that, so the preview has to include it - otherwise
+                // the editor shows a brightly lit midnight the game will not.
+                if (a.cycle.enabled && a.cycle.runtime && a.cycle.runtimeGrade) {
+                    const ambience::Resolved now =
+                        ambience::evaluate(a.cycle, a.cycle.time);
+                    const ambience::Resolved baked =
+                        ambience::evaluate(a.cycle, ambience::bakedHour(a.cycle));
+                    const ambience::Grade g = ambience::driftGrade(now, baked);
+                    ColorGradingPreset cg;
+                    for (int i = 0; i < 3; ++i) {
+                        cg.gain[i] = g.gain[i];
+                        cg.lift[i] = g.lift[i];
+                        cg.tint[i] = g.mixColor[i];
+                    }
+                    cg.tintAmount = g.mixAmount;
+                    viewport_.setGrading(true, compileGrading(cg));
+                }
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
                 applyProjectToViewport();  // restore the scene's own ambience
@@ -8811,6 +8830,48 @@ void App::drawAmbienceDayCycle(bool& changed) {
     // the shipped texture are the same pixels - see menubake::bakeMoonRGBA).
     if (uint32_t t = viewport_.moonDiscTexture())
         ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
+
+    // --- the runtime half ----------------------------------------------------
+    ImGui::SeparatorText("Let the clock run (hybrid)");
+    if (ImGui::Checkbox("Advance the time in game", &c.runtime)) changed = true;
+    prefHelp(
+        "The half of the cycle that costs nothing per frame follows a live\n"
+        "clock: the sun and moon move, the sky dome and the fog retint, the\n"
+        "projected shadows swing, the flare and god rays track the sun and the\n"
+        "stars fade in.\n\n"
+        "What does NOT follow is the BAKED half - vertex shading, the AO\n"
+        "lightmap, any GI. Those stay at the hour above, because re-baking them\n"
+        "is ~170 ms of EE work. That is what the colour grade below is for.");
+    if (c.runtime) {
+        ImGui::SliderFloat("Day length", &c.dayLength, 8.0f, 1800.0f, "%.0f s");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Real seconds for a whole 24 hours. The time above is where\n"
+                 "the clock STARTS (and still the hour everything bakes at).");
+        ImGui::TextDisabled("%.1f s per in-game hour; sunrise to sunset takes %.0f s.",
+                            c.dayLength / 24.0f,
+                            c.dayLength * ambience::wrap24(c.sunset - c.sunrise) / 24.0f);
+        if (ImGui::Checkbox("Drift a colour grade with the clock", &c.runtimeGrade))
+            changed = true;
+        prefHelp(
+            "Without this, geometry baked at noon stays brightly lit under a\n"
+            "midnight sky. The grade carries the world's overall level and\n"
+            "warmth per frame - one postFx call, no re-bake - and is identity\n"
+            "when the clock sits on the hour the scene was baked at.\n\n"
+            "Turn it off if the project drives its own grading and you would\n"
+            "rather bake several times of day as separate scenes.");
+        ImGui::SliderFloat("Bake lighting at", &c.bakeHour, 0.0f, 24.0f, "%.1f h");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp(
+            "The hour shadows, AO and GI are baked at - a separate question from\n"
+            "where the clock starts, once it moves. Noon is usually the right\n"
+            "answer: it is the most neutral light for a lightmap, and the drift\n"
+            "grade measures every other hour against it.");
+        ImGui::TextDisabled("Clock starts %02d:%02d, geometry baked %02d:%02d.",
+                            (int)c.time,
+                            (int)((c.time - (float)(int)c.time) * 60.0f),
+                            (int)c.bakeHour,
+                            (int)((c.bakeHour - (float)(int)c.bakeHour) * 60.0f));
+    }
 
     // --- stars ---------------------------------------------------------------
     ImGui::SeparatorText("Stars");

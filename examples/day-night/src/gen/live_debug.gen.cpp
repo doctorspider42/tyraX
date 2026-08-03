@@ -41,7 +41,7 @@ const unsigned int CMD_VERSION = 1U;
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
-const int NODES = 8;      // instrumented flow-graph nodes
+const int NODES = 10;      // instrumented flow-graph nodes
 const int VARS = 0;        // watch slots: flow variables + save values
 const int FLOW_VARS = 0;  // how many of those are flow variables
 const int EVENTS = 192;    // event-ring capacity
@@ -52,7 +52,7 @@ const int OBJ_RING = 32;    // samples kept per watched object
 // Identity of the symbol table this ELF was built from (src/gen/livedbg.sym).
 // The editor compares it with the file on disk: a mismatch means the graphs
 // moved since this build, so node keys would point at the wrong nodes.
-const unsigned int HASH_LO = 1598479862U, HASH_HI = 4273256635U;
+const unsigned int HASH_LO = 2468969738U, HASH_HI = 2159710294U;
 
 unsigned int hits[NODES] = {};
 unsigned short evKey[EVENTS] = {};

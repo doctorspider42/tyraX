@@ -512,6 +512,10 @@ class TerrainGame : public Tyra::Game {
   // set per frame, so following the camera costs nothing measurable.
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  // The zenith the dome was last built with. Without this the runtime cycle
+  // could only move the horizon and a midnight sky kept a daylight zenith -
+  // the gradient is the half of a sky people actually read.
+  float skyTopR = -1, skyTopG = -1, skyTopB = -1;
   std::vector<Tyra::Sprite> hudSprites;
 
   // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
@@ -550,6 +554,12 @@ class TerrainGame : public Tyra::Game {
   void renderStarField();
 
   void setupSkyBodies();
+  // The runtime day/night cycle (docs/day-night-cycle.md). dayNightTick
+  // advances the clock and stages everything the frame needs; the zenith is
+  // staged rather than written straight into skyTop* so the dome rebuild stays
+  // in one place (the retint check in renderScene).
+  float dayNightTopR = -1, dayNightTopG = -1, dayNightTopB = -1;
+  void dayNightTick();
   // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
   // portal or a camera feed needs them oriented for ITS eye, not the player's.
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);

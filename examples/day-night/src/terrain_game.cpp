@@ -27,7 +27,8 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"
+#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -2299,6 +2300,9 @@ void TerrainGame::loop() {
     // P1's camera and bottom half from P2's (players[1].camPos, written by
     // its walker). A cutscene camera override takes the whole screen. HUD /
     // menus / post fx stay full-screen, drawn after splitView.end().
+    // The runtime day/night clock, once per FRAME and before any pass: a split
+    // frame renders the scene twice and both halves must see the same instant.
+    dayNightTick();
     const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
                             players[1].objIndex >= 0 &&
                             !scriptCtx.cameraOverride;
@@ -4263,6 +4267,21 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
+    skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+    // Park the runtime clock at the authored hour, so a scene's first frame is
+    // what the editor previewed rather than wherever the last scene's clock got
+    // to. Must happen BEFORE buildSkyDome, which bakes the zenith in.
+    daynight::reset(sceneIndex);
+    if (daynight::active(sceneIndex)) {
+      skyHorizonR = daynight::g_sky[0] * 255.0F;
+      skyHorizonG = daynight::g_sky[1] * 255.0F;
+      skyHorizonB = daynight::g_sky[2] * 255.0F;
+      skyTopR = daynight::g_top[0] * 255.0F;
+      skyTopG = daynight::g_top[1] * 255.0F;
+      skyTopB = daynight::g_top[2] * 255.0F;
+      dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
+      scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
+    }
     buildSkyDome();
     buildStarField();
   }
@@ -5895,7 +5914,14 @@ void TerrainGame::updateSunFx() {
   // cycle scene aims at SCENE_SUN_* and switches the whole effect off while the
   // sun is down (SCENE_SUN_R is 0 exactly then, the same flag the disc uses).
   float sxd, syd, szd;
-  if (DAYCYCLE_USED) {
+  if (daynight::active(currentScene)) {
+    if (daynight::g_sunRad <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = daynight::g_sun[0], syd = daynight::g_sun[1], szd = daynight::g_sun[2];
+  } else if (DAYCYCLE_USED) {
     if (SCENE_SUN_R <= 0.0F) {
       postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
       flareVis = 0.0F;
@@ -6132,7 +6158,9 @@ void TerrainGame::buildStarField() {
 // additive FIX, so this is three byte writes and three submits - no geometry
 // touched, whatever the time of day.
 void TerrainGame::renderStarField() {
-  if (STAR_COUNT <= 0 || SCENE_STARS_BRIGHT <= 0.004F) return;
+  const bool liveSky = daynight::active(currentScene);
+  const float starLevel = liveSky ? daynight::g_stars : SCENE_STARS_BRIGHT;
+  if (STAR_COUNT <= 0 || starLevel <= 0.004F) return;
   if (!g_gameplayPaused) g_starTime += g_frameDt;
   starMat.identity();
   starMat.data[12] = cameraPosition.x;
@@ -6141,7 +6169,7 @@ void TerrainGame::renderStarField() {
   for (int t = 0; t < STAR_TIERS; ++t) {
     StarBag& sb = starBags[t];
     if (!sb.bag) continue;
-    float k = SCENE_STARS_BRIGHT;
+    float k = starLevel;
     if (SCENE_STARS_TWINKLE > 0.0F) {
       // Per TIER, not per star: each tier shimmers at its own rate, which is
       // enough to read as twinkling and costs three multiplies a frame.
@@ -6153,6 +6181,61 @@ void TerrainGame::renderStarField() {
     sb.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
     stapip.core.render(sb.bag.get());
+  }
+}
+
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). One call a frame, and everything it moves is something the frame was
+// already going to compute: the sun and moon directions, the sky gradient, the
+// fog colour, the star brightness and a colour grade. The BAKED half - vertex
+// shading, the AO lightmap, GI - stays at the hour the scene was built at,
+// which is exactly what the grade is here to paper over.
+void TerrainGame::dayNightTick() {
+  if (!daynight::active(currentScene)) return;
+  daynight::tick(currentScene, g_frameDt);
+
+  // The horizon rides scriptCtx.skyColor, which the dome retint already
+  // watches (and which a Set Ambience node also writes - last writer in the
+  // frame wins, and a running clock is the more specific statement). The
+  // zenith is staged for the same check.
+  scriptCtx.skyColor = Color(daynight::g_sky[0] * 255.0F,
+                             daynight::g_sky[1] * 255.0F,
+                             daynight::g_sky[2] * 255.0F);
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  dayNightTopR = daynight::g_top[0] * 255.0F;
+  dayNightTopG = daynight::g_top[1] * 255.0F;
+  dayNightTopB = daynight::g_top[2] * 255.0F;
+
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(daynight::g_fog[0] * 255.0F,
+                                      daynight::g_fog[1] * 255.0F,
+                                      daynight::g_fog[2] * 255.0F),
+                                 FOG_START, FOG_END);
+
+  // The drift grade. setGrading is a handful of register writes, so this is
+  // cheaper than any of the geometry it stands in for - and it is identity while
+  // the clock sits on the baked hour, so a parked cycle changes nothing.
+  if (daynight::gradeOn(currentScene)) {
+    // setGrading is fixed point: gain 128 = 1x, lift is a signed 0..255-scale
+    // offset, mixAmt 128 = full replace. The float globals stay the twin of the
+    // host's ambience::driftGrade; the conversion lives only here.
+    auto u8 = [](float v) {
+      const int n = (int)(v + 0.5F);
+      return (unsigned char)(n < 0 ? 0 : (n > 255 ? 255 : n));
+    };
+    const unsigned char gain[3] = {u8(daynight::g_gain[0] * 128.0F),
+                                   u8(daynight::g_gain[1] * 128.0F),
+                                   u8(daynight::g_gain[2] * 128.0F)};
+    const short lift[3] = {(short)(daynight::g_lift[0] * 255.0F),
+                           (short)(daynight::g_lift[1] * 255.0F),
+                           (short)(daynight::g_lift[2] * 255.0F)};
+    const unsigned char mixColor[3] = {u8(daynight::g_mixColor[0] * 255.0F),
+                                       u8(daynight::g_mixColor[1] * 255.0F),
+                                       u8(daynight::g_mixColor[2] * 255.0F)};
+    float amt = daynight::g_mixAmount * 128.0F;
+    if (amt > 128.0F) amt = 128.0F;
+    engine->renderer.core.postFx.setGrading(gain, lift, mixColor,
+                                            (unsigned char)(amt + 0.5F));
   }
 }
 
@@ -6273,11 +6356,24 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
 
   // The sun takes the scene's light colour, so a red sunset sun is red without
   // a second authored colour anywhere.
-  sunBody.color.set(128.0F * SCENE_LIGHT_COL_R, 128.0F * SCENE_LIGHT_COL_G,
-                    128.0F * SCENE_LIGHT_COL_B, 128.0F);
-  place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
-  place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
-        SCENE_MOON_ROLL);
+  // With a running clock every one of these comes from the live evaluation
+  // instead of the baked instant; without one they are the same constants they
+  // always were. Two branches, no duplicated placement code.
+  const bool live = daynight::active(currentScene);
+  const float lr = live ? 1.0F : SCENE_LIGHT_COL_R;
+  const float lg = live ? 1.0F : SCENE_LIGHT_COL_G;
+  const float lb = live ? 1.0F : SCENE_LIGHT_COL_B;
+  sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
+  if (live) {
+    place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
+          daynight::g_sunRad, 0.0F);
+    place(moonBody, daynight::g_moon[0], daynight::g_moon[1], daynight::g_moon[2],
+          daynight::g_moonRad, daynight::g_moonRoll);
+  } else {
+    place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
+    place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
+          SCENE_MOON_ROLL);
+  }
 }
 
 // Visible light beams (Point Light > Beam): per-scene setup. One additive
@@ -6787,7 +6883,12 @@ void TerrainGame::renderProjShadows() {
   // it, while a daylight scene still throws the sun shadow it always did.
   // Below ~15 degrees of elevation the ground projection runs away, so a low
   // sun is simply not a candidate.
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // The live light when the clock runs - this is the line that makes a
+  // projected shadow actually sweep across the ground as the sun moves.
+  const bool liveLight = daynight::active(currentScene);
+  float sxd = liveLight ? daynight::g_light[0] : SCENE_LIGHT_X;
+  float syd = liveLight ? daynight::g_light[1] : SCENE_LIGHT_Y;
+  float szd = liveLight ? daynight::g_light[2] : SCENE_LIGHT_Z;
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl > 0.0001F)
     sxd /= sl, syd /= sl, szd /= sl;
@@ -7887,10 +7988,13 @@ void TerrainGame::buildSkyDome() {
   if (radius > 450.0F) radius = 450.0F;
 
   const int stacks = 6, slices = 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
   auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
-    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
-                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
-                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
   auto domeVert = [&](int stack, int slice) {
     // Start slightly below the horizon so the seam is never visible
@@ -10063,10 +10167,13 @@ void TerrainGame::renderScene() {
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
-                      scriptCtx.skyColor.b != skyHorizonB)) {
+                      scriptCtx.skyColor.b != skyHorizonB ||
+                      dayNightTopR != skyTopR || dayNightTopG != skyTopG ||
+                      dayNightTopB != skyTopB)) {
     skyHorizonR = scriptCtx.skyColor.r;
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
+    skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
     buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs

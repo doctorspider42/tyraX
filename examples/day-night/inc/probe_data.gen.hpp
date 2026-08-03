@@ -19,7 +19,7 @@ struct GiProbeGridData {
 };
 
 
-static const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {nullptr, nullptr, nullptr, nullptr};
+static const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {nullptr, nullptr, nullptr, nullptr, nullptr};
 }  // namespace
 
 #define SCENE_PROBES SCENE_PROBE_GRIDS[g_activeScene]

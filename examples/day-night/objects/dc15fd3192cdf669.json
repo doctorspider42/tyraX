@@ -1,1 +1,1 @@
-{"id": "dc15fd3192cdf669", "name": "drum", "type": "cylinder", "position": [20, 1.5, 0], "rotation": [0, 0, 0], "scale": [1.5, 3, 1.5], "color": [0.8, 0.82, 0.86], "physics": false, "projShadow": true}
+{ "id": "dc15fd3192cdf669", "name": "drum", "type": "cylinder", "position": [20, 1.5, 0], "rotation": [0, 0, 0], "scale": [1.5, 3, 1.5], "color": [0.8, 0.82, 0.86], "physics": false, "projShadow": true }
