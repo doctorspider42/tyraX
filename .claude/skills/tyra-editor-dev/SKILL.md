@@ -514,6 +514,47 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into
 `inc/terrain_config.hpp` or `scene_data.hpp` by templates.cpp.
 
+**IOP co-processor compute** (`ProjectSettings::iopCompute`, docs/iop-compute.md)
+is the reference point for two things a future feature will want to copy, and one
+trap it must not re-discover.
+
+- **A generated file whose mere EXISTENCE does something.** `Makefile.base` finds
+  every `src/**/*.irx-em` and runs `bin2s` on it, so `src/gen/txiop.irx-em`
+  cannot be emitted-but-empty the way an off `live_pad.gen.cpp` is: an off
+  project would still invoke the IOP toolchain. It is therefore the one part of
+  a project emitted **conditionally** — `templates::generate` pushes the `iop/`
+  files only while the preference is on — and `project::refreshGenerated`
+  **deletes** a stale one when it goes off. `iop/user_jobs.c` is deliberately
+  left on disk: it is the author's code, and a preference toggle must not delete
+  work. So: a new generated file that is *discovered* rather than *referenced*
+  needs both halves (conditional emit AND explicit removal), and everything else
+  keeps the always-emitted on/off-seam shape.
+- **The build integration lives in the generated Makefile, not in the engine.**
+  The project Makefile is thin and `include`s `/tyra/Makefile.base`; a
+  `{{IOP_RULES}}` block before that include builds the IRX with
+  `mipsel-ps2-irx-gcc`, so `vendor/tyra` needed no change at all. Two details
+  that took a debugging pass each: the built `.irx` goes in `$(BUILDDIR)`, never
+  in the source tree (the Runner rsyncs sources in and only `bin/` back, so an
+  artefact in `iop/` is one the next sync wipes — and then the module rebuilds
+  every single build), and the embedding object needs an explicit
+  `obj/gen/txiop.o: obj/iop/txiop.irx` prerequisite because IOP objects are not
+  in `$(OBJECTS)` and get no `.d` files.
+- **`sbv_patch_enable_lmb()` is load-bearing and fails silently.** The BIOS
+  loadfile RPC refuses `LoadModuleBuffer` until it is applied; without it
+  `SifExecModuleBuffer` allocates the IOP buffer, returns something that looks
+  exactly like a module id, writes 0 into `mod_res` — and loads NOTHING. No
+  error, no log line, and the only symptom is an RPC that never binds. The
+  engine's `IrxLoader::applyRpcPatches` already applies it (which is why no
+  engine change was needed) and the generated runtime applies it again to be
+  self-contained. If IOP compute ever silently stops working, check this first.
+
+The gate is worth copying too: **there is no console-identity check**, because
+there is no honest one (`rom0:ROMVER` reports the loaded BIOS, which says nothing
+about the IOP under an emulator). `txiop::init()` loads, binds, and makes the IOP
+compute a hash the EE also computes; `available()` is true only when they match.
+Any future "is this hardware capable" question should be answered by measuring
+the capability, not by identifying the machine.
+
 **The starting preset (`Project::gameTemplate`) is create-only.** The three
 presets the *New Project* dialog offers — `fpp`, `thirdperson`, `orbit` (Empty)
 — live in ONE table, `kNewPresets` in app.cpp, read by both the dialog and the

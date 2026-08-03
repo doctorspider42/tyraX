@@ -150,6 +150,15 @@ guides. What is queued is in [Backlog](backlog.md).
   build actually costs in code and RAM, and the release audit that PROVES a
   shipped ELF carries none of it (`--audit-release`, run automatically after
   every release build).
+- [IOP compute (run your own code on the PS2's other CPU)](iop-compute.md) - the
+  R3000A that exists so a PS2 can be a PS1, used for gameplay work Sony's
+  documentation reserves for I/O: a project builds its own IRX from its own C
+  and the EE hands it integer jobs over SIF RPC. Why the availability gate is a
+  MEASUREMENT and not a console-identity check (`rom0:ROMVER` tells you nothing
+  under an emulator), the measured round-trip and throughput numbers and what
+  shape of work they justify, what PCSX2 can prove and what needs a real fat
+  console, and the `sbv_patch_enable_lmb()` trap that makes a module load report
+  success and load nothing.
 - [The time machine (put the running game back)](time-machine.md) - the game
   captures everything it mutates a few times a second, the editor keeps a
   history of those captures in memory, and pushing one back puts the console

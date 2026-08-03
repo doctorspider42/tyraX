@@ -896,6 +896,24 @@ Notes:
   the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR` puts a real one
   in the game's log), and the heartbeat post-mortem (kill the game and watch the
   Debugger notice).
+- **IOP compute** (docs/iop-compute.md): fully verifiable in PCSX2 - it emulates a
+  complete IOP, so module load, SIF RPC, job results and the availability gate
+  all exercise for real. A debug build's `bin/log.txt` carries one boot line
+  (`IOP compute: ready. N job(s), ... bytes free on the IOP, round trip Nus,
+  calibration Nus vs Nus on the EE`), which IS the gate reported as data - grep
+  for it. **Run the negative test too**: turn the preference off, rebuild, and
+  that grep must come back empty while the game still runs (the header's
+  `available()` folds to a compile-time false), otherwise "the gate works" is
+  indistinguishable from "the gate happened to be true". `TYRA_LOG` compiles out
+  under `NDEBUG`, so a release build reports nothing by design - check a release
+  build by confirming the ELF got smaller and the game still boots, not by
+  looking for the line. Three claims PCSX2 canNOT settle and that must be
+  written as hardware-pending rather than verified: the real EE/IOP performance
+  ratio (PCSX2's IOP timing is not cycle-accurate), whether a long job makes
+  audsrv audio crackle under real contention, and anything about a Deckard slim
+  (PCSX2 emulates a pre-Deckard IOP). A module that loads but whose RPC never
+  binds is almost always `sbv_patch_enable_lmb()` missing - see the doc; it
+  reports success and loads nothing.
 - **Prove a release build is devkit-free**: `tyrax-editor --audit-release
   <projectDir>` reads the built ELF and exits 0 (clean) / 1 (something leaked),
   printing text/data/bss so the debug-vs-release cost is a number. Every release
@@ -998,6 +1016,7 @@ test rather than a screenshot:
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
+| IOP compute (`iop/`, the txiop codegen) | Layer 3 in PCSX2 (it emulates a full IOP) + the `bin/log.txt` boot line, AND the preference-off negative test. Performance ratios, audio contention and Deckard slims are hardware claims - say so |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |

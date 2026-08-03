@@ -329,7 +329,7 @@ INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 
 include /tyra/Makefile.base
-)";
+{{IOP_RULES}})";
 
 // Per-project container (no fixed container_name - avoids conflicts between
 // projects). The Tyra engine sources are maintained inside the editor repo
@@ -372,6 +372,7 @@ static const char* TPL_MAIN_CPP = R"(#include <tyra>
 #include <cstring>
 #include <graph.h>  // graph_get_region - the PAL-picture promotion below
 #include "terrain_game.hpp"
+#include "txiop.gen.hpp"
 
 int main(int argc, char** argv) {
   // "Run on PS2" launches this game over the network (ps2client execee).
@@ -439,6 +440,13 @@ int main(int argc, char** argv) {
   // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
   Tyra::Engine engine(options);
+  // IOP co-processor compute (docs/iop-compute.md). Must come AFTER the Engine
+  // is built: its IrxLoader is what resets the IOP and applies the SBV patch
+  // that makes loading a module from a buffer possible at all. Doing it here
+  // rather than in a frame is deliberate - init() loads the module and spends
+  // ~10 ms calibrating the IOP, which belongs in the boot. With the preference
+  // off this is an inline no-op, so the line is emitted unconditionally.
+  {{NAME_UPPER_NS}}::txiop::init();
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
   SleepThread();
@@ -20484,6 +20492,12 @@ static std::string screenFxSource(const Project& p) {
     return out.str();
 }
 
+// Defined further down with the rest of the IOP co-processor section
+// (docs/iop-compute.md): the Makefile fragment that builds the project's own
+// IRX. Emitted only when the preference is on, so a project that does not use
+// the feature never invokes the IOP compiler.
+static std::string iopMakeRules(const Project& p);
+
 static std::string fillTemplate(const Project& p, const char* tpl) {
     // docker compose project name: lowercase, must start with letter/digit
     std::string nameLower;
@@ -20507,6 +20521,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{BUILD_CFLAGS}}", dbgProfile ? "-g" : "");
     s = replaceAll(s, "{{KEEPSYM}}", dbgProfile ? "1" : "0");
     s = replaceAll(s, "{{BUILD_LIBS}}", dbgProfile ? " -leedebug" : "");
+    s = replaceAll(s, "{{IOP_RULES}}", iopMakeRules(p));
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
@@ -21620,7 +21635,8 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
                 // arrays - a type listed here and not there shifts every index
                 // in a patched graph. Keep the two lists identical.
                 if (n.type == "SetVarInt" || n.type == "VarAtLeast" ||
-                    n.type == "GetVarIntText" || n.type == "GetVarInt")
+                    n.type == "GetVarIntText" || n.type == "GetVarInt" ||
+                    n.type == "IopRunJob")
                     collect(intVars, n.str);
                 else if (n.type == "SetVarBool" || n.type == "GetVarBool")
                     collect(boolVars, n.str);
@@ -22180,6 +22196,12 @@ std::string flowGraphScript(const Project& p) {
            "Credits Finished\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n";
+    // Unconditional on purpose: with IOP compute off the header's available()
+    // is a compile-time false and every entry point is an inline no-op, so a
+    // graph carrying an IOP node still compiles - it just always takes the
+    // "no IOP" branch. Gating the include instead would make the same graph
+    // fail to build depending on a preference.
+    out << "#include \"txiop.gen.hpp\"  // IOP Available / Run IOP Job\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -23288,6 +23310,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->boolOut && flowCustomNode(n.type))
                 return "boolOut" + std::to_string(n.id);
+            if (n.type == "IopAvailable") {
+                // The gate itself (docs/iop-compute.md): the runtime already
+                // loaded the module, bound the RPC and checked that the IOP
+                // computes correctly, so this is a flag read rather than a
+                // probe. Folds to a compile-time false when the feature is off.
+                return "txiop::available()";
+            }
             if (n.type == "IsVisible") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty())
@@ -24281,6 +24310,30 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             // construct is ordinary C++ control flow with no dispatch cost.
             // Their state members are declared in the per-node state pass
             // below (one place, so the time machine's walk sees them).
+            } else if (n.type == "IopRunJob") {
+                // Blocking call, then one of two exec outputs - "no IOP" is a
+                // real branch of the graph rather than an error, because a
+                // console whose IOP cannot help is an ordinary state.
+                const int vi = varIndex(intVars, n.str);
+                const std::string ok = branch(0, pad + "  ");
+                const std::string fail = branch(1, pad + "  ");
+                c << pad << "{\n"
+                  << pad << "  const int iopArgs" << n.id << "[3] = {"
+                  << intLit(n.num[1]) << ", " << intLit(n.num[2]) << ", "
+                  << intLit(n.num[3]) << "};\n"
+                  << pad << "  int iopOut" << n.id << "[txiop::MAX_WORDS];\n"
+                  << pad << "  const int iopN" << n.id << " = txiop::call("
+                  << intLit(n.num[0]) << ", iopArgs" << n.id
+                  << ", 3, iopOut" << n.id << ", txiop::MAX_WORDS);\n"
+                  << pad << "  if (iopN" << n.id << " > 0) {\n";
+                if (vi >= 0)
+                    c << pad << "    flowInt[" << vi << "] = iopOut" << n.id
+                      << "[0];  // \"" << n.str << "\"\n";
+                else
+                    c << pad << "    // node " << n.id
+                      << " (IopRunJob): no variable named, result discarded\n";
+                c << ok << pad << "  } else {\n" << fail << pad << "  }\n"
+                  << pad << "}\n";
             } else if (n.type == "Branch") {
                 std::string cond = boolInputsOr(n);
                 if (cond.empty()) cond = "false";  // nothing wired
@@ -28203,6 +28256,829 @@ static std::string livePadSource(const Project& p) {
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// IOP co-processor compute (docs/iop-compute.md).
+//
+// The IOP is the R3000A that exists so a PS2 can be a PS1: a physical PS1 CPU
+// in a fat console, an emulation on a Deckard PowerPC in the late slims. Sony's
+// documentation says it is an I/O processor and game code has no business on
+// it; this feature is the "and yet" - a project builds its OWN IRX module, the
+// module runs the project's own C, and the EE hands it integer work over SIF
+// RPC while it gets on with the frame.
+//
+// Four things this arrangement is built around, each of them measured rather
+// than assumed (the numbers are in the doc):
+//
+//  1. THE GATE IS A MEASUREMENT, NOT AN IDENTITY. There is no honest way to ask
+//     a console "are you a fat" - rom0:ROMVER reports whatever BIOS is loaded,
+//     which under PCSX2 says nothing about the IOP being emulated. So init()
+//     loads the module, binds the RPC, and makes the IOP compute a known
+//     integer hash: available() is true only when that hash comes back CORRECT.
+//     The measured throughput is reported next to it as a number so game code
+//     can make its own call, and never gates anything by itself.
+//
+//  2. sbv_patch_enable_lmb() IS LOAD-BEARING. The BIOS loadfile RPC refuses
+//     LoadModuleBuffer until that patch is applied - without it
+//     SifExecModuleBuffer allocates the IOP buffer, returns an address that
+//     looks like a module id and loads NOTHING, silently. The engine's
+//     IrxLoader::applyRpcPatches already does it, which is the only reason
+//     this works with no engine change; if a future engine drops that call,
+//     this feature dies with no diagnostic.
+//
+//  3. THE IOP IS NOT IDLE. It polls the pad, streams audsrv audio and serves
+//     the host: filesystem in dev builds. The module's worker thread therefore
+//     runs at a LOW priority on purpose - a compute thread that outranks the
+//     things a console cannot do without buys frame rate and pays for it in
+//     crackling audio.
+//
+//  4. A CALL COSTS ~110 us ROUND TRIP. That is measurable against a 20 ms
+//     frame, so the API is asynchronous first (submit/pending/poll) and the
+//     blocking call() exists for boot-time work only.
+// ---------------------------------------------------------------------------
+
+// Whether the feature is compiled into this build at all. Unlike the devkit
+// layers this is NOT gated on the debug profile: IOP compute is a game
+// feature and ships in release.
+static bool iopComputeOn(const Project& p) { return p.settings.iopCompute; }
+
+// Payload words a job gets in each direction. Single-sourced into BOTH sides of
+// the wire (iop/txiop.h and inc/txiop.gen.hpp) so the two cannot disagree - the
+// packet is one 256-byte DMA, and the IOP is meant to chew on a little data for
+// a long time rather than be fed a lot of it.
+static constexpr int kIopMaxWords = 60;
+
+// iop/txiop.h - the protocol, shared by the module and the user's jobs.
+static const char* TPL_IOP_H =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// The wire contract between the EE and this project's IOP module. Both sides
+// include their own copy of these numbers, so changing one means changing the
+// twin in inc/txiop.gen.hpp - they are generated together from templates.cpp
+// and must never be edited apart.
+#ifndef TXIOP_H
+#define TXIOP_H
+
+#define TXIOP_RPC_ID 0x54584950 /* 'TXIP' */
+
+/* RPC function numbers. The built-ins are the framework's; every job the
+ * project writes lives behind TXIOP_FNO_JOB and is addressed by index, so a
+ * user job number is entirely the project's own namespace. */
+#define TXIOP_FNO_INFO 1
+#define TXIOP_FNO_BENCH 2
+#define TXIOP_FNO_JOB 3
+
+/* Payload words available to a job, in each direction. The whole packet is
+ * one 256-byte DMA - small on purpose: the point of the IOP is to chew on a
+ * little data for a long time, not to be fed a lot of it. */
+#define TXIOP_MAX_WORDS {{MAX_WORDS}}
+
+#define TXIOP_STATUS_OK 0
+#define TXIOP_STATUS_BAD_JOB 1  /* no such job index */
+#define TXIOP_STATUS_BAD_ARGS 2 /* inCount out of range */
+
+/* The packet. Words travel in on `data` and the job's results travel back out
+ * in the same array - one buffer, so there is one DMA each way. */
+typedef struct {
+  unsigned int job;
+  unsigned int inCount;
+  unsigned int outCount;
+  unsigned int status;
+  int data[TXIOP_MAX_WORDS];
+} TxiopPacket;
+
+/* A job: read inCount words from `in`, write at most outMax words to `out`,
+ * return how many were written. Runs on the IOP's worker thread.
+ *
+ * The IOP has NO FPU - a float here is a software-emulated crawl and the whole
+ * point of the offload is lost. Keep jobs integer. */
+typedef int (*TxiopJobFn)(const int* in, int inCount, int* out, int outMax);
+
+/* Defined by iop/user_jobs.c - the project's job table. */
+extern TxiopJobFn txiopJobs[];
+extern int txiopJobCount;
+
+#endif
+)";
+
+// iop/txiop.c - the module: an RPC server that dispatches into the job table.
+static const char* TPL_IOP_C =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// This project's IOP module. Loaded from the game's own ELF at boot (see
+// txiop::init in src/gen/txiop.gen.cpp), it registers one SIF RPC server and
+// answers three things: what kind of IOP this is, how fast it is, and "run
+// job N". The jobs themselves are yours - iop/user_jobs.c.
+#include <loadcore.h>
+#include <thbase.h>
+#include <sifcmd.h>
+#include <sysmem.h>
+
+#include "txiop.h"
+
+IRX_ID("txiop_{{NS}}", 1, 1);
+
+/* PS1-era memory-control register, still there on the IOP: reported to the
+ * editor as an identity HINT. Never used as a gate - see the header. */
+#define IOP_RAM_SIZE_REG 0xBF801060
+
+static SifRpcDataQueue_t g_queue __attribute__((aligned(64)));
+static SifRpcServerData_t g_server __attribute__((aligned(64)));
+static TxiopPacket g_packet __attribute__((aligned(64)));
+
+/* The calibration workload. Pure integer, one register's worth of state, no
+ * memory traffic - so what it measures is the CPU rather than the bus, and it
+ * is identical arithmetic on the EE. The EE runs the same loop and compares
+ * BOTH the timing and the result; a mismatched hash is what makes
+ * txiop::available() false. */
+unsigned int txiopCalibrate(unsigned int iters) {
+  unsigned int h = 2166136261u;
+  unsigned int i;
+  for (i = 0; i < iters; i++) {
+    h ^= i;
+    h *= 16777619u;
+    h += (h << 3);
+    h ^= (h >> 11);
+  }
+  return h;
+}
+
+static void* rpcHandler(int fno, void* buf, int size) {
+  TxiopPacket* pk = (TxiopPacket*)buf;
+  (void)size;
+  pk->status = TXIOP_STATUS_OK;
+  pk->outCount = 0;
+
+  switch (fno) {
+    case TXIOP_FNO_INFO:
+      pk->data[0] = (int)(*(volatile unsigned int*)IOP_RAM_SIZE_REG);
+      pk->data[1] = (int)QueryTotalFreeMemSize();
+      pk->data[2] = 0x00010001; /* module version, mirrors IRX_ID */
+      pk->data[3] = (int)TXIOP_RPC_ID;
+      pk->data[4] = txiopJobCount;
+      pk->outCount = 5;
+      break;
+
+    case TXIOP_FNO_BENCH: {
+      iop_sys_clock_t t0, t1;
+      unsigned int iters = (unsigned int)pk->data[0];
+      unsigned int result;
+      GetSystemTime(&t0);
+      result = txiopCalibrate(iters);
+      GetSystemTime(&t1);
+      /* Raw ticks of the 36.864 MHz system clock; the EE converts, so the
+       * conversion exists once. */
+      pk->data[0] = (int)(t1.lo - t0.lo);
+      pk->data[1] = (int)result;
+      pk->outCount = 2;
+      break;
+    }
+
+    case TXIOP_FNO_JOB: {
+      unsigned int job = pk->job;
+      if (pk->inCount > TXIOP_MAX_WORDS) {
+        pk->status = TXIOP_STATUS_BAD_ARGS;
+        break;
+      }
+      if (job >= (unsigned int)txiopJobCount || txiopJobs[job] == 0) {
+        pk->status = TXIOP_STATUS_BAD_JOB;
+        break;
+      }
+      {
+        int n = txiopJobs[job](pk->data, (int)pk->inCount, pk->data,
+                               TXIOP_MAX_WORDS);
+        if (n < 0) n = 0;
+        if (n > TXIOP_MAX_WORDS) n = TXIOP_MAX_WORDS;
+        pk->outCount = (unsigned int)n;
+      }
+      break;
+    }
+
+    default:
+      pk->status = TXIOP_STATUS_BAD_JOB;
+      break;
+  }
+  return buf;
+}
+
+static void serverThread(void* arg) {
+  (void)arg;
+  SifInitRpc(0);
+  SifSetRpcQueue(&g_queue, GetThreadId());
+  SifRegisterRpc(&g_server, TXIOP_RPC_ID, rpcHandler, &g_packet, NULL, NULL,
+                 &g_queue);
+  SifRpcLoop(&g_queue);
+}
+
+int _start(int argc, char** argv) {
+  iop_thread_t th;
+  int tid;
+  (void)argc;
+  (void)argv;
+
+  th.attr = TH_C;
+  th.option = 0;
+  th.thread = serverThread;
+  th.stacksize = 0x2000;
+  /* Deliberately LOW priority (a bigger number is a lower priority here). The
+   * IOP still owns pad polling, audsrv streaming and the host: filesystem; a
+   * compute thread that outranks them trades frame rate for crackling audio
+   * and stalled asset loads. Jobs are expected to be long, so they must yield
+   * the CPU rather than outrank the console's own work. */
+  th.priority = 0x50;
+
+  tid = CreateThread(&th);
+  if (tid <= 0) return MODULE_NO_RESIDENT_END;
+  StartThread(tid, NULL);
+
+  return MODULE_RESIDENT_END;
+}
+)";
+
+// iop/imports.lst - the IOP import tables the module links against.
+static const char* TPL_IOP_IMPORTS =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// IOP kernel functions this module imports. A job that needs more (memory
+// allocation, semaphores) adds the matching block here - but note the file is
+// regenerated, so a project that needs its own set takes ownership of the
+// generated Makefile rule instead. See docs/iop-compute.md.
+//
+// C++ comments, not '#': the Makefile pastes this file into a .c after an
+// #include line, so the C preprocessor reads every line here - a '#' comment
+// arrives as an unknown directive and the module fails to compile.
+#include <loadcore.h>
+loadcore_IMPORTS_start
+I_FlushDcache
+loadcore_IMPORTS_end
+
+#include <thbase.h>
+thbase_IMPORTS_start
+I_CreateThread
+I_StartThread
+I_GetThreadId
+I_GetSystemTime
+I_DelayThread
+thbase_IMPORTS_end
+
+#include <sifcmd.h>
+sifcmd_IMPORTS_start
+I_sceSifInitRpc
+I_sceSifSetRpcQueue
+I_sceSifRegisterRpc
+I_sceSifRpcLoop
+sifcmd_IMPORTS_end
+
+#include <sysmem.h>
+sysmem_IMPORTS_start
+I_QueryTotalFreeMemSize
+I_Kprintf
+sysmem_IMPORTS_end
+)";
+
+// iop/user_jobs.c - USER-OWNABLE. This is the file the feature exists for.
+static const char* TPL_IOP_USER_JOBS =
+    R"(// Generated by TyraX. Delete this line to take ownership of this file.
+//
+// Your code, running on the IOP. Add a function, add it to the table at the
+// bottom, and the EE can call it by index - from a script (txiop::call /
+// txiop::submit) or from the "Run IOP Job" flow node.
+//
+// Three rules, all of them consequences of what the IOP is:
+//
+//   * INTEGER ONLY. The IOP has no FPU, so a float here is a software-emulated
+//     crawl. Pass fixed point if you need fractions (the example below does).
+//   * NO libc. This is a bare IRX: no malloc, no printf, no memcpy unless you
+//     import it in iop/imports.lst. Static arrays and plain loops.
+//   * BE WORTH THE TRIP. One call costs ~110 us round trip, so a job that
+//     takes 10 us is slower than doing it on the EE. Jobs should be chunky and
+//     their results should be awaited asynchronously.
+//
+// The IOP is also not yours alone - it runs the pad, the audio and the dev
+// filesystem. A job that spins for a whole frame will be felt elsewhere.
+#include "txiop.h"
+
+// Job 0: sum of squares of the inputs. The "hello world" - it proves the round
+// trip carries data both ways and that the arithmetic happened over there.
+static int jobSumSquares(const int* in, int inCount, int* out, int outMax) {
+  int i;
+  int acc = 0;
+  if (outMax < 1) return 0;
+  for (i = 0; i < inCount; i++) acc += in[i] * in[i];
+  out[0] = acc;
+  return 1;
+}
+
+// Job 1: an integer Mandelbrot escape count in 16.16 fixed point - a real
+// workload rather than a toy. in[0]=cx, in[1]=cy (16.16), in[2]=max
+// iterations; out[0] = the escape iteration. Chunky enough to be worth the
+// round trip and a fair demonstration of what the IOP costs: it is the same
+// arithmetic the EE would do, just on a CPU that is several times slower and
+// otherwise idle.
+static int jobMandelIter(const int* in, int inCount, int* out, int outMax) {
+  int cx, cy, maxIter, i;
+  int zx = 0, zy = 0;
+  if (inCount < 3 || outMax < 1) return 0;
+  cx = in[0];
+  cy = in[1];
+  maxIter = in[2];
+  if (maxIter > 100000) maxIter = 100000;
+  for (i = 0; i < maxIter; i++) {
+    /* 16.16 multiply: (a*b) >> 16, kept in 32 bits, so the orbit is clamped
+     * rather than wrapped when it escapes. */
+    int zx2 = (int)(((long long)zx * zx) >> 16);
+    int zy2 = (int)(((long long)zy * zy) >> 16);
+    if (zx2 + zy2 > (4 << 16)) break;
+    {
+      int nzx = zx2 - zy2 + cx;
+      int nzy = (int)(((long long)zx * zy) >> 15) + cy;
+      zx = nzx;
+      zy = nzy;
+    }
+  }
+  out[0] = i;
+  return 1;
+}
+
+// The table the module dispatches through. The index IS the job number game
+// code and the flow node use, so appending is safe and reordering is not.
+TxiopJobFn txiopJobs[] = {
+    jobSumSquares,
+    jobMandelIter,
+};
+int txiopJobCount = (int)(sizeof(txiopJobs) / sizeof(txiopJobs[0]));
+)";
+
+// The Makefile fragment that builds the module. Lives in the generated project
+// Makefile rather than in the engine's Makefile.base for two reasons: the
+// engine needs no change at all, and a project with the feature off pays
+// nothing - no IOP compiler is invoked and no rules exist.
+static const char* TPL_IOP_MAKE_RULES =
+    R"(
+#--- IOP co-processor module (Project > Preferences > Build; docs/iop-compute.md)
+# AFTER the include, and that is not cosmetic: GNU make takes the FIRST target
+# it sees as the default goal, so with this block above the include the
+# dependency line below became the default goal and `make` stopped building the
+# ELF at all - it answered "obj/gen/txiop.o is up to date" and exited 0.
+# Built with the IOP toolchain in the same container as the game, then embedded
+# into the ELF by the .irx-em rule in Makefile.base (bin2s). obj/gen/txiop.o is
+# that embedding step, so it is what has to wait for the module.
+#
+# The built .irx lands in $(BUILDDIR), NOT in iop/: the editor's Runner rsyncs
+# the project sources into the container and only syncs bin/ back, so a build
+# artefact sitting in the source tree is one the next sync can wipe - which
+# would quietly rebuild the module on every build.
+IOPCC       := mipsel-ps2-irx-gcc
+IOPDIR      := iop
+# -fno-builtin: the IOP kernel is not libc and GCC must not assume it is.
+# -msoft-float / -mno-explicit-relocs: required by the IOP ABI - the latter
+# because the kernel's loader cannot deal with the multiple LO relocs newer
+# GCC emits after one HI reloc.
+IOP_CFLAGS  := -D_IOP -fno-builtin -G0 -O2 -Wall -msoft-float \
+               -mno-explicit-relocs -I$(IOPDIR) \
+               -I$(PS2SDK)/iop/include -I$(PS2SDK)/common/include
+IOP_MODOBJS := $(BUILDDIR)/iop/txiop.$(OBJEXT) \
+               $(BUILDDIR)/iop/user_jobs.$(OBJEXT) \
+               $(BUILDDIR)/iop/imports.$(OBJEXT)
+
+$(BUILDDIR)/gen/txiop.$(OBJEXT): $(BUILDDIR)/iop/txiop.irx
+
+$(BUILDDIR)/iop/txiop.irx: $(IOP_MODOBJS)
+	$(IOPCC) -nostdlib -s -o $@ $^
+
+# -fno-toplevel-reorder for the import table only: GCC's reordering breaks the
+# table apart and the module then fails to resolve at load time.
+$(BUILDDIR)/iop/imports.c: $(IOPDIR)/imports.lst
+	@mkdir -p $(dir $@)
+	@echo '#include "irx.h"' > $@
+	@cat $< >> $@
+
+$(BUILDDIR)/iop/imports.$(OBJEXT): $(BUILDDIR)/iop/imports.c
+	@mkdir -p $(dir $@)
+	$(IOPCC) $(IOP_CFLAGS) -fno-toplevel-reorder -c $< -o $@
+
+$(BUILDDIR)/iop/%.$(OBJEXT): $(IOPDIR)/%.c $(IOPDIR)/txiop.h
+	@mkdir -p $(dir $@)
+	$(IOPCC) $(IOP_CFLAGS) -c $< -o $@
+)";
+
+// inc/txiop.gen.hpp, ON - the EE-side API. Always emitted; this is the seam
+// that makes a call site compile whether or not the feature is on.
+static const char* TPL_IOP_HPP_ON =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// IOP co-processor compute (docs/iop-compute.md). Hand integer work to the
+// R3000A that is a PS1 CPU in a fat PS2, and get on with the frame.
+//
+// ALWAYS ASK available() FIRST. It is false whenever the module did not load,
+// the RPC did not bind, or the IOP got the calibration arithmetic wrong - and
+// every entry point below is a no-op in that state, so a caller that forgets
+// the check gets nothing done rather than wrong answers. There is no path in
+// which this blocks waiting for a console that cannot answer.
+#pragma once
+
+namespace {{NS}} {
+namespace txiop {
+
+// Compile-time seam. With the feature off this is false, available() folds to
+// false, and the runtime is an empty translation unit.
+constexpr bool ENABLED = true;
+
+// Keep in step with iop/txiop.h - the two are generated together.
+constexpr int MAX_WORDS = {{MAX_WORDS}};
+constexpr int STATUS_OK = 0;
+constexpr int STATUS_BAD_JOB = 1;
+constexpr int STATUS_BAD_ARGS = 2;
+
+// What init() found. Reported for the editor's Debug window and for game code
+// that wants to decide for itself; only `verified` gates anything.
+struct Info {
+  bool loaded;           // the module reached the IOP and stayed resident
+  bool bound;            // its RPC server answered
+  bool verified;         // and it computed the calibration hash CORRECTLY
+  int moduleId;
+  unsigned ramSizeReg;   // IOP memory-control register - an identity hint only
+  unsigned freeMem;      // free IOP RAM, bytes: what a job's arrays must fit in
+  unsigned moduleVersion;
+  int jobCount;          // entries in the project's iop/user_jobs.c table
+  unsigned iopUs;        // calibration workload, measured on the IOP
+  unsigned eeUs;         // the same workload, measured on the EE
+  float ratio;           // iopUs / eeUs - above 1 means the IOP is slower
+  unsigned roundTripUs;  // cost of one empty RPC round trip
+};
+
+// Loads the module and calibrates. Called once from main.cpp before the game
+// runs, so the ~10 ms calibration lands in the boot rather than in a frame.
+// Calling it again does nothing.
+void init();
+
+// The gate. Cheap - init() already did the work.
+bool available();
+
+const Info& info();
+
+// Blocking: submit, wait, return the number of words written to `out`, or -1
+// when unavailable or the job was rejected. Costs the full round trip, so this
+// is for load-time work - never call it from a frame.
+int call(int job, const int* in, int inCount, int* out, int outMax);
+
+// Asynchronous, which is how a frame should use the IOP: submit() hands the
+// work over and returns immediately, poll() picks the answer up in some later
+// frame. One job is in flight at a time; submit() returns false while another
+// is still pending (or when unavailable).
+bool submit(int job, const int* in, int inCount);
+bool pending();
+// True exactly once per completed job, when its results have been copied out.
+bool poll(int* out, int outMax, int* outCount);
+
+}  // namespace txiop
+}  // namespace {{NS}}
+)";
+
+// inc/txiop.gen.hpp, OFF - the same names, all folding to nothing.
+static const char* TPL_IOP_HPP_OFF =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// IOP co-processor compute is OFF for this project (Project > Preferences >
+// Build; docs/iop-compute.md), so this header is the inert half of the seam:
+// available() is a compile-time false and every entry point folds away, which
+// is what lets game code and flow graphs call it unconditionally.
+#pragma once
+
+namespace {{NS}} {
+namespace txiop {
+
+constexpr bool ENABLED = false;
+constexpr int MAX_WORDS = {{MAX_WORDS}};
+constexpr int STATUS_OK = 0;
+constexpr int STATUS_BAD_JOB = 1;
+constexpr int STATUS_BAD_ARGS = 2;
+
+struct Info {
+  bool loaded;
+  bool bound;
+  bool verified;
+  int moduleId;
+  unsigned ramSizeReg;
+  unsigned freeMem;
+  unsigned moduleVersion;
+  int jobCount;
+  unsigned iopUs;
+  unsigned eeUs;
+  float ratio;
+  unsigned roundTripUs;
+};
+
+inline void init() {}
+inline bool available() { return false; }
+inline const Info& info() {
+  static const Info none = {false, false, false, -1, 0, 0, 0, 0, 0, 0, 0.0F, 0};
+  return none;
+}
+inline int call(int, const int*, int, int*, int) { return -1; }
+inline bool submit(int, const int*, int) { return false; }
+inline bool pending() { return false; }
+inline bool poll(int*, int, int*) { return false; }
+
+}  // namespace txiop
+}  // namespace {{NS}}
+)";
+
+// src/gen/txiop.gen.cpp, ON.
+static const char* TPL_IOP_CPP =
+    R"(// Generated by TyraX. Do not edit - regenerated on every build.
+//
+// IOP co-processor runtime (docs/iop-compute.md). Loads this project's own IRX
+// out of the game ELF, binds its RPC server, proves the IOP computes correctly,
+// and brokers jobs.
+#include <kernel.h>
+#include <loadfile.h>
+#include <sbv_patches.h>
+#include <sifrpc.h>
+#include <tyra>
+
+#include "txiop.gen.hpp"
+
+// bin2s embeds iop/txiop.irx into the ELF under these two C symbols (the
+// .irx-em rule in Makefile.base). They are C, so they need the linkage spelt
+// out here.
+extern "C" {
+extern unsigned char txiop_irx[];
+extern int size_txiop_irx;
+}
+
+namespace {{NS}} {
+namespace txiop {
+
+namespace {
+
+// Mirrors TxiopPacket in iop/txiop.h. 64-byte aligned because that is what the
+// SIF DMA wants either side of the bus.
+struct Packet {
+  unsigned int job;
+  unsigned int inCount;
+  unsigned int outCount;
+  unsigned int status;
+  int data[MAX_WORDS];
+};
+
+Packet g_packet __attribute__((aligned(64)));
+SifRpcClientData_t g_client __attribute__((aligned(64)));
+
+Info g_info = {false, false, false, -1, 0, 0, 0, 0, 0, 0, 0.0F, 0};
+bool g_inited = false;
+bool g_pending = false;
+
+// RPC function numbers - keep in step with iop/txiop.h.
+constexpr unsigned RPC_ID = 0x54584950u;  // 'TXIP'
+constexpr int FNO_INFO = 1;
+constexpr int FNO_BENCH = 2;
+constexpr int FNO_JOB = 3;
+
+// Iterations of the calibration loop. Small enough that the boot cost is a few
+// milliseconds, large enough that the measurement is not dominated by the
+// round trip.
+constexpr unsigned CALIBRATE_ITERS = 20000;
+
+// The EE's COP0 cycle counter runs at half the 294.912 MHz core clock.
+constexpr unsigned EE_TICKS_PER_US = 147;
+// The IOP's system clock, as reported by GetSystemTime.
+constexpr unsigned IOP_TICKS_PER_US = 36;
+
+inline unsigned eeCount() {
+  unsigned c;
+  __asm__ __volatile__("mfc0 %0, $9" : "=r"(c));
+  return c;
+}
+
+// The twin of txiopCalibrate() in iop/txiop.c - the same arithmetic, so a
+// matching result proves the IOP ran OUR code and got it right. Change one and
+// the check starts failing, which is the intended alarm.
+unsigned calibrateEe(unsigned iters) {
+  unsigned h = 2166136261u;
+  for (unsigned i = 0; i < iters; i++) {
+    h ^= i;
+    h *= 16777619u;
+    h += (h << 3);
+    h ^= (h >> 11);
+  }
+  return h;
+}
+
+// A packet crosses the bus by DMA, which does not see the EE's data cache.
+// PCSX2 does not model that, so skipping this looks fine in the emulator and
+// hands the IOP stale words on a console.
+inline void flushPacket() { FlushCache(0); }
+
+bool bindServer() {
+  for (int tries = 0; tries < 64; tries++) {
+    if (SifBindRpc(&g_client, RPC_ID, 0) >= 0 &&
+        g_client.server != nullptr)
+      return true;
+    // The module's server thread is low priority on purpose, so give the IOP
+    // room to get there. A bounded wait, never a spin forever: "there is no
+    // IOP compute" has to be an answer, not a hang.
+    for (volatile int i = 0; i < 200000; i++) {
+    }
+  }
+  return false;
+}
+
+int callSync(int fno, Packet* pk) {
+  flushPacket();
+  if (SifCallRpc(&g_client, fno, 0, pk, sizeof(Packet), pk, sizeof(Packet),
+                 nullptr, nullptr) < 0)
+    return -1;
+  return 0;
+}
+
+}  // namespace
+
+void init() {
+  if (g_inited) return;
+  g_inited = true;
+
+  // The BIOS loadfile RPC refuses LoadModuleBuffer until this patch is
+  // applied: without it SifExecModuleBuffer allocates an IOP buffer, returns
+  // something that looks like a module id and loads NOTHING, with no error.
+  // The engine's IrxLoader already applies it; doing it again is harmless and
+  // makes this runtime self-contained if that ever changes.
+  sbv_patch_enable_lmb();
+
+  int modres = 0;
+  const int id = SifExecModuleBuffer(txiop_irx, size_txiop_irx, 0, nullptr,
+                                     &modres);
+  g_info.moduleId = id;
+  g_info.loaded = (id >= 0 && modres == 0);
+  if (!g_info.loaded) {
+    TYRA_WARN("IOP compute: module did not load (id ", id, ", res ", modres,
+              ") - running everything on the EE.");
+    return;
+  }
+
+  g_info.bound = bindServer();
+  if (!g_info.bound) {
+    TYRA_WARN("IOP compute: module loaded but its RPC never answered.");
+    return;
+  }
+
+  // What is over there.
+  g_packet.job = 0;
+  g_packet.inCount = 0;
+  if (callSync(FNO_INFO, &g_packet) == 0 && g_packet.outCount >= 5) {
+    g_info.ramSizeReg = (unsigned)g_packet.data[0];
+    g_info.freeMem = (unsigned)g_packet.data[1];
+    g_info.moduleVersion = (unsigned)g_packet.data[2];
+    g_info.jobCount = g_packet.data[4];
+  }
+
+  // One empty round trip, measured - the number that decides whether a job is
+  // worth sending at all.
+  {
+    const unsigned t0 = eeCount();
+    callSync(FNO_INFO, &g_packet);
+    const unsigned t1 = eeCount();
+    g_info.roundTripUs = (t1 - t0) / EE_TICKS_PER_US;
+  }
+
+  // The gate: make the IOP compute a known hash, and time the same loop here.
+  {
+    g_packet.data[0] = (int)CALIBRATE_ITERS;
+    g_packet.inCount = 1;
+    const unsigned t0 = eeCount();
+    const int rc = callSync(FNO_BENCH, &g_packet);
+    const unsigned t1 = eeCount();
+    const unsigned iopTicks = (unsigned)g_packet.data[0];
+    const unsigned iopHash = (unsigned)g_packet.data[1];
+
+    const unsigned e0 = eeCount();
+    const unsigned eeHash = calibrateEe(CALIBRATE_ITERS);
+    const unsigned e1 = eeCount();
+
+    g_info.iopUs = iopTicks / IOP_TICKS_PER_US;
+    g_info.eeUs = (e1 - e0) / EE_TICKS_PER_US;
+    g_info.ratio = g_info.eeUs ? (float)g_info.iopUs / (float)g_info.eeUs : 0.0F;
+    (void)t0;
+    (void)t1;
+
+    // Identity is not checkable (rom0:ROMVER reports the BIOS, which says
+    // nothing under an emulator), so correctness is the gate instead: an IOP
+    // that returns our hash ran our code properly.
+    g_info.verified = (rc == 0 && iopHash == eeHash);
+    if (!g_info.verified)
+      TYRA_WARN("IOP compute: calibration mismatch (iop ", iopHash, " vs ee ",
+                eeHash, ") - refusing to use the IOP.");
+  }
+
+  if (g_info.verified)
+    TYRA_LOG("IOP compute: ready. ", g_info.jobCount, " job(s), ",
+             g_info.freeMem, " bytes free on the IOP, round trip ",
+             g_info.roundTripUs, "us, calibration ", g_info.iopUs, "us vs ",
+             g_info.eeUs, "us on the EE.");
+}
+
+bool available() { return g_info.verified; }
+
+const Info& info() { return g_info; }
+
+int call(int job, const int* in, int inCount, int* out, int outMax) {
+  if (!available() || g_pending) return -1;
+  if (inCount < 0 || inCount > MAX_WORDS) return -1;
+
+  g_packet.job = (unsigned)job;
+  g_packet.inCount = (unsigned)inCount;
+  g_packet.outCount = 0;
+  g_packet.status = STATUS_OK;
+  for (int i = 0; i < inCount; i++) g_packet.data[i] = in[i];
+
+  if (callSync(FNO_JOB, &g_packet) != 0) return -1;
+  if (g_packet.status != STATUS_OK) return -1;
+
+  int n = (int)g_packet.outCount;
+  if (n > outMax) n = outMax;
+  for (int i = 0; i < n; i++) out[i] = g_packet.data[i];
+  return n;
+}
+
+bool submit(int job, const int* in, int inCount) {
+  if (!available() || g_pending) return false;
+  if (inCount < 0 || inCount > MAX_WORDS) return false;
+
+  g_packet.job = (unsigned)job;
+  g_packet.inCount = (unsigned)inCount;
+  g_packet.outCount = 0;
+  g_packet.status = STATUS_OK;
+  for (int i = 0; i < inCount; i++) g_packet.data[i] = in[i];
+
+  flushPacket();
+  if (SifCallRpc(&g_client, FNO_JOB, SIF_RPC_M_NOWAIT, &g_packet,
+                 sizeof(Packet), &g_packet, sizeof(Packet), nullptr,
+                 nullptr) < 0)
+    return false;
+  g_pending = true;
+  return true;
+}
+
+bool pending() { return g_pending; }
+
+bool poll(int* out, int outMax, int* outCount) {
+  if (!g_pending) return false;
+  // Non-zero while the request is still in flight.
+  if (SifCheckStatRpc(&g_client)) return false;
+
+  g_pending = false;
+  int n = (g_packet.status == STATUS_OK) ? (int)g_packet.outCount : 0;
+  if (n > outMax) n = outMax;
+  for (int i = 0; i < n; i++) out[i] = g_packet.data[i];
+  if (outCount) *outCount = n;
+  return true;
+}
+
+}  // namespace txiop
+}  // namespace {{NS}}
+)";
+
+
+static std::string iopHeader(const Project& p) {
+    std::string s = iopComputeOn(p) ? TPL_IOP_HPP_ON : TPL_IOP_HPP_OFF;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{MAX_WORDS}}", std::to_string(kIopMaxWords));
+    return s;
+}
+
+static std::string iopSource(const Project& p) {
+    if (!iopComputeOn(p))
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// IOP compute: nothing to compile here - the \"IOP "
+               "compute\" preference is\n// off (Project > Preferences > "
+               "Build). The header's available() is a\n// compile-time false, "
+               "so call sites fold away. See docs/iop-compute.md.\n";
+    std::string s = TPL_IOP_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    return s;
+}
+
+static std::string iopModuleSource(const Project& p) {
+    return replaceAll(TPL_IOP_C, "{{NS}}", sanitizeNamespace(p.name));
+}
+
+static std::string iopProtocolHeader(const Project& p) {
+    (void)p;
+    return replaceAll(TPL_IOP_H, "{{MAX_WORDS}}", std::to_string(kIopMaxWords));
+}
+
+// src/gen/txiop.irx-em - the two-line file Makefile.base's bin2s rule reads:
+// line 1 is the module to embed, line 2 the symbol prefix it gets in the ELF
+// (txiop_irx / size_txiop_irx, which src/gen/txiop.gen.cpp declares extern
+// "C"). No comment header is possible - the format IS those two lines.
+static std::string iopIrxEmbedFile(const Project& p) {
+    (void)p;
+    return "obj/iop/txiop.irx\ntxiop_irx\n";
+}
+
+static std::string iopMakeRules(const Project& p) {
+    return iopComputeOn(p) ? TPL_IOP_MAKE_RULES : "";
+}
+
 // src/gen/live_tex.gen.cpp - texture hot reload (docs/live-link.md), the
 // Live Link sibling: the editor re-bakes a repainted texture into bin/ and
 // announces it in bin/livetex.bin; this poller re-decodes the PNG and
@@ -31673,7 +32549,7 @@ std::vector<File> generate(const Project& p) {
         fill(fpp ? TPL_GAME_CPP_FPP_TAIL : TPL_GAME_CPP_ORBIT_TAIL) +
         fill(TPL_GAME_CPP_FOOTER);
 
-    return {
+    std::vector<File> files = {
         {"Makefile", fill(TPL_MAKEFILE)},
         {"docker-compose.yml", fill(TPL_COMPOSE)},
         {"src\\main.cpp", fill(TPL_MAIN_CPP)},
@@ -31718,6 +32594,8 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\live_debug.gen.cpp", liveDebugSource(p)},
         {"src\\gen\\livedbg.sym", liveDebugSymFile(p)},
         {"src\\gen\\live_time.gen.cpp", liveTimeSource(p)},
+        {"inc\\txiop.gen.hpp", iopHeader(p)},
+        {"src\\gen\\txiop.gen.cpp", iopSource(p)},
         {"inc\\live_pad.gen.hpp", livePadHeader(p)},
         {"src\\gen\\live_pad.gen.cpp", livePadSource(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
@@ -31742,6 +32620,22 @@ std::vector<File> generate(const Project& p) {
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
     };
+
+    // The IOP module's own sources are the one part of a project that is
+    // emitted CONDITIONALLY (docs/iop-compute.md). It has to be: the .irx-em
+    // file is what makes Makefile.base run bin2s and the Makefile rules build
+    // an IRX, so leaving it on disk for a project with the feature off would
+    // invoke the IOP toolchain on every build for nothing. project::
+    // refreshGenerated deletes a stale .irx-em for exactly that reason -
+    // iop/user_jobs.c is left alone, because that file is the user's code.
+    if (iopComputeOn(p)) {
+        files.push_back({"iop\\txiop.h", iopProtocolHeader(p)});
+        files.push_back({"iop\\txiop.c", iopModuleSource(p)});
+        files.push_back({"iop\\imports.lst", TPL_IOP_IMPORTS});
+        files.push_back({"iop\\user_jobs.c", TPL_IOP_USER_JOBS});
+        files.push_back({"src\\gen\\txiop.irx-em", iopIrxEmbedFile(p)});
+    }
+    return files;
 }
 
 }  // namespace templates

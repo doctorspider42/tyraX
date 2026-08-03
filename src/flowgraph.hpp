@@ -2049,6 +2049,55 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "release build emits nothing). The printf of the graph."},
         // Logic gates: the bool input pin accepts several links - the gates
         // fold over all of them.
+        // IOP co-processor compute (docs/iop-compute.md). Its own category
+        // because the whole point of these two is that they are about WHERE
+        // work runs, not what it does - and because they are useless apart:
+        // nothing may call Run IOP Job without having asked IOP Available
+        // first, and having them next to each other in the add menu is what
+        // makes that obvious.
+        {.key = "IopAvailable", .title = "IOP Available", .category = "IOP",
+         .pure = true, .boolOut = true,
+         .desc = "True when this console's IOP - the R3000A that is a physical "
+                 "PS1 CPU in a fat PS2 - is actually usable for computing: the "
+                 "project's IOP module loaded, its RPC answered, AND it "
+                 "returned the right answer to a calibration sum. False on "
+                 "anything else, including a build with the IOP compute "
+                 "preference off, so a graph can be written once and simply "
+                 "take the EE path on hardware that cannot help. Note there is "
+                 "deliberately no \"am I a fat PS2\" node: console identity "
+                 "cannot be read honestly (the BIOS version says nothing under "
+                 "an emulator), so this reports a measured capability instead."},
+        {.key = "IopRunJob", .title = "Run IOP Job", .category = "IOP",
+         .strKind = FlowParamKind::VarName,
+         .strTip = "Flow variable the job's first result word is written to. "
+                   "Read it back with Get Int.",
+         .numCount = 4,
+         .numLabels = {"Job", "Arg 1", "Arg 2", "Arg 3"},
+         .numTips = {"Index into this project's job table - the order the "
+                     "functions appear in iop/user_jobs.c, counting from 0. "
+                     "Appending a job is safe; reordering them silently "
+                     "repoints every graph.",
+                     "First integer handed to the job. The IOP has no FPU, so "
+                     "these are rounded to whole numbers - pass fixed point if "
+                     "you need fractions.",
+                     "Second integer handed to the job.",
+                     "Third integer handed to the job."},
+         .execOutCount = 2,
+         .execOutLabels = {"done", "no IOP"},
+         .desc = "Runs one of this project's own IOP jobs (iop/user_jobs.c) and "
+                 "stores its first result word in a flow variable. Continues on "
+                 "\"done\" when the IOP answered, and on \"no IOP\" when the "
+                 "job did not run - so the fallback path is part of the graph "
+                 "rather than something to remember. This node BLOCKS until the "
+                 "job returns: one round trip costs 150-200us on top of the job "
+                 "itself, which is measurable against a 20ms frame, so keep jobs "
+                 "short here and use a script (txiop::submit / txiop::poll) when "
+                 "the work is long enough to want overlapping with the frame. "
+                 "Note the module serves ONE request at a time, so this node "
+                 "also takes its \"no IOP\" output when a script already has a "
+                 "job in flight - if a scene both scripts the IOP per frame and "
+                 "runs this node, they contend and the node is the one that "
+                 "loses."},
         {.key = "And", .title = "AND", .category = "Logic", .pure = true,
          .boolIn = true, .boolOut = true,
          .desc = "Pure bool gate: AND over all wired bool inputs."},

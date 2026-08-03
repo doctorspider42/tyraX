@@ -877,6 +877,16 @@ struct ProjectSettings {
     // file and the generated runtime is an empty translation unit.
     bool remotePad = true;
 
+    // IOP co-processor compute (docs/iop-compute.md): build the project's own
+    // IRX module and let game code hand integer work to the IOP - the R3000A
+    // that is a physical PS1 CPU in a fat PS2 and an emulation on a Deckard
+    // slim. NOT a devkit layer: it ships in release builds like any other game
+    // feature. Off by default because it is opt-in per project and the
+    // throughput it buys is hardware-dependent - the runtime measures the IOP
+    // it actually landed on and reports `available() == false` rather than
+    // guessing (a wrong guess would run gameplay work on the wrong CPU).
+    bool iopCompute = false;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -1184,7 +1194,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
-           a.remotePad == b.remotePad &&
+           a.remotePad == b.remotePad && a.iopCompute == b.iopCompute &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
