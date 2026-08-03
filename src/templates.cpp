@@ -9417,6 +9417,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
+    // ...and with the day/night handover: the light direction swaps from the sun
+    // to the moon (or back) at the middle of twilight, so the shadow it throws
+    // goes out and comes back rather than jumping to the other side of the
+    // caster (docs/day-night-cycle.md).
+    if (daynight::active(currentScene)) fade *= daynight::g_shadowFade;
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -9941,7 +9946,9 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 55.0F * sfade[s];
+    // sfade = the distance fade; the day/night factor is the twilight handover
+    // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
+    b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }
@@ -18658,6 +18665,11 @@ static std::string dayNightHeader(const Project& p) {
            "inline float g_top[3] = {0.0F, 0.0F, 0.0F};\n"
            "inline float g_fog[3] = {0.0F, 0.0F, 0.0F};\n"
            "inline float g_stars = 0.0F, g_sunRad = 0.0F, g_moonRad = 0.0F;\n"
+           "// 0..1, how much of a cast shadow the live light is entitled to\n"
+           "// throw: 1 while one body owns the sky, 0 across the handover where\n"
+           "// the direction swaps (ambience::Resolved::shadowFade). Projected\n"
+           "// silhouettes and blob shadows multiply their alpha by it.\n"
+           "inline float g_shadowFade = 1.0F;\n"
            "inline float g_moonRoll = 0.0F;\n"
            "inline float g_gain[3] = {1.0F, 1.0F, 1.0F};\n"
            "inline float g_lift[3] = {0.0F, 0.0F, 0.0F};\n"
@@ -18779,10 +18791,18 @@ static std::string dayNightHeader(const Project& p) {
            "  // why the 4*w*(1-w) pull is not optional.\n"
            "  float w = clampf((sunElev + 6.0F) / 12.0F, 0.0F, 1.0F);\n"
            "  w = w * w * (3.0F - 2.0F * w);\n"
-           "  const float pull = 4.0F * w * (1.0F - w);\n"
+           "  // The dominant body OWNS the direction - never a blend of the two.\n"
+           "  // They are near-opposite at the crossover, so a weighted sum\n"
+           "  // cancels (a 180-degree shadow flip) and rescuing it with a zenith\n"
+           "  // term points the light straight up (shadows vanish, then come\n"
+           "  // back from the wrong side). g_shadowFade below is what makes the\n"
+           "  // switch invisible instead. See ambience::evaluate - the twin.\n"
            "  float L[3];\n"
-           "  for (int i = 0; i < 3; ++i) L[i] = w * g_sun[i] + (1.0F - w) * g_moon[i];\n"
-           "  L[1] += pull;\n"
+           "  for (int i = 0; i < 3; ++i) L[i] = w >= 0.5F ? g_sun[i] : g_moon[i];\n"
+           "  {\n"
+           "    const float sf = fabsf(2.0F * w - 1.0F);\n"
+           "    g_shadowFade = sf * sf * (3.0F - 2.0F * sf);\n"
+           "  }\n"
            "  {\n"
            "    const float l = sqrtf(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);\n"
            "    if (l > 1e-6F) {\n"
@@ -18801,10 +18821,10 @@ static std::string dayNightHeader(const Project& p) {
            "    }\n"
            "    L[1] = minY;\n"
            "  }\n"
-           "  // ...and never ON the pole: the zenith pull aims for exactly\n"
-           "  // straight up at the crossover, and M4x4::lookAt's hardcoded\n"
-           "  // world-up makes that direction degenerate every basis built from\n"
-           "  // it - the projected shadows' light camera above all.\n"
+           "  // ...and never ON the pole: a steeply authored arc peaks within a\n"
+           "  // degree of straight up, and M4x4::lookAt's hardcoded world-up\n"
+           "  // makes that direction degenerate every basis built from it - the\n"
+           "  // projected shadows' light camera above all.\n"
            "  const float maxY = 0.99939F;  // sin(88 deg), ambience::kMaxLightElevation\n"
            "  if (L[1] > maxY) {\n"
            "    const float hl = sqrtf(L[0] * L[0] + L[2] * L[2]);\n"

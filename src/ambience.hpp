@@ -200,6 +200,17 @@ struct Resolved {
     // Rotation of the moon disc's "up" around the view axis, radians. Keeps the
     // lit limb pointing at the sun the way the real moon's does.
     float moonUpAngle;
+
+    // How much of a cast shadow the resolved light is entitled to throw, 0..1.
+    // 1 whenever one body clearly owns the sky; it dips to 0 across the
+    // twilight handover, where the light direction SWAPS from one body to the
+    // other. Shadows are opaque geometry - a direction cannot be crossfaded,
+    // but its shadow can be faded out and back in, which is also what dusk
+    // really looks like: shadows dissolve, then the moon draws new ones.
+    // Runtime shadow casters (projected silhouettes, blob shadows) multiply
+    // their alpha by this; a BAKE ignores it, because baking at an authored
+    // hour is a statement about that hour, not a transition.
+    float shadowFade;
 };
 
 // The minimum elevation the resolved lightDir is allowed to have, in degrees.
@@ -208,9 +219,10 @@ struct Resolved {
 // key colours, never from pointing the sun into the floor.
 constexpr float kMinLightElevation = 5.0f;
 
-// ...and the maximum, which is NOT cosmetic. The twilight handover walks the
-// light up over the zenith, and at the crossover it landed on exactly 90.0000
-// degrees - straight up. The engine's M4x4::lookAt builds its camera basis with a
+// ...and the maximum, which is NOT cosmetic. A body whose arc is authored with a
+// small tilt passes within a degree of straight up at its peak, and the twilight
+// handover used to walk the light over the zenith deliberately - either way the
+// direction lands on ~90.0000 degrees. The engine's M4x4::lookAt builds its camera basis with a
 // hardcoded world-up ($vf6 = {0,1,0} in the VU0 routine) and a double cross
 // product, so a view vector parallel to it cancels to zero and the basis
 // degenerates. The projected-shadow pass aims its light camera straight down the
@@ -220,7 +232,10 @@ constexpr float kMinLightElevation = 5.0f;
 constexpr float kMaxLightElevation = 88.0f;
 
 // Half-width of the sun/moon handover, in degrees of sun elevation. The light
-// direction sweeps between the two bodies across it instead of snapping.
+// direction SWITCHES between the two bodies at the middle of it (see evaluate -
+// two bugs were paid for learning that a near-opposite pair cannot be blended);
+// what the band buys is the window over which Resolved::shadowFade takes the
+// cast shadows out and brings them back, so the switch is never seen.
 constexpr float kTwilightBand = 6.0f;
 
 // Direction to a body on its arc at `hour`. `rise`/`set` are the hours it

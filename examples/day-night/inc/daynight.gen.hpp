@@ -19,6 +19,11 @@ inline float g_sky[3] = {0.0F, 0.0F, 0.0F};
 inline float g_top[3] = {0.0F, 0.0F, 0.0F};
 inline float g_fog[3] = {0.0F, 0.0F, 0.0F};
 inline float g_stars = 0.0F, g_sunRad = 0.0F, g_moonRad = 0.0F;
+// 0..1, how much of a cast shadow the live light is entitled to
+// throw: 1 while one body owns the sky, 0 across the handover where
+// the direction swaps (ambience::Resolved::shadowFade). Projected
+// silhouettes and blob shadows multiply their alpha by it.
+inline float g_shadowFade = 1.0F;
 inline float g_moonRoll = 0.0F;
 inline float g_gain[3] = {1.0F, 1.0F, 1.0F};
 inline float g_lift[3] = {0.0F, 0.0F, 0.0F};
@@ -145,10 +150,18 @@ inline void evaluate(int scene, float hour) {
   // why the 4*w*(1-w) pull is not optional.
   float w = clampf((sunElev + 6.0F) / 12.0F, 0.0F, 1.0F);
   w = w * w * (3.0F - 2.0F * w);
-  const float pull = 4.0F * w * (1.0F - w);
+  // The dominant body OWNS the direction - never a blend of the two.
+  // They are near-opposite at the crossover, so a weighted sum
+  // cancels (a 180-degree shadow flip) and rescuing it with a zenith
+  // term points the light straight up (shadows vanish, then come
+  // back from the wrong side). g_shadowFade below is what makes the
+  // switch invisible instead. See ambience::evaluate - the twin.
   float L[3];
-  for (int i = 0; i < 3; ++i) L[i] = w * g_sun[i] + (1.0F - w) * g_moon[i];
-  L[1] += pull;
+  for (int i = 0; i < 3; ++i) L[i] = w >= 0.5F ? g_sun[i] : g_moon[i];
+  {
+    const float sf = fabsf(2.0F * w - 1.0F);
+    g_shadowFade = sf * sf * (3.0F - 2.0F * sf);
+  }
   {
     const float l = sqrtf(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
     if (l > 1e-6F) {
@@ -167,10 +180,10 @@ inline void evaluate(int scene, float hour) {
     }
     L[1] = minY;
   }
-  // ...and never ON the pole: the zenith pull aims for exactly
-  // straight up at the crossover, and M4x4::lookAt's hardcoded
-  // world-up makes that direction degenerate every basis built from
-  // it - the projected shadows' light camera above all.
+  // ...and never ON the pole: a steeply authored arc peaks within a
+  // degree of straight up, and M4x4::lookAt's hardcoded world-up
+  // makes that direction degenerate every basis built from it - the
+  // projected shadows' light camera above all.
   const float maxY = 0.99939F;  // sin(88 deg), ambience::kMaxLightElevation
   if (L[1] > maxY) {
     const float hl = sqrtf(L[0] * L[0] + L[2] * L[2]);

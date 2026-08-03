@@ -6750,6 +6750,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
+    // ...and with the day/night handover: the light direction swaps from the sun
+    // to the moon (or back) at the middle of twilight, so the shadow it throws
+    // goes out and comes back rather than jumping to the other side of the
+    // caster (docs/day-night-cycle.md).
+    if (daynight::active(currentScene)) fade *= daynight::g_shadowFade;
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -7274,7 +7279,9 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 55.0F * sfade[s];
+    // sfade = the distance fade; the day/night factor is the twilight handover
+    // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
+    b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }

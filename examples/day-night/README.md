@@ -15,11 +15,23 @@ Press **Triangle** to step to the next moment: dawn → noon → dusk → night 
 
 The fifth scene, `live`, is the other half of the
 [hybrid](../../docs/day-night-cycle.md): same geometry again, but the **game
-advances the clock** through a ten-minute day, opening at 22:30. Its lighting is baked at noon and
-never re-baked — what carries it from a blue afternoon through a red sunset into
-a moonlit night is the sun and moon moving, the sky and fog retinting, the
-shadows sweeping, and a per-frame drift grade. Stand still and watch a whole day
-go by in two minutes.
+advances the clock** — **one real second per in-game hour**, so a whole day takes
+24 seconds and it opens at 17:00, a minute and a half before sunset. Its lighting
+is baked at noon and never re-baked; what carries it from a blue afternoon through
+a red sunset into a moonlit night is the sun and moon moving, the sky and fog
+retinting, the shadows sweeping, and a per-frame drift grade. Stand still and
+watch days go by.
+
+Its sun and moon also **cross the frame you are already looking at**. The first
+four scenes lean their arc over the camera's shoulder, which is fine for the
+shadows they are there to show but means the bodies themselves are never on
+screen; `live` leans the arc toward the spawn's view instead (`azimuth` 315,
+peaking 28 degrees up), so the sun rises into frame on the left, crosses, and
+leaves to the right, and the moon retraces the same arc half a day later.
+Measured against the spawn's frustum (±30 degrees vertical, ±37.6 horizontal at
+the engine's 60-degree FOV): each body is on screen for **5.2 of the 12.5 hours it
+is up — 42 %** — the sun from 6.6 to 11.8, the moon from 18.6 to 23.8. With the
+arcs the other scenes use, both were on screen for **0 %** of their time up.
 
 ## What to look at
 
@@ -33,14 +45,17 @@ go by in two minutes.
 | The **fog** | Tinted per moment to match its sky, so the far edge of the terrain never disagrees with the horizon behind it. |
 | **Noon vs night** | The moon disc is not drawn at noon and the sun is not drawn at night. A body more than 10° below the horizon is skipped. |
 | The **`live`** scene | The arch is baked at noon with neutral light and still goes warm at sunset and cold blue at night — measured 120,119,114 → 106,75,59 → 24,26,36 while its vertex colours never change. That is the drift grade. |
+| The **sunset in `live`**, about 1.5 s after it starts | The cast shadows **dissolve** as the sun reaches the horizon, and the moon's fade in behind them. They never jump to the other side of the caster: the light direction swaps bodies at the middle of twilight, and the shadow it throws is at 0.03 % opacity when it does. Console-logged: 167.97 degrees of direction change at a shadow fade of 0.0002. See [the handover](../../docs/day-night-cycle.md#two-rules-the-math-keeps-and-why). |
 
 ## Where the moments come from
 
-Five **ambience presets** — `dawn`, `noon`, `dusk`, `night`, `live` — carrying the
-*same* cycle: the same sun and moon arcs, the same nine colour keyframes, the same
-starfield seed. The first four differ only in `cycle.time` (7.2 / 12.0 / 17.3 /
-22.5); `live` starts at 5.0, bakes at 12.0 and lets the clock run. Each scene
-names one in *Scene > Preferences*.
+Five **ambience presets** — `dawn`, `noon`, `dusk`, `night`, `live` — sharing the
+same nine colour keyframes and the same starfield seed. The first four also share
+one sun and moon arc and differ *only* in `cycle.time` (7.2 / 12.0 / 17.3 / 22.5),
+which is the point they exist to make. `live` starts at 17.0, bakes at 12.0, lets
+the clock run at a second per hour, and is the one preset with its own arc — the
+one that puts the two bodies in front of the camera. Each scene names one in
+*Scene > Preferences*.
 
 That is the whole authoring model: a preset is a scene's mood bundle and a scene
 already picks one, so **"which preset" doubles as "which time of day"**. There is
@@ -90,9 +105,11 @@ byte writes a frame rather than any geometry work.
   adjusted.
 - **Turn bloom up.** The star cores and the low sun are sized to feed the bloom
   bright-pass — *Preferences > Post effects*, `Threshold` around 0.6.
-- **Change the day length.** `live` runs a ten-minute day, which is about the
-  slowest that still reads as time passing while you stand there. Two minutes is
-  better for a screenshot series — *Day length* on the Day / night tab.
+- **Change the day length.** `live` runs a 24-second day (a second per in-game
+  hour), which is fast enough to watch every part of the cycle without waiting and
+  fast enough that the sun visibly moves. Slow it to a few minutes for a
+  screenshot series, or to ten if you want it to read as ambience rather than as a
+  demo — *Day length* on the Day / night tab.
 - **Turn the drift grade off** on the `live` preset and look at midnight. That is
   what the grade is for, and it is the clearest way to see it.
 - **Bake global illumination** (*Ambience Editor > Global illumination*). It is

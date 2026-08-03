@@ -179,26 +179,42 @@ Resolved evaluate(const DayCycle& c, float hour) {
     r.sunElevation = std::asin(clampf(r.sunDir[1], -1.0f, 1.0f)) / kDeg;
     r.moonElevation = std::asin(clampf(r.moonDir[1], -1.0f, 1.0f)) / kDeg;
 
-    // Which body lights the scene. Weighted rather than switched, so the light
-    // sweeps across the twilight window instead of snapping - which matters
-    // because the direction is BAKED into shadows and AO, and a hard flip
-    // between two authored times reads as a bug.
+    // Which body lights the scene. The sun owns it while it is up, the moon
+    // takes over once it is down, and `wSun` is how far through the handover we
+    // are - 1 sun, 0 moon, 0.5 the exact midpoint.
     //
-    // The two bodies are near-OPPOSITE at the crossover (a full moon rises as
-    // the sun sets), so a plain weighted sum cancels to zero there and the
-    // normalize picks up noise: measured as a 180-degree flip of the shadow
-    // between 17:59 and 18:01. The fix is a zenith term that peaks exactly
-    // where the cancellation would - 4*w*(1-w) is 1 at w = 0.5 and 0 at both
-    // ends - so the light walks from one horizon UP OVER THE TOP and down to
-    // the other. That is also the honest answer physically: at twilight the
-    // dominant light really is the sky overhead, not a body at the horizon.
+    // The direction is NOT interpolated between them, and that is the whole
+    // lesson of this function. The two bodies are near-OPPOSITE at the
+    // crossover (a full moon rises as the sun sets), so:
+    //   - a plain weighted sum cancels to zero there and the normalize picks
+    //     up noise: measured as a 180-degree shadow flip between 17:59 and
+    //     18:01. That was the first bug.
+    //   - adding a zenith term to rescue the cancellation (4*w*(1-w), which
+    //     walked the light up over the top) fixed the flip and bought a worse
+    //     one: at the midpoint the light points nearly STRAIGHT UP, so every
+    //     shadow collapses under its caster and vanishes, and either side of
+    //     the midpoint the surviving horizontal component is a fight between
+    //     two opposed vectors, so it briefly points the wrong way. That was
+    //     the second bug, and it is what "shadows disappear at dusk, then come
+    //     back from the wrong side" was.
+    //   - blending the AZIMUTH instead is no better: near-opposite bearings sit
+    //     exactly on the +-180 seam, so the shorter-arc choice flips sides
+    //     under noise and takes the whole sweep with it.
+    // So the direction simply switches at the midpoint, and `shadowFade` (0
+    // there) makes the switch invisible: the shadow is already gone when the
+    // light changes its mind. Continuous quantities stay continuous; the one
+    // discontinuous quantity is hidden rather than smeared.
     const float wSun = smoothstepf(-kTwilightBand, kTwilightBand, r.sunElevation);
-    const float zenithPull = 4.0f * wSun * (1.0f - wSun);
     float L[3];
     for (int i = 0; i < 3; ++i)
-        L[i] = wSun * r.sunDir[i] + (1.0f - wSun) * r.moonDir[i];
-    L[1] += zenithPull;
+        L[i] = wSun >= 0.5f ? r.sunDir[i] : r.moonDir[i];
     normalize3(L);
+
+    // 1 while one body owns the sky, 0 at the midpoint. |2w-1| is the distance
+    // from the handover; the smoothstep flattens both ends, so shadows are gone
+    // for the moment either side of the swap rather than for a single instant.
+    const float sf = std::fabs(2.0f * wSun - 1.0f);
+    r.shadowFade = sf * sf * (3.0f - 2.0f * sf);
 
     // Never light the world from below the floor - see kMinLightElevation.
     const float minY = std::sin(kMinLightElevation * kDeg);
@@ -213,9 +229,10 @@ Resolved evaluate(const DayCycle& c, float hour) {
         L[1] = minY;
         normalize3(L);
     }
-    // ...and never ON the pole either - see kMaxLightElevation. The zenith pull
-    // above aims for exactly straight up at the crossover, which is precisely
-    // the direction that degenerates a lookAt basis.
+    // ...and never ON the pole either - see kMaxLightElevation. A steep authored
+    // arc (a small tilt) reaches it on its own now that the crossover no longer
+    // walks the light over the top, and straight up is precisely the direction
+    // that degenerates a lookAt basis.
     const float maxY = std::sin(kMaxLightElevation * kDeg);
     if (L[1] > maxY) {
         const float hx = L[0], hz = L[2];

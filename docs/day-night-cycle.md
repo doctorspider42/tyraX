@@ -105,27 +105,60 @@ exactly at the horizon gives flat ground zero diffuse, and one below it lights
 the world from underground - both read as a broken bake rather than as night.
 Darkness comes from the authored key colours instead.
 
-**The handover sweeps over the zenith.** At the crossover the sun and the moon
-are near-opposite (a full moon rises as the sun sets), so blending the two
-direction vectors cancels to zero and the normalized result snaps: measured as a
-180-degree flip of every shadow between 17:59 and 18:01. `evaluate` adds a
-zenith term weighted `4·w·(1-w)`, which is 1 exactly where the cancellation
-would be and 0 at both ends, so the light walks from one horizon up over the top
-and down to the other. That is also the honest answer physically - at twilight
-the dominant light really is the sky overhead. Measured effect on the default
-cycle: worst light-direction step per minute fell from 1.99 to 0.078.
+**The handover switches the light and fades the shadow** - it does not blend the
+two directions, and that took two bugs to learn.
 
-**...but it must not sweep ONTO the zenith** (`kMaxLightElevation`, 88 degrees).
-The pull above aimed for exactly straight up, and measured it got there: 90.0000
+At the crossover the sun and the moon are near-opposite (a full moon rises as the
+sun sets). So:
+
+1. **Blending the vectors cancels them.** The weighted sum goes to zero at the
+   midpoint and the normalize picks up noise: measured as a 180-degree flip of
+   every shadow between 17:59 and 18:01.
+2. **Rescuing the cancellation with a zenith term is worse.** Adding `4·w·(1-w)`
+   to Y (1 at the midpoint, 0 at both ends) walked the light from one horizon up
+   over the top and down to the other. It fixed the flip and bought this: at the
+   midpoint the light points nearly *straight up*, so every shadow collapses
+   under its caster and disappears, and either side of the midpoint the surviving
+   horizontal component is a tug-of-war between two opposed vectors, so it points
+   the wrong way for a moment. On the console that reads as *"at dusk the shadows
+   vanish, then come back from the wrong side"*, which is exactly what it was.
+3. **Blending the azimuth instead does not help either.** Near-opposite bearings
+   sit exactly on the ±180 seam, so the shorter-arc choice flips under noise and
+   takes the whole sweep with it.
+
+What `evaluate` does now: the dominant body **owns** the direction (`wSun >= 0.5`
+→ the sun, else the moon), and `Resolved::shadowFade` goes to 0 exactly at the
+switch. A direction cannot be crossfaded; the shadow it throws can. Runtime
+shadow casters multiply their alpha by it - projected silhouettes and blob
+shadows both - so the shadows dissolve as the sun reaches the horizon, the light
+changes its mind while nothing is on screen to show it, and the moon's shadows
+fade in behind it. That is also what dusk actually looks like.
+
+Measured on the example's cycle (host math over all 1440 minutes, and the same
+numbers logged from the running console):
+
+| | before (zenith pull) | now |
+| --- | --- | --- |
+| peak light elevation | 90.0000 deg (straight up) | 28.0 deg |
+| worst direction step per minute | 0.078 deg (but see above) | 167.97 deg, at the switch |
+| ...with a shadow actually visible | the whole flip was visible | **0.2415 deg** |
+| shadow fade at the switch | n/a | 0.0002 |
+
+The middle row is the point: the direction change is now *bigger* and completely
+invisible, because it happens at 0.03 % shadow opacity. A bake ignores
+`shadowFade` entirely - baking at an authored hour is a statement about that
+hour, not about a transition.
+
+**The light must never sit ON the zenith** (`kMaxLightElevation`, 88 degrees).
+The zenith pull aimed for exactly straight up and measured it got there: 90.0000
 degrees at both crossovers. That is the one direction that breaks a camera basis
 built from the light - the engine's `M4x4::lookAt` uses a hardcoded world-up
 (`$vf6 = {0,1,0}` in the VU0 routine) and a double cross product, so a view vector
 parallel to it cancels to zero. The projected-shadow pass aims its light camera
 straight down the light vector, which means every shadow in the scene got a
-degenerate matrix for the fraction of a second around sunrise and sunset. Capping
-two degrees short is invisible in the picture and keeps every basis well
-conditioned; the light now ranges 5.4..88.0 degrees over the day and the worst
-step per minute stays 0.09.
+degenerate matrix for the fraction of a second around sunrise and sunset. The cap
+stays even though the handover no longer goes near the pole: a steeply authored
+arc (a small `tilt`) reaches it on its own at the body's own peak.
 
 ## Keyframes
 
@@ -392,13 +425,13 @@ cold blue at night. **50 FPS / 100 % speed throughout.**
 `live_debug.gen.hpp` arrangement, because both game-cpp templates need it and
 neither should carry a copy. It is a **numeric twin** of `ambience::evaluate` +
 `ambience::driftGrade`: same arc formula, same cyclic key interpolation, same
-twilight zenith pull, same +5 degree clamp, same grade. Change one and change the
-other.
+twilight switch and shadow fade, same +5 degree clamp, same grade. Change one and
+change the other.
 
 That claim is checked rather than asserted. A harness runs both over all 1440
 minutes of a day and compares: worst disagreement **1.2e-7** on the sun, moon and
-light directions (float epsilon) and **exactly zero** on the sky, zenith, fog,
-star level and every grade term.
+light directions, **3.0e-7** on the shadow fade (both float epsilon) and
+**exactly zero** on the sky, zenith, fog, star level and every grade term.
 
 The key list is emitted as **one flat table sliced per scene**
 (`DAYCYCLE_KEY_FIRSTS` / `_COUNTS`, the `CATCH_CANDIDATES` shape) and identical

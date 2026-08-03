@@ -523,55 +523,55 @@
       "settings": {
         "lighting": {
           "dir": [
-            0.37,
-            0.82,
-            0.44
+            0.181919,
+            0.881205,
+            -0.436329
           ],
           "ambient": 0.55,
           "diffuse": 0.45,
           "color": [
             1,
-            1,
-            1
+            0.98,
+            0.93
           ],
           "brightness": 1
         },
         "sky": {
           "color": [
-            0.25,
-            0.55,
-            0.78
+            0.27,
+            0.56,
+            0.8
           ],
           "topColor": [
             0.08,
             0.3,
-            0.65
+            0.66
           ],
           "dome": true,
-          "zenithSize": 0.5
+          "zenithSize": 0.45
         },
         "clipping": "vu1",
         "terrainMaterial": "",
         "postfx": {
-          "bloom": 0,
-          "bloomThreshold": 0,
-          "bloomSpread": 0,
+          "bloom": 0.45,
+          "bloomThreshold": 0.62,
+          "bloomSpread": 0.45,
           "grain": 0,
           "dofAmount": 0,
           "dofFocus": 20,
           "dofRange": 15,
-          "flare": 0,
-          "godRays": 0
+          "flare": 0.55,
+          "godRays": 0.35
         },
         "fog": {
-          "enabled": false,
+          "enabled": true,
           "color": [
-            0.5,
-            0.5,
-            0.55
+            0.52,
+            0.52,
+            0.56
           ],
-          "start": 15,
-          "end": 120
+          "start": 34,
+          "end": 150
         },
         "highlight": {
           "usable": false,
@@ -613,6 +613,7 @@
       ]
     }
   ],
+  "startScene": 4,
   "fonts": [
     {
       "name": "Default",
@@ -791,6 +792,7 @@
         "moonOffset": 12,
         "moonSize": 6,
         "moonPhase": 0.62,
+        "moonOpacity": 1,
         "moonTexture": "",
         "runtime": false,
         "dayLength": 120,
@@ -1048,8 +1050,7 @@
             ],
             "stars": 1
           }
-        ],
-        "moonOpacity": 1.0
+        ]
       }
     },
     {
@@ -1103,6 +1104,7 @@
         "moonOffset": 12,
         "moonSize": 6,
         "moonPhase": 0.62,
+        "moonOpacity": 1,
         "moonTexture": "",
         "runtime": false,
         "dayLength": 120,
@@ -1360,8 +1362,7 @@
             ],
             "stars": 1
           }
-        ],
-        "moonOpacity": 1.0
+        ]
       }
     },
     {
@@ -1415,6 +1416,7 @@
         "moonOffset": 12,
         "moonSize": 6,
         "moonPhase": 0.62,
+        "moonOpacity": 1,
         "moonTexture": "",
         "runtime": false,
         "dayLength": 120,
@@ -1672,8 +1674,7 @@
             ],
             "stars": 1
           }
-        ],
-        "moonOpacity": 1.0
+        ]
       }
     },
     {
@@ -1727,6 +1728,7 @@
         "moonOffset": 12,
         "moonSize": 6,
         "moonPhase": 0.62,
+        "moonOpacity": 1,
         "moonTexture": "",
         "runtime": false,
         "dayLength": 120,
@@ -1984,8 +1986,7 @@
             ],
             "stars": 1
           }
-        ],
-        "moonOpacity": 1.0
+        ]
       }
     },
     {
@@ -2028,20 +2029,21 @@
       "fogEnd": 150,
       "cycle": {
         "enabled": true,
-        "time": 22.5,
-        "sunAzimuth": 75,
-        "sunTilt": 28,
+        "time": 17.0,
+        "sunAzimuth": 315.0,
+        "sunTilt": 62.0,
         "sunrise": 6,
         "sunset": 18.5,
         "sunSize": 4,
-        "moonAzimuth": 105,
-        "moonTilt": 34,
+        "moonAzimuth": 315.0,
+        "moonTilt": 64.0,
         "moonOffset": 12,
         "moonSize": 6,
         "moonPhase": 0.62,
+        "moonOpacity": 0.85,
         "moonTexture": "",
         "runtime": true,
-        "dayLength": 600.0,
+        "dayLength": 24.0,
         "bakeHour": 12,
         "runtimeGrade": true,
         "starsEnabled": true,
@@ -2296,8 +2298,7 @@
             ],
             "stars": 1
           }
-        ],
-        "moonOpacity": 0.85
+        ]
       }
     }
   ],
@@ -2522,7 +2523,7 @@
       "name": "Default",
       "recipe": 0,
       "open": [],
-      "ini": ""
+      "ini": "[Window][Project]\nPos=0,23\nSize=444,892\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260803\n\n[Window][Properties]\nPos=1487,23\nSize=366,892\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260803\n\n[Window][Output]\nPos=446,568\nSize=1039,347\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260803\n\n[Window][Debug]\nPos=446,568\nSize=1039,347\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260803\n\n[Window][Flow Graph]\nPos=446,23\nSize=1039,543\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260803\n\n[Window][Viewport]\nPos=446,23\nSize=1039,543\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260803\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1853,892\nCollapsed=0\nLastUsed=20260803\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260803\n\n[Window][Scene Preferences]\nPos=646,56\nSize=560,802\nCollapsed=0\nLastUsed=20260803\n\n[Window][Ambience Editor]\nPos=60,60\nSize=680,692\nCollapsed=0\nLastUsed=20260803\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1853,23\nCollapsed=0\nLastUsed=20260803\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1853,892 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1039,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,543 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,347 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=366,915 Selected=0x8C72BEA8\n\n"
     },
     {
       "name": "Director",
