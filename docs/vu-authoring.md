@@ -383,6 +383,49 @@ mesh.
 `Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
 assembled and **linked**, taking micro memory for a program nobody asked for.
 
+## The other ceiling: VF registers
+
+Micro memory is not the limit you hit first. **VU1 has 32 float registers**,
+`vf00` is hardwired, and VCL allocates the other 31 — and running out does not
+produce a diagnostic you can act on. It produces this, from `vcl`, inside
+Docker, minutes into a build, with no line number:
+
+```
+ERROR: no opt table.. something failed making table .. for processing!
+```
+
+So the framework estimates it. `--vu-check` prints it per program, `--vu-list`
+prints it for any `.vclpp`, and the panel shows it next to the micro-memory bar:
+
+```
+-- VF register pressure (31 allocatable; past that vcl may refuse) --
+  StaPipVU1CullTC  peak 27 of 31 live   (36 names)
+```
+
+The estimate **over-states**, and knowing by how much is the whole of its
+usefulness: it is a linear scan (each register live from its first write to its
+last read) that ignores control flow and cannot split a live range where VCL
+can. Calibration, all measured rather than reasoned:
+
+| Peak | What happened |
+|---|---|
+| ≤ 27 | every one of the engine's ten resident programs — all compile |
+| 32 | a two-stage textured program — vcl allocated it fine |
+| 35 | a two-stage colour program — fine |
+| **36** | a four-stage colour program — `no opt table`, build dead |
+
+The cliff is sharp, and it is close. **A cull-family program starts around 23**
+(the MVP matrix, the spot light's seven scratch registers, three vertices, three
+colours), so a stage list has roughly a dozen registers to spend. The sine is
+what spends them: it needs a constants register, three scratch and the clock, so
+**one time-varying stage costs about five and the second one costs almost
+nothing**. That is the shape to design against — group the effects that share a
+sine, not the ones that read alike.
+
+If you go over, the ways out in order of how much they buy: drop a stage, use a
+stage that does not need the sine, or split the effect across two material
+classes (a textured program and a colour one each get their own 31).
+
 ---
 
 ## VU0 kernels
@@ -524,6 +567,19 @@ Two rules that are not obvious from the code:
 - **A broadcast is only legal on the SECOND operand.** `sub.xyz d, one, f` is
   fine; `sub.xyz d, vf00[w], f` is not. That is why the context carries a real
   `one` register instead of using `vf00[w]`.
-- **`vf00` is `(0, 0, 0, 1)`.** `vf00[w]` is how you get a 1.0 as a second
-  operand and `vf00[x]` a 0.0. Half the arithmetic in these programs leans on
-  it.
+- **`vf00` is `(0, 0, 0, 1)`, and the W is a trap as well as a tool.** `vf00[w]`
+  is how you get a 1.0 as a second operand and `vf00[x]` a 0.0, and half the
+  arithmetic here leans on it — but `add.w dst, vf00, i` gives `1 + i`, not `i`.
+  `Vu::constants` did exactly that for a week: every fourth literal in a
+  constants register came out one too big, which put **1.225** where the sine's
+  0.225 correction coefficient belongs. Use `mul` for the w field.
+
+  Two things about how that survived are worth more than the bug. The host
+  checks all passed, because the simulator models `vf00` correctly too — both
+  sides were consistently wrong, which is the one failure mode a
+  simulator-against-itself check cannot catch. And the sine check that existed
+  measured its PEAK, where `y|y| - y` is exactly zero and the coefficient
+  therefore does not matter at all. It was caught by a console number not
+  matching a hand calculation, and it is now caught by comparing the generated
+  sine against **the same series evaluated in C++ at 24 angles** — which fails
+  by 0.249 with the bug reintroduced and passes at 3e-7 without it.

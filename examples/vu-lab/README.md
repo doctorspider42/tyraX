@@ -26,16 +26,16 @@ drawing path, plus a small 40x40 terrain:
 The scene keeps VU1 clipping on (*Preferences > Rendering*), which is the default
 - so the programs that actually run are the `clip` family, not `as_is`.
 
-## The authored program
+## What it authors
 
-*Tools > VU Programs* shows it: one program on the **untextured colour** class,
-two stages.
+*Tools > VU Programs* shows all of it: **two** microprograms, on two different
+material classes, plus a **VU0 compute kernel**.
 
-| Stage | Parameter | Bound to |
-|---|---|---|
-| Wobble | Amplitude | mesh **X** |
-| | Frequency 0.6, Speed 3 | baked into the microprogram |
-| Desaturate | Amount | mesh **Y** |
+| Program | Base | Stages | Parameters |
+|---|---|---|---|
+| colour | `StaPipCullColor` | Wobble, Desaturate | Amplitude ← mesh **X**, Amount ← mesh **Y** |
+| textured | `StaPipCullTextureColor` | Scroll UV, Posterize | Speed U/V ← mesh **X**/**Y**, Strength ← mesh **Z** |
+| kernel | VU0 | Wobble, Squash | literals |
 
 That is the whole design in one screen. The program replaces a **material
 class**, not an object - VU1 micro memory has no room for one program per mesh -
@@ -49,16 +49,45 @@ That last claim is not a promise, it is measured. Freeze the camera
 shipped and one with every object's set to zero:
 
 ```
-scene-only difference: 188 540 pixels, in exactly three column bands
-  x 1529..1661   the pillar   (blue -> grey)
-  x 1739..2168   the ball     (round -> wobbling)
-  x 3039..3055   the emulator's own FPS text
+scene-only difference: 116 591 pixels, in exactly three column bands
+  x  617.. 913   tex-box   (UV scrolled, colour posterized)
+  x  935..1002   the pillar (blue -> grey, driven by the VU0 kernel)
+  x 1043..1267   the ball   (round -> wobbling)
 ```
 
-Nothing else in the frame moves. The chrome ball, the textured box, the terrain
-and the sky are pixel-identical between the two runs.
+Nothing else in the frame moves. The chrome ball (a different material class
+entirely), the terrain, the sky and `flat-box` are pixel-identical between the
+two runs.
 
-### Two things the example is shaped to teach
+## The VU0 kernel, actually running
+
+`src/scripts/vu0_kernel_demo.cpp` is a **user-owned** script - the editor writes
+generated sources into `src/gen/` and never touches `src/scripts/`, which is
+also the only place a kernel can be driven from: a kernel is a compute job with
+no place in the scene pipeline, so nothing calls it unless your game does.
+
+Each frame it feeds 32 points to the kernel, takes the first one back, and
+writes it into the pillar's per-mesh VU parameters. So the pillar's colour is
+the output of a **VU0** computation, rendered by a **VU1** microprogram:
+
+```
+VU0 computes  ->  the EE reads it back  ->  VU1 renders with it
+```
+
+The console logs one line at startup, and it is worth checking by hand because
+it is checkable by hand:
+
+```
+LOG: VU0 kernel: point 0 in (4, 0) out (4, -0.108301)
+```
+
+Point 0 is `(4, 0, 0, 1)`. Wobble's angle is `(x + z) * 0.8 = 3.2` rad; the
+generated series gives `sin(3.2) ~= -0.05776`; times the amplitude 1.5 is
+`-0.0866`; Squash then scales Y by 1.25, giving **-0.1083**. X is untouched
+because Squash's X is 0. Getting a different number by hand is how the
+`Vu::constants` w-field bug was found - see docs/vu-authoring.md.
+
+### Three things the example is shaped to teach
 
 **A custom program only reaches packages fully inside the frustum.** `flat-box`
 carries the same Desaturate parameter the pillar does, and in the spawn view it
@@ -85,6 +114,15 @@ dropped lighting classes pay for the stages. *Tools > VU Programs > Micro
 memory* is where that bar lives, and it reads the ENGINE's own `.vclpp` files -
 budgeting against the generator's descriptions alone is what let this ship green
 and assert on the console.
+
+**Two stages per program is not an arbitrary demo size.** A third one on the
+colour program does not build: VCL runs out of VF registers and dies with `no
+opt table`, because a cull-family program already keeps ~23 of the 31 live and
+the sine costs about five more. The measured cliff is exact - 35 allocated, 36
+did not - and the *Micro memory* tab prints the estimate next to the slot bar
+for this reason. The fix when you hit it is to split the effect across two
+material classes, which is what this example does: the wobble is on the colour
+program and the UV scroll is on the textured one, each with its own 31.
 
 ## The loop this example exists for
 

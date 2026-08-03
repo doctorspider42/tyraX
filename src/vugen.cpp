@@ -585,8 +585,16 @@ void Vu::constants(Val dst, float x, float y, float z, float w) {
     for (int f = 0; f < 4; ++f) {
         loadI(v[f]);
         if (f == 0) p_->code.back().comment = "constants";
-        Instr in = floatOp(Op::Add, dst.reg, zero(), Val{kI, kNoBc},
-                           (uint8_t)(1 << f));
+        // vf00 is (0, 0, 0, 1). Adding the literal to it therefore gives the
+        // literal in x/y/z and the literal PLUS ONE in w - which is silent, and
+        // was wrong for a week: the sine's 0.225 correction coefficient sits in
+        // w, so every generated sine was applying 1.225 instead. It survived
+        // the host checks because the simulator models vf00 correctly too, so
+        // both sides were consistently wrong; the console's own numbers not
+        // matching a hand calculation is what exposed it. Multiply for w
+        // instead - 1 * literal - and it is exact in all four fields.
+        Instr in = floatOp(f == 3 ? Op::Mul : Op::Add, dst.reg, zero(),
+                           Val{kI, kNoBc}, (uint8_t)(1 << f));
         in.s2kind = Src::I;
         emit(in);
     }
@@ -732,7 +740,7 @@ const std::vector<StageDef>& stageDefs() {
           {"Speed", "Radians per second. 0 freezes the wave in place, which is "
                     "how you author the shape before animating it.", 2.0f,
            0.0f, 20.0f}},
-         true, false, 23, true},
+         true, false, 23, true, 3},
 
         {"twist", "Twist", Slot::ObjectSpace,
          "Rotates the mesh about its own Y axis by an angle that grows with "
@@ -743,7 +751,7 @@ const std::vector<StageDef>& stageDefs() {
                        "identity.", 0.0f, -3.0f, 3.0f, false, true},
           {"Speed", "Radians per second added to the whole twist, so the mesh "
                     "turns as it wrings.", 0.0f, -10.0f, 10.0f}},
-         true, false, 47, true},
+         true, false, 47, true, 6},
 
         {"inflate", "Inflate", Slot::ObjectSpace,
          "Scales the mesh about its object origin, optionally breathing. Note "
@@ -757,7 +765,7 @@ const std::vector<StageDef>& stageDefs() {
                     "literal 0 the sine is not generated at all.", 0.0f, 0.0f,
            2.0f, false, true},
           {"Speed", "Breaths per second, in radians.", 2.0f, 0.0f, 20.0f}},
-         true, false, 26, true},
+         true, false, 26, true, 3},
 
         {"squash", "Squash / stretch", Slot::ObjectSpace,
          "Per-axis scale about the object origin. Constant, so it costs four "
@@ -768,7 +776,7 @@ const std::vector<StageDef>& stageDefs() {
            -0.9f, 3.0f, false, true},
           {"Y", "Extra scale along Y.", 0.0f, -0.9f, 3.0f, false, true},
           {"Z", "Extra scale along Z.", 0.0f, -0.9f, 3.0f, false, true}},
-         false, false, 4, true},
+         false, false, 4, true, 1},
 
         {"heightShade", "Height shade", Slot::ObjectSpace,
          "Darkens or brightens the vertex by its object-space height - a free "
@@ -783,7 +791,7 @@ const std::vector<StageDef>& stageDefs() {
            -4.0f, 4.0f},
           {"Bias", "Shifts where the gradient sits. -1 puts the dark end at "
                    "the model's origin.", 0.0f, -4.0f, 4.0f}},
-         false, false, 7},
+         false, false, 7, false, 1},
 
         {"zbias", "Depth bias", Slot::ClipSpace,
          "Pulls the vertex toward or away from the camera in clip space, "
@@ -793,7 +801,7 @@ const std::vector<StageDef>& stageDefs() {
          1,
          {{"Bias", "Fraction of the NDC depth range. 0.001 is usually enough; "
                    "0 is the identity.", 0.0f, -0.05f, 0.05f, false, true}},
-         false, false, 2},
+         false, false, 2, false, 1},
 
         {"snap", "Vertex snap", Slot::Ndc,
          "Quantises the screen position to a grid - the PlayStation 1 wobble, "
@@ -806,7 +814,7 @@ const std::vector<StageDef>& stageDefs() {
                     "cannot be bound to a mesh.", 160.0f, 8.0f, 1024.0f, true},
           {"Strength", "Blend toward the snapped position. 1 is full snap, 0 "
                        "the identity.", 0.0f, 0.0f, 1.0f, false, true}},
-         false, false, 8},
+         false, false, 8, false, 1},
 
         {"pulse", "Pulse colour", Slot::Color,
          "Brightens and dims the vertex colour on a sine - a beacon, a "
@@ -817,7 +825,7 @@ const std::vector<StageDef>& stageDefs() {
                      "dark to half as bright. 0 is the identity.", 0.0f, 0.0f,
            2.0f, false, true},
           {"Speed", "Radians per second.", 4.0f, 0.0f, 30.0f}},
-         true, false, 22},
+         true, false, 22, false, 2},
 
         {"posterize", "Posterize", Slot::Color,
          "Rounds the colour down to N levels per channel. Cheap stylisation, "
@@ -829,7 +837,7 @@ const std::vector<StageDef>& stageDefs() {
            4.0f, 2.0f, 64.0f, true},
           {"Strength", "Blend toward the posterized colour. 0 is the "
                        "identity.", 0.0f, 0.0f, 1.0f, false, true}},
-         false, false, 7},
+         false, false, 7, false, 1},
 
         {"desaturate", "Desaturate", Slot::Color,
          "Drains the vertex colour toward its luminance. Bound to a per-mesh "
@@ -838,7 +846,7 @@ const std::vector<StageDef>& stageDefs() {
          1,
          {{"Amount", "1 is fully grey, 0 the identity.", 0.0f, 0.0f, 1.0f,
            false, true}},
-         false, false, 6},
+         false, false, 6, false, 2},
 
         {"scrollUv", "Scroll UV", Slot::Texture,
          "Slides the texture across the surface. A conveyor, a waterfall, a "
@@ -849,7 +857,7 @@ const std::vector<StageDef>& stageDefs() {
            0.0f, -4.0f, 4.0f, false, true},
           {"Speed V", "Texture heights per second along V.", 0.0f, -4.0f, 4.0f,
            false, true}},
-         true, true, 4},
+         true, true, 4, false, 2},
     };
     return defs;
 }
@@ -1327,6 +1335,12 @@ struct StagePlan {
     bool needsParams = false;
     bool needsLuma = false;
     bool needsSine = false;
+    /** The largest `StageCtx::s[]` any planned stage touches. Allocating the
+     * catalogue's maximum instead would cost three spare VF registers on every
+     * program, and VCL only has 31 - which is a real difference, not a tidiness
+     * one: a four-stage program that overshoots gets `no opt table` from vcl
+     * inside Docker with no line number. */
+    int scratch = 0;
     std::vector<std::string> errors;
     std::vector<std::string> dropped;  // key + why, for the panel and notes
 };
@@ -1401,6 +1415,7 @@ StagePlan planStages(const std::vector<Stage>& stages, const Desc& d) {
         if (s.key == "desaturate") plan.needsLuma = true;
         if (def->needsTime) plan.needsTime = true;
         if (def->perVertex >= 20) plan.needsSine = true;
+        if (def->scratch > plan.scratch) plan.scratch = def->scratch;
         plan.stages.push_back(r);
     }
     return plan;
@@ -1893,8 +1908,9 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         static const char* sn[6] = {"vuS0", "vuS1", "vuS2",
                                     "vuS3", "vuS4", "vuS5"};
         static const char* qn[3] = {"vuSinA", "vuSinB", "vuSinC"};
-        for (int i = 0; i < 6; ++i) sc.s[i] = b.named(sn[i]);
-        for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
+        for (int i = 0; i < plan.scratch && i < 6; ++i) sc.s[i] = b.named(sn[i]);
+        if (plan.needsSine)
+            for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
     }
     for (int i = 0; i < 3 && d.cull; ++i) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
@@ -2292,8 +2308,9 @@ void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
     sc.lits = &plan.lits;
     static const char* sn[6] = {"s0", "s1", "s2", "s3", "s4", "s5"};
     static const char* qn[3] = {"sinA", "sinB", "sinC"};
-    for (int i = 0; i < 6; ++i) sc.s[i] = b.named(sn[i]);
-    for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
+    for (int i = 0; i < plan.scratch && i < 6; ++i) sc.s[i] = b.named(sn[i]);
+    if (plan.needsSine)
+        for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
 
     const Lbl loop = b.label("elementLoop");
     b.bind(loop);
@@ -2810,6 +2827,100 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
 // ---------------------------------------------------------------------------
 // Budget
 // ---------------------------------------------------------------------------
+
+namespace {
+
+/** Which VF registers one instruction reads and writes. The IR shares operand
+ * slots between ops, so this is per-op knowledge and there is no shortcut: `s1`
+ * is a VF source on `sq` and an INTEGER register on `mfir`, `base` is always
+ * integer, and `dst` is the accumulator or Q on a whole family. */
+void vfTouched(const Instr& in, std::vector<int16_t>& reads, int16_t& write) {
+    write = -1;
+    auto readVf = [&](int16_t r) {
+        if (r > 0) reads.push_back(r);  // vf00 is hardwired, never allocated
+    };
+    switch (in.op) {
+        case Op::Add: case Op::Sub: case Op::Mul: case Op::Mula:
+        case Op::Madd: case Op::Madda: case Op::Msub: case Op::Msuba:
+        case Op::Mini: case Op::Max: case Op::Clipw:
+            readVf(in.s1);
+            if (in.s2kind == Src::Vf) readVf(in.s2);
+            // madd/msub also READ their destination's accumulator, not the
+            // register; the register itself is only written.
+            if (in.dst > 0) write = in.dst;
+            break;
+        case Op::Move: case Op::Mr32: case Op::Abs: case Op::Ftoi0:
+        case Op::Ftoi4: case Op::Itof0:
+            if (in.s2kind == Src::Vf) readVf(in.s2);
+            if (in.dst > 0) write = in.dst;
+            break;
+        case Op::Div: case Op::Rsqrt:
+            readVf(in.s1);
+            readVf(in.s2);
+            break;
+        case Op::Sqrt:
+            readVf(in.s2);
+            break;
+        case Op::Mtir:
+            readVf(in.s1);
+            break;
+        case Op::Mfir:
+            if (in.dst > 0) write = in.dst;
+            break;
+        case Op::Lq:
+            if (in.dst > 0) write = in.dst;
+            break;
+        case Op::Sq:
+            readVf(in.s1);
+            break;
+        default:
+            break;  // integer, control flow, structural
+    }
+}
+
+}  // namespace
+
+Pressure vfPressure(const Program& p) {
+    Pressure out;
+    out.names = (int)p.vfNames.size() - 1;  // less vf00
+    const int n = (int)p.code.size();
+    if (n == 0) return out;
+    std::vector<int> first((size_t)p.vfNames.size(), -1);
+    std::vector<int> last((size_t)p.vfNames.size(), -1);
+    std::vector<int16_t> reads;
+    for (int i = 0; i < n; ++i) {
+        reads.clear();
+        int16_t write = -1;
+        vfTouched(p.code[i], reads, write);
+        for (int16_t r : reads) {
+            if ((size_t)r >= first.size()) continue;
+            // A register read before anything wrote it is a per-mesh constant
+            // loaded in the preamble; treat the read as its start rather than
+            // dropping it, or the constants would look free.
+            if (first[r] < 0) first[r] = i;
+            last[r] = i;
+        }
+        if (write > 0 && (size_t)write < first.size()) {
+            if (first[write] < 0) first[write] = i;
+            if (last[write] < i) last[write] = i;
+        }
+    }
+    // Sweep: how many ranges cover each instruction.
+    for (int i = 0; i < n; ++i) {
+        int live = 0;
+        for (size_t r = 1; r < first.size(); ++r)
+            if (first[r] >= 0 && first[r] <= i && i <= last[r]) ++live;
+        if (live > out.peak) {
+            out.peak = live;
+            out.at = i;
+        }
+    }
+    if (out.at >= 0)
+        for (size_t r = 1; r < first.size(); ++r)
+            if (first[r] >= 0 && first[r] <= out.at && out.at <= last[r])
+                out.live.push_back(p.vfNames[r]);
+    return out;
+}
 
 Budget budget(const std::vector<std::pair<std::string, const Program*>>& set,
               int ceiling) {

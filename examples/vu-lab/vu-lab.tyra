@@ -195,9 +195,10 @@
         ] }
     ]
   },
-  "vu": { "residentClasses": 31, "residentAuto": true, "programs": [
-      { "base": "cullColor", "stages": [{ "kind": "wobble", "p": [0, 0.6, 3, 0], "bind": [0, -1, -1, -1] }, { "kind": "desaturate", "p": [0, 0, 0, 0], "bind": [1, -1, -1, -1] }] }
-    ] },
+  "vu": { "residentClasses": 25, "residentAuto": true, "programs": [
+      { "base": "cullColor", "stages": [{ "kind": "wobble", "p": [0, 0.6, 3], "bind": [0, -1, -1, -1] }, { "kind": "desaturate", "p": [0, 0, 0, 0], "bind": [1, -1, -1, -1] }] },
+      { "base": "cullTextureColor", "stages": [{ "kind": "scrollUv", "p": [0, 0, 0, 0], "bind": [0, 1, -1, -1] }, { "kind": "posterize", "p": [5, 0, 0, 0], "bind": [-1, 2, -1, -1] }] }
+    ], "kernel": { "name": "points", "enabled": true, "maxElements": 32, "stages": [{ "kind": "wobble", "p": [1.5, 0.8, 2.5, 0] }, { "kind": "squash", "p": [0, 0.25, 0, 0] }] } },
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [

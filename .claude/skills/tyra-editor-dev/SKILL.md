@@ -502,7 +502,12 @@ strength is zero** (it runs on every mesh of that class, including the ones that
 want nothing), and a stage must actually change the packet at full strength.
 Codegen emits `src/gen/vu_custom_*.vclpp` + the EE program class + an on/off
 seam whose predicate is a **compile-time constant** (`vuprog::ENABLED`), so a
-project without one folds every call site away. Three traps worth knowing:
+project without one folds every call site away. Four traps worth knowing. **VF REGISTERS run out before micro memory does** -
+a cull-family program already keeps ~23 of the 31 live and a sine costs five
+more, so the third stage on one program typically dies as `no opt table` from
+vcl, inside Docker, with no line number (measured: 35 allocated, 36 did not);
+`vugen::vfPressure` estimates it and the panel shows it, but the real fix is to
+split an effect across two material classes.
 `vuprog::install` must run AFTER `setRenderer`/`setVU1Clipping` because both
 rebuild the resident program cache; the per-mesh quadwords live at
 `VU1_CUSTOM_PARAMS_ADDR`/`VU1_CUSTOM_TIME_ADDR` = 15/16, INSIDE the

@@ -1444,10 +1444,73 @@ static int vuCheckKernel() {
             }
     }
 
-    // A wobble kernel exercises the sine, whose error IS the thing to state:
-    // the approximation is worth about 0.2%, so the check is that every
-    // displacement stays inside the amplitude it was given plus that margin -
-    // not that it matches a libm sine.
+    // A wobble kernel exercises the SINE, and this is the check that matters,
+    // because a peak-only one does not work. The generated series is
+    //
+    //   y = 4x(1-|x|);  sin ~= y + k*(y|y| - y),  k = 0.225
+    //
+    // and `y|y| - y` is ZERO at the peaks - so a wrong k reproduces the extremes
+    // exactly and only shows in between. A wrong k is precisely what shipped:
+    // `Vu::constants` was writing k + 1 into the w field (vf00.w is 1.0), the
+    // simulator models vf00 correctly so both sides agreed, and a peak check
+    // gave it full marks. The comparison below is against the same formula
+    // evaluated HERE, at every element, which pins k as well as the shape.
+    {
+        vugen::KernelDesc ks;
+        ks.title = "vu-check sine kernel";
+        vugen::Stage sw = vugen::makeStage("wobble");
+        sw.params[0].value = 1.0f;   // amplitude 1: the output IS the sine
+        sw.params[1].value = 1.0f;   // frequency 1: the angle IS x + z
+        sw.params[2].value = 0.0f;   // frozen
+        ks.stages.push_back(sw);
+        const vugen::BuiltKernel bs = vugen::buildKernel(ks);
+        std::vector<float> sin_in;
+        for (int i = 0; i < 24; ++i) {  // -3..+3 radians, across a whole period
+            const float a = -3.0f + (float)i * 0.25f;
+            sin_in.push_back(a);
+            sin_in.push_back(0.0f);
+            sin_in.push_back(0.0f);
+            sin_in.push_back(1.0f);
+        }
+        std::string serr;
+        const std::vector<float> so =
+            vugen::simulateKernel(bs, ks, sin_in, params, 0.0f, &serr);
+        double worst = 0.0;
+        double worstAt = 0.0;
+        if (so.size() != sin_in.size()) {
+            std::printf("  the sine kernel did not run: %s\n", serr.c_str());
+            ++fails;
+        } else {
+            for (size_t i = 0; i * 4 < so.size(); ++i) {
+                const double a = sin_in[i * 4];
+                // The same series, in double, straight off the documentation.
+                double t = a * 0.15915494309189535 + 0.5;
+                const double u = t - std::floor(t);
+                const double x = 2.0 * u - 1.0;
+                const double y = 4.0 * x * (1.0 - std::fabs(x));
+                const double want = y + 0.225 * (y * std::fabs(y) - y);
+                const double got = so[i * 4 + 1];
+                if (std::fabs(got - want) > worst) {
+                    worst = std::fabs(got - want);
+                    worstAt = a;
+                }
+            }
+            // Float arithmetic with VU rounding against a double reference:
+            // a few 1e-6 apart is the format, 1e-2 apart is a wrong constant.
+            if (worst > 1e-4) {
+                std::printf("  the generated sine is %.5f off the formula at "
+                            "%.2f rad - a coefficient is wrong\n", worst,
+                            worstAt);
+                ++fails;
+            }
+            std::printf("  sine: worst %.7f off its own series over -3..+3 rad, "
+                        "%d samples\n", worst, 24);
+        }
+    }
+
+    // And the amplitude, which is a separate claim: the approximation is worth
+    // about 0.2%, so a displacement must stay inside the amplitude it was
+    // given plus that margin.
     vugen::KernelDesc kw;
     kw.title = "vu-check wobble kernel";
     vugen::Stage wb = vugen::makeStage("wobble");
@@ -1788,6 +1851,25 @@ static int vuCheckFromCli(int argc, char** argv) {
         "   64-bit slot when it can, so the exact size is only known after it "
         "runs)\n\n");
 
+    // 4b. Register pressure. The IR has unlimited virtual VF registers and VCL
+    //     allocates the real 31, so running out is invisible to everything
+    //     above and surfaces as `no opt table` from vcl, inside Docker, with no
+    //     line number. Estimating it here is what turns that into a number.
+    std::printf("-- VF register pressure (31 allocatable; past that vcl may "
+                "refuse with \"no opt table\") --\n");
+    for (const vugen::Built& b : built) {
+        if (b.program.code.empty()) continue;
+        const vugen::Pressure pr = vugen::vfPressure(b.program);
+        std::printf("  %-16s peak %2d of %d live   (%d names)%s\n",
+                    b.program.name.c_str(), pr.peak, vugen::kVfRegisters,
+                    pr.names, pr.fits() ? "" : "   TIGHT");
+    }
+    std::printf("  (an ESTIMATE, and it over-states: it ignores control flow "
+                "and cannot split a\n   live range the way vcl does. These ten "
+                "all compile, which is the calibration -\n   known-good at <= "
+                "27, measured to still compile at 32, measured to FAIL at "
+                "36.)\n\n");
+
     // 5. The authoring layer: every stage, both directions.
     const int stageFails = vuCheckStages(engine);
 
@@ -1866,8 +1948,19 @@ static int vuListFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    const vugen::Pressure pr = vugen::vfPressure(p);
     std::printf("; %s - %d instructions, %d VF names, %d VI names\n", p.name.c_str(),
                 (int)p.code.size(), (int)p.vfNames.size(), (int)p.viNames.size());
+    // The one property of a microprogram that is invisible everywhere else and
+    // fatal at assembly time (see vugen::vfPressure).
+    std::printf("; peak VF pressure %d of %d%s\n", pr.peak, vugen::kVfRegisters,
+                pr.fits() ? ""
+                          : "  - TIGHT, vcl may refuse with \"no opt table\"");
+    if (!pr.fits()) {
+        std::printf("; live at instruction %d:", pr.at);
+        for (const std::string& n : pr.live) std::printf(" %s", n.c_str());
+        std::printf("\n");
+    }
     for (const std::string& n : p.notes) std::printf("; note: %s\n", n.c_str());
     std::printf("%s", vusim::listing(p).c_str());
     return 0;

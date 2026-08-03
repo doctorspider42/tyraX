@@ -306,6 +306,11 @@ struct StageDef {
      * nothing else: a stage that reads a colour or an ST has nothing to read,
      * so it is REFUSED rather than silently reinterpreted. */
     bool kernelSafe = false;
+    /** How many of `StageCtx::s[]` this stage touches. The scratch pool is
+     * allocated to the largest any PLANNED stage needs, not to the largest any
+     * stage could need - three spare registers is a real cost when the sine's
+     * own three are on top and VCL only has 31. */
+    int scratch = 1;
 };
 
 /** The catalogue. Ordered by slot, then by how often you would reach for it. */
@@ -556,5 +561,47 @@ struct Budget {
  * honest; reporting a single number would not be. */
 Budget budget(const std::vector<std::pair<std::string, const vuir::Program*>>& set,
               int ceiling = kVu1MicroCeiling);
+
+// ---------------------------------------------------------------------------
+// Register pressure
+// ---------------------------------------------------------------------------
+
+/** A VU has 32 float registers and `vf00` is hardwired, so 31 are allocatable.
+ * The IR has UNLIMITED virtual ones and VCL does the allocation - which means
+ * running out is invisible to every host check here and shows up as
+ *
+ *     ERROR: no opt table.. something failed making table .. for processing!
+ *
+ * from `vcl`, inside Docker, minutes later, with no line number. That is the
+ * worst feedback in the whole toolchain, so it gets predicted instead. */
+constexpr int kVfRegisters = 31;
+
+struct Pressure {
+    int peak = 0;             // most VF registers live at once (over-stated)
+    int at = -1;              // instruction index where that happens
+    int names = 0;            // distinct VF names the program uses
+    std::vector<std::string> live;  // what is live at the peak, for diagnosis
+    bool fits() const { return peak <= kVfRegisters; }
+};
+
+/** Peak simultaneous live VF registers, by the linear-scan approximation: each
+ * register's live range is [first write, last read] and the peak is the most
+ * ranges covering any one instruction.
+ *
+ * It OVER-STATES, and knowing by how much is the whole of its usefulness. A
+ * register reused as scratch across three unrolled vertices has one long
+ * [first, last] range here while being dead in between, and VCL splits live
+ * ranges where this cannot. So it is an INDICATOR, calibrated against three
+ * measurements rather than a rule:
+ *
+ *   <= 27   every one of the engine's ten resident programs, all of which
+ *           compile - so this range is known-good
+ *      32   a two-stage textured program: vcl allocated it fine
+ *      36   a four-stage colour program: `no opt table`, build dead
+ *
+ * Treat past 31 as "vcl may refuse", not as "it will". It must not gate a
+ * check: an over-stating estimate that turns a green run red is worse than no
+ * estimate at all. */
+Pressure vfPressure(const vuir::Program& p);
 
 }  // namespace vugen

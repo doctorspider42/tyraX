@@ -2,16 +2,19 @@
 
 #include "scripts/vu_programs.gen.hpp"
 #include "vu_custom_c_program.hpp"
+#include "vu_custom_tc_program.hpp"
 
 namespace vuprog {
 
 namespace {
 Tyra::TyraXCustomCVU1Program g_TyraXCustomCVU1Program;
+Tyra::TyraXCustomTCVU1Program g_TyraXCustomTCVU1Program;
 }  // namespace
 
 void install(Tyra::StaPipCore& core) {
   core.setResidentClasses(25);  // only the classes this project draws
   core.setProgramOverride(Tyra::StaPipCullColor, &g_TyraXCustomCVU1Program);
+  core.setProgramOverride(Tyra::StaPipCullTextureColor, &g_TyraXCustomTCVU1Program);
   // Two extra quadwords per mesh, and only for a bag with no
   // lighting - they live in the directional-lights colour block.
   core.setVuCustomEnabled(true);
