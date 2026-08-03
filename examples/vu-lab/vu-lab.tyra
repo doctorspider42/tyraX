@@ -196,10 +196,10 @@
     ]
   },
   "vu": { "activeLook": 0, "residentClasses": 31, "residentAuto": true, "looks": [
-      { "name": "Toon", "classes": 31, "stages": [{ "kind": "posterize", "p": [6, 1, 0, 0] }, { "kind": "scrollUv", "p": [0.05, 0, 0, 0] }] },
+      { "name": "Toon", "classes": 31, "off": true, "stages": [{ "kind": "posterize", "p": [6, 1, 0, 0] }, { "kind": "scrollUv", "p": [0.05, 0, 0, 0] }] },
       { "name": "Underwater", "classes": 9, "off": true, "stages": [{ "kind": "wobble", "p": [0.07, 0.35, 2, 0] }] },
-      { "name": "Power down", "classes": 25, "stages": [{ "kind": "desaturate", "p": [0, 0, 0, 0], "bind": [1, -1, -1, -1] }] }
-    ], "kernel": { "name": "points", "enabled": true, "maxElements": 32, "stages": [{ "kind": "wobble", "p": [1.5, 0.8, 2.5, 0] }, { "kind": "squash", "p": [0, 0.25, 0, 0] }] } },
+      { "name": "Power down", "classes": 25, "off": true, "stages": [{ "kind": "desaturate", "p": [0, 0, 0, 0], "bind": [1, -1, -1, -1] }] }
+    ], "kernel": { "name": "points", "enabled": true, "maxElements": 32, "off": true, "stages": [{ "kind": "wobble", "p": [1.5, 0.8, 2.5, 0] }, { "kind": "squash", "p": [0, 0.25, 0, 0] }] } },
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [

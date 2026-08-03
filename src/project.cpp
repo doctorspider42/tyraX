@@ -18,6 +18,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "platform.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -5315,7 +5316,70 @@ static bool isVuGenerated(const std::string& rel) {
            startsWith("inc\\vu0_");
 }
 
+// The framework a project's own VU script is compiled against, copied INTO the
+// project (docs/vu-authoring.md).
+//
+// It has to travel with the project rather than stay in the editor, for two
+// reasons that pull the same way: the build container only ever sees the
+// project directory, and VS Code needs the headers on disk to resolve
+// `#include "vushader.hpp"` in the file the user is typing into. It lands
+// OUTSIDE src/ on purpose - Makefile.base globs src/**/*.cpp for the PS2
+// compiler, and these are host sources that would fail there loudly.
+static const char* const kVuFrameworkFiles[] = {
+    "vuir.hpp",  "vuir.cpp",     "vusim.hpp",    "vusim.cpp",   "vugen.hpp",
+    "vugen.cpp", "vushader.hpp", "vushader.cpp", "vumain.cpp",
+};
+
+/** Where the editor's own sources are. Same shape as the engine lookup: next to
+ * the exe first (a built editor sits in build/ inside its repo), then the
+ * working directory (a run from the repo root). */
+static fs::path editorSourceDir() {
+    std::error_code ec;
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        const fs::path c = fs::path(exe).parent_path() / ".." / "src";
+        if (fs::exists(c / "vushader.hpp", ec)) return fs::weakly_canonical(c, ec);
+    }
+    if (fs::exists(fs::path("src") / "vushader.hpp", ec)) return fs::path("src");
+    return {};
+}
+
+bool hasVuScripts(const Project& p) {
+    std::error_code ec;
+    const fs::path dir = fs::path(p.dir) / "src" / "vu";
+    if (!fs::is_directory(dir, ec)) return false;
+    for (const auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_regular_file(ec) && e.path().extension() == ".cpp") return true;
+    return false;
+}
+
+/** Copy the framework in when the project has a script, and take it away again
+ * when the last one is deleted - a stale copy would be compiled by the next
+ * build and quietly resurrect a program the project no longer describes. */
+static std::string syncVuFramework(const Project& p) {
+    std::error_code ec;
+    const fs::path dst = fs::path(p.dir) / "vugen";
+    if (!hasVuScripts(p)) {
+        fs::remove_all(dst, ec);
+        return {};
+    }
+    const fs::path src = editorSourceDir();
+    if (src.empty())
+        return "the VU framework sources are missing next to the editor - "
+               "src/vu/*.cpp cannot be built";
+    fs::create_directories(dst, ec);
+    for (const char* name : kVuFrameworkFiles) {
+        std::ifstream in(src / name, std::ios::binary);
+        if (!in) return std::string("cannot read the VU framework file ") + name;
+        std::ostringstream buf;
+        buf << in.rdbuf();
+        if (auto err = writeFile(dst / name, buf.str()); !err.empty()) return err;
+    }
+    return {};
+}
+
 std::string refreshGenerated(const Project& p) {
+    if (auto err = syncVuFramework(p); !err.empty()) return err;
     // ONCE. generate() is the whole codegen pass - every scene table, every
     // microprogram, every bake-derived header - and it also PRINTS the
     // diagnostics a build reports (a skipped procedural volume, a look that
@@ -5378,6 +5442,7 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\input_map.gen.hpp" ||
             f.relativePath == "src\\gen\\input_map.gen.cpp" ||
             f.relativePath == "inc\\scripts\\vu_programs.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\vu_scripts.gen.hpp" ||
             f.relativePath == "src\\gen\\vu_programs.gen.cpp" ||
             // The project's own microprograms and their EE classes are named
             // after what they are, so they cannot be listed by hand - and a

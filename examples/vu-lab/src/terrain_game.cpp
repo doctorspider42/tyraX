@@ -35,6 +35,7 @@
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
 #include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
+#include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -1799,6 +1800,10 @@ void TerrainGame::init() {
   // override installed first would be rebuilt away. Compiles to nothing when
   // the project has no program of its own.
   vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);

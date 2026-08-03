@@ -25,7 +25,11 @@ INC         += -I$(PS2DEV)/ps2sdk/ee/include -I$(PS2DEV)/ps2sdk/common/include -
 #---------------------------------------------------------------------------------
 #DO NOT EDIT BELOW THIS LINE
 #---------------------------------------------------------------------------------
-SOURCES     := $(shell find $(SRCDIR) -type f -name *.$(SRCEXT))
+# Modified by TyraX: src/vu/ is HOST C++ - a project's own VU program
+# descriptions (docs/vu-authoring.md). They are compiled by the host compiler at
+# build time and RUN, and what they write is the .vclpp below; handing them to
+# the PS2 compiler would fail on the very first include.
+SOURCES     := $(shell find $(SRCDIR) -type f -name *.$(SRCEXT) -not -path '$(SRCDIR)/vu/*')
 OBJECTS     := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(SOURCES:.$(SRCEXT)=.$(OBJEXT)))
 
 IRXEM_SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(IRXEMBEDDEDEXT))

@@ -823,6 +823,44 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                       p.dir) == 0;
         }
 
+        // The project's own VU scripts (src/vu/*.cpp, docs/vu-authoring.md).
+        //
+        // These are HOST C++: they run at build time and write the microprogram
+        // the PS2 compiler then assembles. So they need a host compiler, and the
+        // ps2dev image ships none - only the ee/iop/dvp cross toolchains. It is
+        // installed once and stamped, exactly like the audsrv overlay above; a
+        // recreated container pays for it again, which is a minute, and the
+        // alternative is making every user of the editor install a C++ compiler
+        // for a feature most projects never touch.
+        //
+        // Ordering matters twice over: AFTER the rsync, because the sources have
+        // to be in the volume, and BEFORE make, because what this writes into
+        // src/gen is what make compiles.
+        if (ok && project::hasVuScripts(p)) {
+            appendLine("[editor] Building the project's VU scripts...");
+            ok = exec(dc + platform::shellArg(
+                          "set -e; "
+                          "if ! command -v g++ >/dev/null 2>&1; then "
+                          "  echo '[editor] Installing a host C++ compiler in "
+                          "the container (one time)...'; "
+                          "  apt-get update -qq >/dev/null && "
+                          "  DEBIAN_FRONTEND=noninteractive apt-get install -y "
+                          "-qq --no-install-recommends g++ >/dev/null; "
+                          "fi; "
+                          "mkdir -p /src/src/gen /src/inc/scripts; "
+                          // -O0: this program runs once and writes a few files;
+                          // compiling it fast matters, running it does not.
+                          "g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
+                          "/src/vugen/*.cpp /src/src/vu/*.cpp && "
+                          "/tmp/vugen /src/src/gen /src/inc/scripts"),
+                      p.dir) == 0;
+            if (!ok)
+                appendLine(
+                    "[editor] A VU script failed to build. The errors above are "
+                    "ordinary C++ errors from your own file in src/vu/ - see "
+                    "docs/vu-authoring.md.");
+        }
+
         if (ok) {
             appendLine("[editor] Compiling (PS2DEV toolchain)...");
             // -j like the engine build above: the game is a dozen-odd

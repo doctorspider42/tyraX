@@ -2667,6 +2667,11 @@ bool vuLookBindsPerMesh(const VuProgram& look);
 // True when any stage displaces the vertex - such a look cannot cover a package
 // the frustum cut (docs/vu-authoring.md, "One class is two programs").
 bool vuLookMovesGeometry(const VuProgram& look);
+// True when the project carries at least one hand-written VU script
+// (src/vu/*.cpp). Those are compiled and RUN inside the build container, so
+// the runner has an extra step to take and the framework has to travel with
+// the project (docs/vu-authoring.md).
+bool hasVuScripts(const Project& p);
 // "Untextured (vertex colour)", "Textured", ... - one label for the panel, the
 // inspector and the diagnostics.
 const char* vuClassName(unsigned classBit);
