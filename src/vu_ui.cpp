@@ -424,6 +424,7 @@ void App::drawVuProgramsWindow() {
                 bool twin = false, boot = true;
                 int instrs = 0;
                 int delta = 0;  // against the engine program it REPLACES
+                bool resident = true;  // a twin is not, under VU1 clipping
             };
             std::vector<ScriptRow> scriptRows;
             {
@@ -453,10 +454,18 @@ void App::drawVuProgramsWindow() {
                     // thing on top is how this bar first said 3056 of 2042 for
                     // a set that fits.
                     const int ci = classBitIndex(r.bit);
-                    const int stock = r.twin ? engineSizes().instr[ci][fam]
+                    // The as_is twin is only RESIDENT with the EE clipper. Under
+                    // VU1 clipping the engine's own clip program holds that half
+                    // of the pair, so a script's twin sits in the ELF costing
+                    // nothing - counting it there is what made this estimate
+                    // claim both modes cost the same.
+                    const bool twinResident = fam == 2;
+                    const int stock = r.twin ? engineSizes().instr[ci][2]
                                              : engineSizes().instr[ci][0];
                     r.delta = r.instrs - stock;
-                    if (r.boot && (mask & r.bit)) totEmitted += r.delta;
+                    r.resident = !r.twin || twinResident;
+                    if (r.boot && r.resident && (mask & r.bit))
+                        totEmitted += r.delta;
                     scriptRows.push_back(r);
                 }
             }
@@ -524,6 +533,45 @@ void App::drawVuProgramsWindow() {
                 ImGui::PopID();
             }
             ImGui::EndDisabled();
+
+            // The OTHER clipping mode, priced. This is the biggest lever there
+            // is - the clip family is roughly twice the as_is family - and it
+            // is also the easiest way to blow the ceiling by accident, because
+            // a custom program replaces the cull half in BOTH modes while the
+            // twin it sits next to doubles in size. Measured the hard way: a
+            // console run flipped vu-lab to VU1 clipping at run time and hit
+            // the engine's own overflow assert.
+            {
+                int other = 0;
+                const int otherFam = fam == 1 ? 2 : 1;
+                for (const ClassRow& c : kClasses) {
+                    if ((mask & c.bit) == 0) continue;
+                    const int ci = classBitIndex(c.bit);
+                    other += engineSizes().instr[ci][0] +
+                             engineSizes().instr[ci][otherFam];
+                }
+                for (const vugen::Built& b : vuPreview_) other += b.stageInstrs;
+                for (const ScriptRow& r : scriptRows) {
+                    if (!r.boot || !(mask & r.bit)) continue;
+                    // Same rule the other way round: a twin only counts in the
+                    // mode where the as_is half is the resident one.
+                    if (r.twin && otherFam != 2) continue;
+                    const int ci = classBitIndex(r.bit);
+                    other += r.instrs - (r.twin ? engineSizes().instr[ci][2]
+                                                : engineSizes().instr[ci][0]);
+                }
+                ImGui::Spacing();
+                const bool fits = other <= 2042;
+                ImGui::PushStyleColor(ImGuiCol_Text, fits ? theme::semantics().ok
+                                                          : theme::semantics().warn);
+                ImGui::TextWrapped(
+                    "With %s instead: %d..%d of 2042 - %s. The game can switch "
+                    "at run time with vuprog::setVU1Clipping(), between frames.",
+                    fam == 1 ? "the EE clipper" : "VU1 clipping",
+                    (other + 1) / 2, other,
+                    fits ? "fits" : "DOES NOT FIT, the engine asserts");
+                ImGui::PopStyleColor();
+            }
 
             // The project's own C++ programs. Not editable here and not
             // previewable here - they are compiled by the build container - but

@@ -68,6 +68,14 @@ class Vu0KernelDemo : public Script {
         vuscript::activate(vuscript::kCellShading);
       TYRA_LOG("VU script cell shading -> ", on ? "off" : "on");
     }
+    // NO clipping switch bound here on purpose. vuprog::setVU1Clipping()
+    // exists and works, but THIS project does not fit in VU1 clipping: the
+    // clip family is roughly twice the as_is family, and the cell-shading
+    // script already replaces the cull half of four classes. Tools > VU
+    // Programs prices both modes and says so - and a console run that ignored
+    // it hit the engine's own "programs overflow into the draw-finish program"
+    // assert, which is exactly what that estimate now predicts.
+
     // SQUARE cycles the stage-list looks, when the project has any switched on.
     if (ctx.engine->pad.getClicked().Square && vuprog::LOOK_COUNT > 1) {
       const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;

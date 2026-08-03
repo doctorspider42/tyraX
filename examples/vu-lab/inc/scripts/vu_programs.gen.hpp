@@ -13,12 +13,19 @@ constexpr bool ENABLED = false;
 
 constexpr int LOOK_COUNT = 0;
 
-inline void install(Tyra::StaPipCore&) {}
+void install(Tyra::StaPipCore& core);
 inline void activate(int) {}
 inline int active() { return -1; }
 inline const char* lookName(int) { return ""; }
 inline bool movesGeometry() { return false; }
 inline void setTime(Tyra::StaPipCore&, float) {}
 inline void setParams(Tyra::StaPipCore&, const float*) {}
+
+/** Swap the clipping mode at run time. VU1 clipping is precise and
+ * costs about twice the micro memory; the EE clipper hands those
+ * slots back and spends EE time instead. Rebuilds the resident
+ * program cache, so call it BETWEEN frames, never mid-draw. */
+void setVU1Clipping(bool onVU1);
+bool vu1Clipping();
 
 }  // namespace vuprog
