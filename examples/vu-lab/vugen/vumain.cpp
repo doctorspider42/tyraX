@@ -29,6 +29,11 @@ namespace {
  * construction is handed over here, set immediately before each build(). */
 vu::Program* g_current = nullptr;
 
+void prepareTrampoline(vugen::ScriptCtx& sc) {
+    vu::Ctx c(sc);
+    g_current->prepare(c);
+}
+
 void scriptTrampoline(vugen::ScriptCtx& sc) {
     vu::Ctx c(sc);
     g_current->vertex(c);
@@ -136,6 +141,7 @@ int main(int argc, char** argv) {
                 d.title = std::string(p->name()) + " - " +
                           vugen::classTitle(cls);
                 d.script = &scriptTrampoline;
+                d.scriptPrepare = &prepareTrampoline;
                 d.scriptSlot = p->slot();
                 g_current = p;
 

@@ -33,51 +33,58 @@ struct CellShading : vu::Program {
     // point where the value is still a float and still means "light".
     vu::Slot slot() const override { return vu::Slot::Color; }
 
+    // Built once per BUFFER, in the preamble - vu::splat hoists them there.
+    // A loi inside the per-vertex body is something vcl schedules around.
+    void prepare(vu::Ctx& c) {
+        kWeights_ = vu::constant(c, 0.299F, 0.587F, 0.114F, 0.0F);
+        kScale_ = vu::splat(c, kBands / 255.0F);
+    }
+    vu::Vec kWeights_, kScale_;
+
     void vertex(vu::Ctx& c) override {
-        // Band the LIGHT, not the channels.
+        // Written against the RAW builder and the framework's scratch
+        // registers, minting nothing of its own.
         //
-        // Posterising r, g and b independently is the obvious thing and it is
-        // wrong: at four levels a shaded yellow (160,131,25) lands on
-        // (127,127,0), so the hue slides to olive and the model looks dirty
-        // rather than stylised. Cell shading quantises BRIGHTNESS and keeps the
-        // colour, so: luminance, band it, scale the original colour by the
-        // ratio. That ratio is also why this MULTIPLIES - an object's extra
-        // bags are modulation passes whose vertex colour is black, and zero
-        // times anything is still zero.
-        //
-        // Two constants, and not one more: this program has to fit next to the
-        // directional-light code, which already keeps ~30 of VCL's 31 registers
-        // live. The version with four died as `no opt table` inside Docker.
-        vu::Vec u = vu::dot3(c.color, vu::constant(c, 0.299F, 0.587F, 0.114F,
-                                                   0.0F)) *
-                    vu::splat(c, kBands / 255.0F);
+        // The value layer is the readable way to write this, and it was also
+        // what made the build crawl: every `a * b` mints a register, three
+        // vertices are unrolled, and eighteen live temporaries put vcl's
+        // allocator into `time out.. failed to normal via processing`. It still
+        // emits code when that happens - it just stops optimising, and every
+        // timeout is another 45 seconds of build. Scratch registers are the
+        // framework's answer, and this is what using them looks like.
+        vugen::Vu& b = c.raw();
+        const vugen::Val one = b.zero().broadcast(3);  // vf00.w == 1.0, free
+        const vugen::Val s0 = c.scratch(0).val();
+        const vugen::Val s1 = c.scratch(1).val();
+        const vugen::Val s2 = c.scratch(2).val();
 
-        // vf00.w is 1.0 - a free operand, no constant and no loi. It doubles as
-        // the divide-by-zero guard and as the floor of the darkest band, so a
-        // black vertex comes out unchanged instead of black-on-black.
-        u = vu::maximum(u, vu::Vec(&c.raw(), c.raw().zero().broadcast(3)));
+        // s0.x = luminance. Band the LIGHT, not the channels: posterising r, g
+        // and b apart moves the HUE - a shaded yellow (160,131,25) lands on
+        // (127,127,0) and the model goes olive.
+        b.mulInto(s0, c.color.val(), kWeights_.val(), vuir::MXYZ);
+        b.addInto(s0, s0, vugen::Val{s0.reg, 1}, vuir::MX);
+        b.addInto(s0, s0, vugen::Val{s0.reg, 2}, vuir::MX);
 
-        // scale = the band's CENTRE over the actual value, not its floor.
-        //
-        // Flooring is the obvious quantiser and it is the reason the first
-        // console run came out washed out: floor() only ever moves a value
-        // DOWN, by up to a quarter of the range at four bands, so every
-        // surface in the scene - sky included - lost brightness and the whole
-        // frame read as a grey haze. Centring the band keeps the average.
-        //
-        // (2t + 1) / (2u), which is (t + 0.5) / u without needing a 0.5: the
-        // doubling is two adds and the 1 comes from vf00.w, so this costs no
-        // constant at all - and constants are what this program has none of.
-        vugen::Val t = c.scratch(0).val();
-        c.raw().truncate(t, u.val(), vuir::MALL);
-        c.raw().addInto(t, t, t, vuir::MALL);
-        c.raw().addInto(t, t, c.raw().zero().broadcast(3), vuir::MALL);
-        vugen::Val u2 = c.scratch(1).val();
-        c.raw().addInto(u2, u.val(), u.val(), vuir::MALL);
-        c.raw().divQ(t, 0, u2, 0);
-        // .rgb(), not the whole register: ALPHA IS WHAT THE GS BLENDS WITH.
-        c.color.rgb() =
-            vu::Vec(&c.raw(), c.raw().mulQ(c.color.val(), vuir::MXYZ));
+        // u = luminance * bands/255, floored at 1 so a black vertex neither
+        // divides by zero nor darkens - and a modulation pass (a lightmap's
+        // vertex colour is Color(0,0,0,128)) still multiplies out to zero.
+        b.mulInto(s0, s0, kScale_.val(), vuir::MX);
+        b.maximumInto(s0, s0, one, vuir::MX);
+
+        // scale = (2t + 1) / (2u): the band's CENTRE, not its floor. Flooring
+        // only ever moves a value DOWN - by a quarter of the range at four
+        // bands - so the whole frame, sky included, came out as a grey haze.
+        // The doubling is two adds and the 1 is vf00.w, so this needs no
+        // constant, and this program has none to spare.
+        b.truncate(s1, s0, vuir::MX);
+        b.addInto(s1, s1, s1, vuir::MX);
+        b.addInto(s1, s1, one, vuir::MX);
+        b.addInto(s2, s0, s0, vuir::MX);
+        b.divQ(s1, 0, s2, 0);
+
+        // xyz only: ALPHA IS WHAT THE GS BLENDS WITH, and banding it turns a
+        // reflection or a shadow pass into stipple.
+        b.mulQInto(c.color.val(), c.color.val(), vuir::MXYZ);
     }
 
     static constexpr float kBands = 4.0F;

@@ -1997,6 +1997,19 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // preamble proper - the per-mesh quadwords, the stage constants, the GIF
     // tag - and everything after it runs once per vertex.
     sc.scriptPreambleAt = b.mark();
+    // The script's one-time half, before a single per-vertex instruction is
+    // emitted. Without it a script's constants are built once per VERTEX -
+    // three copies of the same register, on a program that has none to spare.
+    if (d.scriptPrepare) {
+        ScriptCtx ps;
+        ps.b = &b;
+        ps.params = sc.params;
+        ps.time = sc.timeV;
+        ps.one = sc.one;
+        ps.preambleAt = sc.scriptPreambleAt;
+        d.scriptPrepare(ps);
+        sc.scriptPreambleAt = ps.preambleAt;
+    }
     if (hasStages) {
         static const char* sn[6] = {"vuS0", "vuS1", "vuS2",
                                     "vuS3", "vuS4", "vuS5"};

@@ -255,6 +255,14 @@ class Program {
      * in one game as long as they are not resident together. */
     virtual bool activeAtBoot() const { return true; }
 
+    /** Called ONCE, where the preamble ends, before any per-vertex code.
+     * Build constants here and keep them in members: `vu::splat` inside
+     * `vertex()` is hoisted to the preamble too, but it runs once PER VERTEX
+     * and the vertex loop is unrolled three times - so the same constant ends
+     * up in three registers, and registers are what this program has least
+     * of. */
+    virtual void prepare(Ctx&) {}
+
     /** Called once per VERTEX. The loop, the packet and the GIF tag are the
      * framework's - this is the part that is yours. */
     virtual void vertex(Ctx& c) = 0;

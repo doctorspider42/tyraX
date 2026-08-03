@@ -446,6 +446,9 @@ struct Desc {
      * out of it - the script sees the same registers the catalogue does and
      * can do anything the builder can. Null unless the project wrote one. */
     ScriptFn script = nullptr;
+    /** Run ONCE where the preamble ends. A script's constants belong there,
+     * not three times over in an unrolled vertex loop. */
+    ScriptFn scriptPrepare = nullptr;
     Slot scriptSlot = Slot::Color;
     /** Scratch registers the script asked for, on top of what the stages take.
      * The caller owns them for the same reason a stage does not mint its own:

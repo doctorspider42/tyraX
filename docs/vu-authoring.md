@@ -188,6 +188,16 @@ not a way to pretend the VU is a GPU.
 
 ### Five rules the compiler will not tell you
 
+**Build constants in `prepare()`, not in `vertex()`.** Both hoist to the
+preamble, but `vertex()` runs once per VERTEX and the loop is unrolled three
+times, so the same constant lands in three registers. And write the body
+against `c.scratch(n)` and the raw builder once it grows: every `a * b` in the
+value layer mints a register, and eighteen live temporaries is enough to put
+vcl into `time out.. failed to normal via processing` - it still emits code, it
+just stops optimising, and each timeout is another 45 seconds of build. Moving
+the sample onto scratch registers took it from several timeouts to none and the
+budget from 1042..2084 to 897..1794.
+
 **Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
 writes the I register; a run of them inside the per-vertex body is something vcl
 schedules around, and the hardware then reads an I the host simulator never saw.

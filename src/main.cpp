@@ -1483,6 +1483,10 @@ static int vuCheckScripts(const std::string& engine) {
         for (unsigned cls : vugen::customClasses()) {
             if ((sp->classes() & cls) == 0) continue;
             vugen::Desc d = vugen::descForClass(cls);
+            d.scriptPrepare = [](vugen::ScriptCtx& sc) {
+                vu::Ctx c(sc);
+                vuCheckScriptCurrent->prepare(c);
+            };
             d.script = [](vugen::ScriptCtx& sc) {
                 // One program at a time - the loop below sets it.
                 vu::Ctx c(sc);
