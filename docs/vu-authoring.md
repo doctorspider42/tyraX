@@ -109,9 +109,29 @@ slots?" is usually no:
 | A project's VU0 kernel | VU0 in **micro** mode | Yes, but against VU0's own 512 slots |
 
 So a scene with no animation frees EE time and VU0 cycles, not slots: there is
-nothing resident to drop. The two levers that do move the bar are the resident
-**classes** (the checkboxes above it, `setResidentClasses`) and how big your own
-programs are.
+nothing resident to drop. The levers that do move the bar are the resident
+**classes** (the checkboxes above it, `setResidentClasses`), how big your own
+programs are, and the clipping mode.
+
+**The clipping mode is the big one.** The twin next to each cull program is the
+VU1 clipper or the as_is program depending on the mode, and the clip family is
+roughly twice the size: measured over the four classes `examples/vu-lab` draws,
+1181 instructions against 543. A game can flip it while it runs:
+
+```cpp
+vuprog::setVU1Clipping(false);   // the EE clipper: ~638 slots back, EE time spent
+vuprog::vu1Clipping();
+```
+
+It rebuilds the resident cache, so call it **between frames**, and re-installs
+whatever look was active afterwards.
+
+Check the panel first. This is the easiest way to overflow by accident — a
+custom program replaces the cull half in BOTH modes while the twin beside it
+doubles — so the Micro memory tab prices the mode you are *not* in and says
+whether it fits. A console run that flipped vu-lab to VU1 clipping mid-game hit
+the engine's own `VU1 pipeline programs overflow into the draw-finish program`
+assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 
 ### Where it shows up in the editor
 
