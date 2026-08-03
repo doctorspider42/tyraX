@@ -2084,6 +2084,24 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
                             lightColors, ambient);
             sc.normal = normal[i];
         }
+        // THE SAME BODY THE CULL HALF RUNS. Leaving it out is not a missing
+        // optimisation - it is the effect switching itself off the moment a
+        // mesh touches the edge of the screen: that package goes to this twin,
+        // this twin had stock shading, and a ball that was cel-shaded in the
+        // middle of the frame turned ordinary at the corner. Terrain showed it
+        // worst, neighbouring chunks landing on different halves and the ground
+        // breaking into patches.
+        //
+        // Geometry stages are filtered out of this program upstream (its
+        // vertices arrive already transformed), so what runs here is the colour
+        // and texture work - which is exactly the part that has to match.
+        if (d.script && (d.scriptSlot == Slot::Color ||
+                         d.scriptSlot == Slot::Texture)) {
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            runScript(sc, d);
+        }
         b.fixColor(color[i]);
     }
 

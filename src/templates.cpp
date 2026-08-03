@@ -32096,8 +32096,19 @@ std::string vuScriptsStubHeader() {
     s += "// container replaces this file with the generated one\n";
     s += "// (docs/vu-authoring.md).\n";
     s += "#pragma once\n\n#include <tyra>\n\nnamespace vuscript {\n\n";
-    s += "constexpr bool ENABLED = false;\n\n";
-    s += "inline void install(Tyra::StaPipCore&) {}\n\n";
+    s += "constexpr bool ENABLED = false;\n";
+    // The WHOLE surface, not just install(): game code guarded by
+    // `vuscript::COUNT > 0` has to keep compiling when the last script is
+    // deleted, and the stub is exactly the state a project is in before its
+    // first build. Leaving these out made deleting a script break the build
+    // with "'COUNT' is not a member of 'vuscript'".
+    s += "constexpr int COUNT = 0;\n\n";
+    s += "inline void install(Tyra::StaPipCore&) {}\n";
+    s += "inline void activate(int) {}\n";
+    s += "inline void deactivate(int) {}\n";
+    s += "inline void deactivateAll() {}\n";
+    s += "inline bool active(int) { return false; }\n";
+    s += "inline const char* name(int) { return \"\"; }\n\n";
     s += "}  // namespace vuscript\n";
     return s;
 }

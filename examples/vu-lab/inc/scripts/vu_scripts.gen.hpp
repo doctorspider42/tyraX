@@ -12,7 +12,13 @@
 namespace vuscript {
 
 constexpr bool ENABLED = false;
+constexpr int COUNT = 0;
 
 inline void install(Tyra::StaPipCore&) {}
+inline void activate(int) {}
+inline void deactivate(int) {}
+inline void deactivateAll() {}
+inline bool active(int) { return false; }
+inline const char* name(int) { return ""; }
 
 }  // namespace vuscript
