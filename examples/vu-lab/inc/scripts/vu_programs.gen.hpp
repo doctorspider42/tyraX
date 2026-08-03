@@ -11,11 +11,10 @@ namespace vuprog {
 
 constexpr bool ENABLED = true;
 
-constexpr int LOOK_COUNT = 3;
+constexpr int LOOK_COUNT = 2;
 
 // look 0: Toon
-// look 1: Underwater
-// look 2: Power down
+// look 1: Power down
 
 /** Installs the look that starts active and turns on the
  * per-mesh parameter upload. Call once, AFTER setRenderer and

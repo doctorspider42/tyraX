@@ -9,8 +9,6 @@
 #include "vu_look0_tc_ai_program.hpp"
 #include "vu_look0_tce_program.hpp"
 #include "vu_look0_tce_ai_program.hpp"
-#include "vu_look1_c_program.hpp"
-#include "vu_look1_tc_program.hpp"
 #include "vu_look2_c_program.hpp"
 #include "vu_look2_c_ai_program.hpp"
 #include "vu_look2_tc_program.hpp"
@@ -29,8 +27,6 @@ Tyra::TyraXLook0TCVU1Program g_TyraXLook0TCVU1Program;
 Tyra::TyraXLook0TCAIVU1Program g_TyraXLook0TCAIVU1Program;
 Tyra::TyraXLook0TCEVU1Program g_TyraXLook0TCEVU1Program;
 Tyra::TyraXLook0TCEAIVU1Program g_TyraXLook0TCEAIVU1Program;
-Tyra::TyraXLook1CVU1Program g_TyraXLook1CVU1Program;
-Tyra::TyraXLook1TCVU1Program g_TyraXLook1TCVU1Program;
 Tyra::TyraXLook2CVU1Program g_TyraXLook2CVU1Program;
 Tyra::TyraXLook2CAIVU1Program g_TyraXLook2CAIVU1Program;
 Tyra::TyraXLook2TCVU1Program g_TyraXLook2TCVU1Program;
@@ -39,7 +35,7 @@ Tyra::TyraXLook2TCEVU1Program g_TyraXLook2TCEVU1Program;
 Tyra::TyraXLook2TCEAIVU1Program g_TyraXLook2TCEAIVU1Program;
 Tyra::StaPipCore* g_core = nullptr;
 int g_active = -1;
-const char* const kNames[] = {"Toon", "Underwater", "Power down"};
+const char* const kNames[] = {"Toon", "Power down"};
 }  // namespace
 
 int active() { return g_active; }
@@ -49,7 +45,7 @@ const char* lookName(int look) {
 }
 
 bool movesGeometry() {
-  static const bool kMoves[] = {false, true, false};
+  static const bool kMoves[] = {false, false};
   return g_active >= 0 && g_active < LOOK_COUNT && kMoves[g_active];
 }
 
@@ -80,11 +76,7 @@ void activate(int look) {
       progs[4] = &g_TyraXLook0TCEVU1Program;
       progs[9] = &g_TyraXLook0TCEAIVU1Program;
       break;
-    case 1:  // Underwater
-      progs[0] = &g_TyraXLook1CVU1Program;
-      progs[3] = &g_TyraXLook1TCVU1Program;
-      break;
-    case 2:  // Power down
+    case 1:  // Power down
       progs[0] = &g_TyraXLook2CVU1Program;
       progs[5] = &g_TyraXLook2CAIVU1Program;
       progs[3] = &g_TyraXLook2TCVU1Program;

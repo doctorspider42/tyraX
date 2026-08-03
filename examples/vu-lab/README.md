@@ -34,11 +34,11 @@ of each — plus a **VU0 compute kernel**.
 | Look | Classes | Stages | Parameters |
 |---|---|---|---|
 | **Toon** (active at boot) | all four the scene draws | Posterize (6 levels), Scroll UV | all plain **values** |
-| **Underwater** | Untextured + Textured | Wobble | plain **values** — the whole scene ripples |
+| ~~**Underwater**~~ (built, switched OFF) | Untextured + Textured | Wobble | see below - a displacing look breaks multi-pass props |
 | **Power down** | Untextured + Textured + Reflective | Desaturate | Amount ← mesh **Y** |
 | kernel | VU0 | Wobble, Squash | values |
 
-**Press TRIANGLE to cycle the look.** That is `vuprog::activate(next)` in
+**Press TRIANGLE to cycle the look.** (Two looks are live; the third is left in the project switched off - see below.) That is `vuprog::activate(next)` in
 `src/scripts/vu0_kernel_demo.cpp`, three lines. The three of them are chosen to
 show the two halves of the design in one scene: Toon and Underwater are
 whole-scene treatments driven by plain values — which is what VU1 is *for* — and
