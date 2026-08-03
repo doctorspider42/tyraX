@@ -8,3 +8,7 @@
 /models/*.tskl
 /models/*.tanm
 /models/*.tmdl
+
+# Baked credits page strips - regenerated on every build (docs/credits.md).
+# The images an Image block points at live in res/credits/ and stay checked in.
+/credits/pages/

@@ -15,6 +15,10 @@ struct SceneObjectData {
              //    via PORTALS below)
              // 17=area (invisible volume, no geometry/collision:
              //    layer zones, In Area triggers - pointInArea below)
+             // 18=scatter volume (procedural authoring region; its
+             //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -53,11 +57,21 @@ struct SceneObjectData {
                      // (plain stereo, full volume, no distance/pan)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
+  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
+                     // Set Light / flicker work) instead of baked
+  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
+  int lightBeam;     // point lights: 0 none, 1 glow corona,
+                     // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int projShadow; // 1 = live projected silhouette shadow (the
+                  // per-object AO 'castShadow' is baked, not here)
+  int dynLit;     // 1 = lit by the LIT VU1 program from the probe
+                  // grid every frame instead of baked vertex colors
+                  // (docs/global-illumination.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -182,36 +196,36 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[30] = {
-    {6, {0.0F, 0.0F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {1, {8.0F, 6.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.95F, 0.85F, 0.1F}, 1, 0.8F, 0.6F, 0.2F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // kicked-ball
-    {0, {-17.23F, 8.0F, 3.74F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b0
-    {1, {-10.68F, 11.0F, 2.1F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b1
-    {0, {-5.27F, 14.0F, 3.35F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b2
-    {1, {0.08F, 17.0F, 3.91F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b3
-    {0, {7.69F, 20.0F, 3.71F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b4
-    {1, {12.9F, 8.0F, 3.86F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b5
-    {0, {18.89F, 11.0F, 2.22F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b6
-    {1, {-16.24F, 14.0F, 8.8F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b7
-    {0, {-10.39F, 17.0F, 8.67F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b8
-    {1, {-4.27F, 20.0F, 8.05F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b9
-    {0, {1.49F, 8.0F, 9.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b10
-    {1, {6.35F, 11.0F, 8.96F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b11
-    {0, {12.77F, 14.0F, 8.06F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b12
-    {1, {19.9F, 17.0F, 8.05F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b13
-    {0, {-17.04F, 20.0F, 15.44F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b14
-    {1, {-10.46F, 8.0F, 14.59F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b15
-    {0, {-5.78F, 11.0F, 14.33F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b16
-    {1, {0.17F, 14.0F, 14.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b17
-    {0, {7.66F, 17.0F, 14.3F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b18
-    {1, {13.08F, 20.0F, 15.86F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b19
-    {0, {19.76F, 8.0F, 15.32F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b20
-    {1, {-17.75F, 11.0F, 20.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b21
-    {0, {-10.8F, 14.0F, 21.92F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b22
-    {1, {-4.56F, 17.0F, 21.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b23
-    {0, {1.66F, 20.0F, 20.29F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b24
-    {1, {6.45F, 8.0F, 21.75F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b25
-    {0, {13.41F, 11.0F, 21.83F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b26
-    {1, {19.19F, 14.0F, 21.64F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b27
+    {6, {0.0F, 0.0F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {1, {8.0F, 6.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.95F, 0.85F, 0.1F}, 1, 0.8F, 0.6F, 0.2F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // kicked-ball
+    {0, {-17.23F, 8.0F, 3.74F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b0
+    {1, {-10.68F, 11.0F, 2.1F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b1
+    {0, {-5.27F, 14.0F, 3.35F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b2
+    {1, {0.08F, 17.0F, 3.91F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b3
+    {0, {7.69F, 20.0F, 3.71F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b4
+    {1, {12.9F, 8.0F, 3.86F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b5
+    {0, {18.89F, 11.0F, 2.22F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b6
+    {1, {-16.24F, 14.0F, 8.8F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b7
+    {0, {-10.39F, 17.0F, 8.67F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b8
+    {1, {-4.27F, 20.0F, 8.05F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b9
+    {0, {1.49F, 8.0F, 9.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b10
+    {1, {6.35F, 11.0F, 8.96F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b11
+    {0, {12.77F, 14.0F, 8.06F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b12
+    {1, {19.9F, 17.0F, 8.05F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b13
+    {0, {-17.04F, 20.0F, 15.44F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b14
+    {1, {-10.46F, 8.0F, 14.59F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b15
+    {0, {-5.78F, 11.0F, 14.33F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b16
+    {1, {0.17F, 14.0F, 14.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b17
+    {0, {7.66F, 17.0F, 14.3F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b18
+    {1, {13.08F, 20.0F, 15.86F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b19
+    {0, {19.76F, 8.0F, 15.32F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b20
+    {1, {-17.75F, 11.0F, 20.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b21
+    {0, {-10.8F, 14.0F, 21.92F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b22
+    {1, {-4.56F, 17.0F, 21.13F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b23
+    {0, {1.66F, 20.0F, 20.29F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.3F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b24
+    {1, {6.45F, 8.0F, 21.75F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.33F, 0.37F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b25
+    {0, {13.41F, 11.0F, 21.83F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.46F, 0.43F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // b26
+    {1, {19.19F, 14.0F, 21.64F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.5F, 0.8F}, 1, 1.0F, 0.88F, 0.08F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // b27
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {30};
@@ -219,6 +233,40 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 
 constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[30] = {0x5890a3b62596e62eULL, 0x31b684ef9be4ecb3ULL, 0x7131718be2c046c8ULL, 0x712f718be2bfc3f1ULL, 0x7139718be2c81876ULL, 0x7135718be2c42f9fULL, 0x7125718be2b76f6cULL, 0x7121718be2b38695ULL, 0x712b718be2bbdb1aULL, 0x7127718be2b7f243ULL, 0x7117718be2ab3210ULL, 0x7113718be2a74939ULL, 0x681c488bdd7db493ULL, 0x6820488bdd819d6aULL, 0x6814488bdd75e2e5ULL, 0x6818488bdd79cbbcULL, 0x682a488bdd89f1efULL, 0x682c488bdd8a74c6ULL, 0x6822488bdd822041ULL, 0x6826488bdd860918ULL, 0x6800488bdd6539dbULL, 0x6804488bdd6922b2ULL, 0x5f051f8bd837bc5eULL, 0x5f031f8bd8373987ULL, 0x5eff1f8bd83350b0ULL, 0x5efb1f8bd82f67d9ULL, 0x5ef91f8bd82ee502ULL, 0x5ef51f8bd82afc2bULL, 0x5ef11f8bd8271354ULL, 0x5eed1f8bd8232a7dULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
@@ -375,6 +423,10 @@ constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
@@ -395,9 +447,15 @@ constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {48.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {48.0F};
+constexpr float TERRAIN_VOID_Y = -1000000.0F;
+constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
@@ -424,6 +482,12 @@ constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
+constexpr int FLARE_USED = 0;
+constexpr int BEAMS_USED = 0;
+constexpr int BLOB_SHADOWS = 0;
+constexpr int PROJ_SHADOWS_USED = 0;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
 constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
@@ -439,6 +503,7 @@ constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
 constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
+constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
@@ -524,6 +589,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
 #define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define SCENE_LAYER_STREAM_AREA SCENE_LAYER_STREAM_AREAS[g_activeScene]
+// Prefabs this scene can spawn (docs/prefabs.md) - the slice of
+// PREFAB_SCENE_LIST the asset residency keeps loaded.
+#define SCENE_PREFAB_FIRST PREFAB_SCENE_FIRST[g_activeScene]
+#define SCENE_PREFAB_COUNT PREFAB_SCENE_COUNT[g_activeScene]
+#define SCENE_PREFAB_LIST PREFAB_SCENE_LIST
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -568,8 +638,14 @@ inline int everyFrames(float seconds) {
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
+// Directional locomotion (face-camera / strafe mode).
+#define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
+#define PP_STRAFE_L_CLIP(pi) PP_TBL(pi, STRAFE_L_CLIPS)
+#define PP_STRAFE_R_CLIP(pi) PP_TBL(pi, STRAFE_R_CLIPS)
+#define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
@@ -610,6 +686,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_FLARE POSTFX_FLARES[g_activeScene]
+#define POSTFX_GODRAYS POSTFX_GODRAYS_ARR[g_activeScene]
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
@@ -628,6 +706,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

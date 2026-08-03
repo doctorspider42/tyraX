@@ -114,6 +114,15 @@ the verification, and any fact worth reusing belongs in the relevant
   (miniupnpc, best-effort, dies on CGNAT). The `wire::Transport` interface is
   the only integration point - protocol/session code never sees sockets.
 
+- **Log panels: search and jump-to-next-error** (docs/log-panels.md). The
+  severity split landed the filter; the two obvious companions were left out of
+  it deliberately. A **text filter** box (an `ImGuiTextFilter` over the same
+  `visible` list) is the other half of "find the line I care about". And
+  **jump to next/previous error** is nearly free now that `logview::Line::cont`
+  marks which lines START an entry: walk `visible` for the next `!cont` line of
+  a level and `SetScrollY` to it. Both are UI-only - the classifier needs
+  nothing.
+
 - Hands-on pass over the Flow Graph editor UX (needs a human with a mouse)
 - Object physics vs objects (stacking), player physics polish (pad feel)
 - Model picking uses the unit-box approximation (big models pick imprecisely -

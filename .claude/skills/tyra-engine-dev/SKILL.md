@@ -121,7 +121,9 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+player, `bboxVersion` on `StaPipBag` for moving geometry,
+`StaPipBag::packageSize` (0 = derive) pinning coplanar passes over one vertex
+array to identical package boundaries — see the pitfall below, `Pad::setActuators` (act-direct DualShock rumble —
 the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 `padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
@@ -464,6 +466,32 @@ banner both, so a previously built ELF still reports.
   (its darker underside vs the lit top); the fix is a small offset between the
   two faces (see `addPlane` in templates.cpp / `unitPlane` in primmesh.cpp,
   0.01 local units). Same rule for any hand-built double-sided geometry.
+- **Coplanar passes over ONE vertex array must be pinned to ONE package
+  size.** `StaPipVU1Program::getMaxVertCount` derives the package size from
+  the bag's PROGRAM CLASS — how many verts of (position [+ ST] [+ normal] +
+  color) fit in half a VU1 double buffer. With the shipping buffer that is
+  **108** for untextured + per-vertex colors, **72** for textured, **90** for
+  textured + a single color, **144** for untextured + a single color. So an
+  object whose base pass is untextured and whose companion pass is textured
+  (a reflective sphere with no `map_Kd`, anything under the baked lightmap,
+  an untextured terrain chunk under its layer passes) splits the SAME array at
+  different boundaries. `StaPipCore::render` then classifies each package
+  against the frustum, and with `fullClipChecks` a fully-inside package takes
+  the perspective divide on VU1 while a straddling one is clipped on the EE
+  and drawn `as_is` — two routes over one triangle, differing in the last bits
+  of z and, at the frustum edge, in coverage. Coplanar passes then dither-fight
+  exactly like the double-sided case above: grey wedges bleeding from under a
+  reflective object, baked shadows fighting z-index with the ground. The fix is
+  `StaPipBag::packageSize` (0 = derive), which the generated game sets to the
+  **MINIMUM** over an object's passes (`pinPackageSize` in templates.cpp).
+  The minimum is not a preference — pinning a class above its own derived size
+  overflows its VU1 buffer. Two things this also settles: the frustum-bbox
+  cache is keyed by `(maxVertCount, vertex pointer)`, so differing sizes made
+  each pass recompute the boxes the previous one had just built — pinning
+  measured **+4–6 %** frame rate (126 → 133 FPS, vsync-off PCSX2) rather than
+  the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
+  pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
+  (keep it, it is still correct).
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the

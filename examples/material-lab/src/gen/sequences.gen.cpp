@@ -329,6 +329,13 @@ static const bool g_seqRegistered = []() {
 namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
+bool playing() { return g_seqDirector.activeIndex() >= 0; }
+
+// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// active. A cutscene's own style wins, because it writes barsAmount every frame
+// and clears everything on release.
+float g_flowBarTB = 0.0F;
+float g_flowBarLR = 0.0F;
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -355,10 +362,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
+  // A cutscene's baked style, or the flow node's coverage when none is
+  // playing - the two never both apply, so one pair of fractions is enough.
   const int idx = g_seqDirector.activeIndex();
-  if (ctx.barsAmount > 0.0F && idx >= 0) {
-    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
-    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
+  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
+    const float tb = barTB * ctx.barsAmount * H;
+    const float lr = barLR * ctx.barsAmount * W;
     fill(0.0F, 0.0F, W, tb, 1.0F);
     fill(0.0F, H - tb, W, tb, 1.0F);
     fill(0.0F, 0.0F, lr, H, 1.0F);

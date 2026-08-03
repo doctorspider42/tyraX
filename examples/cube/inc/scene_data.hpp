@@ -17,6 +17,8 @@ struct SceneObjectData {
              //    layer zones, In Area triggers - pointInArea below)
              // 18=scatter volume (procedural authoring region; its
              //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -204,6 +206,40 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 
 constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[3] = {0x1cc32e3bb4d3f565ULL, 0x5c93abae1f067ce0ULL, 0x5c97abae1f0a65b7ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;

@@ -21,6 +21,7 @@ StaPipBag::StaPipBag() {
   lighting = nullptr;
   billboard = nullptr;  // Modified by TyraX: VU1 billboard expansion
   bboxVersion = 0;
+  packageSize = 0;  // Modified by TyraX: 0 = derive from the program class
 }
 
 StaPipBag::~StaPipBag() {}

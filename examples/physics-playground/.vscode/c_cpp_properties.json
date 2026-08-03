@@ -5,9 +5,9 @@
       "includePath": [
         "${workspaceFolder}/inc",
         "${workspaceFolder}/src",
-        "/home/spider/Projects/tyra-editor/.claude/worktrees/ambitious-end-of-day-feature-6e6ef4/vendor/tyra/engine/inc",
-        "/home/spider/.config/tyra-editor/ps2sdk/ee/include",
-        "/home/spider/.config/tyra-editor/ps2sdk/common/include"
+        "F:/Projects/tyra-editor/.claude/worktrees/exciting-shaw-81dbda/vendor/tyra/engine/inc",
+        "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/ee/include",
+        "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/common/include"
       ],
       "defines": ["_EE"],
       "cStandard": "c11",
