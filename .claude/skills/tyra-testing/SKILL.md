@@ -388,6 +388,29 @@ Notes:
   is not enough), and is `bin/livepad.bin` being written where the RUNNING ELF
   lives (`Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'"` prints the
   `-elf` path; a second fixture directory is the classic mix-up).
+  **Two Windows-only ways this looks broken when it is not** (both cost an
+  afternoon on 2026-08-03, both diagnosed):
+  - **`Start-Process -ArgumentList` does not quote its array elements**, so
+    `-ArgumentList "--pad",$P,"wait 1; stick r 110 0; neutral"` reaches the
+    editor as loose argv words, the script it parses is the single word `wait`,
+    and it dies with `error: line 1: wait needs seconds` — on the **stderr of a
+    hidden process**, where nobody ever sees it. The game then does exactly
+    nothing, which reads as a dead pad channel. Put the whole `--pad` call in a
+    `.ps1` with the script as a LITERAL and `Start-Process powershell -File`
+    that (a `param()` does not help: the mangling happens at the outer boundary
+    too), or add the quotes to the array elements yourself. Same trap for any
+    `;`-separated script argument, `--ui-script` included.
+  - **The atomic replace of `livepad.bin` loses a race against the reader.**
+    `livepad::write` renames a `.tmp` over the target (then remove + rename), and
+    the running game reads that same file ~50x/s through PCSX2's HostFs; Windows
+    denies a replace while the reader has it open. Measured at the driver's own
+    40 ms refresh: **1 denial in 200 writes** (`Access is denied`), and the
+    driver **aborts on the first failed write** (`error: cannot replace
+    ...livepad.bin: Permission denied`, exit 1). So a 1.5 s hold survives ~83% of
+    the time, a 6 s script about half, a 10 s one rarely — which is why short
+    scripts always seemed fine and long ones "did nothing". Until it is fixed:
+    keep Windows holds SHORT, check the exit code, and READ the stderr. Linux
+    cannot hit this at all — renaming over an open file is legal there.
 - **Synthetic input into PCSX2** (the older, focus-dependent path - still the
   only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
@@ -498,14 +521,15 @@ Notes:
     (verified at 5%, which kept 6 of 11 frames and marked the rest `-`).
     `-IdleStop 2` verified on a static window: it stopped on the second
     consecutive 0.000% frame.
-  - It only CAPTURES, so it composes with whatever drives the game. The sheet
-    above was driven by **PCSX2's own held keys**, because `--pad` reached
-    neither week-old prebuilt fixture on this box (the file lands in the running
-    ELF's `bin/`, the runtime is compiled in and the wire version matches, so
-    that is its own unrelated puzzle — a freshly built fixture is the first thing
-    to try). Note this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
-    the section above quotes: read `[Pad1]` out of PCSX2.ini rather than trusting
-    either. Held keys need the window in front, which `-Watch` arranges anyway.
+  - It only CAPTURES, so it composes with whatever drives the game. A background
+    `--pad` is the usual partner — one `-Watch` over a 1.5 s right-stick hold
+    read **17.6 / 27.7 / 21.5%** during the turn and **0.000%** after the
+    release — but mind the two Windows traps in the `--pad` bullet above (the
+    unquoted `Start-Process` script and the replace race that aborts long
+    holds); both make a working channel look dead. PCSX2's own held keys are the
+    fallback, and this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
+    the section above quotes. Held keys need the window in front, which `-Watch`
+    arranges anyway.
 
   **On Linux/Wayland use the bundled `wayland-control.py`** — screenshots *and*
   synthetic keyboard/mouse, no human in the loop:
