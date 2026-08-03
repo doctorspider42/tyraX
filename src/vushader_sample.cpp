@@ -26,21 +26,31 @@ struct CellShading : vu::Program {
     // four per-mesh numbers are what collides with the light colours, not the
     // program (docs/vu-authoring.md, "Which classes a look can claim").
     unsigned classes() const override {
-        // NOT every class, and the reason is build time rather than taste.
+        // THE LIT CLASSES ARE THE POINT. Cell shading bands the LIGHT, and an
+        // unlit class has none - the whole face carries one colour, falls in
+        // one band, and comes out as the same face times a constant. Claiming
+        // only the unlit pair made this program look like a brightness slider,
+        // and the moment its luminance bug was fixed it looked like nothing at
+        // all. Every object in vu-lab with visible directional shading is on
+        // one of these two.
         //
-        // A script is emitted per class AND per half of its pair, so claiming
-        // four classes is eight microprograms through vcl. The lit and matcap
-        // programs are the two that already keep ~30 of VCL's 31 registers
-        // live, and adding a luminance, a divide and three scratch registers
-        // to those two is what makes vcl give up: `time out.. failed to normal
-        // via processing`. It still emits code - it just stops OPTIMISING, and
-        // each timeout is another 45 seconds. Measured on this file: four
-        // classes, 5 timeouts and just over two minutes; these two, none.
+        // What made them expensive is register pressure, not the classes
+        // themselves: they already hold ~30 of VCL's 31, so six live constants
+        // pushed the allocator into `time out.. failed to normal via
+        // processing` - it still emits code, it just stops OPTIMISING, at 45
+        // seconds a timeout. Packing the constants (see prepare) took six
+        // registers to three, which is what makes the claim affordable.
         //
-        // These two cover the terrain, every box and the untextured props -
-        // the bulk of any scene. Claim more when you have measured that the
-        // programs you are replacing have the room.
-        return vu::kColour | vu::kTextured;
+        // The UNLIT classes are dropped for the same reason, from the other
+        // side: kColour and kTextured carry no lighting, so a face arrives as
+        // one colour, lands in one band and leaves as itself times a constant.
+        // kColour also belongs to cell_outline.cpp now, and two programs
+        // cannot both own a class - the second override would simply replace
+        // the first.
+        //
+        // Matcap stays out: banding a reflection posterises the sky it is
+        // sampling, which reads as a bug rather than a style.
+        return vu::kLit | vu::kLitTextured;
     }
 
     // After lighting and texturing, before the colour is clamped: the last
@@ -54,13 +64,18 @@ struct CellShading : vu::Program {
         // Three band edges in the GS's own 0..255 scale, the steepness that
         // turns each into a hard step, a 1.0 to clamp against, and the two
         // numbers that map three steps onto a 0.55..1.0 brightness ramp.
-        kThresh_ = vu::constant(c, 40.0F, 90.0F, 150.0F, 0.0F);
-        kSharp_ = vu::splat(c, 0.25F);
-        kOne_ = vu::splat(c, 1.0F);
-        kStep_ = vu::splat(c, 0.15F);
-        kFloor_ = vu::splat(c, 0.55F);
+        //
+        // PACKED, and that is what buys the lit classes. Four of these are
+        // single numbers, and a VF register holds four - one scalar per
+        // register would keep six of them live across the whole body, on
+        // classes that already hold ~30 of VCL's 31. Six registers became
+        // three, which is the difference between vcl scheduling this and vcl
+        // giving up with `time out.. failed to normal via processing`.
+        // A broadcast costs nothing: any operand can name its component.
+        kThresh_ = vu::constant(c, 40.0F, 90.0F, 150.0F, 0.25F);  // .w = sharp
+        kRamp_ = vu::constant(c, 0.15F, 0.55F, 1.0F, 0.0F);  // step/floor/one
     }
-    vu::Vec kWeights_, kThresh_, kSharp_, kOne_, kStep_, kFloor_;
+    vu::Vec kWeights_, kThresh_, kRamp_;
 
     void vertex(vu::Ctx& c) override {
         // Written against the RAW builder and the framework's scratch
@@ -108,13 +123,17 @@ struct CellShading : vu::Program {
         // VU1 lets a broadcast sit in.
         b.addInto(s1, b.zero(), vugen::Val{s0.reg, 0}, vuir::MXYZ);
         b.subInto(s1, s1, kThresh_.val(), vuir::MXYZ);   // lum - t0,t1,t2
-        b.mulInto(s1, s1, kSharp_.val(), vuir::MXYZ);    // steepen the edges
+        const vugen::Val sharp = vugen::Val{kThresh_.val().reg, 3};
+        const vugen::Val step = vugen::Val{kRamp_.val().reg, 0};
+        const vugen::Val floorV = vugen::Val{kRamp_.val().reg, 1};
+        const vugen::Val oneV = vugen::Val{kRamp_.val().reg, 2};
+        b.mulInto(s1, s1, sharp, vuir::MXYZ);            // steepen the edges
         b.maximumInto(s1, s1, b.zero(), vuir::MXYZ);
-        b.minimumInto(s1, s1, kOne_.val(), vuir::MXYZ);  // 3 steps in 0..1
+        b.minimumInto(s1, s1, oneV, vuir::MXYZ);         // 3 steps in 0..1
         b.addInto(s2, s1, vugen::Val{s1.reg, 1}, vuir::MX);
         b.addInto(s2, s2, vugen::Val{s1.reg, 2}, vuir::MX);
-        b.mulInto(s2, s2, kStep_.val(), vuir::MX);       // 0..1 in four bands
-        b.addInto(s2, s2, kFloor_.val(), vuir::MX);      // lift the darkest
+        b.mulInto(s2, s2, step, vuir::MX);               // 0..1 in four bands
+        b.addInto(s2, s2, floorV, vuir::MX);             // lift the darkest
 
         // xyz only: ALPHA IS WHAT THE GS BLENDS WITH, and banding it turns a
         // reflection or a shadow pass into stipple.
