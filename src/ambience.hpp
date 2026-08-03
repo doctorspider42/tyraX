@@ -68,6 +68,10 @@ struct DayCycle {
     float moonTilt = 35.0f;
     float moonOffset = 12.0f;
     float moonSize = 4.0f;
+    // How solid the moon disc is, 0..1. Applied at DRAW time (the quad's alpha),
+    // not baked into the texture - so it is a slider you can drag without
+    // re-baking the disc, and one texture serves every value.
+    float moonOpacity = 1.0f;
     // 0 = new, 0.5 = full, 1 = new again. Baked into the moon disc as a
     // terminator, so it costs nothing at runtime.
     float moonPhase = 0.5f;

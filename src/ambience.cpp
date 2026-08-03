@@ -58,6 +58,7 @@ bool operator==(const DayCycle& a, const DayCycle& b) {
            a.sunSize == b.sunSize && a.moonAzimuth == b.moonAzimuth &&
            a.moonTilt == b.moonTilt && a.moonOffset == b.moonOffset &&
            a.moonSize == b.moonSize && a.moonPhase == b.moonPhase &&
+           a.moonOpacity == b.moonOpacity &&
            a.moonTexture == b.moonTexture && a.runtime == b.runtime &&
            a.dayLength == b.dayLength && a.runtimeGrade == b.runtimeGrade &&
            a.bakeHour == b.bakeHour &&

@@ -8677,6 +8677,36 @@ void App::drawAmbienceDayCycle(bool& changed) {
     DayCycle& c = a.cycle;
 
     ImGui::Text("Preset: %s", a.name.c_str());
+    // Which preset the ACTIVE SCENE actually resolves to. Without this line the
+    // tab is genuinely misleading: the viewport previews whatever preset is
+    // selected here, and closing the window puts the SCENE's preset back - which
+    // reads exactly like the edit having been thrown away when the two differ.
+    {
+        const int sceneIdx = project::ambienceIndexFor(project_, project_.active());
+        if (sceneIdx != selectedAmbience_) {
+            ImGui::SameLine(0.0f, scaled(12.0f));
+            ImGui::TextColored(theme::semantics().warn, "(not this scene's)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Scene \"%s\" is lit by %s, so the viewport goes back to that\n"
+                    "when this window closes. Edits here are NOT lost - the title\n"
+                    "bar shows the project unsaved until you save - they just are\n"
+                    "not what this scene uses.",
+                    project_.active().name.c_str(),
+                    sceneIdx >= 0 && sceneIdx < (int)project_.ambiencePresets.size()
+                        ? project_.ambiencePresets[sceneIdx].name.c_str()
+                        : "no preset");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Use for this scene")) {
+                project_.active().ambiencePreset = a.name;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Point scene \"%s\" at this preset, so what you\n"
+                                  "author here is what it is lit by.",
+                                  project_.active().name.c_str());
+        }
+    }
     ImGui::SameLine(0.0f, scaled(24.0f));
     if (ImGui::Checkbox("Enable day/night cycle", &c.enabled)) {
         // First enable with nothing authored would resolve every hour to one
@@ -8782,6 +8812,14 @@ void App::drawAmbienceDayCycle(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Opacity", &c.moonOpacity, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp(
+        "How solid the disc is. Applied when it is DRAWN, not baked into the\n"
+        "texture, so dragging this needs no re-bake and one texture serves\n"
+        "every value.\n\n"
+        "Below 1 the sky shows through - which is what a moon behind thin cloud\n"
+        "or a daytime moon actually looks like. 0 draws nothing at all.");
     prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a\n"
              "terminator, so it costs the console nothing.");
     {
@@ -9096,6 +9134,7 @@ void App::updateSkyBodyPreview(int presetIndex) {
     b.moonRadius =
         d.moonElevation < -10.0f ? 0.0f : std::tan(c->moonSize * 0.5f * kDeg);
     b.moonRoll = d.moonUpAngle;
+    b.moonOpacity = c->moonOpacity;
     viewport_.setSkyBodies(b);
 }
 

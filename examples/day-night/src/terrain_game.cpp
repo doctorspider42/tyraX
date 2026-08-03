@@ -6325,6 +6325,7 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
   auto place = [&](SkyBody& b, float dx, float dy, float dz, float rFrac,
                    float roll) {
     if (!b.bag || rFrac <= 0.0F) return;
+    if (b.color.a <= 1.0F) return;  // fully transparent: nothing to draw
     const float cx = eye.x + dx * dist;
     const float cy = eye.y + dy * dist;
     const float cz = eye.z + dz * dist;
@@ -6364,6 +6365,12 @@ void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
   const float lg = live ? 1.0F : SCENE_LIGHT_COL_G;
   const float lb = live ? 1.0F : SCENE_LIGHT_COL_B;
   sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
+  // The moon is an alpha-blended bag, so its VERTEX COLOUR ALPHA is its
+  // opacity - no second texture and no extra pass for the slider.
+  {
+    const float op = live ? DAYCYCLE_MOON_ALPHAS[currentScene] : SCENE_MOON_ALPHA;
+    moonBody.color.set(128.0F, 128.0F, 128.0F, 128.0F * (op < 0.0F ? 0.0F : (op > 1.0F ? 1.0F : op)));
+  }
   if (live) {
     place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
           daynight::g_sunRad, 0.0F);

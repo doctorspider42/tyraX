@@ -533,6 +533,7 @@ constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {34.0F, 34.0F, 34.0F, 34.0F, 
 constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F, 12.0F, 12.0F, 12.0F, 12.0F};
 constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F};
 constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F};
+constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
 constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
 struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
 constexpr int DAY_KEY_TOTAL = 9;
@@ -550,6 +551,7 @@ constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0, 0, 0, 0, 0};
 constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {9, 9, 9, 9, 9};
 constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0941177F, 0.0F, 0.13F, 1.0F, 0.0F};
 constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
+constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
 constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.26945F, 0.582894F, 0.248501F, -0.37631F, 0.582894F};
 constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
 constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.6F, 0.6F, 0.6F, 0.6F, 0.6F};
@@ -890,6 +892,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
 #define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
 #define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
+#define SCENE_MOON_ALPHA SCENE_MOON_ALPHAS[g_activeScene]
 #define SCENE_STARS_BRIGHT SCENE_STARS_BRIGHTS[g_activeScene]
 #define SCENE_STARS_TWINKLE SCENE_STARS_TWINKLES[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)

@@ -49,6 +49,19 @@ correct, not a bug - `lightDir` is part of the bake's cache signature
 (`gibake.cpp`), so each authored hour caches separately and re-baking is what
 gives you that hour's bounce light.
 
+### The preview previews a PRESET, not the scene
+
+The viewport shows whichever preset is selected in the Ambience Editor while the
+window is open, and goes back to the **scene's own** preset when it closes. If
+those two differ, closing the window looks exactly like the edit being thrown
+away — it is not: the value is in the model and the title bar shows the project
+unsaved until you save it.
+
+The Day / night tab says so directly: next to the preset name it prints
+**"(not this scene's)"** with a *Use for this scene* button when the active scene
+resolves to a different preset. Editing the preset the scene actually uses shows
+no such warning, and closing the window changes nothing.
+
 ## The arcs
 
 Each body rides a great circle. It crosses the horizon at compass bearing
@@ -133,6 +146,22 @@ way; anything else is used as the disc face directly.
 The bake is the single source: `refreshGenerated` PNG-encodes it for the
 console, and the editor viewport uploads the *same pixels* while the phase
 slider moves. There is no separate preview-quality moon.
+
+**Opacity** (`moonOpacity`) is applied when the disc is *drawn*, never baked into
+the texture — so it is a slider you can drag with no re-bake, and one texture
+serves every value. The console gets it for free: the moon is an alpha-blended
+bag, so its **vertex colour alpha** is its opacity. Below 1 the sky shows
+through, which is what a moon behind thin cloud or a daytime moon looks like; at
+0 the quad is skipped entirely rather than submitted invisible.
+
+The editor had a bug here worth recording, because it was **editor-only** and so
+invisible to every console test: the viewport's shader emits a flat alpha of 1.0
+unless `uAlpha` is set, and `drawSkyBodies` was not setting it. The moon's
+transparent margin therefore blended as *opaque black* — a rotated black square
+around the disc, rotated because `moonRoll` rotates the quad. The PS2 side never
+had the problem because it blends through the GS alpha test and has no
+flat-alpha path. Measured after the fix: the ring of quad outside the disc reads
+14..16 against a sky of 14, i.e. gone, at every opacity.
 
 ### VRAM
 

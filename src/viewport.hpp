@@ -123,6 +123,7 @@ public:
         float sunRadius = 0.0f;
         float moonRadius = 0.0f;
         float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
+        float moonOpacity = 1.0f;
         float sunColor[3] = {1.0f, 1.0f, 1.0f};
     };
     void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }

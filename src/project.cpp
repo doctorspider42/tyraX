@@ -1026,6 +1026,7 @@ void clampDayCycle(DayCycle& c) {
     clampf(c.sunSize, 0.25f, 30.0f);
     clampf(c.moonSize, 0.25f, 30.0f);
     clampf(c.moonPhase, 0.0f, 1.0f);
+    clampf(c.moonOpacity, 0.0f, 1.0f);
     clampf(c.dayLength, 8.0f, 7200.0f);
     c.bakeHour = ambience::wrap24(c.bakeHour);
     clampf(c.starTwinkle, 0.0f, 1.0f);
@@ -1593,6 +1594,7 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
                  << ", \"moonOffset\": " << fmtFloat(c.moonOffset)
                  << ", \"moonSize\": " << fmtFloat(c.moonSize)
                  << ", \"moonPhase\": " << fmtFloat(c.moonPhase)
+                 << ", \"moonOpacity\": " << fmtFloat(c.moonOpacity)
                  << ", \"moonTexture\": \"" << jsonEscape(c.moonTexture)
                  << "\", \"runtime\": " << (c.runtime ? "true" : "false")
                  << ", \"dayLength\": " << fmtFloat(c.dayLength)
@@ -4122,6 +4124,8 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
                     c.moonSize = (float)v->numberOr(4.0);
                 if (const auto* v = jc->find("moonPhase"))
                     c.moonPhase = (float)v->numberOr(0.5);
+                if (const auto* v = jc->find("moonOpacity"))
+                    c.moonOpacity = (float)v->numberOr(1.0);
                 if (const auto* v = jc->find("moonTexture"))
                     c.moonTexture = v->stringOr("");
                 if (const auto* v = jc->find("runtime")) c.runtime = v->boolOr(false);

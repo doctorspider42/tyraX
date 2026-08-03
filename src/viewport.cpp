@@ -3371,7 +3371,7 @@ void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
     const float dist = domeRadius * 0.94f;
 
     auto draw = [&](uint32_t tex, const float* dir, float rFrac, float roll,
-                    const float* tint, bool additive) {
+                    const float* tint, bool additive, float opacity) {
         if (!tex || rFrac <= 0.0f) return;
         const float half = dist * rFrac;
         // Billboard axes, rolled so the moon's lit limb faces the sun.
@@ -3395,6 +3395,13 @@ void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
         glUniform3f(uTint_, tint[0], tint[1], tint[2]);
         glUniform1i(uLit_, 0);
         glUniform1i(uUseTex_, 1);
+        // uAlpha is what makes the shader emit the TEXEL's alpha instead of a
+        // flat 1.0 (and discard the fully transparent texels). Without it the
+        // moon's transparent margin drew as an opaque black square around the
+        // disc - visible in the editor only, because the PS2 side blends
+        // through the GS alpha test and never had the flat-alpha path.
+        glUniform1i(uAlpha_, 1);
+        glUniform1f(uOpacity_, opacity);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, tex);
         glEnable(GL_BLEND);
@@ -3409,15 +3416,17 @@ void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
         glDisable(GL_BLEND);
         glBindTexture(GL_TEXTURE_2D, 0);
         glUniform1i(uUseTex_, 0);
+        glUniform1i(uAlpha_, 0);
+        glUniform1f(uOpacity_, 1.0f);
     };
 
     const float white[3] = {1.0f, 1.0f, 1.0f};
     // The sun takes the scene's light colour, so a red sunset sun is red with
     // nothing extra authored - the generated game tints it the same way.
     draw(skySpriteTex_[SkySun], skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
-         skyBodies_.sunColor, true);
+         skyBodies_.sunColor, true, 1.0f);
     draw(skySpriteTex_[SkyMoon], skyBodies_.moonDir, skyBodies_.moonRadius,
-         skyBodies_.moonRoll, white, false);
+         skyBodies_.moonRoll, white, false, skyBodies_.moonOpacity);
 }
 
 void Viewport::setStarField(const std::vector<starfield::Star>& stars,
@@ -3499,6 +3508,7 @@ void Viewport::drawStarField(const float* viewProj16, const float* eye,
     // it is the same corona the light beams already ship.
     const uint32_t dot = skySpriteTex_[SkyStarDot];
     glUniform1i(uUseTex_, dot ? 1 : 0);
+    glUniform1i(uAlpha_, 0);  // additive: the shape is in RGB, alpha is unused
     if (dot) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, dot);
