@@ -62,6 +62,15 @@ set is written down in `vu.js`, because that is fixed silicon. Open the whole
 repo (not a single file) for the scan to find anything; without it the
 instruction help still works and only the macro/address entries are missing.
 
+**In a generated game project the scan follows a different pointer.** That is
+where a project's OWN microprogram lives - `src/gen/vu_custom_*.vclpp`
+([docs/vu-authoring.md](vu-authoring.md)) - and such a project has no
+`vendor/tyra` to glob, so until 0.3.1 the file most likely to be read by
+someone who does not already know the engine was the one getting the least
+help. When the workspace globs find nothing, the extension reads the engine
+path out of the project's own `.vscode/c_cpp_properties.json`, which the editor
+already writes for IntelliSense. No new file, nothing to keep in sync.
+
 ## Installing it
 
 You normally don't have to do anything: the first time you use **Open in
