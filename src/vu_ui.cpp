@@ -179,6 +179,29 @@ void App::vuRebuildPreview() {
                     "value, or drop the class.");
                 continue;
             }
+            // A stage list that folds away is not a look: it would install a
+            // byte-for-byte copy of the engine's own program over the engine's
+            // own slot. The BUILD already refuses it - saying so here is what
+            // stops "I added three looks and the budget did not move" from
+            // looking like a broken estimate.
+            bool anyLive = false;
+            for (const VuStage& s : pr.stages) {
+                if (!s.enabled) continue;
+                vugen::Stage probe = vugen::makeStage(s.kind);
+                for (int i = 0; i < 4; ++i) {
+                    probe.params[i].value = s.params[i];
+                    probe.params[i].meshSlot = s.bind[i];
+                }
+                if (!vugen::stageIsNoOp(probe)) anyLive = true;
+            }
+            if (!anyLive) {
+                vuPreviewErrors_.push_back(
+                    pr.name +
+                    ": no live stage yet - every strength is a literal zero, so "
+                    "nothing is generated and it costs no micro memory. Add a "
+                    "stage, or give one a strength above zero.");
+                break;  // one line per look, not one per class
+            }
             vugen::Desc d = vugen::descForClass(cls);
             for (const VuStage& s : pr.stages) {
                 vugen::Stage st = vugen::makeStage(s.kind);
