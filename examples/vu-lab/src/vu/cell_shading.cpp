@@ -98,7 +98,16 @@ struct CellShading : vu::Program {
         // So: three thresholds, each a saturating step, summed into a scale.
         // Every operation is a plain multiply-add, the scale multiplies all
         // three channels equally, and the hue is exactly preserved.
-        b.subInto(s1, s0, kThresh_.val(), vuir::MXYZ);   // lum - t0,t1,t2
+        // Luminance into ALL THREE components first. s0.y and s0.z still hold
+        // the unsummed 0.587*g and 0.114*b, so subtracting the thresholds
+        // straight from s0 tests the GREEN CHANNEL against t1 and the blue
+        // against t2 - two of the three steps then measure the wrong thing,
+        // the ramp never reaches its top, and the program reads as "everything
+        // got darker" instead of "the light came in bands". vf00.xyz is 0 and
+        // the broadcast rides in the second operand, which is the only slot
+        // VU1 lets a broadcast sit in.
+        b.addInto(s1, b.zero(), vugen::Val{s0.reg, 0}, vuir::MXYZ);
+        b.subInto(s1, s1, kThresh_.val(), vuir::MXYZ);   // lum - t0,t1,t2
         b.mulInto(s1, s1, kSharp_.val(), vuir::MXYZ);    // steepen the edges
         b.maximumInto(s1, s1, b.zero(), vuir::MXYZ);
         b.minimumInto(s1, s1, kOne_.val(), vuir::MXYZ);  // 3 steps in 0..1
