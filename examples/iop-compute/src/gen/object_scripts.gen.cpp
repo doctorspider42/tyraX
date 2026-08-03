@@ -15,9 +15,24 @@ struct ObjectScriptAttach {
   const char* script;   // TYRA_OBJECT_SCRIPT registration name
 };
 
-constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 0;
-constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[1] = {
-    {0, 0, ""},
+constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 16;
+constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[16] = {
+    {0, 1, "IopFractalColumn"},  // main / col-00
+    {0, 2, "IopFractalColumn"},  // main / col-01
+    {0, 3, "IopFractalColumn"},  // main / col-02
+    {0, 4, "IopFractalColumn"},  // main / col-03
+    {0, 5, "IopFractalColumn"},  // main / col-04
+    {0, 6, "IopFractalColumn"},  // main / col-05
+    {0, 7, "IopFractalColumn"},  // main / col-06
+    {0, 8, "IopFractalColumn"},  // main / col-07
+    {0, 9, "IopFractalColumn"},  // main / col-08
+    {0, 10, "IopFractalColumn"},  // main / col-09
+    {0, 11, "IopFractalColumn"},  // main / col-10
+    {0, 12, "IopFractalColumn"},  // main / col-11
+    {0, 13, "IopFractalColumn"},  // main / col-12
+    {0, 14, "IopFractalColumn"},  // main / col-13
+    {0, 15, "IopFractalColumn"},  // main / col-14
+    {0, 16, "IopFractalColumn"},  // main / col-15
 };
 
 /** Owns the live ObjectScript instances (one per attachment of the

@@ -2086,14 +2086,18 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .execOutLabels = {"done", "no IOP"},
          .desc = "Runs one of this project's own IOP jobs (iop/user_jobs.c) and "
                  "stores its first result word in a flow variable. Continues on "
-                 "\"done\" when the IOP answered, and on \"no IOP\" when "
-                 "there is no usable IOP - so the fallback path is part of the "
-                 "graph rather than something to remember. This node BLOCKS "
-                 "until the job returns: one round trip costs around 110us on "
-                 "top of the job itself, which is measurable against a 20ms "
-                 "frame, so keep jobs short here and use a script "
-                 "(txiop::submit / txiop::poll) when the work is long enough to "
-                 "want overlapping with the frame."},
+                 "\"done\" when the IOP answered, and on \"no IOP\" when the "
+                 "job did not run - so the fallback path is part of the graph "
+                 "rather than something to remember. This node BLOCKS until the "
+                 "job returns: one round trip costs 150-200us on top of the job "
+                 "itself, which is measurable against a 20ms frame, so keep jobs "
+                 "short here and use a script (txiop::submit / txiop::poll) when "
+                 "the work is long enough to want overlapping with the frame. "
+                 "Note the module serves ONE request at a time, so this node "
+                 "also takes its \"no IOP\" output when a script already has a "
+                 "job in flight - if a scene both scripts the IOP per frame and "
+                 "runs this node, they contend and the node is the one that "
+                 "loses."},
         {.key = "And", .title = "AND", .category = "Logic", .pure = true,
          .boolIn = true, .boolOut = true,
          .desc = "Pure bool gate: AND over all wired bool inputs."},

@@ -180,6 +180,24 @@ if (txiop::poll(out, 4, &n) && n > 0) escape = out[0];
 One job is in flight at a time; `submit()` returns false while another is
 pending, and `poll()` returns true exactly once per completed job.
 
+### One request at a time, and what that means for mixing callers
+
+The module registers **one** RPC packet buffer, so it serves one request at a
+time and the API enforces that rather than letting two callers stomp each
+other's payload: `submit()` returns false while a job is pending, and the
+blocking `call()` returns -1.
+
+That last one is a trap worth knowing before you hit it. A scene that scripts
+the IOP every few frames AND carries a **Run IOP Job** node will have the node
+fail — not because the IOP is missing, but because the script is using it — and
+the node's only honest report is its `no IOP` output. It looks exactly like
+absent hardware. examples/iop-compute hit this during development: its script
+submits a row continuously, so the demo graph was reduced to reporting
+availability and the job-running node lives in this document instead.
+
+So: pick one caller per scene, or gate them against each other in your own code.
+`txiop::pending()` is there for that.
+
 ## Calling a job from a flow graph
 
 Two nodes, in the **IOP** category:

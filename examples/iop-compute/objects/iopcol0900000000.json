@@ -1,0 +1,1 @@
+{ "id": "iopcol0900000000", "name": "col-09", "type": "box", "position": [1.275, 0.5, 13], "rotation": [0, 0, 0], "scale": [0.7, 1, 0.7], "color": [0.25, 1, 0.45], "physics": false, "scripts": ["IopFractalColumn"] }

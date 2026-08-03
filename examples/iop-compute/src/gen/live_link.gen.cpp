@@ -18,7 +18,7 @@ constexpr u32 LL_VERSION = 2;
 constexpr int LL_HEADER = 24;
 constexpr int LL_STRIDE = 64;  // one record (id + template + 12 floats)
 // Largest authored object table across scenes - table bounds.
-constexpr int LL_MAX_OBJECTS = 1;
+constexpr int LL_MAX_OBJECTS = 17;
 // Live-spawned clones tracked at once; matches the game's
 // MAX_SPAWNED_OBJECTS pool (spawnObject fails past it anyway).
 constexpr int LL_MAX_SPAWNED = 32;

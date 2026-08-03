@@ -15,9 +15,27 @@ struct AoOccData {
   int objIndex;
 };
 
+static const AoOccData S0_AO_OCC[16] = {
+    {{-6.375F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 1},
+    {{-5.525F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 2},
+    {{-4.675F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 3},
+    {{-3.825F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 4},
+    {{-2.975F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 5},
+    {{-2.125F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 6},
+    {{-1.275F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 7},
+    {{-0.425F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 8},
+    {{0.425F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 9},
+    {{1.275F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 10},
+    {{2.125F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 11},
+    {{2.975F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 12},
+    {{3.825F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 13},
+    {{4.675F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 14},
+    {{5.525F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 15},
+    {{6.375F, 0.5F, 13.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.35F, 0.5F, 0.35F}, 0, 16},
+};
 
-static const AoOccData* const SCENE_AO_OCC_TABLES[] = {nullptr};
-static const int SCENE_AO_OCC_COUNTS[] = {0};
+static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
+static const int SCENE_AO_OCC_COUNTS[] = {16};
 
 struct EmisLightData {
   float pos[3];
@@ -40,8 +58,8 @@ static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {nullptr};
 static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {nullptr};
 static const char* const SCENE_AO_ATLAS_PATHS[] = {""};
-static const char* const SCENE_AO_MAP_PATHS[] = {""};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {0};
+static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
+static const unsigned char SCENE_AO_MAP_OCCS[] = {1};
 static const unsigned char SCENE_AO_MAP_LITS[] = {0};
 static const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
 static const unsigned char SCENE_AO_MAP_GIS[] = {0};

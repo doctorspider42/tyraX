@@ -28,11 +28,6 @@ static inline std::string flowPosText(float x, float y, float z) {
   snprintf(b, sizeof(b), "(%g, %g, %g)", (double)x, (double)y, (double)z);
   return std::string(b);
 }
-
-// Flow variables ("Variables" nodes): shared by every graph,
-// zeroed at boot, kept across scene switches, not saved to the
-// memory card (use Save values for persistence).
-static int flowInt[1] = {};  // mandel
 class FlowGraphScript_0_0;
 FlowGraphScript_0_0* g_time_FlowGraphScript_0_0 = nullptr;
 
@@ -59,23 +54,11 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(1);
       if ((txiop::available())) {
         livedbg::hit(2);
-        {
-          const int iopArgs4[3] = {-32768, 0, 200};
-          int iopOut4[txiop::MAX_WORDS];
-          const int iopN4 = txiop::call(1, iopArgs4, 3, iopOut4, txiop::MAX_WORDS);
-          if (iopN4 > 0) {
-            flowInt[0] = iopOut4[0];  // "mandel"
-          livedbg::hit(3);
-          TYRA_LOG("IOP job 1 (Mandelbrot, 200 iters) escape count =", " ", std::to_string(flowInt[0]));
-          } else {
-          livedbg::hit(4);
-          TYRA_LOG("IOP vanished between the check and the call - EE path");
-          }
-        }
+        TYRA_LOG("IOP is usable - the pillars are being shaped by the IOP");
       }
       else {
-        livedbg::hit(5);
-        TYRA_LOG("No usable IOP on this console - computing on the EE instead");
+        livedbg::hit(3);
+        TYRA_LOG("No usable IOP - the pillars are being shaped by the EE");
       }
     }
     if (!started) {
@@ -84,23 +67,11 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(1);
       if ((txiop::available())) {
         livedbg::hit(2);
-        {
-          const int iopArgs4[3] = {-32768, 0, 200};
-          int iopOut4[txiop::MAX_WORDS];
-          const int iopN4 = txiop::call(1, iopArgs4, 3, iopOut4, txiop::MAX_WORDS);
-          if (iopN4 > 0) {
-            flowInt[0] = iopOut4[0];  // "mandel"
-          livedbg::hit(3);
-          TYRA_LOG("IOP job 1 (Mandelbrot, 200 iters) escape count =", " ", std::to_string(flowInt[0]));
-          } else {
-          livedbg::hit(4);
-          TYRA_LOG("IOP vanished between the check and the call - EE path");
-          }
-        }
+        TYRA_LOG("IOP is usable - the pillars are being shaped by the IOP");
       }
       else {
-        livedbg::hit(5);
-        TYRA_LOG("No usable IOP on this console - computing on the EE instead");
+        livedbg::hit(3);
+        TYRA_LOG("No usable IOP - the pillars are being shaped by the EE");
       }
     }
   }
@@ -127,13 +98,10 @@ class FlowGraphScript_0_0 : public Script {
 
 // Live Debugger watch table (docs/live-debugger.md): the flow variables
 // in one shared order - ints, then bools, then positions.
-int flowDbgVarCount() { return 1; }
+int flowDbgVarCount() { return 0; }
 void flowDbgReadVar(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;
-  switch (index) {
-    case 0: out3[0] = (float)flowInt[0]; break;  // mandel
-    default: break;
-  }
+  (void)index;  // this project defines no flow variables
 }
 
 // Time machine (docs/time-machine.md): every graph's own state.
@@ -150,26 +118,20 @@ void flowTimeScriptRestore(const unsigned char* p) {
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
-int flowTimeVarCount() { return 1; }
+int flowTimeVarCount() { return 0; }
 void flowTimeRead(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;
-  switch (index) {
-    case 0: out3[0] = (float)flowInt[0]; break;  // mandel
-    default: break;
-  }
+  (void)index;  // this project defines no flow variables
 }
 void flowTimeWrite(int index, const float* in3) {
-  switch (index) {
-    case 0: flowInt[0] = (int)in3[0]; break;  // mandel
-    default: break;
-  }
+  (void)index; (void)in3;
 }
 
 // Live Logic (docs/live-logic.md): flow-variable access for the
 // interpreter - patched graphs read and write the very same arrays the
 // compiled ones do, so a hot-patched graph shares state with the rest.
 void flowLiveSetVarInt(int index, int value) {
-  if (index >= 0 && index < 1) flowInt[index] = value;
+  (void)index; (void)value;
 }
 void flowLiveSetVarBool(int index, bool value) {
   (void)index; (void)value;
@@ -178,7 +140,8 @@ void flowLiveSetVarPos(int index, const float* v3) {
   (void)index; (void)v3;
 }
 int flowLiveGetVarInt(int index) {
-  return index >= 0 && index < 1 ? flowInt[index] : 0;
+  (void)index;
+  return 0;
 }
 bool flowLiveGetVarBool(int index) {
   (void)index;
