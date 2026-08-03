@@ -268,6 +268,27 @@ class Program {
      * in one game as long as they are not resident together. */
     virtual bool activeAtBoot() const { return true; }
 
+    /** Whether this program needs the game to draw a SHELL PASS for it.
+     *
+     * A program in `Slot::ObjectSpace` can move a vertex, but it cannot make
+     * the game submit a mesh twice - and an outline, a fur layer or any other
+     * grown-copy effect is a second submission of the same object by
+     * definition. Returning true asks the game for one: each visible object is
+     * drawn once more from its low-detail proxy, as a flat-colour bag whose
+     * per-vertex colours carry the outward normal encoded around 128, pushed
+     * behind its own depth about the eye so the z-buffer keeps only what
+     * sticks out past the silhouette.
+     *
+     * The shell arrives with `shellWidth()` in x of the mesh parameters and
+     * zero in every ordinary object's, which is what lets ONE program serve
+     * both without a branch. */
+    virtual bool shellPass() const { return false; }
+
+    /** How far the shell grows, in SCREEN units at one metre - the game scales
+     * it by distance so a line keeps its thickness across the scene. Ignored
+     * unless shellPass() is true. */
+    virtual float shellWidth() const { return 0.02F; }
+
     /** Called ONCE, where the preamble ends, before any per-vertex code.
      * Build constants here and keep them in members: `vu::splat` inside
      * `vertex()` is hoisted to the preamble too, but it runs once PER VERTEX

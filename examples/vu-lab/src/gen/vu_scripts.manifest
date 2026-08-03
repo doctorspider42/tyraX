@@ -1,4 +1,4 @@
-Cell shading	Untextured (vertex colour)	293	StaPipCullColor	1	main	boot
-Cell shading	Untextured (vertex colour)	187	StaPipAsIsColor	1	twin	boot
-Cell shading	Textured	307	StaPipCullTextureColor	8	main	boot
-Cell shading	Textured	204	StaPipAsIsTextureColor	8	twin	boot
+Cell shading	Untextured (vertex colour)	296	StaPipCullColor	1	main	boot
+Cell shading	Untextured (vertex colour)	190	StaPipAsIsColor	1	twin	boot
+Cell shading	Textured	310	StaPipCullTextureColor	8	main	boot
+Cell shading	Textured	207	StaPipAsIsTextureColor	8	twin	boot

@@ -231,7 +231,15 @@ int main(int argc, char** argv) {
         h += "void deactivate(int script);\n";
         h += "void deactivateAll();\n";
         h += "bool active(int script);\n";
-        h += "const char* name(int script);\n";
+        h += "const char* name(int script);\n\n";
+        h += "/** Whether an ACTIVE script asked the game for a shell pass -\n";
+        h += " * a second submission of each object, grown by the program\n";
+        h += " * itself (outlines, fur, anything built from a grown copy).\n";
+        h += " * The game draws it; the program only moves the vertices.\n";
+        h += " * shellWidth() is in screen units at one metre, scaled by\n";
+        h += " * distance so the result keeps its thickness across a scene. */\n";
+        h += "bool shellActive();\n";
+        h += "float shellWidth();\n";
     }
     h += "\n}  // namespace vuscript\n";
     if (!writeFile(incOut, "vu_scripts.gen.hpp", h)) return 1;
@@ -253,7 +261,27 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < progs.size(); ++i)
             c += std::string(i ? ", " : "") + "\"" + progs[i]->name() + "\"";
         c += "};\n";
+        c += "const bool kShell[] = {";
+        for (size_t i = 0; i < progs.size(); ++i)
+            c += std::string(i ? ", " : "") +
+                 (progs[i]->shellPass() ? "true" : "false");
+        c += "};\n";
+        c += "const float kShellW[] = {";
+        for (size_t i = 0; i < progs.size(); ++i) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.9gF", progs[i]->shellWidth());
+            c += std::string(i ? ", " : "") + buf;
+        }
+        c += "};\n";
         c += "}  // namespace\n\n";
+        c += "bool shellActive() {\n";
+        c += "  for (int i = 0; i < COUNT; ++i)\n";
+        c += "    if (g_on[i] && kShell[i]) return true;\n";
+        c += "  return false;\n}\n\n";
+        c += "float shellWidth() {\n";
+        c += "  for (int i = 0; i < COUNT; ++i)\n";
+        c += "    if (g_on[i] && kShell[i]) return kShellW[i];\n";
+        c += "  return 0.0F;\n}\n\n";
         c += "const char* name(int s) {\n";
         c += "  return (s >= 0 && s < COUNT) ? kNames[s] : \"\";\n}\n\n";
         c += "bool active(int s) {\n";

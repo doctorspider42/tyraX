@@ -42,6 +42,16 @@ struct CellOutline : vu::Program {
     // would mean something different for every object.
     vu::Slot slot() const override { return vu::Slot::ObjectSpace; }
 
+    // Ask the game for the second submission. A program can move a vertex; it
+    // cannot make the game draw a mesh twice, and a grown copy is a second
+    // draw by definition.
+    bool shellPass() const override { return true; }
+    // Screen units at one metre. The game scales it by distance, so the line
+    // keeps its weight whether the object is at arm's length or across the
+    // map - which is what "drawn" looks like and what a constant object-space
+    // width does not give you.
+    float shellWidth() const override { return 0.03F; }
+
     void prepare(vu::Ctx& c) {
         // xyz = the 128 the encoded normal is centred on, w = its 1/128 scale.
         kEnc_ = vu::constant(c, 128.0F, 128.0F, 128.0F, 1.0F / 128.0F);

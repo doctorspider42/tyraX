@@ -251,6 +251,13 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy's outward directions, ENCODED AS COLOURS around 128 -
+    // what a shell-pass program (vuscript::shellActive, e.g. a cell-shading
+    // outline) grows along. A flat-colour bag carries positions and colours
+    // and nothing else, so the colour slot is the only stream a normal can
+    // ride in without changing the bag's material class - and a shell paints
+    // itself flat anyway, so nothing is lost by spending it.
+    std::vector<Tyra::Color> hullProxyCols;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -682,6 +689,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -692,6 +702,15 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;

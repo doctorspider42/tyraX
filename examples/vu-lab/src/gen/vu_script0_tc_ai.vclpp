@@ -129,7 +129,8 @@ processing:
     mul.xyz    vuS0, color1, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    sub.xyz    vuS1, vuS0, k1
+    add.xyz    vuS1, vf00, vuS0[x]
+    sub.xyz    vuS1, vuS1, k1
     mul.xyz    vuS1, vuS1, k2
     max.xyz    vuS1, vuS1, vf00
     mini.xyz   vuS1, vuS1, k3
@@ -150,7 +151,8 @@ processing:
     mul.xyz    vuS0, color2, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    sub.xyz    vuS1, vuS0, k1
+    add.xyz    vuS1, vf00, vuS0[x]
+    sub.xyz    vuS1, vuS1, k1
     mul.xyz    vuS1, vuS1, k2
     max.xyz    vuS1, vuS1, vf00
     mini.xyz   vuS1, vuS1, k3
@@ -171,7 +173,8 @@ processing:
     mul.xyz    vuS0, color3, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    sub.xyz    vuS1, vuS0, k1
+    add.xyz    vuS1, vf00, vuS0[x]
+    sub.xyz    vuS1, vuS1, k1
     mul.xyz    vuS1, vuS1, k2
     max.xyz    vuS1, vuS1, vf00
     mini.xyz   vuS1, vuS1, k3

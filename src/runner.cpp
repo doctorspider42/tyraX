@@ -848,41 +848,31 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "-qq --no-install-recommends g++ >/dev/null; "
                           "fi; "
                           "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
-                          // Skip the whole thing when nothing that feeds it has
-                          // changed. The generator is ~20 s of g++ on its own,
-                          // and what it writes goes through vcl, which is the
-                          // slowest step in the build - so a no-op rebuild used
-                          // to pay full price for producing byte-identical
-                          // files. The stamp covers the framework and the
-                          // project's scripts; the manifest check makes a
-                          // cleaned obj/ regenerate anyway.
+                          // The stamp gates the COMPILE, never the run.
+                          //
+                          // Gating the run was a mistake that cost an evening:
+                          // the generated sources live under /src, the source
+                          // rsync deletes what the host does not have, and the
+                          // outputs the stamp vouched for were long gone - or
+                          // worse, present but generated from a source that had
+                          // since changed. A console spent an hour and a half
+                          // running a microprogram from before a fix because a
+                          // cache was sure it was current. So: the generator
+                          // ALWAYS runs (it takes a fraction of a second and
+                          // writes nothing when the content is unchanged, which
+                          // is what keeps vcl out of a no-op build), and only
+                          // the ~20 s of g++ is skipped.
                           "md5sum /src/vugen/* /src/src/vu/*.cpp "
                           "> /tmp/vu.stamp 2>/dev/null; "
-                          // The guard checks the OUTPUTS, not just the inputs
-                          // and not the manifest. The manifest is copied back
-                          // to the host, so it survives a project whose
-                          // generated sources do not - and then the stamp says
-                          // "reuse" over a src/gen that has nothing in it. That
-                          // is a build failing on a symbol the header never
-                          // declared, from a cache that was sure it was fine.
-                          "if cmp -s /tmp/vu.stamp /src/obj/.vu-stamp && "
-                          "test -s /src/src/gen/vu_scripts.gen.cpp && "
-                          "ls /src/src/gen/vu_script*.vclpp >/dev/null 2>&1; "
-                          "then "
-                          "  echo '[editor] VU scripts unchanged - reusing the "
-                          "generated microprograms.'; "
-                          "else "
+                          "if ! cmp -s /tmp/vu.stamp /tmp/vu.stamp.built || "
+                          "! test -x /tmp/vugen; then "
                           // -O0: this program runs once and writes a few files;
                           // compiling it fast matters, running it does not.
                           "  g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
                           "/src/vugen/*.cpp /src/src/vu/*.cpp && "
-                          "  /tmp/vugen /src/src/gen /src/inc/scripts && "
-                          "  cp /tmp/vu.stamp /src/obj/.vu-stamp; "
+                          "  cp /tmp/vu.stamp /tmp/vu.stamp.built; "
                           "fi; "
-                          // Back to the HOST, and only this one file: the panel
-                          // reads the project directory, not the build volume,
-                          // and without it the micro-memory budget silently
-                          // omits every script in the project.
+                          "/tmp/vugen /src/src/gen /src/inc/scripts; "
                           // EVERYTHING it generated goes back to the host, not
                           // just the manifest. The source rsync deletes what the
                           // host does not have, so container-only output is

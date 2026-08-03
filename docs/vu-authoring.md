@@ -521,6 +521,56 @@ else will. And **a `Texture` stage after the perspective correction** would have
 its offset divided by W, so a fixed scroll speed would slide faster on distant
 geometry.
 
+## When one draw is not enough: the shell pass
+
+A program can move a vertex. It cannot make the game draw a mesh **twice** — and
+a whole family of effects is a second copy of the object by definition: an ink
+outline, a fur shell, a force-field skin. `shellPass()` asks the game for that
+second submission.
+
+```cpp
+bool shellPass() const override { return true; }
+float shellWidth() const override { return 0.03F; }   // screen units at 1 m
+```
+
+With any shell-pass program active, the game draws every visible object once
+more from its **low-detail highlight proxy**, as a flat-colour bag, and hands
+your program three things:
+
+* per-vertex colours that are not colours — they carry the vertex's **outward
+  direction encoded around 128**, so `(c - 128) / 128` is a unit vector. A
+  flat-colour bag has no other stream to put one in, and a shell paints itself
+  flat anyway, so nothing is lost.
+* `params.x` = the width, in world units, already scaled by distance so a line
+  keeps its thickness across the scene. **Zero on every other mesh in the
+  frame**, which is what lets one program serve both the shells and ordinary
+  flat-colour objects without a branch — and a branch on per-mesh data would
+  cost the dual-issue schedule for every mesh, not only the ones that take it.
+* a model matrix that scales the object about the **eye**. Scaling about the eye
+  leaves projected size untouched and multiplies depth, so the copy hides behind
+  its own object and the z-buffer keeps only what sticks out past the
+  silhouette. That sliver is the line.
+
+Growing on VU1 instead of scaling the matrix is the entire reason this is a VU
+feature: a scale about the centre moves a far vertex further than a near one, so
+the line fattens at the ends of anything long, while a step along the vertex
+normal is the same length everywhere.
+
+`examples/vu-lab/src/vu/cell_outline.cpp` is eight instructions of this.
+
+Three things to know before you use it:
+
+* **`params.x` is reserved** while a shell-pass program is active. A project
+  that already uses x of the mesh parameters for something on flat-colour
+  objects will see those objects walk along their own colours.
+* **The proxy is convex.** The outward direction is radial from the proxy's
+  centroid, which for a coarse convex stand-in *is* the smoothed normal — at a
+  box corner it is exactly the average of the three faces meeting there. A
+  genuinely concave mesh is the honest limit.
+* **It is a draw per object.** The pass costs what the objects cost, and the
+  bottom of an object standing on terrain is z-rejected by the ground, so the
+  line stops where the object meets the floor.
+
 ## The stage catalogue
 
 Cost is emitted instructions **for the whole program** — three vertices, so
