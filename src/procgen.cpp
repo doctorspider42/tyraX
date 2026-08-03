@@ -248,6 +248,22 @@ float terrainLayerWeight(const SceneData& s, int layer, float x, float z) {
     return t * (1.0f - fz) + b * fz;
 }
 
+// How much of ONE terrain material the ground actually SHOWS at a world
+// position: -1 = the base material, 0..N-1 = a painted layer. The layers are
+// drawn in order, each alpha-over the last (viewport.cpp `terrainLayerMeshes_`,
+// buildTerrainChunk in templates.cpp), so a layer is covered by whatever was
+// painted ON TOP of it - which is exactly the difference between "I painted
+// grass here" and "you can see grass here". Scattering wants the latter: with
+// the raw weight, rock painted over grass still scatters trees.
+float terrainMaterialCoverage(const SceneData& s, int layer, float x, float z) {
+    const int n = (int)s.terrainLayers.size();
+    if (layer >= n) return 0.0f;
+    float cov = layer < 0 ? 1.0f : terrainLayerWeight(s, layer, x, z);
+    for (int j = std::max(0, layer + 1); j < n; ++j)
+        cov *= 1.0f - terrainLayerWeight(s, j, x, z);
+    return std::clamp(cov, 0.0f, 1.0f);
+}
+
 // --- scene objects ---------------------------------------------------------
 
 bool isSolidBlocker(const SceneObject& o) {
@@ -1384,7 +1400,7 @@ Mask genTerrainMask(Ctx& ctx, const ProcNode& n) {
                     break;
                 }
                 case 2: v = terrainCurvature(ctx.s, wx, wz); break;
-                case 3: v = terrainLayerWeight(ctx.s, layer, wx, wz); break;
+                case 3: v = terrainMaterialCoverage(ctx.s, layer, wx, wz); break;
                 default: v = terrainHeight(ctx.s, wx, wz); break;
             }
             const float b = band(v, lo, hi, falloff);
