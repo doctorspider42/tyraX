@@ -142,6 +142,15 @@ struct EditorConfig {
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
     bool runOnPs2 = false;
+    // Log panels (docs/log-panels.md): which severity levels the Output and
+    // Debug windows show, as a logview level bitmask, plus their selectable-text
+    // toggles. Both default to everything visible, so the split changes nothing
+    // until someone hides a level - and which noise a person wants hidden is a
+    // property of how they work, not of the project.
+    unsigned logMaskOutput = logview::kAll;
+    unsigned logMaskDebug = logview::kAll;
+    bool logSelectOutput = false;
+    bool logSelectDebug = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -223,6 +232,15 @@ static EditorConfig loadEditorConfig() {
             cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
+        // An out-of-range mask (a config written by a newer editor with more
+        // levels) is clamped to the levels this build has, never to zero - an
+        // empty mask would look like an empty log.
+        else if (match("logMaskOutput", v))
+            cfg.logMaskOutput = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logMaskDebug", v))
+            cfg.logMaskDebug = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
+        else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -286,7 +304,11 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
-      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
+      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
+      << "logMaskOutput=" << cfg.logMaskOutput << "\n"
+      << "logMaskDebug=" << cfg.logMaskDebug << "\n"
+      << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
+      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -527,6 +549,10 @@ int App::run(const std::string& initialProjectDir) {
         viewportPs2_ = cfg.viewportPs2;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
+        logOut_.mask = cfg.logMaskOutput;
+        logDbg_.mask = cfg.logMaskDebug;
+        logOut_.selectText = cfg.logSelectOutput;
+        logDbg_.selectText = cfg.logSelectDebug;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -976,7 +1002,8 @@ void App::saveGlobalConfig() {
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
-                      std::move(recent)});
+                      logOut_.mask, logDbg_.mask, logOut_.selectText,
+                      logDbg_.selectText, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -10166,41 +10193,212 @@ void App::drawNewSceneModal() {
     ImGui::EndPopup();
 }
 
-void App::drawOutputWindow() {
-    ImGui::Begin("Output");
-    const std::string log = runner_.log();
+// ---------------------------------------------------------------------------
+// The log panels (docs/log-panels.md). Output (the Runner's build/run stream)
+// and Debug (the game's own log.txt / PCSX2's emulog.txt) are the same problem:
+// a growing pile of lines whose interesting part is a handful of warnings and
+// errors buried in tool chatter. logview.cpp classifies every line into
+// error / warning / info / verbose; the two functions below draw that
+// classification - a filter chip per level with its count, then the lines
+// coloured by level - and both panels share the body so they cannot drift.
+// ---------------------------------------------------------------------------
 
-    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+// A level's colour. Meanings, not literals (docs/editor-theme.md): an error is
+// the theme's danger colour, ordinary tool output its dim text.
+static ImVec4 logLevelColor(logview::Level l) {
+    const theme::Semantics& s = theme::semantics();
+    switch (l) {
+        case logview::Level::Error: return s.danger;
+        case logview::Level::Warning: return s.warn;
+        case logview::Level::Info: return s.text;
+        default: return s.textDim;
+    }
+}
+
+// One filter chip - "3 errors", in its level's colour, quiet while the level is
+// hidden. Returns true when clicked; the caller flips the mask bit.
+static bool logLevelChip(logview::Level l, int count, bool on) {
+    ImVec4 col = logLevelColor(l);
+    if (!on) col.w *= 0.40f;  // hidden, but still readable enough to click back
+    char label[64];
+    // The count is part of the label, so the id has to be pinned separately -
+    // otherwise every appended line gives the chip a new id and drops its hover.
+    snprintf(label, sizeof(label), "%d %s##logchip%d", count,
+             logview::label(l, count != 1), (int)l);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(on ? ImGuiCol_FrameBgActive
+                                                      : ImGuiCol_FrameBg));
+    const bool clicked = ImGui::SmallButton(label);
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(on ? "Showing these lines - click to hide them"
+                             : "These lines are hidden - click to show them");
+    return clicked;
+}
+
+// Hands a panel its current text and classifies what is new in it.
+void App::logSetText(LogView& v, std::string&& text) {
+    // Append-only is the common case - a build streaming lines in - so keep the
+    // classified prefix and look only at what arrived: re-classifying a
+    // megabyte on every appended line costs far more than a frame. Anything
+    // else (Clear, a new run recreating bin/log.txt, the Debug window's source
+    // combo, a 1 MB tail whose start has moved) starts over.
+    const bool appended =
+        text.size() >= v.text.size() && text.compare(0, v.text.size(), v.text) == 0;
+    if (appended && text.size() == v.text.size()) return;  // nothing new
+    if (!appended) {
+        v.lines.clear();
+        v.parsed = 0;
+        v.complete = 0;
+        v.state = logview::State{};
+    }
+    v.text = std::move(text);
+    v.lines.resize(v.complete);  // drop last frame's provisional tail line
+    v.parsed = logview::parse(v.text, v.parsed, v.state, v.lines);
+    v.complete = v.lines.size();
+    logview::appendPartial(v.text, v.parsed, v.state, v.lines);
+    v.dirty = true;
+}
+
+// Rebuilds what the draw needs from (lines, mask). Call once per frame per
+// panel, before the panel's own buttons - they read the counts and the filtered
+// text. Cheap while nothing changed.
+void App::logRefresh(LogView& v) {
+    const float font = ImGui::GetFontSize();
+    if (!v.dirty && v.widthFont == font) return;
+
+    v.visible.clear();
+    for (int i = 0; i < logview::kLevelCount; ++i) v.counts[i] = 0;
+    size_t widest = 0, widestLen = 0;
+    for (size_t i = 0; i < v.lines.size(); ++i) {
+        const logview::Line& ln = v.lines[i];
+        // The chips count ENTRIES, not lines: a compiler error plus its source
+        // snippet is one problem, and "4 errors" for it would be a lie.
+        if (!ln.cont) v.counts[(int)ln.level]++;
+        if (!(v.mask & logview::bit(ln.level))) continue;
+        v.visible.push_back((int)i);
+        if (ln.end - ln.begin > widestLen) {
+            widestLen = ln.end - ln.begin;
+            widest = i;
+        }
+    }
+    // The horizontal scroll range. A clipper only submits the lines on screen,
+    // so the child cannot measure its own content width - and measuring every
+    // line of a megabyte log is not affordable per rebuild. The longest line in
+    // BYTES stands in for the widest in pixels (a log's lines are all the same
+    // typeface), and one CalcTextSize on it is free.
+    v.width = 0.0f;
+    if (widestLen) {
+        const logview::Line& ln = v.lines[widest];
+        v.width = ImGui::CalcTextSize(v.text.c_str() + ln.begin, v.text.c_str() + ln.end).x;
+    }
+    v.widthFont = font;
+    // Only the selectable-text mode needs the lines as one string; Copy builds
+    // its own on demand, so an ordinary streaming build pays no joins.
+    if (v.selectText)
+        v.joined = logview::join(v.text, v.lines, v.mask);
+    else
+        v.joined.clear();
+    v.dirty = false;
+}
+
+void App::drawLogPanel(const char* id, LogView& v) {
+    // Here rather than in the callers: a Clear / source switch above this point
+    // has just replaced v.text and cleared v.lines, and `visible` still indexes
+    // the text that is gone. A no-op when nothing changed.
+    logRefresh(v);
+
+    // Most severe first - that is the order a reader scans a log console in.
+    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
+        const logview::Level l = (logview::Level)i;
+        if (i != logview::kLevelCount - 1) ImGui::SameLine();
+        if (logLevelChip(l, v.counts[i], (v.mask & logview::bit(l)) != 0)) {
+            v.mask ^= logview::bit(l);
+            v.dirty = true;
+            saveGlobalConfig();
+        }
+    }
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(log.c_str());
+    if (ImGui::Checkbox("Select text", &v.selectText)) {
+        v.dirty = true;
+        v.scrollBottom = true;  // the two modes measure their content differently
+        saveGlobalConfig();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Draw the filtered log in a read-only text box so it can be\n"
+            "selected with the mouse. ImGui's editable text is one colour,\n"
+            "so this trades the per-level colouring for selection - the\n"
+            "filter above keeps working either way.");
     ImGui::Separator();
 
-    // Own scrolling child so we can drive the scroll directly. The nested
-    // InputTextMultiline keeps the text mouse-selectable; sizing it to its own
-    // content means this child (not the input) owns the scrollbars, so
-    // GetScrollY/SetScrollHereY below actually refer to what we see.
-    ImGui::BeginChild("##logscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+    // Own scrolling child so the scroll can be driven directly (see the
+    // autoscroll note below).
+    if (!v.selectText)
+        ImGui::SetNextWindowContentSize(
+            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f, 0.0f));
+    ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
 
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(log.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##log", const_cast<char*>(log.c_str()), log.size() + 1,
-                              inputSize, ImGuiInputTextFlags_ReadOnly);
+    if (v.selectText) {
+        // Sizing the input to its own content means this child (not the input)
+        // owns the scrollbars, so GetScrollY/SetScrollHereY refer to what we see.
+        const ImVec2 pad = ImGui::GetStyle().FramePadding;
+        const ImVec2 textSize = ImGui::CalcTextSize(v.joined.c_str(), nullptr, false);
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
+                               ImMax(textSize.y + pad.y * 2.0f, avail.y));
+        ImGui::InputTextMultiline("##logtext", const_cast<char*>(v.joined.c_str()),
+                                  v.joined.size() + 1, inputSize,
+                                  ImGuiInputTextFlags_ReadOnly);
+    } else if (v.visible.empty()) {
+        // Say WHY it is empty: an all-levels-off filter otherwise reads exactly
+        // like a log that has nothing in it.
+        if (v.lines.empty())
+            ImGui::TextDisabled("(nothing logged yet)");
+        else
+            ImGui::TextDisabled("%d line%s hidden by the filter above.",
+                                (int)v.lines.size(), v.lines.size() == 1 ? "" : "s");
+    } else {
+        ImGuiListClipper clipper;
+        clipper.Begin((int)v.visible.size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const logview::Line& ln = v.lines[v.visible[i]];
+                ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
+                ImGui::TextUnformatted(v.text.c_str() + ln.begin, v.text.c_str() + ln.end);
+                ImGui::PopStyleColor();
+            }
+        }
+    }
 
     // Stick to the bottom while new lines arrive, but only when the user is
     // already at the bottom (scrolling up to read or select holds position).
     // GetScrollMaxY() lags one frame behind the content just appended, so when
     // we were pinned last frame Scroll.y still equals it here and the test
     // passes; once the user scrolls up it no longer does and we let go.
-    static size_t lastLogSize = 0;
-    if (log.size() != lastLogSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+    if (v.scrollBottom ||
+        (v.visible.size() != v.shown && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f))
         ImGui::SetScrollHereY(1.0f);
-    lastLogSize = log.size();
+    v.scrollBottom = false;
+    v.shown = v.visible.size();
 
     ImGui::EndChild();
+}
+
+void App::drawOutputWindow() {
+    ImGui::Begin("Output");
+    logSetText(logOut_, runner_.log());
+
+    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logOut_.text, logOut_.lines, logOut_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
+    ImGui::SameLine();
+    drawLogPanel("##logscroll", logOut_);
     ImGui::End();
 }
 
@@ -10215,15 +10413,9 @@ void App::drawOutputWindow() {
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
-    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
-    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
-    const char* sources[] = {"Game log", "Emulator log"};
-    ImGui::SetNextItemWidth(140.0f);
-    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
-        debugLog_.clear();       // don't show the other source's stale content
-        debugNextReload_ = 0.0;  // reload immediately from the new source
-    }
-
+    // The source file is resolved and READ first, because the buttons below
+    // report on the classified lines (the level counts, Copy) - so the Reload
+    // button arms the next frame's read rather than this one's.
     std::string path;
     if (hasProject_) {
         if (debugLogSource_ == 0)
@@ -10231,18 +10423,37 @@ void App::drawDebugWindow() {
         else
             path = runner_.emulatorLogPath(project_);
     }
+    // Refresh from disk on demand, and while Auto is on, at most twice a second
+    // (per-frame file reads would be wasteful for a possibly large log).
+    const double now = ImGui::GetTime();
+    if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
+        logSetText(logDbg_, readTextFileTail(path, 1u << 20));  // last 1 MB
+        debugNextReload_ = now + 0.5;
+    }
+    debugReloadNow_ = false;
+
+    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
+    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
+    const char* sources[] = {"Game log", "Emulator log"};
+    ImGui::SetNextItemWidth(scaled(140));
+    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
+        logSetText(logDbg_, std::string());  // don't show the other source's content
+        debugNextReload_ = 0.0;              // reload immediately from the new source
+    }
 
     ImGui::SameLine();
-    bool reloadNow = false;
-    if (ImGui::SmallButton("Reload")) reloadNow = true;
+    if (ImGui::SmallButton("Reload")) debugReloadNow_ = true;
     ImGui::SameLine();
     ImGui::Checkbox("Auto", &debugAutoReload_);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(debugLog_.c_str());
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logDbg_.text, logDbg_.lines, logDbg_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Clear log") && !path.empty()) {
         std::ofstream(path, std::ios::trunc);  // best effort; may be held open
-        debugLog_.clear();
+        logSetText(logDbg_, std::string());
         debugNextReload_ = 0.0;
     }
     ImGui::SameLine();
@@ -10263,33 +10474,8 @@ void App::drawDebugWindow() {
                 : "Emulator not found. Set the path in Edit > Preferences.");
     else
         ImGui::TextDisabled("%s", path.c_str());
-    ImGui::Separator();
 
-    // Refresh from disk on demand, and while Auto is on, at most twice a second
-    // (per-frame file reads would be wasteful for a possibly large log).
-    const double now = ImGui::GetTime();
-    if (!path.empty() && (reloadNow || (debugAutoReload_ && now >= debugNextReload_))) {
-        debugLog_ = readTextFileTail(path, 1u << 20);  // last 1 MB
-        debugNextReload_ = now + 0.5;
-    }
-
-    ImGui::BeginChild("##debugscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(debugLog_.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##debuglog", const_cast<char*>(debugLog_.c_str()),
-                              debugLog_.size() + 1, inputSize, ImGuiInputTextFlags_ReadOnly);
-
-    // Follow the tail while new output arrives, unless the user scrolled up.
-    static size_t lastSize = 0;
-    if (debugLog_.size() != lastSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
-        ImGui::SetScrollHereY(1.0f);
-    lastSize = debugLog_.size();
-
-    ImGui::EndChild();
+    drawLogPanel("##debugscroll", logDbg_);
     ImGui::End();
 }
 

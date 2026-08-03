@@ -27,6 +27,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
 #include "livelogic.hpp"
@@ -65,6 +66,39 @@ struct NavConfig {
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
     bool orbitAroundSelection = true;  // pivot snaps to the selected object
+};
+
+// One log panel's classified view of its text (docs/log-panels.md) - the state
+// behind the *Output* and *Debug* windows' severity filter. logview::Line holds
+// OFFSETS, so `text` is the buffer they index and has to be kept alive here
+// rather than re-fetched per draw.
+//
+// The parse is incremental for one reason: a build appends lines continuously,
+// and re-classifying a megabyte on every append measured far more than a frame's
+// budget. `parsed`/`complete`/`state` are the resume point (see logview::parse);
+// only a shrink or a rewrite - Clear, a new run recreating bin/log.txt, the
+// Debug window's source combo - starts over.
+struct LogView {
+    std::string text;
+    std::vector<logview::Line> lines;
+    logview::State state;
+    size_t parsed = 0;    // offset after the last COMPLETE line classified
+    size_t complete = 0;  // lines.size() at that offset (the partial tail is dropped)
+
+    unsigned mask = logview::kAll;  // levels shown; persisted in editor.ini
+    bool selectText = false;        // swap the colours for a selectable text box
+
+    // Derived from (lines, mask) - rebuilt when either changes, or when the font
+    // size does (the width is measured in pixels).
+    std::vector<int> visible;  // indices into `lines`
+    int counts[logview::kLevelCount] = {0, 0, 0, 0};
+    float width = 0.0f;        // widest visible line, px - the h-scroll range
+    float widthFont = 0.0f;    // font size `width` was measured at
+    bool dirty = true;
+    size_t shown = 0;          // visible.size() last frame (autoscroll edge)
+    bool scrollBottom = false; // jump to the tail once (the two modes scroll
+                               // differently, so a switch would land at the top)
+    std::string joined;        // the kept lines as text (Copy / selectable mode)
 };
 
 class App {
@@ -227,6 +261,14 @@ private:
     std::string installVsCodeExtension();
     void drawOutputWindow();
     void drawDebugWindow();
+    // The two log panels above share one body (docs/log-panels.md): a severity
+    // filter row with per-level counts, then the lines themselves coloured by
+    // level. logSetText() classifies new text (incrementally while a build
+    // streams into it), logRefresh() rebuilds the filtered view once per frame,
+    // and drawLogPanel() draws v.text through v's filter.
+    void logSetText(LogView& v, std::string&& text);
+    void logRefresh(LogView& v);
+    void drawLogPanel(const char* id, LogView& v);
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();          // project-wide defaults (Project menu)
@@ -2130,10 +2172,19 @@ private:
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
     // emulator's console log (PCSX2 emulog.txt, boot progress + asserts).
-    std::string debugLog_;
+    // (the tail itself lives in logDbg_.text - the classified view owns the
+    // buffer its line offsets point into)
     int debugLogSource_ = 0;
     bool debugAutoReload_ = true;
     double debugNextReload_ = 0.0;  // ImGui::GetTime() gate for the next read
+    // The Reload button is drawn BELOW the read (the buttons report on the
+    // classified lines), so a press arms the next frame's read.
+    bool debugReloadNow_ = false;
+
+    // The classified views behind the two panels. Their filter masks and the
+    // selectable-text toggles are machine-global (editor.ini): which noise a
+    // person wants hidden is a property of how they work, not of the project.
+    LogView logOut_, logDbg_;
 
     // Game error catcher: polls the game's log (bin/log.txt over host:, or the
     // networked [ps2] console output in the runner log) for a TYRA assertion

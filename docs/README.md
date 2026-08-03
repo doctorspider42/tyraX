@@ -136,6 +136,11 @@ guides. What is queued is in [Backlog](backlog.md).
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [The log panels (errors, warnings, verbose)](log-panels.md) - the *Output* and
+  *Debug* windows classify every line into error / warning / info / verbose,
+  count the entries per level, colour them and let you hide a level with one
+  click: what lands in each bucket, why a compiler error keeps its four
+  explaining lines when verbose is hidden, and the selectable-text escape hatch.
 - [Running and debugging on a real PS2](ps2link-setup.md) - the one-time
   console setup for the F6 network deploy: building the TyraX ps2link (the only
   one supported - a pinned upstream plus our patch, built in Docker), flashing
