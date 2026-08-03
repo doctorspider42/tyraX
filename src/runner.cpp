@@ -874,8 +874,21 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           // reads the project directory, not the build volume,
                           // and without it the micro-memory budget silently
                           // omits every script in the project.
-                          "mkdir -p /host/src/gen && "
-                          "cp /src/src/gen/vu_scripts.manifest /host/src/gen/"),
+                          // EVERYTHING it generated goes back to the host, not
+                          // just the manifest. The source rsync deletes what the
+                          // host does not have, so container-only output is
+                          // wiped at the start of the NEXT build - and the
+                          // stamp would then happily skip regenerating it. That
+                          // is exactly how a build came out with the header
+                          // declaring vuscript::install and nothing defining
+                          // it. As a bonus the generated microprograms are
+                          // readable in the project, like every other generated
+                          // file.
+                          "mkdir -p /host/src/gen /host/inc/scripts && "
+                          "cp /src/src/gen/vu_script* /host/src/gen/ && "
+                          "cp /src/src/gen/vu_scripts.manifest /host/src/gen/ && "
+                          "cp /src/inc/scripts/vu_scripts.gen.hpp "
+                          "/host/inc/scripts/"),
                       p.dir) == 0;
             if (!ok)
                 appendLine(

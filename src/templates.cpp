@@ -32387,14 +32387,17 @@ std::vector<File> generate(const Project& p) {
         // The on/off seam is ALWAYS emitted; the microprogram files below only
         // exist when the project actually has a program.
         {"inc\\scripts\\vu_programs.gen.hpp", vuProgramsHeader(vuBuild)},
-        // The STUB for the project's C++ VU scripts. The real one is written by
-        // the generator inside the build container, which is the only place the
-        // user's C++ can actually be compiled and run - so this exists to keep
-        // the game compiling in an editor that has never built, in VS Code, and
-        // in a project with no script at all.
-        {"inc\\scripts\\vu_scripts.gen.hpp", vuScriptsStubHeader()},
         {"src\\gen\\vu_programs.gen.cpp", vuProgramsSource(p, vuBuild)},
     };
+    // The STUB for the project's C++ VU scripts, and ONLY while there is no
+    // script. The real header is the container's - written next to the
+    // microprograms it declares, by the generator, which is the only place the
+    // user's C++ can be compiled and run. Emitting the stub over it is how a
+    // build ended up with a header declaring vuscript::install and nothing
+    // defining it.
+    if (!project::hasVuScripts(p))
+        files.push_back(
+            {"inc\\scripts\\vu_scripts.gen.hpp", vuScriptsStubHeader()});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }
