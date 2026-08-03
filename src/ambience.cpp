@@ -213,6 +213,26 @@ Resolved evaluate(const DayCycle& c, float hour) {
         L[1] = minY;
         normalize3(L);
     }
+    // ...and never ON the pole either - see kMaxLightElevation. The zenith pull
+    // above aims for exactly straight up at the crossover, which is precisely
+    // the direction that degenerates a lookAt basis.
+    const float maxY = std::sin(kMaxLightElevation * kDeg);
+    if (L[1] > maxY) {
+        const float hx = L[0], hz = L[2];
+        const float hl = std::sqrt(hx * hx + hz * hz);
+        const float want = std::sqrt(std::max(0.0f, 1.0f - maxY * maxY));
+        if (hl > 1e-5f) {
+            L[0] = hx / hl * want;
+            L[2] = hz / hl * want;
+        } else {
+            // Dead on the pole: the horizontal part carries no direction at all,
+            // so pick one rather than leaving a zero-length basis behind.
+            L[0] = want;
+            L[2] = 0.0f;
+        }
+        L[1] = maxY;
+        normalize3(L);
+    }
     for (int i = 0; i < 3; ++i) r.lightDir[i] = L[i];
 
     // Orientation of the moon's lit limb: the sun's direction projected into

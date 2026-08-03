@@ -115,6 +115,18 @@ and down to the other. That is also the honest answer physically - at twilight
 the dominant light really is the sky overhead. Measured effect on the default
 cycle: worst light-direction step per minute fell from 1.99 to 0.078.
 
+**...but it must not sweep ONTO the zenith** (`kMaxLightElevation`, 88 degrees).
+The pull above aimed for exactly straight up, and measured it got there: 90.0000
+degrees at both crossovers. That is the one direction that breaks a camera basis
+built from the light - the engine's `M4x4::lookAt` uses a hardcoded world-up
+(`$vf6 = {0,1,0}` in the VU0 routine) and a double cross product, so a view vector
+parallel to it cancels to zero. The projected-shadow pass aims its light camera
+straight down the light vector, which means every shadow in the scene got a
+degenerate matrix for the fraction of a second around sunrise and sunset. Capping
+two degrees short is invisible in the picture and keeps every basis well
+conditioned; the light now ranges 5.4..88.0 degrees over the day and the worst
+step per minute stays 0.09.
+
 ## Keyframes
 
 A free list of `DayKey`s: hour, sky horizon and zenith, light colour, ambient,

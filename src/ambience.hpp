@@ -208,6 +208,17 @@ struct Resolved {
 // key colours, never from pointing the sun into the floor.
 constexpr float kMinLightElevation = 5.0f;
 
+// ...and the maximum, which is NOT cosmetic. The twilight handover walks the
+// light up over the zenith, and at the crossover it landed on exactly 90.0000
+// degrees - straight up. The engine's M4x4::lookAt builds its camera basis with a
+// hardcoded world-up ($vf6 = {0,1,0} in the VU0 routine) and a double cross
+// product, so a view vector parallel to it cancels to zero and the basis
+// degenerates. The projected-shadow pass aims its light camera straight down the
+// light vector, which means every shadow in the scene got a garbage matrix for
+// the frames around sunrise and sunset. Capping the elevation two degrees short
+// of the pole is invisible and keeps every basis well conditioned.
+constexpr float kMaxLightElevation = 88.0f;
+
 // Half-width of the sun/moon handover, in degrees of sun elevation. The light
 // direction sweeps between the two bodies across it instead of snapping.
 constexpr float kTwilightBand = 6.0f;

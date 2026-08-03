@@ -167,6 +167,23 @@ inline void evaluate(int scene, float hour) {
     }
     L[1] = minY;
   }
+  // ...and never ON the pole: the zenith pull aims for exactly
+  // straight up at the crossover, and M4x4::lookAt's hardcoded
+  // world-up makes that direction degenerate every basis built from
+  // it - the projected shadows' light camera above all.
+  const float maxY = 0.99939F;  // sin(88 deg), ambience::kMaxLightElevation
+  if (L[1] > maxY) {
+    const float hl = sqrtf(L[0] * L[0] + L[2] * L[2]);
+    const float want = sqrtf(1.0F - maxY * maxY);
+    if (hl > 1e-5F) {
+      L[0] = L[0] / hl * want;
+      L[2] = L[2] / hl * want;
+    } else {
+      L[0] = want;
+      L[2] = 0.0F;
+    }
+    L[1] = maxY;
+  }
   for (int i = 0; i < 3; ++i) g_light[i] = L[i];
   // Moon roll: the sun projected into the disc's plane, so the lit
   // limb keeps facing the sun (the disc is baked lit-side-to-+X).
