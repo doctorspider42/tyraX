@@ -18,12 +18,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <string>
 
 #include <imgui.h>
+
+#include "animedit.hpp"
+#include "app_internal.hpp"
 
 namespace fs = std::filesystem;
 
@@ -208,6 +212,351 @@ void App::addWeaponModelToScene(int weaponIndex) {
     saveAll("Saved");
     statusMessage_ = "Created viewmodel '" + o.name + "' (" +
                      std::to_string(mesh.triangles()) + " tris) for " + w.name;
+}
+
+// --------------------------------------------------------------------------
+// The Viewmodel tab's live preview.
+//
+// The camera sits where the player's does - at the origin, looking down +Z -
+// because that is the only place the numbers on this tab mean anything: an
+// Offset of (0.14, -0.13, 0.42) is a position on SCREEN, not in the world.
+//
+// weaponPreviewPose below is the HOST TWIN of wpnPinViewModels + the sway /
+// bob / kick / reload / swing block in templates.cpp (search for
+// "The equipped weapon in the player's hands"). Change either and the other
+// must follow, or the preview stops predicting the console - which is the
+// only thing that makes it worth having.
+// --------------------------------------------------------------------------
+namespace {
+
+// The engine's vertical field of view (RendererCore3D's own default). A
+// project cannot change it, so it is a constant here rather than a setting.
+constexpr float kEngineFovDeg = 60.0f;
+
+// The runtime's per-frame viewmodel state, advanced by the panel's clock.
+struct WeaponAnimState {
+    float phase = 0.0f;   // vmPhase
+    float speed = 0.0f;   // vmSpeed
+    float kick = 0.0f;    // viewKick
+    float reload = 0.0f;  // WpnActor::reloadLeft
+    float swing = 0.0f;   // WpnActor::swingLeft
+};
+
+// Twin of wpnPinViewModels with the player standing at the origin looking
+// down +Z. That collapses the runtime's basis to right = (-1, 0, 0),
+// up = (0, 1, 0), forward = (0, 0, 1), which is why an Offset X of +1 lands
+// at world -1: the offsets are SCREEN directions.
+void weaponPreviewPose(const WeaponDef& w, const WeaponAnimState& s,
+                       float outPos[3], float outRot[3]) {
+    float ox = w.viewOffset[0], oy = w.viewOffset[1], oz = w.viewOffset[2];
+    float extraPitch = 0.0f, extraYaw = 0.0f, extraRoll = 0.0f;
+    const float pi = 3.14159265f;
+
+    // Sway and bob stay on in BOTH animation modes - a baked clip cannot know
+    // how fast the player is walking.
+    if (w.animSway > 0.0f) {
+        ox += std::sin(s.phase * 0.73f) * w.animSway;
+        oy += std::sin(s.phase * 1.11f) * w.animSway * 0.7f;
+    }
+    if (w.animBob > 0.0f && s.speed > 0.01f) {
+        const float amp = w.animBob * (s.speed < 1.0f ? s.speed : 1.0f);
+        oy += std::sin(s.phase * 5.0f) * amp;
+        ox += std::sin(s.phase * 2.5f) * amp * 0.6f;
+    }
+    if (w.animMode == 0) {
+        if (s.kick > 0.0f) {
+            oz -= w.animKickBack * s.kick * w.viewScale;
+            oy -= w.animKickBack * 0.2f * s.kick * w.viewScale;
+            extraPitch -= w.animKickPitch * s.kick;
+        }
+        if (s.reload > 0.0f && w.reloadTime > 0.0001f) {
+            const float t = 1.0f - s.reload / w.reloadTime;
+            const float dip = std::sin(t * pi);
+            oy -= w.animReloadDip * dip * w.viewScale;
+            oz -= w.animReloadDip * 0.4f * dip * w.viewScale;
+            extraRoll += w.animReloadRoll * dip;
+        }
+        if (s.swing > 0.0f && w.swingTime > 0.0001f) {
+            const float t = 1.0f - s.swing / w.swingTime;
+            const float arc = std::sin(t * pi);
+            oz += w.animSwingReach * arc * w.viewScale;
+            oy += w.animSwingReach * 0.3f * arc * w.viewScale;
+            extraPitch += w.animSwingPitch * arc;
+            extraYaw -= w.animSwingPitch * 0.55f * arc;
+        }
+    }
+    outPos[0] = -ox;
+    outPos[1] = oy;
+    outPos[2] = oz;
+    // The aim contributes nothing when the player looks down +Z, so what is
+    // left is the authored rotation plus this frame's animation.
+    outRot[0] = w.viewRot[0] + extraPitch;
+    outRot[1] = w.viewRot[1] + extraYaw;
+    outRot[2] = w.viewRot[2] + extraRoll;
+}
+
+}  // namespace
+
+void App::drawWeaponViewmodelPreview(const WeaponDef& w) {
+    const SceneObject* vm = nullptr;
+    for (const SceneObject& o : project_.objects())
+        if (o.name == w.viewModel) vm = &o;
+
+    // --- the clock ---------------------------------------------------------
+    // One dt for the whole preview, taken from ImGui rather than a fixed step
+    // so a slow editor frame does not slow the weapon down.
+    const double now = ImGui::GetTime();
+    float dt = wpnPrevClock_ > 0.0 ? (float)(now - wpnPrevClock_) : 0.0f;
+    wpnPrevClock_ = now;
+    if (dt > 0.1f) dt = 0.1f;  // a stalled frame must not teleport the state
+    if (!wpnPrevPlay_) dt = 0.0f;
+
+    const bool melee = w.kind == 2;
+    const std::string modelRel = (vm && vm->type == PrimitiveType::Model)
+                                     ? vm->modelPath
+                                     : std::string();
+    const bool animatedModel = !modelRel.empty() && isAnimatedModelPath(modelRel);
+    const bool clipMode = w.animMode == 1 && animatedModel;
+
+    // --- advance the runtime twin ------------------------------------------
+    {
+        const float sway = w.animSwaySpeed > 0.0f ? w.animSwaySpeed : 1.0f;
+        wpnPrevPhase_ += dt * 6.2831853f * sway;
+        if (wpnPrevPhase_ > 6283.0f) wpnPrevPhase_ -= 6283.0f;
+        // The runtime derives vmSpeed from how far the player actually moved;
+        // here the Walk toggle IS that input, smoothed with the same rate.
+        const float target = wpnPrevWalk_ ? 1.0f : 0.0f;
+        const float k = std::min(dt * 8.0f, 1.0f);
+        wpnPrevSpeed_ += (target - wpnPrevSpeed_) * k;
+        if (wpnPrevKick_ > 0.0f) {
+            const float rate = w.animRecover > 0.2f ? w.animRecover : 0.2f;
+            wpnPrevKick_ = std::max(0.0f, wpnPrevKick_ - dt * rate);
+        }
+        wpnPrevReload_ = std::max(0.0f, wpnPrevReload_ - dt);
+        wpnPrevSwing_ = std::max(0.0f, wpnPrevSwing_ - dt);
+        if (wpnPrevNextShot_ > 0.0f) wpnPrevNextShot_ -= dt;
+    }
+
+    // A shot: the same two things wpnTryFire does to the viewmodel - the kick
+    // spring is charged and, in clip mode, the fire clip is requested.
+    auto fire = [&]() {
+        if (melee) {
+            wpnPrevSwing_ = w.swingTime > 0.0001f ? w.swingTime : 0.25f;
+            if (clipMode && !w.clipFire.empty()) {
+                wpnPrevClipState_ = 1;
+                wpnPrevClipTime_ = 0.0f;
+            }
+            return;
+        }
+        wpnPrevKick_ = 1.0f;
+        if (clipMode && !w.clipFire.empty()) {
+            wpnPrevClipState_ = 1;
+            wpnPrevClipTime_ = 0.0f;
+        }
+    };
+    if (wpnPrevAuto_ && wpnPrevPlay_ && wpnPrevNextShot_ <= 0.0f) {
+        fire();
+        wpnPrevNextShot_ = w.fireRate > 0.01f ? 1.0f / w.fireRate : 0.5f;
+    }
+
+    // --- clip playback (clip mode only) ------------------------------------
+    // The states are the runtime's: a one-shot plays once and hands back to
+    // the idle loop. Times are OUTPUT seconds, like the Animation Editor's
+    // playhead, and only converted to source seconds for the pose.
+    std::string srcClip;
+    float clipSrcTime = 0.0f, trimA = 0.0f, trimB = 0.0f;
+    if (clipMode) {
+        // -1 = "a one-shot finished last frame": hand back to idle from the
+        // start of the idle clip rather than from the one-shot's end time.
+        if (wpnPrevClipState_ < 0) {
+            wpnPrevClipState_ = 0;
+            wpnPrevClipTime_ = 0.0f;
+        }
+        auto effClipFor = [&](int state) {
+            switch (state) {
+                case 1: return w.clipFire;
+                case 2: return w.clipReload;
+                case 3: return w.clipEquip;
+                default: return w.clipIdle;
+            }
+        };
+        std::string eff = effClipFor(wpnPrevClipState_);
+        if (eff.empty()) {
+            wpnPrevClipState_ = 0;
+            eff = w.clipIdle;
+        }
+        srcClip = eff.empty() ? std::string()
+                              : animedit::sourceName(project_, modelRel, eff);
+        if (!srcClip.empty()) {
+            const float srcDur =
+                viewport_.animClipDuration(modelRel, std::string(), srcClip);
+            const AnimClipEdit* edit =
+                animedit::findEdit(project_, modelRel, srcClip);
+            trimB = srcDur;
+            animedit::trimWindow(edit, srcDur, trimA, trimB);
+            const float scale =
+                animedit::totalTimeScale(project_, modelRel, srcClip);
+            const float outDur = scale > 0.001f ? (trimB - trimA) / scale : 0.0f;
+            wpnPrevClipTime_ += dt;
+            if (outDur > 0.0001f) {
+                if (wpnPrevClipState_ == 0) {
+                    wpnPrevClipTime_ = std::fmod(wpnPrevClipTime_, outDur);
+                } else if (wpnPrevClipTime_ >= outDur) {
+                    // Back to idle, exactly like the animFinished handoff.
+                    // This frame still shows the one-shot's last pose - the
+                    // idle clip has its own trim, and re-resolving it here
+                    // would pose it at a time taken from another clip.
+                    wpnPrevClipTime_ = outDur;
+                    wpnPrevClipState_ = -1;  // -> idle on the next frame
+                }
+            } else {
+                wpnPrevClipTime_ = 0.0f;
+            }
+            clipSrcTime = wpnPrevClipTime_ * scale;
+        }
+    }
+
+    // --- the image ----------------------------------------------------------
+    // Sized at the game's own aspect: an eye view at the wrong aspect frames
+    // the weapon differently from the console, which is the one thing this
+    // preview exists to answer.
+    const float aspect = project_.settings.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float pw = std::max(scaled(200.0f), ImGui::GetContentRegionAvail().x);
+    float ph = pw / aspect;
+    const float phMax = scaled(230.0f);
+    if (ph > phMax) {
+        ph = phMax;
+        pw = ph * aspect;
+    }
+
+    Viewport::WeaponPreviewDesc d;
+    d.modelRel = modelRel;
+    d.materialRel = vm ? vm->materialPath : std::string();
+    // A type with no geometry of its own (a marker used as a placeholder)
+    // falls back to a box rather than to whichever unit shape it numbers next
+    // to - a cone standing in for a Player marker would just be confusing.
+    d.shape = (vm && (int)vm->type >= 0 && (int)vm->type <= 3) ? (int)vm->type : 0;
+    if (vm)
+        for (int i = 0; i < 3; ++i) d.tint[i] = vm->color[i];
+    d.yawOffset = vm ? vm->modelYawOffset : 0.0f;
+    const WeaponAnimState st{wpnPrevPhase_, wpnPrevSpeed_, wpnPrevKick_,
+                             wpnPrevReload_, wpnPrevSwing_};
+    weaponPreviewPose(w, st, d.position, d.rotation);
+    const float vs = w.viewScale > 0.0001f ? w.viewScale : 1.0f;
+    for (int i = 0; i < 3; ++i) d.scale[i] = (vm ? vm->scale[i] : 1.0f) * vs;
+    d.clip = srcClip;
+    d.time = clipSrcTime;
+    d.trimStart = trimA;
+    d.trimEnd = trimB;
+    d.muzzle[0] = -w.muzzleOffset[0];
+    d.muzzle[1] = w.muzzleOffset[1];
+    d.muzzle[2] = w.muzzleOffset[2];
+    d.showMuzzle = wpnPrevMuzzle_;
+    d.eyeView = wpnPrevEye_;
+    d.fovDeg = kEngineFovDeg;
+    d.angleDeg = wpnPrevYaw_;
+    d.pitchDeg = wpnPrevPitch_;
+    d.zoom = wpnPrevZoom_;
+    d.wireframe = wpnPrevWire_;
+
+    const uint32_t tex = viewport_.renderWeaponPreview((int)pw, (int)ph, d);
+    if (tex) {
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        ImGui::Image((ImTextureID)(intptr_t)tex, ImVec2(pw, ph), ImVec2(0, 1),
+                     ImVec2(1, 0));
+        // The crosshair: without something marking the screen centre there is
+        // no way to judge an offset by eye. Drawn here rather than in GL - it
+        // is a 2D overlay, not part of the scene.
+        if (wpnPrevEye_) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 c(origin.x + pw * 0.5f, origin.y + ph * 0.5f);
+            const float r = scaled(6.0f);
+            const ImU32 col = IM_COL32(255, 255, 255, 110);
+            dl->AddLine(ImVec2(c.x - r, c.y), ImVec2(c.x + r, c.y), col);
+            dl->AddLine(ImVec2(c.x, c.y - r), ImVec2(c.x, c.y + r), col);
+        }
+        // The Material/Animation Editor gesture: drag to orbit, wheel to
+        // dolly. Only in the turntable view - the eye view IS the framing.
+        if (!wpnPrevEye_) {
+            if (ImGui::IsItemHovered()) {
+                const float wheel = ImGui::GetIO().MouseWheel;
+                if (wheel != 0.0f)
+                    wpnPrevZoom_ =
+                        std::clamp(wpnPrevZoom_ * (1.0f + wheel * 0.1f), 0.1f, 8.0f);
+            }
+            if (ImGui::IsItemActive() &&
+                ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                const ImVec2 dlt = ImGui::GetIO().MouseDelta;
+                wpnPrevYaw_ += dlt.x * 0.4f;
+                wpnPrevPitch_ =
+                    std::clamp(wpnPrevPitch_ - dlt.y * 0.3f, -80.0f, 80.0f);
+            }
+        }
+    }
+
+    // --- what is (not) being shown -----------------------------------------
+    if (!vm) {
+        ImGui::TextDisabled(
+            "No viewmodel object - the weapon is invisible in the hands.");
+    } else if (vm->type != PrimitiveType::Model) {
+        ImGui::TextDisabled("\"%s\" is a placeholder shape, not a model.",
+                            vm->name.c_str());
+    } else if (w.animMode == 1 && !animatedModel) {
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f),
+                           "Clip mode, but \"%s\" is a static model - nothing "
+                           "will animate.",
+                           vm->name.c_str());
+    } else if (clipMode) {
+        ImGui::TextDisabled("clip: %s",
+                            srcClip.empty() ? "<none set>" : srcClip.c_str());
+    } else {
+        ImGui::TextDisabled("procedural motion (Animation tab)");
+    }
+
+    // --- transport ----------------------------------------------------------
+    if (ImGui::Button(wpnPrevPlay_ ? "Pause" : "Play", ImVec2(scaled(58.0f), 0)))
+        wpnPrevPlay_ = !wpnPrevPlay_;
+    ImGui::SameLine();
+    if (ImGui::Button(melee ? "Swing" : "Fire", ImVec2(scaled(58.0f), 0))) {
+        wpnPrevPlay_ = true;
+        fire();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Runs one shot through the same kick spring the game uses.");
+    ImGui::SameLine();
+    if (ImGui::Button("Reload", ImVec2(scaled(62.0f), 0))) {
+        wpnPrevPlay_ = true;
+        wpnPrevReload_ = w.reloadTime > 0.0001f ? w.reloadTime : 1.0f;
+        if (clipMode && !w.clipReload.empty()) {
+            wpnPrevClipState_ = 2;
+            wpnPrevClipTime_ = 0.0f;
+        }
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    int view = wpnPrevEye_ ? 0 : 1;
+    if (ImGui::Combo("##wpnprevview", &view, "Eye view\0Turntable\0"))
+        wpnPrevEye_ = view == 0;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Eye view: the player's own camera, at the engine's field of\n"
+            "view - where the weapon will actually sit on screen.\n"
+            "Turntable: orbit the model to inspect it (drag / wheel).");
+
+    ImGui::Checkbox("Walk", &wpnPrevWalk_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Drives the walk bob, which scales with the player's "
+                          "real speed in game.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Auto", &wpnPrevAuto_);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Keeps firing at the weapon's Rate (Firing tab).");
+    ImGui::SameLine();
+    ImGui::Checkbox("Muzzle", &wpnPrevMuzzle_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Wire", &wpnPrevWire_);
+    ImGui::Separator();
 }
 
 void App::drawWeaponEditorWindow() {
@@ -428,12 +777,7 @@ void App::drawWeaponEditorWindow() {
         }
 
         if (ImGui::BeginTabItem("Viewmodel")) {
-            ImGui::TextWrapped(
-                "The weapon in the player's hands is an ordinary SCENE OBJECT, "
-                "pinned in front of the camera while equipped and hidden "
-                "otherwise - so it lights, materials and previews like "
-                "anything else you place.");
-            ImGui::Spacing();
+            drawWeaponViewmodelPreview(w);
             {
                 const std::string preview =
                     w.viewModel.empty() ? "<none - invisible weapon>" : w.viewModel;
@@ -451,23 +795,49 @@ void App::drawWeaponEditorWindow() {
                     ImGui::EndCombo();
                 }
             }
+            prefHelp(
+                "The weapon in the player's hands is an ordinary SCENE OBJECT,\n"
+                "pinned in front of the camera while this weapon is equipped\n"
+                "and hidden otherwise - so it lights, takes materials and\n"
+                "previews like anything else you place in the world.\n\n"
+                "Nothing else in the game needs to know: the runtime writes\n"
+                "the object's transform every frame, there is no attachment\n"
+                "system and no parenting.");
             changed |= ImGui::DragFloat3("Offset", w.viewOffset, 0.01f);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Camera space: X right, Y up, Z forward (units).");
             changed |= ImGui::DragFloat("Scale", &w.viewScale, 0.01f, 0.01f, 20.0f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Multiplies the object's own scale. The game has ONE field\n"
+                    "of view for the world and the weapon (no separate\n"
+                    "viewmodel FOV on a PS2), so a life-size rifle half a unit\n"
+                    "from the eye covers a quarter of the screen - every FPS\n"
+                    "renders a miniature instead. 'Create viewmodel' below\n"
+                    "sizes new models for you.");
             changed |= ImGui::DragFloat3("Rotation", w.viewRot, 0.5f);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Degrees on top of the aim, which already points the\n"
+                    "model's +Z down the view ray.");
             changed |= ImGui::DragFloat3("Muzzle", w.muzzleOffset, 0.01f);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "Where the shot leaves the weapon, in the same camera\n"
-                    "frame - the muzzle flash and the tracer start here.");
+                    "frame - the muzzle flash and the tracer start here.\n"
+                    "The preview marks it in orange.");
 
             ImGui::SeparatorText("Generate a model");
-            ImGui::TextWrapped(
-                "Procedural, licence-free and sized in the project's own "
-                "units. +Z is the muzzle and the origin is the grip, which is "
-                "what the offsets above assume.");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Procedural, licence-free and sized in the project's own\n"
+                    "units - a weapon system with no weapon to look at is a\n"
+                    "spreadsheet, and every gun model on the internet arrives\n"
+                    "with a licence attached.\n\n"
+                    "+Z is the muzzle and the origin is the grip, which is what\n"
+                    "the offsets above assume. The result is a static .obj, so\n"
+                    "it can only ever carry PROCEDURAL animation.");
             ImGui::SetNextItemWidth(scaled(200.0f));
             if (ImGui::Combo("Type", &weaponGen_.kind,
                              "Pistol\0Revolver\0SMG\0Rifle\0Shotgun\0Knife\0"

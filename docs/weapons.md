@@ -27,6 +27,9 @@ in the engine had to learn what a viewmodel is — the object lights, materials,
 LODs and previews exactly like anything else you place, and you can see it in
 the viewport while you position it.
 
+The *Viewmodel* tab previews it **from the player's eye** — see
+[The viewmodel preview](#the-viewmodel-preview) below.
+
 ## Weapon kinds
 
 | Kind | What it does |
@@ -91,6 +94,40 @@ if (ctx.spawnFx) ctx.spawnFx(2 /*sparks*/, pos, up, col, 0.05F, 10, 0.4F, 6.0F);
 Projectiles reuse the same pool for their body and trail: the runtime
 re-seeds a one-frame burst at the projectile's position every frame, so a
 grenade in the air needs no extra render path at all.
+
+## The viewmodel preview
+
+*Weapon Editor > Viewmodel* renders the viewmodel object live, and its default
+camera is **not** a turntable: it sits exactly where the player's does — at the
+origin, looking down +Z, at the engine's 60° vertical field of view, at the
+project's own aspect ratio (*Preferences > Display > Widescreen*). That is the
+only camera the numbers on that tab mean anything against. An *Offset* of
+(0.2, −0.15, 0.6) is not a place in the world; it is a place on the **screen**,
+and eyeballing it there beats a build-and-look round trip.
+
+- **Offset X is a screen direction.** +X is right *on screen*, which is world
+  −X when the player faces +Z. The preview folds that for you.
+- **The crosshair** marks the screen centre; the **orange dot** is the *Muzzle*
+  offset, drawn through the geometry so a muzzle correctly buried in the barrel
+  is still visible. Toggle it with *Muzzle*.
+- **Turntable** swaps the eye for an orbit around the weapon (drag to rotate,
+  wheel to dolly) when you want to look at the model rather than at its framing.
+- **Fire / Reload** run one event through the same springs and curves the game
+  uses; **Walk** drives the bob, **Auto** holds the trigger at the weapon's own
+  *Rate*. In clip mode the buttons switch clips exactly as the runtime does, and
+  the status line under the image names the clip that is playing.
+- A viewmodel object that is a **placeholder primitive** rather than a model is
+  drawn as its unit shape, so the offsets can be dialled in before the real
+  asset exists.
+
+The preview is a **twin of the generated runtime**: `weaponPreviewPose` in
+`src/weaponedit.cpp` reproduces `wpnPinViewModels` and the sway / bob / kick /
+reload / swing block that `src/templates.cpp` emits. Changing either without the
+other makes the preview lie, which is the only way it can stop being useful.
+
+Shading comes from the **scene's** own ambience, like every other preview here —
+what you see is what will ship. A scene authored for night previews dark on
+purpose.
 
 ## Viewmodel animation
 
@@ -310,8 +347,9 @@ Two structural consequences worth knowing:
 | File | Role |
 |---|---|
 | `src/project.hpp` | `WeaponDef`, `WeaponFx`, `Project::weapons`, the per-object combat fields |
-| `src/weaponedit.cpp` | Tools > Weapon Editor, the weapon picker, rename retargeting |
+| `src/weaponedit.cpp` | Tools > Weapon Editor, the weapon picker, rename retargeting, the viewmodel preview + its runtime pose twin |
 | `src/weapongen.cpp/.hpp` | The procedural model generator (host-only, no GL) |
+| `src/viewport.cpp` | `renderWeaponPreview` — the preview's own framebuffer and eye camera |
 | `src/templates.cpp` | `weaponDataHeader` / `weaponsHeader` / `weaponsSource`, the FX burst pool in the game template |
 | `src/flowgraph.hpp` | The fourteen Combat node types |
 | `inc/weapon_data.gen.hpp` | Generated: `WEAPON_DEFS`, viewmodel/loadout/auto-fire side tables |

@@ -1327,6 +1327,9 @@ void Viewport::shutdown() {
     if (treeFbo_) glDeleteFramebuffers(1, &treeFbo_);
     if (treeTex_) glDeleteTextures(1, &treeTex_);
     if (treeDepth_) glDeleteRenderbuffers(1, &treeDepth_);
+    if (wpnFbo_) glDeleteFramebuffers(1, &wpnFbo_);
+    if (wpnTex_) glDeleteTextures(1, &wpnTex_);
+    if (wpnDepth_) glDeleteRenderbuffers(1, &wpnDepth_);
     if (gradeProgram_) glDeleteProgram(gradeProgram_);
     if (gradeFbo_) glDeleteFramebuffers(1, &gradeFbo_);
     if (gradeTex_) glDeleteTextures(1, &gradeTex_);
@@ -2182,6 +2185,37 @@ void Viewport::ensureTreeFramebuffer(int width, int height) {
                               GL_RENDERBUFFER, treeDepth_);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         std::fprintf(stderr, "tree preview framebuffer incomplete\n");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// Weapon Editor viewmodel preview target - the same arrangement, and needed
+// for the same reason: the Weapon Editor is a tool window that can be open
+// next to the Material, Animation and Tree ones.
+void Viewport::ensureWeaponFramebuffer(int width, int height) {
+    if (wpnFbo_ && width == wpnFbW_ && height == wpnFbH_) return;
+    wpnFbW_ = width;
+    wpnFbH_ = height;
+
+    if (!wpnFbo_) glGenFramebuffers(1, &wpnFbo_);
+    if (!wpnTex_) glGenTextures(1, &wpnTex_);
+    if (!wpnDepth_) glGenRenderbuffers(1, &wpnDepth_);
+
+    glBindTexture(GL_TEXTURE_2D, wpnTex_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glBindRenderbuffer(GL_RENDERBUFFER, wpnDepth_);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, wpnFbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           wpnTex_, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER, wpnDepth_);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        std::fprintf(stderr, "weapon preview framebuffer incomplete\n");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -5196,6 +5230,212 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     // The scene pass re-poses every visible instance from its own clock, so
     // hijacking the shared VBOs for this preview cannot desync anything.
     return animTex_;
+}
+
+// Weapon Editor viewmodel preview. The camera is the whole point: in eye view
+// it sits exactly where the player's does (origin, down +Z, the engine's 60
+// degree vertical fov), so the weapon lands on screen where it will land in
+// game and the Offset/Scale rows can be dialled in by looking rather than by
+// rebuilding. The pose is handed in resolved - see WeaponPreviewDesc.
+uint32_t Viewport::renderWeaponPreview(int width, int height,
+                                       const WeaponPreviewDesc& d) {
+    if (!program_) return 0;
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    ensureWeaponFramebuffer(width, height);
+    ensurePreviewBackdrop();
+
+    const bool animated = !d.modelRel.empty() && isAnimatedModelPath(d.modelRel);
+    const ModelDraw* model =
+        (!d.modelRel.empty() && !animated) ? modelDraw(d.modelRel, d.materialRel)
+                                           : nullptr;
+    AnimModelDraw* anim = animated ? animModelDraw(d.modelRel, d.materialRel) : nullptr;
+    if (model && model->parts.empty()) model = nullptr;
+    if (anim && !anim->ok) anim = nullptr;
+
+    // Pose the clip, exactly as the Animation Editor preview does - same trim
+    // window, same source-seconds-times-fps frame index.
+    const glbparser::Baked* baked = anim ? &anim->baked : nullptr;
+    if (anim && !baked->clips.empty()) {
+        const glbparser::Clip* clip = &baked->clips.front();
+        if (!d.clip.empty())
+            for (const glbparser::Clip& c : baked->clips)
+                if (c.name == d.clip) {
+                    clip = &c;
+                    break;
+                }
+        int first = clip->firstFrame, count = clip->frameCount;
+        if (baked->fps > 0.01f && count > 1) {
+            const float dur = (float)(count - 1) / baked->fps;
+            const float a = std::clamp(d.trimStart, 0.0f, dur);
+            const float e = d.trimEnd > 0.0f ? std::clamp(d.trimEnd, 0.0f, dur) : dur;
+            if (e - a > 1e-4f) {
+                const int fa = (int)std::lround(a * baked->fps);
+                const int fb = (int)std::lround(e * baked->fps);
+                if (fb > fa) {
+                    first = clip->firstFrame + fa;
+                    count = fb - fa + 1;
+                }
+            }
+        }
+        uploadAnimPose(*anim, first, count,
+                       d.time * (baked->fps > 0.01f ? baked->fps : 12.0f));
+    } else if (anim) {
+        uploadAnimPose(*anim, 0, baked->frameCount, 0.0f);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, wpnFbo_);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(program_);
+    glUniform1i(uLightCount_, 0);
+    glUniform1i(uAoOn_, 0);
+    glUniform1i(uFogOn_, 0);
+    glUniform1i(uFlashOn_, 0);
+    glUniform1i(uReflOn_, 0);
+    glUniform1f(uOpacity_, 1.0f);
+    glUniform3f(uEmissive_, 0.0f, 0.0f, 0.0f);
+
+    const Mat4 id = identity();
+    auto draw = [&](const Mesh& mesh, const Mat4& mvp, const Mat4& modelM,
+                    float r, float g, float b, uint32_t texture, bool alpha) {
+        if (!mesh.vao) return;
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniformMatrix4fv(uModel_, 1, GL_FALSE, modelM.m);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uAoSelfObj_, -1);
+        glUniform1i(uAoGround_, 0);
+        glUniform1i(uAoReceive_, 0);
+        glUniform3f(uTint_, r, g, b);
+        glUniform1i(uUseTex_, texture ? 1 : 0);
+        glUniform1i(uAlpha_, alpha ? 1 : 0);
+        if (texture) glBindTexture(GL_TEXTURE_2D, texture);
+        glBindVertexArray(mesh.vao);
+        glDrawArrays(GL_TRIANGLES, 0, mesh.vertexCount);
+    };
+
+    glDisable(GL_DEPTH_TEST);
+    draw(prevBg_, id, id, 1.0f, 1.0f, 1.0f, 0, false);
+    glEnable(GL_DEPTH_TEST);
+
+    // The model matrix, composed in the scene's own order (modelMatrix()).
+    const float d2r = kPi / 180.0f;
+    Mat4 modelM = scaleM(d.scale[0], d.scale[1], d.scale[2]);
+    if (animated && d.yawOffset != 0.0f)
+        modelM = mul(rotY(d.yawOffset * d2r), modelM);
+    modelM = mul(rotX(d.rotation[0] * d2r), modelM);
+    modelM = mul(rotY(d.rotation[1] * d2r), modelM);
+    modelM = mul(rotZ(d.rotation[2] * d2r), modelM);
+    modelM = mul(translation(d.position[0], d.position[1], d.position[2]), modelM);
+
+    // Local-space bounds of whatever is being drawn - the unit shapes are the
+    // -0.5..0.5 cube's family, so a placeholder frames like a real model.
+    float mn[3] = {-0.5f, -0.5f, -0.5f}, mx[3] = {0.5f, 0.5f, 0.5f};
+    if (model) {
+        for (int i = 0; i < 3; ++i) mn[i] = model->mn[i], mx[i] = model->mx[i];
+    } else if (anim) {
+        for (int i = 0; i < 3; ++i)
+            mn[i] = baked->min[i], mx[i] = baked->max[i];
+    }
+    const float localR =
+        0.5f * std::sqrt((mx[0] - mn[0]) * (mx[0] - mn[0]) +
+                         (mx[1] - mn[1]) * (mx[1] - mn[1]) +
+                         (mx[2] - mn[2]) * (mx[2] - mn[2]));
+    const float maxScale =
+        std::max(std::fabs(d.scale[0]),
+                 std::max(std::fabs(d.scale[1]), std::fabs(d.scale[2])));
+    float radius = localR * (maxScale > 0.0001f ? maxScale : 1.0f);
+    if (radius < 0.02f) radius = 0.02f;
+    // The pivot: the model's own centre, carried through the pose.
+    const float lc[4] = {(mn[0] + mx[0]) * 0.5f, (mn[1] + mx[1]) * 0.5f,
+                         (mn[2] + mx[2]) * 0.5f, 1.0f};
+    const Vec3 center{
+        modelM.m[0] * lc[0] + modelM.m[4] * lc[1] + modelM.m[8] * lc[2] + modelM.m[12],
+        modelM.m[1] * lc[0] + modelM.m[5] * lc[1] + modelM.m[9] * lc[2] + modelM.m[13],
+        modelM.m[2] * lc[0] + modelM.m[6] * lc[1] + modelM.m[10] * lc[2] + modelM.m[14]};
+
+    Mat4 view;
+    Mat4 proj;
+    if (d.eyeView) {
+        // Where the player's eye is. The near plane has to clear the weapon,
+        // which lives well under half a unit away, so it is far tighter than
+        // any scene camera's.
+        view = lookAt({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f});
+        proj = perspective(std::clamp(d.fovDeg, 20.0f, 110.0f) * d2r,
+                           (float)width / (float)height, 0.005f, 200.0f);
+    } else {
+        const float zoom = std::clamp(d.zoom, 0.05f, 16.0f);
+        const float dist = radius * 2.6f / zoom;
+        const float p = std::clamp(d.pitchDeg, -85.0f, 85.0f) * d2r;
+        const float a = d.angleDeg * d2r;
+        const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
+                       center.y + dist * std::sin(p),
+                       center.z + dist * std::cos(p) * std::sin(a)};
+        view = lookAt(eye, center, {0, 1, 0});
+        proj = perspective(45.0f * d2r, (float)width / (float)height,
+                           std::max(0.002f, dist * 0.01f),
+                           dist + radius * 4.0f + 50.0f);
+    }
+    const Mat4 viewProj = mul(proj, view);
+
+    // A floor only in the turntable view: at the eye there is no ground to
+    // stand the weapon on, and a checker plane through the player's waist
+    // would read as geometry the game does not have.
+    if (!d.eyeView)
+        draw(prevFloor_, mul(viewProj, mul(translation(center.x, center.y - radius,
+                                                       center.z),
+                                           scaleM(radius, 1.0f, radius))),
+             id, 1.0f, 1.0f, 1.0f, 0, false);
+
+    const Mat4 mvp = mul(viewProj, modelM);
+    if (d.wireframe) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(1.0f, 1.0f);
+    }
+    if (model)
+        for (const ModelPart& part : model->parts)
+            draw(part.mesh, mvp, modelM, 1.0f, 1.0f, 1.0f, part.tex, part.alpha);
+    else if (anim)
+        for (const AnimModelDraw::Part& part : anim->parts)
+            draw(part.mesh, mvp, modelM, 1.0f, 1.0f, 1.0f, part.tex, false);
+    else
+        draw(litShape(d.shape, PreviewLight{}), mvp, modelM, d.tint[0], d.tint[1],
+             d.tint[2], 0, false);
+    if (d.wireframe) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        if (model)
+            for (const ModelPart& part : model->parts)
+                draw(part.mesh, mvp, modelM, 0.05f, 0.05f, 0.06f, 0, false);
+        else if (anim)
+            for (const AnimModelDraw::Part& part : anim->parts)
+                draw(part.mesh, mvp, modelM, 0.05f, 0.05f, 0.06f, 0, false);
+        else
+            draw(litShape(d.shape, PreviewLight{}), mvp, modelM, 0.05f, 0.05f,
+                 0.06f, 0, false);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
+
+    // The muzzle marker. Depth test off so it is visible when it sits inside
+    // the barrel - which is exactly where a correct one usually is.
+    if (d.showMuzzle) {
+        const float s = std::max(0.006f, radius * 0.05f);
+        const Mat4 m = mul(translation(d.muzzle[0], d.muzzle[1], d.muzzle[2]),
+                           scaleM(s, s, s));
+        glDisable(GL_DEPTH_TEST);
+        draw(sphere_, mul(viewProj, m), m, 1.0f, 0.45f, 0.15f, 0, false);
+        glEnable(GL_DEPTH_TEST);
+    }
+
+    glUniform1i(uAlpha_, 0);
+    glBindVertexArray(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return wpnTex_;
 }
 
 void Viewport::ensureThumbFramebuffer() {

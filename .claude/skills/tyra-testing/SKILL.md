@@ -700,7 +700,14 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **A TAB inside a tab bar has the same gap** (`TabItemEx`
+  does not call the hook), so `dump` lists a row of unlabelled rects where the
+  tabs are and `click "Window/Viewmodel"` fails - reaching a tab that is not the
+  front one needs `wayland-control.py click --at X,Y` (Linux) / a synthetic
+  click (Windows) at the rect `dump` reported, offset by the window's position
+  on screen. That is what a Weapon Editor tab cost; both gaps are one
+  `IMGUI_TEST_ENGINE_ITEM_INFO` call in the vendored ImGui away, so fix them
+  there if this bites again.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per

@@ -394,6 +394,48 @@ public:
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
 
+    // Weapon Editor viewmodel preview (docs/weapons.md, Tools > Weapon Editor
+    // > Viewmodel). The one preview in the editor whose default camera is not
+    // a turntable: a viewmodel is authored FROM THE EYE, so the numbers on
+    // that tab (Offset, Rotation, Scale, Muzzle) only mean anything against
+    // the player's own view - eye at the origin, looking down +Z, at the
+    // engine's vertical fov. The pose arrives already resolved: the panel owns
+    // the twin of the generated `wpnPinViewModels`, so this renders a
+    // transform and knows nothing about weapons.
+    struct WeaponPreviewDesc {
+        // What to draw. A viewmodel is normally a Model object; a placeholder
+        // primitive is drawn as its unit shape so the offsets can still be
+        // dialled in before the real asset exists.
+        std::string modelRel;     // .obj/.glb/.fbx ("" = draw `shape`)
+        std::string materialRel;  // .mtl override ("" = the model's own)
+        int shape = 0;            // 0 box, 1 sphere, 2 cylinder, 3 cone
+        float tint[3] = {1.0f, 1.0f, 1.0f};  // primitive color
+        float yawOffset = 0.0f;   // the object's modelYawOffset (animated)
+
+        // Pose in EYE space (X right, Y up, Z forward), euler X-then-Y-then-Z
+        // like every other object - the panel has already folded the weapon's
+        // view transform and its procedural animation into these.
+        float position[3] = {0.0f, 0.0f, 0.0f};
+        float rotation[3] = {0.0f, 0.0f, 0.0f};
+        float scale[3] = {1.0f, 1.0f, 1.0f};
+
+        // Animated viewmodel playback (clip mode). Source seconds, same trim
+        // handling as the Animation Editor preview.
+        std::string clip;
+        float time = 0.0f;
+        float trimStart = 0.0f, trimEnd = 0.0f;
+
+        float muzzle[3] = {0.0f, 0.0f, 0.0f};  // eye space
+        bool showMuzzle = true;   // a small marker where the shot leaves
+
+        bool eyeView = true;      // false = turntable around the weapon
+        float fovDeg = 60.0f;     // vertical, the engine's own
+        float angleDeg = 40.0f, pitchDeg = 12.0f, zoom = 1.0f;  // turntable
+        bool wireframe = false;
+    };
+    uint32_t renderWeaponPreview(int width, int height,
+                                 const WeaponPreviewDesc& d);
+
     // Asset Browser thumbnails (docs/asset-browser.md): one square preview of
     // an asset file, rendered ONCE into a dedicated framebuffer and copied into
     // its own small GL texture - a grid of hundreds then costs nothing to draw.
@@ -918,6 +960,12 @@ private:
     void ensureTreeFramebuffer(int width, int height);
     uint32_t treeFbo_ = 0, treeTex_ = 0, treeDepth_ = 0;
     int treeFbW_ = 0, treeFbH_ = 0;
+
+    // Weapon Editor viewmodel preview target - its own, for the same reason
+    // every other tool preview has one (see renderWeaponPreview).
+    void ensureWeaponFramebuffer(int width, int height);
+    uint32_t wpnFbo_ = 0, wpnTex_ = 0, wpnDepth_ = 0;
+    int wpnFbW_ = 0, wpnFbH_ = 0;
 
     // Asset Browser thumbnail target (see assetThumb). Its own framebuffer for
     // the same reason the tree preview has one - the browser bakes thumbnails

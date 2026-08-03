@@ -74,6 +74,10 @@ settle slowly, the SMG chatters with a tiny kick, the launcher heaves, and the
 axe barely kicks but swings wide. All of them also sway in the hands and bob
 with your actual walking speed — stand still and the bob stops.
 
+You can watch any of it without booting the game: the *Viewmodel* tab previews
+the weapon from the player's own eye, and its **Fire** / **Reload** / **Walk**
+controls run the same springs and curves the console does.
+
 These models are static `.obj`, so procedural motion is the only animation they
 *can* have. Point a weapon's viewmodel at an animated `.glb`/`.fbx` instead and
 switch *Mode* to **Clips** to play your own idle / fire / reload / equip
