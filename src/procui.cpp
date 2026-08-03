@@ -1191,6 +1191,43 @@ void App::drawProceduralWindow() {
                     }
                     break;
                 }
+                case ProcParamKind::TerrainLayer: {
+                    // Painted terrain materials, picked by name (-1 = the base
+                    // material under everything). Entries carry an explicit
+                    // ##id: two layers may share a name and a Selectable's
+                    // label is its ImGui id.
+                    const std::vector<TerrainLayer>& layers =
+                        project_.active().terrainLayers;
+                    // NOT clamped for display: a stored index past the end
+                    // evaluates as zero coverage, so showing it as the last
+                    // layer would be a lie about what the graph does.
+                    const int v = procgraph::inum(n, p.key);
+                    auto nameOf = [&](int i) {
+                        if (i < 0) return std::string("Base material");
+                        if (i >= (int)layers.size())
+                            return "Layer " + std::to_string(i) + " (missing)";
+                        return layers[(size_t)i].name;
+                    };
+                    if (ImGui::BeginCombo(p.label, nameOf(v).c_str())) {
+                        if (ImGui::Selectable("Base material##pl-1", v < 0) && v != -1) {
+                            n.nums[p.key] = -1.0f;
+                            changed = true;
+                        }
+                        for (int i = 0; i < (int)layers.size(); ++i) {
+                            const std::string id =
+                                layers[(size_t)i].name + "##pl" + std::to_string(i);
+                            if (ImGui::Selectable(id.c_str(), i == v) && i != v) {
+                                n.nums[p.key] = (float)i;
+                                changed = true;
+                            }
+                        }
+                        if (layers.empty())
+                            ImGui::TextDisabled(
+                                "no painted layers - add them in Terrain");
+                        ImGui::EndCombo();
+                    }
+                    break;
+                }
                 case ProcParamKind::Text: {
                     char buf[96] = {};
                     std::snprintf(buf, sizeof(buf), "%s",

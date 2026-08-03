@@ -124,6 +124,16 @@ viewport - same brush raycast and ring as sculpting:
 The viewport draws the **same two passes the PS2 does** - what you see while
 painting is what ships. Each finished stroke is one undo step.
 
+## What else reads the painting
+
+The layers are not only a look: a **procedural scatter volume** can read one as
+a mask, which is how "trees only on the grass, never on the rock painted over
+it" is authored — *Terrain Mask* with *Source* = **Terrain material**, see
+[procedural generation](procedural-generation.md#scattering-on-one-terrain-material).
+It reads a material's **visible** coverage (a layer painted on top hides the one
+below), and it is build-time only: the splat map never ships, so a runtime
+volume cannot use it.
+
 ## Blend resolution
 
 The painted weights live **on the terrain vertices** (the same grid as the
