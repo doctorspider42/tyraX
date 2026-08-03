@@ -63,6 +63,12 @@ class Vu {
    public:
     explicit Vu(vuir::Program& program);
 
+    /** A number unique to THIS builder, for as long as the process runs.
+     * Successive build() calls put their Vu at the same stack address, so a
+     * pointer cannot tell "the same program" from "the next one" - and a
+     * vu::Vec kept in a member across programs needs exactly that answer. */
+    int id() const { return id_; }
+
     // --- registers -------------------------------------------------------
     Val named(const std::string& name);   // a stable, readable name
     IVal inamed(const std::string& name);
@@ -241,6 +247,7 @@ class Vu {
 
    private:
     vuir::Program* p_;
+    int id_ = 0;
     int tmpSeq_ = 0;
     std::vector<int> labelIndex_;                    // label id -> code index
     std::vector<std::string> labelNames_;            // label id -> emitted name

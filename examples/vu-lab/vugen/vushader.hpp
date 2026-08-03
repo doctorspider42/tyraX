@@ -62,7 +62,8 @@ using Slot = vugen::Slot;
 class Vec {
    public:
     Vec() = default;
-    Vec(vugen::Vu* b, vugen::Val v) : b_(b), v_(v) {}
+    Vec(vugen::Vu* b, vugen::Val v)
+        : b_(b), v_(v), bid_(b ? b->id() : 0) {}
 
     vugen::Val val() const { return v_; }
     vugen::Vu* builder() const { return b_; }
@@ -94,9 +95,20 @@ class Vec {
      * colour register, and the emitter keeps using it after the script. */
     Vec& operator=(const Vec& o) {
         if (this == &o) return *this;
-        if (!b_) {  // plain binding, e.g. `Vec n = c.normal;`
+        // REBIND, don't write, when this value came from a different program.
+        //
+        // One vu::Program instance builds every microprogram the project needs
+        // - one per class, twice over for the pair - so a Vec kept in a member
+        // outlives the program it was minted in. Writing through it then emits
+        // a store to a register the CURRENT program never named, and vcl says
+        // so in the least helpful way available: "can't use '?' in the name of
+        // a register: 'vf??'". Comparing the builder's ID is what tells the two
+        // cases apart - and it has to be the id, not the pointer: successive
+        // build() calls put their Vu at the same stack address.
+        if (!b_ || bid_ != o.bid_) {  // fresh binding, or another program's
             b_ = o.b_;
             v_ = o.v_;
+            bid_ = o.bid_;
             return *this;
         }
         // Copy = add zero. One instruction, exact, and it writes the register
@@ -109,6 +121,7 @@ class Vec {
     vugen::Vu* b_ = nullptr;
     vugen::Val v_{};
     uint8_t writeMask_ = vuir::MALL;
+    int bid_ = 0;  // which builder minted it - see Vu::id
 };
 
 class Ctx;  // defined below - the constant helpers take one

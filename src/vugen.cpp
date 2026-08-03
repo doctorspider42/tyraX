@@ -59,7 +59,12 @@ constexpr int kCustomTimeAddr = 16;    // (time, sin time, cos time, 1.0)
 // Vu - the builder
 // ---------------------------------------------------------------------------
 
-Vu::Vu(Program& program) : p_(&program) {}
+Vu::Vu(Program& program) : p_(&program) {
+    // See Vu::id - successive build() calls reuse the same stack address, so a
+    // pointer cannot answer "is this still the same program".
+    static int counter = 0;
+    id_ = ++counter;
+}
 
 void Vu::emit(Instr in) { p_->code.push_back(in); }
 

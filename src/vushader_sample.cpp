@@ -26,7 +26,21 @@ struct CellShading : vu::Program {
     // four per-mesh numbers are what collides with the light colours, not the
     // program (docs/vu-authoring.md, "Which classes a look can claim").
     unsigned classes() const override {
-        return vu::kColour | vu::kLit | vu::kTextured | vu::kMatcap;
+        // NOT every class, and the reason is build time rather than taste.
+        //
+        // A script is emitted per class AND per half of its pair, so claiming
+        // four classes is eight microprograms through vcl. The lit and matcap
+        // programs are the two that already keep ~30 of VCL's 31 registers
+        // live, and adding a luminance, a divide and three scratch registers
+        // to those two is what makes vcl give up: `time out.. failed to normal
+        // via processing`. It still emits code - it just stops OPTIMISING, and
+        // each timeout is another 45 seconds. Measured on this file: four
+        // classes, 5 timeouts and just over two minutes; these two, none.
+        //
+        // These two cover the terrain, every box and the untextured props -
+        // the bulk of any scene. Claim more when you have measured that the
+        // programs you are replacing have the room.
+        return vu::kColour | vu::kTextured;
     }
 
     // After lighting and texturing, before the colour is clamped: the last
