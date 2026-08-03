@@ -8737,8 +8737,19 @@ void TerrainGame::buildStarField() {
     sb.info = std::make_unique<StaPipInfoBag>();
     sb.info->model = &starMat;  // re-centred on the camera every frame
     sb.info->shadingType = TyraShadingGouraud;
-    sb.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    sb.info->fullClipChecks = true;
+    // NOT the dome's precise/full-clip settings, and this is a measured
+    // decision: the dome is ~500 vertices of huge triangles that genuinely
+    // cross the screen edge, while the field is ~3000 vertices of tiny quads
+    // scattered all over it. Precise per-package classification plus the EE
+    // clipper on that many crossing packages cost ~6 FPS of a 32 FPS sky view
+    // in PCSX2 (26 -> 32 with the field off). A star is a few pixels: dropping
+    // one whose package straddles the border is invisible, and clipping it is
+    // not worth a millisecond.
+    // _None, not the dome's _Precise: the field is CENTRED ON THE CAMERA, so
+    // it surrounds the view by construction and per-package classification can
+    // only ever answer "keep" while costing a bbox test per package.
+    sb.info->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
     sb.info->additiveBlendFix = 128;

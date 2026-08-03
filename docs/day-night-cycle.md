@@ -199,6 +199,27 @@ scene load the way `buildSkyDome` does. Both sides call the same
 `starfield::kMaxStars` (800) is the cap, so a slider cannot cost the EE its
 frame.
 
+### Two things PCSX2 taught this feature
+
+**The field must NOT use the sky dome's clipping settings.** The dome is ~500
+vertices of huge triangles that genuinely cross the screen edge, so it wants
+`PipelineInfoBagFrustumCulling_Precise` + `fullClipChecks`. The field is ~3000
+vertices of tiny quads scattered over the whole sky, and those settings put the
+EE clipper on nearly every package: **a sky view measured 26 FPS with the field
+on against 50 with it off.** With `_None` (the field is centred on the camera,
+so per-package classification can only ever answer "keep") and no full clip
+checks, the same view holds **50 FPS with the field on**. A star is a few
+pixels - dropping one whose package straddles the border is invisible, and
+clipping it is not worth a millisecond.
+
+**Size the stars in pixels, not in taste.** The frame is 512x448 at a ~90-degree
+horizontal FOV, so one degree is about six pixels, and the corona sprite's
+bright core is only about a third of its quad. The first pass gave bright stars
+a 3-pixel core: present on screen, but reading as dirt rather than as a star.
+The generator now puts a bright one at ~3 degrees, i.e. a ~6-pixel core with a
+halo around it. Turn the **bloom** post-effect on and those cores flare, which
+is the look this is aiming at.
+
 ## What a moving cycle would cost
 
 Asked and answered rather than built, because the answer decides the shape of

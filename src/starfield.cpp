@@ -129,7 +129,13 @@ std::vector<Star> generate(const Params& p) {
         // Angular size follows brightness, not the other way round: a bright
         // star reads as bigger on a 512x448 frame because it saturates more
         // pixels, and one texel is all a faint one deserves.
-        const float sizeDeg = (0.22f + 1.05f * bright * bright) * p.sizeScale;
+        // Sized in DEGREES against a 512x448 frame, which is what makes these
+        // numbers what they are: the game's horizontal FOV is ~90 deg, so one
+        // degree is ~6 px, and the corona sprite's bright core is only about a
+        // third of its quad. Measured in PCSX2, the first pass (0.22 + 1.05)
+        // gave bright stars a 3-pixel core - present, but too subtle to read as
+        // a star. These put a bright one at ~3 deg, i.e. a ~6 px core.
+        const float sizeDeg = (0.40f + 2.10f * bright * bright) * p.sizeScale;
         s.size = std::tan(sizeDeg * 0.5f * kPi / 180.0f);
 
         float cr, cg, cb;
