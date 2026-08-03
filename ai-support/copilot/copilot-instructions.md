@@ -77,7 +77,11 @@ The editor executable on this machine: `{TYRAX_EXE}`
   `stick l|r <x> <y>` (-127..127), `wait <s>`, `neutral`, `pad 1|2`, separated
   by `;`. Debug builds with the *Remote Pad* preference on (default). The
   walkers read the analog sticks, not the D-pad, and a `hold` needs a `wait`
-  after it (the driver releases the pad when it exits).
+  after it (the driver releases the pad when it exits). On Windows read its
+  stderr and exit code before blaming the game: `Start-Process -ArgumentList`
+  does not quote the script (pass it from a `.ps1` as a literal), and a refresh
+  write can lose a race against the game reading the file, which the driver now
+  reports as a warning instead of stopping.
 
 ## Building and debugging
 

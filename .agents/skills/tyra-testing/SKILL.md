@@ -377,17 +377,22 @@ Notes:
     that (a `param()` does not help: the mangling happens at the outer boundary
     too), or add the quotes to the array elements yourself. Same trap for any
     `;`-separated script argument, `--ui-script` included.
-  - **The atomic replace of `livepad.bin` loses a race against the reader.**
-    `livepad::write` renames a `.tmp` over the target (then remove + rename), and
-    the running game reads that same file ~50x/s through PCSX2's HostFs; Windows
-    denies a replace while the reader has it open. Measured at the driver's own
-    40 ms refresh: **1 denial in 200 writes** (`Access is denied`), and the
-    driver **aborts on the first failed write** (`error: cannot replace
-    ...livepad.bin: Permission denied`, exit 1). So a 1.5 s hold survives ~83% of
-    the time, a 6 s script about half, a 10 s one rarely — which is why short
-    scripts always seemed fine and long ones "did nothing". Until it is fixed:
-    keep Windows holds SHORT, check the exit code, and READ the stderr. Linux
-    cannot hit this at all — renaming over an open file is legal there.
+  - **The atomic replace of `livepad.bin` races the reader** (fixed since; the
+    symptom is worth recognising because a stale editor binary still has it).
+    `livepad::write` renames a `.tmp` over the target, and the running game
+    re-opens that same file about every frame through PCSX2's HostFs — Windows
+    refuses to rename over or delete a file another process has open, so a
+    replace comes back `Access is denied` roughly **once per 200 writes** at the
+    driver's 40 Hz refresh (zero denials with the emulator stopped; Linux is
+    immune, `rename(2)` over an open file is legal there). The driver used to
+    abort on the FIRST failed write, so a long hold died with nothing but
+    `error: cannot replace ...livepad.bin: Permission denied` and exit 1 — one 9 s
+    script in five, measured, and every single one when the file was contended
+    harder. `write` now retries (5 tries, 4 ms apart — absorbs a 60 ms exclusive
+    hold) and only a **step** write is fatal: a lost *refresh* is a warning, and
+    the run says so in its summary (`pad released (27 refresh write(s) lost to
+    the reader)`). So on Windows: **read the driver's stderr and its exit code**,
+    and treat "no motion, exit 1" as this rather than as a dead channel.
 - **Synthetic input into PCSX2** (the older, focus-dependent path - still the
   only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
@@ -502,7 +507,7 @@ Notes:
     `--pad` is the usual partner — one `-Watch` over a 1.5 s right-stick hold
     read **17.6 / 27.7 / 21.5%** during the turn and **0.000%** after the
     release — but mind the two Windows traps in the `--pad` bullet above (the
-    unquoted `Start-Process` script and the replace race that aborts long
+    unquoted `Start-Process` script, and the replace race that used to abort long
     holds); both make a working channel look dead. PCSX2's own held keys are the
     fallback, and this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
     the section above quotes. Held keys need the window in front, which `-Watch`
