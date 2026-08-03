@@ -252,6 +252,99 @@ static std::string resolveEmulator(const Project& p) {
     return findPCSX2();
 }
 
+// An environment prefix for the PCSX2 command line, or "" for none.
+//
+// PCSX2's relative-mouse mode - what the emulated USB mouse runs on, so what
+// mouse look in a generated game runs on (docs/keyboard-mouse.md) - works by
+// warping the host cursor back to the window centre after every motion event
+// and reporting the offset it had travelled from there. Wayland does not let a
+// client move the pointer, so on a native Wayland surface that warp is a
+// SILENT no-op: the cursor stays where the hand put it and every later event
+// reports the whole distance from the centre instead of the movement, again
+// and again. The camera slams into the pitch limit and spins - it reads as a
+// broken game rather than as a windowing-system mismatch. Measured on
+// GNOME/Wayland with five identical 10-count nudges: the horizon moved
+// 17/16/15/17/16 px per nudge through XWayland and 171 px then straight off
+// the screen natively. XWayland warps the cursor for real, so launching PCSX2
+// there is the whole fix.
+//
+// Only worth doing for a project that actually binds the mouse (a pad game
+// never reads it, and XWayland costs it fractional-scaling crispness for
+// nothing), only where XWayland is actually up, and never over a platform the
+// user picked themselves - exporting QT_QPA_PLATFORM is the opt-out.
+static std::string emulatorEnvPrefix(const Project& p) {
+#ifdef _WIN32
+    // No Wayland to work around: the Win32 cursor warp does what it says.
+    (void)p;
+    return "";
+#else
+    if (!p.settings.keyboardMouse) return "";
+    const char* wayland = std::getenv("WAYLAND_DISPLAY");
+    const char* x11 = std::getenv("DISPLAY");
+    const char* chosen = std::getenv("QT_QPA_PLATFORM");
+    if (!wayland || !*wayland) return "";  // not a Wayland session
+    if (!x11 || !*x11) return "";          // no XWayland to fall back to
+    if (chosen && *chosen) return "";      // the user picked one; leave it
+    return platform::envPrefix("QT_QPA_PLATFORM", "xcb");
+#endif
+}
+
+// The name of an ABSOLUTE virtual-machine pointer that is present on this box,
+// or "" when there is none.
+//
+// Same root cause as the Wayland trap above, from the other side. PCSX2 aims
+// the mouse by warping the cursor to the window centre and recognises its OWN
+// warp by the event arriving *from* the centre. A VM's guest-integration
+// pointer (VMware VMMouse, VirtualBox mouse integration, a QEMU/SPICE tablet)
+// is ABSOLUTE - it re-asserts the physical position immediately - so the echo
+// does not arrive from the centre, PCSX2 reads its own warp as movement and
+// warps again. That feedback loop saturates the emulated USB mouse: measured
+// on a VMware guest, 42% of the packets the game received carried an exact
+// multiple of 127 (the HID boot protocol's int8 limit), 46% carried 254+ counts
+// in a single frame, the worst frame carried 762, and consecutive deltas
+// alternated -381/+381, -254/+254. The camera spins absurdly fast, the event
+// storm eats the emulator's main thread so the emulation speed drops, and
+// clicking to capture wedges it within about half a second. None of it is
+// fixable from here - the cure is to take the absolute pointer away from the
+// guest (docs/keyboard-mouse.md) - but an unexplained symptom this baroque
+// deserves to be NAMED rather than discovered.
+static std::string absoluteVmPointer() {
+#ifdef _WIN32
+    return "";
+#else
+    std::ifstream in("/proc/bus/input/devices");
+    if (!in) return "";
+    // Blocks are blank-line separated; "N: Name=..." names the device and the
+    // "B: ABS="/"B: REL=" bitmaps say which axes it reports.
+    std::string line, name;
+    bool abs = false, rel = false;
+    auto verdict = [&]() -> std::string {
+        if (name.empty() || !abs || rel) return "";
+        for (const char* needle :
+             {"VMMouse", "VirtualBox mouse integration", "Tablet", "vdagent"})
+            if (name.find(needle) != std::string::npos) return name;
+        return "";
+    };
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) {
+            if (std::string hit = verdict(); !hit.empty()) return hit;
+            name.clear(), abs = false, rel = false;
+            continue;
+        }
+        if (line.rfind("N: Name=\"", 0) == 0) {
+            name = line.substr(9);
+            if (!name.empty() && name.back() == '"') name.pop_back();
+        } else if (line.rfind("B: ABS=", 0) == 0) {
+            abs = true;
+        } else if (line.rfind("B: REL=", 0) == 0) {
+            rel = true;
+        }
+    }
+    return verdict();
+#endif
+}
+
 std::string Runner::emulatorLogPath(const Project& p) const {
     const std::string exe = resolveEmulator(p);
     if (exe.empty()) return "";
@@ -368,11 +461,29 @@ bool Runner::launchPCSX2(const Project& p) {
         }
     }
 
+    const std::string envPrefix = emulatorEnvPrefix(p);
+    if (!envPrefix.empty())
+        appendLine(
+            "[editor] Wayland session: launching PCSX2 through XWayland so mouse "
+            "look works (export QT_QPA_PLATFORM to override - see "
+            "docs/keyboard-mouse.md).");
+    if (p.settings.keyboardMouse) {
+        if (const std::string vmPointer = absoluteVmPointer(); !vmPointer.empty())
+            appendLine(
+                "[editor] Warning: \"" + vmPointer +
+                "\" is an ABSOLUTE pointer, and PCSX2 aims the mouse by warping "
+                "the cursor - the two fight, so mouse look spins and the "
+                "emulation speed drops. Turn the VM's mouse integration off "
+                "(VMware: vmmouse.present = \"FALSE\") - docs/keyboard-mouse.md. "
+                "The pad and the keyboard are unaffected.");
+    }
+
     appendLine("[editor] Launching PCSX2: " + exe);
     // (The ELF path is native-separator already: Project::filePath() applies
     // make_preferred, which is what PCSX2 needs - it refuses a boot ELF whose
     // path mixes separators.)
-    if (!platform::Process::startDetached(platform::shellArg(exe) + " -elf " +
+    if (!platform::Process::startDetached(envPrefix + platform::shellArg(exe) +
+                                          " -elf " +
                                           platform::shellArg(p.elfPath()))) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;

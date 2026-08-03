@@ -211,8 +211,16 @@ over guessing from this file.
   guarded automatically.
 - Names in `str` must match the project exactly - get them from
   `"{TYRAX_EXE}" --dump <projectDir>` (objects, scenes, layers, music, sounds,
-  save values/texts, menus, texts, gradings, ambiences, sequences, input
-  actions/presets).
+  save values/texts, menus, texts, gradings, ambiences, sequences, weapons,
+  input actions/presets).
+- The **Combat** nodes follow the Animation node's split, not the object
+  actions': `str` names the **WEAPON** and the target object comes from an
+  object link or self. So arming the player means putting a Give Weapon node
+  on the scene's **Player object** (or wiring that object in) - a weapon is
+  carried by an object, there is no separate player inventory. The three
+  Combat triggers (On Damaged / On Killed / On Weapon Fired) fire the frame
+  AFTER the event and are one-shot per event, so they can safely drive
+  counters.
 - **Buttons: prefer On Action over On Button.** `On Action` names an *input
   action* from the project's Input Map ("jump", "sprint", ...) and follows
   whatever that action is bound to, including a binding preset switch and a

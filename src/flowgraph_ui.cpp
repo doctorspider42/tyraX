@@ -863,6 +863,33 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add texts in\nTools > UI Editor (Texts).");
                 endCombo();
             }
+        } else if (t->strKind == FlowParamKind::WeaponName) {
+            // Empty is a real value on most Combat nodes ("the equipped
+            // weapon" / "any weapon"), so the picker always offers it - except
+            // on Give Weapon, where there is nothing to give without a name.
+            // Drawn inline rather than through App::weaponCombo so the popup
+            // goes through beginCombo/endCombo: the list is a window outside
+            // the canvas and must keep the UI font, not the node zoom.
+            const bool needName = n.type == "GiveWeapon";
+            const char* preview =
+                !n.str.empty() ? n.str.c_str()
+                               : (needName ? "<pick a weapon>" : "<equipped / any>");
+            if (beginCombo("Weapon", preview)) {
+                if (!needName && ImGui::Selectable("<equipped / any>", n.str.empty())) {
+                    n.str.clear();
+                    changed = true;
+                }
+                for (const WeaponDef& w : project_.weapons)
+                    if (ImGui::Selectable(w.name.c_str(), w.name == n.str)) {
+                        n.str = w.name;
+                        changed = true;
+                    }
+                if (project_.weapons.empty())
+                    ImGui::TextDisabled("Define weapons in\nTools > Weapon Editor.");
+                ImGui::Separator();
+                if (ImGui::Selectable("Manage weapons...")) showWeaponEditor_ = true;
+                endCombo();
+            }
         } else if (t->strKind == FlowParamKind::FontName) {
             // Empty = the project's first font (project::defaultFontName), so a
             // fresh Display Text node draws without picking anything.

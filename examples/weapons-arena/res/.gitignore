@@ -1,0 +1,14 @@
+# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+
+# Baked model output - the .glb/.obj next to it is the source, these are
+# regenerated on every build (docs/model-pipeline.md).
+/models/*.tskl
+/models/*.tanm
+/models/*.tmdl
+
+# Baked credits page strips - regenerated on every build (docs/credits.md).
+# The images an Image block points at live in res/credits/ and stay checked in.
+/credits/pages/

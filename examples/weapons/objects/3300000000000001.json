@@ -1,0 +1,1 @@
+{ "id": "3300000000000001", "name": "turret-2", "type": "cylinder", "position": [11, 1.3, 20], "rotation": [0, 180, 0], "scale": [1.6, 2.6, 1.6], "color": [0.28, 0.32, 0.42], "physics": false, "combat": { "health": 120, "death": 0, "hitFx": 1 }, "weapons": ["Pistol"], "autoFire": [28, 75] }

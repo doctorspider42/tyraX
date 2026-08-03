@@ -1,0 +1,1 @@
+{ "id": "a000000000000001", "name": "pickup-pistol", "type": "box", "position": [-10, 0.6, -20], "rotation": [0, 0, 0], "scale": [1, 1.2, 1], "color": [0.55, 0.58, 0.62], "physics": false, "usable": true }

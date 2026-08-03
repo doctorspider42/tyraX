@@ -264,6 +264,9 @@ void App::drawPropertiesWindow() {
                     for (std::string& t : m.portalObjects)
                         if (t == from) t = o.name;
                 }
+            // A weapon's viewmodel is a scene object by name (docs/weapons.md).
+            for (WeaponDef& w : project_.weapons)
+                if (w.viewModel == from) w.viewModel = o.name;
             // Area references (docs/areas.md): catch areas, streaming-layer
             // zones and In Area nodes all point at an area by name.
             if (o.type == PrimitiveType::Area) {
@@ -691,6 +694,109 @@ void App::drawPropertiesWindow() {
         if (ImGui::Checkbox("Save state (position/color/visibility in saves)",
                             &o.saveState))
             committed = true;
+    }
+
+    // --- Combat (docs/weapons.md) ----------------------------------------
+    // Two independent halves: what the object can TAKE (Damageable + health +
+    // what happens when it dies) and what it CARRIES (the loadout, plus the
+    // auto-fire behaviour that makes an armed NPC shoot back). Offered on
+    // anything solid plus Empty and Player - the last two because a Player IS
+    // an Empty-like marker and both are how you place an armed actor.
+    if (isSolid || isEmpty || o.type == PrimitiveType::Player) {
+        if (ImGui::CollapsingHeader("Combat")) {
+            if (ImGui::Checkbox("Damageable (takes weapon damage)", &o.damageable))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Off = scenery: a shot leaves an impact effect and\n"
+                    "nothing else. On = the object has health, fires the\n"
+                    "On Damaged / On Killed triggers and can die.");
+            if (o.damageable) {
+                ImGui::SetNextItemWidth(scaled(140.0f));
+                if (ImGui::DragFloat("Health", &o.health, 1.0f, 1.0f, 100000.0f))
+                    committed = true;
+                const char* deaths[] = {"Hide", "Despawn", "Stay (script it)",
+                                        "Knock over (physics)"};
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                if (ImGui::Combo("On death", &o.deathAction, deaths, 4))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "What happens the moment health reaches zero. On a\n"
+                        "Player object this is ignored - the player's death is\n"
+                        "yours to script from the On Killed trigger.");
+                const char* hits[] = {"Weapon default", "Sparks", "Blood", "Dust",
+                                      "None"};
+                ImGui::SetNextItemWidth(scaled(180.0f));
+                if (ImGui::Combo("Hit effect", &o.hitFx, hits, 5)) committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Which burst a hit on THIS object throws, overriding\n"
+                        "the weapon. 'Weapon default' means a damageable\n"
+                        "object bleeds and everything else takes the weapon's\n"
+                        "impact effect.");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Weapons carried");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "On a Player object: the starting inventory - the first\n"
+                    "entry is equipped at spawn. On anything else: entry 0 is\n"
+                    "what Fire Weapon and auto-fire shoot with.");
+            int removeAt = -1;
+            for (size_t i = 0; i < o.weapons.size(); ++i) {
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("x")) removeAt = (int)i;
+                ImGui::SameLine();
+                if (project_.findWeapon(o.weapons[i]))
+                    ImGui::TextUnformatted(o.weapons[i].c_str());
+                else
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.4f, 1.0f),
+                                       "%s (missing)", o.weapons[i].c_str());
+                ImGui::PopID();
+            }
+            if (removeAt >= 0) {
+                o.weapons.erase(o.weapons.begin() + removeAt);
+                committed = true;
+            }
+            if (ImGui::BeginCombo("##addweapon", "+ Add weapon")) {
+                for (const WeaponDef& wd : project_.weapons) {
+                    bool have = false;
+                    for (const std::string& n : o.weapons) have |= (n == wd.name);
+                    if (have) continue;
+                    if (ImGui::Selectable(wd.name.c_str())) {
+                        o.weapons.push_back(wd.name);
+                        committed = true;
+                    }
+                }
+                if (project_.weapons.empty())
+                    ImGui::TextDisabled("Define weapons in\nTools > Weapon Editor.");
+                ImGui::EndCombo();
+            }
+
+            // Auto-fire is meaningless on the player (they pull their own
+            // trigger) and on an object carrying nothing.
+            if (!o.weapons.empty() && o.type != PrimitiveType::Player) {
+                ImGui::Spacing();
+                ImGui::SetNextItemWidth(scaled(140.0f));
+                if (ImGui::DragFloat("Auto-fire range", &o.autoFireRange, 0.5f,
+                                     0.0f, 500.0f))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "0 = never shoots on its own (only a Fire Weapon node\n"
+                        "makes it). Above 0: it fires at the player while they\n"
+                        "are this close, inside the cone below and in terrain\n"
+                        "line of sight.");
+                if (o.autoFireRange > 0.0f) {
+                    ImGui::SetNextItemWidth(scaled(140.0f));
+                    if (ImGui::DragFloat("Vision cone", &o.autoFireFov, 1.0f, 1.0f,
+                                         180.0f))
+                        committed = true;
+                }
+            }
+        }
     }
 
     // Player collision. Solid geometry only - markers/emitters never collide.

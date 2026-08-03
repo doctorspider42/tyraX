@@ -894,6 +894,13 @@ class TerrainGame : public Tyra::Game {
   void procGenerateVolume(int volume, int seed);
   void procClearVolume(int volume);
   void despawnObjectAt(int index);
+  // One-shot particle burst (ScriptContext::spawnFx) and a one-shot sound
+  // from the table loaded at boot (ScriptContext::playSound) - both reached
+  // from the free-function thunks in the game cpp, so both must be public.
+  void spawnFxBurst(int kind, const float* pos, const float* dir,
+                    const float* color, float size, int count, float life,
+                    float speed);
+  void playSoundIndex(int soundIndex, int volume, int channel);
 
  private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
@@ -1371,6 +1378,33 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // One-shot particle bursts (ScriptContext::spawnFx, docs/weapons.md). ONE
+  // pool for the whole game: a burst has no owner, it is fired at a world
+  // point and dies. Slots are handed out round-robin and a burst fired into a
+  // full pool steals the stalest ones - a muzzle flash that silently does not
+  // appear reads as a bug, so dropping is never the right answer. Shares the
+  // VU1 billboard path with the emitters above (one submit per frame).
+  static constexpr int FX_MAX = 128;
+  struct FxPool {
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;
+    // Authored per particle: (r, g, b, size) - the per-frame simulation
+    // derives the live color/alpha/size from these and the life fraction.
+    std::vector<Tyra::Vec4> base;
+    std::vector<unsigned char> kind;
+    unsigned int rng = 9781u;
+    int cursor = 0;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+  } fx;
+  void buildFxPool();
+  void updateFxBursts();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
@@ -1934,6 +1968,13 @@ class TerrainGame : public Tyra::Game {
   void procGenerateVolume(int volume, int seed);
   void procClearVolume(int volume);
   void despawnObjectAt(int index);
+  // One-shot particle burst (ScriptContext::spawnFx) and a one-shot sound
+  // from the table loaded at boot (ScriptContext::playSound) - both reached
+  // from the free-function thunks in the game cpp, so both must be public.
+  void spawnFxBurst(int kind, const float* pos, const float* dir,
+                    const float* color, float size, int count, float life,
+                    float speed);
+  void playSoundIndex(int soundIndex, int volume, int channel);
 
  private:
   // Primitive materials: .mtl assigned to a box/sphere/... - the file's
@@ -2411,6 +2452,33 @@ class TerrainGame : public Tyra::Game {
   std::vector<ParticleSystem> particles;
   void buildParticles();
   void updateParticles();
+
+  // One-shot particle bursts (ScriptContext::spawnFx, docs/weapons.md). ONE
+  // pool for the whole game: a burst has no owner, it is fired at a world
+  // point and dies. Slots are handed out round-robin and a burst fired into a
+  // full pool steals the stalest ones - a muzzle flash that silently does not
+  // appear reads as a bug, so dropping is never the right answer. Shares the
+  // VU1 billboard path with the emitters above (one submit per frame).
+  static constexpr int FX_MAX = 128;
+  struct FxPool {
+    std::vector<Tyra::Vec4> pos, vel;
+    std::vector<float> life, maxLife;
+    std::vector<Tyra::Vec4> params;  // per-particle (m00, m01, m10, m11)
+    std::vector<Tyra::Color> cols;
+    // Authored per particle: (r, g, b, size) - the per-frame simulation
+    // derives the live color/alpha/size from these and the life fraction.
+    std::vector<Tyra::Vec4> base;
+    std::vector<unsigned char> kind;
+    unsigned int rng = 9781u;
+    int cursor = 0;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+  } fx;
+  void buildFxPool();
+  void updateFxBursts();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
@@ -3503,6 +3571,20 @@ int spawnObjectThunk(int templateIndex, float x, float y, float z, float yaw) {
 }
 void despawnObjectThunk(int objectIndex) {
   if (g_animGame) g_animGame->despawnObjectAt(objectIndex);
+}
+// One-shot particle burst (ScriptContext::spawnFx) - see updateFxBursts.
+void spawnFxThunk(int kind, const float* pos, const float* dir,
+                  const float* color, float size, int count, float life,
+                  float speed) {
+  if (g_animGame)
+    g_animGame->spawnFxBurst(kind, pos, dir, color, size, count, life, speed);
+}
+// ScriptContext::playSound - the game's own sample table, so scripts share
+// the one copy the boot sequence already loaded into SPU RAM.
+int g_sfxRotateCh = 0;
+void playSoundThunk(int soundIndex, int volume, int channel) {
+  if (!g_animGame) return;
+  g_animGame->playSoundIndex(soundIndex, volume, channel);
 }
 // Prefabs and runtime procedural volumes reach the flow graphs the same way:
 // through ScriptContext function pointers, so a generated script never needs
@@ -4713,6 +4795,7 @@ void TerrainGame::loop() {
   // object to the arrival camera (see the FPP loop note).
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
+  updateFxBursts();
   updateSoundEmitters();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
@@ -4983,6 +5066,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.spawnFx = &spawnFxThunk;
+  scriptCtx.playSound = &playSoundThunk;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -7005,6 +7090,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 
   buildParticles();
+  buildFxPool();  // one-shot burst pool (weapons, scripts)
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently).
@@ -7369,6 +7455,213 @@ void TerrainGame::updateParticles() {
     ps.bag->count = (u32)n;
   }
 }
+
+// ScriptContext::playSound: a one-shot from the table the game loaded at
+// boot. Channel -1 rotates through the shared channels so rapid fire does
+// not cut its own previous shot off.
+void TerrainGame::playSoundIndex(int soundIndex, int volume, int channel) {
+  if (soundIndex < 0 || soundIndex >= (int)sndSamples.size()) return;
+  if (!sndSamples[soundIndex]) return;
+  if (volume < 0) volume = 0;
+  if (volume > 100) volume = 100;
+  s8 ch;
+  if (channel >= 0) {
+    ch = (s8)(channel > 23 ? 23 : channel);
+  } else {
+    ch = (s8)g_sfxRotateCh;
+    g_sfxRotateCh = (g_sfxRotateCh + 1) % 16;  // 16-23 belong to the emitters
+  }
+  engine->audio.adpcm.setVolume(volume * scriptCtx.sfxVolume / 100, ch);
+  engine->audio.adpcm.tryPlay(sndSamples[soundIndex], ch);
+}
+
+// --- One-shot particle bursts (ScriptContext::spawnFx) ------------------
+// The same VU1 billboard machinery as the emitters above, but the pool is
+// not owned by any object: a burst is fired at a world point, lives out its
+// seconds and frees its slots. See docs/weapons.md.
+void TerrainGame::buildFxPool() {
+  if (fx.bag) {
+    // Already built (a scene switch): just retire whatever was in the air.
+    for (int i = 0; i < FX_MAX; ++i) fx.life[i] = 0.0F;
+    fx.bag->count = 0;
+    return;
+  }
+  fx.pos.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+  fx.vel.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.life.assign(FX_MAX, 0.0F);
+  fx.maxLife.assign(FX_MAX, 1.0F);
+  fx.params.assign(FX_MAX, Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.cols.assign(FX_MAX, Color(0.0F, 0.0F, 0.0F, 0.0F));
+  fx.base.assign(FX_MAX, Vec4(1.0F, 1.0F, 1.0F, 0.1F));
+  fx.kind.assign(FX_MAX, 0);
+  fx.infoBag = std::make_unique<StaPipInfoBag>();
+  fx.infoBag->model = &model;
+  fx.infoBag->shadingType = TyraShadingGouraud;
+  fx.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
+  fx.infoBag->fullClipChecks = false;
+  fx.colorBag = std::make_unique<StaPipColorBag>();
+  fx.colorBag->many = fx.cols.data();
+  fx.billboardBag = std::make_unique<StaPipBillboardBag>();
+  fx.texBag = std::make_unique<StaPipTextureBag>();
+  fx.texBag->texture = nullptr;  // untextured: flat quads, tinted per particle
+  fx.texBag->coordinates = fx.params.data();
+  fx.bag = std::make_unique<StaPipBag>();
+  fx.bag->info = fx.infoBag.get();
+  fx.bag->color = fx.colorBag.get();
+  fx.bag->lighting = nullptr;
+  fx.bag->billboard = fx.billboardBag.get();
+  fx.bag->texture = fx.texBag.get();
+  fx.bag->vertices = fx.pos.data();
+  fx.bag->count = 0;
+}
+
+void TerrainGame::spawnFxBurst(int kind, const float* p, const float* dir,
+                               const float* color, float size, int count,
+                               float life, float speed) {
+  if (!fx.bag || kind <= 0 || count <= 0) return;
+  if (count > FX_MAX) count = FX_MAX;
+  if (life < 0.02F) life = 0.02F;
+  float dx = dir ? dir[0] : 0.0F, dy = dir ? dir[1] : 1.0F,
+        dz = dir ? dir[2] : 0.0F;
+  // Kind 6 (beam) carries the WHOLE segment in `dir` - the particles are laid
+  // along it instead of being launched down it, which is what makes a tracer
+  // a streak rather than a puff.
+  const float seg = sqrtf(dx * dx + dy * dy + dz * dz);
+  if (kind != 6) {
+    if (seg > 0.0001F) dx /= seg, dy /= seg, dz /= seg;
+    else dx = 0.0F, dy = 1.0F, dz = 0.0F;
+  }
+  // An orthonormal basis around the aim - the spread cone and the beam's
+  // jitter both ride on it.
+  const V3 aim = {dx, dy, dz};
+  const V3 seed = fabsf(aim.y) < 0.9F ? V3{0.0F, 1.0F, 0.0F} : V3{1.0F, 0.0F, 0.0F};
+  V3 t1 = {seed.y * aim.z - seed.z * aim.y, seed.z * aim.x - seed.x * aim.z,
+           seed.x * aim.y - seed.y * aim.x};
+  const float tl = sqrtf(t1.x * t1.x + t1.y * t1.y + t1.z * t1.z);
+  if (tl > 0.0001F) t1.x /= tl, t1.y /= tl, t1.z /= tl;
+  const V3 t2 = {aim.y * t1.z - aim.z * t1.y, aim.z * t1.x - aim.x * t1.z,
+                 aim.x * t1.y - aim.y * t1.x};
+
+  for (int n = 0; n < count; ++n) {
+    const int i = fx.cursor;
+    fx.cursor = (fx.cursor + 1) % FX_MAX;
+    const float r1 = prand(fx.rng), r2 = prand(fx.rng), r3 = prand(fx.rng);
+    fx.kind[i] = (unsigned char)kind;
+    fx.base[i] = Vec4(color ? color[0] : 1.0F, color ? color[1] : 1.0F,
+                      color ? color[2] : 1.0F, size);
+    if (kind == 6) {
+      // Evenly along the segment, with a hair of jitter so a long tracer
+      // does not read as a dotted line of identical squares.
+      const float t = count > 1 ? (float)n / (float)(count - 1) : 0.5F;
+      const float j = size * 0.35F;
+      fx.pos[i] = Vec4(p[0] + dx * t + (r1 - 0.5F) * j,
+                       p[1] + dy * t + (r2 - 0.5F) * j,
+                       p[2] + dz * t + (r3 - 0.5F) * j, 1.0F);
+      fx.vel[i] = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+      // The tail fades first: a streak with a bright head reads as motion.
+      fx.maxLife[i] = life * (0.45F + 0.55F * t);
+    } else {
+      fx.pos[i] = Vec4(p[0], p[1], p[2], 1.0F);
+      // Cone around the aim: flashes hug it, sparks/blood/debris spray wide.
+      const float wide = (kind == 1) ? 0.15F : (kind == 3 ? 0.5F : 0.9F);
+      const float a = 2.0F * PI * r3;
+      const float s = wide * r1;
+      const float spd = speed * (0.35F + 0.9F * r2);
+      fx.vel[i] = Vec4((aim.x + (t1.x * cosf(a) + t2.x * sinf(a)) * s) * spd,
+                       (aim.y + (t1.y * cosf(a) + t2.y * sinf(a)) * s) * spd,
+                       (aim.z + (t1.z * cosf(a) + t2.z * sinf(a)) * s) * spd,
+                       0.0F);
+      fx.maxLife[i] = life * (0.65F + 0.7F * r2);
+    }
+    fx.life[i] = fx.maxLife[i];
+  }
+}
+
+void TerrainGame::updateFxBursts() {
+  if (!fx.bag) return;
+  if (g_gameplayPaused) return;  // frozen behind a menu, like the emitters
+  const float dt = g_frameDt;
+
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  fx.billboardBag->right = Vec4(rx, 0.0F, rz, 0.0F);
+  fx.billboardBag->up = Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y,
+                             0.0F);
+
+  int last = -1;
+  for (int i = 0; i < FX_MAX; ++i) {
+    if (fx.life[i] <= 0.0F) {
+      fx.cols[i] = Color(0.0F, 0.0F, 0.0F, 0.0F);  // alpha 0 = invisible quad
+      continue;
+    }
+    fx.life[i] -= dt;
+    if (fx.life[i] <= 0.0F) {
+      fx.life[i] = 0.0F;
+      fx.cols[i] = Color(0.0F, 0.0F, 0.0F, 0.0F);
+      continue;
+    }
+    const int k = fx.kind[i];
+    // Per-kind physics. Gravity numbers are deliberately not GRAVITY: these
+    // are visual weights (a spark arcs harder than a blood drop looks), not
+    // a simulation the player can stand on.
+    if (k == 2) fx.vel[i].y -= 16.0F * dt;
+    else if (k == 4) fx.vel[i].y -= 22.0F * dt;
+    else if (k == 5) fx.vel[i].y -= 26.0F * dt;
+    else if (k == 3) {
+      fx.vel[i].y += 0.9F * dt;  // smoke lifts
+      const float damp = 1.0F - 1.6F * dt;
+      fx.vel[i].x *= damp, fx.vel[i].y *= damp, fx.vel[i].z *= damp;
+    }
+    fx.pos[i].x += fx.vel[i].x * dt;
+    fx.pos[i].y += fx.vel[i].y * dt;
+    fx.pos[i].z += fx.vel[i].z * dt;
+    // Heavy debris and blood stop at the ground instead of sinking through it.
+    if ((k == 4 || k == 5) &&
+        fx.pos[i].y < terrainHeightAt(fx.pos[i].x, fx.pos[i].z)) {
+      fx.pos[i].y = terrainHeightAt(fx.pos[i].x, fx.pos[i].z) + 0.01F;
+      fx.vel[i] = Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+    }
+
+    const float t = fx.life[i] / fx.maxLife[i];  // 1 -> 0 over the life
+    const Vec4& b = fx.base[i];
+    float size = b.w, alpha, cr = b.x * 128.0F, cg = b.y * 128.0F,
+          cb = b.z * 128.0F;
+    if (k == 1) {  // muzzle flash: born big and bright, gone in a blink
+      size *= 0.6F + 1.5F * t;
+      alpha = 128.0F * t;
+    } else if (k == 2) {  // sparks: thin, cooling from white toward the tint
+      size *= 0.5F + 0.7F * t;
+      alpha = 128.0F * t;
+      const float hot = t * t;
+      cr += (128.0F - cr) * hot, cg += (128.0F - cg) * hot,
+          cb += (128.0F - cb) * hot;
+    } else if (k == 3) {  // smoke: grows while it thins out
+      size *= 1.8F - t;
+      alpha = 52.0F * t;
+    } else if (k == 4) {  // blood: keeps its size, darkens as it dries
+      alpha = 118.0F * (t > 0.6F ? 1.0F : t / 0.6F);
+      cr *= 0.5F + 0.5F * t, cg *= 0.5F + 0.5F * t, cb *= 0.5F + 0.5F * t;
+    } else if (k == 6) {  // tracer streak: full brightness, sudden end
+      alpha = 128.0F * (t > 0.5F ? 1.0F : t * 2.0F);
+    } else {  // debris chunks
+      size *= 0.7F + 0.5F * t;
+      alpha = 128.0F * (t > 0.35F ? 1.0F : t / 0.35F);
+    }
+    fx.params[i] = Vec4(size, 0.0F, 0.0F, size);
+    fx.cols[i] = Color(cr, cg, cb, alpha);
+    last = i;
+  }
+  // Submitting the whole pool every frame would pay VU1 for 128 invisible
+  // quads; the highest live slot is a free upper bound (dead slots below it
+  // are alpha 0 and the GS alpha test discards them).
+  fx.bag->count = (u32)(last + 1);
+}
+
 // Picks the nearest usable object the camera is close to and looking at
 // (thresholds in controls.hpp). BTN_USE on it -> scriptCtx.usedObject for
 // one frame, which fires the flow graph "On Used" trigger.
@@ -9789,9 +10082,16 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       if (pi == 0 && !g_playerLocked)
         P.pitch -= engine->kbdMouse.getMouse().dy * 0.003F * MOUSE_SENSITIVITY;
 #endif
+      // Weapon recoil (docs/weapons.md): the weapon runtime writes the frame's
+      // view kick in degrees and owns the whole kick-and-settle curve, so this
+      // is a plain add. Player 1 only - a weapon has one aim.
+      if (pi == 0 && scriptCtx.viewKickPitch != 0.0F)
+        P.pitch += scriptCtx.viewKickPitch * (PI / 180.0F);
       if (P.pitch > 1.35F) P.pitch = 1.35F;
       if (P.pitch < -1.35F) P.pitch = -1.35F;
     }
+    if (pi == 0 && scriptCtx.viewKickYaw != 0.0F)
+      P.yaw += scriptCtx.viewKickYaw * (PI / 180.0F);
   }
 
   const float fx = sinf(P.yaw);
@@ -12688,6 +12988,9 @@ void TerrainGame::renderScene() {
   }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  // One-shot bursts share the emitters' slot in the frame: after the
+  // scene, before the HUD, so they blend over solid geometry.
+  if (fx.bag && fx.bag->count > 0) stapip.core.render(fx.bag.get());
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 
@@ -15780,6 +16083,7 @@ void TerrainGame::loop() {
   // crosses (owner).
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
+  updateFxBursts();
   updateSoundEmitters();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
@@ -16219,6 +16523,13 @@ static const char* TPL_CONTROLS_HPP =
 #define BTN_FLY_UP {{BTN_FLY_UP}}     // noclip: ascend
 #define BTN_FLY_DOWN {{BTN_FLY_DOWN}}  // noclip: descend
 #define BTN_THROW {{BTN_THROW}}     // throw a carried pickable ("Can throw")
+
+// Weapons (docs/weapons.md). Only meaningful in a project that defines
+// weapons; the runtime compiles out entirely otherwise, so these bindings
+// cost nothing in a project without combat.
+#define BTN_FIRE R1          // fire / swing the equipped weapon
+#define BTN_RELOAD Triangle  // reload the equipped weapon
+#define BTN_WEAPON_NEXT L1   // cycle to the next weapon in the inventory
 
 // "Use" interaction (objects marked usable in the editor)
 constexpr float USE_DISTANCE = 4.0F;   // max distance to the object surface
@@ -17156,6 +17467,35 @@ struct ScriptContext {
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
 
+  // One-shot particle BURST at a world point (docs/weapons.md). Unlike an
+  // Emitter object - which owns a permanent pool and runs forever - a burst
+  // is fired, lives out its seconds and is gone, so muzzle flashes, bullet
+  // impacts, blood and tracers all come out of ONE fixed pool and a firefight
+  // costs the same memory as a quiet room. The weapon runtime is the main
+  // customer, but any script may call it.
+  //   kind:  1 flash, 2 sparks, 3 smoke, 4 blood, 5 debris,
+  //          6 beam (a streak: `dir` is the WHOLE segment, not a direction)
+  //   pos:   3 floats, world space (the beam's start)
+  //   dir:   3 floats, the burst's aim (normalized for 1..5)
+  //   color: 3 floats 0..1; size = base particle size in world units
+  //   count: particles (clamped to the pool); life = seconds; speed = units/s
+  // Set by the game.
+  void (*spawnFx)(int kind, const float* pos, const float* dir,
+                  const float* color, float size, int count, float life,
+                  float speed) = nullptr;
+
+  // Plays a sound effect by SND_PATHS index (-1 = silent) at volume 0..100
+  // on `channel`, or channel -1 to auto-rotate the shared 0..23 channels.
+  // Uses the samples the game already loaded at boot, so a script never pays
+  // SPU RAM for a second copy of a sound. Set by the game.
+  void (*playSound)(int soundIndex, int volume, int channel) = nullptr;
+
+  // Weapon recoil (docs/weapons.md): the view kick to apply THIS frame, in
+  // degrees. Player 1's walker adds it to the camera pitch/yaw before
+  // building the frame camera. The producer writes it fresh every frame
+  // (including 0) - the walker never clears it, so two producers would fight.
+  float viewKickPitch = 0.0F;
+  float viewKickYaw = 0.0F;
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
   // members merge into a shared geometry bag (ONE submit for the lot) and only
@@ -17581,6 +17921,19 @@ fi
 ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 [ -f "$ELF" ] || { echo "$ELF not found - build the project first." >&2; exit 1; }
 
+# Mouse look needs XWayland. PCSX2's relative-mouse mode warps the cursor back
+# to the window centre after every motion event and reports how far it had
+# moved from there; Wayland does not let a client move the pointer, so the warp
+# is a silent no-op and the emulated USB mouse gets the distance from the
+# centre instead of the movement - the camera slams into the pitch limit and
+# spins. Only for a keyboard/mouse project (src/main.cpp is regenerated on
+# every build, so this reads the LIVE preference); export QT_QPA_PLATFORM
+# yourself to opt out.
+if grep -qs 'loadUsbKbdMouse = true' src/main.cpp && [ -n "${WAYLAND_DISPLAY:-}" ] &&
+   [ -n "${DISPLAY:-}" ] && [ -z "${QT_QPA_PLATFORM:-}" ]; then
+    export QT_QPA_PLATFORM=xcb
+fi
+
 pkill -x pcsx2-qt >/dev/null 2>&1 || true
 pkill -x pcsx2 >/dev/null 2>&1 || true
 exec $PCSX2 -elf "$PWD/$ELF"
@@ -17866,7 +18219,10 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
         << floatLit(o.meshLodOverride) << ", " << floatLit(o.modelYawOffset)
         << ", " << clampPrimDetail(o.type, o.primDetail) << ", " << layerIdx
-        << ", " << batchStatic << "},  // " << o.name << "\n";
+        << ", " << batchStatic
+        // Combat (docs/weapons.md) - the last four columns of SceneObjectData.
+        << ", " << (o.damageable ? 1 : 0) << ", " << floatLit(o.health) << ", "
+        << o.deathAction << ", " << o.hitFx << "},  // " << o.name << "\n";
 }
 
 // inc/prefab_data.gen.hpp - the prefab library (docs/prefabs.md).
@@ -18434,6 +18790,12 @@ static std::set<std::string> batchBlockedNames(const Project& p,
             extra.insert(sc.objects[ci].name);
     }
     refs.insert(extra.begin(), extra.end());
+    // A weapon's viewmodel is re-posed in front of the camera every frame
+    // (docs/weapons.md) - the same reason a sequence target cannot batch.
+    // Kept here rather than in runtimeRefNames: a viewmodel is referenced by a
+    // WEAPON, not by another object, so it is not a live-catch candidate.
+    for (const WeaponDef& w : p.weapons)
+        if (!w.viewModel.empty()) refs.insert(w.viewModel);
     return refs;
 }
 
@@ -18464,6 +18826,10 @@ static bool staticBatchEligible(const SceneObject& o,
     // Per-object logic: the graph can move self, attached scripts get a
     // per-frame hook on this object.
     if (!o.flowGraph.nodes.empty() || !o.scripts.empty()) return false;
+    // Combat: a damageable object is hidden, despawned or handed to the rigid
+    // body simulation the moment it dies, and an armed one is a shooter the
+    // runtime touches - neither can live inside a merged static bag.
+    if (o.damageable || !o.weapons.empty()) return false;
     return blocked.find(o.name) == blocked.end();
 }
 
@@ -18563,6 +18929,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
            "                   // (build-time verdict: non-moving primitive with\n"
            "                   // no physics/logic/graph refs/save-state/layer)\n"
+           "  int damageable;  // 1 = takes weapon damage (docs/weapons.md);\n"
+           "                   // 0 = scenery, bullets only leave an impact\n"
+           "  float health;    // hit points at scene start (damageable only)\n"
+           "  int deathAct;    // at 0 hp: 0 hide, 1 despawn, 2 stay, 3 knock over\n"
+           "  int hitFx;       // impact burst override: 0 = the weapon decides,\n"
+           "                   // 1 sparks, 2 blood, 3 dust, 4 none\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -21990,6 +22362,10 @@ void setSpeed(int scene, int object, float speed) {
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
 // ---------------------------------------------------------------------------
+// Defined next to the weapon codegen below - the flow graph only needs to
+// know whether the combat API exists at all (docs/weapons.md).
+static bool combatEnabled(const Project& p);
+
 std::string flowGraphScript(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
 
@@ -22038,6 +22414,10 @@ std::string flowGraphScript(const Project& p) {
             if (p.hudTexts[i].name == name) return (int)i;
         return -1;
     };
+    // Weapons (docs/weapons.md). An empty name is legal on several combat
+    // nodes and means "the equipped weapon" / "any weapon", which the runtime
+    // spells -1 - so an empty name and an unknown one both land on -1 here.
+    auto weaponIdx = [&](const std::string& name) { return p.weaponIndex(name); };
     // Set Screen Effect names a custom effect KEY; the generated symbol suffix
     // is its index in enabledScreenFx() - the SAME order screenFxSource emits
     // the bodies in, so the two cannot disagree. A key placed twice resolves to
@@ -22189,6 +22569,9 @@ std::string flowGraphScript(const Project& p) {
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
+    if (combatEnabled(p))
+        out << "#include \"scripts/weapons.gen.hpp\"  // Combat nodes "
+               "(docs/weapons.md)\n";
     if (dbgOn)
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
@@ -23383,6 +23766,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (ei < 0) return "false";  // no menu entry fires this event
                 return "(ctx.menuEvent == " + std::to_string(ei) + ")";
             }
+            // Combat (docs/weapons.md). Each of these takes the object target
+            // the same way the object actions do, so the same dyn/static split
+            // applies: a runtime reference is bounds-guarded inline.
+            if (n.type == "OnDamaged" || n.type == "OnKilled" ||
+                n.type == "HasWeapon" || n.type == "AmmoAtLeast" ||
+                n.type == "HealthAtLeast") {
+                std::string call;
+                if (n.type == "OnDamaged") call = "wpnWasDamaged(ctx, %)";
+                else if (n.type == "OnKilled") call = "wpnWasKilled(ctx, %)";
+                else if (n.type == "HasWeapon")
+                    call = "wpnHas(ctx, %, " + std::to_string(weaponIdx(n.str)) + ")";
+                else if (n.type == "AmmoAtLeast")
+                    call = "(wpnAmmo(ctx, %, " + std::to_string(weaponIdx(n.str)) +
+                           ") >= " + intLit(n.num[0]) + ")";
+                else
+                    call = "(wpnHealth(ctx, %) >= " + floatLit(n.num[0]) + ")";
+                const std::string dyn = targetExpr(n);
+                if (!dyn.empty())
+                    return "(" + dyn + " >= 0 && " +
+                           replaceAll(call, "%", dyn) + ")";
+                const int idx = resolveTarget(n);
+                if (idx < 0) return "false";
+                return replaceAll(call, "%", std::to_string(idx));
+            }
+            if (n.type == "OnWeaponFired")
+                return "wpnWasFired(" + std::to_string(weaponIdx(n.str)) + ")";
             // Configurable input: "held right now" (the exec output fires on
             // the press edge in the trigger scan below).
             if (n.type == "OnAction") {
@@ -23504,6 +23913,23 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 std::string expr = boolInputsOr(n);
                 if (expr.empty()) expr = "false";
                 return "std::string(" + expr + " ? \"true\" : \"false\")";
+            }
+            if (n.type == "GetAmmoText" || n.type == "GetHealthText") {
+                const std::string dyn = targetExpr(n);
+                const std::string tgt =
+                    dyn.empty() ? std::to_string(resolveTarget(n)) : dyn;
+                if (tgt == "-1") return "std::string(\"?\")";
+                if (n.type == "GetHealthText")
+                    return "flowNumText(wpnHealth(ctx, " + tgt + "))";
+                const std::string wi = std::to_string(weaponIdx(n.str));
+                const int mode = (int)n.num[0];
+                if (mode == 1)
+                    return "std::to_string(wpnReserve(ctx, " + tgt + ", " + wi + "))";
+                if (mode == 2)
+                    return "(std::to_string(wpnAmmo(ctx, " + tgt + ", " + wi +
+                           ")) + \" / \" + std::to_string(wpnReserve(ctx, " + tgt +
+                           ", " + wi + ")))";
+                return "std::to_string(wpnAmmo(ctx, " + tgt + ", " + wi + "))";
             }
             if (n.type == "NumToText") {
                 const std::string e = numInput(n);
@@ -24275,6 +24701,45 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << floatLit(n.num[0]) << ", " << floatLit(n.num[1]) << ");\n";
             } else if (n.type == "StopAi") {
                 c << pad << "navStop(ctx, " << objIdx << ");\n";
+                // Combat (docs/weapons.md). objIdx is already the resolved
+                // target (link -> str -> self), guarded upstream when it is a
+                // runtime reference, so every branch here is a plain call.
+            } else if (n.type == "GiveWeapon") {
+                const int wi = weaponIdx(n.str);
+                if (wi < 0)
+                    c << pad << "// node " << n.id << " (GiveWeapon): unknown "
+                      << "weapon '" << n.str << "'\n";
+                else
+                    c << pad << "wpnGive(ctx, " << objIdx << ", " << wi << ", "
+                      << intLit(n.num[0]) << ");\n";
+            } else if (n.type == "EquipWeapon") {
+                // pin 0 = the named weapon, pin 1 = cycle to the next carried
+                const int wi = pin == 1 ? -1 : weaponIdx(n.str);
+                if (pin == 0 && wi < 0)
+                    c << pad << "// node " << n.id << " (EquipWeapon): unknown "
+                      << "weapon '" << n.str << "'\n";
+                else
+                    c << pad << "wpnEquip(ctx, " << objIdx << ", " << wi << ");\n";
+            } else if (n.type == "FireWeapon") {
+                c << pad << "wpnFire(ctx, " << objIdx << ");\n";
+            } else if (n.type == "ReloadWeapon") {
+                c << pad << "wpnReload(ctx, " << objIdx << ");\n";
+            } else if (n.type == "SetAmmo") {
+                c << pad << "wpnSetAmmo(ctx, " << objIdx << ", "
+                  << weaponIdx(n.str) << ", " << intLit(n.num[0]) << ", "
+                  << intLit(n.num[1]) << ");\n";
+            } else if (n.type == "ApplyDamage") {
+                if (pin == 1)
+                    c << pad << "wpnDamage(ctx, " << objIdx << ", "
+                      << floatLit(-n.num[0]) << ");\n";
+                else if (pin == 2)
+                    c << pad << "wpnKill(ctx, " << objIdx << ");\n";
+                else if (pin == 3)
+                    c << pad << "wpnSetHealth(ctx, " << objIdx << ", "
+                      << floatLit(n.num[0]) << ");\n";
+                else
+                    c << pad << "wpnDamage(ctx, " << objIdx << ", "
+                      << floatLit(n.num[0]) << ");\n";
             // ---------------------------------------------------------------
             // Flow control. Each of these decides which of its own exec
             // outputs continues, and emits that chain inline - so the whole
@@ -25219,6 +25684,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
                 clsOut << "    if (ctx.menuEvent == " << ei << ") {  // \"" << n.str
                     << "\"\n" << body << "    }\n";
+            } else if (n.type == "OnDamaged" || n.type == "OnKilled" ||
+                       n.type == "OnWeaponFired") {
+                // The weapon runtime publishes these as ONE-FRAME flags, so
+                // the condition already IS the edge - no rising-edge latch
+                // like NearObject needs (and none would be correct: two hits
+                // in consecutive frames must fire twice).
+                clsOut << "    if (" << sourceCondition(n) << ") {\n"
+                       << body << "    }\n";
             } else if (n.type == "OnEvent") {
                 const int ei = eventIndex(n.str);
                 if (ei < 0) {
@@ -29367,6 +29840,1473 @@ class NavAiScript : public Script {
 }
 
 // inc/texture_data.gen.hpp - PNG textures used by the scene
+// ---------------------------------------------------------------------------
+// Weapons (docs/weapons.md)
+//
+// Three generated files, all of which collapse to a comment when the project
+// defines no weapons - a project without combat pays nothing:
+//   inc/weapon_data.gen.hpp     the WEAPON_DEFS table + the per-object loadout
+//                               and auto-fire side tables
+//   inc/scripts/weapons.gen.hpp the API the flow graph calls
+//   src/gen/weapons.gen.cpp     the runtime (a global Script, like the AI one)
+// ---------------------------------------------------------------------------
+
+// Does this project use combat at all? Three independent reasons to say yes,
+// because the parts are usable apart: a project can define weapons, or mark
+// objects damageable and drive their health purely from flow graphs, or (a
+// scene still under construction) carry Combat nodes before either exists.
+// When all three are false the weapon tables, the runtime and the API are
+// replaced by a one-line comment and the game pays literally nothing.
+static bool combatEnabled(const Project& p) {
+    if (!p.weapons.empty()) return true;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
+            if (o.damageable || !o.weapons.empty()) return true;
+            for (const FlowNode& n : o.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(n.type);
+                if (t && std::string(t->category) == "Combat") return true;
+            }
+        }
+    return false;
+}
+
+// A weapon's sound field resolved to its SND_PATHS index (-1 = silent).
+static int weaponSoundIndex(const Project& p, const std::string& path) {
+    if (path.empty()) return -1;
+    for (size_t i = 0; i < p.sounds.size(); ++i)
+        if (p.sounds[i] == path) return (int)i;
+    return -1;
+}
+
+static void emitWeaponFx(std::ostream& out, const WeaponFx& f) {
+    out << "{" << f.kind << ", {" << floatLit(f.color[0]) << ", "
+        << floatLit(f.color[1]) << ", " << floatLit(f.color[2]) << "}, "
+        << floatLit(f.size) << ", " << f.count << ", " << floatLit(f.life)
+        << ", " << floatLit(f.speed) << "}";
+}
+
+static std::string weaponDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "// Weapons are edited in Tools > Weapon Editor (docs/weapons.md).\n"
+           "#pragma once\n\n";
+    if (!combatEnabled(p)) {
+        out << "// The project uses no combat - the weapon tables and runtime "
+               "are not generated.\n";
+        return out.str();
+    }
+    out << "#include \"scene_data.hpp\"  // SCENE_COUNT, object indices\n\n"
+           "namespace "
+        << ns << " {\n\n";
+    out << R"(// One particle burst a weapon throws (muzzle, impact, blood).
+// kind: 0 none, 1 flash, 2 sparks, 3 smoke, 4 blood, 5 debris - the same
+// numbering ScriptContext::spawnFx takes (6 = beam is the tracer, which the
+// weapon carries as its own flag rather than as an effect slot).
+struct WeaponFxData {
+  int kind;
+  float color[3];
+  float size;
+  int count;
+  float life;
+  float speed;
+};
+
+struct WeaponData {
+  const char* name;
+  int kind;          // 0 hitscan firearm, 1 projectile firearm, 2 melee
+  float damage;      // per hit - per PELLET on a multi-pellet shot
+  float range;       // hitscan/melee reach; projectile flight range
+  float falloff;     // 0..1 of the damage lost at maximum range
+  float impulse;     // physics impulse pushed into a rigid body hit
+  float fireRate;    // shots per second
+  int automatic;     // 1 = holding the fire button keeps firing
+  float spread;      // cone half-angle of the shot, degrees
+  int pellets;       // rays per shot
+  float recoil;      // view kick per shot, degrees
+  float rumble;      // pad vibration per shot, 0..1
+  int magSize;       // 0 = no magazine (never reloads)
+  int reserve;       // spare rounds at pickup; -1 = bottomless
+  float reloadTime;  // seconds
+  float projSpeed, projGravity, projSize;
+  float projColor[3];
+  float blastRadius;  // > 0 = the impact damages everything within
+  float meleeArc;     // swing half-angle around the aim, degrees
+  float swingTime;    // seconds of swing
+  float viewOffset[3];   // camera space: X right, Y up, Z forward
+  float viewScale;
+  float viewRot[3];      // degrees, in the camera frame
+  float muzzleOffset[3]; // where the shot leaves, same frame
+  // Viewmodel animation (docs/weapons.md). animMode 0 = procedural (the
+  // runtime animates the transform from the numbers below - what a generated
+  // static .obj gets), 1 = clips (an animated .glb/.fbx viewmodel; the runtime
+  // plays clip* on fire/reload/equip and leaves the kick and swing to them).
+  int animMode;
+  float animKickBack, animKickPitch, animRecover;
+  float animSway, animSwaySpeed, animBob;
+  float animReloadDip, animReloadRoll;
+  float animSwingReach, animSwingPitch;
+  const char* clipIdle;
+  const char* clipFire;
+  const char* clipReload;
+  const char* clipEquip;
+  WeaponFxData muzzleFx, impactFx, bloodFx;
+  int tracer;
+  float tracerColor[3];
+  int fireSnd, reloadSnd, emptySnd, impactSnd;  // SND_PATHS indices, -1 none
+};
+
+)";
+    // A project can use health and damage without defining a single weapon,
+    // so WEAPON_COUNT may legitimately be 0 - the table then carries one
+    // placeholder row, like every other generated table here.
+    out << "constexpr int WEAPON_COUNT = " << p.weapons.size() << ";\n"
+        << "constexpr WeaponData WEAPON_DEFS[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1]"
+           " = {\n";
+    if (p.weapons.empty())
+        out << "    {\"\", 0, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0, 0.0F, 1, 0.0F, "
+               "0.0F, 0, 0, 0.0F,\n     0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, "
+               "0.0F, 0.0F, 0.1F,\n     {0.0F, 0.0F, 0.0F}, 1.0F, "
+               "{0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F},\n     "
+               "0, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "0.0F, \"\", \"\", \"\", \"\",\n     "
+               "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F}, "
+               "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F}, "
+               "{0, {0, 0, 0}, 0.0F, 1, 0.1F, 0.0F},\n     "
+               "0, {0.0F, 0.0F, 0.0F}, -1, -1, -1, -1},\n";
+    for (const WeaponDef& w : p.weapons) {
+        out << "    {\"" << escapeCString(w.name) << "\", " << w.kind << ", "
+            << floatLit(w.damage) << ", " << floatLit(w.range) << ", "
+            << floatLit(w.falloff) << ", " << floatLit(w.impulse) << ", "
+            << floatLit(w.fireRate) << ", " << (w.automatic ? 1 : 0) << ", "
+            << floatLit(w.spread) << ", " << w.pellets << ", "
+            << floatLit(w.recoil) << ", " << floatLit(w.rumble) << ", "
+            << w.magSize << ", " << w.reserve << ", " << floatLit(w.reloadTime)
+            << ",\n     " << floatLit(w.projSpeed) << ", "
+            << floatLit(w.projGravity) << ", " << floatLit(w.projSize) << ", "
+            << vec3Init(w.projColor) << ", " << floatLit(w.blastRadius) << ", "
+            << floatLit(w.meleeArc) << ", " << floatLit(w.swingTime)
+            << ",\n     " << vec3Init(w.viewOffset) << ", "
+            << floatLit(w.viewScale) << ", " << vec3Init(w.viewRot) << ", "
+            << vec3Init(w.muzzleOffset) << ",\n     " << w.animMode << ", "
+            << floatLit(w.animKickBack) << ", " << floatLit(w.animKickPitch)
+            << ", " << floatLit(w.animRecover) << ", " << floatLit(w.animSway)
+            << ", " << floatLit(w.animSwaySpeed) << ", " << floatLit(w.animBob)
+            << ", " << floatLit(w.animReloadDip) << ", "
+            << floatLit(w.animReloadRoll) << ", " << floatLit(w.animSwingReach)
+            << ", " << floatLit(w.animSwingPitch) << ",\n     \""
+            << escapeCString(w.clipIdle) << "\", \""
+            << escapeCString(w.clipFire) << "\", \""
+            << escapeCString(w.clipReload) << "\", \""
+            << escapeCString(w.clipEquip) << "\",\n     ";
+        emitWeaponFx(out, w.muzzleFx);
+        out << ", ";
+        emitWeaponFx(out, w.impactFx);
+        out << ", ";
+        emitWeaponFx(out, w.bloodFx);
+        out << ",\n     " << (w.tracer ? 1 : 0) << ", "
+            << vec3Init(w.tracerColor) << ", " << weaponSoundIndex(p, w.fireSound)
+            << ", " << weaponSoundIndex(p, w.reloadSound) << ", "
+            << weaponSoundIndex(p, w.emptySound) << ", "
+            << weaponSoundIndex(p, w.impactSound) << "},\n";
+    }
+    out << "};\n\n";
+
+    // Viewmodels resolve per scene: a weapon points at an object NAME, and
+    // the object that carries it may exist in some scenes and not others.
+    out << "// The scene object that becomes each weapon in the player's hands\n"
+           "// while it is equipped (-1 = the weapon is invisible in that\n"
+           "// scene). Resolved per scene because a weapon names an OBJECT.\n"
+           "constexpr int WEAPON_VIEW_OBJECTS[SCENE_COUNT]"
+           "[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1] = {\n";
+    for (const SceneData& sc : p.scenes) {
+        out << "    {";
+        if (p.weapons.empty()) out << "-1";
+        for (size_t wi = 0; wi < p.weapons.size(); ++wi) {
+            int idx = -1;
+            if (!p.weapons[wi].viewModel.empty())
+                for (size_t oi = 0; oi < sc.objects.size(); ++oi)
+                    if (sc.objects[oi].name == p.weapons[wi].viewModel) {
+                        idx = (int)oi;
+                        break;
+                    }
+            out << (wi ? ", " : "") << idx;
+        }
+        out << "},  // " << sc.name << "\n";
+    }
+    out << "};\n\n";
+
+    // Loadouts + auto-fire: variable-length per object, so they ride in flat
+    // side tables (the OBJECT_SCRIPT_ATTACHES pattern) instead of growing
+    // SceneObjectData.
+    struct Loadout {
+        int scene, object, weapon;
+        std::string comment;
+    };
+    std::vector<Loadout> loads;
+    struct AutoFire {
+        int scene, object;
+        float range, fov;
+        std::string comment;
+    };
+    std::vector<AutoFire> autos;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi) {
+            const SceneObject& o = p.scenes[si].objects[oi];
+            for (const std::string& wn : o.weapons) {
+                const int wi = p.weaponIndex(wn);
+                if (wi < 0) continue;  // dangling name: dropped, not an error
+                loads.push_back({(int)si, (int)oi, wi,
+                                 p.scenes[si].name + " / " + o.name + " -> " + wn});
+            }
+            if (o.autoFireRange > 0.0f && !o.weapons.empty())
+                autos.push_back({(int)si, (int)oi, o.autoFireRange, o.autoFireFov,
+                                 p.scenes[si].name + " / " + o.name});
+        }
+    }
+    out << "// Who carries what. In list order: on a Player object this is the\n"
+           "// starting inventory (entry 0 is equipped at spawn); on anything\n"
+           "// else, entry 0 is what Fire Weapon and auto-fire shoot with.\n"
+           "struct ObjectWeapon {\n"
+           "  int scene, object, weapon;\n"
+           "};\n"
+        << "constexpr int OBJECT_WEAPON_COUNT = " << loads.size() << ";\n"
+        << "constexpr ObjectWeapon OBJECT_WEAPONS["
+        << (loads.empty() ? (size_t)1 : loads.size()) << "] = {\n";
+    if (loads.empty()) out << "    {-1, -1, -1},\n";
+    for (const Loadout& l : loads)
+        out << "    {" << l.scene << ", " << l.object << ", " << l.weapon
+            << "},  // " << l.comment << "\n";
+    out << "};\n\n";
+
+    out << "// NPCs that shoot on their own: while the player is inside range,\n"
+           "// within the cone and in terrain line-of-sight.\n"
+           "struct ObjectAutoFire {\n"
+           "  int scene, object;\n"
+           "  float range, fov;\n"
+           "};\n"
+        << "constexpr int OBJECT_AUTOFIRE_COUNT = " << autos.size() << ";\n"
+        << "constexpr ObjectAutoFire OBJECT_AUTOFIRES["
+        << (autos.empty() ? (size_t)1 : autos.size()) << "] = {\n";
+    if (autos.empty()) out << "    {-1, -1, 0.0F, 0.0F},\n";
+    for (const AutoFire& a : autos)
+        out << "    {" << a.scene << ", " << a.object << ", "
+            << floatLit(a.range) << ", " << floatLit(a.fov) << "},  // "
+            << a.comment << "\n";
+    out << "};\n\n"
+        << "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+static std::string weaponsHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n";
+    if (!combatEnabled(p)) {
+        out << "// The project uses no combat - runtime not generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/script.hpp\"\n\nnamespace " << ns << R"( {
+
+// The weapon/combat API the generated flow graph calls (docs/weapons.md).
+// `obj` is always a runtime object index; the PLAYER is the scene's Player
+// object, so a graph gives the player a weapon by targeting that object.
+// Weapon indices are positions in WEAPON_DEFS; -1 means "the equipped one".
+
+void wpnGive(ScriptContext& ctx, int obj, int weapon, int ammo);
+void wpnEquip(ScriptContext& ctx, int obj, int weapon);  // -1 = cycle to next
+void wpnFire(ScriptContext& ctx, int obj);   // one shot now, ignoring cooldown
+void wpnReload(ScriptContext& ctx, int obj);
+void wpnSetAmmo(ScriptContext& ctx, int obj, int weapon, int mag, int reserve);
+
+// amount > 0 damages, < 0 heals. wpnKill drops the target to 0 whatever its
+// health was. Both raise the triggers below.
+void wpnDamage(ScriptContext& ctx, int obj, float amount);
+void wpnKill(ScriptContext& ctx, int obj);
+void wpnSetHealth(ScriptContext& ctx, int obj, float hp);
+
+bool wpnHas(ScriptContext& ctx, int obj, int weapon);
+int wpnAmmo(ScriptContext& ctx, int obj, int weapon);     // rounds in the mag
+int wpnReserve(ScriptContext& ctx, int obj, int weapon);  // spare rounds
+float wpnHealth(ScriptContext& ctx, int obj);
+
+// Edge triggers. A flag raised anywhere during a frame is published for the
+// WHOLE of the next frame, so every graph sees it exactly once no matter
+// which generated script happens to run first.
+bool wpnWasDamaged(ScriptContext& ctx, int obj);
+bool wpnWasKilled(ScriptContext& ctx, int obj);
+bool wpnWasFired(int weapon);  // -1 = any weapon
+
+}  // namespace )" << ns
+        << "\n";
+    return out.str();
+}
+
+// src/gen/weapons.gen.cpp - the whole combat runtime, registered like any
+// global Script (the NavAiScript pattern). Everything below is 2002-shaped:
+// fixed arrays sized at compile time, one cheap LCG, no allocation anywhere
+// in the per-frame path, and a hitscan against bounding spheres + the
+// heightmap rather than anything resembling a physics broadphase.
+static std::string weaponsSource(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    if (!combatEnabled(p)) {
+        out << "// The project uses no combat - runtime not generated.\n";
+        return out.str();
+    }
+    out << "#include \"scripts/weapons.gen.hpp\"\n"
+           "#include \"weapon_data.gen.hpp\"\n"
+           "#include \"terrain_heights.gen.hpp\"  // hitscan vs the ground\n"
+           "#include \"controls.hpp\"\n"
+           "\n"
+           "#include <math.h>\n"
+           "\n"
+           "// A controls.hpp the user took ownership of before weapons existed\n"
+           "// carries no bindings - fall back so such a project still builds.\n"
+           "#ifndef BTN_FIRE\n#define BTN_FIRE R1\n#endif\n"
+           "#ifndef BTN_RELOAD\n#define BTN_RELOAD Triangle\n#endif\n"
+           "#ifndef BTN_WEAPON_NEXT\n#define BTN_WEAPON_NEXT L1\n#endif\n"
+           "\n"
+           "namespace "
+        << ns << " {\n";
+    out << R"(
+// The carried-weapon set is a bitmask, so this is the hard ceiling on how
+// many weapons a project may define (the Weapon Editor enforces it too).
+static_assert(WEAPON_COUNT <= 32, "at most 32 weapons per project");
+
+namespace {
+
+constexpr float WPN_PI = 3.14159265F;
+// Runtime objects that can carry a weapon or take damage. Anything past this
+// index is scenery as far as combat is concerned; the cap is what keeps the
+// whole combat state one small fixed block of EE memory.
+constexpr int WPN_MAX_ACTORS = 64;
+// Projectiles in the air at once, shared by every shooter in the scene.
+constexpr int WPN_MAX_PROJ = 24;
+
+struct WpnActor {
+  unsigned char used;    // 1 = takes part in combat (damageable or armed)
+  unsigned char alive;
+  signed char equipped;  // WEAPON_DEFS index, -1 = empty handed
+  unsigned int carried;  // bitmask of owned weapons
+  // Sized for at least one entry: a project may use health and damage with
+  // no weapons defined at all, and a zero-length array is not a thing.
+  short mag[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1];
+  short spare[WEAPON_COUNT > 0 ? WEAPON_COUNT : 1];
+  float health;
+  float cooldown;    // seconds until the next shot is allowed
+  float reloadLeft;  // > 0 = reloading
+  float swingLeft;   // > 0 = a melee swing is in progress
+  float autoLeft;    // NPC auto-fire cadence
+  unsigned char swingHit;  // this swing already landed (one hit per swing)
+};
+
+WpnActor actors[WPN_MAX_ACTORS];
+// ScriptContext::sceneGeneration is unsigned and starts at 0, so the
+// "never synced" sentinel has to be a value it cannot hold yet, not -1.
+unsigned int wpnGeneration = 0;
+bool wpnSynced = false;
+
+// Trigger publication. A flag raised anywhere during frame N is published for
+// the WHOLE of frame N+1: generated scripts run in link order, so a flag that
+// was merely "set and cleared this frame" would be seen by some graphs and
+// missed by others depending on which .cpp the linker put first.
+unsigned char dmgAcc[WPN_MAX_ACTORS], dmgPub[WPN_MAX_ACTORS];
+unsigned char killAcc[WPN_MAX_ACTORS], killPub[WPN_MAX_ACTORS];
+unsigned int firedAcc = 0, firedPub = 0;
+
+struct WpnProj {
+  float px, py, pz, vx, vy, vz;
+  float life;
+  // Distance flown so far. A projectile's damage falloff has to be measured
+  // over the ground it actually covered - passing the weapon's full range
+  // instead (which is what this used to do) charged every grenade the maximum
+  // falloff penalty even when it went off at the thrower's feet.
+  float travel;
+  short weapon, owner;
+};
+WpnProj projs[WPN_MAX_PROJ];
+int projCursor = 0;
+
+unsigned int wpnRngState = 2463534242u;
+inline float wpnRand() {  // 0..1
+  wpnRngState = wpnRngState * 1664525u + 1013904223u;
+  return (float)(wpnRngState >> 8) * (1.0F / 16777216.0F);
+}
+
+// Recoil is a spring the weapon runtime owns end to end: firing gives it a
+// velocity impulse, the spring pulls the view back down, and the per-frame
+// DELTA goes to ScriptContext::viewKickPitch. Modelling it as a delta is what
+// lets the player fight the recoil with the stick instead of having their aim
+// snapped back to a remembered angle.
+float recoilAngle = 0.0F, recoilVel = 0.0F, recoilPrev = 0.0F;
+// Viewmodel kick: the weapon dips back into the screen on each shot. Decays
+// at the weapon's own animRecover rate, separately from the VIEW kick above -
+// a weapon can jolt in the hands without moving the aim, or the reverse.
+float viewKick = 0.0F;
+// Idle sway phase and a smoothed planar player speed for the walk bob. The
+// bob has to come from the real speed: a baked clip cannot know it, which is
+// why sway and bob stay on even in clip mode.
+float vmPhase = 0.0F;
+float vmSpeed = 0.0F;
+float vmPrev[3] = {0.0F, 0.0F, 0.0F};
+bool vmPrevValid = false;
+// Clip mode bookkeeping: which weapon's clips are loaded on the viewmodel and
+// what it is playing (0 idle, 1 fire, 2 reload, 3 equip). vmClipWant is a
+// one-frame request raised by the shot / reload paths, applied in the tick so
+// the clip change happens once per event however many pellets flew.
+signed char vmClipWeapon = -1;
+signed char vmClipState = 0;
+signed char vmClipWant = -1;
+
+inline int wpnPlayer(ScriptContext& ctx) { return PLAYER_INDEXES[ctx.scene]; }
+
+inline WpnActor* actorOf(ScriptContext& ctx, int obj) {
+  if (obj < 0 || obj >= WPN_MAX_ACTORS || obj >= ctx.objectCount) return nullptr;
+  return &actors[obj];
+}
+
+// The bounding sphere a shot tests against: half the largest scale axis, the
+// same approximation the USE picker and the Raycast node use. Deliberately
+// crude - a per-triangle test against every object is not a thing an EE does
+// sixty times a second.
+inline float wpnHalfOf(const RuntimeObject& o) {
+  float h = o.data.scale[0];
+  if (o.data.scale[1] > h) h = o.data.scale[1];
+  if (o.data.scale[2] > h) h = o.data.scale[2];
+  return h * 0.5F;
+}
+
+// Where an actor's body IS. For everything but the player that is its object
+// position - but in FPP/noclip the Player OBJECT never moves off its spawn
+// point (the camera is the player), so reading data.position there would
+// leave every blast and every melee swing measuring against the spawn.
+inline void wpnActorPos(ScriptContext& ctx, int i, float* out) {
+  if (i == PLAYER_INDEXES[ctx.scene] && PLAYER_MODES[ctx.scene] != 2) {
+    out[0] = ctx.playerPosition.x;
+    out[1] = ctx.playerPosition.y - 0.55F;  // the eye is not the mass
+    out[2] = ctx.playerPosition.z;
+    return;
+  }
+  out[0] = ctx.objects[i].data.position[0];
+  out[1] = ctx.objects[i].data.position[1];
+  out[2] = ctx.objects[i].data.position[2];
+}
+
+// Marker/emitter types carry no geometry, so a shot passes straight through.
+inline bool wpnShootThrough(int ty) {
+  return ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+         ty == 14;
+}
+
+void wpnDeath(ScriptContext& ctx, int obj);
+
+// The nearest thing a ray hits: object bounding spheres and the terrain.
+// Returns the hit object index (-1 = terrain or nothing) and fills hitPos
+// with the hit point (the ray's end when nothing was hit). `skip` is the
+// shooter, which must never shoot itself.
+//
+// `testPlayer` exists because a Player object is a MARKER (type 6) and the
+// skip list below quite rightly lets shots pass through markers - so without
+// it every NPC's bullet sails straight through the player. When set, the
+// player's own body sphere joins the test and can win the ray.
+int wpnRay(ScriptContext& ctx, const float* org, const float* dir,
+           float maxDist, int skip, float* hitPos, float* hitDist,
+           bool testPlayer = false) {
+  const float ox = org[0], oy = org[1], oz = org[2];
+  float dx = dir[0], dy = dir[1], dz = dir[2];
+  const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+  int hit = -1;
+  if (dl < 0.0001F) {
+    hitPos[0] = ox, hitPos[1] = oy, hitPos[2] = oz;
+    if (hitDist) *hitDist = 0.0F;
+    return -1;
+  }
+  dx /= dl, dy /= dl, dz /= dl;
+  float best = maxDist;
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active || !o.visible || i == skip) continue;
+    if (wpnShootThrough(o.data.type)) continue;
+    const float half = wpnHalfOf(o);
+    const float cx = o.data.position[0] - ox;
+    const float cy = o.data.position[1] - oy;
+    const float cz = o.data.position[2] - oz;
+    const float tca = cx * dx + cy * dy + cz * dz;
+    if (tca < 0.0F || tca - half > best) continue;
+    const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+    if (d2 > half * half) continue;
+    float t = tca - sqrtf(half * half - d2);
+    if (t < 0.0F) t = 0.0F;
+    if (t < best) {
+      best = t;
+      hit = i;
+    }
+  }
+  // The player's body: a sphere hung below the eye (the camera sits at head
+  // height, the mass the bullet should hit does not).
+  const int plIdx = PLAYER_INDEXES[ctx.scene];
+  if (testPlayer && plIdx >= 0 && plIdx != skip) {
+    const float half = 0.55F;
+    const float cx = ctx.playerPosition.x - ox;
+    const float cy = ctx.playerPosition.y - 0.55F - oy;
+    const float cz = ctx.playerPosition.z - oz;
+    const float tca = cx * dx + cy * dy + cz * dz;
+    const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+    if (tca >= 0.0F && tca - half <= best && d2 <= half * half) {
+      float t = tca - sqrtf(half * half - d2);
+      if (t < 0.0F) t = 0.0F;
+      if (t < best) {
+        best = t;
+        hit = plIdx;
+      }
+    }
+  }
+  // Terrain: fixed-step march, then a short bisection - only a ground hit
+  // closer than the best object hit wins the ray.
+  float prev = 0.0F;
+  for (float t = 0.5F; t <= best; t += 0.5F) {
+    if (oy + dy * t <=
+        terrainHeightAtScene(ctx.scene, ox + dx * t, oz + dz * t)) {
+      float lo = prev, hi = t;
+      for (int k = 0; k < 8; ++k) {
+        const float mid = (lo + hi) * 0.5F;
+        if (oy + dy * mid <=
+            terrainHeightAtScene(ctx.scene, ox + dx * mid, oz + dz * mid))
+          hi = mid;
+        else
+          lo = mid;
+      }
+      best = hi;
+      hit = -1;
+      break;
+    }
+    prev = t;
+  }
+  hitPos[0] = ox + dx * best;
+  hitPos[1] = oy + dy * best;
+  hitPos[2] = oz + dz * best;
+  if (hitDist) *hitDist = best;
+  return hit;
+}
+
+// The burst a hit throws. The TARGET has the last word (a body bleeds where
+// a wall sparks), and a damageable target with no explicit override defaults
+// to the weapon's blood effect - so "shoot a crate, shoot a guard" looks
+// right without configuring anything per object.
+void wpnImpact(ScriptContext& ctx, const WeaponData& w, int hitObj,
+               const float* pos, const float* dir) {
+  WeaponFxData f = w.impactFx;
+  const int over = (hitObj >= 0 && hitObj < ctx.objectCount)
+                       ? ctx.objects[hitObj].data.hitFx
+                       : 0;
+  const bool soft =
+      hitObj >= 0 && hitObj < ctx.objectCount && ctx.objects[hitObj].data.damageable;
+  if (over == 4) return;                       // "none": a silent, clean hit
+  else if (over == 2) f = w.bloodFx;
+  else if (over == 1) f.kind = 2;              // forced sparks
+  else if (over == 3) f.kind = 3;              // forced dust
+  else if (soft) f = w.bloodFx;
+  if (f.kind > 0 && ctx.spawnFx) {
+    // The spray comes back OUT of the surface, toward the shooter.
+    const float back[3] = {-dir[0], -dir[1], -dir[2]};
+    ctx.spawnFx(f.kind, pos, back, f.color, f.size, f.count, f.life, f.speed);
+  }
+  if (w.impactSnd >= 0 && ctx.playSound) ctx.playSound(w.impactSnd, 70, -1);
+}
+
+// Damage everything damageable within `radius` of a point, linearly weaker
+// toward the edge (grenades, rockets - WeaponData::blastRadius).
+void wpnBlast(ScriptContext& ctx, const float* pos, float radius, float damage) {
+  if (radius <= 0.0F) return;
+  const int n = ctx.objectCount < WPN_MAX_ACTORS ? ctx.objectCount : WPN_MAX_ACTORS;
+  for (int i = 0; i < n; ++i) {
+    if (!actors[i].used || !actors[i].alive) continue;
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active) continue;
+    float ap[3];
+    wpnActorPos(ctx, i, ap);
+    const float dx = ap[0] - pos[0];
+    const float dy = ap[1] - pos[1];
+    const float dz = ap[2] - pos[2];
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (d > radius) continue;
+    wpnDamage(ctx, i, damage * (1.0F - d / radius));
+  }
+}
+
+// A landed hit: damage, physics shove, effects.
+void wpnLand(ScriptContext& ctx, const WeaponData& w, int wi, int shooter,
+             int hitObj, const float* pos, const float* dir, float dist) {
+  (void)wi;
+  wpnImpact(ctx, w, hitObj, pos, dir);
+  if (w.blastRadius > 0.0F) wpnBlast(ctx, pos, w.blastRadius, w.damage);
+  if (hitObj < 0 || hitObj >= ctx.objectCount || hitObj == shooter) return;
+  // Falloff is over the weapon's own range, so a rifle that reaches 120 units
+  // does not lose half its damage at 40 the way a pistol would.
+  float dmg = w.damage;
+  if (w.falloff > 0.0F && w.range > 0.0001F) {
+    float t = dist / w.range;
+    if (t > 1.0F) t = 1.0F;
+    dmg *= 1.0F - w.falloff * t;
+  }
+  if (w.blastRadius <= 0.0F) wpnDamage(ctx, hitObj, dmg);
+  if (w.impulse > 0.0F && ctx.objects[hitObj].data.physics) {
+    RuntimeObject& o = ctx.objects[hitObj];
+    const float k = w.impulse * g_frameDt;  // velocities are per-frame steps
+    o.velocityX += dir[0] * k;
+    o.velocityY += dir[1] * k;
+    o.velocityZ += dir[2] * k;
+    o.restFrames = 0;  // a sleeping body must wake or the shot does nothing
+    o.dirty = true;
+  }
+}
+
+// Origin + aim of a shot. The player shoots from the camera down the view
+// ray (through the weapon's muzzle offset, so the flash sits on the barrel);
+// an NPC shoots from its own chest at the player.
+bool wpnAim(ScriptContext& ctx, int obj, const WeaponData& w, float* org,
+            float* aim) {
+  const int pl = wpnPlayer(ctx);
+  if (obj == pl && pl >= 0) {
+    float fx = ctx.playerLook.x, fy = ctx.playerLook.y, fz = ctx.playerLook.z;
+    const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+    if (fl < 0.0001F) return false;
+    fx /= fl, fy /= fl, fz /= fl;
+    // Camera frame: right is the strafe direction the walker uses, so the
+    // weapon sits on the same side the player would step toward.
+    float rx = -fz, rz = fx;
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl > 0.0001F) rx /= rl, rz /= rl;
+    else rx = 1.0F, rz = 0.0F;
+    // up = right x forward (right has no Y component, so uy is the planar
+    // length of the view ray - 1 when looking level).
+    const float ux = -fx * fy, uy = fx * fx + fz * fz, uz = -fz * fy;
+    org[0] = ctx.playerPosition.x + rx * w.muzzleOffset[0] +
+             ux * w.muzzleOffset[1] + fx * w.muzzleOffset[2];
+    org[1] = ctx.playerPosition.y + uy * w.muzzleOffset[1] +
+             fy * w.muzzleOffset[2];
+    org[2] = ctx.playerPosition.z + rz * w.muzzleOffset[0] +
+             uz * w.muzzleOffset[1] + fz * w.muzzleOffset[2];
+    aim[0] = fx, aim[1] = fy, aim[2] = fz;
+    return true;
+  }
+  if (obj < 0 || obj >= ctx.objectCount) return false;
+  const RuntimeObject& o = ctx.objects[obj];
+  org[0] = o.data.position[0];
+  org[1] = o.data.position[1] + o.data.scale[1] * 0.30F;  // chest height
+  org[2] = o.data.position[2];
+  if (pl >= 0 && pl < ctx.objectCount) {
+    float dx = ctx.playerPosition.x - org[0];
+    float dy = ctx.playerPosition.y - org[1];
+    float dz = ctx.playerPosition.z - org[2];
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (d > 0.0001F) {
+      aim[0] = dx / d, aim[1] = dy / d, aim[2] = dz / d;
+      return true;
+    }
+  }
+  // No player to aim at: shoot where the object faces (+Z rotated by its yaw).
+  const float y = o.data.rotation[1] * (WPN_PI / 180.0F);
+  aim[0] = sinf(y), aim[1] = 0.0F, aim[2] = cosf(y);
+  return true;
+}
+
+// Scatters a direction inside a cone of `deg` degrees. Uniform in the cone's
+// angle rather than on its cap - a shotgun should feel denser at the middle.
+void wpnScatter(float* d, float deg) {
+  if (deg <= 0.0001F) return;
+  const float ax = fabsf(d[0]), ay = fabsf(d[1]), az = fabsf(d[2]);
+  float sx, sy, sz;
+  if (ay <= ax && ay <= az) sx = 0.0F, sy = 1.0F, sz = 0.0F;
+  else sx = 1.0F, sy = 0.0F, sz = 0.0F;
+  float t1x = sy * d[2] - sz * d[1], t1y = sz * d[0] - sx * d[2],
+        t1z = sx * d[1] - sy * d[0];
+  const float tl = sqrtf(t1x * t1x + t1y * t1y + t1z * t1z);
+  if (tl < 0.0001F) return;
+  t1x /= tl, t1y /= tl, t1z /= tl;
+  const float t2x = d[1] * t1z - d[2] * t1y, t2y = d[2] * t1x - d[0] * t1z,
+              t2z = d[0] * t1y - d[1] * t1x;
+  const float th = deg * (WPN_PI / 180.0F) * wpnRand();
+  const float ph = 2.0F * WPN_PI * wpnRand();
+  const float st = sinf(th), ct = cosf(th), cp = cosf(ph), sp = sinf(ph);
+  const float nx = d[0] * ct + (t1x * cp + t2x * sp) * st;
+  const float ny = d[1] * ct + (t1y * cp + t2y * sp) * st;
+  const float nz = d[2] * ct + (t1z * cp + t2z * sp) * st;
+  d[0] = nx, d[1] = ny, d[2] = nz;
+}
+
+void wpnLaunchProj(ScriptContext& ctx, int obj, int wi, const float* org,
+                   const float* dir) {
+  (void)ctx;
+  const WeaponData& w = WEAPON_DEFS[wi];
+  int slot = -1;
+  for (int i = 0; i < WPN_MAX_PROJ; ++i)
+    if (projs[i].life <= 0.0F) {
+      slot = i;
+      break;
+    }
+  // Pool full: recycle round-robin. A shot that silently does not exist is
+  // worse than the oldest grenade in the air vanishing.
+  if (slot < 0) {
+    slot = projCursor;
+    projCursor = (projCursor + 1) % WPN_MAX_PROJ;
+  }
+  WpnProj& pr = projs[slot];
+  pr.px = org[0], pr.py = org[1], pr.pz = org[2];
+  pr.vx = dir[0] * w.projSpeed;
+  pr.vy = dir[1] * w.projSpeed;
+  pr.vz = dir[2] * w.projSpeed;
+  pr.weapon = (short)wi;
+  pr.owner = (short)obj;
+  pr.travel = 0.0F;
+  pr.life = w.projSpeed > 0.01F ? w.range / w.projSpeed : 3.0F;
+}
+
+// Everything a single shot does. Cooldown/ammo are the CALLER's business -
+// the Fire Weapon flow node deliberately ignores both.
+void wpnShoot(ScriptContext& ctx, int obj, int wi) {
+  const WeaponData& w = WEAPON_DEFS[wi];
+  float org[3], aim[3];
+  if (!wpnAim(ctx, obj, w, org, aim)) return;
+  const int pl = wpnPlayer(ctx);
+  const bool byPlayer = (obj == pl);
+
+  firedAcc |= 1u << wi;
+  if (w.fireSnd >= 0 && ctx.playSound) ctx.playSound(w.fireSnd, 90, -1);
+  if (w.muzzleFx.kind > 0 && ctx.spawnFx)
+    ctx.spawnFx(w.muzzleFx.kind, org, aim, w.muzzleFx.color, w.muzzleFx.size,
+                w.muzzleFx.count, w.muzzleFx.life, w.muzzleFx.speed);
+  if (byPlayer) {
+    recoilVel += w.recoil * 16.0F;
+    viewKick = 1.0F;
+    if (w.animMode == 1) vmClipWant = 1;  // clip mode: play the fire clip
+    if (w.rumble > 0.0F) {
+      ctx.rumble = (int)(w.rumble * 255.0F);
+      ctx.rumbleSmall = 0;
+      ctx.rumbleSec = 0.12F;
+    }
+  }
+
+  if (w.kind == 2) {  // melee: the arc is swept in the tick, mid-swing
+    WpnActor* a = actorOf(ctx, obj);
+    if (a) {
+      a->swingLeft = w.swingTime;
+      a->swingHit = 0;
+    }
+    return;
+  }
+
+  const int pellets = w.pellets < 1 ? 1 : w.pellets;
+  for (int k = 0; k < pellets; ++k) {
+    float d[3] = {aim[0], aim[1], aim[2]};
+    wpnScatter(d, w.spread);
+    if (w.kind == 1) {
+      wpnLaunchProj(ctx, obj, wi, org, d);
+      continue;
+    }
+    float hp[3], dist = 0.0F;
+    const int hitObj = wpnRay(ctx, org, d, w.range, obj, hp, &dist, !byPlayer);
+    if (w.tracer && ctx.spawnFx) {
+      const float seg[3] = {hp[0] - org[0], hp[1] - org[1], hp[2] - org[2]};
+      // One tracer particle per ~1.5 units keeps a long shot a line and a
+      // short one a spark, without a per-weapon knob.
+      int n = (int)(dist * 0.66F);
+      if (n < 2) n = 2;
+      if (n > 12) n = 12;
+      ctx.spawnFx(6, org, seg, w.tracerColor, 0.05F, n, 0.09F, 0.0F);
+    }
+    // wpnRay always reports a point - the ray's END when it hit nothing. Only
+    // a ray that was actually STOPPED (an object, or the terrain closer than
+    // the weapon's range) has an impact to show; without this check a miss
+    // leaves sparks hanging in mid-air at maximum range.
+    if (hitObj >= 0 || dist < w.range - 0.01F)
+      wpnLand(ctx, w, wi, obj, hitObj, hp, d, dist);
+  }
+}
+
+// The melee sweep: everything damageable in front of the attacker, inside the
+// arc and within reach, hit once per swing.
+void wpnMeleeSweep(ScriptContext& ctx, int obj, int wi) {
+  const WeaponData& w = WEAPON_DEFS[wi];
+  float org[3], aim[3];
+  if (!wpnAim(ctx, obj, w, org, aim)) return;
+  const float cosArc = cosf(w.meleeArc * (WPN_PI / 180.0F));
+  const int n = ctx.objectCount < WPN_MAX_ACTORS ? ctx.objectCount : WPN_MAX_ACTORS;
+  bool any = false;
+  for (int i = 0; i < n; ++i) {
+    if (i == obj || !actors[i].used || !actors[i].alive) continue;
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active) continue;
+    float ap[3];
+    wpnActorPos(ctx, i, ap);
+    float dx = ap[0] - org[0];
+    float dy = ap[1] - org[1];
+    float dz = ap[2] - org[2];
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    // The player has no scale to speak of; give every actor at least a
+    // body-sized reach bonus so a swing at a person connects.
+    const float body = i == PLAYER_INDEXES[ctx.scene] ? 0.55F : wpnHalfOf(o);
+    if (d > w.range + body) continue;
+    if (d > 0.0001F) dx /= d, dy /= d, dz /= d;
+    if (dx * aim[0] + dy * aim[1] + dz * aim[2] < cosArc) continue;
+    const float hp[3] = {org[0] + aim[0] * d, org[1] + aim[1] * d,
+                         org[2] + aim[2] * d};
+    wpnLand(ctx, w, wi, obj, i, hp, aim, d);
+    any = true;
+  }
+  // A swing that connects with nothing still leaves a mark on the world -
+  // the wall in front of it, if there is one within reach.
+  if (!any) {
+    float hp[3], dist = 0.0F;
+    const int hitObj = wpnRay(ctx, org, aim, w.range, obj, hp, &dist);
+    if (hitObj >= 0 || dist < w.range - 0.01F)
+      wpnLand(ctx, w, wi, obj, hitObj, hp, aim, dist);
+  }
+}
+
+// Trigger pull with all the bookkeeping: cooldown, magazine, dry click.
+void wpnTryFire(ScriptContext& ctx, int obj) {
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || !a->alive || a->equipped < 0) return;
+  if (a->cooldown > 0.0F || a->reloadLeft > 0.0F) return;
+  const int wi = a->equipped;
+  const WeaponData& w = WEAPON_DEFS[wi];
+  if (w.magSize > 0) {
+    if (a->mag[wi] <= 0) {
+      if (w.emptySnd >= 0 && ctx.playSound && obj == wpnPlayer(ctx))
+        ctx.playSound(w.emptySnd, 70, -1);
+      a->cooldown = 0.3F;  // a dry click is not a machine gun either
+      wpnReload(ctx, obj);
+      return;
+    }
+    --a->mag[wi];
+  }
+  a->cooldown = w.fireRate > 0.01F ? 1.0F / w.fireRate : 0.2F;
+  wpnShoot(ctx, obj, wi);
+}
+
+void wpnDeath(ScriptContext& ctx, int obj) {
+  if (obj == wpnPlayer(ctx)) return;  // the player's death is entirely scripted
+  if (obj < 0 || obj >= ctx.objectCount) return;
+  RuntimeObject& o = ctx.objects[obj];
+  switch (o.data.deathAct) {
+    case 1:
+      if (ctx.despawnObject) ctx.despawnObject(obj);
+      break;
+    case 2:
+      break;  // left exactly as it was - On Killed does the rest
+    case 3:
+      // Knock over: hand the corpse to the rigid-body simulation and give it
+      // a shove, so it topples instead of standing there dead.
+      o.data.physics = 1;
+      o.velocityY = 0.03F;
+      o.spin[0] = 3.5F, o.spin[1] = 1.5F, o.spin[2] = 4.5F;
+      o.restFrames = 0;
+      o.dirty = true;
+      break;
+    default:
+      o.visible = false;
+      o.dirty = true;
+      break;
+  }
+}
+
+// Scene (re)load: rebuild every actor from the scene tables. Combat state is
+// deliberately NOT persistent across scenes - a fresh scene is a fresh fight.
+//
+// EVERY public entry point below calls this first, and that is not belt and
+// braces - it is the whole ordering contract. Generated scripts run in LINK
+// order, so a graph's On Start can hand the player a weapon before this
+// script has ever ticked; if the sync then ran lazily from the weapon tick it
+// would wipe the inventory it was handed a moment earlier. Syncing on first
+// TOUCH instead of first TICK removes the ordering dependency completely.
+void wpnSyncScene(ScriptContext& ctx) {
+  if (wpnSynced && ctx.sceneGeneration == wpnGeneration) return;
+  wpnSynced = true;
+  wpnGeneration = ctx.sceneGeneration;
+  for (int i = 0; i < WPN_MAX_ACTORS; ++i) {
+    actors[i] = WpnActor{};
+    actors[i].equipped = -1;
+    dmgAcc[i] = dmgPub[i] = killAcc[i] = killPub[i] = 0;
+  }
+  firedAcc = firedPub = 0;
+  for (int i = 0; i < WPN_MAX_PROJ; ++i) projs[i].life = 0.0F;
+  recoilAngle = recoilVel = recoilPrev = viewKick = 0.0F;
+
+  const int n = ctx.objectCount < WPN_MAX_ACTORS ? ctx.objectCount : WPN_MAX_ACTORS;
+  for (int i = 0; i < n; ++i) {
+    if (!ctx.objects[i].data.damageable) continue;
+    actors[i].used = 1;
+    actors[i].alive = 1;
+    actors[i].health = ctx.objects[i].data.health;
+  }
+  for (int k = 0; k < OBJECT_WEAPON_COUNT; ++k) {
+    const ObjectWeapon& ow = OBJECT_WEAPONS[k];
+    if (ow.scene != ctx.scene || ow.object < 0 || ow.object >= n) continue;
+    if (ow.weapon < 0 || ow.weapon >= WEAPON_COUNT) continue;
+    WpnActor& a = actors[ow.object];
+    if (!a.used) {  // an armed but invulnerable shooter (a turret, a boss)
+      a.used = 1;
+      a.alive = 1;
+      a.health = 1.0F;
+    }
+    a.carried |= 1u << ow.weapon;
+    a.mag[ow.weapon] = (short)WEAPON_DEFS[ow.weapon].magSize;
+    a.spare[ow.weapon] = (short)WEAPON_DEFS[ow.weapon].reserve;
+    if (a.equipped < 0) a.equipped = (signed char)ow.weapon;
+  }
+  // Viewmodels never collide: the weapon sits half a unit from the eye, and
+  // a player who walks into their own gun is a bug nobody should have to
+  // find in the editor. Forcing it here beats documenting it.
+  for (int wi = 0; wi < WEAPON_COUNT; ++wi) {
+    const int oi = WEAPON_VIEW_OBJECTS[ctx.scene][wi];
+    if (oi >= 0 && oi < ctx.objectCount) {
+      ctx.objects[oi].data.collision = 2;
+      ctx.objects[oi].visible = false;
+      ctx.objects[oi].dirty = true;
+    }
+  }
+}
+
+// Projectiles: integrate, drop, hit. One pass, no broadphase - two dozen
+// balls against a few dozen spheres is nothing next to the scene draw.
+void wpnTickProjectiles(ScriptContext& ctx) {
+  const float dt = g_frameDt;
+  for (int i = 0; i < WPN_MAX_PROJ; ++i) {
+    WpnProj& pr = projs[i];
+    if (pr.life <= 0.0F) continue;
+    pr.life -= dt;
+    const WeaponData& w = WEAPON_DEFS[pr.weapon];
+    pr.vy -= w.projGravity * dt;
+    const float nx = pr.px + pr.vx * dt;
+    const float ny = pr.py + pr.vy * dt;
+    const float nz = pr.pz + pr.vz * dt;
+    float seg[3] = {nx - pr.px, ny - pr.py, nz - pr.pz};
+    const float len = sqrtf(seg[0] * seg[0] + seg[1] * seg[1] + seg[2] * seg[2]);
+    int hitObj = -1;
+    float hp[3] = {nx, ny, nz}, dist = len;
+    bool landed = false;
+    if (len > 0.0001F) {
+      const float d[3] = {seg[0] / len, seg[1] / len, seg[2] / len};
+      const float org[3] = {pr.px, pr.py, pr.pz};
+      hitObj = wpnRay(ctx, org, d, len, pr.owner, hp, &dist,
+                      pr.owner != PLAYER_INDEXES[ctx.scene]);
+      // wpnRay always returns a point; only a hit SHORTER than this frame's
+      // step actually stopped the projectile.
+      landed = hitObj >= 0 || dist < len - 0.0001F;
+    }
+    if (!landed && pr.life > 0.0F) {
+      pr.px = nx, pr.py = ny, pr.pz = nz;
+      pr.travel += len;
+      // The projectile IS a particle: re-seeding a one-frame burst every
+      // frame gives it a body and a fading trail for no extra render code.
+      if (ctx.spawnFx) {
+        const float zero[3] = {0.0F, 0.0F, 0.0F};
+        const float pos[3] = {pr.px, pr.py, pr.pz};
+        ctx.spawnFx(6, pos, zero, w.projColor, w.projSize, 1, 0.20F, 0.0F);
+      }
+      continue;
+    }
+    const float d[3] = {len > 0.0001F ? seg[0] / len : 0.0F,
+                        len > 0.0001F ? seg[1] / len : -1.0F,
+                        len > 0.0001F ? seg[2] / len : 0.0F};
+    // The falloff distance is everything the shot flew, including this last
+    // partial step up to the impact point.
+    if (landed)
+      wpnLand(ctx, w, pr.weapon, pr.owner, hitObj, hp, d, pr.travel + dist);
+    pr.life = 0.0F;
+  }
+}
+
+// Viewmodel animation bookkeeping, run once per frame before the pinning
+// below: the sway/bob clock, and - in clip mode - the small state machine
+// that swaps the viewmodel's animation clip on equip, fire and reload and
+// hands back to idle when a one-shot reaches its end.
+void wpnTickViewAnim(ScriptContext& ctx) {
+  const float dt = g_frameDt;
+  const int pl = wpnPlayer(ctx);
+  const int eq = (pl >= 0 && pl < WPN_MAX_ACTORS && pl < ctx.objectCount)
+                     ? actors[pl].equipped
+                     : -1;
+  const float sway = eq >= 0 ? WEAPON_DEFS[eq].animSwaySpeed : 1.0F;
+  vmPhase += dt * 6.2831853F * (sway > 0.0F ? sway : 1.0F);
+  if (vmPhase > 6283.0F) vmPhase -= 6283.0F;  // keep sinf() off huge arguments
+
+  // Planar speed, smoothed, as a 0..1 fraction of a brisk walk. The 6 units/s
+  // reference is deliberately a constant and not the project's walk speed:
+  // the bob AMPLITUDE is already a per-weapon knob, so all this has to do is
+  // tell standing still from moving.
+  const float px = ctx.playerPosition.x, pz = ctx.playerPosition.z;
+  if (vmPrevValid && dt > 0.0001F) {
+    const float dx = px - vmPrev[0], dz = pz - vmPrev[2];
+    float norm = sqrtf(dx * dx + dz * dz) / dt / 6.0F;
+    if (norm > 1.0F) norm = 1.0F;
+    float k = dt * 8.0F;
+    if (k > 1.0F) k = 1.0F;
+    vmSpeed += (norm - vmSpeed) * k;
+  }
+  vmPrev[0] = px, vmPrev[2] = pz;
+  vmPrevValid = true;
+
+  if (eq < 0) {
+    vmClipWeapon = -1;
+    vmClipState = 0;
+    vmClipWant = -1;
+    return;
+  }
+  const WeaponData& w = WEAPON_DEFS[eq];
+  const int oi = WEAPON_VIEW_OBJECTS[ctx.scene][eq];
+  if (w.animMode != 1 || oi < 0 || oi >= ctx.objectCount) {
+    vmClipWant = -1;
+    return;
+  }
+  auto has = [](const char* c) { return c && c[0]; };
+  // Freshly drawn: play the equip clip, or settle straight into idle.
+  if (vmClipWeapon != (signed char)eq) {
+    vmClipWeapon = (signed char)eq;
+    if (has(w.clipEquip)) {
+      playAnimation(ctx, oi, w.clipEquip, false, 1.0F, 0.05F);
+      vmClipState = 3;
+    } else {
+      if (has(w.clipIdle)) playAnimation(ctx, oi, w.clipIdle, true, 1.0F, 0.05F);
+      vmClipState = 0;
+    }
+    vmClipWant = -1;
+    return;
+  }
+  // A fire or reload request beats whatever is playing. Requests are raised by
+  // the shot/reload paths and consumed here, so a nine-pellet shotgun blast
+  // restarts the fire clip once rather than nine times.
+  if (vmClipWant == 1 && has(w.clipFire)) {
+    playAnimation(ctx, oi, w.clipFire, false, 1.0F, 0.0F);
+    vmClipState = 1;
+  } else if (vmClipWant == 2 && has(w.clipReload)) {
+    playAnimation(ctx, oi, w.clipReload, false, 1.0F, 0.05F);
+    vmClipState = 2;
+  }
+  vmClipWant = -1;
+  if (vmClipState != 0 && ctx.objects[oi].animFinished) {
+    if (has(w.clipIdle)) playAnimation(ctx, oi, w.clipIdle, true, 1.0F, 0.08F);
+    vmClipState = 0;
+  }
+}
+
+// The equipped weapon in the player's hands. The viewmodel is an ordinary
+// scene object, so this is just a transform written every frame - no
+// attachment system, no parenting, nothing the rest of the game must know.
+void wpnPinViewModels(ScriptContext& ctx) {
+  const int pl = wpnPlayer(ctx);
+  const int eq = (pl >= 0 && pl < WPN_MAX_ACTORS) ? actors[pl].equipped : -1;
+  for (int wi = 0; wi < WEAPON_COUNT; ++wi) {
+    const int oi = WEAPON_VIEW_OBJECTS[ctx.scene][wi];
+    if (oi < 0 || oi >= ctx.objectCount) continue;
+    RuntimeObject& o = ctx.objects[oi];
+    if (wi != eq) {
+      if (o.visible) {
+        o.visible = false;
+        o.dirty = true;
+      }
+      continue;
+    }
+    const WeaponData& w = WEAPON_DEFS[wi];
+    float fx = ctx.playerLook.x, fy = ctx.playerLook.y, fz = ctx.playerLook.z;
+    const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+    if (fl < 0.0001F) continue;
+    fx /= fl, fy /= fl, fz /= fl;
+    float rx = -fz, rz = fx;  // the walker's strafe-right direction
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl > 0.0001F) rx /= rl, rz /= rl;
+    else rx = 1.0F, rz = 0.0F;
+    // up = right x forward
+    const float ux = -fx * fy, uy = fx * fx + fz * fz, uz = -fz * fy;
+
+    float ox = w.viewOffset[0], oy = w.viewOffset[1], oz = w.viewOffset[2];
+    float extraPitch = 0.0F, extraYaw = 0.0F, extraRoll = 0.0F;
+    const WpnActor* a = (pl >= 0 && pl < WPN_MAX_ACTORS) ? &actors[pl] : nullptr;
+
+    // Idle sway + walk bob. These stay on in BOTH animation modes: a baked
+    // clip has no way to know how fast the player is walking, and a weapon
+    // that is perfectly still in the hands looks like a decal.
+    if (w.animSway > 0.0F) {
+      ox += sinf(vmPhase * 0.73F) * w.animSway;
+      oy += sinf(vmPhase * 1.11F) * w.animSway * 0.7F;
+    }
+    if (w.animBob > 0.0F && vmSpeed > 0.01F) {
+      // Two vertical bobs per stride, the horizontal one at half that - the
+      // figure-eight every walk cycle traces.
+      const float amp = w.animBob * (vmSpeed < 1.0F ? vmSpeed : 1.0F);
+      oy += sinf(vmPhase * 5.0F) * amp;
+      ox += sinf(vmPhase * 2.5F) * amp * 0.6F;
+    }
+
+    // Procedural states. In clip mode the clip owns the recoil, the reload and
+    // the swing, so these step aside entirely rather than fighting it.
+    if (w.animMode == 0) {
+      if (viewKick > 0.0F) {
+        oz -= w.animKickBack * viewKick * w.viewScale;
+        oy -= w.animKickBack * 0.2F * viewKick * w.viewScale;
+        extraPitch -= w.animKickPitch * viewKick;
+      }
+      // Reload: the weapon drops out of the aim and rolls, then comes back.
+      if (a && a->reloadLeft > 0.0F && w.reloadTime > 0.0001F) {
+        const float t = 1.0F - a->reloadLeft / w.reloadTime;  // 0 -> 1
+        const float dip = sinf(t * WPN_PI);  // down and back up
+        oy -= w.animReloadDip * dip * w.viewScale;
+        oz -= w.animReloadDip * 0.4F * dip * w.viewScale;
+        extraRoll += w.animReloadRoll * dip;
+      }
+      // Melee swing: a lunge forward and a chop down over the swing's life.
+      if (a && a->swingLeft > 0.0F && w.swingTime > 0.0001F) {
+        const float t = 1.0F - a->swingLeft / w.swingTime;
+        const float arc = sinf(t * WPN_PI);
+        oz += w.animSwingReach * arc * w.viewScale;
+        oy += w.animSwingReach * 0.3F * arc * w.viewScale;
+        extraPitch += w.animSwingPitch * arc;
+        extraYaw -= w.animSwingPitch * 0.55F * arc;
+      }
+    }
+
+    o.data.position[0] = ctx.playerPosition.x + rx * ox + ux * oy + fx * oz;
+    o.data.position[1] = ctx.playerPosition.y + uy * oy + fy * oz;
+    o.data.position[2] = ctx.playerPosition.z + rz * ox + uz * oy + fz * oz;
+    // Aim the model's +Z down the view ray. This is the inverse of the
+    // engine's X-then-Y-then-Z euler order, which is why the weapon
+    // generator's "+Z is the muzzle" convention is load-bearing.
+    o.data.rotation[0] =
+        -asinf(fy) * (180.0F / WPN_PI) + w.viewRot[0] + extraPitch;
+    o.data.rotation[1] = atan2f(fx, fz) * (180.0F / WPN_PI) + w.viewRot[1] + extraYaw;
+    o.data.rotation[2] = w.viewRot[2] + extraRoll;
+    const SceneObjectData& src = SCENE_OBJECT_TABLES[ctx.scene][oi];
+    o.data.scale[0] = src.scale[0] * w.viewScale;
+    o.data.scale[1] = src.scale[1] * w.viewScale;
+    o.data.scale[2] = src.scale[2] * w.viewScale;
+    o.visible = true;
+    o.dirty = true;
+  }
+}
+
+// NPCs that shoot on their own (Properties > Combat > Auto-fire).
+void wpnTickAutoFire(ScriptContext& ctx) {
+  const int pl = wpnPlayer(ctx);
+  if (pl < 0 || pl >= ctx.objectCount) return;
+  const float dt = g_frameDt;
+  for (int k = 0; k < OBJECT_AUTOFIRE_COUNT; ++k) {
+    const ObjectAutoFire& af = OBJECT_AUTOFIRES[k];
+    if (af.scene != ctx.scene) continue;
+    const int i = af.object;
+    if (i < 0 || i >= WPN_MAX_ACTORS || i >= ctx.objectCount) continue;
+    WpnActor& a = actors[i];
+    if (!a.used || !a.alive || a.equipped < 0) continue;
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active || !o.visible) continue;
+    if (a.autoLeft > 0.0F) {
+      a.autoLeft -= dt;
+      continue;
+    }
+    const float dx = ctx.playerPosition.x - o.data.position[0];
+    const float dy = ctx.playerPosition.y - o.data.position[1];
+    const float dz = ctx.playerPosition.z - o.data.position[2];
+    const float d = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (d > af.range || d < 0.0001F) continue;
+    // Vision cone around the object's own facing.
+    const float y = o.data.rotation[1] * (WPN_PI / 180.0F);
+    const float ffx = sinf(y), ffz = cosf(y);
+    const float pdx = dx / d, pdz = dz / d;
+    const float planar = sqrtf(pdx * pdx + pdz * pdz);
+    if (planar > 0.0001F &&
+        (pdx * ffx + pdz * ffz) / planar < cosf(af.fov * (WPN_PI / 180.0F)))
+      continue;
+    // Line of sight: anything the shot would stop against short of the
+    // player means the NPC is firing into cover, so it holds instead.
+    float org[3], aim[3];
+    if (!wpnAim(ctx, i, WEAPON_DEFS[a.equipped], org, aim)) continue;
+    float hp[3], dist = 0.0F;
+    wpnRay(ctx, org, aim, d, i, hp, &dist);
+    if (dist < d - 0.6F) continue;
+    if (a.cooldown > 0.0F || a.reloadLeft > 0.0F) continue;
+    wpnTryFire(ctx, i);
+    // NPCs deliberately fire slower than their weapon allows: a hostile that
+    // empties a magazine into the player at the weapon's true rate is not a
+    // fight, it is an execution.
+    a.autoLeft = 0.35F + wpnRand() * 0.5F;
+  }
+}
+
+}  // namespace
+
+// --- The API the flow graph calls ----------------------------------------
+
+void wpnGive(ScriptContext& ctx, int obj, int weapon, int ammo) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || weapon < 0 || weapon >= WEAPON_COUNT) return;
+  const WeaponData& w = WEAPON_DEFS[weapon];
+  const bool isNew = (a->carried & (1u << weapon)) == 0;
+  a->used = 1;
+  if (!a->alive && a->health <= 0.0F) {
+    a->alive = 1;  // arming a never-configured object brings it into combat
+    a->health = 1.0F;
+  }
+  a->carried |= 1u << weapon;
+  if (isNew) {
+    a->mag[weapon] = (short)w.magSize;
+    a->spare[weapon] = (short)(ammo >= 0 ? ammo : w.reserve);
+  } else if (ammo >= 0) {
+    if (a->spare[weapon] >= 0) a->spare[weapon] = (short)(a->spare[weapon] + ammo);
+  } else if (a->spare[weapon] >= 0 && w.reserve > 0) {
+    a->spare[weapon] = (short)(a->spare[weapon] + w.reserve);
+  }
+  if (a->equipped < 0) a->equipped = (signed char)weapon;
+}
+
+void wpnEquip(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a) return;
+  if (weapon >= 0) {
+    if (weapon >= WEAPON_COUNT) return;
+    if (!(a->carried & (1u << weapon))) return;  // you cannot draw what you
+    a->equipped = (signed char)weapon;           // are not carrying
+  } else {
+    // Cycle to the next carried weapon, wrapping.
+    if (WEAPON_COUNT <= 0) return;
+    for (int k = 1; k <= WEAPON_COUNT; ++k) {
+      const int n = (a->equipped + k) % WEAPON_COUNT;
+      if (a->carried & (1u << n)) {
+        a->equipped = (signed char)n;
+        break;
+      }
+    }
+  }
+  a->reloadLeft = 0.0F;  // a swap interrupts a reload, like every shooter
+  a->swingLeft = 0.0F;
+}
+
+void wpnFire(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || a->equipped < 0) return;
+  // A scripted shot ignores the cooldown and the magazine on purpose: a
+  // cutscene gunshot must go off on the frame the graph says so.
+  wpnShoot(ctx, obj, a->equipped);
+}
+
+void wpnReload(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || a->equipped < 0 || a->reloadLeft > 0.0F) return;
+  const int wi = a->equipped;
+  const WeaponData& w = WEAPON_DEFS[wi];
+  if (w.magSize <= 0 || a->mag[wi] >= w.magSize) return;
+  if (a->spare[wi] == 0) return;
+  a->reloadLeft = w.reloadTime > 0.01F ? w.reloadTime : 0.01F;
+  if (obj == wpnPlayer(ctx)) {
+    if (w.reloadSnd >= 0 && ctx.playSound) ctx.playSound(w.reloadSnd, 80, -1);
+    if (w.animMode == 1) vmClipWant = 2;  // clip mode: play the reload clip
+  }
+}
+
+void wpnSetAmmo(ScriptContext& ctx, int obj, int weapon, int mag, int reserve) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a) return;
+  if (weapon < 0) weapon = a->equipped;
+  if (weapon < 0 || weapon >= WEAPON_COUNT) return;
+  if (mag >= 0) {
+    const int cap = WEAPON_DEFS[weapon].magSize;
+    a->mag[weapon] = (short)(cap > 0 && mag > cap ? cap : mag);
+  }
+  if (reserve >= -1) a->spare[weapon] = (short)reserve;
+}
+
+void wpnDamage(ScriptContext& ctx, int obj, float amount) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || !a->used) return;
+  if (amount > 0.0F) {
+    if (!a->alive) return;
+    a->health -= amount;
+    dmgAcc[obj] = 1;
+    if (a->health <= 0.0F) {
+      a->health = 0.0F;
+      a->alive = 0;
+      killAcc[obj] = 1;
+      wpnDeath(ctx, obj);
+    }
+  } else if (amount < 0.0F) {
+    // Healing past zero revives: a graph that heals a dead thing means to
+    // bring it back. What its Death action did to the object (hidden,
+    // toppled) is the graph's to undo.
+    a->health -= amount;
+    if (a->health > 0.0F) a->alive = 1;
+  }
+}
+
+void wpnKill(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a || !a->used || !a->alive) return;
+  wpnDamage(ctx, obj, a->health + 1.0F);
+}
+
+void wpnSetHealth(ScriptContext& ctx, int obj, float hp) {
+  wpnSyncScene(ctx);
+  WpnActor* a = actorOf(ctx, obj);
+  if (!a) return;
+  a->used = 1;
+  a->health = hp < 0.0F ? 0.0F : hp;
+  if (a->health > 0.0F) a->alive = 1;
+}
+
+bool wpnHas(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
+  const WpnActor* a = actorOf(ctx, obj);
+  if (!a) return false;
+  if (weapon < 0) return a->equipped >= 0;
+  if (weapon >= WEAPON_COUNT) return false;
+  return (a->carried & (1u << weapon)) != 0;
+}
+
+int wpnAmmo(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
+  const WpnActor* a = actorOf(ctx, obj);
+  if (!a) return 0;
+  if (weapon < 0) weapon = a->equipped;
+  if (weapon < 0 || weapon >= WEAPON_COUNT) return 0;
+  return a->mag[weapon];
+}
+
+int wpnReserve(ScriptContext& ctx, int obj, int weapon) {
+  wpnSyncScene(ctx);
+  const WpnActor* a = actorOf(ctx, obj);
+  if (!a) return 0;
+  if (weapon < 0) weapon = a->equipped;
+  if (weapon < 0 || weapon >= WEAPON_COUNT) return 0;
+  return a->spare[weapon];
+}
+
+float wpnHealth(ScriptContext& ctx, int obj) {
+  wpnSyncScene(ctx);
+  const WpnActor* a = actorOf(ctx, obj);
+  return a && a->used ? a->health : 0.0F;
+}
+
+bool wpnWasDamaged(ScriptContext& ctx, int obj) {
+  if (obj < 0 || obj >= WPN_MAX_ACTORS || obj >= ctx.objectCount) return false;
+  return dmgPub[obj] != 0;
+}
+
+bool wpnWasKilled(ScriptContext& ctx, int obj) {
+  if (obj < 0 || obj >= WPN_MAX_ACTORS || obj >= ctx.objectCount) return false;
+  return killPub[obj] != 0;
+}
+
+bool wpnWasFired(int weapon) {
+  if (weapon < 0) return firedPub != 0;
+  if (weapon >= WEAPON_COUNT) return false;
+  return (firedPub & (1u << weapon)) != 0;
+}
+
+// The per-frame combat tick, registered like any global Script. Scenes with
+// no armed or damageable objects fall straight through every loop below.
+class WeaponScript : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    wpnSyncScene(ctx);
+    // Publish last frame's triggers for the whole of this frame (see the
+    // dmgAcc/dmgPub note above) BEFORE anything can raise new ones.
+    for (int i = 0; i < WPN_MAX_ACTORS; ++i) {
+      dmgPub[i] = dmgAcc[i];
+      dmgAcc[i] = 0;
+      killPub[i] = killAcc[i];
+      killAcc[i] = 0;
+    }
+    firedPub = firedAcc;
+    firedAcc = 0;
+
+    const float dt = g_frameDt;
+    const int n = ctx.objectCount < WPN_MAX_ACTORS ? ctx.objectCount : WPN_MAX_ACTORS;
+    for (int i = 0; i < n; ++i) {
+      WpnActor& a = actors[i];
+      if (!a.used) continue;
+      if (a.cooldown > 0.0F) a.cooldown -= dt;
+      if (a.swingLeft > 0.0F) {
+        a.swingLeft -= dt;
+        const int wi = a.equipped;
+        // The blow lands past the middle of the swing, not on the button
+        // press - a swing that damages before the weapon has moved reads as
+        // a hitscan with an animation bolted on.
+        if (!a.swingHit && wi >= 0 && WEAPON_DEFS[wi].kind == 2 &&
+            a.swingLeft <= WEAPON_DEFS[wi].swingTime * 0.55F) {
+          a.swingHit = 1;
+          wpnMeleeSweep(ctx, i, wi);
+        }
+        if (a.swingLeft < 0.0F) a.swingLeft = 0.0F;
+      }
+      if (a.reloadLeft > 0.0F) {
+        a.reloadLeft -= dt;
+        if (a.reloadLeft <= 0.0F) {
+          a.reloadLeft = 0.0F;
+          const int wi = a.equipped;
+          if (wi >= 0) {
+            const WeaponData& w = WEAPON_DEFS[wi];
+            int need = w.magSize - a.mag[wi];
+            if (need > 0) {
+              int take = a.spare[wi] < 0 ? need
+                                         : (need < a.spare[wi] ? need : a.spare[wi]);
+              a.mag[wi] = (short)(a.mag[wi] + take);
+              if (a.spare[wi] >= 0) a.spare[wi] = (short)(a.spare[wi] - take);
+            }
+          }
+        }
+      }
+    }
+
+    // Player input.
+    const int pl = wpnPlayer(ctx);
+    if (pl >= 0 && pl < WPN_MAX_ACTORS && pl < ctx.objectCount &&
+        actors[pl].alive && ctx.engine) {
+      WpnActor& a = actors[pl];
+      const Tyra::PadButtons clicked = ctx.engine->pad.getClicked();
+      const Tyra::PadButtons pressed = ctx.engine->pad.getPressed();
+      if (clicked.BTN_WEAPON_NEXT) wpnEquip(ctx, pl, -1);
+      if (clicked.BTN_RELOAD) wpnReload(ctx, pl);
+      const bool autoFire =
+          a.equipped >= 0 && WEAPON_DEFS[a.equipped].automatic != 0;
+      if (autoFire ? (pressed.BTN_FIRE != 0) : (clicked.BTN_FIRE != 0))
+        wpnTryFire(ctx, pl);
+    }
+
+    wpnTickAutoFire(ctx);
+    wpnTickProjectiles(ctx);
+
+    // Recoil spring -> the frame's view kick. Written every frame including
+    // zero: ScriptContext::viewKickPitch has exactly one producer.
+    recoilVel += (-recoilAngle * 55.0F - recoilVel * 8.0F) * dt;
+    recoilAngle += recoilVel * dt;
+    ctx.viewKickPitch = recoilAngle - recoilPrev;
+    ctx.viewKickYaw = 0.0F;
+    recoilPrev = recoilAngle;
+    if (viewKick > 0.0F) {
+      const int eqw = (pl >= 0 && pl < WPN_MAX_ACTORS) ? actors[pl].equipped : -1;
+      const float rate = eqw >= 0 ? WEAPON_DEFS[eqw].animRecover : 7.0F;
+      viewKick -= dt * (rate > 0.2F ? rate : 0.2F);
+      if (viewKick < 0.0F) viewKick = 0.0F;
+    }
+
+    wpnTickViewAnim(ctx);
+    wpnPinViewModels(ctx);
+  }
+};
+)";
+    out << "\n}  // namespace " << ns << "\n\nTYRA_SCRIPT(" << ns
+        << "::WeaponScript);\n";
+    return out.str();
+}
+
 static std::string textureDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     const auto paths = collectTexturePaths(p);
@@ -31696,6 +33636,9 @@ std::vector<File> generate(const Project& p) {
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
+        {"inc\\weapon_data.gen.hpp", weaponDataHeader(p)},
+        {"inc\\scripts\\weapons.gen.hpp", weaponsHeader(p)},
+        {"src\\gen\\weapons.gen.cpp", weaponsSource(p)},
         {"inc\\texture_data.gen.hpp", textureDataHeader(p)},
         {"inc\\decal_data.gen.hpp", decalDataHeader(p)},
         {"inc\\ao_data.gen.hpp", aoDataHeader(p)},

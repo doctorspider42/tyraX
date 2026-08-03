@@ -1,0 +1,1 @@
+{ "id": "a000000000000032", "name": "prop-3", "type": "box", "position": [-10.8, 0.6, -12], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.75, 0.7, 0.55], "physics": true, "physMass": 0.6, "physBounce": 0.25, "physFriction": 0.6, "physTumble": true, "physSleep": 3 }

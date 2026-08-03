@@ -832,6 +832,7 @@ void App::drawUI() {
     drawTerrainWindow();
     drawUiEditorWindow();
     drawFontManagerWindow();
+    drawWeaponEditorWindow();
     drawInputMapWindow();
     drawAssetBrowserWindow();
     drawTreeGeneratorWindow();
@@ -1464,6 +1465,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
+            if (ImGui::MenuItem("Weapon Editor...")) showWeaponEditor_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
             if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
             if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
@@ -4086,6 +4088,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
     if (key == "tree") return &showTreeGenerator_;
+    if (key == "weapons") return &showWeaponEditor_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
     if (key == "drone") return &showDroneGenerator_;
@@ -4112,7 +4115,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad",      "proc",     "prefabs"};
+    "pad",      "proc",     "prefabs",  "weapons"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether

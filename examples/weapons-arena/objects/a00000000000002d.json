@@ -1,0 +1,1 @@
+{ "id": "a00000000000002d", "name": "dummy-3", "type": "box", "position": [18, 1.1, 4], "rotation": [0, 0, 0], "scale": [1, 2.2, 1], "color": [0.7, 0.45, 0.42], "physics": false, "combat": { "health": 90, "death": 3, "hitFx": 2 } }

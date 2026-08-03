@@ -1,0 +1,1 @@
+{ "id": "a000000000000013", "name": "death-vanish", "type": "box", "position": [-9, 1.4, 6], "rotation": [0, 0, 0], "scale": [1.4, 2.8, 1.4], "color": [0.8, 0.75, 0.3], "physics": false, "combat": { "health": 70, "death": 0, "hitFx": 0 } }

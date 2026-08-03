@@ -1,0 +1,1 @@
+{ "id": "a000000000000011", "name": "react-ghost", "type": "box", "position": [8, 1.1, -6], "rotation": [0, 0, 0], "scale": [1.6, 2.2, 0.8], "color": [0.45, 0.5, 0.7], "physics": false, "combat": { "health": 400, "death": 2, "hitFx": 4 } }

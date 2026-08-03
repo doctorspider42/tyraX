@@ -398,6 +398,12 @@ void App::rebuildAssetUsage() {
             note(img.path, 2, "menu \"" + m.name + "\"");
     for (const GameFont& f : project_.fonts)
         if (!f.fontPath.empty()) note(f.fontPath, 2, "font \"" + f.name + "\"");
+    for (const WeaponDef& w : project_.weapons) {
+        const std::string where = "weapon \"" + w.name + "\"";
+        for (const std::string* s :
+             {&w.fireSound, &w.reloadSound, &w.emptySound, &w.impactSound})
+            if (!s->empty()) note(*s, 2, where);
+    }
 
     // A LOD tier is a real reference: another model's chain points at that file.
     // What is deliberately NOT counted anywhere here is per-asset SETTINGS -
@@ -636,6 +642,14 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (std::string& m : project_.music) swap(m);
     for (std::string& s : project_.sounds) swap(s);
     for (AnimClipEdit& e : project_.animClipEdits) swap(e.model);
+    // Weapon sounds (docs/weapons.md). The viewmodel is an OBJECT name, not
+    // an asset path - object renames carry it, not this.
+    for (WeaponDef& w : project_.weapons) {
+        swap(w.fireSound);
+        swap(w.reloadSound);
+        swap(w.emptySound);
+        swap(w.impactSound);
+    }
 
     // Map keys have to be re-inserted rather than assigned.
     if (auto it = project_.textureQuality.find(from);

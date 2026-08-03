@@ -196,6 +196,15 @@ guides. What is queued is in [Backlog](backlog.md).
   the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
   Player / Flee From Player / Stop AI / On Player Seen) with the classic
   guard wiring, plus the deliberate era-appropriate limitations.
+- [Weapons and combat](weapons.md) - firearms (hitscan and projectile) and
+  melee with configurable damage, ammunition, recoil and blast radius; the
+  shared one-shot particle-burst pool behind muzzle flashes, impacts, blood
+  and tracers (and `ctx.spawnFx`, open to any script); the viewmodel-is-a-
+  scene-object decision and its two animation modes (procedural motion with
+  one-click presets, or your own clips off an animated model);
+  per-object health, death actions and NPC auto-fire;
+  the fourteen Combat flow nodes and their trigger timing; the procedural
+  weapon-model generator; and exactly what a project without combat pays.
 - [Configurable buttons & keys](input-bindings.md) - the Input Map: named
   actions instead of hardcoded pad buttons, per-project binding presets, the
   in-game *Rebind key* menu row (capture mode, overrides persisted in save

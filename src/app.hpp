@@ -38,6 +38,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "weapongen.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -621,6 +622,25 @@ private:
     // "Add to scene": bakes the current tree's assets into res/models/trees
     // and inserts a Model object pointing at them.
     void addTreeToScene();
+    // Tools > Weapon Editor (docs/weapons.md). Its own TU (weaponedit.cpp),
+    // the assetbrowser.cpp precedent: a self-contained subsystem that would
+    // otherwise bury app.cpp's panel section.
+    void drawWeaponEditorWindow();
+    // Weapon reference picker (flow-node params). "" is a legal value on the
+    // nodes that read it as "the equipped weapon" / "any weapon", so the
+    // combo always offers it. Returns true when the reference changed.
+    bool weaponCombo(const char* label, std::string& weaponRef, bool allowEmpty);
+    // Retargets every reference to a weapon after a rename: object loadouts
+    // and the Combat flow-node params (both store the NAME).
+    void renameWeaponRefs(const std::string& from, const std::string& to);
+    // Generates the current weapongen model into res/models/weapons and drops
+    // a Model object into the scene, wired up as this weapon's viewmodel.
+    void addWeaponModelToScene(int weaponIndex);
+    // The Viewmodel tab's live preview: the viewmodel object seen from the
+    // player's own eye, with the weapon's animation running. Advances the
+    // preview's animation clock, so it must be called once per frame while
+    // the tab is open (and only then).
+    void drawWeaponViewmodelPreview(const WeaponDef& w);
     // Tools > Prefabs (docs/prefabs.md): reusable groups of scene objects,
     // captured from a selection and stamped back into the world - by hand, by
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
@@ -1369,6 +1389,36 @@ private:
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
     int treeGenDisplayMode_ = 0;
+    // Weapon Editor (Tools > Weapon Editor, docs/weapons.md). weaponGen_ is
+    // the model generator's live parameter set for the selected weapon - the
+    // "Generate model" side of the window, which writes an .obj into
+    // res/models/weapons and wires it up as the viewmodel.
+    bool showWeaponEditor_ = false;
+    int weaponSel_ = -1;
+    weapongen::Params weaponGen_;
+    char weaponModelName_[64] = "pistol";
+    // Viewmodel preview (Viewmodel tab). The camera state is ordinary panel
+    // state, but wpnPrevPhase_/Kick_/Reload_/Swing_ are the HOST TWIN of the
+    // generated weapon runtime's own globals (vmPhase / viewKick /
+    // WpnActor::reloadLeft / swingLeft) - see weaponPreviewPose in
+    // weaponedit.cpp, which must keep agreeing with wpnPinViewModels in
+    // templates.cpp or the preview stops predicting the console.
+    bool wpnPrevEye_ = true;     // eye view (the player's) vs turntable
+    bool wpnPrevPlay_ = true;    // the animation clock runs
+    bool wpnPrevWalk_ = false;   // the player is walking (drives the bob)
+    bool wpnPrevAuto_ = false;   // hold the trigger at the weapon's fire rate
+    bool wpnPrevWire_ = false;
+    bool wpnPrevMuzzle_ = true;
+    float wpnPrevYaw_ = 35.0f, wpnPrevPitch_ = 12.0f, wpnPrevZoom_ = 1.0f;
+    double wpnPrevClock_ = 0.0;  // ImGui::GetTime() of the last preview frame
+    float wpnPrevPhase_ = 0.0f;  // vmPhase
+    float wpnPrevSpeed_ = 0.0f;  // vmSpeed (smoothed walk fraction)
+    float wpnPrevKick_ = 0.0f;   // viewKick
+    float wpnPrevReload_ = 0.0f;    // WpnActor::reloadLeft
+    float wpnPrevSwing_ = 0.0f;     // WpnActor::swingLeft
+    float wpnPrevNextShot_ = 0.0f;  // auto-fire cooldown
+    int wpnPrevClipState_ = 0;      // 0 idle, 1 fire, 2 reload, 3 equip
+    float wpnPrevClipTime_ = 0.0f;  // output seconds into that clip
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
     // created lazily on the first Audition, so a session that never opens the

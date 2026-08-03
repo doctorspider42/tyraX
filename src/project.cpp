@@ -744,6 +744,22 @@ std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + jsonEscape(o.scripts[i]) + "\"";
         json += "]";
     }
+    // Combat (docs/weapons.md). Written only when the object actually takes
+    // part in it, so a project without weapons round-trips byte-identically.
+    if (o.damageable) {
+        json += ", \"combat\": { \"health\": " + fmtFloat(o.health) +
+                ", \"death\": " + std::to_string(o.deathAction) +
+                ", \"hitFx\": " + std::to_string(o.hitFx) + " }";
+    }
+    if (!o.weapons.empty()) {
+        json += ", \"weapons\": [";
+        for (size_t i = 0; i < o.weapons.size(); ++i)
+            json += (i ? ", \"" : "\"") + jsonEscape(o.weapons[i]) + "\"";
+        json += "]";
+        if (o.autoFireRange > 0.0f)
+            json += ", \"autoFire\": [" + fmtFloat(o.autoFireRange) + ", " +
+                    fmtFloat(o.autoFireFov) + "]";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
     if (!o.procSource.empty())
@@ -1955,6 +1971,76 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// Weapons (Tools > Weapon Editor). Conditional: a project with no weapons
+// emits nothing at all, so nothing about the file format changes for the
+// projects that predate combat.
+static void writeWeaponFx(std::ostream& json, const char* key, const WeaponFx& f) {
+    json << ",\n      \"" << key << "\": { \"kind\": " << f.kind << ", \"color\": "
+         << fmtVec3(f.color) << ", \"size\": " << fmtFloat(f.size)
+         << ", \"count\": " << f.count << ", \"life\": " << fmtFloat(f.life)
+         << ", \"speed\": " << fmtFloat(f.speed) << " }";
+}
+
+static void writeWeaponsSection(std::ostream& json, const Project& p) {
+    if (p.weapons.empty()) return;
+    json << "\"weapons\": [";
+    for (size_t i = 0; i < p.weapons.size(); ++i) {
+        const WeaponDef& w = p.weapons[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(w.name) << "\", \"kind\": " << w.kind
+             << ", \"damage\": " << fmtFloat(w.damage)
+             << ", \"range\": " << fmtFloat(w.range)
+             << ", \"falloff\": " << fmtFloat(w.falloff)
+             << ", \"impulse\": " << fmtFloat(w.impulse)
+             << ", \"fireRate\": " << fmtFloat(w.fireRate)
+             << ", \"automatic\": " << (w.automatic ? "true" : "false")
+             << ", \"spread\": " << fmtFloat(w.spread)
+             << ", \"pellets\": " << w.pellets
+             << ", \"recoil\": " << fmtFloat(w.recoil)
+             << ", \"rumble\": " << fmtFloat(w.rumble)
+             << ",\n      \"magSize\": " << w.magSize
+             << ", \"reserve\": " << w.reserve
+             << ", \"reloadTime\": " << fmtFloat(w.reloadTime)
+             << ", \"projSpeed\": " << fmtFloat(w.projSpeed)
+             << ", \"projGravity\": " << fmtFloat(w.projGravity)
+             << ", \"projSize\": " << fmtFloat(w.projSize)
+             << ", \"projColor\": " << fmtVec3(w.projColor)
+             << ", \"blastRadius\": " << fmtFloat(w.blastRadius)
+             << ", \"meleeArc\": " << fmtFloat(w.meleeArc)
+             << ", \"swingTime\": " << fmtFloat(w.swingTime)
+             << ",\n      \"viewModel\": \"" << jsonEscape(w.viewModel)
+             << "\", \"viewOffset\": " << fmtVec3(w.viewOffset)
+             << ", \"viewScale\": " << fmtFloat(w.viewScale)
+             << ", \"viewRot\": " << fmtVec3(w.viewRot)
+             << ", \"muzzleOffset\": " << fmtVec3(w.muzzleOffset)
+             << ", \"tracer\": " << (w.tracer ? "true" : "false")
+             << ", \"tracerColor\": " << fmtVec3(w.tracerColor)
+             << ",\n      \"animMode\": " << w.animMode
+             << ", \"animKickBack\": " << fmtFloat(w.animKickBack)
+             << ", \"animKickPitch\": " << fmtFloat(w.animKickPitch)
+             << ", \"animRecover\": " << fmtFloat(w.animRecover)
+             << ", \"animSway\": " << fmtFloat(w.animSway)
+             << ", \"animSwaySpeed\": " << fmtFloat(w.animSwaySpeed)
+             << ", \"animBob\": " << fmtFloat(w.animBob)
+             << ", \"animReloadDip\": " << fmtFloat(w.animReloadDip)
+             << ", \"animReloadRoll\": " << fmtFloat(w.animReloadRoll)
+             << ", \"animSwingReach\": " << fmtFloat(w.animSwingReach)
+             << ", \"animSwingPitch\": " << fmtFloat(w.animSwingPitch)
+             << ",\n      \"clipIdle\": \"" << jsonEscape(w.clipIdle)
+             << "\", \"clipFire\": \"" << jsonEscape(w.clipFire)
+             << "\", \"clipReload\": \"" << jsonEscape(w.clipReload)
+             << "\", \"clipEquip\": \"" << jsonEscape(w.clipEquip) << "\"";
+        writeWeaponFx(json, "muzzleFx", w.muzzleFx);
+        writeWeaponFx(json, "impactFx", w.impactFx);
+        writeWeaponFx(json, "bloodFx", w.bloodFx);
+        json << ",\n      \"fireSound\": \"" << jsonEscape(w.fireSound)
+             << "\", \"reloadSound\": \"" << jsonEscape(w.reloadSound)
+             << "\", \"emptySound\": \"" << jsonEscape(w.emptySound)
+             << "\", \"impactSound\": \"" << jsonEscape(w.impactSound) << "\" }";
+    }
+    json << "\n  ]";
+}
+
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
 // for a conditional section with nothing to emit (TexQuality with no entries).
 static std::string sectionBody(const Project& p, Section s) {
@@ -1977,6 +2063,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Weapons: writeWeaponsSection(ss, p); break;
     }
     return ss.str();
 }
@@ -2000,6 +2087,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Weapons: return "weapons";
     }
     return "unknown";
 }
@@ -3312,6 +3400,38 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (s.type == json::Value::Type::String && !s.str.empty())
                     o.scripts.push_back(s.str);
         }
+        if (const auto* cb = jo.find("combat")) {
+            o.damageable = true;
+            if (const auto* v = cb->find("health"))
+                o.health = (float)v->numberOr(100.0);
+            if (const auto* v = cb->find("death")) {
+                o.deathAction = (int)v->numberOr(0.0);
+                if (o.deathAction < 0 || o.deathAction > 3) o.deathAction = 0;
+            }
+            if (const auto* v = cb->find("hitFx")) {
+                o.hitFx = (int)v->numberOr(0.0);
+                if (o.hitFx < 0 || o.hitFx > 4) o.hitFx = 0;
+            }
+        }
+        if (const auto* wp = jo.find("weapons");
+            wp && wp->type == json::Value::Type::Array) {
+            // Deduped on the way in, the way the Properties list does when you
+            // add one: the same weapon twice would emit two OBJECT_WEAPONS
+            // rows for one loadout slot.
+            for (const auto& s : wp->arr)
+                if (s.type == json::Value::Type::String && !s.str.empty() &&
+                    std::find(o.weapons.begin(), o.weapons.end(), s.str) ==
+                        o.weapons.end())
+                    o.weapons.push_back(s.str);
+        }
+        if (const auto* af = jo.find("autoFire");
+            af && af->type == json::Value::Type::Array && af->arr.size() >= 2) {
+            o.autoFireRange = (float)af->arr[0].numberOr(0.0);
+            o.autoFireFov = (float)af->arr[1].numberOr(60.0);
+            if (o.autoFireRange < 0.0f) o.autoFireRange = 0.0f;
+            if (o.autoFireFov < 1.0f) o.autoFireFov = 1.0f;
+            if (o.autoFireFov > 180.0f) o.autoFireFov = 180.0f;
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
@@ -4484,6 +4604,133 @@ static void readModelUnitsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readWeaponFx(const json::Value& parent, const char* key, WeaponFx& f) {
+    const auto* o = parent.find(key);
+    if (!o || o->type != json::Value::Type::Object) return;
+    if (const auto* v = o->find("kind")) f.kind = (int)v->numberOr(0.0);
+    if (f.kind < 0 || f.kind > 5) f.kind = 0;
+    if (const auto* v = o->find("color")) readVec3(v, f.color);
+    if (const auto* v = o->find("size")) f.size = (float)v->numberOr(0.12);
+    if (const auto* v = o->find("count")) f.count = (int)v->numberOr(8.0);
+    if (f.count < 1) f.count = 1;
+    if (f.count > 32) f.count = 32;
+    if (const auto* v = o->find("life")) f.life = (float)v->numberOr(0.25);
+    if (f.life < 0.02f) f.life = 0.02f;
+    if (const auto* v = o->find("speed")) f.speed = (float)v->numberOr(4.0);
+}
+
+static void readWeaponsSection(const json::Value& root, Project& out) {
+    out.weapons.clear();
+    const auto* arr = root.find("weapons");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const auto& jw : arr->arr) {
+        WeaponDef w;
+        if (const auto* v = jw.find("name")) w.name = v->stringOr("Weapon");
+        if (w.name.empty()) continue;  // a nameless weapon can't be referenced
+        if (const auto* v = jw.find("kind")) w.kind = (int)v->numberOr(0.0);
+        if (w.kind < 0 || w.kind > 2) w.kind = 0;
+        if (const auto* v = jw.find("damage")) w.damage = (float)v->numberOr(25.0);
+        // Negative damage would HEAL whatever it hit (wpnDamage treats a
+        // negative amount as a heal, which is what the Apply Damage node's
+        // "heal" exec uses), so a hand-edited file must not be able to smuggle
+        // one in through a weapon.
+        if (w.damage < 0.0f) w.damage = 0.0f;
+        if (const auto* v = jw.find("range")) w.range = (float)v->numberOr(60.0);
+        if (const auto* v = jw.find("falloff")) w.falloff = (float)v->numberOr(0.0);
+        // Falloff is "the FRACTION of the damage lost at maximum range", so
+        // anything above 1 makes a long shot heal the target. The Weapon
+        // Editor's slider is 0..1; the loader has to agree with it.
+        if (w.falloff < 0.0f) w.falloff = 0.0f;
+        if (w.falloff > 1.0f) w.falloff = 1.0f;
+        if (const auto* v = jw.find("impulse")) w.impulse = (float)v->numberOr(0.0);
+        if (const auto* v = jw.find("fireRate")) w.fireRate = (float)v->numberOr(4.0);
+        if (w.fireRate < 0.05f) w.fireRate = 0.05f;
+        if (const auto* v = jw.find("automatic")) w.automatic = v->boolOr(false);
+        if (const auto* v = jw.find("spread")) w.spread = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("pellets")) w.pellets = (int)v->numberOr(1.0);
+        if (w.pellets < 1) w.pellets = 1;
+        if (w.pellets > 16) w.pellets = 16;
+        if (const auto* v = jw.find("recoil")) w.recoil = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("rumble")) w.rumble = (float)v->numberOr(0.3);
+        if (const auto* v = jw.find("magSize")) w.magSize = (int)v->numberOr(12.0);
+        if (w.magSize < 0) w.magSize = 0;
+        // Both counts reach the console as `short` (WpnActor::mag / ::spare),
+        // so the upper bounds are not cosmetic: a five-digit magazine would
+        // wrap negative there and leave the weapon permanently dry-clicking.
+        // These are the Weapon Editor's own ranges.
+        if (w.magSize > 999) w.magSize = 999;
+        if (const auto* v = jw.find("reserve")) w.reserve = (int)v->numberOr(60.0);
+        if (w.reserve < -1) w.reserve = -1;  // -1 = bottomless, the sentinel
+        if (w.reserve > 9999) w.reserve = 9999;
+        if (const auto* v = jw.find("reloadTime"))
+            w.reloadTime = (float)v->numberOr(1.2);
+        if (const auto* v = jw.find("projSpeed"))
+            w.projSpeed = (float)v->numberOr(40.0);
+        if (const auto* v = jw.find("projGravity"))
+            w.projGravity = (float)v->numberOr(9.8);
+        if (const auto* v = jw.find("projSize"))
+            w.projSize = (float)v->numberOr(0.15);
+        if (const auto* v = jw.find("projColor")) readVec3(v, w.projColor);
+        if (const auto* v = jw.find("blastRadius"))
+            w.blastRadius = (float)v->numberOr(0.0);
+        if (const auto* v = jw.find("meleeArc"))
+            w.meleeArc = (float)v->numberOr(70.0);
+        if (const auto* v = jw.find("swingTime"))
+            w.swingTime = (float)v->numberOr(0.35);
+        if (w.swingTime < 0.05f) w.swingTime = 0.05f;
+        if (const auto* v = jw.find("viewModel")) w.viewModel = v->stringOr("");
+        if (const auto* v = jw.find("viewOffset")) readVec3(v, w.viewOffset);
+        if (const auto* v = jw.find("viewScale"))
+            w.viewScale = (float)v->numberOr(1.0);
+        if (const auto* v = jw.find("viewRot")) readVec3(v, w.viewRot);
+        if (const auto* v = jw.find("muzzleOffset")) readVec3(v, w.muzzleOffset);
+        if (const auto* v = jw.find("tracer")) w.tracer = v->boolOr(false);
+        if (const auto* v = jw.find("tracerColor")) readVec3(v, w.tracerColor);
+        if (const auto* v = jw.find("animMode")) w.animMode = (int)v->numberOr(0.0);
+        if (w.animMode < 0 || w.animMode > 1) w.animMode = 0;
+        if (const auto* v = jw.find("animKickBack"))
+            w.animKickBack = (float)v->numberOr(0.10);
+        if (const auto* v = jw.find("animKickPitch"))
+            w.animKickPitch = (float)v->numberOr(7.0);
+        if (const auto* v = jw.find("animRecover"))
+            w.animRecover = (float)v->numberOr(7.0);
+        // A non-positive decay rate would leave the weapon stuck at full kick.
+        if (w.animRecover < 0.2f) w.animRecover = 0.2f;
+        if (const auto* v = jw.find("animSway"))
+            w.animSway = (float)v->numberOr(0.012);
+        if (const auto* v = jw.find("animSwaySpeed"))
+            w.animSwaySpeed = (float)v->numberOr(1.6);
+        if (const auto* v = jw.find("animBob"))
+            w.animBob = (float)v->numberOr(0.030);
+        if (const auto* v = jw.find("animReloadDip"))
+            w.animReloadDip = (float)v->numberOr(0.22);
+        if (const auto* v = jw.find("animReloadRoll"))
+            w.animReloadRoll = (float)v->numberOr(35.0);
+        if (const auto* v = jw.find("animSwingReach"))
+            w.animSwingReach = (float)v->numberOr(0.35);
+        if (const auto* v = jw.find("animSwingPitch"))
+            w.animSwingPitch = (float)v->numberOr(55.0);
+        if (const auto* v = jw.find("clipIdle")) w.clipIdle = v->stringOr("");
+        if (const auto* v = jw.find("clipFire")) w.clipFire = v->stringOr("");
+        if (const auto* v = jw.find("clipReload")) w.clipReload = v->stringOr("");
+        if (const auto* v = jw.find("clipEquip")) w.clipEquip = v->stringOr("");
+        readWeaponFx(jw, "muzzleFx", w.muzzleFx);
+        readWeaponFx(jw, "impactFx", w.impactFx);
+        readWeaponFx(jw, "bloodFx", w.bloodFx);
+        if (const auto* v = jw.find("fireSound")) w.fireSound = v->stringOr("");
+        if (const auto* v = jw.find("reloadSound")) w.reloadSound = v->stringOr("");
+        if (const auto* v = jw.find("emptySound")) w.emptySound = v->stringOr("");
+        if (const auto* v = jw.find("impactSound")) w.impactSound = v->stringOr("");
+        // 32 is the hard ceiling - the runtime's carried-weapon set is a
+        // 32-bit mask and the generated code static_asserts on it. The Weapon
+        // Editor refuses to add a 33rd, but a hand-edited file or a
+        // collaboration peer reaches this path instead, and the failure would
+        // otherwise not surface until a Docker build.
+        if (out.weapons.size() >= 32) break;
+        out.weapons.push_back(std::move(w));
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -4511,6 +4758,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Weapons: readWeaponsSection(root, p); break;
     }
     return true;
 }
@@ -4700,6 +4948,7 @@ std::string load(Project& out, const std::string& projectDir) {
         out.defaultAmbience = -1;
 
     readMenusSection(root, out);
+    readWeaponsSection(root, out);
 
     readInputSection(root, out);
     // Backfill the built-in actions/preset: a project from before the Input Map
@@ -5040,6 +5289,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     for (const auto& n : o.portalObjects) fnvMixS(h, n);
     fnvMix(h, (o.portalShowTerrain ? 1 : 0) | (o.portalTeleportObjects ? 2 : 0) |
                   (o.portalViewAll ? 4 : 0));
+    // Combat: health/damageable/death ride in SceneObjectData, the loadout in
+    // the baked OBJECT_WEAPONS side table (docs/weapons.md).
+    fnvMix(h, (o.damageable ? 1 : 0) | ((uint64_t)o.deathAction << 1) |
+                  ((uint64_t)o.hitFx << 4));
+    fnvMixF(h, o.health);
+    for (const auto& n : o.weapons) fnvMixS(h, n);
+    fnvMixF(h, o.autoFireRange), fnvMixF(h, o.autoFireFov);
     // Scroller parameters + segment membership are baked (SCROLLERS /
     // SCROLLER_CLONES side tables + the appended clone objects), so any edit
     // must read as "rebuild needed" for Live Link.
@@ -5238,6 +5494,9 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||
+            f.relativePath == "inc\\weapon_data.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\weapons.gen.hpp" ||
+            f.relativePath == "src\\gen\\weapons.gen.cpp" ||
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||

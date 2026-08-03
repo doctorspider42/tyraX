@@ -113,12 +113,31 @@ std::string exePath() {
     if (GetModuleFileNameA(nullptr, buf, MAX_PATH) == 0) return "";
     return buf;
 #else
+    // /proc/self/exe is the authoritative answer on Linux, and canonical()
+    // resolves the symlink - but canonical() FAILS the moment the binary is
+    // replaced under a running process, because the path it resolves to no
+    // longer exists. That is not a corner case here: it is what a rebuild does
+    // to an editor someone left open (the linker unlinks the old inode, and
+    // unlike Windows - where a running .exe simply cannot be replaced, and the
+    // link step fails with "Permission denied" instead - Linux lets it happen
+    // silently). The process then answered "" to every question about where it
+    // lives, and engineSourceDir() baked "." into every docker-compose.yml it
+    // regenerated from then on, so the NEXT build died with "Engine sources not
+    // mounted at /engine-src" - a failure with no visible connection to its
+    // cause. The kernel still reports the path in that state, suffixed
+    // " (deleted)"; read the link raw and strip it.
     std::error_code ec;
-    // /proc/self/exe is the authoritative answer on Linux and survives a
-    // renamed or deleted binary; canonical() resolves the symlink for us.
-    const fs::path p = fs::canonical("/proc/self/exe", ec);
-    if (!ec) return p.string();
-    return "";
+    if (const fs::path p = fs::canonical("/proc/self/exe", ec); !ec)
+        return p.string();
+    char buf[4096] = {};
+    const ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) return "";
+    std::string s(buf, (std::size_t)n);
+    static constexpr char kDeleted[] = " (deleted)";
+    const std::size_t suffix = sizeof(kDeleted) - 1;
+    if (s.size() > suffix && s.compare(s.size() - suffix, suffix, kDeleted) == 0)
+        s.erase(s.size() - suffix);
+    return s;
 #endif
 }
 

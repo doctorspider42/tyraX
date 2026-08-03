@@ -1,0 +1,1 @@
+{ "id": "a000000000000010", "name": "react-crate", "type": "box", "position": [4, 1.1, -6], "rotation": [0, 0, 0], "scale": [1.6, 2.2, 0.8], "color": [0.6, 0.42, 0.22], "physics": false, "combat": { "health": 400, "death": 2, "hitFx": 0 } }

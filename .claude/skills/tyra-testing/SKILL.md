@@ -585,6 +585,34 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  **Mouse LOOK on Wayland needs XWayland**, and that is a real trap rather than
+  a tooling quirk: PCSX2's relative-mouse mode recentres the host cursor after
+  every motion event and reports the distance from the centre, and Wayland does
+  not let a client move the pointer, so the delta never resets and the camera
+  slams into the pitch limit and spins. The editor now launches PCSX2 with
+  `QT_QPA_PLATFORM=xcb` for keyboard/mouse projects (docs/keyboard-mouse.md) —
+  when driving PCSX2 by hand instead, export it yourself or every `movrel`
+  measures nonsense. The instrument that settles it in one run: five IDENTICAL
+  small `movrel 0 10` nudges with a `shot` after each, then read the horizon row
+  out of the crops. Equal steps (−17/−16/−15/−17/−16 px measured) = the deltas
+  are the movement; growing or off-the-screen steps = the recentring is a no-op.
+  A raw "did the picture change" diff cannot tell those apart, which is why the
+  first attempt at this looked fine and was not.
+
+  **In a VM, turn the guest's mouse integration off first.** VMware's VMMouse /
+  VirtualBox's mouse integration / a QEMU tablet are ABSOLUTE pointers, and they
+  fight PCSX2's warp-to-centre into a feedback loop: measured on a VMware guest,
+  42% of the packets the game received carried an exact multiple of 127 (the HID
+  int8 limit) and the worst single frame carried 762 counts, where a synthetic
+  10-count nudge arrives as exactly 10. The tell that it is THIS and not the game
+  is that **moving the mouse drops the emulation speed** - the event storm eats
+  the emulator's main thread - while the pad and keyboard stay perfect. The
+  editor names the device in Output; the cure is host-side and needs the VM
+  powered off (docs/keyboard-mouse.md has the table). Synthetic input through
+  `wayland-control.py` uses mutter's own virtual pointer and is NOT affected, so
+  a scripted run can pass on a box where a human cannot play - say which one you
+  measured.
+
   **To WATCH the game over time, use `watch`** — the same one-session trick
   applied to TIME. It samples the screen on an interval off the
   already-negotiated stream and reports **one downscaled contact sheet** plus a
@@ -672,7 +700,14 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **A TAB inside a tab bar has the same gap** (`TabItemEx`
+  does not call the hook), so `dump` lists a row of unlabelled rects where the
+  tabs are and `click "Window/Viewmodel"` fails - reaching a tab that is not the
+  front one needs `wayland-control.py click --at X,Y` (Linux) / a synthetic
+  click (Windows) at the rect `dump` reported, offset by the window's position
+  on screen. That is what a Weapon Editor tab cost; both gaps are one
+  `IMGUI_TEST_ENGINE_ITEM_INFO` call in the vendored ImGui away, so fix them
+  there if this bites again.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per
@@ -853,6 +888,22 @@ Notes:
   failing with *"cannot open output file tyrax-editor.exe: Permission denied"*
   means exactly that; ask them to close it, or link a check binary under
   another name).
+
+  **On Linux the mirror-image trap is worse, because it does NOT fail.** Windows
+  refuses to replace a running `.exe`; Linux lets the linker unlink it happily,
+  and the editor someone left open keeps running with a **deleted** binary
+  (`/proc/<pid>/exe` then reads `... (deleted)`). Before the `exePath()` fix that
+  made every path question it asked answer `""`, and `engineSourceDir()` baked
+  `"."` into every `docker-compose.yml` that editor regenerated - so the next
+  build died with *"Engine sources not mounted at /engine-src"*, minutes later,
+  with nothing pointing at the rebuild that caused it. A stale process also keeps
+  a stale CONTAINER: the mount is baked in at create time, so the compose file
+  being right again is not enough on its own - `--build --rebuild` recreates it.
+  So when a build fails on `/engine-src` (or any path lookup goes strange), check
+  `ls -l /proc/$(pgrep -x tyrax-editor)/exe` for `(deleted)` FIRST and restart the
+  editor; and prefer `--dev` (its own `build-dev/`) while someone else has the
+  Release binary open.
+
 
   **On a real PS2 there is no game process to find, and the channel dies with
   the editor.** A ps2link deploy is served by a `ps2client.exe` that the RUNNER

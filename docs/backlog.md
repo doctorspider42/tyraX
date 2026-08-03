@@ -514,3 +514,16 @@ the verification, and any fact worth reusing belongs in the relevant
   Do not read "no keystrokes on hardware" as a bug in this change and do not go
   debugging it in software; that ground is already burned.
 
+
+- **Name tabs and combos from `--ui-script`.** ImGui's `TabItemEx` and
+  `BeginCombo` never call `IMGUI_TEST_ENGINE_ITEM_INFO`, so the item registry
+  (`src/uiscript.cpp`) sees their rects with an empty label - `dump` shows a row
+  of unlabelled boxes where a tab bar is, and `click "Weapon Editor/Viewmodel"`
+  cannot resolve. Every panel that lives behind a tab therefore needs a
+  coordinate click from outside the editor to verify, which is exactly the
+  workflow `--ui-script` exists to remove (it cost a detour while verifying the
+  Weapon Editor's viewmodel preview). The fix is two one-line hook calls in the
+  vendored ImGui, which means carrying a patch on `vendor/imgui` - decide
+  whether that is worth it, or whether `uiscript` should instead record a label
+  for items submitted between `BeginTabBar`/`EndTabBar` from the tab bar's own
+  order. Small, and it makes tabbed panels scriptable for good.

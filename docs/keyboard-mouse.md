@@ -107,6 +107,89 @@ into the emulated USB devices. `bin/log.txt` shows
 `KbdMouse: keyboard driver ready` / `mouse driver ready` when the drivers
 enumerated the devices.
 
+### Linux/Wayland: the camera spins into the floor (fixed, but know why)
+
+That recentring is the whole trick, and it is also where it breaks. PCSX2's
+relative-mouse mode warps the host cursor back to the window centre after every
+motion event and reports **how far it had travelled from the centre** as the
+delta. **Wayland does not let a client move the pointer**, so on a native
+Wayland surface the warp is a silent no-op: the cursor stays where your hand
+put it, and every later event reports the whole distance from the centre
+instead of the movement — over and over, every frame. The camera slams into
+the pitch limit and keeps turning. It reads exactly like a broken game, and it
+is not: the same ELF, the same mouse, the same PCSX2 behave perfectly through
+XWayland.
+
+Measured on GNOME/Wayland (fpp fixture, five *identical* 10-count nudges
+downward, horizon row in the captured frame):
+
+| | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- |
+| XWayland (`QT_QPA_PLATFORM=xcb`) | −17 px | −16 | −15 | −17 | −16 |
+| native Wayland | −171 px | −20 | *horizon off screen* | — | — |
+
+So **the editor launches PCSX2 with `QT_QPA_PLATFORM=xcb` on a Wayland
+session** (`Runner::launchPCSX2`, and the same guard in a generated project's
+`run.sh`), and says so in *Output*. It is deliberately narrow: only when the
+project's *Keyboard & mouse controls* preference is on (a pad game never reads
+the mouse, and XWayland costs it fractional-scaling crispness for nothing),
+only when `DISPLAY` is set so there is an XWayland to fall back to, and never
+when you exported `QT_QPA_PLATFORM` yourself — **that export is the opt-out.**
+
+Two things this is *not*. It is not the VM: it reproduces the same way whether
+or not the pointer is a VMware/VirtualBox absolute device. And it is not the
+PS2 side — `KbdMouse::update` already forces `PS2MOUSE_READMODE_DIFF` and
+zero-inits the packet, which are the two ways the *guest* can produce a
+constant phantom delta (both are commented in
+`vendor/tyra/engine/src/pad/kbd_mouse.cpp`). If mouse look ever runs away
+again, check which Qt platform plugin PCSX2 actually loaded before suspecting
+either:
+
+```bash
+grep -oE "libq(xcb|wayland)[a-z-]*\.so" /proc/$(pgrep -x pcsx2-qt)/maps | sort -u
+```
+
+### In a VM: turn the guest's mouse integration OFF
+
+Same root cause from the other side, and this one the editor can only warn
+about. A virtual machine's guest-integration pointer — VMware's `VMMouse`,
+VirtualBox's *mouse integration*, a QEMU/SPICE tablet — is **absolute**: it is
+what lets the cursor cross between host and guest without grabbing, and it
+re-asserts the physical position the instant anything moves the pointer.
+
+PCSX2 recognises its own warp by the motion event arriving **from the window
+centre**. With an absolute pointer the echo does not arrive from the centre, so
+PCSX2 reads its own warp as movement and warps again — a feedback loop. Measured
+on a VMware guest, with the game logging every packet it received:
+
+- **42%** of the packets carried an exact multiple of **127** — the HID boot
+  protocol's `int8` limit, i.e. saturated packets, several per frame
+- **46%** carried **254+ counts in a single frame**; the worst frame carried
+  **762** (a synthetic 10-count nudge, for comparison, arrives as exactly `10`)
+- consecutive deltas alternated **−381/+381, −254/+254** — the warp bouncing
+
+What that looks like while playing, all four from the same loop: alt-tabbing to
+the window (focus, no click) spins the camera absurdly fast; clicking to capture
+works for about half a second and then goes dead; **moving the mouse drops the
+emulation speed**, because the event storm eats the emulator's main thread; and
+the pad and keyboard keep working perfectly throughout, which is what makes it
+look like a game bug.
+
+The editor prints a warning naming the offending device when it finds one
+(`absoluteVmPointer` in `src/runner.cpp` reads `/proc/bus/input/devices` for an
+ABS-without-REL pointer). The cure is on the **host**, with the VM powered off:
+
+| VM | Setting |
+| --- | --- |
+| VMware | `vmmouse.present = "FALSE"` in the `.vmx` |
+| VirtualBox | *Machine > Disable Mouse Integration* (Host+I) |
+| QEMU/libvirt | drop the `tablet` input device, leave the relative mouse |
+
+The guest keeps its ordinary relative PS/2 mouse (`/proc/bus/input/devices`
+lists both on VMware), so warps stick, the echo is recognised and mouse look
+behaves. The cost is that the cursor no longer glides between host and guest —
+you grab it into the VM like it's 2005, which is exactly what an FPS wants.
+
 ## Real hardware & ps2link
 
 On a real console the same build reads real USB HID devices — nothing to

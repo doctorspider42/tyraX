@@ -1,0 +1,1 @@
+{ "id": "2200000000000003", "name": "crate-4", "type": "box", "position": [4, 0.9, 13], "rotation": [0, 36, 0], "scale": [1.8, 1.8, 1.8], "color": [0.62, 0.44, 0.24], "physics": false, "combat": { "health": 60, "death": 3, "hitFx": 3 } }
