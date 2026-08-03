@@ -519,7 +519,20 @@ but only the active one is resident, so `vuprog::activate(i)` swaps a whole look
 at run time through ONE `setProgramOverrides(names, programs, count)` - the
 batched engine entry point exists precisely so five slots cost one cache rebuild,
 and a class the new look does not claim gets a null override, which is how the
-engine's own program comes back. Budget is therefore per look, not per project. A look emits BOTH halves of a class (cull + as_is) but only colour/texture
+engine's own program comes back. Budget is therefore per look, not per project. **A PROJECT CAN WRITE C++ THAT RUNS ON THE VU** - `src/vu/*.cpp` against
+`vushader.hpp` (vu::Program, vu::Vec, vu::Ctx). It is compiled by the HOST
+compiler INSIDE THE BUILD CONTAINER (the ps2dev image ships none: g++ is
+apt-installed once, stamped like the audsrv overlay), linked with the framework
+the editor copies into `<project>/vugen/`, and RUN - what it writes is generated
+.vclpp that goes through the ordinary chain. So a script error is a plain C++
+error with the author's line. Three traps, all measured on hardware: CONSTANTS
+MUST BE HOISTED into the preamble (`vu::splat` does it; `loi` inside the
+per-vertex body is something vcl schedules around, and the console showed
+rainbow noise where the simulator was clean); the lit class has ~1 register of
+headroom, so cell shading via 0..1 died as `no opt table` and the same effect in
+the GS's 0..255 scale fits; and `src/vu/` is excluded from the PS2 compile in
+Makefile.base because it is host code.
+A look emits BOTH halves of a class (cull + as_is) but only colour/texture
 stages go into the as_is twin - that program has no MVP multiply, its vertices
 are already transformed by the EE clipper, so a displacing stage there tears the
 mesh and smears texels (measured). Consequences of the geometry case, all

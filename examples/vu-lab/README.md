@@ -1,15 +1,35 @@
 # vu-lab example
 
-A small scene whose job is to be **inspected**, not played. It is the fixture for
-two things: the VU framework
-([docs/vu-framework.md](../../docs/vu-framework.md)) - take a VU1 packet off the
-running console and re-run it on your PC bit for bit - and **authoring**
-([docs/vu-authoring.md](../../docs/vu-authoring.md)): it ships with a
-microprogram of its own, composed out of stages, with no assembly anywhere.
+A small scene whose job is to be **inspected**, not played. It is the fixture
+for the VU framework ([docs/vu-framework.md](../../docs/vu-framework.md)) and
+for authoring ([docs/vu-authoring.md](../../docs/vu-authoring.md)).
+
+The headline is `src/vu/cell_shading.cpp` - **ordinary C++, in this project,
+that ends up as a VU1 microprogram in the ELF**. It is 6 lines of body:
+
+```cpp
+void vertex(vu::Ctx& c) override {
+  vu::Vec lit = c.color + vu::splat(c, 46.0F);
+  vu::Vec q = lit * vu::splat(c, 4.0F / 255.0F);
+  c.raw().truncate(q.val(), q.val(), vuir::MALL);
+  c.color = q * vu::splat(c, 255.0F / 4.0F);
+}
+```
+
+and it replaces the engine's resident program on all four material classes the
+scene draws, so every prop and the terrain come out in four flat bands. Measured
+on the console: **50 FPS**, no asserts, 279 to 321 instructions per class.
 
 Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
-`tyrax-editor --build <this folder> --run`. **TRIANGLE** cycles the look
-(Toon → Underwater → Toon); everything else is the usual first-person controls.
+`tyrax-editor --build <this folder> --run`. The first build with a script
+installs a host compiler into the container once (~1 min).
+
+Edit the script, press Build, and it is a different microprogram - try `2.0F`
+bands, or `c.position` at `vu::Slot::ObjectSpace` instead of the colour.
+
+The project also carries three **looks** - the stage-list shortcut, no code -
+switched OFF, so the script is unambiguous. Turn one on in *Tools > VU Programs*
+to see the other half of the feature; what they demonstrate is below.
 
 ## What is in it
 

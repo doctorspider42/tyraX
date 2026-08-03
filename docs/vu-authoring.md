@@ -1,12 +1,125 @@
 # Authoring VU programs
 
-[docs/vu-framework.md](vu-framework.md) is the machinery: an instruction model,
-a parser, a host simulator and a generator that emits VCL. This page is the
-layer on top of it — **composing a VU1 microprogram or a VU0 kernel out of
-stages, without writing assembly**.
+Two ways to put your own code on the VU, and they are not alternatives so much
+as different distances from the metal:
 
-Read the framework page first if you intend to add a stage. You can use one
-without it.
+| | |
+|---|---|
+| **A script** — `src/vu/*.cpp` | You write C++. It runs on the HOST at build time and leaves behind a microprogram. Anything the framework can do, you can do. **This is the main road.** |
+| **A look** — the stage list in *Tools > VU Programs* | You tick classes and pick from a catalogue of stages. No code, no build container, and a live preview in the editor. The shortcut for the cases the catalogue already covers. |
+
+Both produce the same thing - a program that REPLACES the engine's resident VU1
+program for a material class - so everything this page says about classes,
+budgets and the traps applies to both.
+
+[docs/vu-framework.md](vu-framework.md) is the machinery underneath: the
+instruction model, the parser, the host simulator and the emitter.
+
+---
+
+## Writing a script
+
+Put a `.cpp` under `src/vu/`. That is the whole setup: the editor notices it,
+copies the framework next to it (`vugen/`, so VS Code resolves the include), and
+the build compiles and runs it.
+
+```cpp
+#include "vushader.hpp"
+
+struct CellShading : vu::Program {
+  const char* name() const override { return "Cell shading"; }
+  unsigned classes() const override {
+    return vu::kColour | vu::kLit | vu::kTextured | vu::kMatcap;
+  }
+  vu::Slot slot() const override { return vu::Slot::Color; }
+
+  void vertex(vu::Ctx& c) override {
+    vu::Vec lit = c.color + vu::splat(c, 46.0F);        // lift the floor
+    vu::Vec q = lit * vu::splat(c, 4.0F / 255.0F);
+    c.raw().truncate(q.val(), q.val(), vuir::MALL);      // floor to 4 bands
+    c.color = q * vu::splat(c, 255.0F / 4.0F);
+  }
+};
+VU_PROGRAM(CellShading);
+```
+
+That is `examples/vu-lab/src/vu/cell_shading.cpp`, unabridged, and it runs on
+the console at 50 FPS.
+
+### What the body is handed
+
+`vu::Ctx` is the program's REGISTERS, not a copy of them: reading one is free,
+assigning to one writes the register the emitter keeps using afterwards.
+
+| | |
+|---|---|
+| `c.position` | the vertex, in the space `slot()` names |
+| `c.color` | 0..255 per channel, the GS scale (128 = "unmodulated") |
+| `c.uv` | texture coordinates, when `c.hasUv()` |
+| `c.normal` | WORLD space, on a lit class, when `c.hasNormal()` |
+| `c.params` | the object's four numbers, from the inspector |
+| `c.time` | `(seconds, sin, cos, 1)`, already range-reduced |
+| `c.scratch(0..3)` | registers the framework already reserved for you |
+| `c.raw()` | the builder itself - madd chains, masked writes, `loi`, `ftoi`, the sine approximation, `xgkick` |
+
+A `vu::Vec` is one virtual VF register and every operator is one VU instruction.
+That correspondence is deliberately visible: this is a way to write microcode,
+not a way to pretend the VU is a GPU.
+
+### Where it runs
+
+`slot()` picks the point in the pipeline:
+
+| Slot | The vertex is | Use it for |
+|---|---|---|
+| `ObjectSpace` | the model's own units, before the MVP multiply | moving geometry |
+| `ClipSpace` | after the MVP, w = view distance | depth tricks, fog |
+| `Ndc` | after the perspective divide | screen-space snapping |
+| `Color` (default) | — colour after lighting and texturing, before the clamp | shading, palettes, tints |
+
+### Three rules the compiler will not tell you
+
+**Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
+writes the I register; a run of them inside the per-vertex body is something vcl
+schedules around, and the hardware then reads an I the host simulator never saw.
+Building constants by hand through `c.raw()` inside the body is the one way to
+reproduce this - the first console run of the script above came out as rainbow
+noise until the constants were hoisted.
+
+**Registers run out before micro memory does.** VCL allocates 31, and the
+directional-light program already keeps about 30 of them live. Cell shading
+written in 0..1 and converted back cost two constants too many and died as `no
+opt table` from vcl, inside Docker, with no line number; the same effect done in
+the GS's own 0..255 scale fits. Prefer `c.scratch(n)` to long expressions, and
+suspect the register ceiling first when a build fails in the assembler.
+
+**A script's `Slot::ObjectSpace` half does not follow a mesh through the
+clipper** - see "One class is two programs" below, which is the same rule the
+stage list lives under.
+
+### What the build actually does
+
+```
+src/vu/*.cpp  +  vugen/*.cpp        your script and the framework
+        |  g++ (in the build container, installed once)
+        v
+     a generator                     runs on the HOST, at build time
+        |
+        v
+src/gen/vu_script*.vclpp + _program.cpp + vu_scripts.gen.{hpp,cpp}
+        |  vclpp -> vcl -> dvp-as    the engine's own chain
+        v
+     the ELF
+```
+
+The container ships no host compiler (it is a ps2dev image), so the first build
+with a script installs `g++` once - about a minute, stamped, and paid again only
+if the container is recreated. A mistake in your file is an ordinary C++ error
+with your own filename and line number.
+
+`vuscript::install(core)` is called by the generated game right after
+`vuprog::install`, so a script wins over a look claiming the same class. With no
+script the header is a stub and every call folds away.
 
 ---
 
