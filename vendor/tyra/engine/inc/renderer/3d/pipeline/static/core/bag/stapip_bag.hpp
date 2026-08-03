@@ -60,6 +60,27 @@ class StaPipBag {
   u32 bboxVersion;
 
   /**
+   * Optional (TyraX addition). Pins the VU1 package size for this bag instead
+   * of deriving it from the bag's program class; 0 = derive as usual.
+   *
+   * Several bags may draw the SAME vertex array in coplanar passes (a
+   * reflective object's additive env pass, a baked lightmap pass). The derived
+   * size depends on the program class - an untextured base bag fits 108 verts
+   * per package where its textured companion fits 72 - so the same array
+   * splits at different boundaries, and one pass can classify a triangle
+   * IN_FRUSTUM (perspective divide on VU1) while the other classifies it
+   * PARTIALLY_IN_FRUSTUM (clipped on the EE, drawn `as_is`). The two routes
+   * differ in the last bits of z and, at the frustum edge, in coverage - which
+   * a coplanar GEQUAL test cannot survive. Pin every pass of an object to one
+   * size and they classify identically.
+   *
+   * StaPipCore clamps this to the bag's own derived size (a class pinned above
+   * its capacity would overflow the VU1 buffer) and to a multiple of 9, so the
+   * value to pass is the MINIMUM over the passes that share the array.
+   */
+  u32 packageSize;
+
+  /**
    * @param maxVertCount This parameter is available in renderer API.
    */
   StaPipBagPackagesBBox calculateBbox(const u32& maxVertCount);
