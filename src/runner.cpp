@@ -847,12 +847,29 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "  DEBIAN_FRONTEND=noninteractive apt-get install -y "
                           "-qq --no-install-recommends g++ >/dev/null; "
                           "fi; "
-                          "mkdir -p /src/src/gen /src/inc/scripts; "
+                          "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
+                          // Skip the whole thing when nothing that feeds it has
+                          // changed. The generator is ~20 s of g++ on its own,
+                          // and what it writes goes through vcl, which is the
+                          // slowest step in the build - so a no-op rebuild used
+                          // to pay full price for producing byte-identical
+                          // files. The stamp covers the framework and the
+                          // project's scripts; the manifest check makes a
+                          // cleaned obj/ regenerate anyway.
+                          "md5sum /src/vugen/* /src/src/vu/*.cpp "
+                          "> /tmp/vu.stamp 2>/dev/null; "
+                          "if cmp -s /tmp/vu.stamp /src/obj/.vu-stamp && "
+                          "test -f /src/src/gen/vu_scripts.manifest; then "
+                          "  echo '[editor] VU scripts unchanged - reusing the "
+                          "generated microprograms.'; "
+                          "else "
                           // -O0: this program runs once and writes a few files;
                           // compiling it fast matters, running it does not.
-                          "g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
+                          "  g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
                           "/src/vugen/*.cpp /src/src/vu/*.cpp && "
-                          "/tmp/vugen /src/src/gen /src/inc/scripts; "
+                          "  /tmp/vugen /src/src/gen /src/inc/scripts && "
+                          "  cp /tmp/vu.stamp /src/obj/.vu-stamp; "
+                          "fi; "
                           // Back to the HOST, and only this one file: the panel
                           // reads the project directory, not the build volume,
                           // and without it the micro-memory budget silently

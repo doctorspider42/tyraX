@@ -77,6 +77,24 @@ std::string symbolName(const std::string& in) {
 bool writeFile(const std::string& dir, const std::string& name,
                const std::string& body) {
     const std::string path = dir + "/" + name;
+    // DO NOT TOUCH A FILE WHOSE CONTENT IS UNCHANGED. make compares mtimes, so
+    // rewriting an identical .vclpp is what makes every single build pay for
+    // vcl again - and vcl on these programs is the slowest thing in the whole
+    // pipeline. The editor's own project::writeFile has followed this rule for
+    // the same reason; this is the generator catching up.
+    if (FILE* old = std::fopen(path.c_str(), "rb")) {
+        std::fseek(old, 0, SEEK_END);
+        const long n = std::ftell(old);
+        if (n == (long)body.size()) {
+            std::rewind(old);
+            std::string prev(body.size(), '\0');
+            const size_t got = std::fread(&prev[0], 1, body.size(), old);
+            std::fclose(old);
+            if (got == body.size() && prev == body) return true;
+        } else {
+            std::fclose(old);
+        }
+    }
     FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) {
         std::fprintf(stderr, "[vugen] cannot write %s\n", path.c_str());

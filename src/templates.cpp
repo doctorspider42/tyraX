@@ -20561,11 +20561,31 @@ static std::string screenFxSource(const Project& p) {
 }
 
 static std::string fillTemplate(const Project& p, const char* tpl) {
-    // docker compose project name: lowercase, must start with letter/digit
+    // docker compose project name: lowercase, must start with letter/digit,
+    // and SUFFIXED WITH THE DIRECTORY.
+    //
+    // The name alone is not unique: a copy of a project - a scratch copy for
+    // testing, a second worktree, an example built from two checkouts - has the
+    // same `name` and a different `./:/host` mount. Compose then decides the
+    // service changed and RECREATES the container on every build, which throws
+    // away everything installed in it (the host compiler the VU scripts need is
+    // ~20 s to put back) and can kill a build that is running from the other
+    // copy. Seen exactly that: two builds of vu-lab from different directories
+    // recreating each other's container in a loop.
     std::string nameLower;
     for (char c : p.name) nameLower += (char)tolower((unsigned char)c);
     if (nameLower.empty() || !isalnum((unsigned char)nameLower[0]))
         nameLower = "tyra-" + nameLower;
+    {
+        unsigned long long h = 1469598103934665603ULL;
+        for (unsigned char c : p.dir) {
+            h ^= (unsigned char)tolower(c);
+            h *= 1099511628211ULL;
+        }
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "-%08x", (unsigned)(h ^ (h >> 32)));
+        nameLower += buf;
+    }
 
     std::string s = tpl;
     s = replaceAll(s, "{{NAME_LOWER}}", nameLower);
