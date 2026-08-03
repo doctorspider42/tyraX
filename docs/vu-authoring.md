@@ -138,16 +138,14 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
   in VS Code. *New script...* creates one from a working stub (pick *VU program*
   instead of *Game script*).
-- **Tools > VU Programs > Micro memory** reads as a LIST of what runs on the
-  VU, in three groups: what is resident (the clipping mode, the material
-  classes, your looks and your scripts - this is the budget), what the other
-  clipping mode would cost, and what runs on a VU but is not in the budget at
-  all (animated models, skinning, particle billboards, your VU0 kernel).
-- **Tools > VU Programs > Micro memory** - a row per emitted microprogram with
-  its slot cost, counted into the same budget bar as everything else. These come
-  from a manifest the last BUILD wrote: the editor has no compiler to run a
-  script with, so the numbers are as stale as your last build and the panel says
-  so.
+- **Tools > VU Programs > Micro memory** reads as a LIST of what runs on the VU,
+  in three groups: what is resident (the clipping mode, the material classes,
+  your looks, your scripts — this is the budget), what the other clipping mode
+  would cost, and what runs on a VU but is not in this budget at all (animated
+  models, skinning, particle billboards, your VU0 kernel), each with why. The
+  script rows come from a manifest the last BUILD wrote — the editor has no
+  compiler to run a script with, so those numbers are as stale as your last
+  build and the panel says so.
 
 There is no live preview of a script's VCL the way there is for a look, for the
 same reason.
