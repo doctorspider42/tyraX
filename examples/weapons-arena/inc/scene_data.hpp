@@ -17,6 +17,8 @@ struct SceneObjectData {
              //    layer zones, In Area triggers - pointInArea below)
              // 18=scatter volume (procedural authoring region; its
              //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -259,6 +261,40 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 
 constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[52] = {0xe43ec089a720810dULL, 0x300148ec94822aceULL, 0x2ff548ec94767049ULL, 0x2ff948ec947a5920ULL, 0x2fef48ec9472049bULL, 0x2ff348ec9475ed72ULL, 0x2fe948ec946d98edULL, 0x2feb48ec946e1bc4ULL, 0x301748ec949356afULL, 0x301b48ec94973f86ULL, 0x2f5d48ec93f6167eULL, 0x2f5348ec93edc1f9ULL, 0x2f5748ec93f1aad0ULL, 0x2f4b48ec93e5f04bULL, 0x2f4f48ec93e9d922ULL, 0x2f4548ec93e1849dULL, 0x391271ec99c0d42cULL, 0x391071ec99c05155ULL, 0x391a71ec99c8a5daULL, 0x391671ec99c4bd03ULL, 0x392071ec99cd1188ULL, 0x391c71ec99c928b1ULL, 0x392871ec99d4e336ULL, 0x392471ec99d0fa5fULL, 0x38f871ec99abbf74ULL, 0x38f471ec99a7d69dULL, 0x39b271ec9a48ffa5ULL, 0x39bc71ec9a51542aULL, 0x39ba71ec9a50d153ULL, 0x39c471ec9a5925d8ULL, 0x39c071ec9a553d01ULL, 0x39ca71ec9a5d9186ULL, 0x1dd0f6ec89f5b78dULL, 0x1dd2f6ec89f63a64ULL, 0x1dd6f6ec89fa233bULL, 0x1ddaf6ec89fe0c12ULL, 0x1ddef6ec8a01f4e9ULL, 0x1de0f6ec8a0277c0ULL, 0x1de4f6ec8a066097ULL, 0x1de8f6ec8a0a496eULL, 0x1deaf6ec8a0acc45ULL, 0x1deef6ec8a0eb51cULL, 0x1d30f6ec896d8c14ULL, 0x1d34f6ec897174ebULL, 0x1d36f6ec8971f7c2ULL, 0x1d3af6ec8975e099ULL, 0x1d3ef6ec8979c970ULL, 0x1d40f6ec897a4c47ULL, 0x26e61fec8f3849c2ULL, 0x26e41fec8f37c6ebULL, 0x26e01fec8f33de14ULL, 0x26dc1fec8f2ff53dULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
