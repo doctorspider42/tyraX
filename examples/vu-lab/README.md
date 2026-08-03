@@ -24,6 +24,10 @@ Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`. The first build with a script
 installs a host compiler into the container once (~1 min).
 
+**TRIANGLE takes the script off VU1 and puts it back** - the scene falls back to
+the engine's own shading and returns to cell shading, which is how a game frees
+micro memory for something else at a trigger or a cutscene beat.
+
 Edit the script, press Build, and it is a different microprogram - try `2.0F`
 bands, or `c.position` at `vu::Slot::ObjectSpace` instead of the colour.
 

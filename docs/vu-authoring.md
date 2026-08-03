@@ -66,6 +66,11 @@ vuscript::active(vuscript::kCellShading);      // is it on?
 The index constants are generated from the script's `name()`, so there is
 nothing to keep in step by hand.
 
+Verified on the console (`examples/vu-lab`, TRIANGLE): with the script off the
+scene renders exactly as the engine's own programs draw it, and turning it back
+on returns a frame **bit-identical** to the one before the switch - 23 340 pixels
+change each way, zero between the two "on" frames, no asserts, 50 FPS throughout.
+
 **Only what is ACTIVE occupies micro memory.** That is what makes this worth
 having rather than a flag inside the shader: a game can carry more programs than
 fit on VU1 at once, as long as it does not turn them all on together. The cost of

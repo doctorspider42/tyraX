@@ -28,6 +28,7 @@
 //     object-data packet.
 #include "scripts/script.hpp"
 #include "scripts/vu_programs.gen.hpp"
+#include "scripts/vu_scripts.gen.hpp"
 #include "vu0_points.gen.hpp"
 
 namespace Vu_lab {
@@ -55,7 +56,20 @@ class Vu0KernelDemo : public Script {
     // ELF - microcode is a byte range in EE memory - so this is one pipeline
     // drain and one upload of the program cache, not a rebuild of anything.
     // Fine on a button; NOT fine per frame.
-    if (ctx.engine->pad.getClicked().Triangle && vuprog::LOOK_COUNT > 1) {
+    // TRIANGLE takes the project's own VU program off VU1 and puts it back.
+    // Only what is ACTIVE occupies micro memory, so this is how a game carries
+    // more programs than fit at once - and it is one pipeline drain and one
+    // upload, which belongs on a button and not in this update loop.
+    if (ctx.engine->pad.getClicked().Triangle && vuscript::COUNT > 0) {
+      const bool on = vuscript::active(vuscript::kCellShading);
+      if (on)
+        vuscript::deactivate(vuscript::kCellShading);
+      else
+        vuscript::activate(vuscript::kCellShading);
+      TYRA_LOG("VU script cell shading -> ", on ? "off" : "on");
+    }
+    // SQUARE cycles the stage-list looks, when the project has any switched on.
+    if (ctx.engine->pad.getClicked().Square && vuprog::LOOK_COUNT > 1) {
       const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;
       vuprog::activate(next);
       TYRA_LOG("VU look -> ", vuprog::lookName(next));
