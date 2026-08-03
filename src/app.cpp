@@ -9669,8 +9669,45 @@ void App::drawScriptsSection() {
         }
     }
 
+    // The project's VU programs (src/vu/*.cpp, docs/vu-authoring.md). Listed
+    // HERE rather than in the VU panel because that is what they are - scripts
+    // the project wrote - and because a file nobody can find is a feature
+    // nobody uses. They are a separate group, not part of the tree above: they
+    // do not run on the EE at all, they run on the host at build time and leave
+    // a microprogram behind, so filing them next to object scripts without
+    // saying so would be a lie about what they do.
+    const std::filesystem::path vuDir =
+        std::filesystem::path(project_.dir) / "src" / "vu";
+    std::vector<std::string> vuFiles;
+    if (std::filesystem::exists(vuDir, ec)) {
+        for (std::filesystem::directory_iterator it(vuDir, ec), end;
+             it != end && !ec; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".cpp")
+                vuFiles.push_back(it->path().filename().string());
+        std::sort(vuFiles.begin(), vuFiles.end());
+    }
+    if (!vuFiles.empty()) {
+        if (ImGui::TreeNodeEx("VU programs", ImGuiTreeNodeFlags_DefaultOpen |
+                                                 ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "src\\vu\\*.cpp - C++ compiled and RUN on the host at build\n"
+                    "time, leaving a VU1 microprogram in the ELF. They replace\n"
+                    "the engine's resident program for the material classes\n"
+                    "they claim (docs/vu-authoring.md).");
+            for (const std::string& f : vuFiles) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                if (ImGui::Selectable(f.c_str())) openInVSCode("src/vu/" + f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open in VS Code");
+            }
+            ImGui::TreePop();
+        }
+    }
+
     if (!any) {
-        ImGui::TextDisabled("No scripts yet.");
+        if (vuFiles.empty()) ImGui::TextDisabled("No scripts yet.");
         return;
     }
 
@@ -9715,8 +9752,28 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
-                        newScriptName_);
+
+    // The two kinds are not variants of one thing and the wording says so: one
+    // runs on the EE every frame, the other runs on the HOST at build time and
+    // leaves a microprogram behind. Attaching the second to an object is
+    // meaningless - it replaces a material class - so the choice is disabled
+    // when the modal was opened from Properties > Scripts.
+    ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
+    if (ImGui::RadioButton("Game script (runs on the EE)", !newScriptIsVu_))
+        newScriptIsVu_ = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptIsVu_))
+        newScriptIsVu_ = true;
+    ImGui::EndDisabled();
+
+    if (newScriptIsVu_)
+        ImGui::TextDisabled(
+            "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
+            "time, replacing the engine's VU1 program for the classes it claims.",
+            newScriptName_);
+    else
+        ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
+                            newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -9753,7 +9810,8 @@ void App::drawNewScriptModal() {
             className[0] = (char)toupper((unsigned char)className[0]);
 
             const std::filesystem::path path =
-                std::filesystem::path(project_.dir) / "src" / "scripts" / (name + ".cpp");
+                std::filesystem::path(project_.dir) /
+                (newScriptIsVu_ ? "src/vu" : "src/scripts") / (name + ".cpp");
             std::error_code ec;
             if (std::filesystem::exists(path, ec)) {
                 newScriptError_ = "Script already exists: " + name + ".cpp";
@@ -9761,8 +9819,15 @@ void App::drawNewScriptModal() {
                 std::filesystem::create_directories(path.parent_path(), ec);
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
-                    f << templates::scriptStub(project_, className, name + ".cpp");
+                    f << (newScriptIsVu_
+                              ? templates::vuScriptStub(className)
+                              : templates::scriptStub(project_, className,
+                                                      name + ".cpp"));
                     f.close();
+                    // The framework has to be next to it before the file is
+                    // opened, or the include the stub carries is red in the
+                    // editor the user just switched to.
+                    if (newScriptIsVu_) project::refreshGenerated(project_);
                     // Invoked from Properties > Scripts: attach the new class
                     // to the object right away.
                     if (newScriptAttachTo_ >= 0 &&

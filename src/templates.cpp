@@ -30752,6 +30752,48 @@ bool saveSlotUsed(int slot) {
     return out.str();
 }
 
+std::string vuScriptStub(const std::string& className) {
+    std::string s;
+    s += "// A VU1 program, written in C++ (docs/vu-authoring.md).\n";
+    s += "//\n";
+    s += "// This file does NOT run on the PS2. It runs on the HOST, once, while\n";
+    s += "// the project builds - and what it leaves behind is a microprogram in\n";
+    s += "// the ELF. So a mistake here is an ordinary C++ error with this\n";
+    s += "// file's name and line, and the effect costs the console nothing but\n";
+    s += "// the instructions you actually emitted.\n";
+    s += "//\n";
+    s += "// A vu::Vec is one virtual VF register and every operator is one VU\n";
+    s += "// instruction. c.raw() drops to the builder itself when the value\n";
+    s += "// layer runs out - madd chains, masked writes, loi, the sine.\n";
+    s += "#include \"vushader.hpp\"\n\n";
+    s += "namespace {\n\n";
+    s += "struct " + className + " : vu::Program {\n";
+    s += "    const char* name() const override { return \"" + className + "\"; }\n\n";
+    s += "    // WHICH MATERIAL CLASSES this replaces. The engine keeps one\n";
+    s += "    // resident VU1 program per class, so a program takes over a class\n";
+    s += "    // rather than attaching to an object - claim the ones your scene\n";
+    s += "    // actually draws (Tools > VU Programs shows the counts).\n";
+    s += "    unsigned classes() const override {\n";
+    s += "        return vu::kColour | vu::kTextured;\n";
+    s += "    }\n\n";
+    s += "    // WHERE in the pipeline the body runs. Color is after lighting\n";
+    s += "    // and texturing and before the clamp; ObjectSpace is before the\n";
+    s += "    // MVP multiply, which is where you move geometry.\n";
+    s += "    vu::Slot slot() const override { return vu::Slot::Color; }\n\n";
+    s += "    // Once per VERTEX. The loop, the packet and the GIF tag are the\n";
+    s += "    // framework's; this is the part that is yours.\n";
+    s += "    void vertex(vu::Ctx& c) override {\n";
+    s += "        // Colour is 0..255 per channel, the GS scale. Constants go\n";
+    s += "        // through vu::splat so they land in the preamble - a loi in\n";
+    s += "        // the per-vertex body is something vcl schedules around.\n";
+    s += "        c.color = c.color * vu::splat(c, 0.75F);\n";
+    s += "    }\n";
+    s += "};\n\n";
+    s += "}  // namespace\n\n";
+    s += "VU_PROGRAM(" + className + ");\n";
+    return s;
+}
+
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);

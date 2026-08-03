@@ -71,6 +71,9 @@ struct Emitted {
     std::string className;   // the EE-side program class
     std::string header;      // its header file name
     std::string programEnum; // the engine slot it replaces
+    std::string script;      // the vu::Program that produced it
+    std::string classTitle;  // the material class, spelled the way the UI does
+    int instructions = 0;
 };
 
 }  // namespace
@@ -131,8 +134,14 @@ int main(int argc, char** argv) {
                 // The slot name comes from the DESCRIPTION, never spelled
                 // again here: a class renamed upstream cannot drift out of step
                 // with the override it installs.
+                int instrs = 0;
+                for (const vuir::Instr& in : b.program.code)
+                    if (in.op != vuir::Op::Label && in.op != vuir::Op::Barrier &&
+                        in.op != vuir::Op::Cont && in.op != vuir::Op::Nop)
+                        ++instrs;
                 emitted.push_back({d.className, d.fileStem + "_program.hpp",
-                                   d.programEnum});
+                                   d.programEnum, p->name(),
+                                   vugen::classTitle(cls), instrs});
                 std::printf("[vugen] %s -> %s (%d instructions)\n", p->name(),
                             d.fileStem.c_str(), (int)b.program.code.size());
             }
@@ -183,6 +192,17 @@ int main(int argc, char** argv) {
         c += "}\n\n}  // namespace vuscript\n";
     }
     if (!writeFile(out, "vu_scripts.gen.cpp", c)) return 1;
+
+    // What the EDITOR cannot know. The panel's micro-memory budget is computed
+    // on the host, and the host has no way to compile a project's C++ - so
+    // without this the scripts are simply absent from the one screen that
+    // answers "does it fit?". A line per emitted program, written where the
+    // panel can read it after a build.
+    std::string m;
+    for (const Emitted& e : emitted)
+        m += e.script + "	" + e.classTitle + "	" +
+             std::to_string(e.instructions) + "	" + e.programEnum + "\n";
+    if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
 
     if (failures) {
         std::fprintf(stderr, "[vugen] %d program(s) failed to build\n", failures);

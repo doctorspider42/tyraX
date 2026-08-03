@@ -389,6 +389,36 @@ void App::drawVuProgramsWindow() {
             // A custom program REPLACES its class's cull half, so only the
             // difference against the engine's own is new weight.
             for (const vugen::Built& b : vuPreview_) totEmitted += b.stageInstrs;
+            // ... and the same for the project's own C++ scripts. Those are
+            // built inside the BUILD CONTAINER - the editor has no compiler to
+            // run them with - so what is read here is the manifest the last
+            // build left behind. Stale until the next build, and labelled that
+            // way, which is still better than the panel pretending a screen
+            // full of microprograms does not exist.
+            struct ScriptRow {
+                std::string script, cls;
+                int instrs = 0;
+            };
+            std::vector<ScriptRow> scriptRows;
+            {
+                std::ifstream mf(std::filesystem::path(project_.dir) / "src" /
+                                 "gen" / "vu_scripts.manifest");
+                std::string line;
+                while (std::getline(mf, line)) {
+                    ScriptRow r;
+                    const size_t a1 = line.find('	');
+                    if (a1 == std::string::npos) continue;
+                    const size_t a2 = line.find('	', a1 + 1);
+                    if (a2 == std::string::npos) continue;
+                    const size_t a3 = line.find('	', a2 + 1);
+                    r.script = line.substr(0, a1);
+                    r.cls = line.substr(a1 + 1, a2 - a1 - 1);
+                    r.instrs = std::atoi(line.substr(a2 + 1).c_str());
+                    (void)a3;
+                    scriptRows.push_back(r);
+                    totEmitted += r.instrs;
+                }
+            }
             const int totLo = (totEmitted + 1) / 2, totHi = totEmitted;
             const float frac = (float)totHi / 2042.0f;
             char bar[64];
@@ -453,6 +483,32 @@ void App::drawVuProgramsWindow() {
                 ImGui::PopID();
             }
             ImGui::EndDisabled();
+
+            // The project's own C++ programs. Not editable here and not
+            // previewable here - they are compiled by the build container - but
+            // they are the biggest thing in this budget when they exist, and a
+            // budget screen that omits them is worse than useless.
+            ImGui::Spacing();
+            ImGui::SeparatorText("VU scripts (src\\vu)");
+            if (scriptRows.empty()) {
+                ImGui::TextDisabled(
+                    project::hasVuScripts(project_)
+                        ? "Not built yet - run a Build and these fill in."
+                        : "None. Add one from the Scripts panel, or see "
+                          "docs/vu-authoring.md.");
+            } else {
+                ImGui::TextDisabled(
+                    "From the last build - the editor cannot compile these "
+                    "itself, so the numbers are as stale as your last Build.");
+                for (const ScriptRow& r : scriptRows) {
+                    ImGui::Bullet();
+                    ImGui::SameLine();
+                    ImGui::Text("%s", r.script.c_str());
+                    ImGui::SameLine(scaled(200));
+                    ImGui::TextDisabled("%-26s %d..%d slots", r.cls.c_str(),
+                                        (r.instrs + 1) / 2, r.instrs);
+                }
+            }
             ImGui::EndTabItem();
         }
 

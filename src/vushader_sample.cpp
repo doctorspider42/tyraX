@@ -52,7 +52,11 @@ struct CellShading : vu::Program {
         vu::Vec back = vu::splat(c, 255.0F / kBands);
         vu::Vec q = lit * steps;
         c.raw().truncate(q.val(), q.val(), vuir::MALL);
-        c.color = q * back;
+        // .rgb(), not the whole register: ALPHA IS WHAT THE GS BLENDS WITH.
+        // Banding it too turned the matcap sphere's reflection pass into grey
+        // stippled patches that read exactly like z-fighting (seen on the
+        // console; the host simulator cannot show it, it has no GS).
+        c.color.rgb() = q * back;
     }
 
     static constexpr float kBands = 4.0F;

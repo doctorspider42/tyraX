@@ -852,7 +852,13 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           // compiling it fast matters, running it does not.
                           "g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
                           "/src/vugen/*.cpp /src/src/vu/*.cpp && "
-                          "/tmp/vugen /src/src/gen /src/inc/scripts"),
+                          "/tmp/vugen /src/src/gen /src/inc/scripts; "
+                          // Back to the HOST, and only this one file: the panel
+                          // reads the project directory, not the build volume,
+                          // and without it the micro-memory budget silently
+                          // omits every script in the project.
+                          "mkdir -p /host/src/gen && "
+                          "cp /src/src/gen/vu_scripts.manifest /host/src/gen/"),
                       p.dir) == 0;
             if (!ok)
                 appendLine(

@@ -1992,6 +1992,10 @@ private:
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
     int newScriptAttachTo_ = -1;
+    // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
+    // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
+    // to an object - it replaces a material class, not a behaviour.
+    bool newScriptIsVu_ = false;
 
     // Object script classes registered in src/scripts/*.cpp with
     // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache

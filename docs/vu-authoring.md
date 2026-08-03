@@ -46,6 +46,20 @@ VU_PROGRAM(CellShading);
 That is `examples/vu-lab/src/vu/cell_shading.cpp`, unabridged, and it runs on
 the console at 50 FPS.
 
+### Where it shows up in the editor
+
+- **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
+  in VS Code. *New script...* creates one from a working stub (pick *VU program*
+  instead of *Game script*).
+- **Tools > VU Programs > Micro memory** - a row per emitted microprogram with
+  its slot cost, counted into the same budget bar as everything else. These come
+  from a manifest the last BUILD wrote: the editor has no compiler to run a
+  script with, so the numbers are as stale as your last build and the panel says
+  so.
+
+There is no live preview of a script's VCL the way there is for a look, for the
+same reason.
+
 ### What the body is handed
 
 `vu::Ctx` is the program's REGISTERS, not a copy of them: reading one is free,

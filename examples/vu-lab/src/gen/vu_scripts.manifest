@@ -1,0 +1,8 @@
+Cell shading	Untextured (vertex colour)	299	StaPipCullColor
+Cell shading	Untextured (vertex colour)	103	StaPipAsIsColor
+Cell shading	Directional lights	275	StaPipCullDirLights
+Cell shading	Directional lights	145	StaPipAsIsDirLights
+Cell shading	Textured	313	StaPipCullTextureColor
+Cell shading	Textured	120	StaPipAsIsTextureColor
+Cell shading	Reflective (matcap)	298	StaPipCullTextureEnv
+Cell shading	Reflective (matcap)	171	StaPipAsIsTextureEnv

@@ -74,6 +74,17 @@ class Vec {
     Vec z() const { return {b_, v_.broadcast(2)}; }
     Vec w() const { return {b_, v_.broadcast(3)}; }
 
+    /** The same value, but assigning to it writes ONLY xyz. On a colour that
+     * means "leave alpha alone", and it is not a nicety: alpha is what the GS
+     * blends with, so a shading effect that quantises it too turns a
+     * reflection or a shadow pass into stippled patches. Anything that touches
+     * c.color should ask itself whether it meant c.color.rgb(). */
+    Vec rgb() const {
+        Vec r(b_, v_);
+        r.writeMask_ = vuir::MXYZ;
+        return r;
+    }
+
     Vec operator+(const Vec& o) const { return {b_, b_->add(v_, o.v_)}; }
     Vec operator-(const Vec& o) const { return {b_, b_->sub(v_, o.v_)}; }
     Vec operator*(const Vec& o) const { return {b_, b_->mul(v_, o.v_)}; }
@@ -90,13 +101,14 @@ class Vec {
         }
         // Copy = add zero. One instruction, exact, and it writes the register
         // this value NAMES rather than minting another one.
-        b_->addInto(v_, o.v_, b_->zero());
+        b_->addInto(v_, o.v_, b_->zero(), writeMask_);
         return *this;
     }
 
    private:
     vugen::Vu* b_ = nullptr;
     vugen::Val v_{};
+    uint8_t writeMask_ = vuir::MALL;
 };
 
 class Ctx;  // defined below - the constant helpers take one

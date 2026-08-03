@@ -92,6 +92,10 @@ bool projectUsesBeams(const Project& p);
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
 
+// Content of a new VU program (src/vu/*.cpp) - C++ compiled and RUN on the host
+// at build time, leaving a VU1 microprogram behind (docs/vu-authoring.md).
+std::string vuScriptStub(const std::string& className);
+
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.
