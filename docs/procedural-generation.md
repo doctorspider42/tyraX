@@ -121,8 +121,9 @@ is why the library composes without a combinatorial explosion of node types.
   feature size and a range remap. The one node that turns an even carpet into
   a forest with clearings.
 - **Terrain Mask** — the terrain as a mask: height band, slope band, curvature
-  (ridges vs hollows) or the weight of a hand-painted terrain layer. "Grass in
-  the valleys, rocks on the ridges" is this node twice.
+  (ridges vs hollows) or **one painted terrain material** (*Terrain material*).
+  "Grass in the valleys, rocks on the ridges" is this node twice; "trees only
+  on grass, never on the rock" is this node once — see the recipe below.
 - **Combine Masks** — multiply (= AND), add, subtract, min, max, blend.
 - **Remap Mask** — rescale and bend a mask's response (the density curve).
 
@@ -197,6 +198,30 @@ density change makes new chunks that know nothing about the edit. Draw distance,
 cast shadow, collision and the streaming layer are deliberately **not** in this
 list — they live on Output (and the layer on the volume itself), so every field
 has exactly one place.
+
+### Scattering on one terrain material
+
+*Trees on the grass, not on the rock.* The ground's materials are the painted
+terrain layers ([terrain painting](terrain-painting.md)), so this is a mask:
+
+1. Add a **Terrain Mask**, set *Source* = **Terrain material** and pick the
+   material from the *Material* dropdown — it lists the scene's painted layers
+   by name, plus **Base material** for the ground under everything you painted.
+2. Set *Range min* **0.5**, *Range max* **1**, a small *Falloff* (0.1–0.2).
+3. Wire it into the scatter's **density** input (thin out everywhere else) or
+   into a **Filter by Mask** (a hard cut). *Invert* means "anywhere but this
+   material".
+
+The mask reads the material's **visible coverage**, not the raw brush weight:
+layers paint over one another, so grass you later covered with rock reads as
+rock — which is what you see and therefore what should decide the scatter. Two
+materials at once is a **Combine Masks** on *Max* (grass **or** sand), and
+"grass but not on the steep parts" is another Terrain Mask on *Slope* combined
+with *Multiply*.
+
+This is a **build-time** mask: the splat map is an editor asset and never ships,
+so a [runtime volume](procedural-runtime.md) is told so under its budget bar and
+must use Height / Slope / Curvature instead.
 
 Every node's tooltip — the add menu and the node hover draw the same thing — is
 its description **followed by one line per control**: each parameter's label
@@ -346,6 +371,12 @@ identity (and with it live link and collaboration) survives.
 Deleting a volume deletes its chunk objects and their mesh files. *Clear bake*
 does the same without deleting the volume.
 
+Because a chunk is an ordinary `Model` scene object, anything that consumes
+scene objects consumes a bake for free. The one worth knowing about: list them
+as members of an [endless scroller](endless-scroller.md) segment and a strip of
+world you generated once tiles past the camera **forever** — see
+[examples/endless-runner](../examples/endless-runner).
+
 ---
 
 ## Budgets, in practice
@@ -386,8 +417,8 @@ only be made cheaper by authoring fewer, bigger cards.
 - **No spline geometry extrusion** (roads, walls). Curves place instances and
   clear space; they do not build a mesh yet.
 - **Painted density masks** are not in yet: mask density comes from noise, the
-  terrain and object/curve distance. Painting the terrain layer you want and
-  reading it with a *Terrain Mask (Painted layer)* covers most of that need
+  terrain and object/curve distance. Painting the terrain material you want and
+  reading it with a *Terrain Mask (Terrain material)* covers most of that need
   today.
 
 ---

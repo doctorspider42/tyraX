@@ -252,6 +252,7 @@ private:
     void addMirror();
     void addPortal();
     void addArea();
+    void addScroller();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
     // a layer zone: a combo of this scene's Area objects plus <none>. Returns
@@ -816,15 +817,21 @@ private:
     void setDirty(bool dirty);
     void updateWindowTitle();
 
-    // Guarded actions that would discard unsaved edits (Exit / Open / New).
-    // When the project is dirty they open a confirm modal instead of running
-    // immediately; the modal's Save/Discard buttons then run the pending one.
-    enum class PendingAction { None, Exit, Open, New, JoinSession };
+    // Guarded actions that would discard unsaved edits (Exit / Open / New /
+    // Close). When the project is dirty they open a confirm modal instead of
+    // running immediately; the modal's Save/Discard buttons then run the
+    // pending one. OpenRecent carries its target in pendingRecentDir_.
+    enum class PendingAction { None, Exit, Open, OpenRecent, New, Close, JoinSession };
     void requestExit();
     void requestOpenProject();
     void requestNewProject();
+    void requestCloseProject();
     void performPendingAction();
     void drawDiscardModal();
+    // Release the open project and go back to the state the editor boots in
+    // (the Viewport becomes the welcome screen again). Never asks anything -
+    // requestCloseProject() owns the unsaved-edit guard.
+    void closeProject();
 
     // --- Recent projects ----------------------------------------------------
     // The list the welcome screen offers before any project is open, so the
@@ -841,6 +848,13 @@ private:
     void probeRecentProject(RecentProject& r);  // fill name + valid from disk
     void rememberRecentProject(const std::string& dir);  // to the front + save
     void forgetRecentProject(int index);                 // drop it + save
+    // Open one list entry, reporting a folder that moved/vanished since it was
+    // probed instead of failing silently. The welcome screen's rows and the
+    // File > Recent Projects menu both go through it.
+    void openRecentProject(const std::string& dir);
+    void requestOpenRecent(const std::string& dir);  // dirty-guarded
+    void drawRecentProjectsMenu();  // the File menu's submenu
+    std::string pendingRecentDir_;  // target of PendingAction::OpenRecent
     // Load and attach the project in `dir` (a project folder, not the .tyra).
     // Returns the load error; empty means it is open. The single funnel for
     // every local open path: the CLI argument, the Open dialog and the
@@ -1267,6 +1281,24 @@ private:
     // simulator are the reason the window is open, and silently freezing them
     // would be a worse lie than the geometry being in the way.
     bool showProcPreview_ = true;
+
+    // Endless-scroller ghost belts, hideable at two scopes. Same reason as the
+    // procedural preview: a belt fills its whole ahead/behind window with
+    // semi-transparent copies of its members, which is exactly what you cannot
+    // see past while editing those members.
+    //
+    // `showScrollerPreview_` is View > Scroller preview - every belt at once.
+    // `scrollGhostsOff_` holds the OBJECT IDS of individual belts turned off
+    // from their own Properties, which is the scope that panel implies (a
+    // checkbox inside one belt's properties that silenced every belt in the
+    // scene reads as a bug, and was reported as one). Ids, not indices: the
+    // object list is reordered by inserts, deletes and the procedural bake.
+    //
+    // Both are session state like the rest of the Preview group - the belt's
+    // origin markers, the layout maths and the clone-count readout are
+    // untouched either way, and nothing here reaches the .tyra or the game.
+    bool showScrollerPreview_ = true;
+    std::set<std::string> scrollGhostsOff_;
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =

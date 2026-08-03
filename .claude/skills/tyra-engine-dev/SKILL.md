@@ -14,6 +14,11 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 ## Fork policy
 
 `vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
@@ -38,15 +43,38 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
-   `tyra-engine-shared` (mounted at `/tyra`), shared by all projects.
-3. If anything changed, `libtyra` is rebuilt once (VU1 microprograms are
-   force-rebuilt too) and the game ELF is dropped so it relinks.
+   `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
+   by every project built from the same checkout — parallel worktrees get their
+   own, or they would rsync diverging engines over each other forever.
+3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
+   it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
+
+**The VU1 microprograms are the expensive special case.** They sit outside
+make's dependency tracking (a `.vclpp` `#include`s `.i`/`.h` files nothing
+declares), so the Runner force-rebuilds them — but only when the rsync reports a
+changed `.vclpp`/`.vcl`/`.vsm`/`.i`/`.h`. Rebuilding the set costs **109 s**
+(measured, `-j6`; `vcl` is slow enough that its optimizer times out on some
+programs and says so). It used to run on *any* engine change, so a one-line
+comment in a `.cpp` paid it in full; now that same edit is a ~7 s build. If you
+ever change what a VU source may include, widen that extension list in
+`runner.cpp` — a missed extension means stale microprograms, which is the kind
+of bug that looks like a renderer bug.
 
 So the loop is: edit a file under `vendor/tyra/engine`, run a game build, and
 the change is in the ELF. No container restarts needed. If the shared volume
 gets into a weird state, `git checkout` inside `/tyra` restores originals (it's
-a git checkout of the fork).
+a git checkout of the fork) — and **Build > Rebuild** (`--build --rebuild`)
+throws away the whole compiled engine, VU1 objects included, and builds it
+again from source.
+
+`vendor/tyra/Makefile.base` is shared by the engine build and every generated
+game, so an edit there moves both. TyraX changes in it: single-pass dependency
+generation (`-MMD -MP`; it used to run the compiler a second time per file just
+to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
+reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+byte-identical: the same project built with the old and new rules produced the
+same `md5` for its stripped ELF.
 
 ## Engine layout
 
@@ -381,6 +409,14 @@ banner both, so a previously built ELF still reports.
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
   hardware show it. This was the root cause of a long-standing corruption bug —
   not the clipper patches (all were bisected; even pure upstream reproduced it).
+- **Nothing backface-culls — never emit two exactly coplanar faces.** Neither
+  the StaPip VU1 programs nor the GS reject back faces (the "cull" program
+  family is about the frustum, not winding), so a double-sided surface whose
+  front and back share one plane dither-fights itself across the whole surface
+  (dashed dark/light bands, worse with distance). The Plane primitive hit this
+  (its darker underside vs the lit top); the fix is a small offset between the
+  two faces (see `addPlane` in templates.cpp / `unitPlane` in primmesh.cpp,
+  0.01 local units). Same rule for any hand-built double-sided geometry.
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
@@ -619,7 +655,7 @@ on the same scene now that classification is cheap. When touching
 classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
-test. Known next target (from PROGRESS.md backlog): retire the EE clipper —
+test. Known next target (from `docs/backlog.md`): retire the EE clipper —
 flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
 on a real-PS2 pass).
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before

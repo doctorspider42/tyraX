@@ -1174,6 +1174,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Rumbles the pad. Big 0 with Small off is the stop - there is "
                  "no separate node for it."},
         // Scene
+
         {.key = "SetSky", .title = "Set Sky Color", .category = "Scene",
          .numCount = 3,
          .numTips = {"The sky's RGB, each channel 0..1. It repaints the dome "
@@ -1381,6 +1382,40 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "you carry on afterwards."},
         {.key = "StopSequence", .title = "Stop Sequence", .category = "Scene",
          .desc = "Stops the active cutscene."},
+        // Endless scroller (Insert > World > Scroller, docs/endless-scroller.md).
+        // The target is the Scroller MARKER itself, never one of its segment
+        // members - the members are hidden templates and the baked clones are
+        // not addressable from a graph.
+        {.key = "StartScroller", .title = "Start Scroller", .category = "Scroller",
+         .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object whose belt to run. Empty = this "
+                   "graph's own object.",
+         .idIn = true, .idOut = true,
+         .desc = "Runs a stopped endless-scroller belt, from wherever it was "
+                 "frozen. A belt with 'Run at start' ticked is already "
+                 "running, so this only matters after a Stop Scroller (or for "
+                 "a belt authored to start still)."},
+        {.key = "StopScroller", .title = "Stop Scroller", .category = "Scroller",
+         .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object whose belt to freeze. Empty = this "
+                   "graph's own object.",
+         .idIn = true, .idOut = true,
+         .desc = "Freezes an endless-scroller belt in place. The tiled pieces "
+                 "stay exactly where they are and cost nothing per frame; "
+                 "Start Scroller resumes from the same spot."},
+        {.key = "SetScrollerSpeed", .title = "Set Scroller Speed",
+         .category = "Scroller", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object to re-speed. Empty = this graph's own "
+                   "object.",
+         .numCount = 1, .numLabels = {"Speed"},
+         .numTips = {"Belt units per second along the scroller's axis. "
+                     "Negative reverses the belt; 0 stalls it without "
+                     "stopping it (Stop Scroller is the cheaper freeze)."},
+         .idIn = true, .idOut = true, .numIn = true,
+         .desc = "Changes a belt's speed while the game runs - accelerating "
+                 "scenery as a train pulls away, or reversing it. Takes "
+                 "effect on the next frame; the belt keeps its current "
+                 "position."},
         // Credits (docs/credits.md). A rolling credits screen owns the whole
         // frame, so unlike a cutscene it is not something the graph keeps
         // driving: it starts here and reports back through On Credits Finished.
@@ -1401,6 +1436,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Fires the frame a credits roll stops - whether it ran out, "
                  "was skipped or was stopped by a node. Its bool output is "
                  "\"credits are rolling right now\"."},
+
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {.key = "SetHudVisible", .title = "Set HUD Visible", .category = "HUD",
          .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},

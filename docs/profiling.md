@@ -7,8 +7,9 @@ ran out of time. Finding *which* EE phase overran is the whole game. This doc
 describes the built-in profiler and the deeper manual technique behind it.
 
 The worked example throughout is the usable-object highlight: it looked like a
-cheap effect but dropped the showcase to 25 FPS. See `PROGRESS.md` entries
-(usable-highlight rounds) for the full write-up.
+cheap effect but dropped the showcase to 25 FPS. The full write-up is in the
+retired `PROGRESS.md` (the usable-highlight rounds) — see [Backlog](backlog.md)
+for how to read it out of git history.
 
 ## The built-in frame profiler
 

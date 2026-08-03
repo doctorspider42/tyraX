@@ -34,6 +34,7 @@
 #include "prefab.hpp"
 #include "procrt.hpp"
 #include "project.hpp"
+#include "scrollsim.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
 #include "tmdl.hpp"
@@ -330,16 +331,6 @@ INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 include /tyra/Makefile.base
 )";
 
-static const char* TPL_DOCKERFILE = R"(# syntax=docker/dockerfile:1
-FROM h4570/tyra
-
-RUN apt-get update
-RUN apt-get install git -y
-
-WORKDIR /src
-CMD ["/bin/bash"]
-)";
-
 // Per-project container (no fixed container_name - avoids conflicts between
 // projects). The Tyra engine sources are maintained inside the editor repo
 // (vendor/tyra) and bind-mounted read-only; the shared volume holds the
@@ -349,6 +340,12 @@ CMD ["/bin/bash"]
 // checkouts (git worktrees, second clones) get their own - two checkouts
 // sharing a volume rsync their diverging engines over each other on every
 // build, endlessly rebuilding libtyra and racing mid-compile.
+//
+// The stock image is used directly. Projects used to carry a Dockerfile that
+// derived a per-project image from it purely to `apt-get install git`, which
+// nothing in the build ever ran; `docker compose up --build` then cost ~4 s per
+// build re-resolving that image (vs 0.3 s for a plain `up`). A project made
+// before this keeps a stale Dockerfile on disk - unreferenced, safe to delete.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
@@ -359,9 +356,9 @@ services:
     environment:
       TERM: xterm-256color
     network_mode: host
-    build:
-      context: ./
-      dockerfile: Dockerfile
+    image: h4570/tyra
+    working_dir: /src
+    command: ["sleep", "infinity"]
     tty: true
     volumes:
       - tyra-game-volume:/src
@@ -3871,10 +3868,15 @@ void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  // The underside sits slightly below the top face: nothing here backface-culls
+  // (the GS draws both), so two coplanar quads with different baked shades
+  // would z-fight into a dithered mess. Offset in local units (scales with the
+  // plane), invisible from either side. Twin: primmesh::unitPlane.
+  const float b = -0.01F;
   g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
   g_aoRegion = 1;  // bottom face - atlas region 1
-  pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+  pushQuad(verts, cols, sts, o, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
 }
 
 // Decal: a flat unit quad in the XY plane facing +Z, textured via the assigned
@@ -6449,7 +6451,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
         o.data.type == 14 ||                       // 14 = camera marker
         o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18)                         // 18 = scatter volume (authoring only)
+        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
+        o.data.type == 19)                         // 19 = scroller belt marker
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -7680,7 +7683,8 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14 || o.data.type == 17 || o.data.type == 18)
+        o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
+        o.data.type == 19)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -10528,6 +10532,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.matrixMode = localSpace;
+  o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
@@ -10743,6 +10748,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
         break;
       }
+      case 19: break;  // scroller - invisible belt marker (drives clones)
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -12816,7 +12822,19 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
-    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Something that moves EVERY frame asked for the matrix path (an endless
+    // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
+    // bake buys it a whole belt's worth of per-frame motion at the price of a
+    // matrix refresh; without it a running belt re-bakes every clone's world
+    // vertices every frame, which is what held the endless-runner example at
+    // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
+    // itself on the frame it asks, and a world-space rebuild would clear the
+    // flag and leave it asking again forever.
+    if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
+        physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    else if (runtimeObjects[i].dirty)
+      rebuildObjectGeometry(i);
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
@@ -17185,6 +17203,21 @@ struct RuntimeObject {
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
+  // The per-object matrix path, as a Script can see it. Setting `dirty`
+  // rebuilds an object's whole WORLD-space vertex array on the EE, which is
+  // right for a one-shot move and ruinous for something that moves every
+  // frame - such an object is better baked ONCE in local space and then moved
+  // by refreshing its matrix (ObjectGeometry::objMat), which VU1 applies for
+  // free. Scripts have no access to objectGeometry, so the two flags mirror it:
+  // set `wantsMatrixPath` to ask for the promotion (renderScene does it as
+  // soon as the object is eligible), and read `onMatrixPath` to know whether
+  // it happened - while it is true, writing position/rotation is enough and
+  // `dirty` must be left alone. Scale is baked into the local vertices, so
+  // changing it still needs a `dirty` re-bake (the object is demoted and
+  // re-promoted on the next frame). Inherited trade-off, same as physics:
+  // baked shading freezes at the pose the object was promoted in.
+  bool wantsMatrixPath = false;
+  bool onMatrixPath = false;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
   // its geometry/assets may be freed. Managed by the game's layer streaming
@@ -17954,6 +17987,62 @@ static const char* TPL_RES_GITIGNORE =
 /models/*.tskl
 /models/*.tanm
 /models/*.tmdl
+)";
+
+// The attribution a shipped game owes to the code inside it, written into every
+// project so a commercial release is compliant by DEFAULT rather than after the
+// author goes reading licenses. Written once and never clobbered (see the
+// write-if-missing branch in project.cpp) so an author can extend it with their
+// own credits.
+//
+// The point of the first paragraph is the one thing authors actually worry
+// about: none of this requires publishing your source. Apache-2.0 and AFL-2.0
+// are both attribution licenses, not copyleft - the ELF can be closed and sold.
+// The obligations that DO survive come from the engine and the SDK, which are
+// not TyraX's to waive; TyraX's own contribution carries none (LICENSE-EXCEPTION.md).
+static const char* TPL_THIRD_PARTY_NOTICES = R"(THIRD-PARTY NOTICES
+===================
+
+This game is built with TyraX and runs on the Tyra engine. You may release it
+commercially and you may keep your source code closed - nothing here is a
+copyleft license, and none of it requires you to publish anything you wrote.
+
+What IS required is attribution: ship this file with your game (next to the ELF,
+in the package, or reproduced in an in-game credits screen - any of those works)
+and keep the notices below intact. That is the whole obligation.
+
+
+Tyra engine - Apache License 2.0
+--------------------------------
+Copyright Sandro Sobczynski (h4570) and the Tyra contributors.
+https://github.com/h4570/tyra
+
+This game links the Tyra engine, used under the Apache License 2.0. A copy of
+the license is at http://www.apache.org/licenses/LICENSE-2.0 and in the TyraX
+repository at vendor/tyra/LICENSE. The engine as shipped by TyraX is a modified
+fork; the modifications are marked "Modified by TyraX" in its sources.
+
+
+PS2SDK - Academic Free License v2.0
+-----------------------------------
+Copyright the ps2dev project contributors.
+https://github.com/ps2dev/ps2sdk
+
+This game links PS2SDK, used under the Academic Free License version 2.0
+(https://opensource.org/license/afl-2-0-php). If your project enables positional
+audio, it also includes a build of the PS2SDK audsrv module modified to support
+L/R panning.
+
+
+TyraX (the editor and its code templates)
+-----------------------------------------
+Copyright 2026 doctorspider42.
+https://github.com/doctorspider42/tyra-editor
+
+The generated C++ in this project came from TyraX's templates. TyraX grants
+those generated files to you with NO conditions attached - no attribution, no
+license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
+section is a courtesy credit, and you may delete it.
 )";
 
 // Multi-user collaboration hints, written once at project creation (a new game
@@ -18755,6 +18844,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "             //    layer zones, In Area triggers - pointInArea below)\n"
            "             // 18=scatter volume (procedural authoring region; its\n"
            "             //    instances are baked to static chunk meshes)\n"
+           "             // 19=scroller (endless belt marker; invisible - drives\n"
+           "             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)\n"
            "  float position[3];\n"
            "  float rotation[3];  // degrees\n"
            "  float scale[3];\n"
@@ -18946,12 +19037,123 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     const int sceneCount = (int)p.scenes.size();
     out << "constexpr int SCENE_COUNT = " << sceneCount << ";\n\n";
 
+    // Endless scrollers (type 19): bake the belt. For every Scroller object we
+    // append CLONE objects to its scene's table - enough copies of each
+    // segment's member objects to tile the visible belt window (scrollsim
+    // decides the count, shared with the editor preview). The clone rest
+    // positions come from scrollsim::placements at beltScroll 0; a generated
+    // ScrollerDirector (scroller.gen.cpp) slides them every frame and hides the
+    // authored member "templates". Clones append AFTER the authored objects, so
+    // authored indices (referenced by flow graphs, mirrors, scripts, players)
+    // never shift.
+    struct SceneClone {
+        SceneObject obj;    // the synthesized clone (position already at rest)
+        int scroller;       // index into `scrollers` below
+        float phase;        // scrollsim phase (baseOffset + copy*patternLength)
+        float segLen;       // its segment's effective length
+        float home[3];      // the member's authored position (belt slide origin)
+        float homeRotY;     // authored Y rotation (per-cell yaw is added to it)
+        float homeScale[3]; // authored scale + seam overlap (jitter multiplies)
+        int copy;           // which copy of its segment - the cell arithmetic
+        scrollsim::MemberVary vary;  // this member's per-cell variation
+    };
+    struct ScrollerRec {
+        int scene;
+        int objIndex;       // the scroller's authored index in its scene table
+        float axis[3];
+        float side[3];      // horizontal perpendicular (lateral offset jitter)
+        float speed, wmin, wmax, span;
+        int autostart;
+        int cells;          // copies per segment - the cell index step
+        int varySeed;
+    };
+    struct HiddenRec {
+        int scene, objIndex;
+    };
+    std::vector<std::vector<SceneClone>> sceneClones(sceneCount);
+    std::vector<ScrollerRec> scrollers;
+    std::vector<HiddenRec> hiddenMembers;
+    for (int si = 0; si < sceneCount; ++si) {
+        const SceneData& scene = p.scenes[si];
+        for (size_t oi = 0; oi < scene.objects.size(); ++oi) {
+            const SceneObject& sc = scene.objects[oi];
+            if (sc.type != PrimitiveType::Scroller || sc.scrollSegments.empty())
+                continue;
+            float axis[3], side[3];
+            scrollsim::beltAxis(sc.rotation, axis);
+            scrollsim::sideAxis(axis, side);
+            const float pat = scrollsim::patternLength(scene.objects, sc);
+            const int cells = scrollsim::cellsPerSegment(scene.objects, sc);
+            const int scrRec = (int)scrollers.size();
+            scrollers.push_back({si, (int)oi,
+                                 {axis[0], axis[1], axis[2]},
+                                 {side[0], side[1], side[2]},
+                                 sc.scrollSpeed, scrollsim::windowMin(sc),
+                                 scrollsim::windowMax(sc), cells * pat,
+                                 sc.scrollAutostart ? 1 : 0, cells,
+                                 sc.scrollVarySeed});
+            // Hide the authored member templates (dedup per scroller).
+            for (const ScrollSegment& seg : sc.scrollSegments)
+                for (const scrollsim::MemberRef& ref :
+                     scrollsim::segmentMembers(scene.objects, seg)) {
+                    bool seen = false;
+                    for (const HiddenRec& hr : hiddenMembers)
+                        seen |= (hr.scene == si && hr.objIndex == ref.object);
+                    if (!seen) hiddenMembers.push_back({si, ref.object});
+                }
+            // One clone per (placement, member). The rest layout is the belt at
+            // scroll 0; everything a clone needs to resolve LATER cells (its
+            // copy index, its member's variation) is baked next to it, so the
+            // runtime never needs the segment list.
+            for (const scrollsim::Placement& pl :
+                 scrollsim::placements(scene.objects, sc, 0.0f)) {
+                const ScrollSegment& seg = sc.scrollSegments[pl.segment];
+                for (const scrollsim::MemberInstance& in :
+                     scrollsim::memberInstances(scene.objects, sc, pl)) {
+                    const SceneObject& src = scene.objects[in.object];
+                    SceneClone cl;
+                    cl.obj = src;
+                    cl.obj.id.clear();
+                    cl.obj.layer.clear();  // clones never stream on a layer
+                    cl.obj.scripts.clear();
+                    cl.obj.flowGraph = FlowGraph{};
+                    cl.obj.type = src.type;
+                    // memberInstances already folded in the seam overlap (the
+                    // anti-z-fighting stretch, scrollsim::seamScale) and cell
+                    // 0's variation, so the baked rest pose IS what the editor
+                    // ghosts drew at scroll 0.
+                    for (int a = 0; a < 3; ++a) {
+                        cl.home[a] = src.position[a];
+                        cl.obj.position[a] = in.position[a];
+                        cl.obj.rotation[a] = in.rotation[a];
+                        cl.obj.scale[a] = in.scale[a];
+                        cl.homeScale[a] = src.scale[a];
+                    }
+                    scrollsim::seamScale(src, axis, sc.scrollOverlap, cl.homeScale);
+                    cl.homeRotY = src.rotation[1];
+                    cl.scroller = scrRec;
+                    cl.phase = pl.phase;
+                    cl.segLen = pl.segLen;
+                    cl.copy = pl.copy;
+                    cl.vary = scrollsim::memberVary(seg, pl.segment, in.slot);
+                    sceneClones[si].push_back(std::move(cl));
+                }
+            }
+        }
+    }
+
+    // Total objects per scene = authored + baked scroller clones.
+    auto sceneObjTotal = [&](int si) {
+        return p.scenes[si].objects.size() + sceneClones[si].size();
+    };
+
     for (int si = 0; si < sceneCount; ++si) {
         const auto& objs = p.scenes[si].objects;
+        const size_t total = sceneObjTotal(si);
         out << "// scene \"" << p.scenes[si].name << "\"\n"
             << "constexpr SceneObjectData SCENE_" << si << "_OBJECTS["
-            << (objs.empty() ? (size_t)1 : objs.size()) << "] = {\n";
-        if (objs.empty()) {
+            << (total == 0 ? (size_t)1 : total) << "] = {\n";
+        if (total == 0) {
             // Placeholder row so the array is never zero-sized - written by the
             // SAME emitter every real row goes through. It used to be a
             // hand-typed literal, and it had silently drifted behind
@@ -19001,13 +19203,22 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                         : 0);
                 ++batchOi;
             }
+            // Baked scroller clones, appended AFTER every authored row so the
+            // authored indices never shift (flow graphs, mirrors, portals and
+            // players all resolve by index). batchStatic is hard 0: a clone is
+            // repositioned every frame by ScrollerDirector, and a
+            // static-batched object has been merged into a shared mesh that
+            // cannot move - batching one would silently freeze the belt.
+            for (const SceneClone& cl : sceneClones[si])
+                writeObjectDataRow(out, p, cl.obj, soundIndexOf(cl.obj.soundPath),
+                                   layerIndexIn(cl.obj.layer), 0);
         }
         out << "};\n";
     }
 
     out << "\nconstexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
-        out << (si ? ", " : "") << p.scenes[si].objects.size();
+        out << (si ? ", " : "") << sceneObjTotal(si);
     out << "};\n"
            "inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {";
     for (int si = 0; si < sceneCount; ++si)
@@ -19018,15 +19229,18 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // of the editor object id, in authored order. The live_link.gen.cpp poller
     // maps snapshot records onto runtime objects through these, so renames /
     // reorders in the editor keep addressing the right object. Unused (and
-    // dropped by the compiler) outside debug+Live-Link builds.
+    // dropped by the compiler) outside debug+Live-Link builds. Baked scroller
+    // clones are not addressable by Live Link (which refuses scrollers) - they
+    // pad the table with 0 so indices line up with SCENE_*_OBJECTS.
     {
         char hb[19];
         for (int si = 0; si < sceneCount; ++si) {
             const auto& objs = p.scenes[si].objects;
+            const size_t total = sceneObjTotal(si);
             out << "constexpr unsigned long long SCENE_" << si
-                << "_OBJECT_ID_HASHES[" << (objs.empty() ? (size_t)1 : objs.size())
+                << "_OBJECT_ID_HASHES[" << (total == 0 ? (size_t)1 : total)
                 << "] = {";
-            if (objs.empty()) {
+            if (total == 0) {
                 out << "0";
             } else {
                 for (size_t i = 0; i < objs.size(); ++i) {
@@ -19034,6 +19248,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                                   (unsigned long long)project::liveLinkIdHash(objs[i]));
                     out << (i ? ", " : "") << hb << "ULL";
                 }
+                for (size_t i = 0; i < sceneClones[si].size(); ++i)
+                    out << (objs.empty() && i == 0 ? "" : ", ") << "0ULL";
             }
             out << "};\n";
         }
@@ -19042,6 +19258,89 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         for (int si = 0; si < sceneCount; ++si)
             out << (si ? ", " : "") << "SCENE_" << si << "_OBJECT_ID_HASHES";
         out << "};\n\n";
+    }
+
+    // Scroller side tables (like MIRRORS): the per-scroller belt state and one
+    // record per baked clone linking it back to its scroller + belt phase. The
+    // generated ScrollerDirector (scroller.gen.cpp) reads these each frame.
+    {
+        std::ostringstream srecs, crecs, hrecs;
+        int cloneTotal = 0;
+        for (size_t i = 0; i < scrollers.size(); ++i) {
+            const ScrollerRec& s = scrollers[i];
+            srecs << (i ? ",\n    " : "    ") << "{" << s.scene << ", " << s.objIndex
+                  << ", {" << floatLit(s.axis[0]) << ", " << floatLit(s.axis[1]) << ", "
+                  << floatLit(s.axis[2]) << "}, {" << floatLit(s.side[0]) << ", "
+                  << floatLit(s.side[1]) << ", " << floatLit(s.side[2]) << "}, "
+                  << floatLit(s.speed) << ", "
+                  << floatLit(s.wmin) << ", " << floatLit(s.wmax) << ", "
+                  << floatLit(s.span) << ", " << s.autostart << ", " << s.cells
+                  << ", " << s.varySeed << "}";
+        }
+        for (int si = 0; si < sceneCount; ++si) {
+            const size_t authored = p.scenes[si].objects.size();
+            for (size_t ci = 0; ci < sceneClones[si].size(); ++ci) {
+                const SceneClone& cl = sceneClones[si][ci];
+                crecs << (cloneTotal ? ",\n    " : "    ") << "{" << si << ", "
+                      << (authored + ci) << ", " << cl.scroller << ", "
+                      << floatLit(cl.phase) << ", " << floatLit(cl.segLen) << ", {"
+                      << floatLit(cl.home[0]) << ", " << floatLit(cl.home[1]) << ", "
+                      << floatLit(cl.home[2]) << "}, " << floatLit(cl.homeRotY)
+                      << ", {" << floatLit(cl.homeScale[0]) << ", "
+                      << floatLit(cl.homeScale[1]) << ", "
+                      << floatLit(cl.homeScale[2]) << "}, " << cl.copy << ", "
+                      << cl.vary.key << "U, " << floatLit(cl.vary.chance) << ", "
+                      << cl.vary.variantIndex << ", " << cl.vary.variantCount << ", "
+                      << cl.vary.variantKey << "U, " << floatLit(cl.vary.yawVary)
+                      << ", " << floatLit(cl.vary.offsetVary) << ", "
+                      << floatLit(cl.vary.scaleVary) << "}";
+                ++cloneTotal;
+            }
+        }
+        for (size_t i = 0; i < hiddenMembers.size(); ++i)
+            hrecs << (i ? ", " : "") << "{" << hiddenMembers[i].scene << ", "
+                  << hiddenMembers[i].objIndex << "}";
+        out << "// Endless scrollers (type 19). SCROLLERS holds per-belt state;\n"
+               "// SCROLLER_CLONES maps each baked clone object to its scroller +\n"
+               "// belt phase; SCROLLER_HIDDEN lists the authored member templates\n"
+               "// the director deactivates. Object indices are into the clone's\n"
+               "// own scene table (SCENE_*_OBJECTS).\n"
+               "// `cells` and the per-clone `copy` are the cell arithmetic that\n"
+               "// makes an endless belt stop repeating: together with the belt's\n"
+               "// fold counter they give each instance an absolute cell index,\n"
+               "// which the per-cell variation fields hash on (see\n"
+               "// docs/endless-scroller.md and src/scrollsim.cpp).\n"
+               "struct ScrollerData {\n"
+               "  int scene; int object; float axis[3]; float side[3]; float speed;\n"
+               "  float windowMin; float windowMax; float span; int autostart;\n"
+               "  int cells; int varySeed;\n"
+               "};\n"
+               "struct ScrollerClone {\n"
+               "  int scene; int object; int scroller; float phase; float segLen;\n"
+               "  float home[3]; float homeRotY; float homeScale[3];\n"
+               "  int copy; unsigned varyKey; float chance;\n"
+               "  int variantIndex; int variantCount; unsigned variantKey;\n"
+               "  float yawVary; float offsetVary; float scaleVary;\n"
+               "};\n"
+               "struct ScrollerHidden { int scene; int object; };\n"
+            << "constexpr int SCROLLER_COUNT = " << scrollers.size() << ";\n"
+            << "constexpr ScrollerData SCROLLERS[" << (scrollers.empty() ? 1 : scrollers.size())
+            << "] = {\n"
+            << (scrollers.empty()
+                    ? "    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}"
+                    : srecs.str())
+            << "\n};\n"
+            << "constexpr int SCROLLER_CLONE_COUNT = " << cloneTotal << ";\n"
+            << "constexpr ScrollerClone SCROLLER_CLONES[" << (cloneTotal ? cloneTotal : 1)
+            << "] = {\n"
+            << (cloneTotal ? crecs.str()
+                           : "    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, "
+                             "0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}")
+            << "\n};\n"
+            << "constexpr int SCROLLER_HIDDEN_COUNT = " << hiddenMembers.size() << ";\n"
+            << "constexpr ScrollerHidden SCROLLER_HIDDEN["
+            << (hiddenMembers.empty() ? 1 : hiddenMembers.size()) << "] = {"
+            << (hiddenMembers.empty() ? "{0, -1}" : hrecs.str()) << "};\n\n";
     }
 
     // Streaming layers: per-scene layer count and which layers start resident
@@ -21787,6 +22086,266 @@ bool liveLogicOn(const Project& p) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
+// Endless scroller runtime (scroller.gen.hpp/.cpp). One global ScrollerDirector
+// Script slides every baked clone object (SCROLLER_CLONES in scene_data.hpp)
+// along its belt each frame and hides the authored member templates. The
+// Start/Stop/Set Scroller Speed flow nodes call the scroller:: API. The
+// per-frame wrap (sc_wrapU), the cell arithmetic, the visibility test AND the
+// per-cell variation (sc_varyHash / the cellShow_ block) are all twins of
+// scrollsim.cpp - keep them in sync (the editor preview uses the host
+// originals, and a belt is only authorable while the preview predicts the
+// console).
+// ---------------------------------------------------------------------------
+std::string scrollerHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\n"
+           "namespace "
+        << ns
+        << " {\n"
+           "namespace scroller {\n"
+           "// Runtime control of endless scrollers (Start / Stop / Set Scroller\n"
+           "// Speed flow nodes). A scroller is addressed by its authored\n"
+           "// scene-table index (scene, object) - baked into the node calls.\n"
+           "void start(int scene, int object);\n"
+           "void stop(int scene, int object);\n"
+           "void setSpeed(int scene, int object, float speed);\n"
+           "}  // namespace scroller\n"
+           "}  // namespace "
+        << ns << "\n";
+    return out.str();
+}
+
+std::string scrollerScript(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#include \"scripts/script.hpp\"\n"
+           "#include \"scripts/scroller.gen.hpp\"\n\n"
+           "#include <math.h>\n\n"
+           "namespace "
+        << ns << " {\n";
+    out << R"(namespace {
+
+// Recycle wrap - the twin of scrollsim::wrapU (src/scrollsim.cpp). Brings a
+// nominal belt offset into [wmin, wmin + span).
+static float sc_wrapU(float nominal, float wmin, float span) {
+  if (span <= 1e-6F) return wmin;
+  float x = nominal - wmin;
+  x -= span * floorf(x / span);
+  return wmin + x;
+}
+
+// Per-cell variation - the twin of scrollsim::varyHash / cellAdjust
+// (src/scrollsim.cpp). The editor previews a belt by running the host copy, so
+// these must resolve a cell to the same look or the preview stops predicting
+// the console. Channels: 0 chance, 1 variant, 2 yaw, 3 offset, 4 scale.
+static unsigned sc_varyHash(int seed, int cell, unsigned key, int channel) {
+  unsigned h = (unsigned)seed * 0x9E3779B1U + 0x85EBCA6BU;
+  h ^= (unsigned)cell * 0xC2B2AE35U;
+  h ^= key + (h << 6) + (h >> 2);
+  h ^= (unsigned)channel * 0x27D4EB2FU;
+  h ^= h >> 15;
+  h *= 0x2545F491U;
+  h ^= h >> 13;
+  h *= 0x9E3779B1U;
+  h ^= h >> 16;
+  return h;
+}
+
+static float sc_varyRand(int seed, int cell, unsigned key, int channel) {
+  return (float)(sc_varyHash(seed, cell, key, channel) >> 8) * (1.0F / 16777216.0F);
+}
+
+// Slides baked scroller clones along their belts and hides the authored member
+// templates. Advances by real frame dt so the belt runs at a fixed wall-clock
+// speed on PAL and NTSC alike.
+class ScrollerDirector : public Script {
+  float scroll_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
+  float speed_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
+  bool running_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
+  // How many whole belt periods scroll_ has been folded by. scroll_ is kept
+  // bounded for float precision, which also makes the layout exactly periodic
+  // - this counter is the periodicity put back, and it is the only reason a
+  // cell index can keep growing while the accumulator does not. int32 at a few
+  // folds per second lasts far longer than any console session.
+  int folds_[SCROLLER_COUNT > 0 ? SCROLLER_COUNT : 1];
+  float lastU_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  // This clone's current cell and what the variation resolved for it. Cached
+  // because a cell changes only when the clone recycles, while u changes every
+  // frame - so the hashes are paid per recycle, not per frame.
+  int lastCell_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  bool cellShow_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellYaw_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellOff_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  float cellScl_[SCROLLER_CLONE_COUNT > 0 ? SCROLLER_CLONE_COUNT : 1];
+  int scene_ = -1;
+
+  // Arm every belt to its authored state. Called from the CONSTRUCTOR (not
+  // from the first update) so a Start / Stop / Set Scroller Speed node firing
+  // in an On Start handler is not silently overwritten: script update order is
+  // static-initialization order across translation units, so the flow graph
+  // can perfectly well run before this director's first frame.
+  void seed() {
+    for (int i = 0; i < SCROLLER_COUNT; ++i) {
+      scroll_[i] = 0.0F;
+      folds_[i] = 0;
+      speed_[i] = SCROLLERS[i].speed;
+      running_[i] = SCROLLERS[i].autostart != 0;
+    }
+    forcePlace();
+  }
+  void forcePlace() {
+    for (int i = 0; i < SCROLLER_CLONE_COUNT; ++i) {
+      lastU_[i] = 1e30F;
+      lastCell_[i] = 0x7FFFFFFF;
+    }
+  }
+
+ public:
+  ScrollerDirector() { seed(); }
+  int find(int scene, int object) const {
+    for (int i = 0; i < SCROLLER_COUNT; ++i)
+      if (SCROLLERS[i].scene == scene && SCROLLERS[i].object == object) return i;
+    return -1;
+  }
+  void setRunning(int scene, int object, bool run) {
+    const int i = find(scene, object);
+    if (i >= 0) running_[i] = run;
+  }
+  void setSpeed(int scene, int object, float s) {
+    const int i = find(scene, object);
+    if (i >= 0) speed_[i] = s;
+  }
+
+  void update(ScriptContext& ctx) override {
+    if (SCROLLER_CLONE_COUNT == 0) return;  // no belts baked
+    if (ctx.scene != scene_) {
+      // A real scene CHANGE re-arms the belts (a scene load resets runtime
+      // state everywhere else too). The very first frame does not: the
+      // constructor already seeded, and re-seeding here would undo any flow
+      // node that ran before this director's first update.
+      if (scene_ != -1) seed();
+      scene_ = ctx.scene;
+      forcePlace();
+    }
+    // Keep the authored member templates dormant (no render/collision/logic).
+    for (int i = 0; i < SCROLLER_HIDDEN_COUNT; ++i) {
+      const ScrollerHidden& h = SCROLLER_HIDDEN[i];
+      if (h.scene != ctx.scene || h.object < 0 || h.object >= ctx.objectCount) continue;
+      ctx.objects[h.object].active = false;
+    }
+    // Advance the belts running in this scene.
+    for (int i = 0; i < SCROLLER_COUNT; ++i) {
+      if (SCROLLERS[i].scene != ctx.scene) continue;
+      if (!running_[i]) continue;
+      scroll_[i] += speed_[i] * g_frameDt;
+      // Keep the accumulator bounded. sc_wrapU below is periodic in scroll_
+      // with period `span`, so folding it back is invisible - but it is what
+      // makes an ENDLESS belt actually endless. A raw accumulator grows
+      // without limit, and a float only has 24 bits of mantissa: at 7 units/s
+      // the per-frame step is ~0.14, and once scroll_ passes ~1e6 that step is
+      // coarser than the float's spacing there, so the belt first stutters in
+      // visible jumps and then stops moving at all. Twin: the same fold at the
+      // top of scrollsim::placements.
+      const float span = SCROLLERS[i].span;
+      if (span > 1e-6F) {
+        const float f = floorf(scroll_[i] / span);
+        scroll_[i] -= span * f;
+        folds_[i] += (int)f;
+      }
+    }
+    // Place every clone: wrap its phase into the window and slide along the axis.
+    for (int c = 0; c < SCROLLER_CLONE_COUNT; ++c) {
+      const ScrollerClone& cl = SCROLLER_CLONES[c];
+      if (cl.scene != ctx.scene || cl.object < 0 || cl.object >= ctx.objectCount)
+        continue;
+      const ScrollerData& s = SCROLLERS[cl.scroller];
+      const float nominal = cl.phase - scroll_[cl.scroller];
+      const float lap = s.span > 1e-6F ? floorf((nominal - s.windowMin) / s.span) : 0.0F;
+      const float u = sc_wrapU(nominal, s.windowMin, s.span);
+      // Which repetition of the pattern this clone currently IS. Twin of
+      // scrollsim::placements: the fold counter is added back, so this keeps
+      // climbing while u and scroll_ stay bounded - that is what lets the
+      // variation below never come back around.
+      const int cell = cl.copy - ((int)lap - folds_[cl.scroller]) * s.cells;
+      bool vis = (u < s.windowMax) && (u + cl.segLen > s.windowMin);
+      RuntimeObject& o = ctx.objects[cl.object];
+      // Per-cell variation. Recomputed only when the clone recycles into a new
+      // cell - a few hashes per recycle, nothing per frame.
+      const bool newCell = cell != lastCell_[c];
+      if (newCell) {
+        lastCell_[c] = cell;
+        cellShow_[c] = true;
+        if (cl.variantCount > 1)
+          cellShow_[c] =
+              (int)(sc_varyHash(s.varySeed, cell, cl.variantKey, 1) %
+                    (unsigned)cl.variantCount) == cl.variantIndex;
+        else if (cl.chance < 1.0F)
+          cellShow_[c] = sc_varyRand(s.varySeed, cell, cl.varyKey, 0) < cl.chance;
+        cellYaw_[c] =
+            cl.yawVary != 0.0F
+                ? (sc_varyRand(s.varySeed, cell, cl.varyKey, 2) * 2.0F - 1.0F) * cl.yawVary
+                : 0.0F;
+        cellOff_[c] = cl.offsetVary != 0.0F
+                          ? (sc_varyRand(s.varySeed, cell, cl.varyKey, 3) * 2.0F - 1.0F) *
+                                cl.offsetVary
+                          : 0.0F;
+        cellScl_[c] = cl.scaleVary != 0.0F
+                          ? 1.0F + (sc_varyRand(s.varySeed, cell, cl.varyKey, 4) * 2.0F -
+                                    1.0F) * cl.scaleVary
+                          : 1.0F;
+      }
+      vis = vis && cellShow_[c];
+      o.visible = vis;
+
+      // A clone moves every single frame, so it is the per-object MATRIX path's
+      // natural citizen: ask for the promotion once and from then on writing
+      // the position is the whole cost, instead of re-baking the clone's world
+      // vertices on the EE every frame (measured on examples/endless-runner:
+      // 16 FPS re-baking, 50 FPS on the matrix). `dirty` is then only for what
+      // the matrix cannot carry - the per-cell SCALE, which is baked into the
+      // local vertices - and for a clone the fast path refused.
+      o.wantsMatrixPath = true;
+      // Only touch geometry when the clone actually moved (a stopped belt
+      // costs nothing; a running one moves every frame).
+      if (vis && (newCell || fabsf(u - lastU_[c]) > 1e-4F)) {
+        o.data.position[0] = cl.home[0] + u * s.axis[0] + cellOff_[c] * s.side[0];
+        o.data.position[1] = cl.home[1] + u * s.axis[1] + cellOff_[c] * s.side[1];
+        o.data.position[2] = cl.home[2] + u * s.axis[2] + cellOff_[c] * s.side[2];
+        o.data.rotation[1] = cl.homeRotY + cellYaw_[c];
+        o.data.scale[0] = cl.homeScale[0] * cellScl_[c];
+        o.data.scale[1] = cl.homeScale[1] * cellScl_[c];
+        o.data.scale[2] = cl.homeScale[2] * cellScl_[c];
+        if (!o.onMatrixPath || (newCell && cl.scaleVary != 0.0F)) o.dirty = true;
+        lastU_[c] = u;
+      }
+    }
+  }
+};
+
+ScrollerDirector g_scrollerDirector;
+static const bool g_scrollerRegistered = []() {
+  getScripts().push_back(&g_scrollerDirector);
+  return true;
+}();
+
+}  // namespace
+
+namespace scroller {
+void start(int scene, int object) { g_scrollerDirector.setRunning(scene, object, true); }
+void stop(int scene, int object) { g_scrollerDirector.setRunning(scene, object, false); }
+void setSpeed(int scene, int object, float speed) {
+  g_scrollerDirector.setSpeed(scene, object, speed);
+}
+}  // namespace scroller
+)";
+    out << "}  // namespace " << ns << "\n";
+    return out.str();
+}
+
+// ---------------------------------------------------------------------------
 // Flow graph -> C++ script. Object names are resolved to indices at codegen
 // time; unknown names produce a comment instead of code.
 // ---------------------------------------------------------------------------
@@ -21983,6 +22542,7 @@ std::string flowGraphScript(const Project& p) {
            "// edit - regenerated on every build. Edit the graphs in the editor.\n"
            "#include \"scripts/script.hpp\"\n"
            "#include \"scripts/sequences.gen.hpp\"  // Play/Stop Sequence nodes\n"
+           "#include \"scripts/scroller.gen.hpp\"  // Start/Stop Scroller nodes\n"
            "#include \"scripts/credits.gen.hpp\"  // Play/Stop Credits, On "
            "Credits Finished\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
@@ -23540,6 +24100,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
+            } else if (n.type == "StartScroller") {
+                c << pad << "scroller::start(" << (int)si << ", " << idx << ");\n";
+            } else if (n.type == "StopScroller") {
+                c << pad << "scroller::stop(" << (int)si << ", " << idx << ");\n";
+            } else if (n.type == "SetScrollerSpeed") {
+                // numOperand: a wired number overrides the typed Speed param,
+                // the same convention every other number consumer follows.
+                c << pad << "scroller::setSpeed(" << (int)si << ", " << idx << ", "
+                  << numOperand(n) << ");\n";
             } else if (n.type == "PlayCredits") {
                 const int ci = creditsIndexOf(n.str);
                 if (n.str.empty() || ci < 0) {
@@ -33033,7 +33602,6 @@ std::vector<File> generate(const Project& p) {
 
     return {
         {"Makefile", fill(TPL_MAKEFILE)},
-        {"Dockerfile", fill(TPL_DOCKERFILE)},
         {"docker-compose.yml", fill(TPL_COMPOSE)},
         {"src\\main.cpp", fill(TPL_MAIN_CPP)},
         {"src\\terrain_game.cpp", gameCpp},
@@ -33069,6 +33637,8 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
+        {"inc\\scripts\\scroller.gen.hpp", scrollerHeader(p)},
+        {"src\\gen\\scroller.gen.cpp", scrollerScript(p)},
         {"inc\\scripts\\flow_nodes.hpp", fill(TPL_FLOW_NODES_HPP)},
         {"src\\gen\\flow_graph.gen.cpp", flowGraphScript(p)},
         {"inc\\scripts\\live_logic.gen.hpp", liveLogicHeader(p)},
@@ -33097,6 +33667,7 @@ std::vector<File> generate(const Project& p) {
         {".gitignore", fill(TPL_GITIGNORE)},
         {".gitattributes", TPL_GITATTRIBUTES},
         {"COLLABORATION.md", TPL_COLLABORATION},
+        {"THIRD-PARTY-NOTICES.txt", TPL_THIRD_PARTY_NOTICES},
         {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
