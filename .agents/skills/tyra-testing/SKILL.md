@@ -424,6 +424,66 @@ Notes:
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
 
+  **To WATCH the game over time, use `-Watch DIR`** — the Windows twin of
+  `wayland-control.py watch` (below), with the same flag names, the same output
+  lines and the same diff metric, so the numbers mean the same thing on both
+  OSes. It samples the window on an interval, keeps the full-resolution frames on
+  disk as `DIR\frameNN.png` and reports **one downscaled contact sheet** plus a
+  changed-pixel table, so a whole drive costs about as much context as a single
+  screenshot instead of one read per moment:
+
+  ```powershell
+  powershell -File .Codex\skills\tyra-testing\scripts\screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
+  ```
+
+  Measured on the fpp fixture (1066x705 window, 831x623 picture): 10 tiles at
+  224 px = a 926x576 sheet, **~711 tokens** where the ten full frames would be
+  ~6 900. A frame costs ~0.1 s of work on top of the interval, so a 0.9 s
+  interval is held to the millisecond. One run put the whole drive in one image:
+  four idle tiles at **0.000%**, then 41.9% / 29.1% / 22.5% / 6.9% while a turn
+  and a walk were held, then 0.000% again after the release — the same
+  idle/drive/release shape as the pixel-counting recipe below, in a single read.
+
+  What differs from the Wayland version, and the traps:
+  - **`-Auto` is deterministic here.** Windows HAS per-window capture, so it
+    takes the biggest visible CHILD window (PCSX2's render surface is a native
+    child HWND) instead of hunting for motion — it works on a paused emulator, a
+    parked camera or a static menu, every one of which defeats the Linux
+    heuristic. Add **`-Trim`** and the black pillar bars go with it: a 1050x623
+    widget came out **831x623**, exactly 4:3, the PS2 frame and nothing else.
+    That crop is also what makes an idle frame measure **0 px** instead of the
+    status-bar noise the whole window carries (87 px in one second here) — a
+    clean instrument, so any non-zero row means the game.
+  - **A GDI grab reads the SCREEN, so an occluded window captures whatever is on
+    top of it** — silently, and for every frame of a long run. This bit during
+    development: a plain `SetForegroundWindow` from a background shell does
+    nothing at all (the same trap as synthetic input above), and the "PCSX2
+    screenshot" came back as another application's window. The script now raises
+    the window with the ALT-tap + `AttachThreadInput` trick, VERIFIES
+    `GetForegroundWindow` and **warns** when it still failed — if you see that
+    warning the frames are worthless, so uncover the window, or pass
+    `-NoActivate` when it is already clear and you do not want the focus stolen.
+  - `-Area X,Y,W,H` is **window-relative** — the coordinates you read straight
+    off a capture — and it is deliberately NOT cached the way Linux caches
+    `area.txt`: the window may have moved since the last run, and its geometry is
+    free to ask for. The same geometry flags work for a single `-OutFile` shot.
+  - `-OnlyChanged PCT`, `-IdleStop K` / `-IdleBelow`, `-Every`, `-Count` or
+    `-For S`, `-Tile`, `-Cols`, `-Sheet`, `-NoFrames` do exactly what their
+    `--only-changed` … counterparts below do, including the saturation trap:
+    calibrate `-OnlyChanged` against a first run's column instead of guessing
+    (verified at 5%, which kept 6 of 11 frames and marked the rest `-`).
+    `-IdleStop 2` verified on a static window: it stopped on the second
+    consecutive 0.000% frame.
+  - It only CAPTURES, so it composes with whatever drives the game. The sheet
+    above was driven by **PCSX2's own held keys**, because `--pad` reached
+    neither week-old prebuilt fixture on this box (the file lands in the running
+    ELF's `bin/`, the runtime is compiled in and the wire version matches, so
+    that is its own unrelated puzzle — a freshly built fixture is the first thing
+    to try). Note this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
+    the section above quotes: read `[Pad1]` out of PCSX2.ini rather than trusting
+    either. Held keys need the window in front, which `-Watch` arranges anyway.
+
   **On Linux/Wayland use the bundled `wayland-control.py`** — screenshots *and*
   synthetic keyboard/mouse, no human in the loop:
 
@@ -987,6 +1047,10 @@ Start-Sleep 4
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle3.png"   # RELEASED
 ```
 
+The cheap version of the same run is one `-Watch` (above) over the whole drive:
+it counts the pixels for you, per frame, and hands back one sheet instead of
+five images - the four bullets below still apply, they are just columns then.
+
 Then count changed pixels between the pairs with a few lines of PIL
 (`ImageChops.difference(...).get_flattened_data()`). Four things make this a real
 test rather than a screenshot:
@@ -1014,5 +1078,5 @@ test rather than a screenshot:
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
-| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; on Linux `watch` collapses the whole drive into one contact sheet |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
