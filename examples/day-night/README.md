@@ -81,6 +81,15 @@ Turning `projShadow` on is the difference between "the pillars are grounded" and
 "it is clearly morning". If you copy this example as a starting point, that is
 the flag to remember.
 
+The silhouettes also **fade with how low the light is**, because the patch they
+land on can only be so big (3.5x the caster) and a shadow from a light near the
+horizon is far longer than that. Full strength above 16 degrees of elevation,
+ramping to nothing at the light's 5-degree floor — so in `live` they are strong
+from mid-morning to late afternoon, thin out as the sun drops, and the same again
+under the moon. They used to be switched off outright below ~14.5 degrees, which
+on this scene's deliberately shallow arc meant four hours at a time with nothing
+on the ground.
+
 ## What it costs
 
 **50 FPS / 100 % speed** in every moment — including a whole running day in

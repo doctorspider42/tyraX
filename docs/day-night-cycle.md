@@ -134,6 +134,36 @@ shadows both - so the shadows dissolve as the sun reaches the horizon, the light
 changes its mind while nothing is on screen to show it, and the moon's shadows
 fade in behind it. That is also what dusk actually looks like.
 
+**A low light is a receiver problem, not a light problem.** The projected-shadow
+pass sizes its receiver patch at up to 3.5x the caster radius (bigger and the
+camera ends up standing inside the quad, whose triangles then straddle the near
+plane), so a shadow longer than that is cropped square at the tip. The pass used
+to avoid showing that by dropping the sun as a shadow candidate outright below
+~14.5 degrees of elevation - fine under a steep arc, and ruinous under a shallow
+one. With this example's 28-degree peak it meant **4.15 hours in a single stretch
+with no shadows at all**, twice a day: reported as *"they only turn up just before
+noon and just before midnight"*.
+
+So the cliff is a **ramp**: a smoothstep from the light's own 5-degree floor
+(`kMinLightElevation`, where the shadow would be 11x the caster's height) to 16
+degrees, folded into both the candidate score and the shadow's alpha. The most
+truncated shadow is the faintest one, which is what makes the crop invisible;
+measured on the console over a full day of the live cycle:
+
+| | old cliff | ramp |
+| --- | --- | --- |
+| hours with a shadow | 15.70 | 21.33 |
+| ...at full strength | 15.70 | 15.70 |
+| longest gap with none | **4.15 h** | **1.33 h** |
+| first shadow after sunrise | 08:15 | 06:53 |
+
+The remaining 1.33 h is the handover itself, which is supposed to be shadowless.
+
+**A blob shadow does not take the handover fade.** It sits under its caster and
+has no direction, so it has nothing to hide when the light swaps bodies - fading
+it as well (the first version of this fix) left every object unmoored for the hour
+around twilight on top of the low-sun window. Only the directional casters fade.
+
 Measured on the example's cycle (host math over all 1440 minutes, and the same
 numbers logged from the running console):
 

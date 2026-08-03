@@ -9417,11 +9417,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
-    // ...and with the day/night handover: the light direction swaps from the sun
-    // to the moon (or back) at the middle of twilight, so the shadow it throws
-    // goes out and comes back rather than jumping to the other side of the
-    // caster (docs/day-night-cycle.md).
-    if (daynight::active(currentScene)) fade *= daynight::g_shadowFade;
+    // NOT the day/night handover fade (daynight::g_shadowFade), which the
+    // projected silhouettes do take: this quad sits UNDER the caster and has no
+    // direction, so it has nothing to hide when the light swaps bodies - and
+    // fading it anyway left every object unmoored for the hour around twilight,
+    // on top of the low-sun window the silhouettes were already dark for.
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -9593,8 +9593,18 @@ void TerrainGame::renderProjShadows() {
   // is how much of the scene's shading it actually accounts for, so a black
   // sun (a night scene lit only by torches) scores 0 and any lit torch beats
   // it, while a daylight scene still throws the sun shadow it always did.
-  // Below ~15 degrees of elevation the ground projection runs away, so a low
-  // sun is simply not a candidate.
+  // A low sun is a problem for the RECEIVER, not for the light: the patch is
+  // capped at 3.5x the caster radius (see the sizing below), so a shadow longer
+  // than that gets cropped square at its tip. This used to be a cliff - `syd <
+  // 0.25`, no shadow at all below ~14.5 degrees - and with an arc that peaks
+  // around 28 degrees (the day/night example, whose sun has to stay inside the
+  // frame) that cliff swallowed roughly four hours either side of the middle of
+  // the day: reported from the console as "shadows only turn up just before noon
+  // and just before midnight". So it is a RAMP instead, and the shadows it lets
+  // through are exactly the ones that are cropped, faded in proportion: gone at
+  // the light's 5-degree floor (ambience::kMinLightElevation, where the shadow
+  // would be 11x the caster's height), full from 16 degrees up. The most
+  // truncated shadow is the faintest, which is what makes the crop invisible.
   // The live light when the clock runs - this is the line that makes a
   // projected shadow actually sweep across the ground as the sun moves.
   const bool liveLight = daynight::active(currentScene);
@@ -9609,7 +9619,17 @@ void TerrainGame::renderProjShadows() {
   float sunCol = SCENE_LIGHT_COL_R;
   if (SCENE_LIGHT_COL_G > sunCol) sunCol = SCENE_LIGHT_COL_G;
   if (SCENE_LIGHT_COL_B > sunCol) sunCol = SCENE_LIGHT_COL_B;
-  const float sunScore = syd < 0.25F ? 0.0F : SCENE_DIFFUSE * sunCol;
+  // sin(5 deg) .. sin(16 deg). The bottom is the light's own elevation floor, so
+  // "the body is at or below the horizon" and "no sun shadow" stay the same
+  // statement they were.
+  float sunLow = (syd - 0.0871557F) / (0.2756374F - 0.0871557F);
+  if (sunLow < 0.0F) sunLow = 0.0F;
+  if (sunLow > 1.0F) sunLow = 1.0F;
+  sunLow = sunLow * sunLow * (3.0F - 2.0F * sunLow);  // smooth both ends
+  // Scoring the sun by the ramp too, not just fading it: a torch really does
+  // out-light a sun sitting on the horizon, and the candidate loop should agree
+  // with what the alpha is about to say.
+  const float sunScore = sunLow <= 0.0F ? 0.0F : SCENE_DIFFUSE * sunCol * sunLow;
 
   // Nearest visible casters win the slots; shadows fade out 35..50 units
   // from the camera so a slot handoff never pops.
@@ -9828,6 +9848,8 @@ void TerrainGame::renderProjShadows() {
     const float dist = sqrtf(c.d2);
     sfade[used] =
         (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
+    // ...and the low-sun ramp, for the slots the sun actually threw.
+    if (bestSun) sfade[used] *= sunLow;
     ++used;
   }
   if (used == 0) return;
