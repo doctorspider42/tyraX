@@ -2379,6 +2379,17 @@ struct Project {
     // presets at runtime (the switch persists across scene changes).
     std::vector<ColorGradingPreset> gradings;
     int defaultGrading = -1;
+    // The scene the GAME boots into (index into `scenes`). Until this existed
+    // the runtime hardcoded scene 0 and the editor merely LABELLED it "(start)",
+    // so the only way to change it was to reorder the list - and scene indices
+    // are baked into every generated table, so reordering is the one thing that
+    // must not be casual. An index costs nothing and shifts nothing.
+    //
+    // Travels in the scene TABLE rather than a Section, because it is
+    // structural scene data: that is what puts it on the collaboration wire
+    // alongside the scene list it indexes.
+    int startScene = 0;
+
     // Ambience presets (Tools > Ambience Editor): project-wide sky/lighting/fog
     // "mood" bundles. defaultAmbience is the preset a scene uses when it names
     // none (-1 = fall back to the raw project/scene settings). A scene picks
@@ -2642,7 +2653,36 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
+//
+// When the resolved ambience preset carries an enabled day/night cycle
+// (docs/day-night-cycle.md), the cycle is evaluated at its authored hour and
+// OVERWRITES the sky, light direction/colour and fog colour on the way out.
+// That is the single hook through which the time-of-day slider reaches the
+// vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
+// runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// Fold the editable ranges onto a cycle / one of its keys. Called by the
+// .tyra reader (a hand-edited file is not to be trusted) and by the Ambience
+// Editor after every edit, so both agree on what is representable.
+// A user-owned script left in a stale C++ namespace by a project rename cannot
+// possibly compile, and the PS2 toolchain's error for it says nothing useful.
+// Empty when everything lines up; otherwise a one-line explanation naming the
+// file and both namespaces. A build calls this BEFORE contacting Docker.
+std::string checkScriptNamespaces(const Project& p);
+
+// Folds Project::startScene back into range. Called after a load and after a
+// collaboration scene-layout apply - it indexes the array the GAME boots from,
+// so out of range is a console crash, not a cosmetic problem.
+void clampStartScene(Project& p);
+
+void clampDayKey(DayKey& k);
+void clampDayCycle(DayCycle& c);
+
+// Sort a cycle's keys by hour. ambience::sampleKeys sorts defensively anyway,
+// but the editor's key table reads in stored order, so an edited hour has to
+// re-settle the list for the UI to make sense.
+void sortDayKeys(DayCycle& c);
 
 // Index into Project::ambiencePresets of the preset a scene resolves to:
 // its named preset if it exists, otherwise the project default. -1 = none

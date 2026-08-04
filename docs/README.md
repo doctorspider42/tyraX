@@ -59,7 +59,8 @@ guides. What is queued is in [Backlog](backlog.md).
 - [Loading screens](loading-screens.md) - defining named loading screens
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
-  tracks real load work, and the built-in fallback.
+  tracks real load work, the built-in fallback, and which scene the game boots
+  into (the start scene).
 - [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
   wrapped lines, images and page breaks, scrolled or shown as cards over music,
   with a skip button and a finish action (resume / scene / menu / flow event);

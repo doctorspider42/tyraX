@@ -111,6 +111,12 @@ to see exactly what the game will compile.
   HUD images/texts, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input
   actions + binding presets). `--dump` lists all of their names.
+- **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
+  preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
+  colour keyframes. When enabled it OVERWRITES the preset's sky, light
+  direction/colour and fog colour at that hour - so editing `cycle.time` moves
+  every baked shadow, the AO bake and the GI bake, and stales the GI cache on
+  purpose. The moon disc and sun disc are baked into `res/hud/` at build.
 - **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
   of headings, role/name rows, lines, images and page breaks that scrolls (or
   plays as cards) over music, is skippable, and finishes by resuming, switching
