@@ -24,6 +24,15 @@ files from plain text into a first-class editing experience.
 The C++ body itself resolves against the project's engine headers through the
 generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 (not a single file) for IntelliSense on `flow_nodes.hpp` and effect bodies. The
+config lists the engine's `inc/`, the project's own `inc/` and `src/`,
+`vugen/` when the project has a VU script, and **all three** PS2SDK trees —
+`ee/include`, `common/include` and `ports/include` — exported out of the build
+container on the first build. All three matter: `<tyra>` reaches libpng's
+`png.h`, which lives only in `ports`, and **one** unresolved include makes
+cpptools disable squiggles for the whole file rather than for that header, so a
+missing tree costs every completion in the file. If you see *"#include errors
+detected. Squiggles are disabled for this translation unit"*, build once and
+reload the window — the export is what a fresh cache is missing. The
 `call = fn` logic still belongs in `flow_nodes.hpp` — the `.flownode` stays a
 thin manifest — but the extension now colours and checks that manifest too.
 
