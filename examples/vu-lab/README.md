@@ -211,6 +211,24 @@ the game already has. The answers pick levels of detail, decide what is worth
 drawing and set how loud a sound is; the demo uses them to name the nearest
 prop, which is what a *press USE* prompt needs.
 
+**And it is on screen**, top centre, updating as you walk:
+
+```
+VU0: nearest #2  2.1u  LOD 0
+```
+
+That line is the whole round trip in one readable place — **VU0** computed the
+distances, the **EE** folded them to a winner (VU0 has no cross-element
+reduction, so finding a minimum is the CPU's job by construction), and **VU1**
+drew the answer. A kernel whose only output is a log line is a claim; this is a
+demonstration.
+
+The slot it draws into comes from a **Display Text** node on `tall-pillar`'s
+graph that nothing ever fires: the node exists to allocate the slot and to say
+where and how big, while the string and the on/off are the script's
+(`ctx.dynTextBuf`, `ctx.dynTextRequest`). That is the general pattern for a
+runtime readout — a node for the placement, a script for the content.
+
 ```
 LOG: VU0 Ranges: nearest object is #0 at 1.8 units, LOD band 0
 LOG: VU0 Ranges: 39 objects, worst disagreement with the EE 9.53674e-07 units

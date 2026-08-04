@@ -100,7 +100,68 @@ class Vu0Compute : public Script {
       TYRA_LOG("VU0 Ranges: nearest object is #", (int)rangeOut[nearest].w,
                " at ", best, " units, LOD band ", (int)rangeOut[nearest].y);
     }
+
+    // AND ON SCREEN, because a kernel whose only output is a log line is a
+    // claim rather than a demonstration. This is the whole round trip in one
+    // readable line: VU0 computed the distances, the EE folded them to a
+    // winner, and VU1 draws the answer.
+    //
+    // The slot comes from a Display Text node that nothing in the graph ever
+    // fires - the node exists to ALLOCATE the slot and to say where and how
+    // big; the string and the on/off are the script's. dynTextRequest is a
+    // one-shot (the game sets it back to -1 after reading), so asking once is
+    // enough and the buffer is what has to be refreshed.
+    if (ctx.dynTextCount > 0) {
+      if (!textShown) {
+        textShown = true;
+        ctx.dynTextRequest[0] = 1;
+        ctx.dynTextDuration[0] = 0.0F;  // stays until something hides it
+      }
+      // Only while it is actually visible - dynTextOn is the game telling the
+      // script whether the refresh is worth doing at all.
+      if (ctx.dynTextOn[0])
+        writeNearestText(ctx, nearest >= 0 ? rangeOut[nearest] : Tyra::Vec4());
+    }
     return n;
+  }
+
+  /** "VU0: nearest #3  4.2u  LOD 0" into the runtime-text slot.
+   *
+   * Written by hand rather than with snprintf: the buffer is 64 bytes
+   * (DYN_TEXT_LEN) and this runs every frame, so a formatter that walks a
+   * format string and can be talked into overrunning is the wrong tool for
+   * four numbers. Every write below is bounded by construction. */
+  void writeNearestText(ScriptContext& ctx, const Tyra::Vec4& r) {
+    char* s = ctx.dynTextBuf;  // slot 0
+    const int cap = ctx.dynTextLen - 1;
+    int at = 0;
+    auto put = [&](const char* t) {
+      while (*t && at < cap) s[at++] = *t++;
+    };
+    auto putInt = [&](int v) {
+      if (v < 0) { put("-"); v = -v; }
+      char tmp[12];
+      int n = 0;
+      do { tmp[n++] = (char)('0' + v % 10); v /= 10; } while (v && n < 11);
+      while (n && at < cap) s[at++] = tmp[--n];
+    };
+    if (lastNearest < 0) {
+      put("VU0: nothing in range");
+      s[at] = '\0';
+      return;
+    }
+    put("VU0: nearest #");
+    putInt((int)r.w);
+    put("  ");
+    // One decimal, from the integer part and a tenth - no float formatting on
+    // the path, and it reads as a distance rather than as a float dump.
+    const float d = r.x < 0.0F ? 0.0F : r.x;
+    putInt((int)d);
+    put(".");
+    putInt((int)((d - (float)(int)d) * 10.0F));
+    put("u  LOD ");
+    putInt((int)r.y);
+    s[at] = '\0';
   }
 
   // The same numbers on the EE, ONCE. "The kernel ran" and "the kernel is
@@ -136,6 +197,7 @@ class Vu0Compute : public Script {
   Tyra::Vec4 rangeOut[kRangeMax];
   Tyra::RangesKernel ranges;
   int lastNearest = -2;
+  bool textShown = false;
   float clock = 0.0F;
 };
 
