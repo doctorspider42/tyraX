@@ -283,13 +283,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strTip = "The object to measure the distance FROM. Empty = the object "
                    "this graph belongs to.",
          .numCount = 1, .numLabels = {"Radius"},
-         .numTips = {"How close the player has to get, in world units. A sphere "
-                     "around the object's origin - it does not follow the "
-                     "object's shape."},
+         .numTips = {"How close the player has to get, in world units. Measured "
+                     "in the XZ plane only - a circle around the object's "
+                     "origin, not a sphere, so height does not matter and it "
+                     "does not follow the object's shape."},
          .idIn = true, .idOut = true,
-         .desc = "Fires EVERY FRAME the player is close enough to the target - "
-                 "a proximity state, not an entry event. Put a Do Once after it "
-                 "for a one-shot, or use In Area when the region has a shape."},
+         .desc = "Fires the frame the player comes INSIDE the radius - a rising "
+                 "edge, like In Area and On Player Seen. Walking out and back "
+                 "in fires it again; standing still inside does not. Add a Do "
+                 "Once for once-per-scene rather than once-per-entry, or use In "
+                 "Area when the region has a shape and needs to bound Y."},
         // Volume trigger: the Area object's box instead of Near Object's
         // radius (docs/areas.md). Read live, so a moving area drags its
         // trigger along.
