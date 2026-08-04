@@ -1442,33 +1442,46 @@ WARN:  WARNING: failed to vuta via processing
 One `time out..` per `failed to <pass> via <region>` line. vcl still emits a
 **correct** program — it has abandoned one optimisation pass on one code region,
 so what comes out is scheduled worse: fewer paired upper/lower ops, more micro
-memory, slower per vertex. It is also slow to produce, and the limit is
-**wall-clock**, so a busy machine times out where an idle one does not. Measure
-an A/B on an idle machine or the number means nothing.
+memory, slower per vertex. A `examples/vu-lab` build prints around fifty of
+them and nothing is wrong.
 
-**The clip half is where this bites**, because it is the biggest program shape
-there is — Sutherland–Hodgman, nested loops, a scratch polygon buffer — and it
-already holds most of the 31 live. A measured example, `examples/vu-lab`:
-Palette held three constant registers and two temporaries across the clipper's
-loops, and one program (`vu_script1_c_cl`) produced **31 of the build's 51
-timeouts** and spent 101 s of a 157 s build inside vcl.
+**The clip half is where they concentrate**, because it is the biggest program
+shape there is — Sutherland–Hodgman, nested loops, a scratch polygon buffer —
+and it already holds most of the 31 registers live. In a full vu-lab build the
+51 timeouts land on **8 of the 44 programs**, with 31 of them in a single one
+(Palette on the colour class, clip half).
 
-Three changes, none of which altered a pixel: fold `light - dark` on the host
-instead of subtracting per vertex, pre-divide the luminance weights by 255 so
-the dot product lands on 0..1 directly, and write the result **straight into the
-colour register** instead of into a second scratch (the colour is dead once its
-luminance has been taken). Seven instructions per vertex became five, and two
-live values became one:
+### …and why the timeout count is not a measurement
 
-| | timeouts | build | that program in vcl |
+**The limit is wall-clock, so the number is a property of the machine as much as
+of the code.** Measured on one idle machine, same source, same compiler:
+
+| build | programs through vcl | timeouts | worst single program |
 |---|---|---|---|
-| before | 51 | 166 s | 101 s |
-| after | **5** | **82 s** | 64 s |
+| full, `-j24` | 44 | 51 | 31 |
+| full, `-j24`, after an optimisation | 44 | 48 | 29 |
+| only that program's 6 files, `-j24` | 6 | 5 | 5 |
+| full, `-j1` | 17 | 16 | 3 |
 
-The lesson generalises past this file: on a clip-half program, **a temporary
-that stays live across the loops costs more than an instruction does.** Prefer
-writing into a register that is already dead over minting a new one, and let the
-host compute anything that does not depend on the vertex.
+The third row is the trap. The *same program*, from the *same source*, times out
+29 times when 42 other vcl processes are competing for the machine and 5 times
+when 6 are. Comparing a full build against an incremental one therefore
+"proves" almost any change works — which is exactly the mistake that produced
+an earlier version of this section, claiming a 51 → 5 improvement for a change
+that really bought 51 → 48.
+
+So: **do not use the timeout count to judge a source change.** Use the numbers
+that are deterministic — `--vu-check` prints emitted instructions per program,
+and the panel prints VF pressure. Both come out identical on every run.
+
+What the optimisation above *did* buy, measured that way: seven instructions per
+vertex became five and two live values became one, so every Palette program
+dropped exactly 6 emitted instructions (262 → 256 on the colour class, 350 → 344
+on its clip half, and so on). That is real and it is small. The lesson worth
+keeping is the shape rather than the number — on a clip-half program **a
+temporary that stays live across the loops costs more than an instruction
+does**, so prefer writing into a register that is already dead, and let the host
+fold anything that does not depend on the vertex.
 
 ---
 
