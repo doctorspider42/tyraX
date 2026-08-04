@@ -2805,8 +2805,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"
-#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
+#include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
