@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0
+
+- **A project's own VU program (`src/vu/*.cpp`) gets language support**, which
+  is the file a VU1 program is actually WRITTEN in. Until now the help lived on
+  `.vclpp` - the generated OUTPUT, the one file nobody types. Scoped by PATH
+  (`**/src/vu/*.cpp`), so ordinary game code is untouched.
+  - **Diagnostics for the rules a header cannot state**, each of which used to
+    cost a Docker build or a console run: a script writing **Q** (grey stipple
+    on hardware, invisible on the host), `scratch(n)` past the four that exist,
+    a geometry slot without `movesGeometry()`, `movesGeometry()` on `Slot::Ndc`
+    where it is a cost with no benefit, a displacement claiming a SUBSET of the
+    material classes (an object's passes separate), and writing the position at
+    `Slot::Color` / `Slot::Texture`, where it has already become a 12.4 integer.
+  - **Hover that bridges C++ to the machine**: `b.mulInto` shows `mul` and what
+    it does, `sineApprox` its seventeen instructions, `MXYZ` which fields it
+    writes. The instruction descriptions come from the same catalogue the
+    `.vclpp` hover uses - one table, two languages.
+  - **A `vuprogram` scaffold** with the five overrides and the two rules that
+    are easy to get wrong already spelled out.
+  - It deliberately does NOT repeat the headers: `vu::Ctx` and `vugen::Vu`
+    hover out of `vugen/vushader.hpp` through cpptools, and duplicating them
+    would be a second source of truth for the thing this framework exists to
+    stop duplicating. The editor now puts `${workspaceFolder}/vugen` on the
+    generated includePath, which is what makes that work.
+- **The packaged `.vsix` was two feature releases stale** - 0.2.0, predating
+  `vu.js` entirely, so everyone who installed through the editor got an
+  extension with NO VU1 support while the source and the docs described it. The
+  editor now installs the newest `.vsix` in the folder rather than the first one
+  the directory hands back.
+
 ## 0.3.1
 
 - `.vclpp` in a **generated game project** now gets the macro and `VU1_*`

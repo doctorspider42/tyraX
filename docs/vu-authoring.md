@@ -242,6 +242,18 @@ suspect the register ceiling first when a build fails in the assembler.
 **A script's `Slot::ObjectSpace` half follows a mesh through the VU1 clipper but
 not through the EE one** - see "One class is two programs" below.
 
+### Write it in VS Code, not in a text box
+
+`src/vu/*.cpp` is where the program actually gets written, so the editor's
+VS Code extension treats it as a first-class file rather than as anonymous C++
+([docs/vscode-extension.md](vscode-extension.md)). The Scripts panel opens it;
+`${workspaceFolder}/vugen` is on the generated includePath, so `c.` and
+`vugen::` complete out of the framework's own headers; and the rules on this
+page that are NOT expressible in a header - a Q write, a fifth scratch
+register, a geometry slot without `movesGeometry()`, a displacement claiming a
+subset of the classes - are reported in the Problems panel as you type instead
+of by a container build or a console run. Type `vuprogram` for the skeleton.
+
 ### What the build actually does
 
 ```

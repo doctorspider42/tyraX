@@ -7426,13 +7426,25 @@ std::string App::installVsCodeExtension() {
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
+    // The NEWEST .vsix, not the first one the directory happens to hand back.
+    // A leftover package is the documented trap here and it has already been
+    // paid for once: the committed 0.2.0 predated the whole VU1 language
+    // support, so for two releases the extension people actually installed had
+    // none of it while the source and the docs said otherwise. Deleting the old
+    // file is still the rule; this makes forgetting it harmless rather than
+    // silent.
     std::filesystem::path vsix;
+    std::filesystem::file_time_type newest{};
     if (std::filesystem::exists(dir, ec))
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
-            if (e.path().extension() == ".vsix") {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.path().extension() != ".vsix") continue;
+            const auto when = std::filesystem::last_write_time(e.path(), ec);
+            if (ec) continue;
+            if (vsix.empty() || when > newest) {
                 vsix = e.path();
-                break;
+                newest = when;
             }
+        }
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 

@@ -87,6 +87,32 @@ That entry is what makes `#include "vushader.hpp"` resolve and
 one in the project with no IntelliSense at all. Open the **project folder**, not
 the file.
 
+On top of that C++ baseline the extension adds the part a header cannot carry,
+scoped to `**/src/vu/*.cpp` so ordinary game code is untouched:
+
+- **Diagnostics for rules that hold BETWEEN declarations** - each one learned
+  from a Docker build or a console run, and now reported where it is typed:
+
+  | Reported | Why it matters |
+  |---|---|
+  | a script writes **Q** (`divQ`, `rsqrtQ`, `persCorrect`, `envStq`) | Q carries the perspective divide and has a latency the assembler schedules around; the write gets moved into that window and vertices land wrong. Grey stipple on the console, **nothing** wrong on the host |
+  | `scratch(n)` with `n > 3` | there are four (`vu::Ctx::kScratchCount`); the call clamps, so the fifth silently aliases the fourth |
+  | `Slot::ObjectSpace` / `ClipSpace` without `movesGeometry()` | the EE clipper cuts the mesh before the program runs; every prop at the edge of the screen tears |
+  | `movesGeometry()` on `Slot::Ndc` | not needed there, and not free - the game starts submitting props unclipped for nothing |
+  | `movesGeometry()` with `classes()` narrower than `vu::kAll` | an object draws several passes over the same vertices in different classes; move one and not the other and the copies separate |
+  | writing the position at `Slot::Color` / `Texture` | by then it is a GS 12.4 integer, not a position |
+
+- **Hover that bridges C++ to the machine** - `b.mulInto` shows `mul` and what
+  it does, `b.sineApprox` its seventeen instructions, `MXYZ` which fields it
+  writes. The descriptions come from the same opcode catalogue the `.vclpp`
+  hover uses; only the *method → instruction* mapping is new.
+- **A `vuprogram` scaffold** with the five overrides in the order they matter.
+
+What it deliberately does **not** do is repeat the headers. `vu::Ctx` and
+`vugen::Vu` hover out of `vugen/vushader.hpp` through cpptools already, and a
+copy here would be a second source of truth for exactly the thing the VU
+framework exists to stop duplicating.
+
 The header the completions come from is `vugen/vushader.hpp` - `vu::Ctx` is the
 authoring surface and `Ctx::raw()` is the escape hatch onto `vugen::Vu`, whose
 whole method library (`sineApprox`, `transform`, `spotLight`, the masked
@@ -140,13 +166,23 @@ code --install-extension tyrax-flownode-*.vsix
   keys, enum values, placeholders) **must stay in sync** with the editor
   parsers `src/flownode.cpp` and `src/screenfx.cpp`; when you add a header key or
   placeholder to one, update the other and the docs above.
+- `vuscript.js` — the `src/vu/*.cpp` support. Registered with a **path**
+  selector, not a language one, so it never touches ordinary game C++. The
+  rules it checks are the ones in `docs/vu-authoring.md`; when one changes
+  there, change it here.
 - `tyrax-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
   `package.json` first so `code --install-extension --force` picks up the new
   build): `cd tools/vscode-tyrax && npx @vscode/vsce package`, then delete the old
-  versioned `.vsix`. A stale `.vsix` is a real trap — the source looks updated
-  but users get the old build.
+  versioned `.vsix`. **A stale `.vsix` is not a theoretical trap: the committed
+  one sat at 0.2.0 through two feature releases**, so every editor-driven
+  install shipped an extension with no VU1 support at all while this document
+  described it. Check what is actually inside before believing it:
+  `python -c "import zipfile;print(zipfile.ZipFile('tools/vscode-tyrax/tyrax-flownode-0.4.0.vsix').namelist())"`.
+  The editor now installs the NEWEST `.vsix` in the folder rather than the first
+  one the directory iterator returns, so a forgotten old file is harmless — but
+  still delete it.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
 tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock
