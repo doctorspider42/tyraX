@@ -22,6 +22,46 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **VU authoring: the user-facing half of the VU framework.** Model + codegen
+  for a program someone composes from stages, per-mesh parameters, the VU panel,
+  and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and
+  verified on hardware; see `.claude/plans/vu-authoring.md` for the plan, the
+  decisions already made and the traps.
+- **VU0 as a target.** Parser and VS Code already handle it; the simulator's
+  memory size is VU1's and the generator's skeleton is the VU1 pipeline. Same
+  plan file has the steps, smallest first.
+- **VU framework: bit-exact replay on REAL hardware.** `--vu-replay` reproduces
+  a PCSX2 capture exactly (36/36 GS vertices) but not one taken over ps2link
+  from a physical PS2 - there the closest candidate is off by far more than
+  rounding, which points at the reconstruction (the per-mesh constants come
+  from a chain the capture does not contain) rather than at the VU's
+  arithmetic. Capturing the object-data chain is the prerequisite; until then
+  the simulator is validated against the emulator, not the console.
+- **VU framework: describe the `cull` family, then `clip`.** `cull` is `as_is`
+  plus an MVP transform and the ADC clip check - the builder already has
+  `transform`, and `clipw`/`fcand` are in the IR. `clip` is the hard one and
+  probably stays partly artisanal: Sutherland-Hodgman has real control flow and
+  scratch polygon buffers that an expression-level DSL will not express; the
+  honest shape is a declarative skeleton with hand-written instruction blocks
+  plugged into it.
+- **VU framework: per-project program specialization.** The editor knows at build
+  time which program variants a project can use - a project with no matcap
+  material does not need the two `tce` programs, which is ~400 instructions of
+  micro-memory headroom for free and no swap. Needs the union of what a project
+  *may* use (spawn-pool prefabs included) plus "generate everything" under Live
+  Link, or an object spawned at run time finds no program to draw with.
+- **Capture the object-data chain alongside the qbuffer chain.** `--vu-replay`
+  currently carries the per-mesh constants (matrices, tags, fog) over from the
+  memory snapshot, which is only sound while the snapshot belongs to the mesh
+  being replayed. Capturing the chain that uploads them would make the
+  reconstruction exact instead of merely usually-right, and it is the same step
+  `docs/devkit.md` already names for pairing input to output.
+- **Measure the cost of `ensureProgramSet` swaps.** The billboard program set is
+  swapped in and out per bag with a full DMA drain on both sides, so a scene that
+  interleaves billboard and ordinary bags pays for a swap at every transition.
+  Nothing measures it today; sorting bags by program set would bound it to two
+  swaps a frame.
+
 - **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
   *recommends* (does not require) attaching its short header comment to each
   source file. TyraX is Apache-2.0 (`LICENSE`) but no source file carries the

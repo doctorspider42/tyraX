@@ -156,6 +156,37 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+VU1 microprogram work has its own layer, faster than everything below
+(`docs/vu-framework.md`):
+
+```
+TYRAX --vu-check [engineDir]         # exit 0 = every program parsed AND every
+                                     #   generated one matches its handwritten
+                                     #   twin bit for bit, in the host simulator
+TYRAX --vu-list <file.vclpp>         # expand + disassemble one microprogram
+TYRAX --vu-emit <outDir>             # generate .vclpp + the EE program classes
+TYRAX --vu-replay <projectDir>       # re-run a console VU1 capture on the host
+```
+
+`--vu-replay` is the only layer that checks the simulator against REAL hardware:
+it reconstructs the input from `bin/vucap.bin` and diffs its own output against
+the console's. `examples/vu-lab` is the fixture built for it. Two things to know
+before trying it on some other project: only the LAST mesh of a chain can be
+replayed (use the Debugger's flush picker to capture a flush carrying ONE mesh -
+a terrain flush with fourteen chunks is not resolvable), and **a project with no
+flow-graph node has no devkit layer at all** - `live_debug.gen.cpp` compiles to an
+empty TU and the capture button does nothing, which looks like a broken feature
+and is the zero-cost rule working.
+
+**Run `--vu-check` after ANY change under `vendor/tyra/.../*.vclpp` or to
+`src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
+parses all 25 shipped microprograms, executes the described ones against their
+handwritten originals on randomized input, and diffs every quadword of the GIF
+packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
+replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
+generated microcode has been built for hardware yet - but a program that fails
+here will not work on the console either.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in

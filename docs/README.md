@@ -247,6 +247,10 @@ Developer design docs (internals, not user guides):
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)
   with the gotchas from the usable-highlight investigation.
+- [The VU framework](vu-framework.md) - describing a VU1 microprogram in
+  C++ and generating both sides of it, plus the host VU1 simulator that runs
+  a microprogram (handwritten or generated) with no PS2 in the loop:
+  `--vu-check`, `--vu-emit`, `--vu-list`, and the micro-memory budget.
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.
