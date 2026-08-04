@@ -641,6 +641,19 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         appendLine(rebuild ? "[editor] === Rebuild started: " + p.name + " ==="
                            : "[editor] === Build started: " + p.name + " ===");
 
+        // A user script in a stale namespace (the usual cause: the project was
+        // renamed, or copied from an example and renamed) cannot compile, and
+        // the toolchain's own diagnostic for it is forty lines of template noise
+        // that never mentions the rename. Stop here instead - unlike the
+        // refresh below, whose failures are I/O problems worth warning about and
+        // continuing past, this one has no chance of producing a binary.
+        if (auto err = project::checkScriptNamespaces(p); !err.empty()) {
+            appendLine("[editor] " + err);
+            appendLine("[editor] === Build FAILED ===");
+            state_ = State::Failed;
+            return;
+        }
+
         // Keep docker files and generated sources in sync with the project
         // data (also migrates projects created with older editor versions).
         if (auto err = project::refreshGenerated(p); !err.empty())

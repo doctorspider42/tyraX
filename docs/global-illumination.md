@@ -166,7 +166,11 @@ viewport only ever READ it**:
 
 The signature hashes the scene (transforms, types, colours, materials, the
 heightmap), the resolved lighting/sky/AO settings, the GI quality knobs, and the
-**content** of every file the bake reads. Content, not mtime: a bake takes
+**content** of every file the bake reads. "Resolved" is what makes a
+[day/night cycle](day-night-cycle.md) work here: the cycle rewrites `lightDir`
+and the sky colours before the bake sees them, so **each authored hour caches
+separately** and moving the time-of-day slider correctly reads as stale rather
+than silently shipping noon's bounce light at dusk. Content, not mtime: a bake takes
 minutes and a `touch` (or a checkout, or a copy) must not throw it away — and the
 example project ships its cache, which a fresh `git clone` would otherwise
 invalidate the instant it landed on disk.

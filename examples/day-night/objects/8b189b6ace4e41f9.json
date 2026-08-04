@@ -1,0 +1,1 @@
+{ "id": "8b189b6ace4e41f9", "name": "ball", "type": "sphere", "position": [-20, 1.6, 0], "rotation": [0, 0, 0], "scale": [1.6, 1.6, 1.6], "color": [0.88, 0.86, 0.8], "physics": false, "projShadow": true }

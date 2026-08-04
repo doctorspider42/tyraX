@@ -113,23 +113,43 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND}
             -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/icon.png
             -DOUT_FILE=${APP_ICON_GEN}
-            -P ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+            -DNAMESPACE=appicon -DSYMBOL=kIconPng
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     DEPENDS ${CMAKE_SOURCE_DIR}/resources/icon.png
-            ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding resources/icon.png")
 
-# Own target for the two generators. If the headers were listed straight in
+# --- Embedded lunar colour map (resources/moon-lroc-color-1k.jpg) ---
+# NASA SVS "CGI Moon Kit", LRO/LROC 2019 colour map (1024x512, public domain -
+# see THIRD-PARTY-LICENSES.md). menubake::bakeMoonPNG projects it into the small
+# moon disc a day/night cycle ships; the map itself never reaches the PS2, so it
+# is baked into the editor rather than copied into every project.
+set(MOON_MAP_GEN ${CMAKE_BINARY_DIR}/generated/moonmap_gen.hpp)
+add_custom_command(
+    OUTPUT ${MOON_MAP_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/moon-lroc-color-1k.jpg
+            -DOUT_FILE=${MOON_MAP_GEN}
+            -DNAMESPACE=moonmap -DSYMBOL=kMoonJpg
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/moon-lroc-color-1k.jpg
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/moon-lroc-color-1k.jpg")
+
+# Own target for the generators. If the headers were listed straight in
 # tyrax-editor's sources, CMake would attach their custom commands to that
-# target and give them order-only deps on everything it LINKS - so both
+# target and give them order-only deps on everything it LINKS - so the
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
-add_custom_target(tyrax-generated DEPENDS ${AI_SUPPORT_GEN} ${APP_ICON_GEN})
+add_custom_target(tyrax-generated
+    DEPENDS ${AI_SUPPORT_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
     src/main.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/ambience.cpp
     src/animedit.cpp
     src/aobake.cpp
     src/app.cpp
@@ -185,6 +205,7 @@ add_executable(tyrax-editor
     src/scrollsim.cpp
     src/screenfx.cpp
     src/session.cpp
+    src/starfield.cpp
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp

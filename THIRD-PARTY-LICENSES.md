@@ -330,7 +330,25 @@ not the same: a permissive code license on a project says nothing about the
 license on the models, textures or sounds it ships, and asset collections are
 routinely *mixed* — most files under one license, a long tail under another.
 
-TyraX ships no third-party assets today. The policy for adding any is in the
-"Dependency policy" section of [`README.md`](README.md); the short version is
-that an asset pack has to be verified file-by-file, not project-by-project,
-before anything from it is committed here.
+The policy for adding assets is in the "Dependency policy" section of
+[`README.md`](README.md); the short version is that an asset pack has to be
+verified file-by-file, not project-by-project, before anything from it is
+committed here. TyraX ships exactly one such file:
+
+### NASA lunar colour map — public domain
+
+`resources/moon-lroc-color-1k.jpg` is the 2019 colour map from NASA's
+Scientific Visualization Studio "CGI Moon Kit"
+(<https://svs.gsfc.nasa.gov/4720>, visualization by Ernie Wright), assembled
+from Lunar Reconnaissance Orbiter Camera data. 1024x512, unmodified.
+
+NASA content "generally [is] not subject to copyright in the United States"
+and asks only that **NASA be acknowledged as the source**
+(<https://www.nasa.gov/nasa-brand-center/images-and-media/>). Note that the NASA
+insignia and logotypes are *not* public domain and are not used here.
+
+The editor projects this map into the moon disc of a day/night cycle
+([`docs/day-night-cycle.md`](docs/day-night-cycle.md)). The map itself is
+embedded in the editor binary and is **never copied into a generated game** —
+only the small baked disc ships, so a game built with TyraX carries a derived
+image, not this file.

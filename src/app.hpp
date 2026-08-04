@@ -61,6 +61,10 @@ struct NavConfig {
     NavMoveKeys moveKeys = NavMoveKeys::WASD;
     float orbitSensitivity = 1.0f;  // 0.2 .. 3.0, multiplies pixel deltas
     float panSensitivity = 1.0f;
+    // The right+middle forward/back pan gets its own speed: it travels along the
+    // VIEW direction, so a value that feels right for sideways panning is
+    // usually too slow for crossing a scene or climbing to the sky.
+    float dollySensitivity = 1.0f;
     float zoomSensitivity = 1.0f;
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
@@ -778,6 +782,11 @@ private:
     void drawGradingWindow();
     void drawAmbienceWindow();
     void drawAmbiencePresets(bool& changed);
+    void drawAmbienceDayCycle(bool& changed);
+    // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
+    // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
+    // its phase or texture changed.
+    void updateSkyBodyPreview(int presetIndex);
     void drawCutsceneWindow();
     // Poses a copy of the active scene's objects at the Cutscene Director
     // playhead (the same interpolation the PS2 runtime uses) so the viewport
@@ -1478,6 +1487,21 @@ private:
     int selectedAmbience_ = -1;
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+    // Day/night cycle discs (docs/day-night-cycle.md). The moon bake is a
+    // real image projection, so it is re-run only when its inputs change -
+    // this is the signature of what is currently uploaded ("" = nothing yet).
+    std::string skyBodyMoonSig_;
+    bool skyBodySunUploaded_ = false;
+    // The generated night sky, cached against the Params it came from -
+    // starfield::generate is deterministic, so re-rolling it per frame would
+    // buy nothing and cost a mesh rebuild.
+    std::vector<starfield::Star> skyBodyStars_;
+    starfield::Params skyBodyStarParams_;
+    // 1/gain of the runtime drift grade, so the previewed sky/discs/stars cancel
+    // it exactly as the console does (ambience::driftCompensation).
+    float skyBodyComp_[3] = {1.0f, 1.0f, 1.0f};
+    // Which key row the cycle tab has selected (-1 = none).
+    int selectedDayKey_ = -1;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
     // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
@@ -2411,6 +2435,7 @@ private:
     SceneOverrides scenePrefOverrides_;
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
+    bool scenePrefStart_ = false;    // staged "this is Project::startScene"
 
     std::string statusMessage_;
 
