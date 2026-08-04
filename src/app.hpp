@@ -27,6 +27,7 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
 #include "livelogic.hpp"
@@ -60,10 +61,47 @@ struct NavConfig {
     NavMoveKeys moveKeys = NavMoveKeys::WASD;
     float orbitSensitivity = 1.0f;  // 0.2 .. 3.0, multiplies pixel deltas
     float panSensitivity = 1.0f;
+    // The right+middle forward/back pan gets its own speed: it travels along the
+    // VIEW direction, so a value that feels right for sideways panning is
+    // usually too slow for crossing a scene or climbing to the sky.
+    float dollySensitivity = 1.0f;
     float zoomSensitivity = 1.0f;
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
     bool orbitAroundSelection = true;  // pivot snaps to the selected object
+};
+
+// One log panel's classified view of its text (docs/log-panels.md) - the state
+// behind the *Output* and *Debug* windows' severity filter. logview::Line holds
+// OFFSETS, so `text` is the buffer they index and has to be kept alive here
+// rather than re-fetched per draw.
+//
+// The parse is incremental for one reason: a build appends lines continuously,
+// and re-classifying a megabyte on every append measured far more than a frame's
+// budget. `parsed`/`complete`/`state` are the resume point (see logview::parse);
+// only a shrink or a rewrite - Clear, a new run recreating bin/log.txt, the
+// Debug window's source combo - starts over.
+struct LogView {
+    std::string text;
+    std::vector<logview::Line> lines;
+    logview::State state;
+    size_t parsed = 0;    // offset after the last COMPLETE line classified
+    size_t complete = 0;  // lines.size() at that offset (the partial tail is dropped)
+
+    unsigned mask = logview::kAll;  // levels shown; persisted in editor.ini
+    bool selectText = false;        // swap the colours for a selectable text box
+
+    // Derived from (lines, mask) - rebuilt when either changes, or when the font
+    // size does (the width is measured in pixels).
+    std::vector<int> visible;  // indices into `lines`
+    int counts[logview::kLevelCount] = {0, 0, 0, 0};
+    float width = 0.0f;        // widest visible line, px - the h-scroll range
+    float widthFont = 0.0f;    // font size `width` was measured at
+    bool dirty = true;
+    size_t shown = 0;          // visible.size() last frame (autoscroll edge)
+    bool scrollBottom = false; // jump to the tail once (the two modes scroll
+                               // differently, so a switch would land at the top)
+    std::string joined;        // the kept lines as text (Copy / selectable mode)
 };
 
 class App {
@@ -226,6 +264,14 @@ private:
     std::string installVsCodeExtension();
     void drawOutputWindow();
     void drawDebugWindow();
+    // The two log panels above share one body (docs/log-panels.md): a severity
+    // filter row with per-level counts, then the lines themselves coloured by
+    // level. logSetText() classifies new text (incrementally while a build
+    // streams into it), logRefresh() rebuilds the filtered view once per frame,
+    // and drawLogPanel() draws v.text through v's filter.
+    void logSetText(LogView& v, std::string&& text);
+    void logRefresh(LogView& v);
+    void drawLogPanel(const char* id, LogView& v);
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesModal();          // project-wide defaults (Project menu)
@@ -251,6 +297,7 @@ private:
     void addMirror();
     void addPortal();
     void addArea();
+    void addScroller();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
     // a layer zone: a combo of this scene's Area objects plus <none>. Returns
@@ -735,6 +782,11 @@ private:
     void drawGradingWindow();
     void drawAmbienceWindow();
     void drawAmbiencePresets(bool& changed);
+    void drawAmbienceDayCycle(bool& changed);
+    // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
+    // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
+    // its phase or texture changed.
+    void updateSkyBodyPreview(int presetIndex);
     void drawCutsceneWindow();
     // Poses a copy of the active scene's objects at the Cutscene Director
     // playhead (the same interpolation the PS2 runtime uses) so the viewport
@@ -1266,6 +1318,24 @@ private:
     // would be a worse lie than the geometry being in the way.
     bool showProcPreview_ = true;
 
+    // Endless-scroller ghost belts, hideable at two scopes. Same reason as the
+    // procedural preview: a belt fills its whole ahead/behind window with
+    // semi-transparent copies of its members, which is exactly what you cannot
+    // see past while editing those members.
+    //
+    // `showScrollerPreview_` is View > Scroller preview - every belt at once.
+    // `scrollGhostsOff_` holds the OBJECT IDS of individual belts turned off
+    // from their own Properties, which is the scope that panel implies (a
+    // checkbox inside one belt's properties that silenced every belt in the
+    // scene reads as a bug, and was reported as one). Ids, not indices: the
+    // object list is reordered by inserts, deletes and the procedural bake.
+    //
+    // Both are session state like the rest of the Preview group - the belt's
+    // origin markers, the layout maths and the clone-count readout are
+    // untouched either way, and nothing here reaches the .tyra or the game.
+    bool showScrollerPreview_ = true;
+    std::set<std::string> scrollGhostsOff_;
+
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
     // bloom + color grading, 2 = film grain), the pinned USE prompt (3), a
@@ -1417,6 +1487,21 @@ private:
     int selectedAmbience_ = -1;
     bool ambiencePreview_ = true;
     bool ambiencePreviewPushed_ = false;  // preset pushed to the viewport?
+    // Day/night cycle discs (docs/day-night-cycle.md). The moon bake is a
+    // real image projection, so it is re-run only when its inputs change -
+    // this is the signature of what is currently uploaded ("" = nothing yet).
+    std::string skyBodyMoonSig_;
+    bool skyBodySunUploaded_ = false;
+    // The generated night sky, cached against the Params it came from -
+    // starfield::generate is deterministic, so re-rolling it per frame would
+    // buy nothing and cost a mesh rebuild.
+    std::vector<starfield::Star> skyBodyStars_;
+    starfield::Params skyBodyStarParams_;
+    // 1/gain of the runtime drift grade, so the previewed sky/discs/stars cancel
+    // it exactly as the console does (ambience::driftCompensation).
+    float skyBodyComp_[3] = {1.0f, 1.0f, 1.0f};
+    // Which key row the cycle tab has selected (-1 = none).
+    int selectedDayKey_ = -1;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
     // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
@@ -2061,10 +2146,19 @@ private:
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the
     // emulator's console log (PCSX2 emulog.txt, boot progress + asserts).
-    std::string debugLog_;
+    // (the tail itself lives in logDbg_.text - the classified view owns the
+    // buffer its line offsets point into)
     int debugLogSource_ = 0;
     bool debugAutoReload_ = true;
     double debugNextReload_ = 0.0;  // ImGui::GetTime() gate for the next read
+    // The Reload button is drawn BELOW the read (the buttons report on the
+    // classified lines), so a press arms the next frame's read.
+    bool debugReloadNow_ = false;
+
+    // The classified views behind the two panels. Their filter masks and the
+    // selectable-text toggles are machine-global (editor.ini): which noise a
+    // person wants hidden is a property of how they work, not of the project.
+    LogView logOut_, logDbg_;
 
     // Game error catcher: polls the game's log (bin/log.txt over host:, or the
     // networked [ps2] console output in the runner log) for a TYRA assertion
@@ -2341,6 +2435,7 @@ private:
     SceneOverrides scenePrefOverrides_;
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
+    bool scenePrefStart_ = false;    // staged "this is Project::startScene"
 
     std::string statusMessage_;
 

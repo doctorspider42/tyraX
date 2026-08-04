@@ -39,6 +39,21 @@ struct RuntimeObject {
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
+  // The per-object matrix path, as a Script can see it. Setting `dirty`
+  // rebuilds an object's whole WORLD-space vertex array on the EE, which is
+  // right for a one-shot move and ruinous for something that moves every
+  // frame - such an object is better baked ONCE in local space and then moved
+  // by refreshing its matrix (ObjectGeometry::objMat), which VU1 applies for
+  // free. Scripts have no access to objectGeometry, so the two flags mirror it:
+  // set `wantsMatrixPath` to ask for the promotion (renderScene does it as
+  // soon as the object is eligible), and read `onMatrixPath` to know whether
+  // it happened - while it is true, writing position/rotation is enough and
+  // `dirty` must be left alone. Scale is baked into the local vertices, so
+  // changing it still needs a `dirty` re-bake (the object is demoted and
+  // re-promoted on the next frame). Inherited trade-off, same as physics:
+  // baked shading freezes at the pose the object was promoted in.
+  bool wantsMatrixPath = false;
+  bool onMatrixPath = false;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
   // its geometry/assets may be freed. Managed by the game's layer streaming
@@ -160,6 +175,19 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
+  // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
+  // away - gravity, collision and the camera keep running, so a locked player
+  // still falls and is still framed. The game applies and resets it.
+  int lockInput = -1;
+
+  // Camera shake (Camera Shake flow node). shakeAmp < 0 = leave; else the
+  // amplitude in world units (0 stops it) held for shakeSec seconds. The game
+  // applies the request to its own decaying shake and resets shakeAmp. It
+  // perturbs whatever camera is in force, cutscene override included.
+  float shakeAmp = -1.0F;
+  float shakeSec = 0.0F;
+
   // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
   // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
   // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
@@ -235,6 +263,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // A flow event queued from OUTSIDE a menu row - today a credits roll whose
+  // finish action is "fire a flow event". updateGameMenu promotes it into
+  // menuEvent (the one place that clears it), so the trigger side needs to
+  // know only about menu events. -1 = none.
+  int pendingEvent = -1;
 
   // Scenes: `scene` is the active scene index (scene_data.hpp order),
   // `sceneGeneration` bumps on every (re)load - scripts use it to reset
