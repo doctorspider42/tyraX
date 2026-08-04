@@ -459,6 +459,21 @@ void App::drawVuProgramsWindow() {
                     // project's C++), absent in a manifest from before it did.
                     r.verdict = f.size() > 7 ? f[7] : "";
                     r.bootFromScript = f.size() > 8 && f[8] == "script";
+                    // THE CHECKBOX IS LIVE, the manifest is from the last
+                    // build. The only thing the manifest is authoritative
+                    // about here is WHO decides - and that cannot change by
+                    // ticking a box - so when the panel is the one deciding,
+                    // the panel's current value replaces the stale one.
+                    //
+                    // Both of the things below read r.boot: the micro-memory
+                    // estimate, and the checkbox itself. Without this the
+                    // estimate ignored the tick until the next Build, and the
+                    // box visibly snapped back to the old value one frame
+                    // after being clicked - it wrote the project and then
+                    // re-read the manifest.
+                    if (!r.bootFromScript)
+                        for (const auto& e : project_.vu.scriptBoot)
+                            if (e.first == r.script) r.boot = e.second;
                     // A script REPLACES the engine's program for that class,
                     // so only the difference is new weight. Adding the whole
                     // thing on top is how this bar first said 3056 of 2042 for
@@ -706,8 +721,12 @@ void App::drawVuProgramsWindow() {
                     // for them, because a control that silently does nothing is
                     // worse than no control.
                     bool on = boot;
+                    // Keyed by NAME, not by row index: the checkbox stores its
+                    // state against the script's name, and an ImGui id built
+                    // from a position moves to a different script the moment
+                    // the list is reordered - which it is, by adding a file.
                     char box[192];
-                    std::snprintf(box, sizeof box, "##vuboot%zu", i);
+                    std::snprintf(box, sizeof box, "##vuboot_%s", name.c_str());
                     if (fromScript) ImGui::BeginDisabled();
                     if (ImGui::Checkbox(box, &on) && !fromScript) {
                         bool found = false;

@@ -32,32 +32,270 @@ the build compiles and runs it.
 ```cpp
 #include "vushader.hpp"
 
-struct CellShading : vu::Program {
-  const char* name() const override { return "Cell shading"; }
-  unsigned classes() const override {
-    return vu::kColour | vu::kLit | vu::kTextured | vu::kMatcap;
-  }
+struct Warm : vu::Program {
+  const char* name() const override { return "Warm"; }
+  unsigned classes() const override { return vu::kColour | vu::kTextured; }
   vu::Slot slot() const override { return vu::Slot::Color; }
 
-  void vertex(vu::Ctx& c) override {
-    // luminance * kBands/255, floored, over itself: bands the LIGHT and keeps
-    // the hue. vf00.w is a free 1.0 - the /0 guard and the darkest band's floor.
-    vu::Vec u = vu::dot3(c.color, vu::constant(c, .299F, .587F, .114F, 0)) *
-                vu::splat(c, 4.0F / 255.0F);
-    u = vu::maximum(u, vu::Vec(&c.raw(), c.raw().zero().broadcast(3)));
-    vugen::Val t = c.scratch(0).val();
-    c.raw().truncate(t, u.val(), vuir::MALL);
-    c.raw().divQ(t, 0, u.val(), 0);
-    c.color.rgb() = vu::Vec(&c.raw(), c.raw().mulQ(c.color.val(), vuir::MXYZ));
+  // Once per buffer. Constants belong here - see the rules below.
+  void prepare(vu::Ctx& c) override {
+    kWarm_ = vu::constant(c, 1.1F, 1.0F, 0.85F, 1.0F);
   }
+  vu::Vec kWarm_;
+
+  // Once per vertex. Two VU instructions, and that is the whole program.
+  void vertex(vu::Ctx& c) override { c.color.rgb() = c.color * kWarm_; }
 };
-VU_PROGRAM(CellShading);
+VU_PROGRAM(Warm);
 ```
 
-That is `examples/vu-lab/src/vu/cell_shading.cpp`, unabridged, and it runs on
-the console at 50 FPS.
+That compiles to a microprogram in the ELF and replaces the engine's own
+program for the two classes it claims. `examples/vu-lab/src/vu/` has four real
+ones - cell shading with an ink outline, a two-colour palette, a PS1 vertex
+snap and a travelling wave - and `src/vu0/ranges.cpp` is the VU0 equivalent.
 
-### Turning one on when the game says so
+---
+
+## The API
+
+Everything below is `src/vushader.hpp` (copied into your project as
+`vugen/vushader.hpp`, which is why VS Code can complete it).
+
+### `vu::Program` — what you override
+
+Only `name()` and `vertex()` have no default.
+
+| | Default | |
+|---|---|---|
+| `const char* name()` | — | shown in the editor, and the stem of the generated files and of `vuscript::k<Name>` |
+| `unsigned classes()` | `kColour` | which material classes this REPLACES: `kColour`, `kLit`, `kLitTextured`, `kTextured`, `kMatcap`, or `kAll` |
+| `vu::Slot slot()` | `Slot::Color` | where in the pipeline the body runs — see [The slots](#the-slots) |
+| `bool activeAtBoot()` | the panel's checkbox | `false` builds the program into the ELF and leaves the game to `vuscript::activate` it |
+| `bool movesGeometry()` | `false` | **must** be true if the body writes `c.position` in object or clip space — see [Moving geometry](#moving-geometry-declare-it) |
+| `bool shellPass()` | `false` | ask the game for a second, grown submission of every object — outlines, fur |
+| `float shellWidth()` | `0.02F` | how far it grows, a fraction of the object's own size |
+| `void prepare(Ctx&)` | nothing | once per buffer: build your constants here |
+| `void vertex(Ctx&)` | — | once per vertex: the body |
+
+`VU_PROGRAM(Type)` at the bottom of the file registers it. One line, no header
+to edit.
+
+### `vu::Kernel` — the VU0 equivalent
+
+| | Default | |
+|---|---|---|
+| `const char* name()` | — | also names the driver class: `"Ranges"` → `Tyra::RangesKernel` |
+| `int maxElements()` | `112` | elements per `run()`; both blocks must fit VU0's 256 quadwords, so the cap is 124 |
+| `void prepare(Ctx&)` | nothing | once, before the element loop |
+| `void element(Ctx&)` | — | once per element; `c.position` IS the element quadword |
+
+`VU_KERNEL(Type)`, and the file goes in `src/vu0/`. Full section:
+[VU0 kernels](#vu0-kernels).
+
+### `vu::Ctx` — what the body is handed
+
+The program's REGISTERS, not a copy of them: reading one is free, assigning to
+one writes the register the emitter keeps using afterwards.
+
+| | |
+|---|---|
+| `c.position` | the vertex, in the space `slot()` names. In a kernel, the element |
+| `c.color` | 0..255 per channel, the GS scale (128 = "unmodulated") |
+| `c.uv` | texture coordinates, when `c.hasUv()` |
+| `c.normal` | WORLD space, on a lit class, when `c.hasNormal()` |
+| `c.params` | the object's four numbers from the inspector — `setParams()` in a kernel |
+| `c.time` | `(seconds, sin, cos, 1)`, already range-reduced |
+| `c.scratch(0..3)` | registers the framework already reserved. **Four** (`kScratchCount`); the index is clamped |
+| `c.raw()` | the builder itself — see below |
+| `c.mark()` / `c.hoist(from)` | move instructions into the preamble; `vu::splat` and `vu::constant` do this for you |
+
+### `vu::Vec` — one register, one instruction
+
+A `vu::Vec` is one virtual VF register, and every operator below is exactly one
+VU instruction on all four lanes. That correspondence is deliberately visible:
+this is a way to write microcode, not a way to pretend the VU is a GPU.
+
+| | |
+|---|---|
+| `a + b`, `a - b`, `a * b` | one instruction each, all four lanes. There is no `/` — see the Q rule |
+| `a = b` | writes the register `a` NAMES (emitted as `add b, 0`), which is what makes `c.color = …` reach the packet |
+| `a.x()`, `.y()`, `.z()`, `.w()` | that lane broadcast into all four — free, it is an operand mode |
+| `a.rgb()` | assigning through it writes ONLY xyz. On a colour that means "leave alpha alone", and alpha is what the GS blends with |
+| `a.val()`, `a.builder()` | drop to the raw `vugen::Val` / builder |
+
+Helper functions, all one to a few instructions:
+
+| | |
+|---|---|
+| `vu::splat(c, 1.5F)` | that value in every lane, built ONCE in the preamble |
+| `vu::constant(c, x, y, z, w)` | four different lanes — a tint, an axis mask, or four scalars packed into one register |
+| `vu::minimum(a, b)`, `vu::maximum(a, b)` | one instruction each |
+| `vu::lerp(a, b, t)` | `a + (b - a) * t`, with `t` in every lane |
+| `vu::dot3(a, b)` | the xyz dot product, broadcast into every lane. Three instructions; w is left out because a normal's w is not a component |
+| `vu::saturate(c, a)` | clamp to 0..1 |
+| `vu::quantize(c, a, steps)` | round down to `steps` levels per lane — the cell-shading primitive, four instructions, no branch and no table |
+
+**Pack scalars into lanes.** `vu::constant(c, 1.0F, levels/255.0F, 255.0F/levels, 0.5F)`
+is one register holding four numbers you then read as `.x()`, `.y()`… — and on
+the lit classes that is the difference between fitting and not, because they
+already keep ~30 of VCL's 31 registers live.
+
+### `c.raw()` — the builder
+
+The escape hatch, and not a lesser path: the framework's own stages are written
+against it. `vugen::Vu` (in `vugen.hpp`) takes `vugen::Val` values and a field
+mask, and writes into a destination you supply rather than minting one:
+
+```cpp
+vugen::Vu& b = c.raw();
+const vugen::Val s0 = c.scratch(0).val();
+b.mulInto(s0, c.position.val(), kWave_.val(), vuir::MX);   // s0.x = pos.x * k.x
+b.addInto(s0, s0, vugen::Val{s0.reg, 2}, vuir::MX);        // += s0.z (a broadcast)
+```
+
+Masks are `vuir::MX`, `MY`, `MZ`, `MW`, `MXYZ`, `MALL`. A broadcast is
+`vugen::Val{reg, field}` with field 0..3 — and **it is only legal on the SECOND
+operand**, which is why the context carries a real `one` register instead of
+using `vf00[w]`.
+
+| Group | |
+|---|---|
+| Arithmetic | `addInto` `subInto` `mulInto` `minimumInto` `maximumInto` `absInto` `moveInto` `onesInto` |
+| Accumulator | `mulAcc` `maddAcc` `maddInto` `msubInto` — the four-instruction madd chain a matrix multiply is |
+| Divide (writes Q) | `divQ` `rsqrtQ` then `mulQInto`. **Forbidden in a VU1 script**, fine in a kernel |
+| Conversion | `truncate` (round toward zero) `ftoi0Into` `ftoi4Into` `loadI` |
+| Integer | `iaddiuInto` `iaddInto` `iorInto` `iandInto` `isubInto` `mtir` |
+| Control flow | `label` `bind` `branch` `branchIfLez` `branchIfGtz` `branchIfEq` `branchIfNotEq` |
+| Memory | `lq` `sq` `lqConst` `ilw` `isw` |
+
+And the method library — the framework's own primitives, the same ones the
+generated pipeline programs are built from:
+
+| | |
+|---|---|
+| `sineApprox(dst, angle, mask, kc, one, scratch, phase)` | 17 instructions, ~0.2% — see [The sine](#the-sine-and-what-it-costs). `kc` must be `constants(1/2pi, 0.5, 2^23, 0.225)` |
+| `constants(dst, x, y, z, w)` | four literals in one register, eight instructions once |
+| `truncate(dst, a, mask)` | floor toward zero (`ftoi0` + `itof0`) |
+| `transform(dst, m[4], v)` | a 4x4 matrix multiply as a mula/madd chain |
+| `dirLightShade(...)` | three directional lights plus ambient, from an object-space normal |
+| `persCorrect`, `scaleToGsFormat`, `fixColor` | the perspective divide, the GS 12.4 conversion, the 0..255 clamp |
+| `envStq`, `spotLight`, `fogCoefficient`, `fogClipCheck` | matcap ST, the flashlight cone, hardware fog, the ADC frustum test |
+| `clipwInto`, `fcandInto`, `xtop`, `xgkick`, `resetClipFlags` | the clipper's own primitives |
+
+Every one of them takes its scratch registers from the CALLER, on purpose: a
+value-returning API wants to mint a register per call, and register pressure is
+invisible on the host (see [the other ceiling](#the-other-ceiling-vf-registers)).
+
+---
+
+## Six rules the compiler will not tell you
+
+**Build constants in `prepare()`, not in `vertex()`.** Both hoist to the
+preamble, but `vertex()` runs once per VERTEX and the loop is unrolled three
+times, so the same constant lands in three registers. And write the body
+against `c.scratch(n)` and the raw builder once it grows: every `a * b` in the
+value layer mints a register, and eighteen live temporaries is enough to put
+vcl into `time out.. failed to normal via processing` - it still emits code, it
+just stops optimising, and each timeout is another 45 seconds of build. Moving
+the sample onto scratch registers took it from several timeouts to none and the
+budget from 1042..2084 to 897..1794.
+
+**Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
+writes the I register; a run of them inside the per-vertex body is something vcl
+schedules around, and the hardware then reads an I the host simulator never saw.
+Building constants by hand through `c.raw()` inside the body is the one way to
+reproduce this - the first console run of the script above came out as rainbow
+noise until the constants were hoisted.
+
+**Never write Q.** A divide, an rsqrt or a sqrt writes the Q register, and Q
+carries the perspective divide - `persCorrect` puts 1/w there and both the
+position and the ST ride on it. Q has a latency the assembler schedules around,
+and a Q write from a script body is independent in vcl's dataflow view, so it
+gets moved into that window and vertices land in the wrong place. On the console
+that reads as grey stippled patches on a mesh and shadows fighting for z; on the
+host it reads as nothing at all, because the simulator runs in order and models
+no latency. The build refuses it now, with that explanation. Cell shading wants
+a `band / luminance` and cannot have it - `examples/vu-lab` uses a step ramp
+built from min/max instead, which is a plain multiply and preserves hue exactly.
+
+**Know which one you are banding: the channels or the light.** They are
+different effects and the difference is hue. Quantising r, g and b
+independently MOVES the hue — at four levels a shaded yellow `(160,131,25)`
+lands on `(127,127,0)`, an olive that was never in the scene — and that shift is
+what reads as flat paint and ink. Quantising LUMINANCE and scaling the colour by
+the ratio preserves hue exactly, which sounds more correct and looks like a
+dimmer switch. `examples/vu-lab/src/vu/cell_shading.cpp` bands the channels, and
+that was settled by looking at both on a TV rather than by argument: the version
+people preferred was an early BUG that quantised one channel by accident.
+
+Whichever you pick, **round to band CENTRES, not floors.** Truncation always
+rounds down, so without a half-step the picture loses half a band of brightness
+everywhere — which reads as "the effect just makes things darker", and did.
+
+**Multiply, never add.** An object is drawn by more than one bag, and the extra
+ones are MODULATION passes: a baked lightmap's vertex colour is literally
+`Color(0, 0, 0, 128)` with the occlusion living in its texture. Add a constant
+to "lift the dark end" and you lift that black to grey — the shadow pass becomes
+a grey wash, dithered because it is blended, and it reads exactly like z-fighting
+under the texture. Multiplying leaves zero at zero, so a modulation pass passes
+through untouched. The same rule is why the sample writes `c.color.rgb()`:
+alpha is what the GS blends with.
+
+**Registers run out before micro memory does.** VCL allocates 31, and the
+directional-light program already keeps about 30 of them live. Cell shading
+written in 0..1 and converted back cost two constants too many and died as `no
+opt table` from vcl, inside Docker, with no line number; the same effect done in
+the GS's own 0..255 scale fits. Prefer `c.scratch(n)` to long expressions, and
+suspect the register ceiling first when a build fails in the assembler.
+
+**A script's `Slot::ObjectSpace` half follows a mesh through the VU1 clipper but
+not through the EE one** - see "One class is two programs" below.
+
+## Write it in VS Code, not in a text box
+
+`src/vu/*.cpp` and `src/vu0/*.cpp` are where the program actually gets written,
+so the editor's
+VS Code extension treats them as first-class files rather than as anonymous C++
+([docs/vscode-extension.md](vscode-extension.md)). The Scripts panel opens it;
+`${workspaceFolder}/vugen` is on the generated includePath, so `c.` and
+`vugen::` complete out of the framework's own headers; and the rules on this
+page that are NOT expressible in a header - a Q write, a fifth scratch
+register, a geometry slot without `movesGeometry()`, a displacement claiming a
+subset of the classes - are reported in the Problems panel as you type instead
+of by a container build or a console run. Type `vuprogram` for the skeleton.
+
+## What the build actually does
+
+```
+src/vu/*.cpp + src/vu0/*.cpp  +  vugen/*.cpp   your code and the framework
+        |  g++ (in the build container, installed once)
+        v
+     a generator                     runs on the HOST, at build time
+        |
+        v
+src/gen/vu_script*.vclpp  + _program.cpp + vu_scripts.gen.{hpp,cpp}
+src/gen/vu0_script*.vclpp + _kernel.cpp  + vu0_kernels.gen.hpp
+        |  vclpp -> vcl -> dvp-as    the engine's own chain
+        v
+     the ELF
+```
+
+The container ships no host compiler (it is a ps2dev image), so the first build
+with a script or a kernel installs `g++` once - about a minute, stamped, and
+paid again only if the container is recreated. A mistake in your file is an
+ordinary C++ error with your own filename and line number.
+
+Neither directory reaches the PS2 compiler: `Makefile.base` excludes both from
+its `src/**.cpp` glob, because handing host C++ to `mips64r5900el-ps2-elf-g++`
+fails on the very first include.
+
+`vuscript::install(core)` is called by the generated game right after
+`vuprog::install`, so a script wins over a look claiming the same class. With no
+script the header is a stub and every call folds away.
+
+---
+
+## Turning a program on and off
 
 By default a script installs at boot. Two ways to say otherwise, and they do not
 compete:
@@ -82,7 +320,7 @@ the generator asks each program twice, once with the default set to true and
 once to false, and a program that answers the same thing both times is one that
 overrides.
 
-and the game decides:
+Either way it is only the STARTING state. At run time the game decides:
 
 ```cpp
 vuscript::activate(vuscript::kCellShading);    // a trigger, a cutscene beat
@@ -105,7 +343,7 @@ fit on VU1 at once, as long as it does not turn them all on together. The cost o
 a switch is one pipeline drain and one program-cache upload - fine on an event,
 not fine per frame.
 
-### Reading the micro-memory budget
+## Reading the micro-memory budget
 
 The bar is the RESIDENT set: for every material class the project draws, the
 engine's cull program plus its twin (the clipper under VU1 clipping, the as_is
@@ -161,7 +399,7 @@ whether it fits. A console run that flipped vu-lab to VU1 clipping mid-game hit
 the engine's own `VU1 pipeline programs overflow into the draw-finish program`
 assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 
-### Where it shows up in the editor
+## Where it shows up in the editor
 
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
   in VS Code. *New script...* creates one from a working stub - three kinds,
@@ -178,137 +416,6 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 
 There is no live preview of a script's VCL the way there is for a look, for the
 same reason.
-
-### What the body is handed
-
-`vu::Ctx` is the program's REGISTERS, not a copy of them: reading one is free,
-assigning to one writes the register the emitter keeps using afterwards.
-
-| | |
-|---|---|
-| `c.position` | the vertex, in the space `slot()` names |
-| `c.color` | 0..255 per channel, the GS scale (128 = "unmodulated") |
-| `c.uv` | texture coordinates, when `c.hasUv()` |
-| `c.normal` | WORLD space, on a lit class, when `c.hasNormal()` |
-| `c.params` | the object's four numbers, from the inspector |
-| `c.time` | `(seconds, sin, cos, 1)`, already range-reduced |
-| `c.scratch(0..3)` | registers the framework already reserved for you |
-| `c.raw()` | the builder itself - madd chains, masked writes, `loi`, `ftoi`, the sine approximation, `xgkick` |
-
-A `vu::Vec` is one virtual VF register and every operator is one VU instruction.
-That correspondence is deliberately visible: this is a way to write microcode,
-not a way to pretend the VU is a GPU.
-
-### Where it runs
-
-`slot()` picks the point in the pipeline:
-
-| Slot | The vertex is | Use it for |
-|---|---|---|
-| `ObjectSpace` | the model's own units, before the MVP multiply | moving geometry |
-| `ClipSpace` | after the MVP, w = view distance | depth tricks, fog |
-| `Ndc` | after the perspective divide | screen-space snapping |
-| `Color` (default) | — colour after lighting and texturing, before the clamp | shading, palettes, tints |
-
-### Six rules the compiler will not tell you
-
-**Build constants in `prepare()`, not in `vertex()`.** Both hoist to the
-preamble, but `vertex()` runs once per VERTEX and the loop is unrolled three
-times, so the same constant lands in three registers. And write the body
-against `c.scratch(n)` and the raw builder once it grows: every `a * b` in the
-value layer mints a register, and eighteen live temporaries is enough to put
-vcl into `time out.. failed to normal via processing` - it still emits code, it
-just stops optimising, and each timeout is another 45 seconds of build. Moving
-the sample onto scratch registers took it from several timeouts to none and the
-budget from 1042..2084 to 897..1794.
-
-**Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
-writes the I register; a run of them inside the per-vertex body is something vcl
-schedules around, and the hardware then reads an I the host simulator never saw.
-Building constants by hand through `c.raw()` inside the body is the one way to
-reproduce this - the first console run of the script above came out as rainbow
-noise until the constants were hoisted.
-
-**Never write Q.** A divide, an rsqrt or a sqrt writes the Q register, and Q
-carries the perspective divide - `persCorrect` puts 1/w there and both the
-position and the ST ride on it. Q has a latency the assembler schedules around,
-and a Q write from a script body is independent in vcl's dataflow view, so it
-gets moved into that window and vertices land in the wrong place. On the console
-that reads as grey stippled patches on a mesh and shadows fighting for z; on the
-host it reads as nothing at all, because the simulator runs in order and models
-no latency. The build refuses it now, with that explanation. Cell shading wants
-a `band / luminance` and cannot have it - `examples/vu-lab` uses a step ramp
-built from min/max instead, which is a plain multiply and preserves hue exactly.
-
-**Band the light, not the channels.** Posterising r, g and b independently is
-the obvious way to write cell shading and it is wrong: at four levels a shaded
-yellow `(160,131,25)` lands on `(127,127,0)`, so the hue slides to olive and the
-model reads as dirty rather than stylised. Quantise LUMINANCE and scale the
-colour by the ratio — `examples/vu-lab/src/vu/cell_shading.cpp` does it in two
-constants, which is all the lit class has room for.
-
-**Multiply, never add.** An object is drawn by more than one bag, and the extra
-ones are MODULATION passes: a baked lightmap's vertex colour is literally
-`Color(0, 0, 0, 128)` with the occlusion living in its texture. Add a constant
-to "lift the dark end" and you lift that black to grey — the shadow pass becomes
-a grey wash, dithered because it is blended, and it reads exactly like z-fighting
-under the texture. Multiplying leaves zero at zero, so a modulation pass passes
-through untouched. The same rule is why the sample writes `c.color.rgb()`:
-alpha is what the GS blends with.
-
-**Registers run out before micro memory does.** VCL allocates 31, and the
-directional-light program already keeps about 30 of them live. Cell shading
-written in 0..1 and converted back cost two constants too many and died as `no
-opt table` from vcl, inside Docker, with no line number; the same effect done in
-the GS's own 0..255 scale fits. Prefer `c.scratch(n)` to long expressions, and
-suspect the register ceiling first when a build fails in the assembler.
-
-**A script's `Slot::ObjectSpace` half follows a mesh through the VU1 clipper but
-not through the EE one** - see "One class is two programs" below.
-
-### Write it in VS Code, not in a text box
-
-`src/vu/*.cpp` and `src/vu0/*.cpp` are where the program actually gets written,
-so the editor's
-VS Code extension treats them as first-class files rather than as anonymous C++
-([docs/vscode-extension.md](vscode-extension.md)). The Scripts panel opens it;
-`${workspaceFolder}/vugen` is on the generated includePath, so `c.` and
-`vugen::` complete out of the framework's own headers; and the rules on this
-page that are NOT expressible in a header - a Q write, a fifth scratch
-register, a geometry slot without `movesGeometry()`, a displacement claiming a
-subset of the classes - are reported in the Problems panel as you type instead
-of by a container build or a console run. Type `vuprogram` for the skeleton.
-
-### What the build actually does
-
-```
-src/vu/*.cpp + src/vu0/*.cpp  +  vugen/*.cpp   your code and the framework
-        |  g++ (in the build container, installed once)
-        v
-     a generator                     runs on the HOST, at build time
-        |
-        v
-src/gen/vu_script*.vclpp  + _program.cpp + vu_scripts.gen.{hpp,cpp}
-src/gen/vu0_script*.vclpp + _kernel.cpp  + vu0_kernels.gen.hpp
-        |  vclpp -> vcl -> dvp-as    the engine's own chain
-        v
-     the ELF
-```
-
-The container ships no host compiler (it is a ps2dev image), so the first build
-with a script or a kernel installs `g++` once - about a minute, stamped, and
-paid again only if the container is recreated. A mistake in your file is an
-ordinary C++ error with your own filename and line number.
-
-Neither directory reaches the PS2 compiler: `Makefile.base` excludes both from
-its `src/**.cpp` glob, because handing host C++ to `mips64r5900el-ps2-elf-g++`
-fails on the very first include.
-
-`vuscript::install(core)` is called by the generated game right after
-`vuprog::install`, so a script wins over a look claiming the same class. With no
-script the header is a stub and every call folds away.
-
----
 
 ## The panel
 
@@ -350,6 +457,211 @@ program that will never draw it. When no look covers the object's class the
 sliders are gone and it says so, rather than showing four numbers that do
 nothing.
 
+---
+
+## VU0 kernels
+
+The other vector unit, with none of the rendering around it: **N quadwords in,
+N quadwords out, one body per element**. A kernel draws nothing and replaces
+nothing — what a project gets back is a class with a `run()` on it, and nothing
+calls it unless the game does.
+
+Two ways to write one, exactly mirroring the VU1 side:
+
+| | |
+|---|---|
+| **A kernel** — `src/vu0/*.cpp` | You write C++, subclassing `vu::Kernel`. Same authoring as a script: same value types, same four scratch registers, same `c.raw()` escape hatch. **This is the main road.** |
+| **The stage list** — *Tools > VU Programs > VU0 kernel* | The stage catalogue, applied to quadwords instead of vertices. No code, and limited to what the catalogue covers. |
+
+### Writing one
+
+Put a `.cpp` under `src/vu0/` — or *New script…* and pick **VU0 kernel**, which
+writes the stub for you. That is the whole setup; the editor copies the
+framework next to it and the build compiles and runs it, exactly as for
+`src/vu/`.
+
+```cpp
+#include "vushader.hpp"
+
+struct Ranges : vu::Kernel {
+  const char* name() const override { return "Ranges"; }
+  int maxElements() const override { return 64; }
+
+  void prepare(vu::Ctx& c) override {
+    kGuard_ = vu::constant(c, 1e-6F, 3.0F, 0.0F, 0.0F);
+  }
+  vu::Vec kGuard_;
+
+  void element(vu::Ctx& c) override {
+    // c.position IS the element quadword. c.params is what setParams() sent.
+    vugen::Vu& b = c.raw();
+    b.subInto(c.scratch(0).val(), c.position.val(), c.params.val(), vuir::MXYZ);
+    // ... dot, rsqrt, band; see examples/vu-lab/src/vu0/ranges.cpp
+  }
+};
+VU_KERNEL(Ranges);
+```
+
+`element()` is handed the same [`vu::Ctx`](#vuctx--what-the-body-is-handed) a
+`vertex()` body is — same operators, same four scratch registers, same
+`c.raw()`. Two differences:
+
+- **A kernel element is one quadword and nothing else.** `c.position` is the
+  element; `c.color` and `c.uv` name that same register because there is no
+  second thing to name, and `hasUv()`/`hasNormal()` are false.
+- **`prepare()` matters more here.** The element loop is a real *branch*, not
+  three unrolled copies, so a constant built inside `element()` is rebuilt for
+  every single element — and a `loi` among them is the one construct vcl
+  reorders in a way the host simulator cannot model.
+
+### Using it from the game
+
+The generated driver is named after the kernel — `"Noise field"` becomes
+`Tyra::NoiseFieldKernel` — and one header brings them all in:
+
+```cpp
+#include "scripts/vu0_kernels.gen.hpp"
+
+static Tyra::RangesKernel ranges;
+static Tyra::Vec4 in[64], out[64];
+
+ranges.setParams(camX, camY, camZ, 1.0F / 12.0F);
+ranges.setTime(seconds);          // (t, sin t, cos t, 1) in c.time
+ranges.run(in, out, count);       // count <= maxElements(). BLOCKS.
+```
+
+`init()` is called for you on the first `run()` and is idempotent. The `.vclpp`
+is built automatically — `/tyra/Makefile.base` globs `src/**.vclpp`, and it
+skips `src/vu0/` for the PS2 compiler the same way it skips `src/vu/`. There is
+no Makefile work.
+
+`vukernel::COUNT` and `vukernel::ENABLED` are compile-time constants, so game
+code can be written before the first build and keeps compiling after the last
+kernel is deleted.
+
+### What a kernel is FOR, and what it is not
+
+**It is a calculator, not a GPU.** 512 micro-memory slots against VU1's 2042,
+and 256 quadwords of data memory — which the default layout splits into about
+112 elements each way.
+
+**It is SIMD over quadwords.** The same operation on many elements is what it is
+good at. A scalar loop whose step depends on the previous step is what it is
+worst at, and no amount of arranging changes that.
+
+**There is no cross-element reduction.** No instruction adds a lane of element 7
+to a lane of element 8; the quadwords are independent by construction. So
+"compute an integral on VU0" — the request this feature gets most — splits in
+two: VU0 evaluates the terms, and the **EE sums the output array**. That is not
+a workaround, it is the division of labour the hardware describes.
+
+**`run()` blocks the EE**, and it clobbers the COP2 register file — see the
+caveat below. 32 elements is microseconds; a big batch is not free.
+
+**It costs nothing out of the VU1 drawing budget.** These instructions are
+counted against VU0's own 512 slots, and nothing else is parked there. The
+micro-memory bar in *Tools > VU Programs* is about VU1 alone, and a kernel never
+moves it.
+
+The job that fits all of this at once is the oldest one a PS2 game has: **how
+far away is everything?** One subtract, one dot product and one root per object,
+over a list the game already has in an array, and the answers pick levels of
+detail, decide what to draw and set how loud a sound is. That is
+`examples/vu-lab/src/vu0/ranges.cpp`, and its numbers agree with the EE's own
+`sqrtf` to 1e-6 units on the console.
+
+### What is different about VU0, concretely
+
+| | VU1 | VU0 |
+|---|---|---|
+| Data memory | 1024 quadwords | **256** |
+| Micro memory | 2048 slots (2042 usable) | **512**, all usable |
+| GIF path | PATH1, `xgkick` | none |
+| Input staging | VIF1 double buffer, `xtop` | the EE stores at fixed addresses |
+| Entry | starts at 0, loops per buffer | `vcallms <addr>`, once per call |
+| Data memory between calls | a fresh buffer arrives | **persists** |
+
+The persistence is the useful part and the generated driver leans on it: the
+parameter quadword and the time quadword are stored once, and each `run()` only
+rewrites the batch and the element count.
+
+The default layout leaves **112 elements** each way inside those 256 quadwords:
+
+```
+  0        .x = element count for this call
+  1        the four user parameters
+  2        (time, sin time, cos time, 1.0)
+  8..119   input elements
+  120..231 output elements
+```
+
+A C++ kernel's blocks are sized from its own `maxElements()` — the output block
+starts where the input block ends, which caps a batch at **124**. Either way
+`buildKernel` refuses a layout that does not fit rather than letting it wrap:
+on hardware an address past 255 wraps silently onto something else.
+
+### The caveat no simulator can catch
+
+**VU0's register file is shared with COP2 macro mode**, which is the engine's own
+`Vec4`/`M4x4` math. A VU0 micro program and an inline macro-mode expression are
+the same 32 VF registers.
+
+The generated driver's `run()` therefore **blocks the EE** until the kernel
+finishes — it is not a simplification, it is the only safe arrangement without
+saving and restoring the register file. The engine's raytracer does the same
+thing for the same reason. If you want VU0 work overlapping EE work, that is a
+project you own, not a flag.
+
+### The one rule a kernel does NOT inherit
+
+Everything in [Six rules the compiler will not tell you](#six-rules-the-compiler-will-not-tell-you)
+applies to a kernel body — four scratch registers, constants in `prepare()`,
+`loi` needs `%.9g` — **except the ban on writing Q**.
+
+A VU1 script must never emit a divide, an `rsqrt` or a `sqrt`, because the
+framework owns Q there: `persCorrect` puts 1/w in it, the position and the ST
+both ride on it, and a divide vcl slides into that window silently moves the
+vertex. A kernel has no framework around the body. Nothing else reads Q, and a
+root is ordinary microcode — which is what makes a distance kernel possible at
+all. The generator says so in a note rather than refusing it.
+
+### Which stages a kernel can run
+
+Only the ones that touch nothing but the element itself: **Wobble, Twist,
+Inflate, Squash**. A kernel element is one quadword; a stage that reads a colour
+or an ST has nothing to read, and `buildKernel` refuses it by name rather than
+reinterpreting the fields.
+
+A C++ body has no such list — that is the whole point of writing one. Both can
+be present in the same kernel description, in which case the stages run first
+and the body sees what they left in the element.
+
+### Where the files land
+
+The build container compiles and runs `src/vu0/*.cpp` and leaves behind, per
+kernel:
+
+```
+  src/gen/vu0_script<i>.vclpp              the VU0 microprogram
+  src/gen/vu0_script<i>_kernel.cpp         the EE driver
+  inc/scripts/vu0_script<i>_kernel.hpp     its header
+  inc/scripts/vu0_kernels.gen.hpp          one include for all of them
+```
+
+`vu0_script<i>` and **not** `vu0_<name>` on purpose: the panel's stage-composed
+kernel is named by its author, is written by the *editor* on the host, and is
+swept by the editor when it stops being generated. Two owners writing under one
+prefix into one directory is how one of them ends up deleting the other's work.
+Kernels join the generator's own emitted-file ledger instead, so a deleted
+`src/vu0/*.cpp` takes its microprogram with it.
+
+---
+
+# How it works
+
+Everything above is what you write. The rest of this page is why it is shaped
+that way — read it when something surprises you.
+
 ## What this is for
 
 **A look, not an effect on one object.** This is the layer for giving a whole
@@ -357,16 +669,12 @@ scene a treatment — cell shading, an underwater wobble, a posterized palette.
 It is not the way to make one barrel wobble; that is an animation's job, and
 paying a microprogram for it would be absurd.
 
-That framing decides the shape of everything below, so it is worth being blunt
-about it: a **literal** parameter means *every mesh of every class this look
-covers*, and that is the normal case. Binding a parameter to a **per-mesh slot**
-is the exception, for when the treatment has to vary in strength across the
-scene.
-
-## The shape of the thing
+## The shape of a look
 
 A look is **one ordered list of stages, installed over every material class it
-claims**.
+claims**, and codegen emits one microprogram per claimed class from that one
+list. A treatment that stops at one class is not a treatment: cell shading on
+untextured props but not on textured ones just reads as broken.
 
 ```
 name:    "Underwater"
@@ -374,29 +682,22 @@ classes: Untextured + Textured + Reflective   (a StaPipProgramClass mask)
 stages:  [ Wobble(amp, freq, speed), Desaturate(amount), ... ]
 ```
 
-Codegen emits **one microprogram per claimed class**, all from that one list —
-so you author once. A treatment that stops at one class is not a treatment: cell
-shading on untextured props but not on textured ones just reads as broken.
+Each stage parameter is either a **value** baked into the microprogram — the
+normal case, meaning every mesh of every claimed class — or bound to one of
+**four per-mesh slots**, a quadword uploaded next to the MVP matrix, for when
+the treatment has to vary in strength across the scene.
 
-Each stage has up to four parameters, and each parameter is either
+Three rules follow:
 
-- a **value**, baked into the microprogram — free, constant, and applied to
-  every mesh of every claimed class; or
-- bound to one of **four per-mesh slots**, a quadword the game uploads next to
-  the MVP matrix, so individual objects can drive the same effect differently.
-
-A stage a class cannot carry — a UV scroll on untextured geometry — is **skipped
-for that class with the reason shown**, not refused. Refusing would mean a
-scene-wide look could never include a stage that only some classes support,
-which is most of them.
-
-Two rules the class mask is subject to:
-
+- **A stage a class cannot carry** — a UV scroll on untextured geometry — is
+  skipped for that class with the reason shown, not refused. Refusing would mean
+  a scene-wide look could never include a stage only some classes support, which
+  is most of them.
 - **One look per class.** `setProgramOverride` replaces a slot and a slot holds
   one program, so a second look claiming a taken class is skipped and said so.
-- **A per-mesh binding restricts the mask to the unlit classes.** See below —
-  and note it is the *binding* that restricts, not the look: an all-values look
-  reaches lit geometry perfectly well.
+- **A per-mesh BINDING restricts the mask to the unlit classes** — it is the
+  binding that restricts, not the look: an all-values look reaches lit geometry
+  perfectly well. See below for why.
 
 ## Why one program per material class
 
@@ -870,12 +1171,27 @@ Makefile work: the game Makefile includes `/tyra/Makefile.base`, whose
 
 | File | What it is |
 |---|---|
+Written by the **EDITOR**, from the panel's looks and stage-composed kernel:
+
+| File | What it is |
+|---|---|
 | `src/gen/vu_look<i>_<c\|d\|tc\|tce\|td>.vclpp` | the microprogram — **one per (look, class)** |
 | `src/gen/vu_look<i>_<...>_ai.vclpp` | its as_is twin, see "One class is two programs" below — so a look claiming four classes emits **eight** |
 | `src/gen/vu_look<i>_<...>_program.{hpp,cpp}` | the EE-side program class — unpack layout, GIF register list, store stride, all from the same description |
 | `inc/scripts/vu_programs.gen.hpp` | the on/off seam |
 | `src/gen/vu_programs.gen.cpp` | `install` / `activate` / `setTime` / `setParams` |
-| `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | a VU0 kernel and its driver |
+| `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | the stage-composed VU0 kernel and its driver |
+
+Written by the **BUILD CONTAINER**, from your `src/vu/*.cpp` and `src/vu0/*.cpp`
+— the host has no compiler to run them with:
+
+| File | What it is |
+|---|---|
+| `src/gen/vu_script<i>_<class>[_ai\|_cl].vclpp` + `_program.{hpp,cpp}` | a script's microprograms — up to three per class it claims |
+| `inc/scripts/vu_scripts.gen.hpp` + `src/gen/vu_scripts.gen.cpp` | `install` / `activate` / `deactivate` / `movesGeometry` |
+| `src/gen/vu0_script<i>.vclpp` + `_kernel.cpp`, `inc/scripts/vu0_script<i>_kernel.hpp` | a kernel and its EE driver |
+| `inc/scripts/vu0_kernels.gen.hpp` | one include for every driver class |
+| `src/gen/vu_scripts.manifest`, `vu0_scripts.manifest` | what the panel reads to price them |
 
 `vuprog::ENABLED` is a **compile-time constant**. A project with no program of
 its own gets a header of inline no-ops and an empty `.cpp`, so every call site
@@ -1114,203 +1430,6 @@ sine, not the ones that read alike.
 If you go over, the ways out in order of how much they buy: drop a stage, use a
 stage that does not need the sine, or split the effect across two material
 classes (a textured program and a colour one each get their own 31).
-
----
-
-## VU0 kernels
-
-The other vector unit, with none of the rendering around it: **N quadwords in,
-N quadwords out, one body per element**. A kernel draws nothing and replaces
-nothing — what a project gets back is a class with a `run()` on it, and nothing
-calls it unless the game does.
-
-Two ways to write one, exactly mirroring the VU1 side:
-
-| | |
-|---|---|
-| **A kernel** — `src/vu0/*.cpp` | You write C++, subclassing `vu::Kernel`. Same authoring as a script: same value types, same four scratch registers, same `c.raw()` escape hatch. **This is the main road.** |
-| **The stage list** — *Tools > VU Programs > VU0 kernel* | The stage catalogue, applied to quadwords instead of vertices. No code, and limited to what the catalogue covers. |
-
-### Writing one
-
-Put a `.cpp` under `src/vu0/` — or *New script…* and pick **VU0 kernel**, which
-writes the stub for you. That is the whole setup; the editor copies the
-framework next to it and the build compiles and runs it, exactly as for
-`src/vu/`.
-
-```cpp
-#include "vushader.hpp"
-
-struct Ranges : vu::Kernel {
-  const char* name() const override { return "Ranges"; }
-  int maxElements() const override { return 64; }
-
-  void prepare(vu::Ctx& c) override {
-    kGuard_ = vu::constant(c, 1e-6F, 3.0F, 0.0F, 0.0F);
-  }
-  vu::Vec kGuard_;
-
-  void element(vu::Ctx& c) override {
-    // c.position IS the element quadword. c.params is what setParams() sent.
-    vugen::Vu& b = c.raw();
-    b.subInto(c.scratch(0).val(), c.position.val(), c.params.val(), vuir::MXYZ);
-    // ... dot, rsqrt, band; see examples/vu-lab/src/vu0/ranges.cpp
-  }
-};
-VU_KERNEL(Ranges);
-```
-
-`element()` is handed the same `vu::Ctx` a `vertex()` body is. The one
-difference is what is in it: **a kernel element is one quadword and nothing
-else**, so `c.position` is the element, `c.color` and `c.uv` name that same
-register because there is no second thing to name, and `hasUv()`/`hasNormal()`
-are false.
-
-`prepare()` matters more here than on VU1. The element loop is a **real
-branch**, not three unrolled copies, so a constant built inside `element()` is
-rebuilt for every single element — and a `loi` among them is the one construct
-vcl reorders in a way the host simulator cannot model.
-
-### Using it from the game
-
-The generated driver is named after the kernel — `"Noise field"` becomes
-`Tyra::NoiseFieldKernel` — and one header brings them all in:
-
-```cpp
-#include "scripts/vu0_kernels.gen.hpp"
-
-static Tyra::RangesKernel ranges;
-static Tyra::Vec4 in[64], out[64];
-
-ranges.setParams(camX, camY, camZ, 1.0F / 12.0F);
-ranges.setTime(seconds);          // (t, sin t, cos t, 1) in c.time
-ranges.run(in, out, count);       // count <= maxElements(). BLOCKS.
-```
-
-`init()` is called for you on the first `run()` and is idempotent. The `.vclpp`
-is built automatically — `/tyra/Makefile.base` globs `src/**.vclpp`, and it
-skips `src/vu0/` for the PS2 compiler the same way it skips `src/vu/`. There is
-no Makefile work.
-
-`vukernel::COUNT` and `vukernel::ENABLED` are compile-time constants, so game
-code can be written before the first build and keeps compiling after the last
-kernel is deleted.
-
-### What a kernel is FOR, and what it is not
-
-**It is a calculator, not a GPU.** 512 micro-memory slots against VU1's 2042,
-and 256 quadwords of data memory — which the default layout splits into about
-112 elements each way.
-
-**It is SIMD over quadwords.** The same operation on many elements is what it is
-good at. A scalar loop whose step depends on the previous step is what it is
-worst at, and no amount of arranging changes that.
-
-**There is no cross-element reduction.** No instruction adds a lane of element 7
-to a lane of element 8; the quadwords are independent by construction. So
-"compute an integral on VU0" — the request this feature gets most — splits in
-two: VU0 evaluates the terms, and the **EE sums the output array**. That is not
-a workaround, it is the division of labour the hardware describes.
-
-**`run()` blocks the EE**, and it clobbers the COP2 register file — see the
-caveat below. 32 elements is microseconds; a big batch is not free.
-
-**It costs nothing out of the VU1 drawing budget.** These instructions are
-counted against VU0's own 512 slots, and nothing else is parked there. The
-micro-memory bar in *Tools > VU Programs* is about VU1 alone, and a kernel never
-moves it.
-
-The job that fits all of this at once is the oldest one a PS2 game has: **how
-far away is everything?** One subtract, one dot product and one root per object,
-over a list the game already has in an array, and the answers pick levels of
-detail, decide what to draw and set how loud a sound is. That is
-`examples/vu-lab/src/vu0/ranges.cpp`, and its numbers agree with the EE's own
-`sqrtf` to 1e-6 units on the console.
-
-### What is different about VU0, concretely
-
-| | VU1 | VU0 |
-|---|---|---|
-| Data memory | 1024 quadwords | **256** |
-| Micro memory | 2048 slots (2042 usable) | **512**, all usable |
-| GIF path | PATH1, `xgkick` | none |
-| Input staging | VIF1 double buffer, `xtop` | the EE stores at fixed addresses |
-| Entry | starts at 0, loops per buffer | `vcallms <addr>`, once per call |
-| Data memory between calls | a fresh buffer arrives | **persists** |
-
-The persistence is the useful part and the generated driver leans on it: the
-parameter quadword and the time quadword are stored once, and each `run()` only
-rewrites the batch and the element count.
-
-The default layout leaves **112 elements** each way inside those 256 quadwords:
-
-```
-  0        .x = element count for this call
-  1        the four user parameters
-  2        (time, sin time, cos time, 1.0)
-  8..119   input elements
-  120..231 output elements
-```
-
-A C++ kernel's blocks are sized from its own `maxElements()` — the output block
-starts where the input block ends, which caps a batch at **124**. Either way
-`buildKernel` refuses a layout that does not fit rather than letting it wrap:
-on hardware an address past 255 wraps silently onto something else.
-
-### The caveat no simulator can catch
-
-**VU0's register file is shared with COP2 macro mode**, which is the engine's own
-`Vec4`/`M4x4` math. A VU0 micro program and an inline macro-mode expression are
-the same 32 VF registers.
-
-The generated driver's `run()` therefore **blocks the EE** until the kernel
-finishes — it is not a simplification, it is the only safe arrangement without
-saving and restoring the register file. The engine's raytracer does the same
-thing for the same reason. If you want VU0 work overlapping EE work, that is a
-project you own, not a flag.
-
-### The one rule a kernel does NOT inherit
-
-Everything in [Six rules the compiler will not tell you](#six-rules-the-compiler-will-not-tell-you)
-applies to a kernel body — four scratch registers, constants in `prepare()`,
-`loi` needs `%.9g` — **except the ban on writing Q**.
-
-A VU1 script must never emit a divide, an `rsqrt` or a `sqrt`, because the
-framework owns Q there: `persCorrect` puts 1/w in it, the position and the ST
-both ride on it, and a divide vcl slides into that window silently moves the
-vertex. A kernel has no framework around the body. Nothing else reads Q, and a
-root is ordinary microcode — which is what makes a distance kernel possible at
-all. The generator says so in a note rather than refusing it.
-
-### Which stages a kernel can run
-
-Only the ones that touch nothing but the element itself: **Wobble, Twist,
-Inflate, Squash**. A kernel element is one quadword; a stage that reads a colour
-or an ST has nothing to read, and `buildKernel` refuses it by name rather than
-reinterpreting the fields.
-
-A C++ body has no such list — that is the whole point of writing one. Both can
-be present in the same kernel description, in which case the stages run first
-and the body sees what they left in the element.
-
-### Where the files land
-
-The build container compiles and runs `src/vu0/*.cpp` and leaves behind, per
-kernel:
-
-```
-  src/gen/vu0_script<i>.vclpp              the VU0 microprogram
-  src/gen/vu0_script<i>_kernel.cpp         the EE driver
-  inc/scripts/vu0_script<i>_kernel.hpp     its header
-  inc/scripts/vu0_kernels.gen.hpp          one include for all of them
-```
-
-`vu0_script<i>` and **not** `vu0_<name>` on purpose: the panel's stage-composed
-kernel is named by its author, is written by the *editor* on the host, and is
-swept by the editor when it stops being generated. Two owners writing under one
-prefix into one directory is how one of them ends up deleting the other's work.
-Kernels join the generator's own emitted-file ledger instead, so a deleted
-`src/vu0/*.cpp` takes its microprogram with it.
 
 ---
 
