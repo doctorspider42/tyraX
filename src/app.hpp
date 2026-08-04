@@ -1120,6 +1120,11 @@ private:
     std::vector<int> selection_;
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
+    // Scene-objects list filters (view state, per session - a filter that
+    // outlived a restart would hide objects nobody remembers hiding).
+    // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
+    std::string sceneFilterName_;
+    int sceneFilterType_ = -1;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
@@ -1188,6 +1193,10 @@ private:
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
+    // "Graph of" picker: list only objects that already own nodes (the ones
+    // the list marks with a *). View state, per session - like the Scene
+    // panel's filters above.
+    bool flowOnlyWithNodes_ = false;
     // Set every frame by drawFlowGraphWindow(): the Flow Graph window (or one of
     // its children) has keyboard focus, so Ctrl+C/V copy nodes, not scene objects.
     bool flowGraphFocused_ = false;
