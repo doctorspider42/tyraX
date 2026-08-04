@@ -71,6 +71,27 @@ help. When the workspace globs find nothing, the extension reads the engine
 path out of the project's own `.vscode/c_cpp_properties.json`, which the editor
 already writes for IntelliSense. No new file, nothing to keep in sync.
 
+## VU scripts (`src/vu/*.cpp`)
+
+A project's own VU program written in C++ ([docs/vu-authoring.md](vu-authoring.md))
+is an **ordinary `.cpp` file**, so none of the `.vclpp` help above applies to it -
+what it wants is plain C++ IntelliSense over `vu::` and `vugen::`. The Scripts
+panel lists these under *VU programs* and clicking one opens the project in
+VS Code with that file focused.
+
+It resolves through the same generated `.vscode/c_cpp_properties.json`, which
+lists `${workspaceFolder}/vugen` - the copy of the framework the editor drops
+into the project whenever it has a script (and removes when the last one goes).
+That entry is what makes `#include "vushader.hpp"` resolve and
+`c.` / `vugen::` / `vuir::M` complete; without it that one file was the only
+one in the project with no IntelliSense at all. Open the **project folder**, not
+the file.
+
+The header the completions come from is `vugen/vushader.hpp` - `vu::Ctx` is the
+authoring surface and `Ctx::raw()` is the escape hatch onto `vugen::Vu`, whose
+whole method library (`sineApprox`, `transform`, `spotLight`, the masked
+arithmetic) is documented in the header itself.
+
 ## Installing it
 
 You normally don't have to do anything: the first time you use **Open in

@@ -31670,7 +31670,7 @@ std::string scriptStub(const Project& p, const std::string& className,
 // Uses the editor's bundled Tyra engine headers and the PS2SDK headers
 // exported from the docker toolchain (see Runner). Machine-specific paths,
 // hence regenerated on every build.
-static std::string vscodeCppProperties() {
+static std::string vscodeCppProperties(const Project& p) {
     auto slashes = [](std::string s) {
         for (auto& c : s)
             if (c == '\\') c = '/';
@@ -31698,6 +31698,16 @@ static std::string vscodeCppProperties() {
            "      \"includePath\": [\n"
            "        \"${workspaceFolder}/inc\",\n"
            "        \"${workspaceFolder}/src\"";
+    // A VU SCRIPT is not PS2 code and does not resolve like the rest of src/.
+    // src/vu/*.cpp includes "vushader.hpp", which lives in the framework copy
+    // the editor drops beside it (project::syncVuFramework) - so without this
+    // entry the one file a script author actually types in showed a red
+    // squiggle on its first line and offered no completion at all for vu:: or
+    // vugen::, while every other file in the project had working IntelliSense.
+    // Emitted only when the folder is there: an includePath entry pointing at
+    // nothing is a warning of its own in the C/C++ extension.
+    if (project::hasVuScripts(p))
+        out << ",\n        \"${workspaceFolder}/vugen\"";
     if (!engineInc.empty()) out << ",\n        \"" << engineInc << "\"";
     if (!sdk.empty())
         out << ",\n        \"" << sdk << "/ee/include\",\n        \"" << sdk
@@ -32731,7 +32741,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
-        {".vscode\\c_cpp_properties.json", vscodeCppProperties()},
+        {".vscode\\c_cpp_properties.json", vscodeCppProperties(p)},
         {".vscode\\extensions.json", vscodeExtensionsJson()},
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
