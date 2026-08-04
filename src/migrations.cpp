@@ -1,5 +1,6 @@
 #include "migrations.hpp"
 
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <system_error>
@@ -11,14 +12,61 @@ namespace fs = std::filesystem;
 
 namespace migrations {
 
+// The registry check itself, over the vector rather than over all(), so all()
+// can run it during its own initialization without recursing.
+static std::string check(const std::vector<Migration>& steps) {
+    for (size_t i = 0; i < steps.size(); ++i) {
+        const Migration& m = steps[i];
+        const std::string which =
+            "step v" + std::to_string(m.from) + " -> v" + std::to_string(m.from + 1);
+        if (m.from < 0 || m.from >= version::kFormatVersion)
+            return which + " is outside the format range: this editor writes v" +
+                   std::to_string(version::kFormatVersion) +
+                   ", so a step must upgrade to v" +
+                   std::to_string(version::kFormatVersion) +
+                   " at the latest. Bump kFormatVersion in the same commit as "
+                   "the step (version.hpp).";
+        if (i > 0 && m.from <= steps[i - 1].from)
+            return which + " is registered after v" +
+                   std::to_string(steps[i - 1].from) + " -> v" +
+                   std::to_string(steps[i - 1].from + 1) +
+                   ", but run() applies steps in registration order - list them "
+                   "by ascending 'from', once each.";
+        if (!m.apply) return which + " has no apply function.";
+        if (!m.summary || !*m.summary)
+            return which + " has no summary, and the summary is what the "
+                           "migration prompt shows the user.";
+    }
+    return "";
+}
+
 const std::vector<Migration>& all() {
     // Format history. v0 -> v1 needs no step: v1 only introduced the
     // formatVersion/editorVersion stamp, and project::load's legacy shims
     // already lift every pre-v1 shape (inline objects, single "layout",
     // project-level terrain, ...) on plain load.
     static const std::vector<Migration> steps = {};
+
+    // Checked HERE, at the registry's first use, and not only in run(): the most
+    // likely authoring mistake is registering a step and forgetting to bump
+    // kFormatVersion, and that makes stepsFor() return NOTHING - so run() is
+    // never reached, the gate never fires and the step silently never runs. The
+    // symptom would be "my migration does nothing", which is a bad afternoon.
+    // stepsFor() is consulted on every open and every headless command, so this
+    // prints on the first one either way, in Release too (an assert would not).
+    static const bool checked = [&] {
+        if (const std::string e = check(steps); !e.empty())
+            std::fprintf(stderr,
+                         "[editor] BROKEN MIGRATION REGISTRY (migrations.cpp): %s\n"
+                         "[editor] No project will be migrated until this is fixed.\n",
+                         e.c_str());
+        return true;
+    }();
+    (void)checked;
     return steps;
 }
+
+std::string validate() { return check(all()); }
 
 std::vector<const Migration*> stepsFor(int fileVersion) {
     std::vector<const Migration*> out;
@@ -29,6 +77,10 @@ std::vector<const Migration*> stepsFor(int fileVersion) {
 }
 
 std::string run(Project& p, int fileVersion) {
+    // Before the first transform, so a bad registry costs nothing: every caller
+    // treats a non-empty return as "abort, disk untouched".
+    if (std::string e = validate(); !e.empty())
+        return "the migration registry is inconsistent (migrations.cpp): " + e;
     for (const Migration* m : stepsFor(fileVersion)) {
         std::string err;
         if (!m->apply(p, err))

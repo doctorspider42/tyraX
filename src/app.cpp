@@ -5132,7 +5132,28 @@ void App::closeSession() {
 
 void App::openRemoteProject(const std::string& dir) {
     Project p;
-    const std::string err = project::load(p, dir);
+    std::string err = project::load(p, dir);
+
+    // The remote twin of openProjectAt's format gate, and the one place that
+    // must NOT offer to migrate. load() already refused a project from a NEWER
+    // editor; this catches the other direction - a host on an OLDER editor whose
+    // format needs registered steps. The join is refused instead:
+    //   - the project belongs to the HOST, and migrating is irreversible;
+    //   - a client migrates only its own materialized replica, so host and
+    //     client would then disagree about the format while diffModel keeps
+    //     syncing edits over fields one of them does not have.
+    // Same reasoning as the headless commands (see refuseUnmigrated in
+    // main.cpp): migrating is an explicit act, by the owner, at home.
+    if (err.empty()) {
+        if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+            !steps.empty())
+            err = "the host's project is in format v" +
+                  std::to_string(p.formatVersionOnDisk) + " and this editor writes v" +
+                  std::to_string(version::kFormatVersion) +
+                  ". The HOST has to migrate it first (open it locally, or run "
+                  "tyrax-editor --migrate <projectDir>) and host the session "
+                  "again - a participant must not rewrite someone else's project.";
+    }
     if (!err.empty()) {
         session_.close();
         sessionEndedText_ = "Failed to open the synced project: " + err;

@@ -34,10 +34,26 @@ struct Migration {
     bool (*apply)(Project& p, std::string& err);
 };
 
-// Every registered step. Keep them ordered by `from` and leave no gaps in the
-// chain: run() applies stepsFor()'s result in this order, so an out-of-order
-// entry would transform data that a later step still expects untouched.
+// Every registered step, ordered by ascending `from` - run() applies them in
+// registration order, so an out-of-order entry would transform data a later
+// step still expects untouched. Checked by validate() rather than by eye.
 const std::vector<Migration>& all();
+
+// Registry sanity: ascending, unique `from`, each inside [0, kFormatVersion),
+// and each step actually filled in. Returns "" when the registry is sound.
+//
+// Two places run it, on purpose. all() shouts on stderr at the registry's FIRST
+// USE, because the likeliest authoring mistake - a step registered without the
+// matching kFormatVersion bump - makes stepsFor() return nothing, so the gate
+// never fires, run() is never reached, and the step would silently never run.
+// run() also checks, and there a bad registry aborts the migration with disk
+// untouched rather than transforming data in the wrong order.
+//
+// Deliberately NOT a "no gaps" check: a purely additive format bump registers no
+// step at all, so missing versions in the chain are the normal case (stepsFor
+// simply finds nothing to do for that bump). What must hold is that the steps
+// which ARE registered are ordered and in range.
+std::string validate();
 
 // The steps needed to lift a project saved at `fileVersion` to the current
 // version::kFormatVersion. Empty = nothing to transform: open silently (the

@@ -37,6 +37,19 @@ reads as **v0**.
   **in memory** and saves. If any step fails, the project does not open and
   **nothing on disk was modified**.
 
+The prompt belongs to **local** opens only (`App::openProjectAt` — the CLI
+argument, the Open dialog and the recent-projects list all funnel through it).
+
+**Joining a collaboration session is the one open path that never migrates.** A
+client materializes the host's project and opens it through
+`App::openRemoteProject`; if the host's format needs registered steps, the
+**join is refused** and the message says the host has to migrate first. Two
+reasons: the project belongs to the host and migrating is irreversible, and a
+client can only migrate its own replica — after which host and client would
+disagree about the format while `diffModel` keeps syncing edits over fields one
+of them does not have. (A host on a *newer* format is already refused by
+`project::load`, like any other path.)
+
 `_backup/` is a local safety copy, not source: the generated project
 `.gitignore` excludes it, and a collaboration session never sends it to peers.
 
@@ -91,6 +104,26 @@ A step upgrades `from` → `from + 1`; the chain runs in order, so a project
 several versions behind migrates through every step in one go. `summary` is
 shown verbatim in the migration prompt and the `--migrate` output — write it
 for the user.
+
+**List steps by ascending `from`, once each, and bump `kFormatVersion` in the
+same commit.** `migrations::run` applies steps in registration order, so an
+out-of-order entry would transform data a later step still expects untouched.
+`migrations::validate()` checks that, plus every `from` inside
+`[0, kFormatVersion)`, an `apply`, and a non-empty `summary`.
+
+It runs in **two** places, and the first one is the one that matters:
+
+- `migrations::all()` shouts on stderr at the registry's first use — which is
+  every project open and every headless command. This catches the mistake you
+  are actually going to make: **a step registered without bumping
+  `kFormatVersion`**. That makes `stepsFor()` return nothing, so the gate never
+  fires and `run` is never reached — the step would silently never run, and the
+  symptom is the maddening "my migration does nothing".
+- `run` checks too, where a bad registry aborts the migration with disk
+  untouched instead of transforming data in the wrong order.
+
+It is deliberately *not* a "no gaps" check — a purely additive bump registers no
+step at all, so missing versions in the chain are the normal case.
 
 **A step must not change `Project::name`.** `save()` writes `<name>.tyra` and
 does not delete a manifest under the old name, so a renaming step leaves two

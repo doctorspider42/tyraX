@@ -58,6 +58,15 @@ whatever the change affected.
   - `tyra-pr` — the PR workflow or a new conflict hot spot.
   - this skill (`tyra-docs`) — if the set of docs or the rule itself changes.
 
+  **`.agents/skills/` is the Codex twin of this directory and moves with it, in
+  the same commit** — the same rule as the platform pairs above. The Claude copy
+  is the source of truth; the twin is a plain regeneration of it with two
+  substitutions (the skills path itself, and `AGENTS.md` in place of the root
+  instruction file), so **never hand-edit only one side**. The twin was added as a
+  one-off snapshot with no sync since, and had drifted a full retired-`PROGRESS.md`
+  behind — plus it pointed at a `.Codex/` scripts path that exists in no
+  checkout — before anyone noticed. That is what this bullet exists to prevent.
+
 - **Example-project READMEs** (`examples/*/README.md`) and the projects
   themselves — when codegen, the `.tyra` format, or the terrain/asset pipeline
   changes, **regenerate the affected example projects** (their committed
