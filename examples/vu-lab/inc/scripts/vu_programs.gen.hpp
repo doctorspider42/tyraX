@@ -28,4 +28,14 @@ inline void setParams(Tyra::StaPipCore&, const float*) {}
 void setVU1Clipping(bool onVU1);
 bool vu1Clipping();
 
+/** Narrow or widen the resident material classes at run time.
+ * Bits: 1<<0 colour, 1<<1 lights, 1<<2 textured + lights, 1<<3
+ * textured, 1<<4 reflective. A dropped class does not crash - the
+ * engine walks the mesh down to a resident relative - but it draws
+ * in the wrong style, so drop only what the moment does not show.
+ * Rebuilds the resident program cache exactly like setVU1Clipping,
+ * so this belongs on an event and never in a per-frame update. */
+void setResidentClasses(unsigned mask);
+unsigned residentClasses();
+
 }  // namespace vuprog

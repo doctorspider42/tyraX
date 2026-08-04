@@ -8,6 +8,7 @@ namespace vuprog {
 namespace {
 Tyra::StaPipCore* g_core = nullptr;
 bool g_vu1Clip = false;
+unsigned g_resident = 27u;
 }  // namespace
 
 void install(Tyra::StaPipCore& core) { g_core = &core; }
@@ -19,5 +20,13 @@ void setVU1Clipping(bool onVU1) {
 }
 
 bool vu1Clipping() { return g_vu1Clip; }
+
+void setResidentClasses(unsigned mask) {
+  if (!g_core || g_resident == (mask | 1u)) return;
+  g_resident = mask | 1u;
+  g_core->setResidentClasses(g_resident);
+}
+
+unsigned residentClasses() { return g_resident; }
 
 }  // namespace vuprog

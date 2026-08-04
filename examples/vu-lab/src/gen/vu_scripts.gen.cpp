@@ -4,61 +4,93 @@
 
 #include "vu_script0_c_program.hpp"
 #include "vu_script0_c_ai_program.hpp"
+#include "vu_script0_c_cl_program.hpp"
 #include "vu_script0_d_program.hpp"
 #include "vu_script0_d_ai_program.hpp"
+#include "vu_script0_d_cl_program.hpp"
 #include "vu_script0_td_program.hpp"
 #include "vu_script0_td_ai_program.hpp"
+#include "vu_script0_td_cl_program.hpp"
 #include "vu_script0_tc_program.hpp"
 #include "vu_script0_tc_ai_program.hpp"
+#include "vu_script0_tc_cl_program.hpp"
 #include "vu_script1_c_program.hpp"
 #include "vu_script1_c_ai_program.hpp"
+#include "vu_script1_c_cl_program.hpp"
 #include "vu_script1_tc_program.hpp"
 #include "vu_script1_tc_ai_program.hpp"
+#include "vu_script1_tc_cl_program.hpp"
 #include "vu_script2_c_program.hpp"
 #include "vu_script2_c_ai_program.hpp"
+#include "vu_script2_c_cl_program.hpp"
 #include "vu_script2_d_program.hpp"
 #include "vu_script2_d_ai_program.hpp"
+#include "vu_script2_d_cl_program.hpp"
 #include "vu_script2_td_program.hpp"
 #include "vu_script2_td_ai_program.hpp"
+#include "vu_script2_td_cl_program.hpp"
 #include "vu_script2_tc_program.hpp"
 #include "vu_script2_tc_ai_program.hpp"
+#include "vu_script2_tc_cl_program.hpp"
 #include "vu_script2_tce_program.hpp"
 #include "vu_script2_tce_ai_program.hpp"
+#include "vu_script2_tce_cl_program.hpp"
 #include "vu_script3_c_program.hpp"
+#include "vu_script3_c_cl_program.hpp"
 #include "vu_script3_d_program.hpp"
+#include "vu_script3_d_cl_program.hpp"
 #include "vu_script3_td_program.hpp"
+#include "vu_script3_td_cl_program.hpp"
 #include "vu_script3_tc_program.hpp"
+#include "vu_script3_tc_cl_program.hpp"
 #include "vu_script3_tce_program.hpp"
+#include "vu_script3_tce_cl_program.hpp"
 
 namespace vuscript {
 namespace {
 Tyra::TyraXScript0CVU1Program g_TyraXScript0CVU1Program;
 Tyra::TyraXScript0CAIVU1Program g_TyraXScript0CAIVU1Program;
+Tyra::TyraXScript0CCLVU1Program g_TyraXScript0CCLVU1Program;
 Tyra::TyraXScript0DVU1Program g_TyraXScript0DVU1Program;
 Tyra::TyraXScript0DAIVU1Program g_TyraXScript0DAIVU1Program;
+Tyra::TyraXScript0DCLVU1Program g_TyraXScript0DCLVU1Program;
 Tyra::TyraXScript0TDVU1Program g_TyraXScript0TDVU1Program;
 Tyra::TyraXScript0TDAIVU1Program g_TyraXScript0TDAIVU1Program;
+Tyra::TyraXScript0TDCLVU1Program g_TyraXScript0TDCLVU1Program;
 Tyra::TyraXScript0TCVU1Program g_TyraXScript0TCVU1Program;
 Tyra::TyraXScript0TCAIVU1Program g_TyraXScript0TCAIVU1Program;
+Tyra::TyraXScript0TCCLVU1Program g_TyraXScript0TCCLVU1Program;
 Tyra::TyraXScript1CVU1Program g_TyraXScript1CVU1Program;
 Tyra::TyraXScript1CAIVU1Program g_TyraXScript1CAIVU1Program;
+Tyra::TyraXScript1CCLVU1Program g_TyraXScript1CCLVU1Program;
 Tyra::TyraXScript1TCVU1Program g_TyraXScript1TCVU1Program;
 Tyra::TyraXScript1TCAIVU1Program g_TyraXScript1TCAIVU1Program;
+Tyra::TyraXScript1TCCLVU1Program g_TyraXScript1TCCLVU1Program;
 Tyra::TyraXScript2CVU1Program g_TyraXScript2CVU1Program;
 Tyra::TyraXScript2CAIVU1Program g_TyraXScript2CAIVU1Program;
+Tyra::TyraXScript2CCLVU1Program g_TyraXScript2CCLVU1Program;
 Tyra::TyraXScript2DVU1Program g_TyraXScript2DVU1Program;
 Tyra::TyraXScript2DAIVU1Program g_TyraXScript2DAIVU1Program;
+Tyra::TyraXScript2DCLVU1Program g_TyraXScript2DCLVU1Program;
 Tyra::TyraXScript2TDVU1Program g_TyraXScript2TDVU1Program;
 Tyra::TyraXScript2TDAIVU1Program g_TyraXScript2TDAIVU1Program;
+Tyra::TyraXScript2TDCLVU1Program g_TyraXScript2TDCLVU1Program;
 Tyra::TyraXScript2TCVU1Program g_TyraXScript2TCVU1Program;
 Tyra::TyraXScript2TCAIVU1Program g_TyraXScript2TCAIVU1Program;
+Tyra::TyraXScript2TCCLVU1Program g_TyraXScript2TCCLVU1Program;
 Tyra::TyraXScript2TCEVU1Program g_TyraXScript2TCEVU1Program;
 Tyra::TyraXScript2TCEAIVU1Program g_TyraXScript2TCEAIVU1Program;
+Tyra::TyraXScript2TCECLVU1Program g_TyraXScript2TCECLVU1Program;
 Tyra::TyraXScript3CVU1Program g_TyraXScript3CVU1Program;
+Tyra::TyraXScript3CCLVU1Program g_TyraXScript3CCLVU1Program;
 Tyra::TyraXScript3DVU1Program g_TyraXScript3DVU1Program;
+Tyra::TyraXScript3DCLVU1Program g_TyraXScript3DCLVU1Program;
 Tyra::TyraXScript3TDVU1Program g_TyraXScript3TDVU1Program;
+Tyra::TyraXScript3TDCLVU1Program g_TyraXScript3TDCLVU1Program;
 Tyra::TyraXScript3TCVU1Program g_TyraXScript3TCVU1Program;
+Tyra::TyraXScript3TCCLVU1Program g_TyraXScript3TCCLVU1Program;
 Tyra::TyraXScript3TCEVU1Program g_TyraXScript3TCEVU1Program;
+Tyra::TyraXScript3TCECLVU1Program g_TyraXScript3TCECLVU1Program;
 Tyra::StaPipCore* g_core = nullptr;
 bool g_on[COUNT] = {false, false, false, false};
 const char* const kNames[] = {"Cell shading", "Palette", "Vertex snap", "Wobble"};
@@ -95,29 +127,39 @@ bool active(int s) {
 
 static void apply() {
   if (!g_core) return;
-  Tyra::StaPipProgramName slots[27];
-  Tyra::StaPipVU1Program* progs[27];
+  Tyra::StaPipProgramName slots[43];
+  Tyra::StaPipVU1Program* progs[43];
   unsigned n = 0;
   slots[n] = Tyra::StaPipCullColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3CVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CAIVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipColor;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CCLVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3CCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullDirLights;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2DVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3DVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsDirLights;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2DAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipDirLights;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2DCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3DCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureDirLights;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TDVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureDirLights;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipTextureDirLights;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TDCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCAIVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipTextureColor;
+  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCCLVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureEnv;
   progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCEVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCEVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureEnv;
   progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCEAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipTextureEnv;
+  progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCECLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCECLVU1Program : nullptr;
   g_core->setProgramOverrides(slots, progs, n);
 }
 

@@ -582,8 +582,10 @@ inside it, and the chunk is cut *after* the displacement. The cost is micro
 memory — the clip family is about twice the size of the as_is family it replaces
 (see "Budget against the CLIP family").
 
-`examples/vu-lab` demonstrates exactly this: hold CIRCLE and it switches to VU1
-clipping, narrows the resident classes to fit, and turns the Wobble script on.
+`examples/vu-lab` demonstrates exactly this: press CIRCLE and it switches to VU1
+clipping, narrows the resident classes to fit, hides the one object whose class
+it dropped, and turns the Wobble script on. Press it again and all three go
+back.
 
 Two things that cost a console build each to learn:
 
@@ -786,14 +788,24 @@ Two ways to buy room:
 - **Drop material classes the project never draws.** This is the one that
   actually works, and codegen does it for you: the mask is derived from what the
   scenes and prefabs draw (`project::vuNeededClasses`) and emitted as
-  `core.setResidentClasses(...)` at the top of `install`. vu-lab draws nothing
-  lit, so it ships `setResidentClasses(25)` and the two dropped lighting classes
-  are what pay for its stages. `StaPipCore::setResidentClasses(mask)` removes a
-  class's two programs from the upload; a project with no matcap material does
-  not need the two `tce` programs either. A class that is not resident falls back down to a resident relative
+  `core.setResidentClasses(...)` at the top of `install`. vu-lab draws one lit
+  ball and no textured-lit mesh, so it ships `setResidentClasses(27)` and the
+  dropped `td` class is what pays for its stages.
+  `StaPipCore::setResidentClasses(mask)` removes a class's two programs from the
+  upload; a project with no matcap material does not need the two `tce` programs
+  either. A class that is not resident falls back down to a resident relative
   rather than MSCAL-ing into nothing, and the colour class is forced resident as
   the floor. Safe to call at run time — it is a rebuild plus an upload, so it
   belongs at a zone or level boundary, never per bag.
+- **Narrow it further FOR A MOMENT, from the game.** `vuprog::setResidentClasses`
+  and `vuprog::residentClasses` expose the same lever at run time, which is what
+  makes VU1 clipping affordable for an effect that only needs it while it is on.
+  `examples/vu-lab` does exactly that on CIRCLE: it drops Directional lights,
+  switches to VU1 clipping, runs the Wobble, and puts both back on the way out.
+  What is dropped must not be DRAWN - a mesh of a dropped class does not crash,
+  it draws in the wrong style - so the demo hides the one dyn-lit ball while the
+  mode is on. Measured in PCSX2: three classes with a displacing script in VU1
+  clipping fit; four do not.
 - **Fold zero-strength stages.** Already automatic; the check above prints what
   was dropped and why.
 

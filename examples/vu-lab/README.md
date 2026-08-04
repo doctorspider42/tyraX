@@ -28,6 +28,31 @@ installs a host compiler into the container once (~1 min).
 the engine's own shading and returns to cell shading, which is how a game frees
 micro memory for something else at a trigger or a cutscene beat.
 
+**CIRCLE is the geometry one, and it rearranges VU1 around itself.** It selects
+the Wobble - a wave in OBJECT space - and at the same time switches to VU1
+clipping and narrows the resident classes to Colour + Textured + Reflective;
+pressing it again puts all three back. That combination is the point, not a
+detail:
+
+- An object-space displacement under the **EE clipper** happens after the mesh
+  has already been cut, so props have to be submitted whole to compensate and
+  the **terrain cannot be** - a chunk straddling the near plane wraps the GS
+  raster window if it is drawn unclipped. The wave broke along the chunks at the
+  edge of the frame.
+- Under **VU1 clipping** the clipper is a VU program that does its own MVP
+  multiply, so the script runs inside it and the chunk is cut *after* the
+  displacement. `fullClipChecks` stays on.
+- The clip family is about twice the size of the as_is family it replaces, so
+  all four of this project's classes do not fit under the 2042-slot ceiling.
+  Dropping Directional lights buys the room; the one dyn-lit ball is **hidden**
+  while the mode is on, because a class that is not resident draws in the wrong
+  style rather than not at all.
+
+Measured in PCSX2: enters and leaves cleanly, no micro-memory assert, 50 FPS
+both ways. The switch is `enterClipMode`/`leaveClipMode` in
+`src/scripts/vu0_kernel_demo.cpp` - `vuprog::setResidentClasses` and
+`vuprog::setVU1Clipping`, about ten lines.
+
 Edit the script, press Build, and it is a different microprogram - try `2.0F`
 bands, or `c.position` at `vu::Slot::ObjectSpace` instead of the colour.
 

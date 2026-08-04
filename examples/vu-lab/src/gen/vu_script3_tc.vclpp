@@ -164,7 +164,7 @@ processing:
     max.x      fogAccum, fogAccum, vf00[x]
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex1  ; PerformTyraFogClipCheck
+    clipw.xyz  vertex1, vertex1  ; PerformTyraFogClipCheck
     fcand      VI01, 0x3FFFF
     iaddiu     adcBit, VI01, 32767
     iand       adcBit, adcBit, adcMask
@@ -237,7 +237,7 @@ processing:
     max.x      fogAccum, fogAccum, vf00[x]
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex2  ; PerformTyraFogClipCheck
+    clipw.xyz  vertex2, vertex2  ; PerformTyraFogClipCheck
     fcand      VI01, 0x3FFFF
     iaddiu     adcBit, VI01, 32767
     iand       adcBit, adcBit, adcMask
@@ -310,7 +310,7 @@ processing:
     max.x      fogAccum, fogAccum, vf00[x]
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
-    clipw.xyz  vf00, vertex3  ; PerformTyraFogClipCheck
+    clipw.xyz  vertex3, vertex3  ; PerformTyraFogClipCheck
     fcand      VI01, 0x3FFFF
     iaddiu     adcBit, VI01, 32767
     iand       adcBit, adcBit, adcMask

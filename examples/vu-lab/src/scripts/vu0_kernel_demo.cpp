@@ -82,18 +82,17 @@ class Vu0KernelDemo : public Script {
                                                        // the player's jump off
       if (want >= 0 && want < vuscript::COUNT) {
         const bool already = vuscript::active(want);
+        // Whatever happens next, the wobble's special VU1 arrangement ends
+        // here - including when CIRCLE is pressed to turn the wobble off.
+        leaveClipMode(ctx);
         vuscript::deactivateAll();
-        if (!already) vuscript::activate(want);
+        if (!already) {
+          if (want == vuscript::kWobble) enterClipMode(ctx);
+          vuscript::activate(want);
+        }
         TYRA_LOG("VU look -> ", already ? "none" : vuscript::name(want));
       }
     }
-    // NO clipping switch bound here on purpose. vuprog::setVU1Clipping()
-    // exists and works, but THIS project does not fit in VU1 clipping: the
-    // clip family is roughly twice the as_is family, and the cell-shading
-    // script already replaces the cull half of four classes. Tools > VU
-    // Programs prices both modes and says so - and a console run that ignored
-    // it hit the engine's own "programs overflow into the draw-finish program"
-    // assert, which is exactly what that estimate now predicts.
 
     // SQUARE cycles the stage-list looks, when the project has any switched on.
     if (ctx.engine->pad.getClicked().Square && vuprog::LOOK_COUNT > 1) {
@@ -124,6 +123,71 @@ class Vu0KernelDemo : public Script {
   }
 
  private:
+  // CIRCLE does not only pick the Wobble - it rearranges VU1 around it.
+  //
+  // The Wobble displaces vertices in OBJECT space, and until the clip family
+  // was describable that meant the effect stopped wherever the EE clipper had
+  // already cut the mesh: props were submitted whole to compensate
+  // (`fullClipChecks`), and the terrain could not be, because a chunk
+  // straddling the near plane wraps the GS raster window if it is drawn
+  // unclipped. The wave visibly broke along the chunks at the edge of the
+  // frame. Under VU1 clipping it does not: the clipper is a VU program with
+  // the object-space position still in hand, the script runs inside it, and
+  // the chunk is cut AFTER the displacement.
+  //
+  // It is not free. The clip family is roughly twice the as_is family it
+  // stands in for, and this project draws four material classes - all four in
+  // VU1 clipping do not fit under the 2042-slot ceiling (the engine's own
+  // "programs overflow into the draw-finish program" assert is what catches
+  // it, and Tools > VU Programs prices both modes before you get there). So
+  // the demo pays for the clipper by handing a class back.
+  //
+  // Colour + Textured + Reflective. Directional lights is the one dropped:
+  // the sky, the terrain, the boxes and the chrome ball all keep their own
+  // program, and the single dyn-lit ball is HIDDEN rather than left to draw -
+  // a dropped class does not crash (the engine walks the mesh down to a
+  // resident relative) but it draws in the wrong style, which reads as a
+  // material bug rather than as a budget the demo chose.
+  static constexpr unsigned kWobbleClasses = (1u << 0) | (1u << 3) | (1u << 4);
+
+  void enterClipMode(ScriptContext& ctx) {
+    if (clipMode) return;
+    savedClasses = vuprog::residentClasses();
+    savedClipping = vuprog::vu1Clipping();
+    // Narrow FIRST: each of these is a pipeline drain and a program-cache
+    // upload, and doing it in this order means the wider set is never
+    // uploaded in the more expensive mode even for one call.
+    vuprog::setResidentClasses(kWobbleClasses);
+    vuprog::setVU1Clipping(true);
+    hiddenCount = 0;
+    for (int i = 0; i < ctx.objectCount && hiddenCount < kMaxHidden; ++i) {
+      if (ctx.objects[i].data.dynLit == 0 || !ctx.objects[i].visible) continue;
+      ctx.objects[i].visible = false;
+      hidden[hiddenCount++] = i;
+    }
+    clipMode = true;
+    TYRA_LOG("VU1 clipping ON, classes -> ", (int)kWobbleClasses, ", hidden ",
+             hiddenCount);
+  }
+
+  void leaveClipMode(ScriptContext& ctx) {
+    if (!clipMode) return;
+    clipMode = false;
+    for (int i = 0; i < hiddenCount; ++i)
+      if (hidden[i] < ctx.objectCount) ctx.objects[hidden[i]].visible = true;
+    hiddenCount = 0;
+    vuprog::setVU1Clipping(savedClipping);
+    vuprog::setResidentClasses(savedClasses);
+    TYRA_LOG("VU1 clipping restored");
+  }
+
+  bool clipMode = false;
+  bool savedClipping = false;
+  unsigned savedClasses = 0;
+  static constexpr int kMaxHidden = 16;
+  int hidden[kMaxHidden] = {};
+  int hiddenCount = 0;
+
   static constexpr int kCount = 32;
   Tyra::Vec4 in[kCount];
   Tyra::Vec4 out[kCount];

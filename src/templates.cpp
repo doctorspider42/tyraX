@@ -32421,6 +32421,19 @@ std::string vuProgramsHeader(const VuBuild& vb) {
     s += " * program cache, so call it BETWEEN frames, never mid-draw. */\n";
     s += "void setVU1Clipping(bool onVU1);\n";
     s += "bool vu1Clipping();\n";
+    // The other half of the same lever, and the one that makes VU1 clipping
+    // affordable: a class the current moment does not draw hands its pair of
+    // programs back. Colour is always kept - it is the fallback every dropped
+    // class walks down to.
+    s += "\n/** Narrow or widen the resident material classes at run time.\n";
+    s += " * Bits: 1<<0 colour, 1<<1 lights, 1<<2 textured + lights, 1<<3\n";
+    s += " * textured, 1<<4 reflective. A dropped class does not crash - the\n";
+    s += " * engine walks the mesh down to a resident relative - but it draws\n";
+    s += " * in the wrong style, so drop only what the moment does not show.\n";
+    s += " * Rebuilds the resident program cache exactly like setVU1Clipping,\n";
+    s += " * so this belongs on an event and never in a per-frame update. */\n";
+    s += "void setResidentClasses(unsigned mask);\n";
+    s += "unsigned residentClasses();\n";
     s += "\n}  // namespace vuprog\n";
     return s;
 }
@@ -32480,6 +32493,8 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
         s += "Tyra::StaPipCore* g_core = nullptr;\n";
         s += std::string("bool g_vu1Clip = ") +
              (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
+        s += std::string("unsigned g_resident = ") +
+             std::to_string(project::vuResidentClasses(p)) + "u;\n";
         s += "}  // namespace\n\n";
         s += "void install(Tyra::StaPipCore& core) { g_core = &core; }\n\n";
         s += "void setVU1Clipping(bool onVU1) {\n";
@@ -32487,6 +32502,11 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
         s += "  g_vu1Clip = onVU1;\n";
         s += "  g_core->setVU1Clipping(onVU1);\n}\n\n";
         s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+        s += "void setResidentClasses(unsigned mask) {\n";
+        s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
+        s += "  g_resident = mask | 1u;\n";
+        s += "  g_core->setResidentClasses(g_resident);\n}\n\n";
+        s += "unsigned residentClasses() { return g_resident; }\n\n";
         s += "}  // namespace vuprog\n";
         return s;
     }
@@ -32516,6 +32536,8 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
     // before anything has flipped it.
     s += std::string("bool g_vu1Clip = ") +
          (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
+    s += std::string("unsigned g_resident = ") +
+         std::to_string(project::vuResidentClasses(p)) + "u;\n";
     s += "const char* const kNames[] = {";
     for (size_t i = 0; i < vb.looks.size(); ++i)
         s += (i ? ", " : "") + std::string("\"") + vb.looks[i].name + "\"";
@@ -32539,6 +32561,12 @@ std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
     s += "  activate(g_active);\n";
     s += "}\n\n";
     s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+    s += "void setResidentClasses(unsigned mask) {\n";
+    s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
+    s += "  g_resident = mask | 1u;\n";
+    s += "  g_core->setResidentClasses(g_resident);\n";
+    s += "}\n\n";
+    s += "unsigned residentClasses() { return g_resident; }\n\n";
     s += "bool movesGeometry() {\n";
     s += "  static const bool kMoves[] = {";
     for (size_t i = 0; i < vb.looks.size(); ++i)
