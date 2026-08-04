@@ -550,13 +550,22 @@ stays, the two copies separate and each shows through the other. On the vu-lab
 ball that appears as a grey wedge from underneath - which looks exactly like the
 coplanar depth bug in `docs/reflective-materials.md` and is nothing of the sort.
 
-**A `Slot::Ndc` script stops where clipping starts.** The `as_is` twin - the
-program that draws what the EE clipper cut - runs a script only in the `Color`
-and `Texture` slots. Its vertices arrive already transformed, in screen space
-rather than the space the cull half's `Ndc` stage sees, so geometry slots are
-filtered out of it. The visible consequence is that a screen-space effect
-switches itself off on any mesh touching the edge of the frame. Colour effects
-do not have this problem; they run in both halves.
+**`Slot::Ndc` runs in both halves; object and clip space do not.** The `as_is`
+twin - the program that draws what the EE clipper cut - never divides the
+position itself, so one instruction before the 12.4 conversion its vertices are
+in exactly the space the cull half's `Ndc` stage works in. The same grid means
+the same thing in both, with no scale compensation, and a screen-space effect
+covers the whole frame.
+
+Object and clip space are genuinely gone by then, so a displacement there runs
+in the cull half only. `movesGeometry()` covers the PROPS by submitting them
+whole. It cannot cover the **terrain**: terrain chunks straddle the near plane -
+the ground continues behind the camera - and a chunk submitted unclipped wraps
+the GS raster window. So an object-space wave breaks along the chunks the
+clipper touched, and the seam is visible at the edge of the frame. Two ways out,
+neither free: displace the terrain on the EE (it is a heightfield, and the game
+already walks it), or run the project in VU1 clipping, where the clip program is
+a VU program too and still has the object-space position.
 
 Two things that cost a console build each to learn:
 

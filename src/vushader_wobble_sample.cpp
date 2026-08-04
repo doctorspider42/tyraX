@@ -14,14 +14,20 @@ struct Wobble : vu::Program {
     const char* name() const override { return "Wobble"; }
 
     unsigned classes() const override {
-        // The unlit pair only, and that is not a compromise in THIS scene:
-        // it bakes shading into the vertex colours on the EE, so its props are
-        // flat-colour and its terrain is textured, and the lit classes are
-        // nearly empty. Claiming them costs two more microprograms per class
-        // through vcl and, for the palette, three live constant registers on
-        // the class that already holds ~30 of VCL's 31 - which is exactly
-        // where it failed with `failed to convert all uta linear->raw`.
-        return vu::kColour | vu::kTextured;
+        // EVERY class, for the reason vertex_snap.cpp spells out: a
+        // DISPLACEMENT may not claim a subset. An object often draws several
+        // passes over the same vertices in different classes - a reflective
+        // ball has a base pass and a matcap pass - and if one of them moves
+        // while the other stays, the copies separate and each shows through
+        // the other as a grey wedge.
+        //
+        // This one is expensive to claim everywhere (sineApprox is seventeen
+        // instructions and wants three scratch registers on top of the two the
+        // wave needs), so if vcl starts reporting `no opt table` or
+        // `failed to convert all uta linear->raw` on the lit or matcap
+        // classes, that is the trade showing itself - and the answer is a
+        // cheaper wave, not a narrower claim.
+        return vu::kAll;
     }
 
     // ObjectSpace: before the MVP multiply, which is the only place a

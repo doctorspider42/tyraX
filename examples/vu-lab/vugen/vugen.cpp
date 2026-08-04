@@ -2110,6 +2110,26 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // The env ST goes FIRST: its rsqrt writes Q, so the position divide
         // below has to be the last Q write before the perspective mulq.
         if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
+        // NDC, and this is the MIRROR of the cull half's Ndc slot - not an
+        // approximation of it. This program never divides the position: the EE
+        // clipper handed it over already projected, and w survives only for
+        // the texture correction below. So right here, one instruction before
+        // the 12.4 conversion, the vertex is in exactly the space the cull
+        // half's Ndc stage works in, and the same grid means the same thing in
+        // both. No scale compensation, no second set of constants.
+        //
+        // Leaving it out is what made a screen-space effect switch itself OFF
+        // on any mesh touching the edge of the frame - the package went to
+        // this twin, the twin ran stock, and a snapped scene turned smooth in
+        // the corners. Geometry slots in OBJECT or CLIP space genuinely cannot
+        // run here (those spaces are gone by now, which is what
+        // movesGeometry() compensates for); Ndc always could.
+        if (d.script && d.scriptSlot == Slot::Ndc) {
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            runScript(sc, d);
+        }
         b.scaleToGsFormat(vertex[i], scale);
         if (d.texture) {
             b.divQ(b.zero(), 3, vertex[i], 3);

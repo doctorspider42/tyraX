@@ -74,6 +74,10 @@ processing:
     add.z      k0, vf00, i
     loi        0
     mul.w      k0, vf00, i
+    mul.xy     vuS0, vertex1, k0[y]
+    ftoi0.xy   vuS0, vuS0
+    itof0.xy   vuS0, vuS0
+    mul.xy     vertex1, vuS0, k0[z]
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex1, vertex1, scale
     ftoi4.xyz  vertex1, vertex1
@@ -81,6 +85,10 @@ processing:
     mini.xyz   color1, color1, i
     max.xyz    color1, color1, vf00[x]
     ftoi0      color1, color1
+    mul.xy     vuS0, vertex2, k0[y]
+    ftoi0.xy   vuS0, vuS0
+    itof0.xy   vuS0, vuS0
+    mul.xy     vertex2, vuS0, k0[z]
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex2, vertex2, scale
     ftoi4.xyz  vertex2, vertex2
@@ -88,6 +96,10 @@ processing:
     mini.xyz   color2, color2, i
     max.xyz    color2, color2, vf00[x]
     ftoi0      color2, color2
+    mul.xy     vuS0, vertex3, k0[y]
+    ftoi0.xy   vuS0, vuS0
+    itof0.xy   vuS0, vuS0
+    mul.xy     vertex3, vuS0, k0[z]
     mula.xyz   acc, scale, vf00[w]  ; ScaleVertexToGSFormat
     madd.xyz   vertex3, vertex3, scale
     ftoi4.xyz  vertex3, vertex3
