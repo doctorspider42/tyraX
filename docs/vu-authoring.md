@@ -1256,27 +1256,22 @@ the console that is not a subtle error: the mesh tears and its texels smear into
 black slabs. Codegen filters the twin's stage list to `Slot::Color` and
 `Slot::Texture`, and a look made only of geometry stages simply has no twin.
 
-Which leaves one real limitation, and it is worth stating plainly because it is
-the thing that will surprise you: classification is per PACKAGE, not per object,
+Which leaves one real limitation: classification is per PACKAGE, not per object,
 so **a mesh straddling the edge of the screen is displaced only in the packages
 the frustum did not cut** — half a wobbling sphere moves and half stays put, with
-a visible step between them. Colour and texture stages have no such problem; they
-run on both halves.
+a visible step between them. Colour and texture stages run on both halves and
+have no such problem, and `vuprog::movesGeometry()` reports whether the active
+look displaces anything so a game can react.
 
-`vuprog::movesGeometry()` reports whether the ACTIVE look displaces anything, so
-a game can react to it (fade the effect near the frame edge, hold a camera off a
-displaced prop). Two things that do NOT work, both measured on the console rather
-than reasoned about:
+Two workarounds that do NOT work, both measured on the console:
 
-- **Submitting the prop unclipped** (`fullClipChecks = false`) so the whole mesh
-  takes the cull path. It does displace uniformly — and then a mesh crossing a
-  frustum plane wraps the GS raster window: the matcap sphere at the frame edge
-  turned into a black blob, and doing it for the terrain filled the screen with
-  sky. Clipping is not optional for anything that touches the edge.
-- **Big displacement.** The step at the edge is exactly the displacement, so keep
-  amplitude small if props are going to walk past the frame border. Terrain and
-  large meshes are the good case: they are mostly interior, and the cut packages
-  are at the horizon.
+- **Submitting the prop unclipped** (`fullClipChecks = false`). It does displace
+  uniformly — and then a mesh crossing a frustum plane wraps the GS raster
+  window: the matcap sphere at the frame edge became a black blob, and the same
+  for the terrain filled the screen with sky.
+- **A big displacement.** The step at the edge IS the displacement, so keep the
+  amplitude small if props walk past the frame border. Terrain is the good case:
+  mostly interior, with the cut packages at the horizon.
 
 The clean fix is a generated clip twin, and that description now exists —
 `vugen` builds the whole `clip` family, proven bit-identical to the handwritten

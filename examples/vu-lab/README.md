@@ -5,20 +5,23 @@ for the VU framework ([docs/vu-framework.md](../../docs/vu-framework.md)) and
 for authoring ([docs/vu-authoring.md](../../docs/vu-authoring.md)).
 
 The headline is `src/vu/cell_shading.cpp` - **ordinary C++, in this project,
-that ends up as a VU1 microprogram in the ELF**. It is 6 lines of body:
+that ends up as a VU1 microprogram in the ELF**. The posterise is four
+instructions:
 
 ```cpp
-void vertex(vu::Ctx& c) override {
-  vu::Vec lit = c.color + vu::splat(c, 46.0F);
-  vu::Vec q = lit * vu::splat(c, 4.0F / 255.0F);
-  c.raw().truncate(q.val(), q.val(), vuir::MALL);
-  c.color = q * vu::splat(c, 255.0F / 4.0F);
-}
+b.mulInto(s0, c.color.val(), down, vuir::MXYZ);  // into level units
+b.truncate(s0, s0, vuir::MXYZ);                  // drop the remainder
+b.addInto(s0, s0, halfStep, vuir::MXYZ);         // to the band CENTRE
+b.mulInto(s0, s0, up, vuir::MXYZ);               // back to 0..255
 ```
 
-and it replaces the engine's resident program on all four material classes the
-scene draws, so every prop and the terrain come out in four flat bands. Measured
-on the console: **50 FPS**, no asserts, 279 to 321 instructions per class.
+`down`, `up` and `halfStep` are three lanes of one constant register built in
+`prepare()` - one register for three numbers is what makes this fit the lit
+class, which already keeps ~30 of VCL's 31 live. Two more instructions paint the
+outline shell flat, and that is the whole program. It replaces the engine's
+resident program on all four material classes the scene draws, so every prop and
+the terrain come out in four flat bands. Measured on the console: **50 FPS**, no
+asserts, 218 to 260 instructions per class.
 
 Open `vu-lab.tyra` in the editor and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`. The first build with a script
@@ -82,29 +85,32 @@ drawing path, plus a small 40x40 terrain:
 
 ## What it authors
 
-*Tools > VU Programs* shows all of it: **three looks** — which become 18
-microprograms, because a look emits one per class it claims *and* the as_is twin
-of each — plus **two VU0 compute kernels**, one of each kind.
+*Tools > VU Programs* shows all of it. The four **C++ scripts** are what the
+project actually runs, and they become **43 microprograms** - a script emits one
+per class it claims, times up to three halves each (cull, the VU1 clipper, and
+the as_is twin unless it moves geometry). Alongside them sit **two VU0 kernels**,
+one of each kind, and three **looks** left in the project switched off so the
+scripts are unambiguous.
 
-| Look | Classes | Stages | Parameters |
+| | Classes | Body | Parameters |
 |---|---|---|---|
-| **Toon** (active at boot) | all four the scene draws | Posterize (6 levels), Scroll UV | all plain **values** |
-| ~~**Underwater**~~ (built, switched OFF) | Untextured + Textured | Wobble | see below - a displacing look breaks multi-pass props |
-| **Power down** | Untextured + Textured + Reflective | Desaturate | Amount ← mesh **Y** |
-| `points` kernel | VU0 | Wobble, Squash | values |
-| `Ranges` kernel | VU0 | `src/vu0/ranges.cpp` — C++ | camera position, band width |
+| **Cell shading** (boot) | Untextured + Textured + both lit | `src/vu/cell_shading.cpp` | shell flag ← mesh **X** |
+| **Palette** | Untextured + Textured | `src/vu/palette.cpp` | none |
+| **Vertex snap** | all five | `src/vu/vertex_snap.cpp` | none |
+| **Wobble** | all five | `src/vu/wobble.cpp` | none - and it moves geometry |
+| `points` kernel | VU0 | the stage list, from the panel | values |
+| `Ranges` kernel | VU0 | `src/vu0/ranges.cpp` | camera position, band width |
+| ~~Toon / Underwater / Power down~~ | — | stage lists, switched OFF | see below |
 
-**Press TRIANGLE to cycle the look.** (Two looks are live; the third is left in the project switched off - see below.) That is `vuprog::activate(next)` in
-`src/scripts/vu0_kernel_demo.cpp`, three lines. The three of them are chosen to
-show the two halves of the design in one scene: Toon and Underwater are
-whole-scene treatments driven by plain values — which is what VU1 is *for* — and
-Power down is the exception, one stage whose strength comes from a per-mesh slot,
-so the ball goes grey and its neighbours do not.
+**One button per look**, and one at a time is the thing being shown rather than
+a limitation worked around: a material class carries ONE program, so picking a
+look swaps what is resident on VU1. That is `vuscript::activate(want)` in
+`src/scripts/vu0_kernel_demo.cpp`.
 
-Every look is in the ELF; only the active one occupies VU1 micro memory, which
-is why the budget bar in the panel is per look. Measured on the console (PAL,
-frozen camera): 50 FPS in Toon at EE 38%, 49.4 in Underwater at EE 41%, 50 in
-Power down at EE 43%.
+Every program is in the ELF; only the active one occupies VU1 micro memory,
+which is why the budget bar in the panel is per look. Measured on the console
+(PAL, frozen camera) back when the three looks were the active set: 50 FPS in
+Toon at EE 38%, 49.4 in Underwater at EE 41%, 50 in Power down at EE 43%.
 
 The scene is on the **EE clipper** (*Preferences > Rendering*) rather than the
 default VU1 clipping, and that is the point of the setting here rather than an
