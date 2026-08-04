@@ -45,7 +45,12 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
    `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
    by every project built from the same checkout — parallel worktrees get their
-   own, or they would rsync diverging engines over each other forever.
+   own, or they would rsync diverging engines over each other forever. Because
+   it is shared it is declared **`external: true`** in the generated
+   `docker-compose.yml` and created by the Runner (`docker volume create`,
+   idempotent) rather than by compose: a volume compose creates is labelled with
+   whichever project got there first, and every other project then warns on
+   every `up` that it "already exists but was created for project X".
 3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
    it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.

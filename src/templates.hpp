@@ -92,6 +92,13 @@ bool projectUsesBeams(const Project& p);
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
 
+// The Docker volume holding the COMPILED engine, named after a hash of the
+// engine source path so projects built from one checkout share it and parallel
+// checkouts do not. Declared `external` in the generated docker-compose.yml -
+// it outlives any one project - so somebody has to create it: the runner does,
+// before `compose up`.
+std::string engineVolumeName();
+
 // Content of a new VU program (src/vu/*.cpp) - C++ compiled and RUN on the host
 // at build time, leaving a VU1 microprogram behind (docs/vu-authoring.md).
 std::string vuScriptStub(const std::string& className);

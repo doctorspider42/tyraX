@@ -4,6 +4,7 @@
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "platform.hpp"
+#include "templates.hpp"
 #include "texbake.hpp"
 #include "wavconvert.hpp"
 
@@ -719,6 +720,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // Old template used a fixed container name shared by all projects;
         // remove such a leftover so `compose up` cannot hit a name conflict.
         exec(platform::quiet("docker rm -f tyra-game-compiler"), p.dir);
+
+        // The shared engine volume, which compose no longer owns (it is
+        // `external` - see TPL_COMPOSE). Idempotent: creating one that exists
+        // succeeds and changes nothing, so this is simply "make sure it is
+        // there" on every build rather than a first-run special case.
+        exec(platform::quiet("docker volume create " +
+                             templates::engineVolumeName()),
+             p.dir);
 
         appendLine("[editor] Starting docker container (first run may download the Tyra image)...");
         // Plain `up -d`, not `up -d --build`: measured 0.32 s against 4.05 s,

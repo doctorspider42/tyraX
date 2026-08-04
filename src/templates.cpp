@@ -347,10 +347,25 @@ include /tyra/Makefile.base
 // nothing in the build ever ran; `docker compose up --build` then cost ~4 s per
 // build re-resolving that image (vs 0.3 s for a plain `up`). A project made
 // before this keeps a stale Dockerfile on disk - unreferenced, safe to delete.
+// The engine volume is `external` ON PURPOSE, and it is the one line here that
+// is not obvious. It is SHARED between every project built from the same engine
+// checkout - that is what the hash in its name is for - so it does not belong
+// to any one compose project. Letting compose create it labels it with
+// whichever project got there first, and every other project then warns on
+// every single `up`:
+//
+//   volume "tyra-engine-dd02ee9b" already exists but was created for project
+//   "vu-lab" (expected "vu-lab-78d536de"). Use `external: true` to use an
+//   existing volume
+//
+// which is the toolchain telling us exactly this. `external` means compose
+// looks the volume up instead of owning it, so the label stops mattering; the
+// runner creates it with `docker volume create` (idempotent) before `up`.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
   tyra-engine:
+    external: true
     name: tyra-engine-{{ENGINE_HASH}}
 services:
   compiler:
@@ -18195,6 +18210,8 @@ static std::string engineSourceDir() {
 
 // Short stable hash of the engine source path for the compiled-engine volume
 // name (see TPL_COMPOSE). FNV-1a over the forward-slash path, hex-encoded.
+std::string engineVolumeName();  // defined right below, declared in templates.hpp
+
 static std::string engineSourceHash() {
     const std::string src = engineSourceDir();
     unsigned long long h = 1469598103934665603ULL;
@@ -18206,6 +18223,8 @@ static std::string engineSourceHash() {
     std::snprintf(buf, sizeof(buf), "%08x", (unsigned)(h ^ (h >> 32)));
     return buf;
 }
+
+std::string engineVolumeName() { return "tyra-engine-" + engineSourceHash(); }
 
 static std::string vec3Init(const float* v) {
     return "{" + floatLit(v[0]) + ", " + floatLit(v[1]) + ", " + floatLit(v[2]) + "}";
