@@ -2,7 +2,7 @@
   "name": "tyrax-flownode",
   "displayName": "TyraX Flow Nodes & Screen Effects",
   "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "tyrax",
   "license": "MIT",
   "icon": "icon.png",

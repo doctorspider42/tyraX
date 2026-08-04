@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- **The `vuprogram` scaffold no longer appears after `::`, `.` or `->`.** It is
+  a whole FILE, so it belongs only where a file could start - and offering it
+  everywhere put it in the one list where it can never be wanted: the one after
+  `vugen::`, where it sat alone and read as "this is all the editor knows about
+  vugen". A completion provider that fires unconditionally does not just add
+  noise, it MASKS the absence of everything else, which is exactly what it did
+  while cpptools was failing to resolve the header behind it.
+
 ## 0.4.0
 
 - **A project's own VU program (`src/vu/*.cpp`) gets language support**, which

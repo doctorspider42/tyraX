@@ -77,6 +77,12 @@ std::string quiet(const std::string& cmd);
 // to tell "tool is missing" from "tool ran and failed".
 bool commandExists(const std::string& name);
 
+// The full path `name` resolves to on PATH, or "" when it does not resolve.
+// `commandExists` answers "can I run it"; this answers "where is it", which is
+// what a config file has to write down - VS Code's C/C++ extension wants a
+// `compilerPath`, not a command name.
+std::string commandPath(const std::string& name);
+
 // "<uid>:<gid>" of the user we run as, or "" where the concept does not apply
 // (Windows). The build container runs as root, so on Linux everything it
 // writes back into the bind-mounted project would land root-owned - the user

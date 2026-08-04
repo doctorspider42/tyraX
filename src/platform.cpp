@@ -286,6 +286,31 @@ bool commandExists(const std::string& name) {
 #endif
 }
 
+std::string commandPath(const std::string& name) {
+    if (name.empty()) return "";
+    std::string out;
+#ifdef _WIN32
+    // `capture` above is the POSIX half's helper (it is inside the #else), so
+    // the Windows branch reads the pipe itself. `where` prints one match per
+    // line and may find several - a shim plus the real binary - and the first
+    // is the one the shell would run.
+    if (FILE* p = ::_popen(("where " + name + " 2>nul").c_str(), "r")) {
+        char buf[1024];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
+        if (::_pclose(p) != 0) return "";
+    }
+#else
+    int code = -1;
+    out = capture("command -v " + shQuote(name) + " 2>/dev/null", &code);
+    if (code != 0) return "";
+#endif
+    const size_t nl = out.find_first_of("\r\n");
+    if (nl != std::string::npos) out.resize(nl);
+    while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Child processes
 // ---------------------------------------------------------------------------

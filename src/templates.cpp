@@ -31690,6 +31690,25 @@ static std::string vscodeCppProperties(const Project& p) {
     if (const std::filesystem::path cfg = platform::configDir(); !cfg.empty())
         sdk = slashes((cfg / "ps2sdk").string());
 
+    // A HOST C++ COMPILER, so the standard library resolves at all.
+    //
+    // The PS2SDK include tree carries C headers and no libstdc++ - there is no
+    // <vector>, <string> or <cstdint> anywhere in it - and with no compilerPath
+    // the C/C++ extension has nothing else to fall back on. A file that
+    // includes one of those then fails to parse at its first line, and that is
+    // EVERY VU script, because vugen.hpp opens with three of them. The symptom
+    // is not an error anyone reads: the completion list for `vugen::` comes
+    // back empty, which looks like "the editor does not know this namespace"
+    // rather than like "the header was never parsed".
+    //
+    // Best effort - with no compiler on PATH the key is simply left out, which
+    // is the state every generated project was in before.
+    std::string compiler;
+    for (const char* c : {"g++", "clang++", "c++"}) {
+        compiler = slashes(platform::commandPath(c));
+        if (!compiler.empty()) break;
+    }
+
     std::ostringstream out;
     out << "{\n"
            "  \"configurations\": [\n"
@@ -31713,8 +31732,10 @@ static std::string vscodeCppProperties(const Project& p) {
         out << ",\n        \"" << sdk << "/ee/include\",\n        \"" << sdk
             << "/common/include\"";
     out << "\n      ],\n"
-           "      \"defines\": [\"_EE\"],\n"
-           "      \"cStandard\": \"c11\",\n"
+           "      \"defines\": [\"_EE\"],\n";
+    if (!compiler.empty())
+        out << "      \"compilerPath\": \"" << compiler << "\",\n";
+    out << "      \"cStandard\": \"c11\",\n"
            "      \"cppStandard\": \"c++20\",\n"
            "      \"intelliSenseMode\": \"linux-gcc-x86\"\n"
            "    }\n"

@@ -113,6 +113,32 @@ What it deliberately does **not** do is repeat the headers. `vu::Ctx` and
 copy here would be a second source of truth for exactly the thing the VU
 framework exists to stop duplicating.
 
+### When `vugen::` completes nothing
+
+That is cpptools, not this extension, and it has one likely cause: **there is no
+C++ standard library on the include path.** `vugen.hpp` opens with `<cstdint>`,
+`<string>` and `<vector>`; the PS2SDK tree the config points at carries C
+headers and no libstdc++, so with no `compilerPath` the extension has nowhere to
+find them, the parse dies on line one and the completion list comes back empty -
+which reads as "the editor does not know this namespace" rather than as "the
+header was never parsed".
+
+The generated `c_cpp_properties.json` now writes a `compilerPath` pointing at
+whatever host `g++` / `clang++` / `c++` is on PATH. If yours is empty, that is
+why: put a host compiler on PATH and rebuild (or refresh) the project.
+
+To tell the two apart in ten seconds, Command Palette ▸ **C/C++: Log
+Diagnostics**. It prints the configuration actually in use and every include
+path it resolved; a missing `<vector>` is right there. Two more things worth
+checking from that output:
+
+- Open the **project folder**, not the repository root - `${workspaceFolder}`
+  is what every path in that file is relative to, and the repo root has no
+  `.vscode/c_cpp_properties.json` at all.
+- After the editor regenerates the file, run **C/C++: Reset IntelliSense
+  Database**; cpptools caches an unresolved include and does not retry on its
+  own.
+
 The header the completions come from is `vugen/vushader.hpp` - `vu::Ctx` is the
 authoring surface and `Ctx::raw()` is the escape hatch onto `vugen::Vu`, whose
 whole method library (`sineApprox`, `transform`, `spotLight`, the masked

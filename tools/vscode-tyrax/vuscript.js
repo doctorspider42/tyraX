@@ -325,8 +325,25 @@ const SCAFFOLD =
   "}  // namespace\n\n" +
   "VU_PROGRAM(${2:MyLook});\n";
 
+/** The scaffold is a WHOLE FILE, so it belongs only where a whole file could
+ * start. Offering it everywhere put it in the one place it can never be wanted:
+ * the list after `vugen::`, where it sat next to nothing else and read as "this
+ * is all the editor knows about vugen" - which is exactly the wrong message
+ * when the real answer is that cpptools has not resolved the header yet. A
+ * completion provider that fires unconditionally does not just add noise, it
+ * MASKS the absence of everything else. */
+function scaffoldFits(doc, position) {
+  const line = doc.lineAt(position.line).text.slice(0, position.character);
+  // Not in a qualified name or a member access.
+  if (/(::|\.|->)\s*\w*$/.test(line)) return false;
+  // Not inside a string or a comment, and not mid-expression.
+  if (/\/\/|["']/.test(line)) return false;
+  return /^\s*\w*$/.test(line);
+}
+
 function provideCompletions(doc, position) {
   if (!applies(doc)) return [];
+  if (!scaffoldFits(doc, position)) return [];
   const item = new vscode.CompletionItem("vuprogram", vscode.CompletionItemKind.Snippet);
   item.detail = "TyraX: a whole vu::Program skeleton";
   item.documentation = new vscode.MarkdownString(
@@ -345,6 +362,7 @@ module.exports = {
   refreshDiagnostics,
   provideHover,
   provideCompletions,
+  scaffoldFits,
   EMITS,
   COSTS,
   MASKS,
