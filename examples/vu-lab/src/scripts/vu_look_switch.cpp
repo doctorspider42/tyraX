@@ -47,10 +47,18 @@ class VuLookSwitch : public Script {
     // SQUARE also cycles the stage-list looks, when the project has any
     // switched on. It does not in this scene - the three looks ship off, so
     // the C++ scripts above are unambiguous.
-    if (hit.Square && vuprog::LOOK_COUNT > 1) {
-      const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;
-      vuprog::activate(next);
-      TYRA_LOG("VU look -> ", vuprog::lookName(next));
+    //
+    // `if constexpr`, not `if`: LOOK_COUNT is a compile-time 0 here, and an
+    // ordinary `&&` still leaves `% LOOK_COUNT` in the parsed body, which the
+    // compiler folds and warns about as a division by zero. The whole block
+    // has to be discarded rather than merely skipped - which is also the
+    // zero-cost rule the rest of the generated seam follows.
+    if constexpr (vuprog::LOOK_COUNT > 1) {
+      if (hit.Square) {
+        const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;
+        vuprog::activate(next);
+        TYRA_LOG("VU look -> ", vuprog::lookName(next));
+      }
     }
   }
 
