@@ -1387,7 +1387,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "Text Visible, whose string is baked into a sprite at build "
                  "time, this draws glyph by glyph from the font's atlas."},
         // Audio (music: 16-bit 22kHz stereo WAV; sounds: ADPCM one-shots)
-
         {.key = "PlayMusic", .title = "Play Music", .category = "Audio",
          .strKind = FlowParamKind::MusicTrack,
          .strTip = "The track to play (imported in the Project panel > "
@@ -2099,7 +2098,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .trigger = true, .boolIn = true,
          .desc = "Trigger that fires on the RISING EDGE of its bool input - "
                  "the bridge from logic gates back to exec flow."},
-
     };
     return types;
 }

@@ -29,6 +29,11 @@ back to the quad (the browser gets sluggish past that) and the Save Editor says
 so. The editor bakes `icon.sys` + `list.icn` into `res/save/` on every build and
 the generated save system copies them onto the card the first time it writes.
 
+`res/save/` is **derived output and gitignored** — the settings live in the
+`.tyra`, these are only their bytes. (The *checking memory card* overlay in
+`res/hud/` is the opposite: written only when missing, so it stays tracked and
+you can replace it.)
+
 Note that `list.icn` is usually **far** the largest thing your save puts on the
 card — tens of kilobytes against a slot payload measured in hundreds of bytes.
 It is written once per card, not once per slot.

@@ -2488,12 +2488,21 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
 // branches keep adding sections (ModelLods, ModelUnits and Input all arrived
-// while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 16;
+// while this one was open), which is exactly how it drifts. It DID drift: with
+// 17 sections and a count of 16, `--resave` on examples/cube dropped the whole
+// "prefabs" section - no error, the prefabs were simply gone. The static_assert
+// below is the fix that outlives the comment: Section::Count is maintained by
+// the compiler, so the next section to arrive cannot repeat this.
+enum : int { kSectionCount = (int)Section::Count };
+static_assert(kSectionCount == 17,
+              "A section was added or removed - check that everything which "
+              "loops sections by index (save(), the collaboration shadow) "
+              "still means what it says, then update this number.");
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

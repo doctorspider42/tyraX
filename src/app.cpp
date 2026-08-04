@@ -8238,7 +8238,7 @@ void App::drawSaveEditorWindow() {
                         saveIconInfo_.shapes, saveIconInfo_.shapes == 1 ? "" : "s",
                         saveIconInfo_.bytes / 1024.0);
     if (!saveIconInfo_.warning.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "%s",
+        ImGui::TextColored(theme::semantics().warn, "%s",
                            saveIconInfo_.warning.c_str());
     ImGui::TextDisabled("Written to the card with the first save.");
     ImGui::EndGroup();
@@ -8286,7 +8286,9 @@ void App::drawSaveEditorWindow() {
         ImGui::TableNextColumn();
         ImGui::Text("Card space used (1 KB clusters)");
         ImGui::TableNextColumn();
-        ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f), "%s",
+        // The number to quote, so it gets the theme's one bright colour -
+        // emphasis, not a warning (nothing here is wrong).
+        ImGui::TextColored(theme::semantics().accent, "%s",
                            bytes(sz.cardFootprintBytes).c_str());
         ImGui::EndTable();
     }

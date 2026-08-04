@@ -22,6 +22,11 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Save Editor: the checks only real hardware can make.** The feature is
+  complete and builds, but three things cannot be proven from the host: the card
+  failure feedback (a **full**, **absent** or **unformatted** card), and the icon
+  itself — the two-line title break and the animated icon's motion only show in
+  the **PS2 BIOS browser**. `docs/save-editor.md` says the same at the bottom.
 - **VU authoring: the user-facing half of the VU framework.** Model + codegen
   for a program someone composes from stages, per-mesh parameters, the VU panel,
   and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and

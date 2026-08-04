@@ -2109,6 +2109,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Count: break;  // not a section
     }
     return ss.str();
 }
@@ -2132,6 +2133,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Count: break;  // not a section
     }
     return "unknown";
 }
@@ -4738,6 +4740,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Count: return false;  // not a section
     }
     return true;
 }
@@ -5607,6 +5610,18 @@ std::string refreshGenerated(const Project& p) {
                     "/credits/pages/\n";
                 grew = true;
             }
+            // And again for the memory card icon: res/save/ is icon.sys +
+            // list.icn, rebaked from the .tyra on every build. Without this a
+            // project made before the Save Editor starts tracking tens of KB
+            // of derived bytes that churn whenever the icon settings change.
+            if (text.find("/save/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked memory card icon - icon.sys + list.icn, "
+                    "regenerated on every\n# build from the Save Editor's "
+                    "settings (docs/save-editor.md).\n/save/\n";
+                grew = true;
+            }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
         }
@@ -5736,16 +5751,18 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(saveDir, ec);
         const std::vector<unsigned char> sys = savebake::iconSys(p);
         const std::vector<unsigned char> icn = savebake::iconIcn(p);
+        // Through writeFile, so an unchanged icon keeps its mtime. list.icn is
+        // the biggest thing this bake produces (tens of KB) and it is rebaked
+        // on EVERY build from unchanged project data - a raw rewrite made the
+        // Runner's rsync ship it to the container every time.
         auto write = [&](const char* name,
-                         const std::vector<unsigned char>& bytes) -> bool {
-            std::ofstream f(saveDir / name, std::ios::binary);
-            if (!f) return false;
-            f.write(reinterpret_cast<const char*>(bytes.data()),
-                    (std::streamsize)bytes.size());
-            return true;
+                         const std::vector<unsigned char>& bytes) {
+            return writeFile(saveDir / name,
+                             std::string(reinterpret_cast<const char*>(bytes.data()),
+                                         bytes.size()));
         };
-        if (!write("icon.sys", sys)) return "Cannot write save icon: icon.sys";
-        if (!write("list.icn", icn)) return "Cannot write save icon: list.icn";
+        if (auto err = write("icon.sys", sys); !err.empty()) return err;
+        if (auto err = write("list.icn", icn); !err.empty()) return err;
     }
 
     // Lens flare sprites: procedural (no font), written whenever the project
