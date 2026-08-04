@@ -15,6 +15,10 @@ struct SceneObjectData {
              //    via PORTALS below)
              // 17=area (invisible volume, no geometry/collision:
              //    layer zones, In Area triggers - pointInArea below)
+             // 18=scatter volume (procedural authoring region; its
+             //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -53,11 +57,21 @@ struct SceneObjectData {
                      // (plain stereo, full volume, no distance/pan)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
+  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
+                     // Set Light / flicker work) instead of baked
+  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
+  int lightBeam;     // point lights: 0 none, 1 glow corona,
+                     // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
   int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int projShadow; // 1 = live projected silhouette shadow (the
+                  // per-object AO 'castShadow' is baked, not here)
+  int dynLit;     // 1 = lit by the LIT VU1 program from the probe
+                  // grid every frame instead of baked vertex colors
+                  // (docs/global-illumination.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -182,31 +196,31 @@ constexpr int SCENE_COUNT = 1;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[25] = {
-    {6, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {0, {0.0F, 1.5F, -19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-back
-    {0, {-6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-left
-    {0, {6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-right
-    {0, {-3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-door-l
-    {0, {3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-door-r
-    {0, {-3.5F, 0.75F, -16.5F}, {0.0F, 15.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.85F, 0.55F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-crate-1
-    {0, {-2.0F, 0.5F, -17.5F}, {0.0F, 40.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.8F, 0.45F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-crate-2
-    {1, {3.5F, 1.0F, -16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.3F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, 0},  // a-orb
-    {9, {0.0F, 2.6F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, 0},  // a-light
-    {0, {-2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // c-wall-left
-    {0, {2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // c-wall-right
-    {0, {0.0F, 1.5F, 19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-back
-    {0, {-6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-left
-    {0, {6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-right
-    {0, {-3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-door-l
-    {0, {3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-door-r
-    {2, {3.5F, 1.5F, 16.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.3F, 0.6F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-pillar
-    {1, {-3.5F, 1.0F, 16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.25F, 0.8F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-orb
-    {3, {0.0F, 1.0F, 17.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 2.0F, 1.5F}, {0.4F, 0.5F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-cone
-    {9, {0.0F, 2.6F, 14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.8F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-light
-    {11, {0.0F, 1.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-unload-b
-    {11, {0.0F, 1.0F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-load-b
-    {11, {0.0F, 1.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-load-a
-    {11, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0, 0.0F, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-unload-a
+    {6, {0.0F, 0.0F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
+    {0, {0.0F, 1.5F, -19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-back
+    {0, {-6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-left
+    {0, {6.0F, 1.5F, -14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.75F, 0.7F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-right
+    {0, {-3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-door-l
+    {0, {3.75F, 1.5F, -9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.7F, 0.65F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-wall-door-r
+    {0, {-3.5F, 0.75F, -16.5F}, {0.0F, 15.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.85F, 0.55F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-crate-1
+    {0, {-2.0F, 0.5F, -17.5F}, {0.0F, 40.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.8F, 0.45F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, 0},  // a-crate-2
+    {1, {3.5F, 1.0F, -16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.9F, 0.3F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, 0},  // a-orb
+    {9, {0.0F, 2.6F, -14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 0.85F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, 0},  // a-light
+    {0, {-2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // c-wall-left
+    {0, {2.5F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 17.5F}, {0.55F, 0.55F, 0.58F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // c-wall-right
+    {0, {0.0F, 1.5F, 19.0F}, {0.0F, 0.0F, 0.0F}, {12.5F, 3.0F, 0.5F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-back
+    {0, {-6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-left
+    {0, {6.0F, 1.5F, 14.0F}, {0.0F, 0.0F, 0.0F}, {0.5F, 3.0F, 10.0F}, {0.6F, 0.68F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-right
+    {0, {-3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-door-l
+    {0, {3.75F, 1.5F, 9.0F}, {0.0F, 0.0F, 0.0F}, {4.5F, 3.0F, 0.5F}, {0.55F, 0.63F, 0.73F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 1, 0},  // b-wall-door-r
+    {2, {3.5F, 1.5F, 16.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.3F, 0.6F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-pillar
+    {1, {-3.5F, 1.0F, 16.5F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.25F, 0.8F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-orb
+    {3, {0.0F, 1.0F, 17.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 2.0F, 1.5F}, {0.4F, 0.5F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-cone
+    {9, {0.0F, 2.6F, 14.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.8F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.2F, 11.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 1, 0},  // b-light
+    {11, {0.0F, 1.0F, -6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-unload-b
+    {11, {0.0F, 1.0F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-load-b
+    {11, {0.0F, 1.0F, 3.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-load-a
+    {11, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // trig-unload-a
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {25};
@@ -214,6 +228,40 @@ inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT
 
 constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[25] = {0x941d4764740fa04dULL, 0xf4b21d60cddf5923ULL, 0x42775694c4b6f436ULL, 0x6d8659048ccba289ULL, 0x5348f6f8547a7901ULL, 0xd34d31b7a4a8b3c9ULL, 0x571c3762dbbfa85fULL, 0xf4e1efbff4096e2fULL, 0x696c135be88a9347ULL, 0x12a149ff2de51530ULL, 0x69e2b683d8a2746eULL, 0x829a2a86e25eaa8cULL, 0x683b11e7faaee205ULL, 0x50ecf6da621d493fULL, 0xbab674395b079ffbULL, 0xf0f884419e35d901ULL, 0x60a61a894b7914e9ULL, 0x1e3d4b4a4b2d15eaULL, 0x0a59a1367928827cULL, 0xc421fab4ac384b9eULL, 0x6dcded66c161dedbULL, 0x5d586d19c383aa27ULL, 0xc09cca510772440cULL, 0xc27c0c24d918de35ULL, 0x1e60bf6a25cb0a38ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {2};
 constexpr int SCENE_MAX_LAYERS = 2;
@@ -370,6 +418,10 @@ constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
@@ -390,9 +442,15 @@ constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {64.0F};
 constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
+constexpr float TERRAIN_VOID_Y = -1000000.0F;
+constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
 constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
 constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
@@ -419,6 +477,12 @@ constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
 constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
 constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
+constexpr int FLARE_USED = 0;
+constexpr int BEAMS_USED = 0;
+constexpr int BLOB_SHADOWS = 0;
+constexpr int PROJ_SHADOWS_USED = 0;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
 constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
@@ -434,6 +498,7 @@ constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
 constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
 constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
 constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
+constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
 constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
 constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
@@ -519,6 +584,11 @@ inline int everyFrames(float seconds) {
 #define SCENE_LAYER_STREAM_Z SCENE_LAYER_STREAM_ZS[g_activeScene]
 #define SCENE_LAYER_STREAM_R SCENE_LAYER_STREAM_RADII[g_activeScene]
 #define SCENE_LAYER_STREAM_AREA SCENE_LAYER_STREAM_AREAS[g_activeScene]
+// Prefabs this scene can spawn (docs/prefabs.md) - the slice of
+// PREFAB_SCENE_LIST the asset residency keeps loaded.
+#define SCENE_PREFAB_FIRST PREFAB_SCENE_FIRST[g_activeScene]
+#define SCENE_PREFAB_COUNT PREFAB_SCENE_COUNT[g_activeScene]
+#define SCENE_PREFAB_LIST PREFAB_SCENE_LIST
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
@@ -563,8 +633,14 @@ inline int everyFrames(float seconds) {
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
+// Directional locomotion (face-camera / strafe mode).
+#define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
+#define PP_STRAFE_L_CLIP(pi) PP_TBL(pi, STRAFE_L_CLIPS)
+#define PP_STRAFE_R_CLIP(pi) PP_TBL(pi, STRAFE_R_CLIPS)
+#define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
@@ -605,6 +681,8 @@ inline int everyFrames(float seconds) {
 #define SKY_TOP_G SKY_TOP_GS[g_activeScene]
 #define SKY_TOP_B SKY_TOP_BS[g_activeScene]
 #define POSTFX_BLOOM POSTFX_BLOOMS[g_activeScene]
+#define POSTFX_FLARE POSTFX_FLARES[g_activeScene]
+#define POSTFX_GODRAYS POSTFX_GODRAYS_ARR[g_activeScene]
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
@@ -623,6 +701,7 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]
 #define HIGHLIGHT_R HIGHLIGHT_RS[g_activeScene]

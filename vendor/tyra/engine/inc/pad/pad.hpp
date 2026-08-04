@@ -81,6 +81,11 @@ class Pad {
   static const int VIRT_SLOTS = 2;
 
  private:
+  /** TyraX: how long waitPadReady() gives a controller to settle, in ~1 ms
+   * polls. Generous, because it only ever costs this much when there is no
+   * usable pad - and then the game boots without one instead of hanging. */
+  static const int PAD_READY_POLLS = 3000;
+
   char padBuf[256] alignas(sizeof(char) * 256);
   char actAlign[6];
   int actuators, ret, port, slot;

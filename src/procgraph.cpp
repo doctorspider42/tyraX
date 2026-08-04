@@ -261,18 +261,21 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .params =
              {{.key = "source", .label = "Source", .kind = PK::Enum,
                .def = 1.0f, .lo = 0.0f, .hi = 3.0f,
-               .choices = "Height|Slope|Curvature|Painted layer",
+               .choices = "Height|Slope|Curvature|Terrain material",
                .tip = "What the mask reads off the terrain. Curvature is "
-                      "positive on ridges, negative in valleys."},
-              {.key = "layer", .label = "Layer", .kind = PK::Int, .def = 0.0f,
-               .lo = 0.0f, .hi = 7.0f,
-               .tip = "Painted layer index (Source = Painted layer): 0 = the "
-                      "first layer above the terrain base material."},
+                      "positive on ridges, negative in valleys; Terrain "
+                      "material reads how much of the chosen material the "
+                      "ground actually shows."},
+              {.key = "layer", .label = "Material", .kind = PK::TerrainLayer,
+               .def = 0.0f, .lo = -1.0f, .hi = 7.0f,
+               .tip = "Which painted terrain material to read (Source = "
+                      "Terrain material). Base material = the ground under "
+                      "everything you painted."},
               {.key = "min", .label = "Range min", .kind = PK::Float,
                .def = 0.0f, .lo = -2000.0f, .hi = 2000.0f,
                .tip = "Source value that starts the band (world units for "
                       "height, degrees for slope, -1..1 for curvature, 0..1 "
-                      "for a painted layer)."},
+                      "for a material's coverage)."},
               {.key = "max", .label = "Range max", .kind = PK::Float,
                .def = 25.0f, .lo = -2000.0f, .hi = 2000.0f},
               {.key = "falloff", .label = "Falloff", .kind = PK::Float,
@@ -281,9 +284,13 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                       "cutting on a line."},
               {.key = "invert", .label = "Invert", .kind = PK::Bool}},
          .desc = "Turns the terrain itself into a mask: height bands, slope "
-                 "bands, ridges vs valleys, or the weight of a hand-painted "
-                 "terrain layer. Grass in the valleys, rocks on the ridges, "
-                 "vegetation only where you painted soil - no manual work."},
+                 "bands, ridges vs valleys, or how much of one painted "
+                 "material the ground shows. Trees only on the grass and "
+                 "never on the rock you painted over it, boulders only on "
+                 "the ridges - no manual work. Feed it to a Filter by Mask "
+                 "(or straight into a scatter's density input) and set the "
+                 "band to 0.5..1 to mean \"where this material is what you "
+                 "see\"."},
 
         {.key = "MaskCombine",
          .title = "Combine Masks",

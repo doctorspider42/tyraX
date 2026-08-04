@@ -486,25 +486,34 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // the 2042 ceiling. Check the micro-memory budget with nm after
   // touching any program - the createProgramsCache overflow assert is
   // compiled out in release.
-  const u32 count = 10;
-  VU1Program** programs = new VU1Program*[count];
-  programs[0] = repository.getProgram(StaPipCullColor);
-  programs[1] =
-      repository.getProgram(vu1Clipping ? StaPipClipColor : StaPipAsIsColor);
-  programs[2] = repository.getProgram(StaPipCullDirLights);
-  programs[3] = repository.getProgram(vu1Clipping ? StaPipClipDirLights
-                                                  : StaPipAsIsDirLights);
-  programs[4] = repository.getProgram(StaPipCullTextureDirLights);
-  programs[5] = repository.getProgram(vu1Clipping ? StaPipClipTextureDirLights
-                                                  : StaPipAsIsTextureDirLights);
-  programs[6] = repository.getProgram(StaPipCullTextureColor);
-  programs[7] = repository.getProgram(vu1Clipping ? StaPipClipTextureColor
-                                                  : StaPipAsIsTextureColor);
-  programs[8] = repository.getProgram(StaPipCullTextureEnv);
-  programs[9] = repository.getProgram(vu1Clipping ? StaPipClipTextureEnv
-                                                  : StaPipAsIsTextureEnv);
+  // Modified by TyraX: the set is DATA-DRIVEN now (setResidentClasses). Each
+  // material class contributes a pair - the cull program plus its clipped or
+  // as_is twin - and a class the project never draws can be dropped to buy
+  // micro memory for a program the user wrote. Every class is kept unless a
+  // game says otherwise, so this is the old hardcoded ten by default.
+  VU1Program* programs[10];
+  u32 count = 0;
+  const struct {
+    u32 bit;
+    StaPipProgramName cull, clipped, asIs;
+  } classes[] = {
+      {StaPipClassColor, StaPipCullColor, StaPipClipColor, StaPipAsIsColor},
+      {StaPipClassDirLights, StaPipCullDirLights, StaPipClipDirLights,
+       StaPipAsIsDirLights},
+      {StaPipClassTextureDirLights, StaPipCullTextureDirLights,
+       StaPipClipTextureDirLights, StaPipAsIsTextureDirLights},
+      {StaPipClassTextureColor, StaPipCullTextureColor, StaPipClipTextureColor,
+       StaPipAsIsTextureColor},
+      {StaPipClassTextureEnv, StaPipCullTextureEnv, StaPipClipTextureEnv,
+       StaPipAsIsTextureEnv},
+  };
+  for (const auto& c : classes) {
+    if ((residentClasses & c.bit) == 0) continue;
+    programs[count++] = repository.getProgram(c.cull);
+    programs[count++] =
+        repository.getProgram(vu1Clipping ? c.clipped : c.asIs);
+  }
   programsPacket = path1->createProgramsCache(programs, count, 0);
-  delete[] programs;
 
   // Modified by TyraX: the billboard family lives in its own small packet,
   // swapped in on demand (ensureProgramSet) - the resident set above has no
@@ -515,6 +524,108 @@ void StaPipQBufferRenderer::setProgramsCache() {
     billboardPrograms[1] = repository.getProgram(StaPipBillboardTexture);
     billboardProgramsPacket = path1->createProgramsCache(billboardPrograms, 2, 0);
   }
+}
+
+// TyraX addition: see the header. Safe to call at run time - a level that stops
+// needing a material class can hand its micro memory to something else - but it
+// is a full pipeline drain plus an upload, so it belongs at a zone or level
+// boundary, never per bag.
+void StaPipQBufferRenderer::setResidentClasses(const u32& mask) {
+  const u32 wanted = mask | StaPipClassColor;  // colour is the fallback floor
+  if (wanted == residentClasses) return;
+  residentClasses = wanted;
+  if (programsPacket == nullptr) return;  // init() will build the right set
+
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
+}
+
+// TyraX addition: which material class a program name belongs to, so residency
+// can be tested before anything is substituted.
+static u32 classOfProgram(const StaPipProgramName& name) {
+  switch (name) {
+    case StaPipCullColor:
+    case StaPipClipColor:
+    case StaPipAsIsColor:
+      return StaPipQBufferRenderer::StaPipClassColor;
+    case StaPipCullDirLights:
+    case StaPipClipDirLights:
+    case StaPipAsIsDirLights:
+      return StaPipQBufferRenderer::StaPipClassDirLights;
+    case StaPipCullTextureDirLights:
+    case StaPipClipTextureDirLights:
+    case StaPipAsIsTextureDirLights:
+      return StaPipQBufferRenderer::StaPipClassTextureDirLights;
+    case StaPipCullTextureColor:
+    case StaPipClipTextureColor:
+    case StaPipAsIsTextureColor:
+      return StaPipQBufferRenderer::StaPipClassTextureColor;
+    case StaPipCullTextureEnv:
+    case StaPipClipTextureEnv:
+    case StaPipAsIsTextureEnv:
+      return StaPipQBufferRenderer::StaPipClassTextureEnv;
+    default:
+      return 0;  // billboards and anything else: not class-managed
+  }
+}
+
+// TyraX addition: see the header.
+StaPipProgramName StaPipQBufferRenderer::residentFallback(
+    const StaPipProgramName& name) const {
+  const u32 cls = classOfProgram(name);
+  // Not class-managed, or its class is resident: nothing to substitute.
+  if (cls == 0 || (residentClasses & cls) != 0) return name;
+
+  switch (name) {
+    case StaPipCullTextureDirLights:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipCullTextureColor
+                 : StaPipCullColor;
+    case StaPipClipTextureDirLights:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipClipTextureColor
+                 : StaPipClipColor;
+    case StaPipAsIsTextureDirLights:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipAsIsTextureColor
+                 : StaPipAsIsColor;
+    case StaPipCullTextureEnv:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipCullTextureColor
+                 : StaPipCullColor;
+    case StaPipClipTextureEnv:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipClipTextureColor
+                 : StaPipClipColor;
+    case StaPipAsIsTextureEnv:
+      return (residentClasses & StaPipClassTextureColor)
+                 ? StaPipAsIsTextureColor
+                 : StaPipAsIsColor;
+    case StaPipCullDirLights:
+    case StaPipCullTextureColor:
+      return StaPipCullColor;
+    case StaPipClipDirLights:
+    case StaPipClipTextureColor:
+      return StaPipClipColor;
+    case StaPipAsIsDirLights:
+    case StaPipAsIsTextureColor:
+      return StaPipAsIsColor;
+    default:
+      return name;
+  }
+}
+
+void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
+                                               StaPipVU1Program* program) {
+  repository.setOverride(name, program);
+  if (programsPacket == nullptr) return;  // init() will pick it up
+
+  packet2_free(programsPacket);
+  setProgramsCache();
+  uploadPrograms();
+  clearLastProgramName();
 }
 
 void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
@@ -835,7 +946,16 @@ StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByBag(
 
 StaPipVU1Program* StaPipQBufferRenderer::getProgramByName(
     const StaPipProgramName& name) {
-  return repository.getProgram(name);
+  // Modified by TyraX: a class the project dropped has no program on VU1, and
+  // MSCAL-ing to an address nothing was uploaded to draws garbage. Walk down to
+  // a resident relative instead - the mesh loses a feature, not the frame.
+  StaPipProgramName resolved = name;
+  for (int guard = 0; guard < 4; ++guard) {
+    const StaPipProgramName next = residentFallback(resolved);
+    if (next == resolved) break;
+    resolved = next;
+  }
+  return repository.getProgram(resolved);
 }
 
 StaPipVU1Program* StaPipQBufferRenderer::getCullProgramByParams(

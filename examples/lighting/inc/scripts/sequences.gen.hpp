@@ -13,5 +13,16 @@ void stop();           // stop the active sequence, free the camera
 // loop inside beginFrame/endFrame after the HUD (solid 2D quads;
 // no-op unless the active cutscene draws them).
 void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);
+// True while a cutscene is playing - what the On Sequence Finished
+// flow trigger edge-detects, and what tells a flow-graph camera or
+// letterbox that a cutscene currently owns those.
+bool playing();
+// Letterbox coverage per edge (fractions of the screen) for the
+// Set Letterbox Bars flow node, used by renderOverlay when NO
+// sequence is active. The style -> fraction mapping stays on the
+// host (seqBarsFractions in src/sequence.hpp), so the console needs
+// no table: codegen writes the numbers straight in.
+extern float g_flowBarTB;
+extern float g_flowBarLR;
 }  // namespace sequences
 }  // namespace Lighting

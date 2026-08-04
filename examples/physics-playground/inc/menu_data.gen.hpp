@@ -9,8 +9,9 @@ namespace Physics_playground {
 // value holding the option index), 9 apply video mode (commits
 // the display-mode row's staged selection), 10 rebind an input
 // action (param = the save value holding the override code,
-// inputAction = which action; docs/input-bindings.md). param =
-// resolved index, -1 = unknown target.
+// inputAction = which action; docs/input-bindings.md), 11 roll the
+// credits (param = the CREDITS index). param = resolved index,
+// -1 = unknown target.
 struct MenuEntryData {
   int action;
   int param;

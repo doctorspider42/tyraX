@@ -15,6 +15,7 @@
 
 #include <filesystem>
 
+#include "moonmap_gen.hpp"  // NASA LRO colour map, embedded (see CMakeLists.txt)
 #include "platform.hpp"
 
 namespace menubake {
@@ -165,7 +166,7 @@ const IconImg* iconImage(const Project& p, const std::string& name) {
     IconImg& img = cache[name];
     if (!icon) return nullptr;
     if (!icon->path.empty() && !p.dir.empty()) {
-        const std::string full = p.dir + "\\" + icon->path;
+        const std::string full = p.filePath(icon->path);  // never a raw "\\" join
         int w = 0, h = 0, comp = 0;
         if (unsigned char* px = stbi_load(full.c_str(), &w, &h, &comp, 4)) {
             img.px.assign(px, px + (size_t)w * h * 4);
@@ -1099,12 +1100,12 @@ bool bakeTextPNG(const HudText& text, const Project& p,
                                   w * 4) != 0;
 }
 
-bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
+void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba) {
     // 64x64 pow2 (PS2 texture rule), white RGB, shape in alpha. The game
     // draws them additively (Sprite::additive) tinted by the light color,
     // so alpha IS the brightness profile.
     constexpr int N = 64;
-    std::vector<unsigned char> rgba(N * N * 4);
+    rgba.assign(N * N * 4, 0);
     for (int y = 0; y < N; ++y) {
         for (int x = 0; x < N; ++x) {
             // Radius normalized to 1.0 at the sprite edge.
@@ -1137,15 +1138,163 @@ bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
             }
         }
     }
+}
+
+bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    bakeFlareRGBA(kind, rgba);
     png.clear();
-    return stbi_write_png_to_func(pngWriteCallback, &png, N, N, 4, rgba.data(),
-                                  N * 4) != 0;
+    return stbi_write_png_to_func(pngWriteCallback, &png, 64, 64, 4, rgba.data(),
+                                  64 * 4) != 0;
 }
 
 std::string flareFileName(int kind) {
     return kind == 0   ? "flare-glow.png"
            : kind == 1 ? "flare-ring.png"
                        : "flare-corona.png";
+}
+
+void bakeSunRGBA(std::vector<unsigned char>& rgba) {
+    // 64x64, shape in RGB: the disc is drawn through an additive bag, which
+    // computes Cs*FIX + Cd and ignores texture alpha - a white RGB sprite would
+    // draw a bright square. Same rule as flare kind 2.
+    constexpr int N = kSunDiscSize;
+    rgba.assign(N * N * 4, 0);
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N; ++x) {
+            const float dx = (x + 0.5f) / N - 0.5f;
+            const float dy = (y + 0.5f) / N - 0.5f;
+            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+            // A hard-edged body out to 45% of the sprite, then a corona that
+            // falls off quadratically. Without the flat core the sun reads as a
+            // fuzzy blob rather than a disc with glare around it.
+            float a;
+            if (r < 0.45f) {
+                a = 1.0f;
+            } else {
+                const float t = r > 1.0f ? 0.0f : (1.0f - r) / 0.55f;
+                a = t * t * (0.25f + 0.75f * t);
+            }
+            unsigned char* px = &rgba[(y * N + x) * 4];
+            px[0] = px[1] = px[2] = (unsigned char)(a * 255.0f + 0.5f);
+            px[3] = 255;
+        }
+    }
+}
+
+bool bakeSunPNG(std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    bakeSunRGBA(rgba);
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, kSunDiscSize,
+                                  kSunDiscSize, 4, rgba.data(),
+                                  kSunDiscSize * 4) != 0;
+}
+
+bool bakeMoonRGBA(float phase, const std::string& sourcePath,
+                  std::vector<unsigned char>& rgba) {
+    constexpr int N = kMoonDiscSize;
+
+    // --- source image ------------------------------------------------------
+    int sw = 0, sh = 0, sn = 0;
+    unsigned char* src = nullptr;
+    if (!sourcePath.empty())
+        src = stbi_load(sourcePath.c_str(), &sw, &sh, &sn, 3);
+    if (!src)
+        src = stbi_load_from_memory(moonmap::kMoonJpg,
+                                    (int)moonmap::kMoonJpgSize, &sw, &sh, &sn, 3);
+    if (!src || sw <= 0 || sh <= 0) {
+        if (src) stbi_image_free(src);
+        return false;
+    }
+    // A 2:1 image is an equirectangular map of the whole sphere and gets
+    // projected; anything else is taken as a picture of the disc already.
+    const bool equirect = sw >= sh * 2;
+
+    auto sample = [&](float u, float v, float out[3]) {
+        int x = (int)(u * sw);
+        int y = (int)(v * sh);
+        x = x < 0 ? 0 : (x >= sw ? sw - 1 : x);
+        y = y < 0 ? 0 : (y >= sh ? sh - 1 : y);
+        const unsigned char* p = &src[(y * sw + x) * 3];
+        out[0] = p[0] / 255.0f;
+        out[1] = p[1] / 255.0f;
+        out[2] = p[2] / 255.0f;
+    };
+
+    // --- phase terminator --------------------------------------------------
+    // 0 = new, 0.5 = full, 1 = new again. The terminator is where the surface
+    // normal turns away from the sun, and on an orthographic disc that is an
+    // ELLIPSE, not a straight line - a straight cut is the tell-tale of a fake
+    // crescent. Modelling it as the illumination of a real sphere gets the
+    // ellipse for free: the sun sits at angle `sunAng` in the equatorial plane
+    // and the lit side is toward +X, so the renderer only rotates the quad.
+    const float ph = phase < 0.0f ? 0.0f : (phase > 1.0f ? 1.0f : phase);
+    // The sun swings around the moon in the plane through the viewer: BEHIND it
+    // at new (-Z, nothing lit), out to the side at the quarters (+/-X, half a
+    // disc) and behind the VIEWER at full (+Z, the whole near side lit). Note
+    // sin goes to X and cos to Z - the other way round puts full at a quarter.
+    const float sunAng = (1.0f - 2.0f * ph) * 3.14159265358979f;  // pi -> 0 -> -pi
+    const float sunX = std::sin(sunAng), sunZ = std::cos(sunAng);
+
+    rgba.assign(N * N * 4, 0);
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N; ++x) {
+            const float dx = ((x + 0.5f) / N - 0.5f) * 2.0f;  // -1..1
+            const float dy = ((y + 0.5f) / N - 0.5f) * 2.0f;
+            const float d2 = dx * dx + dy * dy;
+            unsigned char* px = &rgba[(y * N + x) * 4];
+            if (d2 > 1.0f) continue;  // outside the disc: fully transparent
+
+            // Surface point on the unit sphere facing the viewer (+Z toward us).
+            const float nz = std::sqrt(1.0f - d2);
+            float col[3];
+            if (equirect) {
+                // The viewer looks at longitude 0 of the near side; latitude is
+                // the disc's y. Sampling the map this way is what gives the
+                // real maria their real places instead of a stretched blob.
+                const float lat = std::asin(dy < -1.0f ? -1.0f : (dy > 1.0f ? 1.0f : dy));
+                const float lon = std::atan2(dx, nz);
+                sample(0.5f + lon / (2.0f * 3.14159265358979f),
+                       0.5f - lat / 3.14159265358979f, col);
+            } else {
+                sample((dx + 1.0f) * 0.5f, (dy + 1.0f) * 0.5f, col);
+            }
+
+            // Lambert against the sun sitting in the equatorial plane. The
+            // sqrt softens the terminator the way a real limb darkens instead
+            // of cutting to black over one texel.
+            const float ndl = dx * sunX + nz * sunZ;
+            float lit = ndl > 0.0f ? std::sqrt(ndl) : 0.0f;
+            // A trace of earthshine, so a crescent still shows a faint full
+            // disc rather than an amputated shape.
+            lit = 0.06f + 0.94f * lit;
+
+            for (int k = 0; k < 3; ++k) {
+                float v = col[k] * lit;
+                v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+                px[k] = (unsigned char)(v * 255.0f + 0.5f);
+            }
+            // Antialias the limb over the outermost texel; a hard edge on a
+            // 128px disc stair-steps badly against a dark sky.
+            const float r = std::sqrt(d2);
+            const float edge = (1.0f - r) * (float)N * 0.5f;
+            const float a = edge >= 1.0f ? 1.0f : (edge < 0.0f ? 0.0f : edge);
+            px[3] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+    }
+    stbi_image_free(src);
+    return true;
+}
+
+bool bakeMoonPNG(float phase, const std::string& sourcePath,
+                 std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    if (!bakeMoonRGBA(phase, sourcePath, rgba)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, kMoonDiscSize,
+                                  kMoonDiscSize, 4, rgba.data(),
+                                  kMoonDiscSize * 4) != 0;
 }
 
 std::string atlasFileName(const std::string& fontName) {

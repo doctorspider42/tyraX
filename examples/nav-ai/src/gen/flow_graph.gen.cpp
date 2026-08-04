@@ -2,6 +2,8 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
+#include "scripts/scroller.gen.hpp"  // Start/Stop Scroller nodes
+#include "scripts/credits.gen.hpp"  // Play/Stop Credits, On Credits Finished
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "scripts/navigation.gen.hpp"  // AI nodes (Patrol/Chase/Flee/On Player Seen)

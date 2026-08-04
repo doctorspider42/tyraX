@@ -16,6 +16,7 @@
 #include "gl_loader.h"
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "scrollsim.hpp"
 #include <stb_image.h>
 
 // ---------------------------------------------------------------------------
@@ -1301,6 +1302,10 @@ void Viewport::shutdown() {
     destroyMesh(scatterPointsMesh_);
     clearPrimMeshCache();
     destroyMesh(skyQuad_);
+    destroyMesh(skyBodyQuad_);
+    for (Mesh& m : starMesh_) destroyMesh(m);
+    for (uint32_t& t : skySpriteTex_)
+        if (t) glDeleteTextures(1, &t);
     destroyMesh(prevBg_);
     destroyMesh(prevFloor_);
     for (Mesh& m : prevLitShape_) destroyMesh(m);
@@ -3328,21 +3333,248 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
     skyQuadDirty_ = true;
 }
 
+void Viewport::setSkyBodyTexture(int which, int w, int h,
+                                 const unsigned char* rgba) {
+    if (w < 1 || h < 1 || !rgba) return;
+    if (which < 0 || which >= SkySpriteCount) return;
+    uint32_t& tex = skySpriteTex_[which];
+    if (!tex) {
+        GLuint t = 0;
+        glGenTextures(1, &t);
+        tex = t;
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glUploadTexRgba(w, h, rgba);  // never the one-call form - see gl_loader.h
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// The editor twin of the generated game's TerrainGame::renderSkyBodies. Both
+// place a quad at `dir * domeRadius` from the eye and size it by the body's
+// apparent radius, so what the slider previews is what the console draws.
+void Viewport::drawSkyBodies(const float* viewProj16, const float* eye,
+                             const float* right, const float* up,
+                             float domeRadius) {
+    if (!skyBodies_.enabled) return;
+    if (!skyBodyQuad_.vertexCount) {
+        // Unit quad in the XY plane; the model matrix below orients it. pos3 +
+        // color3 + uv2, the layout uploadMesh expects.
+        skyBodyQuad_ = uploadMesh({
+            -1, -1, 0, 1, 1, 1, 0, 0,  //
+            1, -1, 0, 1, 1, 1, 1, 0,   //
+            1, 1, 0, 1, 1, 1, 1, 1,    //
+            -1, -1, 0, 1, 1, 1, 0, 0,  //
+            1, 1, 0, 1, 1, 1, 1, 1,    //
+            -1, 1, 0, 1, 1, 1, 0, 1,   //
+        });
+    }
+    // Just inside the dome, like the game's 0.94 - otherwise the two z-fight.
+    const float dist = domeRadius * 0.94f;
+
+    auto draw = [&](uint32_t tex, const float* dir, float rFrac, float roll,
+                    const float* tint, bool additive, float opacity) {
+        if (!tex || rFrac <= 0.0f) return;
+        const float half = dist * rFrac;
+        // Billboard axes, rolled so the moon's lit limb faces the sun.
+        const float cr = std::cos(roll), sr = std::sin(roll);
+        float rx[3], uy[3];
+        for (int i = 0; i < 3; ++i) {
+            rx[i] = right[i] * cr + up[i] * sr;
+            uy[i] = up[i] * cr - right[i] * sr;
+        }
+        Mat4 model{};
+        for (int i = 0; i < 3; ++i) {
+            model.m[i] = rx[i] * half;
+            model.m[4 + i] = uy[i] * half;
+            model.m[8 + i] = dir[i] * half;  // unused by a flat quad, kept sane
+            model.m[12 + i] = eye[i] + dir[i] * dist;
+        }
+        model.m[15] = 1.0f;
+        const Mat4 mvp = mul(*reinterpret_cast<const Mat4*>(viewProj16), model);
+
+        glUniformMatrix4fv(uMvp_, 1, GL_FALSE, mvp.m);
+        glUniform3f(uTint_, tint[0], tint[1], tint[2]);
+        glUniform1i(uLit_, 0);
+        glUniform1i(uUseTex_, 1);
+        // uAlpha is what makes the shader emit the TEXEL's alpha instead of a
+        // flat 1.0 (and discard the fully transparent texels). Without it the
+        // moon's transparent margin drew as an opaque black square around the
+        // disc - visible in the editor only, because the PS2 side blends
+        // through the GS alpha test and never had the flat-alpha path.
+        glUniform1i(uAlpha_, 1);
+        glUniform1f(uOpacity_, opacity);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glEnable(GL_BLEND);
+        // The sun ADDS light (that is what makes it read as a source and what
+        // the bloom pass picks up), so its sprite carries its shape in RGB and
+        // blends ONE/ONE - the GS additive bag's Cs*FIX + Cd. The moon is a lit
+        // rock: an ordinary alpha blend, or the night sky glows through it.
+        if (additive) glBlendFunc(GL_ONE, GL_ONE);
+        else glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBindVertexArray(skyBodyQuad_.vao);
+        glDrawArrays(GL_TRIANGLES, 0, skyBodyQuad_.vertexCount);
+        glDisable(GL_BLEND);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUniform1i(uUseTex_, 0);
+        glUniform1i(uAlpha_, 0);
+        glUniform1f(uOpacity_, 1.0f);
+    };
+
+    // The sun takes the scene's light colour, so a red sunset sun is red with
+    // nothing extra authored - the generated game tints it the same way. Both
+    // discs carry the grade compensation on top.
+    float sunTint[3], moonTint[3];
+    for (int i = 0; i < 3; ++i) {
+        sunTint[i] = skyBodies_.sunColor[i] * skyBodies_.compensation[i];
+        moonTint[i] = skyBodies_.compensation[i];
+    }
+    draw(skySpriteTex_[SkySun], skyBodies_.sunDir, skyBodies_.sunRadius, 0.0f,
+         sunTint, true, 1.0f);
+    draw(skySpriteTex_[SkyMoon], skyBodies_.moonDir, skyBodies_.moonRadius,
+         skyBodies_.moonRoll, moonTint, false, skyBodies_.moonOpacity);
+}
+
+void Viewport::setStarField(const std::vector<starfield::Star>& stars,
+                            float brightness, float twinkle, float timeSec) {
+    if (stars.size() != stars_.size() ||
+        (!stars.empty() &&
+         std::memcmp(stars.data(), stars_.data(),
+                     stars.size() * sizeof(starfield::Star)) != 0)) {
+        stars_ = stars;
+        starMeshDirty_ = true;
+    }
+    starBrightness_ = brightness < 0.0f ? 0.0f : (brightness > 1.0f ? 1.0f : brightness);
+    starTwinkle_ = twinkle < 0.0f ? 0.0f : (twinkle > 1.0f ? 1.0f : twinkle);
+    starTime_ = timeSec;
+}
+
+// The editor twin of the generated game's renderStarField. One mesh per
+// magnitude tier, drawn ADDITIVELY - which is the whole reason a star reads as
+// a point of light instead of a grey pixel: the GS (and GL_ONE/GL_ONE here)
+// ADDS the star's colour to the sky behind it, so a bright one saturates and
+// blooms while a faint one barely lifts the background.
+//
+// The quads are built in the CAMERA's plane, so the mesh is rebuilt when the
+// view rotates. That is 4800 vertices worst case on the host and it buys the
+// console nothing - there the same field is three static bags whose vertices
+// never move, because VU1 billboards them.
+void Viewport::drawStarField(const float* viewProj16, const float* eye,
+                             const float* right, const float* up,
+                             float domeRadius) {
+    if (stars_.empty() || starBrightness_ <= 0.001f) return;
+    // Inside the dome, and inside the sun/moon discs' shell too, so a star can
+    // never z-fight its way in front of the moon.
+    const float dist = domeRadius * 0.96f;
+
+    // Rebuild whenever the star list OR the view basis moved.
+    static thread_local float lastRight[3] = {0, 0, 0}, lastUp[3] = {0, 0, 0};
+    bool basisMoved = false;
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(right[i] - lastRight[i]) > 1e-4f ||
+            std::fabs(up[i] - lastUp[i]) > 1e-4f)
+            basisMoved = true;
+    if (starMeshDirty_ || basisMoved || !starMesh_[0].vertexCount) {
+        for (int i = 0; i < 3; ++i) lastRight[i] = right[i], lastUp[i] = up[i];
+        starMeshDirty_ = false;
+        std::vector<float> v[starfield::kTiers];
+        for (const starfield::Star& st : stars_) {
+            const int t = st.tier < 0 ? 0
+                                      : (st.tier >= starfield::kTiers
+                                             ? starfield::kTiers - 1
+                                             : st.tier);
+            const float half = dist * st.size;
+            const float cx = st.dir[0] * dist, cy = st.dir[1] * dist,
+                        cz = st.dir[2] * dist;
+            const float r = st.r / 255.0f, g = st.g / 255.0f, b = st.b / 255.0f;
+            auto push = [&](float sx, float sy, float u, float w) {
+                v[t].push_back(cx + (right[0] * sx + up[0] * sy) * half);
+                v[t].push_back(cy + (right[1] * sx + up[1] * sy) * half);
+                v[t].push_back(cz + (right[2] * sx + up[2] * sy) * half);
+                v[t].push_back(r);
+                v[t].push_back(g);
+                v[t].push_back(b);
+                v[t].push_back(u);
+                v[t].push_back(w);
+            };
+            push(-1, -1, 0, 0); push(1, -1, 1, 0); push(1, 1, 1, 1);
+            push(-1, -1, 0, 0); push(1, 1, 1, 1); push(-1, 1, 0, 1);
+        }
+        for (int t = 0; t < starfield::kTiers; ++t) {
+            destroyMesh(starMesh_[t]);
+            if (!v[t].empty()) starMesh_[t] = uploadMesh(v[t]);
+        }
+    }
+
+    glUniformMatrix4fv(uMvp_, 1, GL_FALSE, viewProj16);
+    glUniform1i(uLit_, 0);
+    // The soft radial dot, not a bare quad: an untextured star is a hard little
+    // SQUARE, which is the "grey pixel" look a starfield exists to avoid. The
+    // sprite's shape lives in RGB because additive blending ignores alpha, and
+    // it is the same corona the light beams already ship.
+    const uint32_t dot = skySpriteTex_[SkyStarDot];
+    glUniform1i(uUseTex_, dot ? 1 : 0);
+    glUniform1i(uAlpha_, 0);  // additive: the shape is in RGB, alpha is unused
+    if (dot) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, dot);
+    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    for (int t = 0; t < starfield::kTiers; ++t) {
+        if (!starMesh_[t].vertexCount) continue;
+        // Twinkle: each tier shimmers at its own rate. This is per BAG, not per
+        // star - three multiplies a frame for the whole sky, and it is exactly
+        // what the console does with the bags' additive FIX.
+        float k = starBrightness_;
+        if (starTwinkle_ > 0.0f) {
+            const float phase =
+                starTime_ * (0.7f + 0.45f * (float)t) + (float)t * 2.1f;
+            k *= 1.0f - starTwinkle_ * 0.35f * (0.5f - 0.5f * std::cos(phase));
+        }
+        glUniform3f(uTint_, k, k, k);
+        glBindVertexArray(starMesh_[t].vao);
+        glDrawArrays(GL_TRIANGLES, 0, starMesh_[t].vertexCount);
+    }
+    glDisable(GL_BLEND);
+    if (dot) {
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUniform1i(uUseTex_, 0);
+    }
+    glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
+}
+
 void Viewport::orbit(float dx, float dy) {
     if (projection_ > Projection::Ortho) {
         // Dragging out of a locked axis view: seed the orbit angles from the
         // axis the camera was on so the image continues from where it is
-        // instead of snapping back to a stale yaw/pitch, and drop only the
-        // direction lock - the parallel projection stays.
+        // instead of snapping back to a stale yaw/pitch, then return to the
+        // projection the camera had before the axis view was picked
+        // (setProjection keeps it) - perspective unless the user had chosen
+        // the free parallel one themselves.
         const CamView c = camView(fbWidth_, fbHeight_);
         pitch_ = std::asin(std::max(-1.0f, std::min(1.0f, -c.fwd[1])));
         yaw_ = std::atan2(-c.fwd[2], -c.fwd[0]);
-        projection_ = Projection::Ortho;
+        projection_ = orbitBase_;
     }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;
-    if (pitch_ < 0.05f) pitch_ = 0.05f;
-    if (pitch_ > 1.5f) pitch_ = 1.5f;
+    // Symmetric, so the camera can drop BELOW its pivot and look UP - at the
+    // sky, at the underside of a bridge, at a ceiling. The old floor of +0.05
+    // rad kept the eye permanently above the target, which made the sky (and
+    // with it the sun, the moon and the whole night sky) unreachable in the
+    // editor while the game could look wherever it liked.
+    //
+    // The +/-1.5 rad (85.9 deg) bound is NOT cosmetic: camView's up vector is
+    // world +Y, so at exactly +/-90 deg the view axis and the up vector align,
+    // the basis degenerates and yaw stops meaning anything. Keep the gap.
+    if (pitch_ < -kOrbitPitchLimit) pitch_ = -kOrbitPitchLimit;
+    if (pitch_ > kOrbitPitchLimit) pitch_ = kOrbitPitchLimit;
+
+    // Deliberately NO floor here. An earlier pass lifted the pivot to keep the
+    // eye above the terrain while tilting up, and it was worse than the problem
+    // it solved: the camera appeared to lie on the ground and then jump upward.
+    // The editor camera passes THROUGH the terrain like any other DCC camera -
+    // to look at the sky, raise the pivot yourself (pan, or the forward dolly).
 }
 
 void Viewport::zoom(float wheel) {
@@ -3381,6 +3613,17 @@ void Viewport::pan(float dx, float dy) {
     const float s = distance_ * 0.0016f;
     for (int k = 0; k < 3; ++k)
         target_[k] += (-c.right[k] * dx + c.up[k] * dy) * s;
+}
+
+void Viewport::dolly(float dPixels) {
+    // Along the FULL view direction, not its horizontal projection: dragging
+    // forward while looking up has to climb, which is what makes this the way to
+    // get the pivot off the ground. Scaled by distance like pan(), so a pixel of
+    // drag covers the same fraction of the view at any zoom.
+    if (dPixels == 0.0f) return;
+    const CamView c = camView(fbWidth_, fbHeight_);
+    const float s = distance_ * 0.0016f * dPixels;
+    for (int k = 0; k < 3; ++k) target_[k] += c.fwd[k] * s;
 }
 
 void Viewport::fly(float forward, float strafe, float dt) {
@@ -3515,6 +3758,18 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uLit_, 0);
         glBindVertexArray(skyQuad_.vao);
         glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
+        glEnable(GL_DEPTH_TEST);
+    }
+    // Day/night cycle sun and moon, on the dome and with depth off for the same
+    // reason it is: they are the backdrop, and the scene paints over them.
+    if (skyBodies_.enabled) {
+        const float skyR = diag * 8.0f + 80.0f;
+        const float eyeArr[3] = {eye.x, eye.y, eye.z};
+        glDisable(GL_DEPTH_TEST);
+        // Stars first: they sit further out than the discs, and with depth off
+        // the draw order IS the depth order.
+        drawStarField(viewProj.m, eyeArr, cam.right, cam.up, skyR);
+        drawSkyBodies(viewProj.m, eyeArr, cam.right, cam.up, skyR);
         glEnable(GL_DEPTH_TEST);
     }
 
@@ -3947,6 +4202,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // The camera(s) being previewed through don't draw their body -
             // it would sit on the near plane and cover the whole view.
             if (o.type == PrimitiveType::Camera && camHidden(o.name)) continue;
+            // Scroller: an invisible belt marker; its gizmo + animated ghost
+            // belt draw in a dedicated pass after the scene.
+            if (o.type == PrimitiveType::Scroller) continue;
             // Emitters preview as live particles (drawn after the scene); in
             // the scene pass they only get a small fixed-size cone marker so
             // the gizmo has something to grab. Dimmed when disabled.
@@ -4280,6 +4538,79 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         draw(portalArrow_, GL_LINES, mul(viewProj, m),
              0.5f + 0.5f * p.color[0], 0.5f + 0.5f * p.color[1],
              0.5f + 0.5f * p.color[2]);
+    }
+    // Endless scroller previews: a small origin marker plus animated,
+    // semi-transparent "ghost" clones of each segment's members sliding along
+    // the belt (the same scrollsim layout the build bakes and the game runs, so
+    // what you see here is what ships). animClock_ drives the scroll so the belt
+    // moves live in the editor.
+    if (viewMode_ != ViewMode::Wireframe) {
+        auto ghostDraw = [&](const SceneObject& mem, const Mat4& gm, float op) {
+            const Mat4 mvp = mul(viewProj, gm);
+            if (mem.type == PrimitiveType::Model && isAnimatedModelPath(mem.modelPath)) {
+                AnimModelDraw* ad = animModelDraw(mem.modelPath, mem.materialPath);
+                if (ad && ad->ok) {
+                    updateAnimPose(*ad, mem);
+                    for (const AnimModelDraw::Part& part : ad->parts)
+                        draw(part.mesh, GL_TRIANGLES, mvp, mem.color[0], mem.color[1],
+                             mem.color[2], part.tex, &gm, false, op);
+                    return;
+                }
+            }
+            const ModelDraw* md = mem.type == PrimitiveType::Model
+                                      ? modelDraw(mem.modelPath, mem.materialPath)
+                                      : nullptr;
+            if (md) {
+                for (const ModelPart& part : md->parts)
+                    draw(part.mesh, GL_TRIANGLES, mvp, mem.color[0], mem.color[1],
+                         mem.color[2], part.tex, &gm, false, op);
+                return;
+            }
+            const MaterialDraw* mat =
+                mem.type == PrimitiveType::Model ? nullptr : materialDraw(mem.materialPath);
+            const float kr = mat ? mat->kd[0] : 1.0f;
+            const float kg = mat ? mat->kd[1] : 1.0f;
+            const float kb = mat ? mat->kd[2] : 1.0f;
+            const uint32_t tex = mat ? mat->tex : 0;
+            draw(*meshFor(mem), GL_TRIANGLES, mvp, mem.color[0] * kr, mem.color[1] * kg,
+                 mem.color[2] * kb, tex, &gm, false, op);
+        };
+        for (size_t si = 0; si < objects.size(); ++si) {
+            const SceneObject& s = objects[si];
+            if (s.type != PrimitiveType::Scroller || hiddenAt(si)) continue;
+            // origin marker so the invisible belt object is locatable
+            const Mat4 om = mul(translation(s.position[0], s.position[1], s.position[2]),
+                                scaleM(0.3f, 0.3f, 0.3f));
+            draw(sphere_, GL_TRIANGLES, mul(viewProj, om), s.color[0], s.color[1],
+                 s.color[2], 0, &om);
+            // Hiding a belt hides its GHOSTS only - the origin marker above is
+            // drawn either way, or a hidden belt would be unfindable. An index
+            // past the mask draws (an unset mask means "show all").
+            const bool ghosts =
+                si >= scrollerGhosts_.size() || scrollerGhosts_[si] != 0;
+            if (!ghosts || s.scrollSegments.empty()) continue;
+            const float beltScroll = (float)animClock_ * s.scrollSpeed;
+            for (const scrollsim::Placement& pl :
+                 scrollsim::placements(objects, s, beltScroll)) {
+                if (!pl.visible) continue;
+                // memberInstances carries the seam-overlap stretch AND this
+                // cell's variation (which member shows, its yaw / lateral
+                // offset / scale), so the ghosts are exactly what the build
+                // bakes and the console resolves - including the fact that the
+                // belt stops repeating as it runs.
+                for (const scrollsim::MemberInstance& in :
+                     scrollsim::memberInstances(objects, s, pl)) {
+                    if (!in.visible) continue;
+                    SceneObject mem = objects[(size_t)in.object];
+                    for (int a = 0; a < 3; ++a) {
+                        mem.position[a] = in.position[a];
+                        mem.rotation[a] = in.rotation[a];
+                        mem.scale[a] = in.scale[a];
+                    }
+                    ghostDraw(mem, modelMatrix(mem), 0.55f);
+                }
+            }
+        }
     }
 
     // Grid lines, axes and the selection outline are unaffected by view mode

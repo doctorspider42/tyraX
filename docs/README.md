@@ -1,8 +1,9 @@
 # TyraX documentation
 
 User-facing guides for editor features. Written for people building games
-with the editor; internals live in code comments, `PROGRESS.md` (feature log
-+ verification notes) and the `.claude/skills/` developer guides.
+with the editor; internals live in code comments, the git log (commit messages
+carry what changed and how it was verified) and the `.claude/skills/` developer
+guides. What is queued is in [Backlog](backlog.md).
 
 - [Animated models (.glb)](animated-models.md) - authoring animations in
   Blender, importing them, clip playback, flow-graph nodes and the script
@@ -45,6 +46,10 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   inserted and pasted objects resting on the terrain or on the object below
   instead of sinking into it, the `End` drop-to-floor command, and the paste
   that follows the cursor until you click it down.
+- [Endless scroller](endless-scroller.md) - the conveyor-belt object that
+  tiles authored segments of scene objects along its axis forever (the
+  train-window level generator): segments, belt settings, the Start / Stop /
+  Set Scroller Speed flow nodes, seam rules, how the clone bake works.
 - [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
   Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
   snippets with `{placeholders}`, or `call = fn` nodes backed by a real
@@ -54,7 +59,8 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
 - [Loading screens](loading-screens.md) - defining named loading screens
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
-  tracks real load work, and the built-in fallback.
+  tracks real load work, the built-in fallback, and which scene the game boots
+  into (the start scene).
 - [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
   wrapped lines, images and page breaks, scrolled or shown as cards over music,
   with a skip button and a finish action (resume / scene / menu / flow event);
@@ -136,6 +142,11 @@ with the editor; internals live in code comments, `PROGRESS.md` (feature log
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [The log panels (errors, warnings, verbose)](log-panels.md) - the *Output* and
+  *Debug* windows classify every line into error / warning / info / verbose,
+  count the entries per level, colour them and let you hide a level with one
+  click: what lands in each bucket, why a compiler error keeps its four
+  explaining lines when verbose is hidden, and the selectable-text escape hatch.
 - [Running and debugging on a real PS2](ps2link-setup.md) - the one-time
   console setup for the F6 network deploy: building the TyraX ps2link (the only
   one supported - a pinned upstream plus our patch, built in Docker), flashing
@@ -241,6 +252,10 @@ Developer design docs (internals, not user guides):
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)
   with the gotchas from the usable-highlight investigation.
+- [The VU framework](vu-framework.md) - describing a VU1 microprogram in
+  C++ and generating both sides of it, plus the host VU1 simulator that runs
+  a microprogram (handwritten or generated) with no PS2 in the loop:
+  `--vu-check`, `--vu-emit`, `--vu-list`, and the micro-memory budget.
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.

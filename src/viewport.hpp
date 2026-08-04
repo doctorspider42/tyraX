@@ -33,8 +33,9 @@ public:
     // projection (no foreshortening, so equal sizes read equal anywhere on
     // screen) and the six axis modes additionally lock the camera onto that
     // world axis - the Top/Front/Side views of a CAD or level editor.
-    // Orbiting out of an axis view keeps the parallel projection and falls
-    // back to Ortho (free), so a drag never feels dead.
+    // Orbiting out of an axis view drops the lock and returns to whatever the
+    // camera was before that view was picked (see setProjection/orbit), so a
+    // drag never feels dead and a look from one axis stays an interlude.
     enum class Projection {
         Perspective = 0,
         Ortho = 1,        // parallel, free orbit direction
@@ -46,7 +47,17 @@ public:
         OrthoLeft = 7,    // looks along +X (from -X)
     };
     static constexpr int kProjectionCount = 8;
-    void setProjection(Projection p) { projection_ = p; }
+    void setProjection(Projection p) {
+        // Remember what orbiting out of a locked axis view should return to:
+        // the mode the camera was in before that view was picked. An axis view
+        // is a glance, not a new home - perspective is what a user who never
+        // asked for a parallel projection expects to get their scene back in -
+        // while someone who deliberately chose Ortho (free) keeps it. Stepping
+        // from one axis view straight to another keeps the earlier base.
+        if (p <= Projection::Ortho) orbitBase_ = p;
+        else if (projection_ <= Projection::Ortho) orbitBase_ = projection_;
+        projection_ = p;
+    }
     Projection projection() const { return projection_; }
     bool orthographic() const { return projection_ != Projection::Perspective; }
     // Display name of a projection mode ("Perspective", "Top", ...).
@@ -108,6 +119,47 @@ public:
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
                 float zenithSize = 0.5f);
+
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). The editor's twin of
+    // the generated game's renderSkyBodies: two camera-facing quads on the sky
+    // dome, placed from the SAME ambience::evaluate the codegen bakes
+    // SCENE_SUN_* / SCENE_MOON_* from - so dragging the time slider previews
+    // exactly what the console will draw.
+    struct SkyBodies {
+        bool enabled = false;
+        float sunDir[3] = {0.0f, 1.0f, 0.0f};
+        float moonDir[3] = {0.0f, -1.0f, 0.0f};
+        // Apparent radius as a fraction of the dome radius, tan(size/2).
+        // 0 = the body is below the horizon; draw nothing.
+        float sunRadius = 0.0f;
+        float moonRadius = 0.0f;
+        float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
+        float moonOpacity = 1.0f;
+        float sunColor[3] = {1.0f, 1.0f, 1.0f};
+        // Cancels the drift grade on the discs, which are hour-correct already
+        // (ambience::driftCompensation). 1,1,1 without a runtime grade.
+        float compensation[3] = {1.0f, 1.0f, 1.0f};
+    };
+    void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
+    // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
+    // same ones refreshGenerated PNG-encodes) so a phase edit previews without a
+    // build. 0 = the sun disc, 1 = the moon disc, 2 = the star dot (the soft
+    // radial corona - a hard-edged quad is exactly the "grey pixel" a starfield
+    // must not look like).
+    enum SkySprite { SkySun = 0, SkyMoon = 1, SkyStarDot = 2, SkySpriteCount = 3 };
+    void setSkyBodyTexture(int which, int w, int h, const unsigned char* rgba);
+
+    // Procedural night sky (starfield.hpp). The app hands over the generated
+    // star list and a 0..1 brightness; the viewport turns each star into an
+    // additive camera-facing quad, exactly as the generated game does. An empty
+    // list or brightness 0 draws nothing.
+    // `timeSec` drives the twinkle - the viewport owns no clock, and taking one
+    // would be a second answer to "what time is it" next to ImGui's.
+    void setStarField(const std::vector<starfield::Star>& stars, float brightness,
+                      float twinkle, float timeSec);
+    // The uploaded moon disc, for the Ambience Editor's own preview - the SAME
+    // texture the viewport draws, so the panel cannot show a different moon.
+    uint32_t moonDiscTexture() const { return skySpriteTex_[SkyMoon]; }
 
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
@@ -204,6 +256,21 @@ public:
     // the objects vector) are skipped by render() and pick(). The app
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
+
+    // Which endless scrollers draw their ghost belts, one flag per object
+    // (indices parallel the objects passed to render, like hiddenMask_). A belt
+    // fills its whole window with semi-transparent copies, which is exactly
+    // what you cannot see past while editing the member objects those copies
+    // are made of - so it is hideable per belt (Properties) and all at once
+    // (View > Scroller preview). ONE mask for both, because "hide this one" and
+    // "hide every one" are the same question asked at different scopes.
+    // Anything not in the mask draws its ghosts: an empty mask is "show all",
+    // which is what a caller that never sets it should get.
+    // The belt origin MARKERS are drawn either way - they are how an invisible,
+    // intangible object is found and selected, not part of its output.
+    void setScrollerGhosts(std::vector<char> mask) {
+        scrollerGhosts_ = std::move(mask);
+    }
 
     // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
     // over the walkable cells of the app-baked grid (navmesh::bake - the app
@@ -441,6 +508,12 @@ public:
     void orbit(float dxPixels, float dyPixels);
     void zoom(float wheel);
     void pan(float dxPixels, float dyPixels);
+    // Moves the pivot ALONG the view direction - a forward/back pan rather than
+    // a zoom: the eye travels with the target instead of closing in on it, so
+    // the framing keeps its perspective and the distance is untouched. Bound to
+    // a right+middle drag (down = forward, the pan sense), and the natural way
+    // to lift the pivot off the ground so the sky comes into view.
+    void dolly(float dPixels);
     void fly(float forward, float strafe, float dt);
 
     // Snap the orbit pivot to a world-space point (e.g. the selected object),
@@ -544,6 +617,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool navOverlayOn_ = false;
+    std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
@@ -567,15 +641,43 @@ private:
     bool skyGradient_ = true;
     float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
+    // Day/night cycle discs: one shared unit quad, oriented per body by a
+    // billboard model matrix (see drawSkyBodies).
+    SkyBodies skyBodies_;
+    Mesh skyBodyQuad_;
+    uint32_t skySpriteTex_[SkySpriteCount] = {0, 0, 0};
+    // Night sky: one mesh per magnitude tier, rebuilt only when the star list
+    // itself changes (the brightness fade is a uniform, not a rebuild - the
+    // same split the console makes with the bags' additive FIX).
+    std::vector<starfield::Star> stars_;
+    Mesh starMesh_[starfield::kTiers];
+    bool starMeshDirty_ = false;
+    float starBrightness_ = 0.0f;
+    float starTwinkle_ = 0.0f;
+    float starTime_ = 0.0f;
+    void drawStarField(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
+    // Plain floats rather than the internal Mat4/CamView: both are declared
+    // below this point (Mat4 lives in viewport.cpp's anonymous namespace).
+    void drawSkyBodies(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 
     // camera (orbit around a movable target, initially the terrain center)
+    // How far the orbit camera may tip, in radians, above AND below its pivot
+    // (85.9 deg). The limit exists because camView's up vector is world +Y: at
+    // exactly +/-90 deg it aligns with the view axis, the basis degenerates and
+    // yaw stops meaning anything.
+    static constexpr float kOrbitPitchLimit = 1.5f;
     float yaw_ = 0.8f;
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
     Projection projection_ = Projection::Perspective;
+    // What orbit() falls back to when it leaves a locked axis view; only ever
+    // Perspective or Ortho, maintained by setProjection().
+    Projection orbitBase_ = Projection::Perspective;
     // The camera a render() draws with: eye + orthonormal basis plus the
     // projection extents. ONE source for render(), pick(), the terrain
     // raycast and the placement raycast - those used to rebuild the same

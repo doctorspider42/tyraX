@@ -178,31 +178,12 @@ bool looksLikeGifTag(const uint32_t* q, int* nloop, int* nreg, uint32_t* prim,
 
 }  // namespace
 
-// Scans VU1 data memory for the GIF packets the microprogram staged, decodes
-// their vertices, and compares them against a host transform of the same input.
-static void decodeVuMem(Capture& out) {
-    if (out.vuMem.size() < 16) return;
-
-    // The MVP matrix sits at quadword 0 (VU1_MVP_MATRIX_ADDR): the pipeline
-    // uploads it per mesh and nothing in the run overwrites it.
-    out.hasMvp = true;
-    for (int i = 0; i < 16; ++i) std::memcpy(&out.mvp[i], &out.vuMem[i], 4);
-
-    // The scales the program multiplies by are the first V4_32 unpack of the
-    // chain: (2048, 2048, 0xFFFFFF/2, vertexCount).
-    for (const Unpack& u : out.unpacks) {
-        if (u.vuAddr == 0 && u.floats.size() >= 3 && u.floats[0] > 1.0f) {
-            out.scale[0] = u.floats[0];
-            out.scale[1] = u.floats[1];
-            out.scale[2] = u.floats[2];
-            break;
-        }
-    }
-
+void scanGifPackets(const std::vector<uint32_t>& vuMem,
+                    std::vector<GifPacket>& out) {
     // Walk memory for GIF tags; each is followed by NLOOP * NREG quadwords.
-    const int words = (int)out.vuMem.size();
+    const int words = (int)vuMem.size();
     for (int qw = 0; (qw + 1) * 4 <= words;) {
-        const uint32_t* q = &out.vuMem[(size_t)qw * 4];
+        const uint32_t* q = &vuMem[(size_t)qw * 4];
         int nloop = 0, nreg = 0;
         uint32_t prim = 0;
         bool eop = false, pre = false;
@@ -231,8 +212,7 @@ static void decodeVuMem(Capture& out) {
         for (int v = 0; v < nloop; ++v) {
             GsVertex gv;
             for (int r = 0; r < nreg; ++r) {
-                const uint32_t* d =
-                    &out.vuMem[(size_t)(qw + 1 + v * nreg + r) * 4];
+                const uint32_t* d = &vuMem[(size_t)(qw + 1 + v * nreg + r) * 4];
                 switch (regIds[r]) {
                     case 0x4:  // XYZF2: X bits 0-15, Y bits 32-47, Z bits 68-91
                         gv.x = (int)(d[0] & 0xFFFF);
@@ -262,9 +242,33 @@ static void decodeVuMem(Capture& out) {
         }
         for (int i = 0; i < nreg; ++i)
             if (regIds[i] == 0x4 || regIds[i] == 0x5) g.hasGeometry = true;
-        out.gifs.push_back(g);
+        out.push_back(g);
         qw += 1 + nloop * nreg;
     }
+}
+
+// Scans VU1 data memory for the GIF packets the microprogram staged, decodes
+// their vertices, and compares them against a host transform of the same input.
+static void decodeVuMem(Capture& out) {
+    if (out.vuMem.size() < 16) return;
+
+    // The MVP matrix sits at quadword 0 (VU1_MVP_MATRIX_ADDR): the pipeline
+    // uploads it per mesh and nothing in the run overwrites it.
+    out.hasMvp = true;
+    for (int i = 0; i < 16; ++i) std::memcpy(&out.mvp[i], &out.vuMem[i], 4);
+
+    // The scales the program multiplies by are the first V4_32 unpack of the
+    // chain: (2048, 2048, 0xFFFFFF/2, vertexCount).
+    for (const Unpack& u : out.unpacks) {
+        if (u.vuAddr == 0 && u.floats.size() >= 3 && u.floats[0] > 1.0f) {
+            out.scale[0] = u.floats[0];
+            out.scale[1] = u.floats[1];
+            out.scale[2] = u.floats[2];
+            break;
+        }
+    }
+
+    scanGifPackets(out.vuMem, out.gifs);
 
     // The host reference: the same transform the microprogram performs (see
     // ScaleVertexToGSFormat in vcl_sml.i) - clip = MVP * v, ndc = clip / clip.w,

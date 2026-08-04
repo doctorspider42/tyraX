@@ -39,6 +39,21 @@ struct RuntimeObject {
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
+  // The per-object matrix path, as a Script can see it. Setting `dirty`
+  // rebuilds an object's whole WORLD-space vertex array on the EE, which is
+  // right for a one-shot move and ruinous for something that moves every
+  // frame - such an object is better baked ONCE in local space and then moved
+  // by refreshing its matrix (ObjectGeometry::objMat), which VU1 applies for
+  // free. Scripts have no access to objectGeometry, so the two flags mirror it:
+  // set `wantsMatrixPath` to ask for the promotion (renderScene does it as
+  // soon as the object is eligible), and read `onMatrixPath` to know whether
+  // it happened - while it is true, writing position/rotation is enough and
+  // `dirty` must be left alone. Scale is baked into the local vertices, so
+  // changing it still needs a `dirty` re-bake (the object is demoted and
+  // re-promoted on the next frame). Inherited trade-off, same as physics:
+  // baked shading freezes at the pose the object was promoted in.
+  bool wantsMatrixPath = false;
+  bool onMatrixPath = false;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
   // its geometry/assets may be freed. Managed by the game's layer streaming
@@ -287,6 +302,19 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+
+  // Prefabs (docs/prefabs.md) and runtime procedural volumes
+  // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
+  // members merge into a shared geometry bag (ONE submit for the lot) and only
+  // the members that need an identity of their own take a clone slot. Returns
+  // an instance handle, or -1 when the instance pool is full. despawnPrefabs
+  // clears every live instance of a prefab (-1 = all of them).
+  int (*spawnPrefab)(int prefabIndex, float x, float y, float z, float yaw,
+                     float scale) = nullptr;
+  void (*despawnPrefabs)(int prefabIndex) = nullptr;
+  // Runs a runtime procedural volume. seed: 0 = the authored one, -1 = a fresh
+  // one, anything else = use it. clear = throw the generated geometry away.
+  void (*generateVolume)(int volumeIndex, int seed, bool clear) = nullptr;
 };
 
 /** Inputs and outputs of a custom flow-graph node (see flow_nodes.hpp).

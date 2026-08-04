@@ -14,6 +14,11 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 ## Fork policy
 
 `vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
@@ -38,15 +43,38 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
    project's container (service `compiler`, container `<name>-compiler-1`).
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
-   `tyra-engine-shared` (mounted at `/tyra`), shared by all projects.
-3. If anything changed, `libtyra` is rebuilt once (VU1 microprograms are
-   force-rebuilt too) and the game ELF is dropped so it relinks.
+   `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
+   by every project built from the same checkout — parallel worktrees get their
+   own, or they would rsync diverging engines over each other forever.
+3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
+   it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
+
+**The VU1 microprograms are the expensive special case.** They sit outside
+make's dependency tracking (a `.vclpp` `#include`s `.i`/`.h` files nothing
+declares), so the Runner force-rebuilds them — but only when the rsync reports a
+changed `.vclpp`/`.vcl`/`.vsm`/`.i`/`.h`. Rebuilding the set costs **109 s**
+(measured, `-j6`; `vcl` is slow enough that its optimizer times out on some
+programs and says so). It used to run on *any* engine change, so a one-line
+comment in a `.cpp` paid it in full; now that same edit is a ~7 s build. If you
+ever change what a VU source may include, widen that extension list in
+`runner.cpp` — a missed extension means stale microprograms, which is the kind
+of bug that looks like a renderer bug.
 
 So the loop is: edit a file under `vendor/tyra/engine`, run a game build, and
 the change is in the ELF. No container restarts needed. If the shared volume
 gets into a weird state, `git checkout` inside `/tyra` restores originals (it's
-a git checkout of the fork).
+a git checkout of the fork) — and **Build > Rebuild** (`--build --rebuild`)
+throws away the whole compiled engine, VU1 objects included, and builds it
+again from source.
+
+`vendor/tyra/Makefile.base` is shared by the engine build and every generated
+game, so an edit there moves both. TyraX changes in it: single-pass dependency
+generation (`-MMD -MP`; it used to run the compiler a second time per file just
+to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
+reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+byte-identical: the same project built with the old and new rules produced the
+same `md5` for its stripped ELF.
 
 ## Engine layout
 
@@ -93,7 +121,9 @@ the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
 body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
 framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
 setup/teardown + DMA kick), WAV-header-aware song
-player, `bboxVersion` on `StaPipBag` for moving geometry, `Pad::setActuators` (act-direct DualShock rumble —
+player, `bboxVersion` on `StaPipBag` for moving geometry,
+`StaPipBag::packageSize` (0 = derive) pinning coplanar passes over one vertex
+array to identical package boundaries — see the pitfall below, `Pad::setActuators` (act-direct DualShock rumble —
 the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
 `padVibrate()` script helper), `LeanObjLoader`
 (OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
@@ -286,6 +316,50 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## Before you hand-edit a `.vclpp`: run it on the host first
+
+The editor carries a **VU1 simulator and a microprogram generator**
+(`src/vuir|vuasm|vusim|vugen`, `docs/vu-framework.md`). It changes the loop for
+any VU work: instead of a Docker build plus a PCSX2 boot to find out what a
+program does, run it here.
+
+```bash
+tyrax-editor --vu-list <file.vclpp>   # expand the vclpp layer + disassemble
+tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budget
+```
+
+- **All 25 `.vclpp` files the engine ships parse and run**, including the clip
+  family and the VU0 raytracer kernel. `--vu-list` shows what the program looks
+  like AFTER macro expansion, which is the first thing to check when it does
+  something you did not write.
+- The simulator reports two things `vcl` and `dvp-as` will not: a **Q clobber**
+  (a `div`/`rsqrt` whose result is overwritten before anything read it - the
+  gotcha `CalculateTyraEnvStq` documents) and a **quadword address outside VU1
+  data memory**, which the hardware silently wraps.
+- What it does NOT model, deliberately: cycle timing, dual-issue pairing, branch
+  delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
+  registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
+  is not authoritatively simulated).
+- The five `as_is` programs also have C++ descriptions that generate them; a
+  generated program is proven **bit-identical** to the handwritten one by
+  simulating both on randomized input. If you change one of those five by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
+  the two have genuinely diverged and you should say which is right.
+- **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
+  diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
+  36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
+  be replayed, so you need the Debugger's flush picker to get a single-mesh
+  flush, and a project with no flow-graph node compiles the devkit layer away
+  entirely - the capture button then does nothing.
+- **The simulator rounds toward zero, because VU1 does.** An x86 rounds to
+  nearest-even; that difference is invisible on screen X/Y and shows up as one or
+  two units in the last place of the 24-bit Z (the coordinate scaled by
+  8388607.5). It was found by replaying a console capture, not reasoned about. If
+  you add arithmetic to `vusim`, do not compute outside `run()`'s rounding scope.
+- **Nothing in `vendor/tyra` is generated yet.** `--vu-emit` writes to a
+  directory you name on purpose: adopting generated microcode needs the full
+  Docker + hardware pass, not a host check.
+
 ## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
 
 TyraX addition: the editor can ask for one VU1 DMA chain and decode it
@@ -381,6 +455,40 @@ banner both, so a previously built ELF still reports.
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
   hardware show it. This was the root cause of a long-standing corruption bug —
   not the clipper patches (all were bisected; even pure upstream reproduced it).
+- **Nothing backface-culls — never emit two exactly coplanar faces.** Neither
+  the StaPip VU1 programs nor the GS reject back faces (the "cull" program
+  family is about the frustum, not winding), so a double-sided surface whose
+  front and back share one plane dither-fights itself across the whole surface
+  (dashed dark/light bands, worse with distance). The Plane primitive hit this
+  (its darker underside vs the lit top); the fix is a small offset between the
+  two faces (see `addPlane` in templates.cpp / `unitPlane` in primmesh.cpp,
+  0.01 local units). Same rule for any hand-built double-sided geometry.
+- **Coplanar passes over ONE vertex array must be pinned to ONE package
+  size.** `StaPipVU1Program::getMaxVertCount` derives the package size from
+  the bag's PROGRAM CLASS — how many verts of (position [+ ST] [+ normal] +
+  color) fit in half a VU1 double buffer. With the shipping buffer that is
+  **108** for untextured + per-vertex colors, **72** for textured, **90** for
+  textured + a single color, **144** for untextured + a single color. So an
+  object whose base pass is untextured and whose companion pass is textured
+  (a reflective sphere with no `map_Kd`, anything under the baked lightmap,
+  an untextured terrain chunk under its layer passes) splits the SAME array at
+  different boundaries. `StaPipCore::render` then classifies each package
+  against the frustum, and with `fullClipChecks` a fully-inside package takes
+  the perspective divide on VU1 while a straddling one is clipped on the EE
+  and drawn `as_is` — two routes over one triangle, differing in the last bits
+  of z and, at the frustum edge, in coverage. Coplanar passes then dither-fight
+  exactly like the double-sided case above: grey wedges bleeding from under a
+  reflective object, baked shadows fighting z-index with the ground. The fix is
+  `StaPipBag::packageSize` (0 = derive), which the generated game sets to the
+  **MINIMUM** over an object's passes (`pinPackageSize` in templates.cpp).
+  The minimum is not a preference — pinning a class above its own derived size
+  overflows its VU1 buffer. Two things this also settles: the frustum-bbox
+  cache is keyed by `(maxVertCount, vertex pointer)`, so differing sizes made
+  each pass recompute the boxes the previous one had just built — pinning
+  measured **+4–6 %** frame rate (126 → 133 FPS, vsync-off PCSX2) rather than
+  the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
+  pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
+  (keep it, it is still correct).
 - **Widening the cull programs' ADC test is retired; real VU1 clipping is a
   separate program family.** Three attempts at a guard band inside
   `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
@@ -619,7 +727,7 @@ on the same scene now that classification is cheap. When touching
 classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
-test. Known next target (from PROGRESS.md backlog): retire the EE clipper —
+test. Known next target (from `docs/backlog.md`): retire the EE clipper —
 flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
 on a real-PS2 pass).
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before

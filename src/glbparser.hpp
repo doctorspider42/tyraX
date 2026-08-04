@@ -9,7 +9,7 @@
 // glTF 2.0, format "glTF Binary") because OBJ has no notion of animation.
 // The PS2 engine's dynamic pipeline (DynPip) renders MD2-style morph frames
 // (two vertex arrays + VU1 interpolation), so instead of teaching the PS2
-// about skeletons (stage 2, see PROGRESS.md backlog), every animation clip
+// about skeletons (stage 2, see docs/backlog.md), every animation clip
 // is SAMPLED here on the PC: node TRS channels are evaluated at a fixed
 // rate, vertices are CPU-skinned, and the resulting per-frame vertex/normal
 // arrays are what the game (and the viewport preview) consume.
