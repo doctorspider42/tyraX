@@ -1,17 +1,11 @@
-// VU0 doing arithmetic, and nothing else (../../../../docs/vu-authoring.md).
+// Driving the two VU0 kernels (../../../../docs/vu-authoring.md).
 //
-// No buttons and no rendering decisions - that is vu_look_switch.cpp. This file
-// only runs the two kernels and reports what came back, because a kernel is a
-// compute job with no place in the scene pipeline: nothing calls it unless your
-// game does, and src/scripts/ is the only place that can be arranged from.
-//
-// BOTH WAYS OF WRITING ONE are here:
-//
-//   "points"  - Tools > VU Programs > VU0 kernel, composed from the same stage
-//               library the microprograms are built from (Wobble + Squash),
-//               applied to quadwords instead of vertices. No C++ at all.
-//   "Ranges"  - src/vu0/ranges.cpp, a `vu::Kernel` in ordinary C++, for the
-//               arithmetic the catalogue does not describe.
+//   "points"  - Tools > VU Programs > VU0 kernel: the stage library (Wobble +
+//               Squash) applied to quadwords instead of vertices. No C++.
+//               Its first result becomes the pillar's Desaturate parameter, so
+//               a number computed on VU0 drives a VU1 program.
+//   "Ranges"  - src/vu0/ranges.cpp, a `vu::Kernel` in ordinary C++: distance
+//               and an LOD band for every object in the scene, one call.
 //
 // Two things worth knowing before copying this:
 //
@@ -51,10 +45,9 @@ class Vu0Compute : public Script {
     kernel.run(in, out, kCount);
     runRanges(ctx);
 
-    // Wobble displaced Y by up to its amplitude (1.5); map that onto 0..1 and
-    // hand it to the pillar's Desaturate slot, so a number computed on VU0 ends
-    // up driving a VU1 program. (Visible while a stage look that reads mesh Y
-    // is on - this scene ships its looks switched off.)
+    // Wobble displaced Y by up to its amplitude (1.5); map that onto the 0..1
+    // the Desaturate slot wants. Visible while a stage look that reads mesh Y
+    // is on - this scene ships its looks switched off.
     float grey = (out[0].y + 1.5F) * (1.0F / 3.0F);
     if (grey < 0.0F) grey = 0.0F;
     if (grey > 1.0F) grey = 1.0F;
