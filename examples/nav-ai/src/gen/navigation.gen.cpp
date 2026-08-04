@@ -285,7 +285,12 @@ NavAgent* navBegin(ScriptContext& ctx, int obj, unsigned char mode,
   a.pauseLeft = 0.0F;
   a.repathLeft = 0.0F;
   const float* p = ctx.objects[obj].data.position;
-  a.yOff = p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2]);
+  // Height above the ground - and in a scene with no terrain there is no
+  // ground, so the agent keeps its authored height (the nav grid is empty
+  // there anyway, so nothing moves: docs/terrain.md, docs/navigation-ai.md).
+  a.yOff = TERRAIN_ENABLEDS[ctx.scene]
+               ? p[1] - terrainHeightAtScene(ctx.scene, p[0], p[2])
+               : p[1];
   return &a;
 }
 
@@ -388,7 +393,9 @@ void navMoveAgent(ScriptContext& ctx, int idx) {
     const float mv = step < dist ? step : dist;
     pos[0] += dx / dist * mv;
     pos[2] += dz / dist * mv;
-    pos[1] = terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff;
+    pos[1] = TERRAIN_ENABLEDS[ctx.scene]
+                 ? terrainHeightAtScene(ctx.scene, pos[0], pos[2]) + a.yOff
+                 : a.yOff;  // no ground to snap to - see navBegin
     // turn toward the motion (degrees, shortest arc)
     float desired = atan2f(dx, dz) * 180.0F / NAV_PI;
     float d = desired - o.data.rotation[1];

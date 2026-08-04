@@ -27,6 +27,41 @@ generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 `call = fn` logic still belongs in `flow_nodes.hpp` — the `.flownode` stays a
 thin manifest — but the extension now colours and checks that manifest too.
 
+## VU1 microprograms (`.vclpp`, `.vcl`, `.vsm`)
+
+The third language, and the one where the help matters most - a VU1 program is
+an unbroken wall of three-letter abbreviations, which is most of why the
+[VU framework](vu-framework.md) exists in the first place.
+
+- **Syntax highlighting** - the vclpp layer (`#include`, `#define`, `#macro`,
+  `Name{ }` calls, `#vuprog`), the VCL markers (`--enter`, `--cont`,
+  `--barrier`), instructions with their `.xyzw` destination mask, registers
+  (`vf00` and `vi00` highlighted as the hardwired constants they are),
+  broadcast fields and labels.
+- **Hover on every instruction** - 54 of them, each with what it actually does:
+  what `madd` accumulates, why `sq.xyz` writing three words and not four
+  matters, that `rsqrt` writes Q and therefore has to precede a perspective
+  divide, what `xgkick` hands to the GS.
+- **Hover and completion on the Tyra macro library** - with the macro's
+  parameters, its comment block and how many instructions it expands to.
+  Completing one inserts a filled-in `Name{ a, b }` call.
+- **Hover and completion on the `VU1_*` addresses** with their values and the
+  comments that explain them.
+- **Two warnings the assembler will not give you**: a `div`/`rsqrt` whose Q is
+  overwritten before anything reads it, and a macro call inside a macro body
+  (vclpp does not nest macros - the line reaches the assembler verbatim).
+- **Snippets** - `vuprog` for the whole per-buffer skeleton, plus `vuloop`,
+  `vumvp`, `vupers`, `vufixcolor`, `vuscale`.
+
+**The catalogue is read from the engine tree, not copied into the extension.**
+On activation it scans `vendor/tyra/engine/.../shared/*.i` and the
+`*_shared_defines.h` headers for `#macro` and `#define`, and a file watcher
+re-scans when they change - so adding a macro to `tyra_macros.i` makes it
+complete and hover immediately, with no extension change. Only the instruction
+set is written down in `vu.js`, because that is fixed silicon. Open the whole
+repo (not a single file) for the scan to find anything; without it the
+instruction help still works and only the macro/address entries are missing.
+
 ## Installing it
 
 You normally don't have to do anything: the first time you use **Open in

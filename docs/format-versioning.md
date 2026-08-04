@@ -31,8 +31,8 @@ reads as **v0**.
 - **Older, with pending migration steps** — the editor prompts: old/new
   version, the list of steps that will run, and a warning that the operation
   is irreversible. On confirm it first **backs up** the format-bearing files
-  (`<name>.tyra`, `objects/`, `terrain-*.heights`, `flow-nodes/`,
-  `screen-effects/` — `res/` assets are never touched) into
+  (`<name>.tyra`, `objects/`, `terrain-*.heights`, `terrain-*.splat`,
+  `flow-nodes/`, `screen-effects/` — `res/` assets are never touched) into
   `_backup/format-v<old>-<timestamp>/` inside the project, then migrates
   **in memory** and saves. If any step fails, the project does not open and
   **nothing on disk was modified**.
@@ -40,9 +40,10 @@ reads as **v0**.
 `_backup/` is a local safety copy, not source: the generated project
 `.gitignore` excludes it, and a collaboration session never sends it to peers.
 
-Headless (`--build`, `--resave`, `--apply-graph`, `--ai-graph`) refuses
-projects with pending migration steps instead of silently rewriting them —
-migrating is an explicit act:
+Headless (`--build`, `--resave`, `--refresh-gen`, `--apply-graph`, `--ai-graph`)
+refuses projects with pending migration steps instead of silently rewriting them
+— migrating is an explicit act. (`--refresh-gen` and `--build` are on the list
+because baking a stale Scatter volume saves the project.)
 
 ```bash
 tyrax-editor --migrate <projectDir>   # backup + migrate + resave

@@ -1,4 +1,7 @@
-# TyraX Flow Nodes & Screen Effects — VS Code extension
+# TyraX — VS Code extension
+
+Flow nodes (`.flownode`), screen effects (`.screenfx`) and **VU1 microprograms**
+(`.vclpp` / `.vcl` / `.vsm`). See `docs/vscode-extension.md`.
 
 Language support for the two text-file formats [TyraX](https://github.com/doctorspider42/tyra-editor)
 projects use for custom logic:

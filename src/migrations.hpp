@@ -34,8 +34,9 @@ struct Migration {
     bool (*apply)(Project& p, std::string& err);
 };
 
-// Every registered step, ordered by `from` (validated by a static assert-like
-// check in migrations.cpp).
+// Every registered step. Keep them ordered by `from` and leave no gaps in the
+// chain: run() applies stepsFor()'s result in this order, so an out-of-order
+// entry would transform data that a later step still expects untouched.
 const std::vector<Migration>& all();
 
 // The steps needed to lift a project saved at `fileVersion` to the current
@@ -49,10 +50,15 @@ std::vector<const Migration*> stepsFor(int fileVersion);
 std::string run(Project& p, int fileVersion);
 
 // Copies the format-bearing project files (<name>.tyra, objects/,
-// terrain-*.heights, flow-nodes/, screen-effects/) into
+// terrain-*.heights, terrain-*.splat, flow-nodes/, screen-effects/) into
 // <dir>/_backup/format-v<fileVersion>-<timestamp>/ before a migration.
 // res/ assets are skipped - migrations do not touch them. Returns "" on
 // success and reports the created directory via backupDir.
+//
+// This list has to cover everything the post-migration save writes
+// (project::save + saveHeights + saveSplat): a file the save overwrites but the
+// backup skipped is unrecoverable. Adding a persisted file to project.cpp means
+// adding it here too.
 std::string backup(const Project& p, int fileVersion, std::string& backupDir);
 
 }  // namespace migrations

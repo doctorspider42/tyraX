@@ -79,11 +79,17 @@ script - the emulator does not need the focus and nobody has to click into it.
 (-127..127), `wait <seconds>`, `neutral`, `pad 1|2`, separated by `;`.
 
 Needs a debug build with the *Remote Pad* preference on (the default); the
-command warns when the project was built without the channel. Two gotchas: the
-generated walkers read the analog **sticks**, so a held D-pad `up` does nothing,
-and a `hold` with no `wait` after it does nothing visible - the driver detaches
+command warns when the project was built without the channel. Three gotchas: the
+generated walkers read the analog **sticks**, so a held D-pad `up` does nothing;
+a `hold` with no `wait` after it does nothing visible - the driver detaches
 when it exits and the game lets go, so that a killed script cannot leave a
-direction held.
+direction held; and **on Windows, read the command's stderr and exit code before
+concluding the game ignored you**. Two things there produce "nothing happened"
+with the channel working perfectly: PowerShell's `Start-Process -ArgumentList`
+does not quote its elements, so a `;`-separated script arrives as loose words and
+the parser rejects it (put the call in a `.ps1` with the script as a literal),
+and the writer can lose a race replacing `bin/livepad.bin` while the game reads
+it - a lost refresh is now a warning it prints, not a silent stop.
 
 ## Verification etiquette
 

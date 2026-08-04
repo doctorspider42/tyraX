@@ -1,0 +1,1 @@
+{ "id": "hzw", "name": "hazard-wide", "type": "box", "position": [0, 0.7, 0], "rotation": [0, 0, 0], "scale": [5.4, 0.75, 1.1], "color": [0.95, 0.55, 0.15], "physics": false }

@@ -58,6 +58,23 @@ class StaPipCore {
     qbufferRenderer.setVU1Clipping(enabled);
   }
 
+  /** TyraX addition: which material classes keep a resident VU1 program
+   * (docs/vu-framework.md). Safe at run time: a level that stops needing, say,
+   * the matcap class can hand that micro memory to something else. It costs a
+   * pipeline drain and an upload, so call it at a zone or level boundary. */
+  void setResidentClasses(const u32& mask) {
+    qbufferRenderer.setResidentClasses(mask);
+  }
+  u32 getResidentClasses() const { return qbufferRenderer.getResidentClasses(); }
+
+  /** TyraX addition: install a game-supplied VU1 microprogram over a built-in
+   * slot (docs/vu-framework.md). Reachable from game code as
+   * engine.renderer.renderer3D.staticPipeline.core.setProgramOverride(...). */
+  void setProgramOverride(const StaPipProgramName& name,
+                          StaPipVU1Program* program) {
+    qbufferRenderer.setProgramOverride(name, program);
+  }
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 

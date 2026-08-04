@@ -1,0 +1,1 @@
+{ "id": "deck", "name": "deck-slab", "type": "plane", "position": [0, 0.3, 0], "rotation": [0, 0, 0], "scale": [9, 1, 6], "color": [0.62, 0.64, 0.68], "physics": false }

@@ -126,7 +126,27 @@ void App::drawFlowGraphWindow() {
     };
     ImGui::SetNextItemWidth(scaled(220.0f));
     if (ImGui::BeginCombo("Graph of", graphLabel(flowGraphObject_).c_str())) {
+        // Most of a scene is props with no logic, so the interesting entries
+        // are the few marked with a *. The filter lives INSIDE the list it
+        // filters (a Checkbox does not close the popup, only a Selectable
+        // does), which is where an author is when the list turns out too long.
+        int withNodes = 0;
+        for (const SceneObject& o : project_.objects())
+            if (!o.flowGraph.empty()) ++withNodes;
+        ImGui::Checkbox("Only objects with nodes", &flowOnlyWithNodes_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Hide objects whose graph is still empty - %d of %d objects\n"
+                "have nodes (those marked with a *). The object being edited\n"
+                "stays listed either way.",
+                withNodes, (int)project_.objects().size());
+        ImGui::Separator();
         for (int i = 0; i < (int)project_.objects().size(); ++i) {
+            // The current object is never filtered out: the combo has to be
+            // able to show what it is set to.
+            if (flowOnlyWithNodes_ && i != flowGraphObject_ &&
+                project_.objects()[i].flowGraph.empty())
+                continue;
             const std::string lbl = graphLabel(i) + "##fgobj" + std::to_string(i);
             if (ImGui::Selectable(lbl.c_str(), flowGraphObject_ == i) &&
                 flowGraphObject_ != i) {

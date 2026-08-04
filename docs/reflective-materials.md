@@ -83,13 +83,28 @@ ugly patches up close. It fades back in as you step away.
 - At geometry build, the generated game captures the **world-space normal** of
   every emitted vertex for reflective parts (`pushVert`, `g_envNormals`).
 - The part is submitted a second time as its own `StaPipBag`: same vertex
-  array (and `bboxVersion` — the frustum-bbox cache entry is shared), all-white
+  array (and `bboxVersion`), all-white
   colors, the sphere map as texture, a standard GEQUAL z-test (the passes are
   coplanar, so the env pass re-writes the same depths — benign; the
   `TestOnly` alpha-fail trick used at first corrupted close-up frames on the
   EE-clipped path: later objects punched through the reflective surface), and
   `fogDisabled` (GS fog would *add* the fog color through the additive
   equation).
+- **Both passes are pinned to one VU1 package size** (`StaPipBag::packageSize`,
+  set by the generated game's `pinPackageSize`). They must be: the engine
+  derives the package size from the bag's *program class*, and an untextured
+  base pass fits **108** verts per package where its textured env twin fits
+  **72** — so without the pin the same array splits at different boundaries,
+  and one pass can classify a triangle as fully inside (perspective divide on
+  VU1) while the other sees a straddling package (clipped on the EE, drawn
+  `as_is`). Two routes over one coplanar triangle disagree in the last bits of
+  z, and at the frustum edge in coverage. The pin is the **minimum** over the
+  passes an object draws — pinning a class above its own capacity would
+  overflow its VU1 buffer. It also un-splits the frustum-bbox cache, which is
+  keyed by package size on top of the vertex pointer: measured on a scene of
+  reflective + lightmapped spheres it was worth **+4–6 %** frame rate (126 →
+  133 FPS vsync-off in PCSX2), because the companion passes stopped
+  recomputing the boxes the base pass had just built.
 - **The matcap ST math runs on VU1** (phase 2): the env bag's texture bag has
   `coordinatesAreNormals` set, the normals ride in the vertex stream's ST
   slot, and the `TCE` program family (`stapip_cull_tce_vu1.vclpp` /

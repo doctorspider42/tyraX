@@ -146,12 +146,15 @@ std::vector<float> unitCone(int detail) {
 }
 
 // Flat unit square in the XZ plane, double-sided (top +Y and bottom -Y faces)
-// so it is visible from both above and below.
+// so it is visible from both above and below. The underside sits slightly
+// below the top face - neither the PS2 nor the viewport backface-culls, so
+// two exactly coplanar faces with different shades would z-fight (dithered
+// flicker across the whole plane). Twin: templates.cpp addPlane.
 std::vector<float> unitPlane() {
     std::vector<float> v;
-    const float h = 0.5f;
+    const float h = 0.5f, b = -0.01f;
     pushQuadRaw(v, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
-    pushQuadRaw(v, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+    pushQuadRaw(v, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
     return v;
 }
 

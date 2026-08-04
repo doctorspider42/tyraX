@@ -55,8 +55,16 @@ The number **row** keys stay on the transform tools (`1` move, `2` rotate,
   (+X right, +Z down the screen); Front, Back, Right and Left are elevations.
 
 Orbiting while in a locked axis view is not ignored: it drops the direction
-lock and returns to **Orthographic** (free), continuing from exactly where the
-image was. Panning (middle-drag), the wheel zoom and WASD flying work in every
+lock and returns to **the projection you came from**, continuing from exactly
+where the image was. An axis view is a glance, not a new home — if you were in
+Perspective when you clicked Top, the first drag gives you your perspective
+camera back; if you had deliberately switched to **Orthographic** (free) first,
+the drag returns you to that instead. Stepping straight from one axis view to
+another does not change what you will come back to, and neither does reopening
+the project in a saved axis view (which has no history, so it returns to
+perspective).
+
+Panning (middle-drag), the wheel zoom and WASD flying work in every
 mode — in a Top view "forward" walks up the image, since there is no view
 direction left to flatten onto the ground.
 

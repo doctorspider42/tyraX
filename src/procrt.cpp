@@ -85,7 +85,7 @@ std::vector<Issue> capability(const ProcGraph& g) {
                            "another object's mesh needs the mesh on the host)"});
         if (n.type == "TerrainMask" && procgraph::inum(n, "source") == 3)
             out.push_back({n.id,
-                           "Terrain Mask cannot read a painted layer at "
+                           "Terrain Mask cannot read a painted material at "
                            "runtime - the splat map is a build-time asset. Use "
                            "Height, Slope or Curvature"});
     }

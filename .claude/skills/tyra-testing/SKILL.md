@@ -12,18 +12,25 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a PROGRESS.md entry or
+  "how do I know this works?" — including before writing a commit message or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-PROGRESS.md about which layer you reached (the existing entries distinguish
-"verified in PCSX2" from "compiles, needs a pad test by a human").
+your commit message and PR body about which layer you reached — the established
+wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
+human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
+the honesty convention outlived the file.)
 
 ## Layer 0 — build the editor
 
@@ -88,7 +95,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+build scripts** needs a build on both, or say so in the commit. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -137,7 +144,7 @@ probe is still absent after a fetch.
 
 ```
 TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
-TYRAX --build <projectDir> [--run]   # exit code 0 = success
+TYRAX --build <projectDir> [--run] [--rebuild]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
@@ -150,8 +157,39 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+VU1 microprogram work has its own layer, faster than everything below
+(`docs/vu-framework.md`):
+
+```
+TYRAX --vu-check [engineDir]         # exit 0 = every program parsed AND every
+                                     #   generated one matches its handwritten
+                                     #   twin bit for bit, in the host simulator
+TYRAX --vu-list <file.vclpp>         # expand + disassemble one microprogram
+TYRAX --vu-emit <outDir>             # generate .vclpp + the EE program classes
+TYRAX --vu-replay <projectDir>       # re-run a console VU1 capture on the host
+```
+
+`--vu-replay` is the only layer that checks the simulator against REAL hardware:
+it reconstructs the input from `bin/vucap.bin` and diffs its own output against
+the console's. `examples/vu-lab` is the fixture built for it. Two things to know
+before trying it on some other project: only the LAST mesh of a chain can be
+replayed (use the Debugger's flush picker to capture a flush carrying ONE mesh -
+a terrain flush with fourteen chunks is not resolvable), and **a project with no
+flow-graph node has no devkit layer at all** - `live_debug.gen.cpp` compiles to an
+empty TU and the capture button does nothing, which looks like a broken feature
+and is the zero-cost rule working.
+
+**Run `--vu-check` after ANY change under `vendor/tyra/.../*.vclpp` or to
+`src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
+parses all 25 shipped microprograms, executes the described ones against their
+handwritten originals on randomized input, and diffs every quadword of the GIF
+packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
+replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
+generated microcode has been built for hardware yet - but a program that fails
+here will not work on the console either.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
-  Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
+  docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in
   third-person mode (both generate the SAME game sources — the mode is a
   per-object property); `empty` is an orbit-camera scene with no objects. The
@@ -229,11 +267,11 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   templates.cpp - see PROGRESS 171 for the property list that caught three real
   bugs).
 - **Format versioning** (see `docs/format-versioning.md`): `--build`,
-  `--resave`, `--apply-graph` and `--ai-graph` refuse a project whose
-  `formatVersion` has pending REGISTERED migration steps (exit 1) —
+  `--resave`, `--refresh-gen`, `--apply-graph` and `--ai-graph` refuse a project
+  whose `formatVersion` has pending REGISTERED migration steps (exit 1) —
   `--migrate` is the explicit tool (backs up `.tyra` + `objects/` + heights +
-  flow-nodes/screen-effects into `_backup/`, applies the steps, resaves the
-  same file set as `--resave`; degrades to a plain resave when current). To
+  splat + flow-nodes/screen-effects into `_backup/`, applies the steps, resaves
+  the same file set as `--resave`; degrades to a plain resave when current). To
   test a version gate, hand-edit `"formatVersion"` in the manifest: a value
   above `version::kFormatVersion` must be refused by every path, a lower one
   opens silently unless a step is registered in `migrations.cpp`. With no step
@@ -320,8 +358,9 @@ TYRAX --build <projectDir> --run
 ```
 
 What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d --build` (container `<name>-compiler-1`) → engine sources checksum-synced
-into the shared volume, `libtyra` rebuilt if changed → project rsynced → `make`
+up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
+sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+(VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
@@ -329,6 +368,21 @@ ELF.
 Notes:
 - First-ever build downloads the `h4570/tyra` image and compiles the engine
   (minutes). Subsequent builds take seconds unless the engine changed.
+- **The whole pipeline is incremental, so measure a build by what it
+  RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
+  log is the number that means something: on `examples/showcase` (18 TUs, 6
+  cores) a build with nothing changed is **0 compiles / ~5 s**, one edited game
+  source is **1 / ~9 s**, a moved scene object is **13 / ~47 s** (the scene
+  table is in a header most TUs include), an engine `.cpp` is **~7 s**, an
+  engine `.vclpp` is **~2 min** (the microprograms), and `--rebuild` is
+  **~5 min** from nothing. A "no changes" build that still compiles things is a
+  regression with a specific cause — some step wrote a file the compiler reads
+  (see the `runner.cpp` row in tyra-editor-dev); find it by comparing mtimes in
+  the container against `/src/obj/*.d`.
+- **`--rebuild` is the escape hatch** and the control when you suspect the
+  incremental logic itself: it recreates the container and rebuilds the engine
+  and the game from source. `Clean` is the other hammer — it also wipes the
+  host's `bin/`.
 - PCSX2.ini is found portable-first (an `inis/` next to the executable), then
   per OS: the Documents known folder on Windows — **Documents may be
   OneDrive-redirected** (e.g. `...\OneDrive - <org>\Dokumenty\PCSX2\`), not
@@ -377,6 +431,34 @@ Notes:
   is not enough), and is `bin/livepad.bin` being written where the RUNNING ELF
   lives (`Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'"` prints the
   `-elf` path; a second fixture directory is the classic mix-up).
+  **Two Windows-only ways this looks broken when it is not** (both cost an
+  afternoon on 2026-08-03, both diagnosed):
+  - **`Start-Process -ArgumentList` does not quote its array elements**, so
+    `-ArgumentList "--pad",$P,"wait 1; stick r 110 0; neutral"` reaches the
+    editor as loose argv words, the script it parses is the single word `wait`,
+    and it dies with `error: line 1: wait needs seconds` — on the **stderr of a
+    hidden process**, where nobody ever sees it. The game then does exactly
+    nothing, which reads as a dead pad channel. Put the whole `--pad` call in a
+    `.ps1` with the script as a LITERAL and `Start-Process powershell -File`
+    that (a `param()` does not help: the mangling happens at the outer boundary
+    too), or add the quotes to the array elements yourself. Same trap for any
+    `;`-separated script argument, `--ui-script` included.
+  - **The atomic replace of `livepad.bin` races the reader** (fixed since; the
+    symptom is worth recognising because a stale editor binary still has it).
+    `livepad::write` renames a `.tmp` over the target, and the running game
+    re-opens that same file about every frame through PCSX2's HostFs — Windows
+    refuses to rename over or delete a file another process has open, so a
+    replace comes back `Access is denied` roughly **once per 200 writes** at the
+    driver's 40 Hz refresh (zero denials with the emulator stopped; Linux is
+    immune, `rename(2)` over an open file is legal there). The driver used to
+    abort on the FIRST failed write, so a long hold died with nothing but
+    `error: cannot replace ...livepad.bin: Permission denied` and exit 1 — one 9 s
+    script in five, measured, and every single one when the file was contended
+    harder. `write` now retries (5 tries, 4 ms apart — absorbs a 60 ms exclusive
+    hold) and only a **step** write is fatal: a lost *refresh* is a warning, and
+    the run says so in its summary (`pad released (27 refresh write(s) lost to
+    the reader)`). So on Windows: **read the driver's stderr and its exit code**,
+    and treat "no motion, exit 1" as this rather than as a dead channel.
 - **Synthetic input into PCSX2** (the older, focus-dependent path - still the
   only way to reach PCSX2's OWN keys, e.g. F8 or the pause hotkey). **On Linux
   this is the easy side**: `wayland-control.py` (see Screenshots below) injects
@@ -436,6 +518,67 @@ Notes:
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
 
+  **To WATCH the game over time, use `-Watch DIR`** — the Windows twin of
+  `wayland-control.py watch` (below), with the same flag names, the same output
+  lines and the same diff metric, so the numbers mean the same thing on both
+  OSes. It samples the window on an interval, keeps the full-resolution frames on
+  disk as `DIR\frameNN.png` and reports **one downscaled contact sheet** plus a
+  changed-pixel table, so a whole drive costs about as much context as a single
+  screenshot instead of one read per moment:
+
+  ```powershell
+  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
+  ```
+
+  Measured on the fpp fixture (1066x705 window, 831x623 picture): 10 tiles at
+  224 px = a 926x576 sheet, **~711 tokens** where the ten full frames would be
+  ~6 900. A frame costs ~0.1 s of work on top of the interval, so a 0.9 s
+  interval is held to the millisecond. One run put the whole drive in one image:
+  four idle tiles at **0.000%**, then 41.9% / 29.1% / 22.5% / 6.9% while a turn
+  and a walk were held, then 0.000% again after the release — the same
+  idle/drive/release shape as the pixel-counting recipe below, in a single read.
+
+  What differs from the Wayland version, and the traps:
+  - **`-Auto` is deterministic here.** Windows HAS per-window capture, so it
+    takes the biggest visible CHILD window (PCSX2's render surface is a native
+    child HWND) instead of hunting for motion — it works on a paused emulator, a
+    parked camera or a static menu, every one of which defeats the Linux
+    heuristic. Add **`-Trim`** and the black pillar bars go with it: a 1050x623
+    widget came out **831x623**, exactly 4:3, the PS2 frame and nothing else.
+    That crop is also what makes an idle frame measure **0 px** instead of the
+    status-bar noise the whole window carries (87 px in one second here) — a
+    clean instrument, so any non-zero row means the game.
+  - **A GDI grab reads the SCREEN, so an occluded window captures whatever is on
+    top of it** — silently, and for every frame of a long run. This bit during
+    development: a plain `SetForegroundWindow` from a background shell does
+    nothing at all (the same trap as synthetic input above), and the "PCSX2
+    screenshot" came back as another application's window. The script now raises
+    the window with the ALT-tap + `AttachThreadInput` trick, VERIFIES
+    `GetForegroundWindow` and **warns** when it still failed — if you see that
+    warning the frames are worthless, so uncover the window, or pass
+    `-NoActivate` when it is already clear and you do not want the focus stolen.
+  - `-Area X,Y,W,H` is **window-relative** — the coordinates you read straight
+    off a capture — and it is deliberately NOT cached the way Linux caches
+    `area.txt`: the window may have moved since the last run, and its geometry is
+    free to ask for. The same geometry flags work for a single `-OutFile` shot.
+  - `-OnlyChanged PCT`, `-IdleStop K` / `-IdleBelow`, `-Every`, `-Count` or
+    `-For S`, `-Tile`, `-Cols`, `-Sheet`, `-NoFrames` do exactly what their
+    `--only-changed` … counterparts below do, including the saturation trap:
+    calibrate `-OnlyChanged` against a first run's column instead of guessing
+    (verified at 5%, which kept 6 of 11 frames and marked the rest `-`).
+    `-IdleStop 2` verified on a static window: it stopped on the second
+    consecutive 0.000% frame.
+  - It only CAPTURES, so it composes with whatever drives the game. A background
+    `--pad` is the usual partner — one `-Watch` over a 1.5 s right-stick hold
+    read **17.6 / 27.7 / 21.5%** during the turn and **0.000%** after the
+    release — but mind the two Windows traps in the `--pad` bullet above (the
+    unquoted `Start-Process` script, and the replace race that used to abort long
+    holds); both make a working channel look dead. PCSX2's own held keys are the
+    fallback, and this ini binds the left stick to **Z/Q/S/D**, not the W/A/S/D
+    the section above quotes. Held keys need the window in front, which `-Watch`
+    arranges anyway.
+
   **On Linux/Wayland use the bundled `wayland-control.py`** — screenshots *and*
   synthetic keyboard/mouse, no human in the loop:
 
@@ -485,6 +628,61 @@ Notes:
   with mouse capture on, a game grabbing the cursor) never sees absolute motion:
   use `movrel` there, not `move`.
 
+  **To WATCH the game over time, use `watch`** — the same one-session trick
+  applied to TIME. It samples the screen on an interval off the
+  already-negotiated stream and reports **one downscaled contact sheet** plus a
+  changed-pixel table, so a minute of gameplay costs about as much context as a
+  single screenshot instead of thirty:
+
+  ```bash
+  python3 .claude/skills/tyra-testing/scripts/wayland-control.py \
+      watch <scratchpad>/w --auto --aspect 4:3 --every 1 --for 20 --tile 224
+  ```
+
+  Measured on the endless-runner fixture (1920x984 screen, 1157x868 render
+  area): 9 tiles at 224 px = a 696x576 sheet, **~534 tokens** where the nine
+  full-resolution frames would be ~12 000, and the run costs ~1.2 s of wall
+  clock per frame on top of the interval. The full-resolution crops stay on disk
+  as `frameNN.png`, so the sheet is what you READ and a single interesting
+  index is what you open afterwards — that split is the whole point.
+
+  What the flags are for, and the traps:
+  - **`--auto` finds the render area by MOTION** (there is no per-window
+    capture, see above): it diffs four samples ~0.5 s apart and takes the widest
+    and tallest contiguous band of moving columns/rows, so PCSX2's FPS readout
+    loses to the picture. It reports only what MOVES — a parked camera under a
+    static sky yielded `415,425,1157,536`, the ground half of the frame — so
+    add **`--aspect 4:3`** to grow it back to the PS2 picture from its bottom
+    edge (`415,80,1157,868` against a true `415,93,1157,868`: 13 px of menu bar
+    in the tile, harmless). The rect is cached in `DIR/area.txt` and reused, so
+    detection is a once-per-session cost.
+  - **A still scene defeats motion detection**, and that failure had to be made
+    loud: on the day-night fixture 1.5 s of a slow lighting gradient moved
+    **500 pixels of 1.9 M**, and the winner was the `Speed: 64%` text — an 8x10
+    box. `--auto` now refuses anything under 2% of the screen or outside a
+    0.9-2.6 aspect and tells you to read the rect off one `shot` and pass
+    `--area X,Y,W,H` (which is also cached). `--trim` shaves black letterbox
+    borders off whatever rect you give.
+  - **`--only-changed PCT`** drops frames that changed less than PCT **since the
+    last KEPT frame** (they still appear in the table, marked `-`), which is how
+    a long watch stays cheap. Beware that the metric SATURATES on a repeating
+    scene, exactly like the axis-aligned-walk trap above: the scrolling
+    checkerboard terrain never exceeded 25% between frames however long the gap,
+    so `--only-changed 25` kept a single tile. Calibrate it against the
+    frame-to-frame numbers of a first run, don't guess.
+  - **`--idle-stop K`** ends the run after K consecutive frames under
+    `--idle-below` (0.05% by default) — "watch until it settles" without a
+    fixed count. Verified against a pure-black crop: three 0.000% frames and it
+    stopped.
+  - `--every S` / `--count N` or `--for S`, `--tile W` (tile width, the only
+    real knob on context cost), `--cols N`, `--sheet NAME`, `--no-frames`.
+    `wayland-control.py area` prints the detected rect and exits.
+
+  It composes with the Remote Pad: run `--pad` in the background and `watch` in
+  the foreground (or the reverse) and one sheet shows the whole drive — turn,
+  walk, release — with the diff column as the numeric evidence the input
+  arrived, which is the measured-not-eyeballed rule below applied to a sequence.
+
   **To DRIVE the editor, use `--ui-script`** (docs/ui-scripting.md) - the editor
   runs for real and holds its own mouse and keyboard, naming WIDGETS instead of
   pixels, with **no window focus needed on either OS**:
@@ -517,7 +715,15 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **The same goes for any widget whose whole label is
+  hidden behind `##`** - a compact search field (`##assetsearch`,
+  `##objsearch`) or a bare combo (`##objtype`) dumps as `-` with a rect and
+  nothing to name, so a filter row like the Scene panel's is only reachable by
+  CLICKING ITS RECT: read the rect off `dump`, add the editor window's screen
+  offset (compare one `dump` rect against one full-screen `shot` to get it -
+  ~67,70 on this box) and drive it with `wayland-control.py click --at x,y` /
+  `type`. Everything else about the run stays the same, and the assertion is
+  the `shot` you crop afterwards.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per
@@ -572,11 +778,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in
-  PROGRESS.md and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in the
+  commit and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -735,8 +941,57 @@ Notes:
   tools. Anything wanted from them is a **ps2link patch**, which is the normal
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
-  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
-  PCSX2 runs no ps2link. (Verified: a session
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md).
+
+  **ps2link is no longer hardware-only: it runs in PCSX2.** A SECOND, portable
+  copy of the emulator (`-portable`, its own `inis/bios/logs`, so it cannot
+  disturb a parallel session or the editor's own launches) with **DEV9 bridged**
+  onto the LAN boots `ps2link.elf` and answers the real `ps2client` — same
+  subnet, same ports, `reset` and `execee` included. A wedge then costs
+  `Stop-Process` instead of a walk to the console, which is what makes a
+  Run → Stop → Run A/B a two-minute scripted test: measured 2026-07-31, r4 falls
+  through to the BIOS browser and drops off the LAN where r6 comes back and runs
+  the payload again. The full recipe, the four gotchas (`[DEV9/Eth]` is the ini
+  section, `EthDevice` is the bare adapter GUID, `host:` is served by PCSX2's
+  HostFs relative to the `-elf` directory and NOT by ps2client, ping proves
+  nothing in either direction) and the limits are in
+  **docs/ps2link-setup.md — "Testing a change without a console"**. The limit
+  that matters: **the emulator cannot produce an EE exception** — replayed the
+  r4 `BadAddr 8` crash there and the `printf` returned normally, because main
+  RAM starts at address 0, so a NULL dereference is an ordinary load. Faults,
+  `crash.txt` and the crash handler stay hardware tests; sequencing, restarts,
+  IOP reboots and the protocol do not.
+
+  **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
+  (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub
+  IOP/lwip headers in `test/shim/` and drives it with a scripted fake socket —
+  framing, EOF, short reads, buffer clamps. What makes it evidence rather than
+  decoration is the `-Pristine` / `--pristine` mode: the same tests against the
+  untouched upstream file, which must FAIL (it does, 7 of 18, three of them by
+  spinning past a 2000-call `recv()` ceiling). Use this layer for any change to
+  the `host:` protocol code before reaching for hardware; threads, the SIF and
+  the GS are still console-only. Note the `#include "net_fio.c"` trick — the
+  harness pulls the .c in so it can place `pko_fileio_sock`, which is static.
+
+  Since r2 of the patch, several "the console is hung, hit Reset" failures are
+  gone: a closed `ps2client` socket used to spin the IOP `host:` thread forever
+  while holding its semaphore, an unexpected reply desynced the stream for good,
+  and `pkoReset()` waited on an inverted `SifIopSync()` on every deploy. **r3**
+  adds `spu2Silence()`, so the SPU2 no longer drones the dead game's voices
+  through a reset — which means **"Stop on PS2" no longer deploys
+  `tools/silencer/silencer.elf` and no longer sleeps ~7 s**; if you are timing
+  Stop, that is why it got faster. The tool stays as a manual fallback for a
+  pre-r3 console. Check the boot banner reads `TyraX ps2link r3` and the log has
+  `SPU2 silenced` before blaming anything else. The
+  `dumpmem`/`scrdump` uselessness above is NOT explained by any of that and is
+  still open — r2 only stops the failure leaking a `host:` fd each attempt. (A
+  tempting theory, recorded so it is not re-tried: that the EE side passes
+  newlib `O_*` values where the wire wants `FIO_O_*` (`O_RDONLY` = 0, but
+  `FIO_O_RDONLY` = 1). It is wrong — the engine's asset loads use plain
+  `fopen("rb")` through the same path and work fine, so newlib values are what
+  this `host:` expects.)
+
+  (Verified: a session
   orphaned for 20 minutes came straight back, no reboot, no rebuild.) Only when
   the game is actually gone do you need the runner's two commands —
   `ps2client -h <ip> -t 10 reset`, then `ps2client -h <ip> execee host:<name>.elf`
@@ -855,6 +1110,21 @@ Notes:
   debug keys/state look wrong), suspect the wire STRIDE first, and check that
   `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
   game's parser - a stale editor binary generates a stale interpreter.
+- **The log panels' severity split** (docs/log-panels.md): `logview.cpp` is a
+  pure function of text - no ImGui, no `Project` - so which bucket a line lands
+  in is checkable from a 40-line harness (`g++ -std=c++20 -Isrc harness.cpp
+  src/logview.cpp`) fed a realistic build log, no editor needed. Assert TWO
+  things there, because both broke while it was written: that the counts are per
+  ENTRY (a gcc error plus its snippet is one error, not four), and that parsing
+  the log **one line at a time** through `parse(log, from, state, out)` +
+  `appendPartial` gives byte-identical results to one-shot parsing - the panels
+  classify incrementally while a build streams, and the carried continuation
+  state is what a chunk boundary breaks. The panel itself is then a `--ui-script`
+  job (`click 'Output/3 errors'`, `expect-unchecked 'Output/Select text'`), with
+  one catch: the **Debug** window is a dock TAB behind Output in every built-in
+  layout, and a docked tab is an unnamed item, so no script can select it -
+  verify it by temporarily pointing that layout's `pendingFocusWindow_` at
+  `"Debug"`, screenshotting, and reverting.
 - **The editor window sometimes renders WHITE on this machine** (title bar
   only, capture is blank) - a GL present quirk, not a code regression. The
   check that settles it costs 30 seconds: capture
@@ -887,7 +1157,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in PROGRESS.md, that's the established convention.
+  problem) - say so in the commit message, that's the established convention.
 
 ### The unattended input test, end to end
 
@@ -912,6 +1182,10 @@ powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\walked.png"
 Start-Sleep 4
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle3.png"   # RELEASED
 ```
+
+The cheap version of the same run is one `-Watch` (above) over the whole drive:
+it counts the pixels for you, per frame, and hands back one sheet instead of
+five images — the four bullets below still apply, they are just columns then.
 
 Then count changed pixels between the pairs with a few lines of PIL
 (`ImageChops.difference(...).get_flattened_data()`). Four things make this a real
@@ -940,5 +1214,5 @@ test rather than a screenshot:
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
-| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS |
+| Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

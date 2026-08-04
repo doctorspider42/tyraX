@@ -67,17 +67,20 @@ std::string backup(const Project& p, int fileVersion, std::string& backupDir) {
         return "";
     };
 
-    // The format-bearing files at the project root: the .tyra manifest(s) and
-    // the per-scene heightmaps (incl. the legacy single-scene terrain.heights).
+    // The format-bearing files at the project root: the .tyra manifest(s), the
+    // per-scene heightmaps (incl. the legacy single-scene terrain.heights) and
+    // the per-scene splat sidecars. This list must cover everything the
+    // migration save writes (project::save + saveHeights + saveSplat) - a file
+    // the save overwrites but the backup skipped could not be restored.
     for (const auto& entry : fs::directory_iterator(root, ec)) {
         if (!entry.is_regular_file(ec)) continue;
         const std::string fn = entry.path().filename().string();
-        const bool manifest = entry.path().extension() == ".tyra";
-        const bool heights =
-            fn == "terrain.heights" ||
-            (fn.rfind("terrain-", 0) == 0 &&
-             entry.path().extension() == ".heights");
-        if (!manifest && !heights) continue;
+        const std::string ext = entry.path().extension().string();
+        const bool manifest = ext == ".tyra";
+        const bool terrain = fn == "terrain.heights" ||
+                             (fn.rfind("terrain-", 0) == 0 &&
+                              (ext == ".heights" || ext == ".splat"));
+        if (!manifest && !terrain) continue;
         fs::copy_file(entry.path(), dest / fn,
                       fs::copy_options::overwrite_existing, ec);
         if (ec) return "cannot back up " + fn + ": " + ec.message();

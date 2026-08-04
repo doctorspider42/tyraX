@@ -131,11 +131,21 @@ enum class PrimitiveType {
     // bakes them into ordinary static chunk meshes, so the console never
     // learns a graph existed. See docs/procedural-generation.md.
     Scatter = 18,
+    // Endless scroller: a conveyor-belt marker that streams authored
+    // "segments" (named groups of scene objects) past itself forever - the
+    // train-window level generator. The belt runs along the object's local +Z
+    // (rotated by its rotation); segments spawn scrollAhead units in front
+    // and retire scrollBehind units past the origin, repositioned each frame
+    // by a generated runtime script. Codegen bakes extra copies of each
+    // segment's objects into the scene tables so the same tunnel piece can be
+    // on screen several times at once. See scrollSegments below and
+    // docs/endless-scroller.md.
+    Scroller = 19,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scatter + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scroller + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -185,6 +195,54 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
+}
+
+// One segment of an endless Scroller (type 19): a named group of scene objects
+// (referenced by name, like Mirror::mirrorObjects) that the belt treats as one
+// rigid "chunk" and tiles along its axis. `length` is the belt-space the chunk
+// occupies before the next segment starts; <= 0 means auto-measure from the
+// members' extent along the belt axis (see scrollsim::segmentLength). Segments
+// repeat in list order forever. A dangling name is skipped (the chunk just
+// carries fewer objects).
+// One member of a segment: the scene object it clones, plus how that clone is
+// allowed to differ from CELL to CELL. A belt cell is one pass of the pattern
+// past the window (scrollsim::Placement::cell, a monotonically increasing
+// integer), and every field below is resolved from a hash of (belt seed, cell,
+// member) - so the variation is deterministic, costs no geometry, and does not
+// repeat with the belt's period. Defaults = the plain tiling this feature
+// shipped with. See docs/endless-scroller.md.
+struct ScrollMember {
+    std::string name;         // scene object cloned down the belt
+    float chance = 1.0f;      // 0..1 = fraction of cells this member appears in
+    int variant = 0;          // >0: members of one segment sharing this id are
+                              // alternatives - exactly one shows per cell
+    float yawVary = 0.0f;     // +- degrees of random yaw around the authored one
+    float offsetVary = 0.0f;  // +- world units perpendicular to the belt
+    float scaleVary = 0.0f;   // +- fraction of the authored scale (0.2 = +-20%)
+};
+
+inline bool operator==(const ScrollMember& a, const ScrollMember& b) {
+    return a.name == b.name && a.chance == b.chance && a.variant == b.variant &&
+           a.yawVary == b.yawVary && a.offsetVary == b.offsetVary &&
+           a.scaleVary == b.scaleVary;
+}
+
+// True when a member is a plain always-there clone. The serializer writes those
+// as a bare name string (the pre-variation format), so a belt that varies
+// nothing produces a byte-identical .tyra.
+inline bool scrollMemberIsPlain(const ScrollMember& m) {
+    return m.chance >= 1.0f && m.variant == 0 && m.yawVary == 0.0f &&
+           m.offsetVary == 0.0f && m.scaleVary == 0.0f;
+}
+
+struct ScrollSegment {
+    std::string name = "segment";
+    float length = 0.0f;  // belt units; <= 0 = auto from member extent
+    std::vector<ScrollMember> objects;
+};
+
+inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
+    return a.name == b.name && a.length == b.length && a.objects == b.objects;
 }
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -505,6 +563,34 @@ struct SceneObject {
     // shipping. Mirrors' reflections and particles still don't show.
     bool portalViewAll = false;
 
+    // Endless scroller parameters (used when type == Scroller). The belt runs
+    // along the object's local +Z (its forward, rotated by `rotation`). It
+    // tiles `scrollSegments` in order and slides them along the axis at
+    // scrollSpeed units/s. Objects are kept populated from scrollBehind units
+    // behind the scroller origin to scrollAhead units in front; a segment
+    // instance leaving the back is recycled to the front (see scrollsim). Its
+    // authored member objects are the templates: the editor hides their raw
+    // selves and previews scrolling ghosts, the build bakes enough clones to
+    // fill the window into the scene tables and a generated ScrollerDirector
+    // repositions them each frame. See docs/endless-scroller.md.
+    std::vector<ScrollSegment> scrollSegments;
+    float scrollSpeed = 6.0f;    // belt units/s along +Z; negative = reverse
+    float scrollAhead = 40.0f;   // populate this far in front of the origin
+    float scrollBehind = 10.0f;  // keep instances this far behind before retiring
+    bool scrollAutostart = true; // belt runs at scene start (else Start Scroller)
+    // Safety cap on baked clones per scroller (build drops extra copies and
+    // warns past this). Guards against a huge window * tiny segment blowing up
+    // the scene table / per-frame repositioning cost.
+    int scrollMaxClones = 120;
+    // Anti-z-fighting seam overlap (world units): every baked clone is
+    // stretched this much along the belt axis, so consecutive pieces slightly
+    // interpenetrate instead of butting up with exactly coplanar end faces
+    // (coplanar faces flicker on the GS). 0 = exact tiling.
+    float scrollOverlap = 0.02f;
+    // Seed of the belt's per-cell variation (ScrollMember above). Changing it
+    // reshuffles the whole infinite stream without touching any member.
+    int scrollVarySeed = 1;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -679,6 +765,13 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
            a.portalViewAll == b.portalViewAll &&
+           a.scrollSegments == b.scrollSegments &&
+           a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
+           a.scrollBehind == b.scrollBehind &&
+           a.scrollAutostart == b.scrollAutostart &&
+           a.scrollMaxClones == b.scrollMaxClones &&
+           a.scrollOverlap == b.scrollOverlap &&
+           a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
@@ -2176,6 +2269,17 @@ struct Project {
     // presets at runtime (the switch persists across scene changes).
     std::vector<ColorGradingPreset> gradings;
     int defaultGrading = -1;
+    // The scene the GAME boots into (index into `scenes`). Until this existed
+    // the runtime hardcoded scene 0 and the editor merely LABELLED it "(start)",
+    // so the only way to change it was to reorder the list - and scene indices
+    // are baked into every generated table, so reordering is the one thing that
+    // must not be casual. An index costs nothing and shifts nothing.
+    //
+    // Travels in the scene TABLE rather than a Section, because it is
+    // structural scene data: that is what puts it on the collaboration wire
+    // alongside the scene list it indexes.
+    int startScene = 0;
+
     // Ambience presets (Tools > Ambience Editor): project-wide sky/lighting/fog
     // "mood" bundles. defaultAmbience is the preset a scene uses when it names
     // none (-1 = fall back to the raw project/scene settings). A scene picks
@@ -2428,7 +2532,36 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
+//
+// When the resolved ambience preset carries an enabled day/night cycle
+// (docs/day-night-cycle.md), the cycle is evaluated at its authored hour and
+// OVERWRITES the sky, light direction/colour and fog colour on the way out.
+// That is the single hook through which the time-of-day slider reaches the
+// vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
+// runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// Fold the editable ranges onto a cycle / one of its keys. Called by the
+// .tyra reader (a hand-edited file is not to be trusted) and by the Ambience
+// Editor after every edit, so both agree on what is representable.
+// A user-owned script left in a stale C++ namespace by a project rename cannot
+// possibly compile, and the PS2 toolchain's error for it says nothing useful.
+// Empty when everything lines up; otherwise a one-line explanation naming the
+// file and both namespaces. A build calls this BEFORE contacting Docker.
+std::string checkScriptNamespaces(const Project& p);
+
+// Folds Project::startScene back into range. Called after a load and after a
+// collaboration scene-layout apply - it indexes the array the GAME boots from,
+// so out of range is a console crash, not a cosmetic problem.
+void clampStartScene(Project& p);
+
+void clampDayKey(DayKey& k);
+void clampDayCycle(DayCycle& c);
+
+// Sort a cycle's keys by hour. ambience::sampleKeys sorts defensively anyway,
+// but the editor's key table reads in stored order, so an edited hour has to
+// re-settle the list for the UI to make sense.
+void sortDayKeys(DayCycle& c);
 
 // Index into Project::ambiencePresets of the preset a scene resolves to:
 // its named preset if it exists, otherwise the project default. -1 = none
@@ -2580,7 +2713,7 @@ std::string saveHistory(const Project& p, const History& h);
 std::string loadHistory(const Project& p, History& h);
 
 // Rewrites editor-owned files from the current templates and project data:
-// docker infra (Dockerfile, docker-compose.yml) and generated headers
+// docker infra (docker-compose.yml) and generated headers
 // (terrain_config.hpp, scene_data.hpp) are always rewritten; game sources
 // are rewritten only while they still carry the "Generated by TyraX"
 // marker in the first line (delete it to take ownership of a file).

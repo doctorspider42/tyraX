@@ -194,6 +194,13 @@ per-texel image the ambient occlusion already used:
   surfaces; the floor costs 1/128 of darkening, under one framebuffer level.
   Any future pass that shares a texture with a cutout-style one inherits this
   trap.
+- **both passes are pinned to the base pass's VU1 package size** — they draw
+  the same vertex array, and passes that split it differently can classify a
+  triangle differently against the frustum and then disagree about depth. The
+  mechanism and the measured cost are in
+  [docs/reflective-materials.md](reflective-materials.md); the same pin covers
+  the reflection pass, since a reflective *and* lightmapped object draws all
+  three over one array.
 
 Each texel is the **mean over its own footprint** (a 4×4 sub-sample grid), not
 a point sample at its centre. Shadow edges here are very nearly hard — a neon

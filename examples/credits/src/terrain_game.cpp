@@ -29,6 +29,8 @@
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
 #include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
+#include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
+#include "procedural.gen.hpp"    // runtime procedural volumes
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
@@ -37,6 +39,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <algorithm>
 #include <map>
 #include <string>
@@ -867,6 +870,24 @@ int spawnObjectThunk(int templateIndex, float x, float y, float z, float yaw) {
 void despawnObjectThunk(int objectIndex) {
   if (g_animGame) g_animGame->despawnObjectAt(objectIndex);
 }
+// Prefabs and runtime procedural volumes reach the flow graphs the same way:
+// through ScriptContext function pointers, so a generated script never needs
+// to know TerrainGame exists.
+int spawnPrefabThunk(int prefabIndex, float x, float y, float z, float yaw,
+                     float scale) {
+  return g_animGame ? g_animGame->spawnPrefabAt(prefabIndex, x, y, z, yaw, scale)
+                    : -1;
+}
+void despawnPrefabsThunk(int prefabIndex) {
+  if (g_animGame) g_animGame->despawnPrefabsNamed(prefabIndex);
+}
+void generateVolumeThunk(int volumeIndex, int seed, bool clear) {
+  if (!g_animGame) return;
+  if (clear)
+    g_animGame->procClearVolume(volumeIndex);
+  else
+    g_animGame->procGenerateVolume(volumeIndex, seed);
+}
 
 // kd: material diffuse (MTL) multiplied into the object color, null = white.
 // ke: material emission (MTL Ke), null/zero = matte - see the floor below.
@@ -1131,10 +1152,15 @@ void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  // The underside sits slightly below the top face: nothing here backface-culls
+  // (the GS draws both), so two coplanar quads with different baked shades
+  // would z-fight into a dithered mess. Offset in local units (scales with the
+  // plane), invisible from either side. Twin: primmesh::unitPlane.
+  const float b = -0.01F;
   g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
   g_aoRegion = 1;  // bottom face - atlas region 1
-  pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+  pushQuad(verts, cols, sts, o, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
 }
 
 // Decal: a flat unit quad in the XY plane facing +Z, textured via the assigned
@@ -2376,6 +2402,9 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.spawnPrefab = &spawnPrefabThunk;
+  scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
+  scriptCtx.generateVolume = &generateVolumeThunk;
 
   infoBag = std::make_unique<StaPipInfoBag>();
   infoBag->model = &model;
@@ -2895,6 +2924,31 @@ void TerrainGame::applyLayerResidency() {
       materialNeed[d.material] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
+  }
+  // Runtime procedural volumes and this scene's prefabs reference assets that
+  // NOTHING in the scene table does - the objects that would have referenced
+  // them do not exist until the console generates them. Without this the
+  // streaming frees those models immediately and generation finds nothing.
+  if (procrt::ENABLED)
+    for (int v = 0; v < procrt::VOLUME_COUNT; ++v) {
+      if (procrt::VOLUMES[v].scene != currentScene) continue;
+      int n = 0;
+      const char* const* names = procrt::volumeAssetNames(v, &n);
+      for (int i = 0; i < n; ++i)
+        for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+    }
+  for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
+    const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
+    if (pf < 0 || pf >= PREFAB_COUNT) continue;
+    for (int m = 0; m < PREFAB_COUNTS[pf]; ++m) {
+      const SceneObjectData& d = PREFAB_MEMBERS[PREFAB_FIRST[pf] + m];
+      if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
+      if (d.material >= 0 && d.material < (int)materialNeed.size())
+        materialNeed[d.material] = 1;
+      if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
+        animNeed[d.animModel] = 1;
+    }
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
@@ -3730,7 +3784,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
         o.data.type == 14 ||                       // 14 = camera marker
-        o.data.type == 17)                         // 17 = area (a volume, not a wall)
+        o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
+        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
+        o.data.type == 19)                         // 19 = scroller belt marker
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -3935,6 +3991,82 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         commitLocal(wasInsideX ? lnx : lpx, wasInsideZ ? lnz : lpz);
     }
   }
+
+  // --- generated geometry ---------------------------------------------------
+  // Merged prefab/procedural geometry has no objects behind it, so it gets its
+  // own pass over the world AABBs procAddMergedObject collected. Same rules the
+  // object box path uses - a low top is a step to walk onto, anything else is a
+  // wall that cancels the axis that entered it - just without the orientation
+  // (these are already conservative axis-aligned boxes).
+  for (const StaticBox& b : procColliders) {
+    // Cheap reject first: hundreds of boxes per frame per walker is fine only
+    // if the common case is two compares. A prefab room is tens of units wide,
+    // so a 3-unit skirt around the player's step never misses one it touches.
+    if (b.mn[0] > *nextX + 3.0F || b.mx[0] < *nextX - 3.0F ||
+        b.mn[2] > *nextZ + 3.0F || b.mx[2] < *nextZ - 3.0F)
+      continue;
+    const float headY = feetY + eyeHeight;
+    const float stepY = feetY + 0.6F;
+    if (b.mx[1] <= feetY + 0.01F || b.mn[1] >= headY) {
+      // Entirely below the feet or above the head: it can still be the floor.
+      if (b.mx[1] <= stepY && b.mx[1] > *ground && *nextX + playerRadius > b.mn[0] &&
+          *nextX - playerRadius < b.mx[0] && *nextZ + playerRadius > b.mn[2] &&
+          *nextZ - playerRadius < b.mx[2])
+        *ground = b.mx[1];
+      if (b.mn[1] >= headY && b.mn[1] < *ceiling &&
+          *nextX + playerRadius > b.mn[0] && *nextX - playerRadius < b.mx[0] &&
+          *nextZ + playerRadius > b.mn[2] && *nextZ - playerRadius < b.mx[2])
+        *ceiling = b.mn[1];
+      continue;
+    }
+    const float lo0 = b.mn[0] - playerRadius, hi0 = b.mx[0] + playerRadius;
+    const float lo2 = b.mn[2] - playerRadius, hi2 = b.mx[2] + playerRadius;
+    if (*nextX <= lo0 || *nextX >= hi0 || *nextZ <= lo2 || *nextZ >= hi2) continue;
+    if (b.mx[1] <= stepY) {  // low enough to step onto rather than be stopped by
+      if (b.mx[1] > *ground) *ground = b.mx[1];
+      continue;
+    }
+    const bool wasInsideX = prevX > lo0 && prevX < hi0;
+    const bool wasInsideZ = prevZ > lo2 && prevZ < hi2;
+    if (wasInsideX && wasInsideZ) {
+      *nextX = prevX;
+      *nextZ = prevZ;
+    } else {
+      if (!wasInsideX) *nextX = prevX;
+      if (!wasInsideZ) *nextZ = prevZ;
+    }
+  }
+
+  // --- the block world ------------------------------------------------------
+  // A block field is not made of objects, so it gets its own pass here - which
+  // is also why this is the ONE hook it needs: every walker (both players, the
+  // third-person rig, the noclip camera's ground probe) goes through
+  // collidePlayer, so the ground, the ceiling and the walls all land at once.
+  // procBlocks.active is false unless a runtime volume published a field, and
+  // then the whole block costs one branch.
+  if (procBlocks.active) {
+    // Exactly ONE block is climbable in a stride - the rule every block game
+    // uses, and the one that decides whether a landscape of cubes is walkable
+    // at all. A shorter step makes every single-block rise a wall; a longer
+    // one lets the player wade up a cliff.
+    const float step = procBlocks.cell * 1.05F;
+    // Walls, per axis, so a diagonal slides along a face instead of stopping
+    // dead in the corner. The band starts a step ABOVE the feet: anything
+    // lower is something to walk UP, not something to be stopped by - and it
+    // must never be empty, which it would be whenever a block is taller than
+    // the player (a 2-unit cube and a 1.8-unit walker is the normal case).
+    const float y0 = feetY + step;
+    const float y1 = feetY + eyeHeight > y0 ? feetY + eyeHeight : y0;
+    if (procBlockBlocks(*nextX, prevZ, y0, y1, playerRadius)) *nextX = prevX;
+    if (procBlockBlocks(*nextX, *nextZ, y0, y1, playerRadius)) *nextZ = prevZ;
+    // Ground: the top of the highest solid block under the feet (plus the step,
+    // so walking onto a one-block ledge lifts the player rather than stopping
+    // them). Ceilings come from the same column.
+    const float top = procBlockTopAt(*nextX, *nextZ, feetY + step);
+    if (top > *ground) *ground = top;
+    const float ceil = procBlockCeilAt(*nextX, *nextZ, feetY + step);
+    if (ceil < *ceiling) *ceiling = ceil;
+  }
 }
 
 // Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
@@ -4080,8 +4212,18 @@ void TerrainGame::loadScene(int sceneIndex) {
     applyLayerResidency();
     // Now the work is known: assets queued + objects to build + chunks in view.
     if (LOADING_SCREEN) {
+      // Runtime procedural generation is the one part of a load that can take
+      // a visible amount of time, so it has to be IN the denominator - a bar
+      // that reaches 100% and then sits there is worse than no bar. Eight
+      // units per volume is the same weight the pump reports back.
+      int lsProc = 0;
+      if (procrt::ENABLED)
+        for (int v = 0; v < procrt::VOLUME_COUNT; ++v)
+          if (procrt::VOLUMES[v].scene == sceneIndex &&
+              procrt::VOLUMES[v].runAtStart)
+            lsProc += 8;
       lsTotal = (int)streamQueue.size() + SCENE_OBJECT_COUNT +
-                countPendingChunks(lsFocusX, lsFocusZ);
+                countPendingChunks(lsFocusX, lsFocusZ) + lsProc;
       lsStep = lsTotal > 0 ? (lsTotal + 23) / 24 : 1;
       loadingscreen::renderFrame(engine, sceneIndex, 0.0F);  // first frame
     }
@@ -4169,6 +4311,26 @@ void TerrainGame::loadScene(int sceneIndex) {
   // streamed in above, so the reflective-material opt-out can decide here;
   // the batches themselves bake lazily on the first renderScene.
   buildStaticBatchList();
+
+  // Runtime procedural volumes + prefab instances belong to the scene that
+  // made them: nothing generated survives a switch (the geometry references
+  // this scene's models and its block field is this scene's ground).
+  procChunks.clear();
+  procColliders.clear();
+  prefabInstances.clear();
+  procBlocks.active = false;
+  procBlocks.col.clear();
+  if (procrt::ENABLED) {
+    for (int v = 0; v < procrt::VOLUME_COUNT; ++v) {
+      if (procrt::VOLUMES[v].scene != currentScene) continue;
+      if (!procrt::VOLUMES[v].runAtStart) continue;
+      // Generation is the one part of a load that can take a visible amount of
+      // time, so it reports into the same progress pump the asset streaming
+      // uses instead of freezing on the last drawn frame.
+      procGenerateVolume(v, 0);
+      lsPump(8);
+    }
+  }
 
   // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
   // before the lazy geometry rebuild binds them to the glass quads.
@@ -4647,7 +4809,8 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14 || o.data.type == 17)
+        o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
+        o.data.type == 19)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -6839,7 +7002,7 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     if (!o.active || !o.visible) continue;
     const int ty = o.data.type;
     if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14 || ty == 17)
+        ty == 13 || ty == 14 || ty == 17 || ty == 18)
       continue;  // markers / emitters / decals / areas / the avatar - not blockers
     if (o.data.collision == 2) continue;  // "none": the sweep passes through
     if (sweepPassOn) {
@@ -7483,11 +7646,47 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+  u32 size = 0;
+  for (Tyra::StaPipBag* b : bags) {
+    if (!b || b->count == 0) continue;
+    b->packageSize = 0;  // ask for the DERIVED size, not the last pin
+    const u32 s = stapip.core.getMaxVertCountByBag(b);
+    if (s != 0 && (size == 0 || s < size)) size = s;
+  }
+  if (size == 0) return;
+  for (Tyra::StaPipBag* b : bags)
+    if (b && b->count != 0) b->packageSize = size;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.matrixMode = localSpace;
+  o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
@@ -7638,6 +7837,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         if (DEBUG_SHOW_AREAS)
           addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
         break;
+      case 18: break;  // scatter volume - editor authoring region only
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -7702,6 +7902,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
         break;
       }
+      case 19: break;  // scroller - invisible belt marker (drives clones)
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -7991,6 +8192,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->color = part.colorBag.get();
       part.bag->lighting = nullptr;
     }
+
+    // Last, once every bag of this part has its final program shape (the
+    // dyn-lit swap above changes the base bag's): give the base pass and its
+    // coplanar companions ONE package size. LOD tiers only re-aim the
+    // pointers, never the program class, so this pin survives applyGeoLod.
+    pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
+                    part.emisBag.get()});
   }
   g_litNormals = nullptr;
   if (needsLitSeed) fillDynLitColors(index);
@@ -8417,6 +8625,563 @@ void TerrainGame::renderStaticBatches() {
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
     stapip.core.render(b.bag.get());
   }
+}
+
+// ---------------------------------------------------------------------------
+// Runtime procedural volumes and prefab instances
+// (docs/procedural-runtime.md, docs/prefabs.md)
+// ---------------------------------------------------------------------------
+// Both end in ProcChunk: world-space vertex bags the GAME built, drawn like a
+// static batch. The merge is not an optimization here, it is the feature - a
+// static submit costs ~1 ms of fixed EE time whatever it holds, so "500 cubes"
+// has to become a handful of bags before it can exist at all.
+
+// Which face of a unit cube a vertex normal points along, or -1. Blocks Fill
+// hands every instance a 6-bit mask of the faces a neighbour does NOT cover;
+// this is how a merged mesh honours it. Any axis-aligned source face works -
+// nothing about it is cube-specific - and a mesh with no axis-aligned faces
+// simply never matches and is merged whole.
+// terrainHeightAtScene takes the scene index; the generated evaluator wants a
+// plain height function it can call from anywhere, so this is the adapter.
+static float procTerrainY(float x, float z) {
+  return terrainHeightAtScene(g_activeScene, x, z);
+}
+
+// Does MODEL_SOURCES[m] name this asset? The generated evaluator stores asset
+// SLOTS and resolves them by source path once per generation - the model table
+// is keyed on (source, .mtl override) and a procedural asset never carries an
+// override, so the first source match is the right one.
+static bool modelSourceMatches(int m, const char* srcPath) {
+  return m >= 0 && m < MODEL_COUNT && !strcmp(MODEL_SOURCES[m], srcPath);
+}
+
+static int faceOfNormal(float nx, float ny, float nz) {
+  const float t = 0.85F;
+  if (nx > t) return 0;
+  if (nx < -t) return 1;
+  if (ny > t) return 2;
+  if (ny < -t) return 3;
+  if (nz > t) return 4;
+  if (nz < -t) return 5;
+  return -1;
+}
+
+void TerrainGame::procAddMergedObject(int owner, int instance,
+                                      const SceneObjectData& d,
+                                      unsigned char faces) {
+  const float cell =
+      owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
+  const int cx = (int)floorf(d.position[0] / cell);
+  const int cz = (int)floorf(d.position[2] / cell);
+
+  // Analytic lights are pruned PER OBJECT (pushVert reads the g_*Local lists),
+  // exactly as rebuildStaticBatch does for its members - collecting once for a
+  // whole chunk would shade every instance with the first one's neighbours.
+  {
+    const float sx = d.scale[0], sy = d.scale[1], sz = d.scale[2];
+    const float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+    aoCollectLocal(d.position[0], d.position[1], d.position[2], rad, -1);
+    emisCollectLocal(d.position[0], d.position[1], d.position[2], rad, -1);
+  }
+  // Generated geometry never carries a lightmap region: the atlas is baked per
+  // authored object and this object did not exist at bake time. The probe grid
+  // is what lights it, and these are globals, so state them rather than
+  // inheriting whatever the last rebuild left set.
+  g_aoAtlas = false;
+  g_emisAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = d.type == 5;
+  g_giLightmap = false;
+  g_giProbeShade = SCENE_PROBES != nullptr;
+  g_litNormals = nullptr;
+  g_envNormals = nullptr;
+  g_bakeLocal = false;
+
+  if (d.collision != 2) {
+    // Conservative world AABB of the (possibly yawed) box: the largest extent
+    // wins on each axis, so a rotated wall is never smaller than it looks.
+    const float ex = 0.5F * fabsf(d.scale[0]);
+    const float ey = 0.5F * fabsf(d.scale[1]);
+    const float ez = 0.5F * fabsf(d.scale[2]);
+    const float rad = d.rotation[1] * 0.01745329F;
+    const float ca = fabsf(cosf(rad)), sa = fabsf(sinf(rad));
+    const float wx = ex * ca + ez * sa;
+    const float wz = ex * sa + ez * ca;
+    StaticBox b;
+    b.mn[0] = d.position[0] - wx;
+    b.mx[0] = d.position[0] + wx;
+    b.mn[1] = d.position[1] - ey;
+    b.mx[1] = d.position[1] + ey;
+    b.mn[2] = d.position[2] - wz;
+    b.mx[2] = d.position[2] + wz;
+    b.owner = (short)owner;
+    b.instance = (short)instance;
+    procColliders.push_back(b);
+  }
+
+  auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
+    for (ProcChunk& c : procChunks)
+      if (c.owner == owner && c.instance == instance && c.model == model &&
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz)
+        return c;
+    procChunks.emplace_back();
+    ProcChunk& c = procChunks.back();
+    c.owner = owner;
+    c.instance = instance;
+    c.model = model;
+    c.part = part;
+    c.material = material;
+    c.cx = cx;
+    c.cz = cz;
+    c.drawDist = owner >= 0 ? procrt::VOLUMES[owner].drawDist : 0.0F;
+    return c;
+  };
+
+  if (d.type == 5) {
+    if (d.model < 0 || d.model >= (int)gameModels.size()) return;
+    const GameModel& gm = gameModels[d.model];
+    for (int pi = 0; pi < (int)gm.parts.size(); ++pi) {
+      const GameModelPart& src = gm.parts[pi];
+      if (src.verts.empty()) continue;
+      ProcChunk& c = chunkFor(d.model, pi, -1);
+      const bool textured = src.texture != nullptr;
+      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      // Whole triangles, so a dropped face takes all of its triangles with it.
+      for (size_t i = 0; i + 23 < src.verts.size(); i += 24) {
+        if (faces != 63) {
+          const float* v0 = &src.verts[i];
+          const int f = faceOfNormal(v0[3], v0[4], v0[5]);
+          if (f >= 0 && !(faces & (1 << f))) continue;
+        }
+        for (int k = 0; k < 3; ++k) {
+          const float* v = &src.verts[i + k * 8];
+          pushVert(c.vertices, c.colors, c.sts, d, {v[0], v[1], v[2]},
+                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
+                   hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255,
+                   src.ke);
+        }
+      }
+    }
+    return;
+  }
+
+  const GameMaterial* gmat =
+      (d.material >= 0 && d.material < (int)gameMaterials.size())
+          ? &gameMaterials[d.material]
+          : nullptr;
+  ProcChunk& c = chunkFor(-1, 0, d.material);
+  g_primKd = gmat ? gmat->kd : nullptr;
+  g_primKe = gmat ? gmat->ke : nullptr;
+  g_primTextured = gmat && gmat->texture;
+  g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
+  switch (d.type) {
+    case 1: addSphere(c.vertices, c.colors, c.sts, d); break;
+    case 2: addCylinder(c.vertices, c.colors, c.sts, d); break;
+    case 3: addCone(c.vertices, c.colors, c.sts, d); break;
+    case 12: addPlane(c.vertices, c.colors, c.sts, d); break;
+    default: addBox(c.vertices, c.colors, c.sts, d); break;
+  }
+  g_primKd = nullptr;
+  g_primKe = nullptr;
+  g_primTextured = false;
+  g_primUvRect = nullptr;
+}
+
+// Wires the bags of every chunk that gained vertices and computes its box.
+// Called once after a generation pass rather than per instance: a bag pointing
+// at a vector that is still growing is a dangling pointer the moment it
+// reallocates.
+void TerrainGame::procFinishChunks() {
+  g_giProbeShade = false;
+  // The batch info bag is shared with the static batcher, but that one is only
+  // built when static batching is on - generated geometry needs it either way.
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  for (ProcChunk& c : procChunks) {
+    if (c.vertices.empty()) {
+      c.bag.reset();
+      continue;
+    }
+    if (!c.bag) {
+      c.colorBag = std::make_unique<StaPipColorBag>();
+      c.bag = std::make_unique<StaPipBag>();
+      c.bag->info = batchInfoBag.get();
+      c.bag->color = c.colorBag.get();
+      c.bag->lighting = nullptr;
+    }
+    c.colorBag->many = c.colors.data();
+    c.bag->vertices = c.vertices.data();
+    c.bag->count = static_cast<u32>(c.vertices.size());
+    c.bag->bboxVersion = ++g_bboxStamp;
+    const Tyra::Texture* tex = nullptr;
+    if (c.model >= 0 && c.model < (int)gameModels.size() &&
+        c.part < (int)gameModels[c.model].parts.size())
+      tex = gameModels[c.model].parts[c.part].texture;
+    else if (c.material >= 0 && c.material < (int)gameMaterials.size())
+      tex = gameMaterials[c.material].texture;
+    if (tex) {
+      if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
+      c.texBag->texture = const_cast<Tyra::Texture*>(tex);
+      c.texBag->coordinates = c.sts.data();
+      c.bag->texture = c.texBag.get();
+    } else {
+      c.bag->texture = nullptr;
+    }
+    c.aabbMin[0] = c.aabbMax[0] = c.vertices[0].x;
+    c.aabbMin[1] = c.aabbMax[1] = c.vertices[0].y;
+    c.aabbMin[2] = c.aabbMax[2] = c.vertices[0].z;
+    for (const Vec4& v : c.vertices) {
+      if (v.x < c.aabbMin[0]) c.aabbMin[0] = v.x;
+      if (v.x > c.aabbMax[0]) c.aabbMax[0] = v.x;
+      if (v.y < c.aabbMin[1]) c.aabbMin[1] = v.y;
+      if (v.y > c.aabbMax[1]) c.aabbMax[1] = v.y;
+      if (v.z < c.aabbMin[2]) c.aabbMin[2] = v.z;
+      if (v.z > c.aabbMax[2]) c.aabbMax[2] = v.z;
+    }
+    for (int a = 0; a < 3; ++a)
+      c.centre[a] = 0.5F * (c.aabbMin[a] + c.aabbMax[a]);
+  }
+}
+
+void TerrainGame::renderProcChunks() {
+  if (procChunks.empty()) return;
+  for (ProcChunk& c : procChunks) {
+    if (!c.bag || c.bag->count == 0) continue;
+    // Per-chunk draw distance: the cheapest LOD there is, and the reason
+    // chunk size is a real authoring decision rather than a detail.
+    if (c.drawDist > 0.0F) {
+      const float dx = c.centre[0] - cameraPosition.x;
+      const float dy = c.centre[1] - cameraPosition.y;
+      const float dz = c.centre[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
+    }
+    if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    stapip.core.render(c.bag.get());
+  }
+}
+
+// --- the block collision field ---------------------------------------------
+// A block world's ground is not the terrain heightmap, so the walker needs a
+// second source. It is one bitfield lookup: the column word says which levels
+// are solid, and the three queries below are the whole contract collidePlayer
+// needs (a floor under the feet, a ceiling over the head, and a wall in the
+// way). Everything folds away when no volume publishes a field.
+bool TerrainGame::procBlockSolid(float x, float y, float z) const {
+  if (!procBlocks.active) return false;
+  const int ix = (int)floorf((x - procBlocks.ox) / procBlocks.cell);
+  const int iz = (int)floorf((z - procBlocks.oz) / procBlocks.cell);
+  if (ix < 0 || iz < 0 || ix >= procBlocks.nx || iz >= procBlocks.nz) return false;
+  const int iy = (int)floorf((y - procBlocks.baseY) / procBlocks.cell);
+  if (iy < 0 || iy >= 32) return false;
+  return (procBlocks.col[iz * procBlocks.nx + ix] & (1u << iy)) != 0u;
+}
+
+float TerrainGame::procBlockTopAt(float x, float z, float maxY) const {
+  if (!procBlocks.active) return -1e30F;
+  const int ix = (int)floorf((x - procBlocks.ox) / procBlocks.cell);
+  const int iz = (int)floorf((z - procBlocks.oz) / procBlocks.cell);
+  if (ix < 0 || iz < 0 || ix >= procBlocks.nx || iz >= procBlocks.nz) return -1e30F;
+  unsigned int m = procBlocks.col[iz * procBlocks.nx + ix];
+  if (!m) return -1e30F;
+  int hi = (int)floorf((maxY - procBlocks.baseY) / procBlocks.cell);
+  if (hi > 31) hi = 31;
+  for (int iy = hi; iy >= 0; --iy)
+    if (m & (1u << iy))
+      return procBlocks.baseY + (float)(iy + 1) * procBlocks.cell;
+  return -1e30F;
+}
+
+float TerrainGame::procBlockCeilAt(float x, float z, float minY) const {
+  if (!procBlocks.active) return 1e30F;
+  const int ix = (int)floorf((x - procBlocks.ox) / procBlocks.cell);
+  const int iz = (int)floorf((z - procBlocks.oz) / procBlocks.cell);
+  if (ix < 0 || iz < 0 || ix >= procBlocks.nx || iz >= procBlocks.nz) return 1e30F;
+  const unsigned int m = procBlocks.col[iz * procBlocks.nx + ix];
+  if (!m) return 1e30F;
+  int lo = (int)floorf((minY - procBlocks.baseY) / procBlocks.cell) + 1;
+  if (lo < 0) lo = 0;
+  for (int iy = lo; iy < 32; ++iy)
+    if (m & (1u << iy)) return procBlocks.baseY + (float)iy * procBlocks.cell;
+  return 1e30F;
+}
+
+bool TerrainGame::procBlockBlocks(float x, float z, float y0, float y1,
+                                  float r) const {
+  if (!procBlocks.active) return false;
+  // Four corners of the player's box plus its centre: cheaper than a swept
+  // test and, at a block size of a metre or more, indistinguishable from one.
+  const float ox[5] = {0.0F, r, -r, r, -r};
+  const float oz[5] = {0.0F, r, r, -r, -r};
+  for (int k = 0; k < 5; ++k)
+    for (float y = y0; y <= y1 + 0.001F; y += procBlocks.cell * 0.5F)
+      if (procBlockSolid(x + ox[k], y, z + oz[k])) return true;
+  return false;
+}
+
+// --- generation -------------------------------------------------------------
+void TerrainGame::procClearVolume(int volume) {
+  for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+    if (procColliders[i].owner == volume)
+      procColliders.erase(procColliders.begin() + i);
+  // Prefab instances this volume spawned go with it - their merged geometry
+  // lives in the volume's own chunks, and their spawned members would
+  // otherwise leak a pool slot per regeneration.
+  for (int i = 0; i < (int)prefabInstances.size(); ++i)
+    if (prefabInstances[i].prefab >= 0 && prefabInstances[i].owner == volume)
+      despawnPrefabInstance(i);
+  for (int i = (int)procChunks.size() - 1; i >= 0; --i)
+    if (procChunks[i].owner == volume) procChunks.erase(procChunks.begin() + i);
+  if (volume >= 0 && volume < procrt::VOLUME_COUNT &&
+      procrt::VOLUMES[volume].hasBlocks)
+    procBlocks.active = false;
+}
+
+void TerrainGame::procGenerateVolume(int volume, int seed) {
+  if (!procrt::ENABLED) return;
+  if (volume < 0 || volume >= procrt::VOLUME_COUNT) return;
+  const procrt::VolumeDef& V = procrt::VOLUMES[volume];
+  if (V.scene != currentScene) return;
+  if (V.objectIndex < 0 || V.objectIndex >= SCENE_OBJECT_COUNT) return;
+  procClearVolume(volume);
+
+  // Resolve the asset/prefab slots by name once - the generated code stores
+  // slots, not paths, and the model table is per project.
+  {
+    int n = 0;
+    const char* const* names = procrt::volumeAssetNames(volume, &n);
+    short* slots = procrt::volumeAssetSlots(volume);
+    for (int i = 0; i < n && slots; ++i) {
+      slots[i] = -1;
+      for (int m = 0; m < MODEL_COUNT; ++m)
+        if (modelSourceMatches(m, names[i])) {
+          slots[i] = (short)m;
+          break;
+        }
+      if (slots[i] < 0)
+        TYRA_LOG("Procedural: no model for asset ", names[i]);
+    }
+    names = procrt::volumePrefabNames(volume, &n);
+    slots = procrt::volumePrefabSlots(volume);
+    for (int i = 0; i < n && slots; ++i) {
+      slots[i] = -1;
+      for (int k = 0; k < PREFAB_COUNT; ++k)
+        if (!strcmp(PREFAB_NAMES[k], names[i])) {
+          slots[i] = (short)k;
+          break;
+        }
+    }
+  }
+
+  const SceneObjectData& vd = SCENE_OBJECTS[V.objectIndex];
+  static std::vector<procrt::Pt> buf;
+  static std::vector<unsigned int> cols;
+  const int cap = V.maxInstances < procrt::MAX_INSTANCES ? V.maxInstances
+                                                         : procrt::MAX_INSTANCES;
+  buf.resize((size_t)cap);
+  if (procrt::BLOCK_COLUMNS > 0) cols.assign((size_t)procrt::BLOCK_COLUMNS, 0u);
+
+  procrt::Ctx c;
+  c.terrainY = &procTerrainY;
+  for (int a = 0; a < 3; ++a) {
+    c.volPos[a] = vd.position[a];
+    c.volScale[a] = fabsf(vd.scale[a]) < 0.01F ? 0.01F : fabsf(vd.scale[a]);
+  }
+  c.volYaw = vd.rotation[1];
+  {
+    // Axis-aligned footprint of the yawed box - the rectangle every lattice
+    // and every mask is anchored on (the host's procgen::Volume twin).
+    const float rad = c.volYaw * 0.01745329F;
+    const float ca = fabsf(cosf(rad)), sa = fabsf(sinf(rad));
+    const float ex = 0.5F * (c.volScale[0] * ca + c.volScale[2] * sa);
+    const float ez = 0.5F * (c.volScale[0] * sa + c.volScale[2] * ca);
+    c.footX0 = c.volPos[0] - ex;
+    c.footZ0 = c.volPos[2] - ez;
+    c.footX = 2.0F * ex;
+    c.footZ = 2.0F * ez;
+  }
+  c.mapW = (float)TERRAIN_WIDTH;
+  c.mapD = (float)TERRAIN_DEPTH;
+  if (seed > 0) {
+    c.seed = (unsigned int)seed;
+  } else if (seed < 0 || V.seedMode == 1) {
+    // A fresh world per run. The console's clock is the only entropy there is
+    // at scene load - it moves with how long the boot took, which is a few
+    // milliseconds of jitter, not a lot. Regenerating from a flow node the
+    // PLAYER fired is where a genuinely different world comes from, and that
+    // is what the examples do; folding the volume index in keeps two volumes
+    // in one scene off the same stream either way.
+    c.seed = (unsigned int)clock() * 2654435761u + (unsigned)volume * 40503u +
+             animLodTick * 2246822519u + 0x9e3779b9u;
+    if (c.seed == 0) c.seed = 1u;
+  } else {
+    c.seed = V.seed;
+  }
+  c.buf = buf.data();
+  c.cap = cap;
+  c.count = 0;
+  c.blockCol = cols.empty() ? nullptr : cols.data();
+  c.blockCap = (int)cols.size();
+  c.blockNx = c.blockNz = c.blockLevels = 0;
+  c.blockOx = c.blockOz = c.blockBaseY = 0.0F;
+  c.blockCell = 1.0F;
+
+  const int count = procrt::generate(volume, c);
+  TYRA_LOG("Procedural ", V.name, ": ", count, " instances, seed ",
+           (int)c.seed);
+  if (count >= cap)
+    TYRA_LOG("Procedural ", V.name,
+             ": instance cap reached - raise the Output node runtime cap");
+
+  if (V.hasBlocks && c.blockNx > 0) {
+    procBlocks.active = true;
+    procBlocks.nx = c.blockNx;
+    procBlocks.nz = c.blockNz;
+    procBlocks.levels = c.blockLevels;
+    procBlocks.ox = c.blockOx;
+    procBlocks.oz = c.blockOz;
+    procBlocks.cell = c.blockCell;
+    procBlocks.baseY = c.blockBaseY;
+    procBlocks.col.assign(cols.begin(),
+                          cols.begin() + (size_t)c.blockNx * c.blockNz);
+  }
+
+  const short* assetSlots = procrt::volumeAssetSlots(volume);
+  const short* prefabSlots = procrt::volumePrefabSlots(volume);
+  SceneObjectData d = SCENE_OBJECTS[V.objectIndex];
+  d.type = 5;
+  d.layer = -1;
+  d.saveState = 0;
+  d.collision = V.collide == 1 ? 0 : 2;
+  d.drawDistance = 0.0F;
+  d.material = -1;
+  d.color[0] = d.color[1] = d.color[2] = 1.0F;
+  d.primDetail = 1;
+  for (int i = 0; i < count; ++i) {
+    const procrt::Pt& P = c.buf[i];
+    if (P.prefab >= 0) {
+      const int pf = prefabSlots ? prefabSlots[P.prefab] : -1;
+      if (pf >= 0) spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume);
+      continue;
+    }
+    if (P.asset < 0 || !assetSlots) continue;
+    const int model = assetSlots[P.asset];
+    if (model < 0) continue;
+    d.model = model;
+    d.position[0] = P.x;
+    d.position[1] = P.y;
+    d.position[2] = P.z;
+    d.rotation[0] = P.rx;
+    d.rotation[1] = P.ry;
+    d.rotation[2] = P.rz;
+    d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
+    procAddMergedObject(volume, -1, d, P.faces);
+  }
+  procFinishChunks();
+}
+
+// --- prefab instances -------------------------------------------------------
+int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
+                               float yaw, float scale, int mergeOwner) {
+  if (PREFAB_COUNT <= 0) return -1;
+  if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
+  const float s = scale > 0.0001F ? scale : 1.0F;
+  int handle = -1;
+  for (int i = 0; i < (int)prefabInstances.size(); ++i)
+    if (prefabInstances[i].prefab < 0) {
+      handle = i;
+      break;
+    }
+  if (handle < 0) {
+    if ((int)prefabInstances.size() >= MAX_PREFAB_INSTANCES) {
+      TYRA_LOG("Spawn Prefab: instance pool full");
+      return -1;
+    }
+    prefabInstances.emplace_back();
+    handle = (int)prefabInstances.size() - 1;
+  }
+  PrefabInstance& inst = prefabInstances[handle];
+  inst.prefab = prefabIndex;
+  inst.owner = mergeOwner;
+  inst.spawnCount = 0;
+
+  const float rad = yaw * 0.01745329F;
+  const float ca = cosf(rad), sa = sinf(rad);
+  const int first = PREFAB_FIRST[prefabIndex];
+  const int n = PREFAB_COUNTS[prefabIndex];
+  bool merged = false;
+  for (int k = 0; k < n; ++k) {
+    SceneObjectData d = PREFAB_MEMBERS[first + k];
+    const float lx = d.position[0] * s, ly = d.position[1] * s,
+                lz = d.position[2] * s;
+    d.position[0] = x + lx * ca + lz * sa;
+    d.position[1] = y + ly;
+    d.position[2] = z - lx * sa + lz * ca;
+    d.rotation[1] += yaw;
+    for (int a = 0; a < 3; ++a) d.scale[a] *= s;
+    if (PREFAB_MERGE[first + k]) {
+      procAddMergedObject(mergeOwner, mergeOwner >= 0 ? -1 : handle, d, 63);
+      merged = true;
+      continue;
+    }
+    // Everything that needs an identity of its own goes through the ordinary
+    // clone pool - which is also what bounds how many such members a prefab
+    // can afford (see docs/prefabs.md).
+    if (inst.spawnCount >= 8) continue;
+    int slot = -1;
+    for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i)
+      if (!runtimeObjects[i].active) {
+        slot = i;
+        break;
+      }
+    if (slot < 0) {
+      TYRA_LOG("Spawn Prefab: clone pool full");
+      break;
+    }
+    RuntimeObject& o = runtimeObjects[slot];
+    o = RuntimeObject();
+    o.data = d;
+    o.visible = d.type != 4 && d.type != 6 && !(d.type == 7 && !d.emitEnabled);
+    o.dirty = true;
+    objectGeometry[slot] = ObjectGeometry();
+    setupAnimObject(slot);
+    if (d.type == 7) buildParticles();
+    inst.spawned[inst.spawnCount++] = slot;
+  }
+  if (merged) procFinishChunks();
+  applyLayerResidency();
+  return handle;
+}
+
+void TerrainGame::despawnPrefabInstance(int handle) {
+  if (handle < 0 || handle >= (int)prefabInstances.size()) return;
+  PrefabInstance& inst = prefabInstances[handle];
+  if (inst.prefab < 0) return;
+  for (int i = 0; i < inst.spawnCount; ++i) {
+    const int slot = inst.spawned[i];
+    if (slot >= SCENE_OBJECT_COUNT && slot < (int)runtimeObjects.size())
+      deactivateObject(slot);
+  }
+  inst.spawnCount = 0;
+  inst.prefab = -1;
+  for (int i = (int)procChunks.size() - 1; i >= 0; --i)
+    if (procChunks[i].owner < 0 && procChunks[i].instance == handle)
+      procChunks.erase(procChunks.begin() + i);
+  for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+    if (procColliders[i].owner < 0 && procColliders[i].instance == handle)
+      procColliders.erase(procColliders.begin() + i);
+  applyLayerResidency();
+}
+
+void TerrainGame::despawnPrefabsNamed(int prefabIndex) {
+  for (int i = 0; i < (int)prefabInstances.size(); ++i)
+    if (prefabInstances[i].prefab >= 0 &&
+        (prefabIndex < 0 || prefabInstances[i].prefab == prefabIndex))
+      despawnPrefabInstance(i);
 }
 
 // Scripted continuous rotation (the Spin Object flow node). Kept OUT of the
@@ -9182,6 +9947,10 @@ void TerrainGame::renderScene() {
   // primitives (rebuilt first when a member changed). Opaque z-tested
   // geometry, so drawing before the solo objects is order-free.
   renderStaticBatches();
+  // Runtime-generated geometry (procedural volumes, prefab instances) - the
+  // same deal one step further: the game built these bags itself, so they need
+  // no per-object bookkeeping at all, only a distance test and a submit.
+  renderProcChunks();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -9214,7 +9983,19 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
-    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Something that moves EVERY frame asked for the matrix path (an endless
+    // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
+    // bake buys it a whole belt's worth of per-frame motion at the price of a
+    // matrix refresh; without it a running belt re-bakes every clone's world
+    // vertices every frame, which is what held the endless-runner example at
+    // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
+    // itself on the frame it asks, and a world-space rebuild would clear the
+    // flag and leave it asking again forever.
+    if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
+        physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    else if (runtimeObjects[i].dirty)
+      rebuildObjectGeometry(i);
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
@@ -11756,6 +12537,20 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {
     ch.emisBag.reset();
+  }
+
+  // Every pass above draws ch.vertices, so they all have to split it the same
+  // way - an untextured terrain base under textured layer/lightmap passes is
+  // the exact split that makes baked shadows fight z-index with the ground.
+  {
+    std::vector<Tyra::StaPipBag*> pins;
+    pins.reserve(3 + ch.layerPasses.size());
+    pins.push_back(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      pins.push_back(lp.bag.get());
+    pins.push_back(ch.aoBag.get());
+    pins.push_back(ch.emisBag.get());
+    pinPackageSize(pins);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

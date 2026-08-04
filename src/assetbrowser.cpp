@@ -398,6 +398,9 @@ void App::rebuildAssetUsage() {
             note(img.path, 2, "menu \"" + m.name + "\"");
     for (const GameFont& f : project_.fonts)
         if (!f.fontPath.empty()) note(f.fontPath, 2, "font \"" + f.name + "\"");
+    for (const AmbiencePreset& a : project_.ambiencePresets)
+        if (!a.cycle.moonTexture.empty())
+            note(a.cycle.moonTexture, 2, "moon texture of ambience \"" + a.name + "\"");
 
     // A LOD tier is a real reference: another model's chain points at that file.
     // What is deliberately NOT counted anywhere here is per-asset SETTINGS -
@@ -632,6 +635,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (GameMenu& m : project_.menus)
         for (MenuImage& img : m.images) swap(img.path);
     for (GameFont& f : project_.fonts) swap(f.fontPath);
+    // A day/night cycle's moon texture (docs/day-night-cycle.md).
+    for (AmbiencePreset& a : project_.ambiencePresets) swap(a.cycle.moonTexture);
 
     for (std::string& m : project_.music) swap(m);
     for (std::string& s : project_.sounds) swap(s);

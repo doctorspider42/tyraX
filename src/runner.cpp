@@ -60,12 +60,12 @@ void Runner::appendLine(const std::string& line) {
     log_ += '\n';
 }
 
-void Runner::buildAndRun(const Project& p, bool runEmulator) {
+void Runner::buildAndRun(const Project& p, bool runEmulator, bool rebuild) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false);
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, rebuild);
 }
 
 void Runner::runEmulatorOnly(const Project& p) {
@@ -73,15 +73,15 @@ void Runner::runEmulatorOnly(const Project& p) {
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, false, true, false);
+    thread_ = std::thread(&Runner::worker, this, p, false, true, false, false);
 }
 
-void Runner::buildAndRunPs2(const Project& p, bool build) {
+void Runner::buildAndRunPs2(const Project& p, bool build, bool rebuild) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, build, true, true);
+    thread_ = std::thread(&Runner::worker, this, p, build, true, true, rebuild);
 }
 
 void Runner::clean(const Project& p) {
@@ -415,6 +415,62 @@ void Runner::killPs2Client() {
     if (ps2Pump_.joinable()) ps2Pump_.join();
 }
 
+// Resets ps2link, and reports whatever the console says while it happens -
+// WITHOUT treating silence as a verdict.
+//
+// `ps2client reset` is fire-and-forget UDP, so this used to run a ps2client in
+// `listen` mode as a witness and retry the command until something came back.
+// That was right when a reset still printed "unmounting" from the IOP side;
+// ps2link r4 stopped unmounting anything (there is no reboot there to unmount
+// for any more) and narrates the restart on the console's own screen instead,
+// so a perfectly good reset now says nothing at all over the network. Reading
+// that as "the console is hung" made the editor refuse to deploy to a healthy
+// console - a false negative that is much worse than the missing signal it was
+// meant to replace, because it blocks the thing it was checking.
+//
+// So: send it once, keep the listener because its output is genuinely useful
+// when there is any, and let the caller's own timeout be the judge of a dead
+// console - the execee that follows a deploy already reports one within 15 s.
+//
+// The caller is expected to have killed the deploy's file server first: a game
+// polling host: every frame (Remote Pad, Live Link, the time machine) both
+// keeps the IOP busy and holds the tty port this listener needs.
+Runner::ResetResult Runner::resetPs2Link(const Project& p) {
+    const std::string client = findPs2Client();
+
+    platform::Process::Options opts;
+    opts.capture = true;
+    std::shared_ptr<platform::Process> listener = platform::Process::start(
+        platform::shellArg(client) + " -h " + p.ps2LinkIp + " listen", opts);
+    std::atomic<int> heard{0};
+    std::thread pump;
+    if (listener) {
+        pump = std::thread([this, listener, &heard] {
+            std::string line;
+            while (listener->readLine(line)) {
+                appendLine("[ps2] " + line);
+                heard++;
+            }
+        });
+    }
+
+    ResetResult out = ResetResult::Sent;
+    if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset",
+             "") != 0) {
+        out = ResetResult::Failed;
+    } else {
+        // Long enough to catch anything the console does say, short enough not
+        // to be a tax on every deploy. The settle wait belongs to the caller.
+        for (int i = 0; i < 8 && heard.load() == 0 && !cancelRequested_; i++)
+            platform::sleepMs(250);
+        if (heard.load() > 0) out = ResetResult::Answered;
+    }
+
+    if (listener) listener->kill();
+    if (pump.joinable()) pump.join();
+    return out;
+}
+
 void Runner::stopPs2(const Project& p) {
     if (busy()) return;
     join();
@@ -422,49 +478,19 @@ void Runner::stopPs2(const Project& p) {
     state_ = State::Running;
     thread_ = std::thread([this, p] {
         appendLine("[editor] Stopping the game on the PS2...");
-        // Kill the file server (ours by handle, strays by name) - the game
-        // loses host: - then reset ps2link so the console reboots back into
-        // its listening state instead of hanging on dead file handles.
+        // The file server goes first: the game loses host: (and stops flooding
+        // the IOP with per-frame polls, which is what the reset has to cut
+        // through), and the tty port is freed for the listener resetPs2Link
+        // runs to hear the console with.
         killPs2Client();
         exec(platform::killByName({"ps2client"}), "");
         if (!p.ps2LinkIp.empty()) {
-            const std::string client = findPs2Client();
-            exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset", "");
-            // The SPU2 keeps looping voices and the stalled autodma buffer
-            // independently of the IOP, so the reset alone leaves sfx
-            // playing. Run the silencer for a moment: it loads audsrv on
-            // the fresh IOP and audsrv_init() keys everything off.
-            const std::string silencer =
-                findTool((fs::path("silencer") / "silencer.elf").string());
-            if (!silencer.empty()) {
-                for (int i = 0; i < 12 && !cancelRequested_; i++) platform::sleepMs(250);
-                const std::string dir = fs::path(silencer).parent_path().string();
-                // Spawn the execee file server WITHOUT capturing its output.
-                // The silencer's file server never exits on its own, so a
-                // captured pipe would never reach EOF and exec()'s read loop
-                // would block forever - hanging Stop at "Executing file
-                // host:...elf" and leaving the build stuck Running. Launch it,
-                // give the silencer a few seconds to load audsrv and reset the
-                // SPU, then kill the file server ourselves.
-                appendLine("[editor] Silencing the SPU (host:silencer.elf)...");
-                const std::string cmd = platform::shellArg(client) + " -h " +
-                                        p.ps2LinkIp + " execee host:silencer.elf";
-                platform::Process::Options opts;
-                opts.cwd = dir;
-                if (auto proc = platform::Process::start(cmd, opts)) {
-                    for (int i = 0; i < 16 && !cancelRequested_; i++) platform::sleepMs(250);
-                    proc->kill();
-                } else {
-                    appendLine("[editor] Failed to start: " + cmd);
-                }
-                // Belt and suspenders: reap the just-killed server and any stray.
-                exec(platform::killByName({"ps2client"}), "");
-                appendLine("[editor] SPU silenced; ps2link is listening again.");
-            } else {
-                appendLine("[editor] ps2link reset - the console is listening "
-                           "again (tools/silencer/silencer.elf not found, so "
-                           "looping sounds keep playing until the next deploy).");
-            }
+            if (resetPs2Link(p) == ResetResult::Failed)
+                appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
+            else
+                appendLine("[editor] Reset sent - the console should be back in "
+                           "ps2link. (r4 restarts without saying anything over the "
+                           "network; it narrates it on the TV.)");
         }
         state_ = State::Success;
     });
@@ -498,9 +524,21 @@ bool Runner::deployToPs2(const Project& p) {
 
     // One file server at a time: kill the previous deploy's ps2client (ours
     // by handle, strays by name - a leftover from a crashed editor would hold
-    // the TCP 18193 listener and starve this one).
+    // the local tty port and starve this one). It also has to be gone before
+    // the reset: see resetPs2Link.
     killPs2Client();
     exec(platform::killByName({"ps2client"}), "");
+
+    // Reset exactly like Stop does, and do not launch into a console that
+    // never answered - the execee would just sit there until the 15 s timeout
+    // below and report a firewall problem that isn't one.
+    appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
+    if (resetPs2Link(p) == ResetResult::Failed) {
+        appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
+                   " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
+                   "Edit > Preferences.)");
+        return false;
+    }
 
     // Same as the PCSX2 path: the game appends TYRA_LOG to bin/log.txt over
     // host: (here: over the network); drop the stale file for the Debug window.
@@ -523,17 +561,13 @@ bool Runner::deployToPs2(const Project& p) {
     else
         appendLine("[editor] Warning: could not write bin/ps2link.run marker.");
 
-    appendLine("[editor] Resetting ps2link at " + p.ps2LinkIp + "...");
-    if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp + " -t 10 reset",
-             binDir) != 0) {
-        appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp +
-                   " - is the PS2 on and running PS2LINK.ELF? (Check the IP in "
-                   "Edit > Preferences.)");
-        return false;
-    }
-    // ps2link reboots the IOP and reloads itself; give it a moment before the
-    // execee connect, or the command lands on a half-initialized listener.
-    for (int i = 0; i < 12 && !cancelRequested_; i++) platform::sleepMs(250);
+    // ps2link reboots the IOP, restarts its own image and reloads every IRX
+    // before it listens again - the better part of ten seconds on the console,
+    // and the tty only comes back with udptty at the end of it. Deploying into
+    // the middle of that gets a game that loads and then waits forever on a
+    // pad the freshly loaded padman has not finished handshaking (seen on the
+    // console: "Curent pad(0,0) status: DISCONNECT" and a frozen Tyra logo).
+    for (int i = 0; i < 40 && !cancelRequested_; i++) platform::sleepMs(250);
     if (cancelRequested_) return false;
 
     // The execee process is the host: file server for the whole game session -
@@ -600,11 +634,25 @@ bool Runner::deployToPs2(const Project& p) {
     return true;
 }
 
-void Runner::worker(Project p, bool build, bool run, bool ps2) {
+void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
     bool ok = true;
 
     if (build) {
-        appendLine("[editor] === Build started: " + p.name + " ===");
+        appendLine(rebuild ? "[editor] === Rebuild started: " + p.name + " ==="
+                           : "[editor] === Build started: " + p.name + " ===");
+
+        // A user script in a stale namespace (the usual cause: the project was
+        // renamed, or copied from an example and renamed) cannot compile, and
+        // the toolchain's own diagnostic for it is forty lines of template noise
+        // that never mentions the rename. Stop here instead - unlike the
+        // refresh below, whose failures are I/O problems worth warning about and
+        // continuing past, this one has no chance of producing a binary.
+        if (auto err = project::checkScriptNamespaces(p); !err.empty()) {
+            appendLine("[editor] " + err);
+            appendLine("[editor] === Build FAILED ===");
+            state_ = State::Failed;
+            return;
+        }
 
         // Keep docker files and generated sources in sync with the project
         // data (also migrates projects created with older editor versions).
@@ -640,17 +688,40 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             !err.empty())
             appendLine("[editor] Warning: texture bake failed: " + err);
 
+        const std::string dc = "docker compose exec -T compiler sh -c ";
+
         // Old template used a fixed container name shared by all projects;
         // remove such a leftover so `compose up` cannot hit a name conflict.
         exec(platform::quiet("docker rm -f tyra-game-compiler"), p.dir);
 
         appendLine("[editor] Starting docker container (first run may download the Tyra image)...");
-        if (exec("docker compose up -d --build", p.dir) != 0) {
+        // Plain `up -d`, not `up -d --build`: measured 0.32 s against 4.05 s,
+        // and there is nothing to build any more (the compose file names the
+        // stock image - see TPL_COMPOSE). What must NOT be optimised away is
+        // the `up` itself, however cheap the container's state makes it look:
+        // it is `up` that reconciles a RUNNING container with the compose file,
+        // and the compose project name is the project's own name. Two
+        // directories holding a project of the same name - a copy, a second
+        // worktree - share it, so skipping `up` when a container answers means
+        // building into whichever directory the live container happens to have
+        // bind-mounted at /host. That produces a green build log and no ELF.
+        const std::string up = rebuild ? "docker compose up -d --force-recreate"
+                                       : "docker compose up -d";
+        if (exec(up, p.dir) != 0) {
             appendLine("[editor] Failed to start docker container. Is Docker Desktop running?");
             ok = false;
         }
 
-        const std::string dc = "docker compose exec -T compiler sh -c ";
+        // Rebuild: throw away every incremental shortcut this pipeline takes -
+        // the game objects, the compiled engine and its VU1 microprograms - so
+        // the next steps rebuild all of it from source. The way out when a
+        // build goes wrong in a way an incremental build cannot see.
+        if (ok && rebuild) {
+            appendLine("[editor] Rebuild: dropping the game objects and the compiled engine...");
+            exec(dc + platform::shellArg(
+                     "rm -rf /src/obj /src/bin /tyra/engine/obj /tyra/engine/bin"),
+                 p.dir);
+        }
 
         // The Tyra engine is maintained inside the editor repo (vendor/tyra,
         // with the editor's fixes applied directly) and bind-mounted read-only
@@ -667,32 +738,64 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "mkdir -p /tyra/engine && "
-                           "cp /engine-src/Makefile.base /tyra/Makefile.base && "
+                           "cmp -s /engine-src/Makefile.base /tyra/Makefile.base || "
+                           "cp /engine-src/Makefile.base /tyra/Makefile.base; "
                            // Overlay the custom audsrv (per-channel L/R panning for sound
                            // emitters) over the image's PS2SDK copies, so the engine embeds
                            // this IRX, links this EE lib and compiles against this header
-                           // (see vendor/tyra/audsrv-pan/README.md). Idempotent; reapplied
-                           // every build so it survives container rebuilds. The md5 stamp
-                           // (kept outside the rsync target) forces a libtyra rebuild when
-                           // the vendored IRX changes, so the new one gets re-embedded.
+                           // (see vendor/tyra/audsrv-pan/README.md).
+                           //
+                           // Both copies are STAMPED, and that is load-bearing rather than
+                           // tidy: `cp` sets the destination's mtime to now, PS2SDK headers
+                           // reach the compiler through -I (so they are ordinary user
+                           // headers that land in the .d files - 16 of this game's 18
+                           // translation units list audsrv.h), and re-applying the overlay
+                           // unconditionally therefore invalidated almost the whole game on
+                           // EVERY build. That, together with the editor rewriting its
+                           // generated sources, is why no build here was ever incremental.
+                           //
+                           // Two stamps, because they answer two different questions.
+                           // The container-side one guards the files that live in the
+                           // IMAGE, so a recreated container has no stamp and re-applies
+                           // the overlay. The /tyra one guards the compiled ENGINE in the
+                           // shared volume: when the vendored IRX changes, libtyra has to
+                           // be relinked so the new one gets re-embedded.
+                           "md5sum /engine-src/audsrv-pan/audsrv.irx "
+                           "/engine-src/audsrv-pan/libaudsrv.a "
+                           "/engine-src/audsrv-pan/audsrv.h > /tmp/audsrv.stamp; "
+                           "if ! cmp -s /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp 2>/dev/null; then "
+                           "echo '[editor] Applying the vendored audsrv overlay...' && "
                            "cp /engine-src/audsrv-pan/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
                            "cp /engine-src/audsrv-pan/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
                            "cp /engine-src/audsrv-pan/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
-                           "md5sum /engine-src/audsrv-pan/audsrv.irx > /tmp/audsrv.stamp; "
+                           "cp /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp; fi; "
                            "if ! cmp -s /tmp/audsrv.stamp /tyra/.audsrv-stamp 2>/dev/null; then "
                            // obj/irx/audsrv.o must go too: the .irx-em make rule depends only
                            // on the .irx-em file, not the IRX binary it embeds, so without
                            // this bin2s never re-runs and the OLD irx stays inside libtyra.
                            "rm -f /tyra/engine/bin/libtyra.a /tyra/engine/obj/irx/audsrv.o; "
-                           "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi && "
+                           "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi; "
                            "rsync -rlci --delete --exclude=obj --exclude=bin "
                            "/engine-src/engine/ /tyra/engine/ "
                            "| grep -v '^.d' > /tmp/engine-sync.txt; "
                            "if [ -s /tmp/engine-sync.txt ] || "
                            "[ ! -f /tyra/engine/bin/libtyra.a ]; then "
                            "echo '[editor] Engine sources changed - rebuilding "
-                           "libtyra (takes a minute)...' && "
+                           "libtyra...' && "
+                           // The VU1 microprograms sit outside make's dependency
+                           // tracking (a .vclpp #includes .i/.h files nothing
+                           // declares), so they are force-rebuilt - but ONLY when
+                           // one of those actually changed. Nuking them on every
+                           // engine edit meant a one-line change to a .cpp paid
+                           // 109 s of vcl (measured, -j6), which is most of what
+                           // an engine iteration cost. The extension list is the
+                           // complete set the VU sources are built from and can
+                           // include (grep the .vclpp/.i files: only .i and .h).
+                           "if grep -qE '[.](vclpp|vcl|vsm|i|h)$' /tmp/engine-sync.txt; then "
+                           "echo '[editor] VU1 sources changed - rebuilding the "
+                           "microprograms (takes a minute or two)...'; "
                            "find /tyra/engine/obj -name '*vu1.o*' -delete 2>/dev/null; "
+                           "fi; "
                            "cd /tyra/engine && make -j$(nproc) && rm -f /src/bin/*.elf; "
                           "fi"),
                       p.dir) == 0;
@@ -722,15 +825,23 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
 
         if (ok) {
             appendLine("[editor] Syncing sources into container...");
+            // No -c (checksum): it used to be needed because the editor rewrote
+            // every generated file on every build, so mtimes lied - but hashing
+            // res/ and .res-baked/ end to end on every build is O(assets), and
+            // project::writeFile no longer touches a file whose content is
+            // unchanged. Size+mtime is the honest comparison again.
             ok = exec(dc + platform::shellArg(
-                          "rsync -ac --delete --exclude=.git --exclude=.vscode "
+                          "rsync -a --delete --exclude=.git --exclude=.vscode "
                           "--exclude=obj --exclude=bin /host/ /src/"),
                       p.dir) == 0;
         }
 
         if (ok) {
             appendLine("[editor] Compiling (PS2DEV toolchain)...");
-            ok = exec(dc + platform::shellArg("cd /src && make"), p.dir) == 0;
+            // -j like the engine build above: the game is a dozen-odd
+            // translation units and every one of them parses the whole engine
+            // header set (96s -> 54s on examples/showcase at -j6).
+            ok = exec(dc + platform::shellArg("cd /src && make -j$(nproc)"), p.dir) == 0;
         }
 
         // Sound effects: res/sfx/*.wav -> bin/sfx/*.adpcm (PS2SDK adpenc).
@@ -780,9 +891,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2) {
             // out root-owned - the user cannot then delete their own bin/
             // without sudo. Docker Desktop maps ownership itself, so the flag
             // is empty (and omitted) there.
+            // No -z: both ends of this copy are the same machine (a docker
+            // volume and a bind mount), so compressing the stream only spends
+            // CPU. -c stays - this one lands on the host bind mount, whose
+            // timestamp granularity is not ours to trust (Docker Desktop), and
+            // bin/ is what actually ships.
             const std::string owner = platform::containerFileOwner();
             ok = exec(dc + platform::shellArg(
-                          "rsync -zac --include=*/ --include=bin/** --exclude=* " +
+                          "rsync -ac --include=*/ --include=bin/** --exclude=* " +
                           (owner.empty() ? std::string() : "--chown=" + owner + " ") +
                           "/src/ /host/"),
                       p.dir) == 0;
