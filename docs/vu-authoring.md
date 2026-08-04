@@ -59,11 +59,28 @@ the console at 50 FPS.
 
 ### Turning one on when the game says so
 
-By default a script installs at boot. Say so otherwise, in the same file:
+By default a script installs at boot. Two ways to say otherwise, and they do not
+compete:
+
+**The checkbox** in *Tools > VU Programs*, next to each script. It is project
+data, so it needs no code and survives a rebuild.
+
+**The override**, in the script itself:
 
 ```cpp
 bool activeAtBoot() const override { return false; }
 ```
+
+**A script that overrides wins, and the panel says so** - its checkbox goes
+read-only with a tooltip naming the file. That is not a precedence rule the
+framework implements; it is what C++ does with a virtual. The base
+implementation returns what the checkbox asked for, an override never calls it,
+and the two can therefore never disagree about who decided. The build reports
+which of the two answered (`vu_scripts.manifest`, last column), which is how the
+panel knows to grey the box - and the detection is exact rather than heuristic:
+the generator asks each program twice, once with the default set to true and
+once to false, and a program that answers the same thing both times is one that
+overrides.
 
 and the game decides:
 

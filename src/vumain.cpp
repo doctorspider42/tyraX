@@ -152,6 +152,9 @@ struct Emitted {
      * with the script removed. The editor cannot compute this (it has no
      * compiler for a project's C++), so the build writes it down. */
     const char* verdict = "ok";
+    /** True when the SCRIPT decides activeAtBoot() by overriding it, so the
+     * panel's checkbox is a default this program ignores. */
+    bool bootFromScript = false;
 };
 
 struct EmittedKernel {
@@ -163,6 +166,50 @@ struct EmittedKernel {
     int instructions = 0;   // the whole microprogram
     int perElement = 0;
 };
+
+}  // namespace
+
+namespace {
+
+/** Does this program OVERRIDE activeAtBoot(), or does it take the default?
+ *
+ * Asked rather than reflected on: set the default to true and ask, set it to
+ * false and ask again. A program that does not override answers the default
+ * both times, so the two answers differ; one that overrides answers the same
+ * thing twice. Exact, needs no RTTI and no member-pointer comparison, and it
+ * stays correct if the base implementation is ever rewritten. */
+bool overridesBoot(vu::Program* p) {
+    vu::setBootDefault(true);
+    const bool a = p->activeAtBoot();
+    vu::setBootDefault(false);
+    const bool b = p->activeAtBoot();
+    return a == b;
+}
+
+/** The editor's per-script checkbox, written next to the generated sources.
+ * One `<0|1> <name>` per line; absent for a project that has never had the
+ * panel touched, which is why the fallback is "on". */
+bool wantsBoot(const std::string& dir, const std::string& name) {
+    static std::vector<std::pair<std::string, bool>> table;
+    static bool loaded = false;
+    if (!loaded) {
+        loaded = true;
+        if (FILE* f = std::fopen((dir + "/vu_scripts.boot").c_str(), "rb")) {
+            char line[512];
+            while (std::fgets(line, sizeof line, f)) {
+                std::string s(line);
+                while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
+                    s.pop_back();
+                if (s.size() < 3 || (s[0] != '0' && s[0] != '1')) continue;
+                table.push_back({s.substr(2), s[0] == '1'});
+            }
+            std::fclose(f);
+        }
+    }
+    for (const auto& e : table)
+        if (e.first == name) return e.second;
+    return true;
+}
 
 }  // namespace
 
@@ -179,6 +226,17 @@ int main(int argc, char** argv) {
 
     std::vector<Emitted> emitted;
     int failures = 0;
+
+    // The checkbox, applied per program before anything asks it. A script that
+    // overrides activeAtBoot() ignores this by C++ semantics, which IS the
+    // precedence rule - see vu::setBootDefault.
+    std::vector<bool> bootOverridden(progs.size(), false);
+    std::vector<bool> bootValue(progs.size(), true);
+    for (size_t pi = 0; pi < progs.size(); ++pi) {
+        bootOverridden[pi] = overridesBoot(progs[pi]);
+        vu::setBootDefault(wantsBoot(out, progs[pi]->name()));
+        bootValue[pi] = progs[pi]->activeAtBoot();
+    }
 
     for (size_t pi = 0; pi < progs.size(); ++pi) {
         vu::Program* p = progs[pi];
@@ -284,7 +342,8 @@ int main(int argc, char** argv) {
                 emitted.push_back({d.className, d.fileStem + "_program.hpp",
                                    d.programEnum, p->name(),
                                    vugen::classTitle(cls), cls, pi, kind,
-                                   p->activeAtBoot(), instrs, verdict});
+                                   bootValue[pi], instrs, verdict,
+                                   bootOverridden[pi]});
                 std::printf("[vugen] %s -> %s (%d instructions)\n", p->name(),
                             d.fileStem.c_str(), (int)b.program.code.size());
             }
@@ -616,7 +675,7 @@ int main(int argc, char** argv) {
         c += "void install(Tyra::StaPipCore& core) {\n";
         c += "  g_core = &core;\n";
         for (size_t i = 0; i < progs.size(); ++i)
-            if (progs[i]->activeAtBoot())
+            if (bootValue[i])
                 c += "  g_on[" + std::to_string(i) + "] = true;\n";
         c += "  apply();\n";
         c += "  core.setVuCustomEnabled(true);\n";
@@ -635,7 +694,7 @@ int main(int argc, char** argv) {
              std::to_string(e.instructions) + "\t" + e.programEnum + "\t" +
              std::to_string(e.classBit) + "\t" + e.kind +
              "\t" + (e.activeAtBoot ? "boot" : "manual") + "\t" + e.verdict +
-             "\n";
+             "\t" + (e.bootFromScript ? "script" : "panel") + "\n";
     if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
 
     // The kernels' own manifest, for the same reason and in its own file: the

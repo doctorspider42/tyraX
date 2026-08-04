@@ -18,6 +18,13 @@ std::vector<Kernel*>& kernelRegistry() {
 }
 }  // namespace
 
+namespace {
+bool g_bootDefault = true;
+}  // namespace
+
+void setBootDefault(bool on) { g_bootDefault = on; }
+bool bootDefault() { return g_bootDefault; }
+
 int registerProgram(Program* p) {
     registry().push_back(p);
     return (int)registry().size();

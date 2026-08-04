@@ -261,6 +261,15 @@ inline Vec quantize(Ctx& c, const Vec& a, float steps) {
 /** Derive from this, override three things, register it with VU_PROGRAM. The
  * generator instantiates it once per class it claims, on the host, at build
  * time. */
+/** What `Program::activeAtBoot()` answers when a script does NOT override it.
+ *
+ * The editor's checkbox writes this; the generator sets it per program before
+ * asking. A script that DOES override the method wins automatically, because
+ * that is what C++ does with a virtual - there is no precedence rule anywhere
+ * in the framework, and no way for the two to disagree about who decided. */
+void setBootDefault(bool on);
+bool bootDefault();
+
 class Program {
    public:
     virtual ~Program() = default;
@@ -284,7 +293,7 @@ class Program {
      * not in a per-frame update. Micro memory is what makes this worth caring
      * about: only what is ACTIVE occupies VU1, so two heavy programs can exist
      * in one game as long as they are not resident together. */
-    virtual bool activeAtBoot() const { return true; }
+    virtual bool activeAtBoot() const { return bootDefault(); }
 
     /** Whether this program DISPLACES vertices - moves them somewhere the
      * frustum classification did not expect them to be.

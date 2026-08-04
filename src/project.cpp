@@ -2019,11 +2019,19 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     const VuSettings& v = p.vu;
     const bool touched = !v.programs.empty() || !v.kernel.stages.empty() ||
                          v.kernel.enabled || !v.residentAuto ||
-                         v.residentClasses != 0x1Fu;
+                         v.residentClasses != 0x1Fu || !v.scriptBoot.empty();
     if (!touched) return;
     json << "\"vu\": { \"activeLook\": " << v.activeLook
          << ", \"residentClasses\": " << v.residentClasses
          << ", \"residentAuto\": " << (v.residentAuto ? "true" : "false");
+    if (!v.scriptBoot.empty()) {
+        json << ", \"scriptBoot\": [";
+        for (size_t i = 0; i < v.scriptBoot.size(); ++i)
+            json << (i ? ", " : "") << "{ \"name\": \""
+                 << jsonEscape(v.scriptBoot[i].first) << "\", \"on\": "
+                 << (v.scriptBoot[i].second ? "true" : "false") << " }";
+        json << "]";
+    }
     if (!v.programs.empty()) {
         json << ", \"looks\": [";
         for (size_t i = 0; i < v.programs.size(); ++i) {
@@ -2055,6 +2063,15 @@ static void readVuSection(const json::Value& root, Project& out) {
         out.vu.residentClasses = (unsigned)x->numberOr(0x1F) & 0x1Fu;
     if (const json::Value* x = v->find("residentAuto"))
         out.vu.residentAuto = x->boolOr(true);
+    if (const json::Value* sb = v->find("scriptBoot");
+        sb && sb->type == json::Value::Type::Array)
+        for (const json::Value& e : sb->arr) {
+            const json::Value* n = e.find("name");
+            if (!n) continue;
+            const json::Value* on = e.find("on");
+            out.vu.scriptBoot.push_back(
+                {n->stringOr(""), on ? on->boolOr(true) : true});
+        }
     if (const json::Value* x = v->find("activeLook"))
         out.vu.activeLook = (int)x->numberOr(0);
     // "looks" is the current key. "programs" with a "base" string is the

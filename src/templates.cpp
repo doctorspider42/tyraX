@@ -31824,6 +31824,21 @@ static std::string vscodeCppProperties(const Project& p) {
 // c_cpp_properties.json it is written only when missing (refreshGenerated),
 // preserving any recommendations the user adds. The id matches the extension's
 // publisher.name so VS Code doesn't re-prompt once it is installed.
+/** src/gen/vu_scripts.boot - the panel's per-script "on at boot" checkbox, in
+ * the one form the generator can read.
+ *
+ * The generator runs in the build container and the editor cannot compile a
+ * script to ask it anything, so the choice has to travel as DATA. One
+ * `<0|1> <name>` per line; a script not listed is on, which is what the
+ * framework's own default says. It is only a default either way - a script that
+ * overrides activeAtBoot() answers for itself and never reads this. */
+static std::string vuScriptBootList(const Project& p) {
+    std::string s;
+    for (const auto& e : p.vu.scriptBoot)
+        s += (e.second ? "1 " : "0 ") + e.first + "\n";
+    return s;
+}
+
 static std::string vscodeExtensionsJson() {
     // ms-vscode.cpptools IS THE POINT OF c_cpp_properties.json.
     //
@@ -32895,6 +32910,7 @@ std::vector<File> generate(const Project& p) {
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
         {".vscode\\c_cpp_properties.json", vscodeCppProperties(p)},
+        {"src\\gen\\vu_scripts.boot", vuScriptBootList(p)},
         {".vscode\\extensions.json", vscodeExtensionsJson()},
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},

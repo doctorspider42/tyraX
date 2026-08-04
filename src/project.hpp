@@ -742,12 +742,19 @@ struct VuSettings {
     // Let the editor derive the mask from what the scenes actually draw,
     // instead of trusting a hand-set one to stay right as the project grows.
     bool residentAuto = true;
+    // Which C++ SCRIPTS (src/vu/*.cpp) start switched on, by script name. Only
+    // a DEFAULT: a script that overrides activeAtBoot() answers for itself and
+    // this is not consulted - which is why it is a plain list of choices with
+    // no "unset", and why an unlisted script starts on. The names come from the
+    // manifest the last build wrote, since the editor cannot compile a script
+    // to ask it anything.
+    std::vector<std::pair<std::string, bool>> scriptBoot;
 };
 
 inline bool operator==(const VuSettings& a, const VuSettings& b) {
     return a.programs == b.programs && a.kernel == b.kernel &&
            a.residentClasses == b.residentClasses &&
-           a.residentAuto == b.residentAuto;
+           a.residentAuto == b.residentAuto && a.scriptBoot == b.scriptBoot;
 }
 inline bool operator!=(const VuSettings& a, const VuSettings& b) { return !(a == b); }
 

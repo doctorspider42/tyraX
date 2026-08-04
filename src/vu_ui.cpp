@@ -427,6 +427,7 @@ void App::drawVuProgramsWindow() {
                 int fam = 0;
                 bool boot = true;
                 std::string verdict;  // "ok" | "noop" | "" (older manifest)
+                bool bootFromScript = false;  // the script overrides it
                 int instrs = 0;
                 int delta = 0;  // against the engine program it REPLACES
                 bool resident = true;  // only two of the three ever are
@@ -457,6 +458,7 @@ void App::drawVuProgramsWindow() {
                     // Written by the build (the editor has no compiler for a
                     // project's C++), absent in a manifest from before it did.
                     r.verdict = f.size() > 7 ? f[7] : "";
+                    r.bootFromScript = f.size() > 8 && f[8] == "script";
                     // A script REPLACES the engine's program for that class,
                     // so only the difference is new weight. Adding the whole
                     // thing on top is how this bar first said 3056 of 2042 for
@@ -695,6 +697,35 @@ void App::drawVuProgramsWindow() {
                         ++j;
                     }
                     const bool boot = scriptRows[i].boot;
+                    const bool fromScript = scriptRows[i].bootFromScript;
+                    // ON AT BOOT, as a checkbox - and only a DEFAULT. A script
+                    // that overrides activeAtBoot() answers for itself, which
+                    // is not a precedence rule the framework implements but
+                    // simply what C++ does with a virtual; the build reports
+                    // which programs took that path and the box goes read-only
+                    // for them, because a control that silently does nothing is
+                    // worse than no control.
+                    bool on = boot;
+                    char box[192];
+                    std::snprintf(box, sizeof box, "##vuboot%zu", i);
+                    if (fromScript) ImGui::BeginDisabled();
+                    if (ImGui::Checkbox(box, &on) && !fromScript) {
+                        bool found = false;
+                        for (auto& e : project_.vu.scriptBoot)
+                            if (e.first == name) e.second = on, found = true;
+                        if (!found) project_.vu.scriptBoot.push_back({name, on});
+                        commitChange();
+                    }
+                    if (fromScript) ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            fromScript
+                                ? "src\\vu\\*.cpp decides this one - it overrides\n"
+                                  "activeAtBoot(). Delete that override to use this box."
+                                : "On at boot. Only what is ACTIVE occupies micro\n"
+                                  "memory, so a game can carry more programs than fit\n"
+                                  "at once. Takes effect on the next Build.");
+                    ImGui::SameLine();
                     char header[192];
                     std::snprintf(header, sizeof header,
                                   "%s##vuscript%zu", name.c_str(), i);
@@ -704,14 +735,6 @@ void App::drawVuProgramsWindow() {
                     ImGui::TextDisabled("%d program%s resident, %+d slots",
                                         resident, resident == 1 ? "" : "s",
                                         residentDelta);
-                    if (!boot) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("  [off at boot]");
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(
-                                "activeAtBoot() is false, so this costs no micro\n"
-                                "memory until the game calls vuscript::activate().");
-                    }
                     if (noops) {
                         ImGui::SameLine();
                         ImGui::TextColored(theme::semantics().warn,
