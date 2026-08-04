@@ -115,34 +115,41 @@ framework exists to stop duplicating.
 
 ### When `vugen::` completes nothing
 
-That is cpptools, not this extension, and it has one likely cause: **there is no
-C++ standard library on the include path.** `vugen.hpp` opens with `<cstdint>`,
-`<string>` and `<vector>`; the PS2SDK tree the config points at carries C
-headers and no libstdc++, so with no `compilerPath` the extension has nowhere to
-find them, the parse dies on line one and the completion list comes back empty -
-which reads as "the editor does not know this namespace" rather than as "the
-header was never parsed".
+**First: is the C/C++ extension installed at all?** `ms-vscode.cpptools` is what
+reads `c_cpp_properties.json` and provides every C++ completion; the TyraX
+extension provides none of them and never did. Without it VS Code answers with
+**"No suggestions."** in any `.cpp`, which reads as a broken project rather than
+as a missing extension - and until this was fixed the editor wrote that careful
+configuration for an extension it never recommended. Generated projects now list
+it in `.vscode/extensions.json`, and existing ones have it MERGED in on the next
+build (the file is otherwise write-once, so anything you added stays). VS Code
+then offers it in the Extensions view under *Recommended*.
 
-The generated `c_cpp_properties.json` now writes a `compilerPath` pointing at
-whatever host `g++` / `clang++` / `c++` is on PATH. If yours is empty, that is
-why: put a host compiler on PATH and rebuild (or refresh) the project.
+```
+code --install-extension ms-vscode.cpptools
+```
 
-To tell the two apart in ten seconds, Command Palette ▸ **C/C++: Log
+Once it is installed and `vugen::` still completes nothing, the next candidate
+is that **there is no C++ standard library on the include path**. `vugen.hpp`
+opens with `<cstdint>`, `<string>` and `<vector>`; the PS2SDK tree the config
+points at carries C headers and no libstdc++, so with no `compilerPath` there is
+nowhere to find them, the parse dies on line one, and the symptom is again an
+empty list rather than an error. The generated config now writes a
+`compilerPath` pointing at whatever host `g++` / `clang++` / `c++` is on PATH,
+with `intelliSenseMode` derived to match it - a mode that contradicts the
+compiler is its own warning. If `compilerPath` is missing from your file, put a
+host compiler on PATH and rebuild.
+
+To tell the remaining cases apart in ten seconds, Command Palette ▸ **C/C++: Log
 Diagnostics**. It prints the configuration actually in use and every include
-path it resolved; a missing `<vector>` is right there. Two more things worth
-checking from that output:
+path it resolved:
 
-- Open the **project folder**, not the repository root - `${workspaceFolder}`
-  is what every path in that file is relative to, and the repo root has no
+- Open the **project folder**, not the repository root - `${workspaceFolder}` is
+  what every path in that file is relative to, and the repo root has no
   `.vscode/c_cpp_properties.json` at all.
 - After the editor regenerates the file, run **C/C++: Reset IntelliSense
   Database**; cpptools caches an unresolved include and does not retry on its
   own.
-
-The header the completions come from is `vugen/vushader.hpp` - `vu::Ctx` is the
-authoring surface and `Ctx::raw()` is the escape hatch onto `vugen::Vu`, whose
-whole method library (`sineApprox`, `transform`, `spotLight`, the masked
-arithmetic) is documented in the header itself.
 
 ## Installing it
 
@@ -162,8 +169,11 @@ manifest cache, so an extension folder merely copied into `~/.vscode/extensions`
 is silently ignored. It therefore needs VS Code's **`code` CLI on PATH** (in
 VS Code: Command Palette ▸ *Shell Command: Install 'code' command in PATH*); if
 it isn't, the status bar says so instead of failing silently. Generated projects
-also get a `.vscode/extensions.json` recommending the extension (id
-`tyrax.tyrax-flownode`), so an already-installed copy is not re-prompted.
+also get a `.vscode/extensions.json` recommending **two** ids -
+`ms-vscode.cpptools` and `tyrax.tyrax-flownode` - so an already-installed copy
+is not re-prompted. The first one is not optional garnish: it is what reads the
+`c_cpp_properties.json` this editor writes, and without it every C++ completion
+in the project answers "No suggestions." (see above).
 
 ### Installing it by hand
 

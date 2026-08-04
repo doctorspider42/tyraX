@@ -110,4 +110,10 @@ std::filesystem::path nativePath(const std::string& relativePath);
 bool matchesLegacy(const Project& p, const std::string& relativePath,
                    const std::string& content);
 
+// `.vscode/extensions.json` with the ids the editor knows about ensured
+// present, given whatever the project already has. "" when nothing needs
+// adding, so an unchanged file is never rewritten. See the definition on why
+// this one file is merged rather than written once.
+std::string vscodeExtensionsMerged(const std::string& existing);
+
 }  // namespace templates

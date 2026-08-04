@@ -31708,6 +31708,21 @@ static std::string vscodeCppProperties(const Project& p) {
         compiler = slashes(platform::commandPath(c));
         if (!compiler.empty()) break;
     }
+    // intelliSenseMode has to describe the compiler above, not the target: it
+    // is what the extension emulates while PARSING, and a mode that contradicts
+    // compilerPath is a warning and a coin toss over whose predefined macros
+    // win. The old value described neither - it was a stand-in for a MIPS EE
+    // toolchain the extension has no mode for - which was harmless only while
+    // there was no compiler for it to contradict.
+    const char* mode = "linux-gcc-x86";
+    if (!compiler.empty()) {
+        const bool clang = compiler.find("clang") != std::string::npos;
+#ifdef _WIN32
+        mode = clang ? "windows-clang-x64" : "windows-gcc-x64";
+#else
+        mode = clang ? "linux-clang-x64" : "linux-gcc-x64";
+#endif
+    }
 
     std::ostringstream out;
     out << "{\n"
@@ -31737,7 +31752,9 @@ static std::string vscodeCppProperties(const Project& p) {
         out << "      \"compilerPath\": \"" << compiler << "\",\n";
     out << "      \"cStandard\": \"c11\",\n"
            "      \"cppStandard\": \"c++20\",\n"
-           "      \"intelliSenseMode\": \"linux-gcc-x86\"\n"
+           "      \"intelliSenseMode\": \""
+        << mode
+        << "\"\n"
            "    }\n"
            "  ],\n"
            "  \"version\": 4\n"
@@ -31752,11 +31769,47 @@ static std::string vscodeCppProperties(const Project& p) {
 // preserving any recommendations the user adds. The id matches the extension's
 // publisher.name so VS Code doesn't re-prompt once it is installed.
 static std::string vscodeExtensionsJson() {
+    // ms-vscode.cpptools IS THE POINT OF c_cpp_properties.json.
+    //
+    // Leaving it out was a hole with no symptom to follow: the editor wrote a
+    // careful IntelliSense configuration - engine headers, the PS2SDK, and now
+    // the VU framework - for an extension it never once told anyone to install.
+    // With no C++ language server VS Code answers every completion in a .cpp
+    // with "No suggestions.", which reads as a broken project rather than as a
+    // missing extension, and nothing anywhere says otherwise.
     return "{\n"
            "  \"recommendations\": [\n"
+           "    \"ms-vscode.cpptools\",\n"
            "    \"tyrax.tyrax-flownode\"\n"
            "  ]\n"
            "}\n";
+}
+
+/** The recommendation list to WRITE, given whatever is there already.
+ *
+ * `.vscode/extensions.json` is written only when missing so a project can add
+ * its own recommendations - which means the fix above would never reach a
+ * project that already exists, i.e. every project that has the problem. So
+ * this merges instead: the ids the editor knows about are ensured present and
+ * everything else is left exactly where it is. Returns "" when there is
+ * nothing to add, so an unchanged file is not rewritten. */
+std::string vscodeExtensionsMerged(const std::string& existing) {
+    if (existing.empty()) return vscodeExtensionsJson();
+    static const char* kOurs[] = {"ms-vscode.cpptools", "tyrax.tyrax-flownode"};
+    std::vector<std::string> missing;
+    for (const char* id : kOurs)
+        if (existing.find(id) == std::string::npos) missing.push_back(id);
+    if (missing.empty()) return "";
+    // Textual insertion after the opening bracket of "recommendations", so
+    // comments and formatting a person put in the file survive. A file we
+    // cannot find that array in is left alone rather than guessed at.
+    const size_t key = existing.find("\"recommendations\"");
+    if (key == std::string::npos) return "";
+    const size_t open = existing.find('[', key);
+    if (open == std::string::npos) return "";
+    std::string ins;
+    for (const std::string& id : missing) ins += "\n    \"" + id + "\",";
+    return existing.substr(0, open + 1) + ins + existing.substr(open + 1);
 }
 
 std::string bakedModelPath(const std::string& modelPath,
