@@ -340,14 +340,15 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
   registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
   is not authoritatively simulated).
-- **All ten resident programs** (five `as_is` + five `cull`) also have C++
-  descriptions that generate them; a generated program is proven
-  **bit-identical** to the handwritten one by simulating both on randomized
-  input. If you change one of those ten by hand, `--vu-check` starts failing -
-  update the description in `vugen.cpp` too, or the two have genuinely diverged
-  and you should say which is right. (Only the `as_is` five are *adopted* so
-  far: the files in `vendor/tyra` ARE the generated ones. The `cull` five are
-  still the handwritten originals.)
+- **All fifteen StaPip programs** (five `as_is` + five `cull` + the five
+  Sutherland-Hodgman `clip`) also have C++ descriptions that generate them; a
+  generated program is proven **bit-identical** to the handwritten one by
+  simulating both on randomized input, and each emits the same instruction COUNT
+  as its handwritten file. If you change one of those fifteen by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
+  two have genuinely diverged and you should say which is right. (Only the
+  `as_is` five are *adopted* so far: the files in `vendor/tyra` ARE the generated
+  ones. The `cull` and `clip` families are still the handwritten originals.)
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
@@ -551,7 +552,11 @@ banner both, so a previously built ELF still reports.
   (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
   headroom; measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
-  after ANY edit there.
+  after ANY edit there. **And the clip family now has a C++ description**
+  (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
+  has to be made in BOTH places or `--vu-check` fails — which is the point:
+  the ceiling above is exactly the kind of change that used to be applied to
+  `clip_c` and forgotten on `clip_tc`.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
