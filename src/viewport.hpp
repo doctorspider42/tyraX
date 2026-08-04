@@ -33,8 +33,9 @@ public:
     // projection (no foreshortening, so equal sizes read equal anywhere on
     // screen) and the six axis modes additionally lock the camera onto that
     // world axis - the Top/Front/Side views of a CAD or level editor.
-    // Orbiting out of an axis view keeps the parallel projection and falls
-    // back to Ortho (free), so a drag never feels dead.
+    // Orbiting out of an axis view drops the lock and returns to whatever the
+    // camera was before that view was picked (see setProjection/orbit), so a
+    // drag never feels dead and a look from one axis stays an interlude.
     enum class Projection {
         Perspective = 0,
         Ortho = 1,        // parallel, free orbit direction
@@ -46,7 +47,17 @@ public:
         OrthoLeft = 7,    // looks along +X (from -X)
     };
     static constexpr int kProjectionCount = 8;
-    void setProjection(Projection p) { projection_ = p; }
+    void setProjection(Projection p) {
+        // Remember what orbiting out of a locked axis view should return to:
+        // the mode the camera was in before that view was picked. An axis view
+        // is a glance, not a new home - perspective is what a user who never
+        // asked for a parallel projection expects to get their scene back in -
+        // while someone who deliberately chose Ortho (free) keeps it. Stepping
+        // from one axis view straight to another keeps the earlier base.
+        if (p <= Projection::Ortho) orbitBase_ = p;
+        else if (projection_ <= Projection::Ortho) orbitBase_ = projection_;
+        projection_ = p;
+    }
     Projection projection() const { return projection_; }
     bool orthographic() const { return projection_ != Projection::Perspective; }
     // Display name of a projection mode ("Perspective", "Top", ...).
@@ -664,6 +675,9 @@ private:
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
     Projection projection_ = Projection::Perspective;
+    // What orbit() falls back to when it leaves a locked axis view; only ever
+    // Perspective or Ortho, maintained by setProjection().
+    Projection orbitBase_ = Projection::Perspective;
     // The camera a render() draws with: eye + orthonormal basis plus the
     // projection extents. ONE source for render(), pick(), the terrain
     // raycast and the placement raycast - those used to rebuild the same

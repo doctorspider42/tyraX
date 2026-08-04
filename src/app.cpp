@@ -1237,8 +1237,9 @@ void App::drawMenuBar() {
             ImGui::TextDisabled("Projection");
             {
                 // Perspective + the parallel views. The axis entries also aim
-                // the camera down that world axis; orbiting afterwards keeps
-                // the parallel projection and returns to "Orthographic".
+                // the camera down that world axis; orbiting afterwards drops
+                // the lock and returns to whichever free mode was in use
+                // before the axis view was picked.
                 struct ProjItem {
                     Viewport::Projection p;
                     const char* label;
@@ -3335,8 +3336,8 @@ void App::drawViewportWindow() {
                     "Camera projection. Orthographic drops the perspective\n"
                     "foreshortening; the axis views also aim the camera down\n"
                     "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
-                    "Num 5 toggles perspective). Orbiting an axis view keeps\n"
-                    "the parallel projection.");
+                    "Num 5 toggles perspective). Orbiting an axis view drops\n"
+                    "the lock and goes back to the projection you came from.");
             if (ImGui::BeginPopup("##projection")) {
                 for (int i = 0; i < Viewport::kProjectionCount; ++i) {
                     const Viewport::Projection p = (Viewport::Projection)i;
