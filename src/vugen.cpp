@@ -423,6 +423,71 @@ void Vu::xtop(IVal dst) {
     in.dst = dst.reg;
     emit(in);
 }
+void Vu::branchIfEq(IVal a, IVal b, Lbl l) {
+    Instr in;
+    in.op = Op::Ibeq;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
+void Vu::branchIfGtz(IVal a, Lbl l) {
+    Instr in;
+    in.op = Op::Ibgtz;
+    in.s1 = a.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
+void Vu::moveInto(Val dst, Val a, uint8_t mask) {
+    Instr in;
+    in.op = Op::Move;
+    in.mask = mask;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    emit(in);
+}
+void Vu::clipwInto(Val a, uint8_t mask) {
+    Instr in;
+    in.op = Op::Clipw;
+    in.mask = mask;
+    // Both operands are the same register: clipw judges xyz against the w of
+    // its SECOND source, and every caller wants the vertex judged against its
+    // own w. The handwritten programs spell it the same way.
+    in.s1 = a.reg;
+    in.s2 = a.reg;
+    emit(in);
+}
+void Vu::fcandInto(IVal dst, int mask) {
+    Instr in;
+    in.op = Op::Fcand;
+    in.dst = dst.reg;
+    in.imm = mask;
+    emit(in);
+}
+void Vu::iorInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Ior;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+}
+void Vu::iandInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Iand;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+}
+void Vu::isubInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Isub;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+}
 void Vu::xgkick(IVal address) {
     Instr in;
     in.op = Op::Xgkick;

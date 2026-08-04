@@ -153,6 +153,28 @@ class Vu {
     void branch(Lbl l);
     void branchIfLez(IVal a, Lbl l);
     void branchIfNotEq(IVal a, IVal b, Lbl l);
+    void branchIfEq(IVal a, IVal b, Lbl l);
+    void branchIfGtz(IVal a, Lbl l);
+
+    // --- the clip family's own primitives ---------------------------------
+    // Only the CLIP programs need these: the cull and as_is families judge a
+    // vertex through fogClipCheck, which bundles clipw+fcand for the one
+    // question they ask. A clipper asks several different questions of the
+    // same instruction pair, so it needs them apart.
+    /** Copy, field-masked. `add dst, vf00, src` would cost the same and read
+     * worse; the handwritten programs use `move` and so does this. */
+    void moveInto(Val dst, Val a, uint8_t mask = vuir::MALL);
+    /** Judge xyz against +/-w, setting the clip flags. Reads the register's
+     * OWN w, which is why the callers rewrite w before each use. */
+    void clipwInto(Val a, uint8_t mask = vuir::MXYZ);
+    /** Read the clip flags. NOTE the semantics the handwritten programs rely
+     * on: fcand sets its destination to 0 or 1 - "any masked bit set" - and
+     * NOT to the bit pattern. Every judgement is written to be read that
+     * way. */
+    void fcandInto(IVal dst, int mask);
+    void iorInto(IVal dst, IVal a, IVal b);
+    void iandInto(IVal dst, IVal a, IVal b);
+    void isubInto(IVal dst, IVal a, IVal b);
     void xtop(IVal dst);
     void xgkick(IVal address);
     /** VCL scheduling markers, reproduced so the emitted source matches the
