@@ -1,21 +1,17 @@
-// The VU0 half of the authoring feature, running for real
-// (../../../../docs/vu-authoring.md).
+// VU0 doing arithmetic, and nothing else (../../../../docs/vu-authoring.md).
 //
-// This file is YOURS - the editor writes generated sources into src/gen/ and
-// never touches src/scripts/. That is also the only place a kernel can be
-// driven from: a kernel is a compute job with no place in the scene pipeline,
-// so nothing calls it unless your game does.
+// No buttons and no rendering decisions - that is vu_look_switch.cpp. This file
+// only runs the two kernels and reports what came back, because a kernel is a
+// compute job with no place in the scene pipeline: nothing calls it unless your
+// game does, and src/scripts/ is the only place that can be arranged from.
 //
 // BOTH WAYS OF WRITING ONE are here:
 //
 //   "points"  - Tools > VU Programs > VU0 kernel, composed from the same stage
 //               library the microprograms are built from (Wobble + Squash),
 //               applied to quadwords instead of vertices. No C++ at all.
-//               Each frame it feeds 32 points and the first result becomes the
-//               pillar's Desaturate parameter, so the pillar's colour is a VU0
-//               computation rendered by VU1.
 //   "Ranges"  - src/vu0/ranges.cpp, a `vu::Kernel` in ordinary C++, for the
-//               arithmetic the catalogue does not describe. See runRanges().
+//               arithmetic the catalogue does not describe.
 //
 // Two things worth knowing before copying this:
 //
@@ -25,14 +21,12 @@
 //   - Writing data.vuParams needs no `dirty` flag: it is not vertex data, so it
 //     rides along with the next frame's object-data packet.
 #include "scripts/script.hpp"
-#include "scripts/vu_programs.gen.hpp"
-#include "scripts/vu_scripts.gen.hpp"
 #include "scripts/vu0_kernels.gen.hpp"
 #include "vu0_points.gen.hpp"
 
 namespace Vu_lab {
 
-class Vu0KernelDemo : public Script {
+class Vu0Compute : public Script {
  public:
   void init(ScriptContext& ctx) override {
     // A ring of points around the origin. The content does not matter - what
@@ -50,41 +44,6 @@ class Vu0KernelDemo : public Script {
   }
 
   void update(ScriptContext& ctx) override {
-    // FOUR LOOKS, FOUR BUTTONS, one at a time - and one at a time is the thing
-    // being shown, not a limitation worked around. A material class carries ONE
-    // program: installing a second over it replaces the first. So picking a
-    // look swaps what is resident on VU1 (one pipeline drain, one upload) while
-    // every look sits in the ELF the whole time. Fine on a button; NOT fine per
-    // frame. Pressing the active one turns it off.
-    {
-      const Tyra::PadButtons& hit = ctx.engine->pad.getClicked();
-      int want = -1;
-      if (hit.Triangle) want = vuscript::kCellShading;
-      else if (hit.Square) want = vuscript::kVertexSnap;
-      else if (hit.Circle) want = vuscript::kWobble;
-      else if (hit.Cross) want = vuscript::kPalette;   // free: the scene has
-                                                       // the player's jump off
-      if (want >= 0 && want < vuscript::COUNT) {
-        const bool already = vuscript::active(want);
-        // Whatever happens next, the wobble's VU1 arrangement ends here -
-        // including when CIRCLE turns the wobble off.
-        leaveClipMode(ctx);
-        vuscript::deactivateAll();
-        if (!already) {
-          if (want == vuscript::kWobble) enterClipMode(ctx);
-          vuscript::activate(want);
-        }
-        TYRA_LOG("VU look -> ", already ? "none" : vuscript::name(want));
-      }
-    }
-
-    // SQUARE cycles the stage-list looks, when the project has any switched on.
-    if (ctx.engine->pad.getClicked().Square && vuprog::LOOK_COUNT > 1) {
-      const int next = (vuprog::active() + 1) % vuprog::LOOK_COUNT;
-      vuprog::activate(next);
-      TYRA_LOG("VU look -> ", vuprog::lookName(next));
-    }
-
     clock += 1.0F / 50.0F;
     if (clock > 6433.98F) clock -= 6433.98F;  // 2*pi*1024, see setTime
 
@@ -93,7 +52,9 @@ class Vu0KernelDemo : public Script {
     runRanges(ctx);
 
     // Wobble displaced Y by up to its amplitude (1.5); map that onto 0..1 and
-    // hand it to the pillar's Desaturate slot.
+    // hand it to the pillar's Desaturate slot, so a number computed on VU0 ends
+    // up driving a VU1 program. (Visible while a stage look that reads mesh Y
+    // is on - this scene ships its looks switched off.)
     float grey = (out[0].y + 1.5F) * (1.0F / 3.0F);
     if (grey < 0.0F) grey = 0.0F;
     if (grey > 1.0F) grey = 1.0F;
@@ -169,60 +130,6 @@ class Vu0KernelDemo : public Script {
              worst, " units");
   }
 
-  // CIRCLE does not only pick the Wobble - it rearranges VU1 around it.
-  //
-  // The Wobble displaces in OBJECT space, so under the EE clipper the effect
-  // stops wherever the mesh was already cut: props are submitted whole to
-  // compensate and the terrain cannot be (a chunk straddling the near plane
-  // wraps the GS raster window unclipped), so the wave broke along the chunks
-  // at the frame edge. Under VU1 clipping the clipper is a VU program that
-  // still has the object-space position, the script runs inside it, and the
-  // chunk is cut AFTER the displacement.
-  //
-  // Not free: the clip family is roughly twice the as_is family it replaces,
-  // and this project's four classes do not all fit under the 2042-slot ceiling.
-  // So the demo hands Directional lights back and HIDES the one dyn-lit ball -
-  // a dropped class does not crash (the engine walks down to a resident
-  // relative) but it draws in the wrong style, which reads as a material bug.
-  static constexpr unsigned kWobbleClasses = (1u << 0) | (1u << 3) | (1u << 4);
-
-  void enterClipMode(ScriptContext& ctx) {
-    if (clipMode) return;
-    savedClasses = vuprog::residentClasses();
-    savedClipping = vuprog::vu1Clipping();
-    // Narrow FIRST: each call is a drain and a cache upload, and this order
-    // means the wider set is never uploaded in the more expensive mode.
-    vuprog::setResidentClasses(kWobbleClasses);
-    vuprog::setVU1Clipping(true);
-    hiddenCount = 0;
-    for (int i = 0; i < ctx.objectCount && hiddenCount < kMaxHidden; ++i) {
-      if (ctx.objects[i].data.dynLit == 0 || !ctx.objects[i].visible) continue;
-      ctx.objects[i].visible = false;
-      hidden[hiddenCount++] = i;
-    }
-    clipMode = true;
-    TYRA_LOG("VU1 clipping ON, classes -> ", (int)kWobbleClasses, ", hidden ",
-             hiddenCount);
-  }
-
-  void leaveClipMode(ScriptContext& ctx) {
-    if (!clipMode) return;
-    clipMode = false;
-    for (int i = 0; i < hiddenCount; ++i)
-      if (hidden[i] < ctx.objectCount) ctx.objects[hidden[i]].visible = true;
-    hiddenCount = 0;
-    vuprog::setVU1Clipping(savedClipping);
-    vuprog::setResidentClasses(savedClasses);
-    TYRA_LOG("VU1 clipping restored");
-  }
-
-  bool clipMode = false;
-  bool savedClipping = false;
-  unsigned savedClasses = 0;
-  static constexpr int kMaxHidden = 16;
-  int hidden[kMaxHidden] = {};
-  int hiddenCount = 0;
-
   static constexpr int kCount = 32;
   Tyra::Vec4 in[kCount];
   Tyra::Vec4 out[kCount];
@@ -241,4 +148,4 @@ class Vu0KernelDemo : public Script {
 
 }  // namespace Vu_lab
 
-TYRA_SCRIPT(Vu_lab::Vu0KernelDemo);
+TYRA_SCRIPT(Vu_lab::Vu0Compute);

@@ -1346,8 +1346,8 @@ Two things to know before you build a game around it:
   amplitude, the same number means two things. Either agree on slot meanings
   across looks or write the parameters when you switch.
 
-`examples/vu-lab` boots into Toon and swaps to Underwater on Triangle
-(`src/scripts/vu0_kernel_demo.cpp`) — that is the whole switch, three lines.
+`examples/vu-lab` swaps its whole look on a button
+(`src/scripts/vu_look_switch.cpp`) — that is the whole switch, three lines.
 
 ### Engine side
 

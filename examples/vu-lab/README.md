@@ -53,7 +53,7 @@ detail:
 
 Measured in PCSX2: enters and leaves cleanly, no micro-memory assert, 50 FPS
 both ways. The switch is `enterClipMode`/`leaveClipMode` in
-`src/scripts/vu0_kernel_demo.cpp` - `vuprog::setResidentClasses` and
+`src/scripts/vu_look_switch.cpp` - `vuprog::setResidentClasses` and
 `vuprog::setVU1Clipping`, about ten lines.
 
 Edit the script, press Build, and it is a different microprogram - try `2.0F`
@@ -105,7 +105,7 @@ scripts are unambiguous.
 **One button per look**, and one at a time is the thing being shown rather than
 a limitation worked around: a material class carries ONE program, so picking a
 look swaps what is resident on VU1. That is `vuscript::activate(want)` in
-`src/scripts/vu0_kernel_demo.cpp`.
+`src/scripts/vu_look_switch.cpp`.
 
 Every program is in the ELF; only the active one occupies VU1 micro memory,
 which is why the budget bar in the panel is per look. Measured on the console
@@ -170,10 +170,12 @@ had a gradient to quantize. Nothing outside the pipeline moves at all.
 
 ## The VU0 kernel, actually running
 
-`src/scripts/vu0_kernel_demo.cpp` is a **user-owned** script - the editor writes
+`src/scripts/vu0_compute.cpp` is a **user-owned** script - the editor writes
 generated sources into `src/gen/` and never touches `src/scripts/`, which is
 also the only place a kernel can be driven from: a kernel is a compute job with
-no place in the scene pipeline, so nothing calls it unless your game does.
+no place in the scene pipeline, so nothing calls it unless your game does. It
+does nothing but run the two kernels and report what came back; the pad and the
+resident-program juggling live next door in `vu_look_switch.cpp`.
 
 Each frame it feeds 32 points to the kernel, takes the first one back, and
 writes it into the pillar's per-mesh VU parameters. So the pillar's colour is
