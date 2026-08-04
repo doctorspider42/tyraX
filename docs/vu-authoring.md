@@ -194,11 +194,14 @@ invisible on the host (see [the other ceiling](#the-other-ceiling-vf-registers))
 preamble, but `vertex()` runs once per VERTEX and the loop is unrolled three
 times, so the same constant lands in three registers. And write the body
 against `c.scratch(n)` and the raw builder once it grows: every `a * b` in the
-value layer mints a register, and eighteen live temporaries is enough to put
-vcl into `time out.. failed to normal via processing` - it still emits code, it
-just stops optimising, and each timeout is another 45 seconds of build. Moving
-the sample onto scratch registers took it from several timeouts to none and the
+value layer mints a register. Moving the sample onto scratch registers took the
 budget from 1042..2084 to 897..1794.
+
+**And fold on the HOST what the host can fold.** A constant the body derives
+from other constants — `light - dark`, a weight scaled by 1/255 — is work
+repeated per vertex to produce a number that never changes. It also holds a
+register live where it is most expensive. See "vcl gives up" below for what
+that costs.
 
 **Constants belong in the preamble, and `vu::splat` puts them there.** `loi`
 writes the I register; a run of them inside the per-vertex body is something vcl
@@ -1425,6 +1428,47 @@ sine, not the ones that read alike.
 If you go over, the ways out in order of how much they buy: drop a stage, use a
 stage that does not need the sine, or split the effect across two material
 classes (a textured program and a colour one each get their own 31).
+
+### Before the cliff: vcl gives up
+
+`no opt table` is the *hard* failure. There is a soft one below it, and it is
+noisy rather than fatal:
+
+```
+WARN: time out..
+WARN:  WARNING: failed to vuta via processing
+```
+
+One `time out..` per `failed to <pass> via <region>` line. vcl still emits a
+**correct** program — it has abandoned one optimisation pass on one code region,
+so what comes out is scheduled worse: fewer paired upper/lower ops, more micro
+memory, slower per vertex. It is also slow to produce, and the limit is
+**wall-clock**, so a busy machine times out where an idle one does not. Measure
+an A/B on an idle machine or the number means nothing.
+
+**The clip half is where this bites**, because it is the biggest program shape
+there is — Sutherland–Hodgman, nested loops, a scratch polygon buffer — and it
+already holds most of the 31 live. A measured example, `examples/vu-lab`:
+Palette held three constant registers and two temporaries across the clipper's
+loops, and one program (`vu_script1_c_cl`) produced **31 of the build's 51
+timeouts** and spent 101 s of a 157 s build inside vcl.
+
+Three changes, none of which altered a pixel: fold `light - dark` on the host
+instead of subtracting per vertex, pre-divide the luminance weights by 255 so
+the dot product lands on 0..1 directly, and write the result **straight into the
+colour register** instead of into a second scratch (the colour is dead once its
+luminance has been taken). Seven instructions per vertex became five, and two
+live values became one:
+
+| | timeouts | build | that program in vcl |
+|---|---|---|---|
+| before | 51 | 166 s | 101 s |
+| after | **5** | **82 s** | 64 s |
+
+The lesson generalises past this file: on a clip-half program, **a temporary
+that stays live across the loops costs more than an instruction does.** Prefer
+writing into a register that is already dead over minting a new one, and let the
+host compute anything that does not depend on the vertex.
 
 ---
 
