@@ -186,8 +186,47 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
         execProc_ = std::move(proc);
     }
 
+    // vcl's OPTIMISER-TIMEOUT CHATTER, collapsed to one line.
+    //
+    // A vu-lab build prints about fifty of these:
+    //
+    //   WARN: time out..
+    //   WARN:  WARNING: failed to vuta via processing
+    //
+    // They are not errors and they are not even a cost. vcl gives an
+    // optimisation attempt a wall-clock budget (`-t`, four seconds by default)
+    // and abandons the attempt when it runs out - so the count is a property of
+    // how busy the machine is, not of the code: one program timed out 29 times
+    // inside a 44-file `-j24` build and twice when run alone, and the emitted
+    // .vsm was byte-identical both ways (same 281 slots, same 121 unpaired).
+    // Raising `-t` to 15 or 60 changed neither the count nor the output.
+    //
+    // So fifty lines of alarming-looking noise buried the diagnostics that DO
+    // matter. They are counted and summarised instead. Only this exact pair is
+    // swallowed: `no opt table`, `failed to convert all uta linear->raw` and
+    // everything else vcl says still goes straight through, because those are
+    // real failures (docs/vu-authoring.md, "Before the cliff: vcl gives up").
+    auto isVclTimeoutChatter = [](const std::string& l) {
+        if (l.find("time out..") != std::string::npos) return true;
+        const size_t at = l.find("WARNING: failed to ");
+        return at != std::string::npos &&
+               l.find(" via ", at) != std::string::npos;
+    };
+
     std::string line;
-    while (raw->readLine(line)) appendLine(line);
+    int vclTimeouts = 0;
+    while (raw->readLine(line)) {
+        if (isVclTimeoutChatter(line)) {
+            ++vclTimeouts;
+            continue;
+        }
+        appendLine(line);
+    }
+    if (vclTimeouts > 0)
+        appendLine("[editor] vcl abandoned " + std::to_string(vclTimeouts / 2) +
+                   " optimisation attempt(s) on a time limit - harmless, the "
+                   "emitted microcode is the same either way "
+                   "(docs/vu-authoring.md).");
     const int code = raw->wait();
     {
         std::lock_guard<std::mutex> lock(execProcMutex_);

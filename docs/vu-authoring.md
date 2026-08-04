@@ -1439,47 +1439,51 @@ WARN: time out..
 WARN:  WARNING: failed to vuta via processing
 ```
 
-One `time out..` per `failed to <pass> via <region>` line. vcl still emits a
-**correct** program — it has abandoned one optimisation pass on one code region,
-so what comes out is scheduled worse: fewer paired upper/lower ops, more micro
-memory, slower per vertex. A `examples/vu-lab` build prints around fifty of
-them and nothing is wrong.
+One `time out..` per `failed to <pass> via <region>` line. **Ignore them.** The
+editor collapses them into a single count now, and the reason is worth stating
+precisely, because they look exactly like something going wrong:
 
-**The clip half is where they concentrate**, because it is the biggest program
-shape there is — Sutherland–Hodgman, nested loops, a scratch polygon buffer —
-and it already holds most of the 31 registers live. In a full vu-lab build the
-51 timeouts land on **8 of the 44 programs**, with 31 of them in a single one
-(Palette on the colour class, clip half).
+vcl gives each optimisation *attempt* a **wall-clock** budget — the `-t` flag,
+four seconds by default — and abandons the attempt when it expires. The count is
+therefore a property of how busy the machine is, not of your code. Measured on
+one idle machine, same source, same compiler:
 
-### …and why the timeout count is not a measurement
+| how vcl was run | timeouts on that one program | emitted .vsm |
+|---|---|---|
+| inside a 44-file `-j24` build | 29 | 281 slots, 121 unpaired |
+| alone | 2 | 281 slots, 121 unpaired |
+| alone, `-t15` | 2 | identical |
+| alone, `-t60` | 2 | identical |
 
-**The limit is wall-clock, so the number is a property of the machine as much as
-of the code.** Measured on one idle machine, same source, same compiler:
+**The output is byte-identical in every row** (the only diff is vcl's generated
+label names, which it derives from the input path). Twenty-seven extra timeouts
+bought nothing and cost nothing. Raising `-t` changes neither the count nor the
+code, so there is no knob here worth turning — the two attempts that fail alone
+fail for a reason no amount of time fixes.
 
-| build | programs through vcl | timeouts | worst single program |
-|---|---|---|---|
-| full, `-j24` | 44 | 51 | 31 |
-| full, `-j24`, after an optimisation | 44 | 48 | 29 |
-| only that program's 6 files, `-j24` | 6 | 5 | 5 |
-| full, `-j1` | 17 | 16 | 3 |
+They concentrate on the **clip half**, which is the biggest program shape there
+is — Sutherland–Hodgman, nested loops, a scratch polygon buffer — so it is also
+the slowest to optimise and the first to run out of wall clock. In a full vu-lab
+build the ~50 timeouts land on 8 of the 44 programs.
 
-The third row is the trap. The *same program*, from the *same source*, times out
-29 times when 42 other vcl processes are competing for the machine and 5 times
-when 6 are. Comparing a full build against an incremental one therefore
-"proves" almost any change works — which is exactly the mistake that produced
-an earlier version of this section, claiming a 51 → 5 improvement for a change
-that really bought 51 → 48.
+**Never judge a source change by the timeout count.** It "proves" almost
+anything: an earlier version of this section claimed a change took a build from
+51 timeouts to 5, when what really happened is that the second build only put
+*six* files through vcl instead of forty-four — changing one script leaves every
+other program's `.vclpp` byte-identical, so make skips them, and the timeouts
+they would have produced never appear. Measured full-against-full the same
+change bought 51 → 48, i.e. nothing.
 
-So: **do not use the timeout count to judge a source change.** Use the numbers
-that are deterministic — `--vu-check` prints emitted instructions per program,
-and the panel prints VF pressure. Both come out identical on every run.
+Use the numbers that are deterministic instead: `--vu-check` prints emitted
+instructions per program, the panel prints VF pressure, and the post-vcl `.vsm`
+can be counted directly if you want true slots rather than the range
+(`grep -cE '^ +(NOP|[a-z])' obj/gen/<program>.o.vsm`).
 
-What the optimisation above *did* buy, measured that way: seven instructions per
-vertex became five and two live values became one, so every Palette program
-dropped exactly 6 emitted instructions (262 → 256 on the colour class, 350 → 344
-on its clip half, and so on). That is real and it is small. The lesson worth
-keeping is the shape rather than the number — on a clip-half program **a
-temporary that stays live across the loops costs more than an instruction
+By that measure the Palette rework above bought 6 emitted instructions per
+program (262 → 256 on the colour class, 350 → 344 on its clip half) from five
+instructions per vertex instead of seven and one live temporary instead of two.
+Real, and small. The shape is worth more than the number: on a clip-half program
+**a temporary that stays live across the loops costs more than an instruction
 does**, so prefer writing into a register that is already dead, and let the host
 fold anything that does not depend on the vertex.
 
