@@ -155,6 +155,7 @@ class Vu {
     void branchIfNotEq(IVal a, IVal b, Lbl l);
     void branchIfEq(IVal a, IVal b, Lbl l);
     void branchIfGtz(IVal a, Lbl l);
+    void branchIfLtz(IVal a, Lbl l);
 
     // --- the clip family's own primitives ---------------------------------
     // Only the CLIP programs need these: the cull and as_is families judge a
@@ -511,15 +512,21 @@ const std::vector<unsigned>& customClasses();
  * project::vuClassName forwards here. */
 const char* classTitle(unsigned classBit);
 
-/** The ten programs the StaPip pipeline keeps resident, exactly as the engine
- * ships them: five `as_is` (fed by the EE clipper) crossed with five `cull`
- * (transform + frustum test on VU1). The `clip` family is still handwritten. */
+/** The fifteen StaPip programs the engine ships: five `as_is` (fed by the EE
+ * clipper) crossed with five `cull` (transform + frustum test on VU1), plus the
+ * five `clip` programs that replace the EE clipper when VU1 clipping is on. A
+ * material class is always TWO resident programs - cull for a package wholly
+ * inside the frustum, and either as_is or clip for one that crosses. */
 Desc descAsIsColor();
 Desc descAsIsTextureColor();
 Desc descAsIsDirLights();
 Desc descAsIsTextureDirLights();
 Desc descAsIsTextureEnv();
 Desc descClipColor();
+Desc descClipTextureColor();
+Desc descClipDirLights();
+Desc descClipTextureDirLights();
+Desc descClipTextureEnv();
 Desc descCullColor();
 Desc descCullTextureColor();
 Desc descCullDirLights();

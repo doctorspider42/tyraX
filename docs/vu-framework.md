@@ -213,6 +213,13 @@ only if every handwritten program parsed and every described one matched. This
 is the framework's test — there is no unit-test suite in this repo
 (`tyra-testing`).
 
+Set `VUGEN_DUMP=1` and a mismatch also prints the whole GIF window from both
+programs side by side, quadword by quadword. One differing field tells you
+almost nothing; the window tells you whether the two disagree about a value, a
+vertex COUNT, or where the packet starts — which are three different bugs. It is
+how the clip family's `moveInto` slip was found (the fifth emitted vertex was
+lerped against the origin, and only the fifth).
+
 ```bash
 tyrax-editor --vu-emit <outDir> [engineDir]
 ```
@@ -266,17 +273,18 @@ write.
 
 ## State: what is covered
 
-**Generated and proven bit-identical: all ten programs StaPip keeps resident** —
-the five `as_is` (the family the EE clipper feeds) and the five `cull` (the
-family that transforms and frustum-tests on VU1). The `cull` half emits the same
-instruction COUNT as the handwritten file in every variant (225/183/197/210
-against 225/183/197/210), which is a stronger statement than equivalence alone:
-the generator is not buying agreement with extra work.
+**Generated and proven bit-identical: all fifteen StaPip programs** — the five
+`as_is` (the family the EE clipper feeds), the five `cull` (transform and
+frustum test on VU1) and the five `clip` (Sutherland–Hodgman on VU1, the family
+that replaces the EE clipper). Every one of them emits the same instruction
+COUNT as its handwritten file — the clip half at 299/259/322/301/282 against
+299/259/322/301/282 — which is a stronger statement than equivalence alone: the
+generator is not buying agreement with extra work.
 
 **Parsed and simulatable, not yet described:** everything else the engine ships —
-all twenty-five `.vclpp` files parse with no diagnostics, including the five
-Sutherland–Hodgman clip programs and the VU0 raytracer kernel. They can be run,
-traced and inspected today; they just do not have a C++ description yet.
+all twenty-five `.vclpp` files parse with no diagnostics, including the
+`billboard` family and the VU0 raytracer kernel. They can be run, traced and
+inspected today; they just do not have a C++ description yet.
 
 **Validated against hardware:** a capture from `examples/vu-lab` running in
 PCSX2 replays into a bit-identical GIF packet (36/36 vertices). That is the
@@ -322,11 +330,11 @@ capture does not contain. Whether the real VU also differs from the simulator in
 the last bits is UNKNOWN and not claimed either way; settling it needs that chain
 captured (see docs/backlog.md).
 
-**Not done:** the `clip` and `billboard` families are still handwritten. Of the
-ten described programs only the five `as_is` are *adopted* — the generated `cull`
-family is proven equivalent in the simulator but has not been built in Docker or
-run on hardware, and adoption needs the full e2e pass (`tyra-testing`), not a
-host check.
+**Not done:** the `billboard` family is still handwritten. Of the fifteen
+described programs only the five `as_is` are *adopted* — the generated `cull` and
+`clip` families are proven equivalent in the simulator but have not been built in
+Docker or run on hardware, and adoption needs the full e2e pass
+(`tyra-testing`), not a host check.
 
 The `cull` family cost almost nothing to describe once `as_is` existed, and the
 shape of that diff is the argument for the whole approach: five new descriptions
@@ -338,10 +346,31 @@ go in the lit and env variants (they compute their colour from normals, and an
 env bag carries no lighting at all), which is why `spot` is
 `cull && colorStream && !env` rather than just `cull`.
 
-`clip` is the harder one: Sutherland–Hodgman with real control flow and scratch
-polygon buffers in high memory, which an expression-level DSL will not express.
-The honest shape there is a declarative skeleton with hand-written instruction
-blocks plugged into it — 80% generated, the clipper still artisanal.
+`clip` was expected to be the hard one — Sutherland–Hodgman with real control
+flow and scratch polygon buffers in high memory, which an expression-level DSL
+will not express — and the prediction was that it would end up 80% generated
+with the clipper still artisanal. That turned out to be wrong, and the reason is
+worth keeping: **the builder is not an expression DSL.** It has labels, forward
+branches, `clipw`/`fcand`, indexed loads and stores; a nested loop reads in C++
+about the way it reads in assembly, and `buildClipBody` is one function with no
+hand-written instruction blocks in it at all. What the family actually needed
+was nine small primitives (`moveInto`, `clipwInto`, `fcandInto`, `iorInto`,
+`iandInto`, `isubInto`, `branchIfEq`, `branchIfGtz`, `branchIfLtz`) and the
+shared preamble pulled out of `buildAsIsBody` so a third family could call it.
+
+The exercise also paid for itself in bugs the cull family was hiding:
+
+- `moveInto` wrote its source into the wrong operand slot, so `move ppos, cpos`
+  copied `vf00` — zeros. No family had used it before.
+- `vuir::disassemble` printed `clipw`'s first source as `dst`, so **every**
+  emitted program said `clipw.xyz vf00, vertexN` — "judge the origin", i.e.
+  nothing is ever outside. That is live on hardware for generated project
+  programs. The round-trip stage could not catch it because the cull family's
+  own trials never put a vertex outside the frustum; the clip trials do, on
+  purpose (`stageInput` spreads them to ±40).
+- `Vu::hoist` moved instructions without shifting the code indices that labels
+  and unresolved branches remember. Harmless while the only script hook sat in a
+  straight run; fatal the moment one sits inside three nested loops.
 
 ## VU1 or VU0?
 

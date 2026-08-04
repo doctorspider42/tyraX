@@ -1930,54 +1930,6 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // 2b. The CLIP family, while it is being described (task #17).
-    //
-    // Reported, NOT counted: registering a half-written description in
-    // allDescs() would turn this check red for everyone working on anything
-    // else. Until build() emits a clip program the twin is run AGAINST ITSELF,
-    // which answers the question that has to come first - can the simulator
-    // execute this program at all? It has nested loops, data-dependent
-    // branching and scratch polygon memory, none of which the cull and as_is
-    // families exercise. A green line here means the oracle is ready and the
-    // emitter can be written against it; a red one means the harness needs
-    // work before a single instruction is worth writing.
-    {
-        const vugen::Desc d = vugen::descClipColor();
-        const vugen::Built b = vugen::build(d);
-        vuasm::Options opt;
-        opt.includeRoot = engine;
-        vuir::Program hand;
-        std::string err;
-        const std::string path =
-            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
-             "static" / "core" / "programs" / d.dir / (d.fileStem + ".vclpp"))
-                .string();
-        std::printf("-- the clip family, being described (task #17) --\n");
-        if (!vuasm::parseFile(path, opt, hand, err)) {
-            std::printf("  %-16s reference unreadable: %s\n",
-                        d.vclName.c_str(), err.c_str());
-        } else if (b.program.code.empty()) {
-            const vugen::Equivalence self =
-                vugen::equivalence(hand, hand, d, 20, 0x5eed1234u);
-            std::printf("  %-16s %4d instructions, not described yet; "
-                        "simulator runs the reference: %s\n",
-                        d.vclName.c_str(), (int)hand.code.size(),
-                        self.identical ? "yes"
-                                       : (self.error.empty() ? "NO"
-                                                             : self.error.c_str()));
-        } else {
-            const vugen::Equivalence eq =
-                vugen::equivalence(hand, b.program, d, 60, 0x5eed1234u);
-            std::printf("  %-16s %s (%d trials)\n", d.vclName.c_str(),
-                        eq.identical ? "IDENTICAL" : "DIFFERENT", eq.trials);
-            if (!eq.identical && !eq.detail.empty())
-                std::printf("      %s\n", eq.detail.c_str());
-            if (!eq.identical && !eq.error.empty())
-                std::printf("      %s\n", eq.error.c_str());
-        }
-        std::printf("\n");
-    }
-
     // 3. The emitted SOURCE must behave like the IR it came from.
     //
     // This is not paranoia, it is the check whose absence shipped a broken
