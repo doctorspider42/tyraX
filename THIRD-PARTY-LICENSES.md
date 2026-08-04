@@ -35,6 +35,17 @@ TyraX's own license — Apache-2.0, the same terms as the engine — is in
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
 
+**This file covers what the repository and the editor binary ship.** The
+**toolchain image** ([`docker/`](docker)) is a separate matter: publishing a
+container image redistributes everything inside it, which for that image means the
+PS2DEV toolchain (GCC/binutils, GPL-3.0-or-later, with its source-offer duty),
+PS2SDK (AFL-2.0), our ps2link build — and `vcl`, which identifies itself as *VCL
+1.4beta7, Sony Computer Entertainment America © 2001* and carries no license at
+all. That is why the published package is not public and why the from-source
+`openvcl` migration is a prerequisite rather than an optimisation. The inventory
+and the reasoning are in
+[docs/toolchain-image.md](docs/toolchain-image.md#licensing-of-the-published-image).
+
 ---
 
 ## Tyra engine — Apache License 2.0

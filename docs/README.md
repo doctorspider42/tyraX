@@ -243,6 +243,12 @@ guides. What is queued is in [Backlog](backlog.md).
 
 Developer design docs (internals, not user guides):
 
+- [The toolchain image](toolchain-image.md) - where the Docker image games are
+  compiled in comes from (this repo, since it stopped being an unpinned
+  `h4570/tyra:latest`), how to build and publish it, how to point one project at
+  another image with `TYRAX_IMAGE`, and the measurements behind keeping the
+  inherited toolchain (the from-source `openvcl` changes all 25 VU1
+  microprograms and fails on 4).
 - [Profiling the generated game](profiling.md) - the built-in debug frame
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)

@@ -323,8 +323,18 @@ processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on t
 ELF.
 
 Notes:
-- First-ever build downloads the `h4570/tyra` image and compiles the engine
-  (minutes). Subsequent builds take seconds unless the engine changed.
+- First-ever build downloads the toolchain image (`h4570/tyra`, 812 MB) and
+  compiles the engine (minutes). Subsequent builds take seconds unless the
+  engine changed.
+- **Testing a change to the toolchain image itself** (`docker/Dockerfile`):
+  build it with `docker\build.ps1` / `docker/build.sh` - both run the same
+  checks CI does - then point a scratch project at it with one line,
+  `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
+  the way to a PCSX2 boot. `docker compose config` in the project directory
+  prints which image will actually be used; `docker ps -a --filter
+  name=<project>` confirms which one the container was created from. Nothing in
+  the editor needs rebuilding for this - `docker-compose.yml` is regenerated per
+  build and reads that variable. See `docs/toolchain-image.md`.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
   log is the number that means something: on `examples/showcase` (18 TUs, 6

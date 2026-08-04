@@ -105,8 +105,10 @@ the verification, and any fact worth reusing belongs in the relevant
     two TUs, at 95 MB of `.gch` per flag set - re-measure under `-j`, where
     six readers of a 95 MB file may cost more than they save.
   - `ccache` in the build image is the cheap third option (it would cover
-    branch switches and revert-and-rebuild), but it needs a Dockerfile again -
-    the per-project image was deliberately removed.
+    branch switches and revert-and-rebuild). It needs a Dockerfile, and there
+    now IS one - `docker/Dockerfile`, built once and shared, not the per-project
+    image that was deliberately removed. Add `ccache` there plus a cache
+    directory on the engine volume.
 - Compressed music streaming (SPU2-native ADPCM/VAG, ~3.5:1 vs 16-bit PCM) -
   needs a custom double-buffered SPU RAM streamer in the engine; audsrv only
   streams PCM and plays ADPCM one-shots
@@ -148,6 +150,54 @@ the verification, and any fact worth reusing belongs in the relevant
   %TEMP%\tyra-editor-test\clipbench (terrain_game.cpp owns a perfTick() +
   auto-spin patch, codegen marker removed).
 
+- **DONE (2026-08-04): the blocks pipeline had lost its frustum clip check.**
+  `vclpp` expands a macro to NOTHING - silently, exit 0 - if anything at all sits
+  between the `#macro` line and its first instruction. A note added inside
+  `PerformClipCheck` in `93a7657` (2026-07-14) therefore removed the whole macro
+  body, and `mcpip_cull` (its only caller) shipped with no clip check for three
+  weeks: `clipw` 0, `fcand` 0 in the generated `.vcl`, so off-screen blocks were
+  never ADC-masked and the GS was kicked for them anyway. Notes moved above the
+  `#macro` lines; the trap and a one-command check are in `tyra-engine-dev`.
+  **Worth a look on hardware/PCSX2:** the blocks example should now cull, so
+  `examples/blocks-terrain` may render fewer GS kicks (and possibly measurably
+  faster) than before this fix.
+- **DONE (2026-08-04): the toolchain image is built from this repo.**
+  `docker/Dockerfile` + `.github/workflows/toolchain-image.yml` publish
+  `ghcr.io/<owner>/tyrax-toolchain`: the compile environment pinned by digest
+  instead of `h4570/tyra:latest`, plus both TyraX ps2link ELFs shipped inside it.
+  Projects still default to `h4570/tyra` and switch over with one
+  `TYRAX_IMAGE=` line in the project's `.env`. Verified by building and booting
+  a fresh FPP project through the local image (PAL, 50 FPS, terrain renders).
+  Full write-up, including why the toolchain layer is inherited rather than
+  rebuilt from source, in `docs/toolchain-image.md`. What is left:
+  - **Flip the default when the repo goes public** - make the GHCR package
+    public, then change `TPL_COMPOSE` in `src/templates.cpp` and the README
+    mentions. Until then the package is private and only pullable with a token.
+    **Gated on `vcl`**, not just on the repo's visibility: publishing the image
+    redistributes GCC/binutils (GPL-3.0-or-later, source offer), PS2SDK
+    (AFL-2.0), ps2link - and `vcl`, which the binary itself identifies as **VCL
+    1.4beta7, Sony Computer Entertainment America (c) 2001**: an official PS2 SDK
+    tool, unlicensed rather than merely missing a LICENSE file. That is what makes the `openvcl` item below a prerequisite rather than
+    an optimisation. Moving the image to its own repo does NOT change this
+    (same bits, same terms, whoever pushes them) - reasoning in
+    `docs/toolchain-image.md`.
+  - **The `openvcl` migration - now blocked on ONE thing: scheduling density.**
+    Attempted 2026-08-04 and taken as far as it goes without writing a VU
+    scheduler. All 25 programs compile under it and none loses an instruction
+    (two fixes to openvcl in `docker/openvcl-tyrax.patch`, two engine-side
+    changes), a game builds - and then dies on its own assertion, `VU1 pipeline
+    programs overflow into the draw-finish program`, because **openvcl emits 71%
+    more instructions** (1925 -> 3295 over 15 programs, worst case `dynpip_c`
+    99 -> 248) and VU1 micro memory holds 2048. Packing two pipes per cycle is
+    exactly what Sony's vcl is for. Next step for whoever picks this up: openvcl's
+    scheduler, not its allocator - and the harness is already there
+    (`VCL_IMPL=openvcl`, `docs/toolchain-image.md` has every measurement).
+  - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV
+    built from source on a glibc base (the official images are Alpine, and the
+    legacy `vcl` is a glibc i386 binary), so ~1 h of CI per rebuild.
+  - **Bake the `vendor/tyra/audsrv-pan` overlay into the image** instead of
+    applying it into every fresh container (`src/runner.cpp`); needs `vendor/`
+    in the image build context, which `deps.*` fetches rather than tracks.
 - **DONE (2026-07-31): ps2link can be debugged in PCSX2, without the console.**
   A second, portable copy of the emulator with **DEV9 bridged** onto the LAN
   boots `ps2link.elf` and answers the real `ps2client` — `reset` and `execee`

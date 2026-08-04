@@ -24,6 +24,16 @@ tools/ps2link/build.ps1
 Linux: `tools/ps2link/build.sh`. `-Clean` / `--clean` throws the work tree
 away first.
 
+The toolchain image is pinned to `ps2dev/ps2dev:v2.0.0`, not `:latest`. It used
+to be `:latest`, which made a script whose whole point is reproducibility a
+moving target: same commit, same patch, 285 364 B one week and 285 620 B the
+next. **[`docker/Dockerfile`](../../docker/Dockerfile) builds ps2link from this
+same commit, patch and pinned image into the TyraX toolchain image**
+(`/usr/local/share/tyrax/ps2link/`), so the ELF can be copied out of any
+project's build container instead of built per machine — keep the three pins in
+step when refreshing (both scripts here and the Dockerfile), and see
+[docs/toolchain-image.md](../../docs/toolchain-image.md).
+
 **`ps2link.elf` is linked at `0x01ee8000`** (top of RAM). `-Low` / `--low`
 builds the same thing at `0x00094000` — the "BIOS unused" window below the
 `0x00100000` a game loads at — as `ps2link-low.elf`. `-NoUsb` / `--no-usb`

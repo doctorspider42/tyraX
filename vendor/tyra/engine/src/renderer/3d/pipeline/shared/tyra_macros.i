@@ -307,6 +307,16 @@
 ;// the W word (only bit 15 = ADC matters for XYZ2), but packed
 ;// XYZF2 reads F from bits 4-11, so the ADC decision is masked
 ;// down to bit 15 before OR-ing the fog bits in.
+;//
+;// NOTHING may be written between the #macro line and the first instruction -
+;// not even a comment. vclpp then expands the whole macro to NOTHING, with no
+;// error, and every caller builds green with the instructions missing. That is
+;// why this note sits here rather than below. See the same warning (and what it
+;// cost the blocks pipeline) above PerformClipCheck in vcl_sml.i.
+;//
+;// The second operand of the clipw below stays BARE: its w field is implied by
+;// the instruction, Sony's vcl infers it, and openvcl is patched to do the same
+;// (docker/openvcl-tyrax.patch, docs/toolchain-image.md).
 ;//---------------------------------------------------------
 #macro PerformTyraFogClipCheck: t_vertex, t_destAddress, t_destAddressOffset, t_fogInt, t_adcMask
    clipw.xyz   t_vertex,      t_vertex

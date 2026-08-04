@@ -657,6 +657,38 @@ banner both, so a previously built ELF still reports.
 - The compiler is `mips64r5900el-ps2-elf-g++` inside the `h4570/tyra` image;
   there is no way to compile engine code on the host. Even a syntax check
   requires a game build (see tyra-testing).
+- **NEVER put anything between a `#macro` line and its first instruction — not
+  even a comment.** `vclpp` then expands that macro to **nothing**: no error, no
+  warning, exit 0, and every caller compiles green with the instructions simply
+  absent. This is not theoretical and not cheap: a note added inside
+  `PerformClipCheck` (`vcl_sml.i`) in `93a7657` (2026-07-14) silently removed
+  the frustum clip check from `mcpip_cull` — the blocks pipeline shipped without
+  it until it was found on 2026-08-04. Put notes ABOVE the `#macro` line, in the
+  `;//` block that is already there for exactly this purpose.
+
+  How to check a macro actually expanded, in one command (no build needed):
+
+  ```bash
+  docker run --rm -v "<repo>/vendor/tyra:/e:ro" tyrax-toolchain:local sh -c \
+    'cd /e/engine && vclpp src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.vclpp /tmp/o.vcl && grep -c clipw /tmp/o.vcl'
+  ```
+
+  Do this whenever you touch a `.i` macro. Instruction counts in the generated
+  `.vsm` are the other tell: a program that suddenly got ~27 instructions
+  shorter did not get optimised, it lost a macro body.
+- Related, same file: `[..]` is vclpp's **register-array index**
+  (`t_lightMatrix[0]`), so a field suffix like `[w]` on a macro parameter is not
+  a spelling choice, it breaks expansion the same silent way.
+- **Two VU1 assemblers exist now, and which one built your microcode matters.**
+  `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
+  source, no license). The from-source `openvcl` compiles all 25 programs since
+  2026-08-04 (one patch to it, one source change in `stapip_clip_td` /
+  `stapip_cull_td`), but it *schedules differently*, so **any VU1 timing you
+  measure belongs to one assembler, not to the engine**. Say which one in the
+  commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl` picks it
+  when building the image; the image records its choice in
+  `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
+  `docs/toolchain-image.md`.
 
 ## Performance context
 
