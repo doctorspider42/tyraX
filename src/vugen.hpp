@@ -499,12 +499,16 @@ struct Desc {
  * live in the directional-lights colour block, which a lit program needs
  * (project::vuClassCanBind).
  *
- * `asIs` picks the other half of the class's resident PAIR: the cull program
- * draws a package wholly inside the frustum, its twin (as_is, or the VU1
- * clipper when that mode is on) draws one that crosses a plane. A look has to
- * replace both or the props at the edge of the screen keep the stock shading.
- */
-Desc descForClass(unsigned classBit, int lookIndex = 0, bool asIs = false);
+ * `half` picks which of the class's programs is meant. A class is TWO resident
+ * programs at any moment: `Cull` draws a package wholly inside the frustum, and
+ * one of the other two draws a package that crosses a plane - `AsIs` under the
+ * EE clipper, `Clip` under VU1 clipping. An override has to replace the
+ * resident PAIR or the props at the edge of the screen keep the stock shading,
+ * and since the clipping mode is a run-time switch, replacing all three is what
+ * makes an effect survive it. */
+enum class Half : uint8_t { Cull, AsIs, Clip };
+Desc descForClass(unsigned classBit, int lookIndex = 0,
+                  Half half = Half::Cull);
 /** Every class bit, low to high. */
 const std::vector<unsigned>& customClasses();
 /** "Untextured (vertex colour)", "Textured", ... - THE label for a class, used

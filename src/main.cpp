@@ -1479,48 +1479,72 @@ static int vuCheckScripts(const std::string& engine) {
     namespace fs = std::filesystem;
     std::printf("-- project scripts: build and simulate --\n");
     int fails = 0;
+    (void)engine;
+    // EVERY PROGRAM THE GENERATOR WOULD EMIT, not just the cull one. A class is
+    // three programs and src/vumain.cpp emits all of them a script can carry -
+    // so checking only the cull half left the two that draw whatever the
+    // frustum cut untested, which is precisely where a script goes wrong.
+    static const struct {
+        vugen::Half half;
+        const char* label;
+    } kHalves[3] = {{vugen::Half::Cull, ""},
+                    {vugen::Half::Clip, " [clip]"},
+                    {vugen::Half::AsIs, " [as_is]"}};
     for (vu::Program* sp : vu::registeredPrograms()) {
         for (unsigned cls : vugen::customClasses()) {
             if ((sp->classes() & cls) == 0) continue;
-            vugen::Desc d = vugen::descForClass(cls);
-            d.scriptPrepare = [](vugen::ScriptCtx& sc) {
-                vu::Ctx c(sc);
-                vuCheckScriptCurrent->prepare(c);
-            };
-            d.script = [](vugen::ScriptCtx& sc) {
-                // One program at a time - the loop below sets it.
-                vu::Ctx c(sc);
-                vuCheckScriptCurrent->vertex(c);
-            };
-            d.scriptSlot = sp->slot();
-            vuCheckScriptCurrent = sp;
-            const vugen::Built b = vugen::build(d);
-            if (!b.errors.empty()) {
-                std::printf("  %-16s %-22s BUILD REFUSED: %s\n", sp->name(),
-                            vugen::classTitle(cls), b.errors[0].c_str());
-                ++fails;
-                continue;
+            for (const auto& h : kHalves) {
+                // The as_is twin is fed NDC, so a geometry script has nothing
+                // to displace there and the generator does not emit it.
+                if (h.half == vugen::Half::AsIs &&
+                    sp->slot() == vugen::Slot::ObjectSpace)
+                    continue;
+                vugen::Desc d = vugen::descForClass(cls, 0, h.half);
+                d.scriptPrepare = [](vugen::ScriptCtx& sc) {
+                    vu::Ctx c(sc);
+                    vuCheckScriptCurrent->prepare(c);
+                };
+                d.script = [](vugen::ScriptCtx& sc) {
+                    // One program at a time - the loop below sets it.
+                    vu::Ctx c(sc);
+                    vuCheckScriptCurrent->vertex(c);
+                };
+                d.scriptSlot = sp->slot();
+                vuCheckScriptCurrent = sp;
+                const vugen::Built b = vugen::build(d);
+                const std::string what =
+                    std::string(vugen::classTitle(cls)) + h.label;
+                if (!b.errors.empty()) {
+                    std::printf("  %-16s %-22s BUILD REFUSED: %s\n", sp->name(),
+                                what.c_str(), b.errors[0].c_str());
+                    ++fails;
+                    continue;
+                }
+                const float zeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                const vugen::Equivalence run = vugen::equivalence(
+                    b.program, b.program, d, 12, 0x2B71C0DEu, zeros, 0.4f);
+                bool ok = run.identical && b.program.code.size() > 0;
+                // AND IT HAS TO CHANGE SOMETHING. Running is the weaker half of
+                // the claim: a script woven into the wrong place, or into a
+                // register the program overwrites a line later, still runs and
+                // still draws - it just draws the stock picture. Comparing
+                // against the SAME description with the script removed is what
+                // says the body reached the output, and it is the check that
+                // makes "a script reaches every draw path" a fact rather than a
+                // structural argument about which files got emitted.
+                vugen::Desc plain = vugen::descForClass(cls, 0, h.half);
+                const vugen::Built pb = vugen::build(plain);
+                const float live[4] = {0.7f, 0.35f, 1.4f, 0.5f};
+                const vugen::Equivalence effect = vugen::equivalence(
+                    pb.program, b.program, d, 12, 0x2B71C0DEu, live, 0.4f);
+                const bool changes = effect.ran && !effect.identical;
+                if (!changes) ok = false;
+                std::printf("  %-16s %-22s %-7s %4d instructions%s\n",
+                            sp->name(), what.c_str(), ok ? "OK" : "FAILED",
+                            (int)b.program.code.size(),
+                            changes ? "" : "   (the script changes NOTHING here)");
+                if (!ok) ++fails;
             }
-            vugen::Desc refDesc = vugen::descForClass(cls);
-            refDesc.custom = false;
-            vuir::Program hand;
-            vuasm::Options opt;
-            opt.includeRoot = engine;
-            std::string err;
-            const std::string path =
-                (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
-                 "static" / "core" / "programs" / "cull" /
-                 (vugen::descForClass(cls, 0, false).fileStem + ".vclpp"))
-                    .string();
-            (void)path;
-            const float zeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-            const vugen::Equivalence run = vugen::equivalence(
-                b.program, b.program, d, 12, 0x2B71C0DEu, zeros, 0.4f);
-            const bool ok = run.identical && b.program.code.size() > 0;
-            std::printf("  %-16s %-22s %-7s %4d instructions\n", sp->name(),
-                        vugen::classTitle(cls), ok ? "OK" : "FAILED",
-                        (int)b.program.code.size());
-            if (!ok) ++fails;
         }
     }
     if (vu::registeredPrograms().empty()) {

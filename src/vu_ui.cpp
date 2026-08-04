@@ -421,10 +421,14 @@ void App::drawVuProgramsWindow() {
             struct ScriptRow {
                 std::string script, cls;
                 unsigned bit = 0;
-                bool twin = false, boot = true;
+                // 0 = cull, 1 = the VU1 clipper, 2 = as_is - the same order
+                // engineSizes() uses, so the program a row REPLACES is just
+                // instr[ci][fam].
+                int fam = 0;
+                bool boot = true;
                 int instrs = 0;
                 int delta = 0;  // against the engine program it REPLACES
-                bool resident = true;  // a twin is not, under VU1 clipping
+                bool resident = true;  // only two of the three ever are
             };
             std::vector<ScriptRow> scriptRows;
             {
@@ -447,23 +451,20 @@ void App::drawVuProgramsWindow() {
                     r.cls = f[1];
                     r.instrs = std::atoi(f[2].c_str());
                     r.bit = (unsigned)std::atoi(f[4].c_str());
-                    r.twin = f[5] == "twin";
+                    r.fam = f[5] == "twin" ? 2 : f[5] == "clip" ? 1 : 0;
                     r.boot = f[6] == "boot";
                     // A script REPLACES the engine's program for that class,
                     // so only the difference is new weight. Adding the whole
                     // thing on top is how this bar first said 3056 of 2042 for
                     // a set that fits.
                     const int ci = classBitIndex(r.bit);
-                    // The as_is twin is only RESIDENT with the EE clipper. Under
-                    // VU1 clipping the engine's own clip program holds that half
-                    // of the pair, so a script's twin sits in the ELF costing
-                    // nothing - counting it there is what made this estimate
+                    // A class is THREE programs and only two are resident:
+                    // the cull half always, plus whichever of the clipping
+                    // twins the mode selects. The other one sits in the ELF
+                    // costing nothing - counting it is what made this estimate
                     // claim both modes cost the same.
-                    const bool twinResident = fam == 2;
-                    const int stock = r.twin ? engineSizes().instr[ci][2]
-                                             : engineSizes().instr[ci][0];
-                    r.delta = r.instrs - stock;
-                    r.resident = !r.twin || twinResident;
+                    r.delta = r.instrs - engineSizes().instr[ci][r.fam];
+                    r.resident = r.fam == 0 || r.fam == fam;
                     if (r.boot && r.resident && (mask & r.bit))
                         totEmitted += r.delta;
                     scriptRows.push_back(r);
@@ -587,12 +588,11 @@ void App::drawVuProgramsWindow() {
                 for (const vugen::Built& b : vuPreview_) other += b.stageInstrs;
                 for (const ScriptRow& r : scriptRows) {
                     if (!r.boot || !(mask & r.bit)) continue;
-                    // Same rule the other way round: a twin only counts in the
-                    // mode where the as_is half is the resident one.
-                    if (r.twin && otherFam != 2) continue;
+                    // Same rule the other way round: a crossing-half program
+                    // only counts in the mode that makes it resident.
+                    if (r.fam != 0 && r.fam != otherFam) continue;
                     const int ci = classBitIndex(r.bit);
-                    other += r.instrs - (r.twin ? engineSizes().instr[ci][2]
-                                                : engineSizes().instr[ci][0]);
+                    other += r.instrs - engineSizes().instr[ci][r.fam];
                 }
                 ImGui::Spacing();
                 const bool fits = other <= 2042;
@@ -646,7 +646,7 @@ void App::drawVuProgramsWindow() {
                     ImGui::Text("%s", r.script.c_str());
                     ImGui::SameLine(scaled(190));
                     ImGui::TextDisabled("%s%s", r.cls.c_str(),
-                                        r.twin ? "  (frustum-cut half)" : "");
+                                        r.fam ? "  (frustum-cut half)" : "");
                     ImGui::SameLine(scaled(430));
                     // The number that matters is the DIFFERENCE: the class row
                     // above already counts the engine's program, and this

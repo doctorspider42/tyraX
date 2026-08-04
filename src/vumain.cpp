@@ -118,7 +118,10 @@ struct Emitted {
     std::string classTitle;  // the material class, spelled the way the UI does
     unsigned classBit = 0;
     size_t scriptIndex = 0;  // which vu::Program, for activate/deactivate
-    bool asIs = false;       // the twin that draws what the frustum cut
+    /** "main" (cull), "twin" (as_is) or "clip" - which of the class's three
+     * programs this is. Only two of them are ever resident at once, and which
+     * two depends on the clipping mode, so the panel's budget needs to know. */
+    const char* kind = "main";
     bool activeAtBoot = true;
     int instructions = 0;
 };
@@ -144,21 +147,40 @@ int main(int argc, char** argv) {
         for (unsigned cls : vugen::customClasses()) {
             if ((p->classes() & cls) == 0) continue;
 
-            // Both halves of the class's resident PAIR. The cull program draws
-            // a package wholly inside the frustum and the as_is one draws what
-            // the frustum cut, so replacing only the first leaves the effect
-            // stopping at the edge of the screen. The as_is twin has no MVP
-            // multiply - its vertices are already transformed - so a script
-            // that moves GEOMETRY only gets the cull half, and the docs say so
-            // rather than the generator silently tearing the mesh.
+            // ALL THREE PROGRAMS OF THE CLASS. The cull program draws a package
+            // wholly inside the frustum; a package that CROSSES a plane goes to
+            // as_is under the EE clipper and to the VU1 clipper under VU1
+            // clipping. Which of those two is resident is a run-time switch, so
+            // an effect that replaces only one of them switches itself off when
+            // the game changes clipping mode - and replacing neither leaves it
+            // stopping at the edge of the screen.
+            //
+            // The as_is twin is the one exception: it has no MVP multiply (the
+            // EE clipper hands it NDC), so a script that moves GEOMETRY has
+            // nothing to displace there and does not get that half. The clip
+            // program DOES do its own MVP multiply, which is exactly why it is
+            // emitted for a geometry script - it is the only way a displacement
+            // reaches a mesh the clipper cut.
             const bool geometry = p->slot() == vugen::Slot::ObjectSpace;
-            for (int half = 0; half < (geometry ? 1 : 2); ++half) {
-                const bool asIs = half == 1;
-                vugen::Desc d = vugen::descForClass(cls, 0, asIs);
+            static const vugen::Half kHalves[3] = {
+                vugen::Half::Cull, vugen::Half::AsIs, vugen::Half::Clip};
+            for (int hi = 0; hi < 3; ++hi) {
+                const vugen::Half half = kHalves[hi];
+                if (geometry && half == vugen::Half::AsIs) continue;
+                const char* kind = half == vugen::Half::AsIs   ? "twin"
+                                   : half == vugen::Half::Clip ? "clip"
+                                                               : "main";
+                const char* suffix = half == vugen::Half::AsIs   ? "_ai"
+                                     : half == vugen::Half::Clip ? "_cl"
+                                                                 : "";
+                const char* sym = half == vugen::Half::AsIs   ? "AI"
+                                  : half == vugen::Half::Clip ? "CL"
+                                                              : "";
+                vugen::Desc d = vugen::descForClass(cls, 0, half);
                 const std::string ix = std::to_string(pi);
                 const std::string tag = classTag(cls);
-                d.fileStem = "vu_script" + ix + "_" + tag + (asIs ? "_ai" : "");
-                d.vclName = "TyraXScript" + ix + classSym(cls) + (asIs ? "AI" : "");
+                d.fileStem = "vu_script" + ix + "_" + tag + suffix;
+                d.vclName = "TyraXScript" + ix + classSym(cls) + sym;
                 d.asmName = d.vclName;
                 d.className = d.vclName + "VU1Program";
                 d.title = std::string(p->name()) + " - " +
@@ -189,7 +211,7 @@ int main(int argc, char** argv) {
                         ++instrs;
                 emitted.push_back({d.className, d.fileStem + "_program.hpp",
                                    d.programEnum, p->name(),
-                                   vugen::classTitle(cls), cls, pi, asIs,
+                                   vugen::classTitle(cls), cls, pi, kind,
                                    p->activeAtBoot(), instrs});
                 std::printf("[vugen] %s -> %s (%d instructions)\n", p->name(),
                             d.fileStem.c_str(), (int)b.program.code.size());
@@ -386,7 +408,7 @@ int main(int argc, char** argv) {
     for (const Emitted& e : emitted)
         m += e.script + "\t" + e.classTitle + "\t" +
              std::to_string(e.instructions) + "\t" + e.programEnum + "\t" +
-             std::to_string(e.classBit) + "\t" + (e.asIs ? "twin" : "main") +
+             std::to_string(e.classBit) + "\t" + e.kind +
              "\t" + (e.activeAtBoot ? "boot" : "manual") + "\n";
     if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
 

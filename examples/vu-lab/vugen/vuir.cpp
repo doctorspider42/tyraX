@@ -294,10 +294,21 @@ std::string disassemble(const Program& p, const Instr& in) {
         case Op::Abs:
         case Op::Ftoi0:
         case Op::Ftoi4:
-        case Op::Itof0:
-        case Op::Clipw: {
+        case Op::Itof0: {
             std::snprintf(buf, sizeof buf, "%-10s %s, %s", mnem.c_str(),
                           vfText(p, in.dst).c_str(), srcText(p, in).c_str());
+            return buf;
+        }
+        case Op::Clipw: {
+            // clipw has NO destination - it writes the clip-flag register - so
+            // its first printed operand is s1, not dst. Printing dst here wrote
+            // `clipw.xyz vf00, vertex1` into every emitted program, which parses
+            // back as "judge the origin", i.e. nothing is ever outside. The
+            // round-trip check could not see it because the cull family's own
+            // trials never place a vertex outside the frustum in the first
+            // place; the clip family's do, on purpose.
+            std::snprintf(buf, sizeof buf, "%-10s %s, %s", mnem.c_str(),
+                          vfText(p, in.s1).c_str(), srcText(p, in).c_str());
             return buf;
         }
         default: {  // the three-operand float ops

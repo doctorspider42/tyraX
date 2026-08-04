@@ -239,9 +239,8 @@ opt table` from vcl, inside Docker, with no line number; the same effect done in
 the GS's own 0..255 scale fits. Prefer `c.scratch(n)` to long expressions, and
 suspect the register ceiling first when a build fails in the assembler.
 
-**A script's `Slot::ObjectSpace` half does not follow a mesh through the
-clipper** - see "One class is two programs" below, which is the same rule the
-stage list lives under.
+**A script's `Slot::ObjectSpace` half follows a mesh through the VU1 clipper but
+not through the EE one** - see "One class is two programs" below.
 
 ### What the build actually does
 
@@ -386,8 +385,9 @@ Parameters cost neither micro memory nor batching.
 
 ## Which classes a look can claim
 
-All five, with one condition. Every one of them is a `cull` program, and that is
-not arbitrary:
+All five, with one condition. The table below names each class's `cull` program
+because that is the one always resident; a script also gets the crossing half
+(see "A script gets all three"), and a look currently does not:
 
 - **`cull` is the only family resident in both clipping modes.** `as_is` is
   uploaded only with the EE clipper, `clip` only with VU1 clipping (the default)
@@ -538,6 +538,14 @@ prop is small enough to draw unclipped. The terrain and the sky keep their clip
 checks; they are far too big to submit raw, and raw submission wraps the GS
 raster window.
 
+**Under VU1 clipping none of that applies**, and the generated game says so:
+`fullClipChecks` is `!movesGeometry() || vuprog::vu1Clipping()`, refreshed per
+frame because the mode is a run-time switch. The VU1 clip program does its own
+MVP multiply, so the script displaces the vertex *before* the cut is computed
+and the clipper sees the final geometry. Declaring the flag is still right — the
+game may switch back to the EE clipper — it simply costs nothing while the VU1
+clipper is on.
+
 `Slot::Ndc` does **not** need it. The divide has already happened, the vertex is
 in screen space, and a nudge of a few pixels stays inside the guard band.
 
@@ -557,15 +565,25 @@ in exactly the space the cull half's `Ndc` stage works in. The same grid means
 the same thing in both, with no scale compensation, and a screen-space effect
 covers the whole frame.
 
-Object and clip space are genuinely gone by then, so a displacement there runs
-in the cull half only. `movesGeometry()` covers the PROPS by submitting them
-whole. It cannot cover the **terrain**: terrain chunks straddle the near plane -
-the ground continues behind the camera - and a chunk submitted unclipped wraps
-the GS raster window. So an object-space wave breaks along the chunks the
-clipper touched, and the seam is visible at the edge of the frame. Two ways out,
-neither free: displace the terrain on the EE (it is a heightfield, and the game
-already walks it), or run the project in VU1 clipping, where the clip program is
-a VU program too and still has the object-space position.
+Object and clip space are genuinely gone by then, so a displacement there does
+not run in the as_is twin — and the generator does not emit that twin for a
+geometry script rather than silently tearing the mesh.
+
+**It DOES run in the clip half.** The VU1 clip program does its own MVP
+multiply, so unlike `as_is` it still holds the object-space position, and a
+script is woven into it at the same slots. That is what closes the hole this
+section used to describe: `movesGeometry()` covers the PROPS by submitting them
+whole, and it cannot cover the **terrain** — terrain chunks straddle the near
+plane, the ground continues behind the camera, and a chunk submitted unclipped
+wraps the GS raster window. An object-space wave therefore broke along the
+chunks the clipper touched, visibly, at the edge of the frame. Run the project
+in VU1 clipping and it does not: the clipper is a VU program, the script runs
+inside it, and the chunk is cut *after* the displacement. The cost is micro
+memory — the clip family is about twice the size of the as_is family it replaces
+(see "Budget against the CLIP family").
+
+`examples/vu-lab` demonstrates exactly this: hold CIRCLE and it switches to VU1
+clipping, narrows the resident classes to fit, and turns the Wobble script on.
 
 Two things that cost a console build each to learn:
 
@@ -887,14 +905,44 @@ than reasoned about:
   large meshes are the good case: they are mostly interior, and the cut packages
   are at the horizon.
 
-The clean fix is a generated clip twin, which needs a description of the engine's
-Sutherland–Hodgman clipper the generator does not have yet.
+The clean fix is a generated clip twin, and that description now exists —
+`vugen` builds the whole `clip` family, proven bit-identical to the handwritten
+one. **A project's C++ SCRIPT already gets it** (see below); the panel's LOOKS
+do not yet, because a look is installed through `VuBuild::LookClass`, which
+carries exactly two program slots per class. Until that grows a third, a look
+authored under VU1 clipping keeps the stock shading on a clip-classified
+package — author it on the EE clipper (*Preferences > Rendering*) or write the
+effect as a script instead. The panel says so in as many words when it sees the
+combination.
 
-**Under VU1 clipping the twin is the clipper itself**, which the generator has no
-description of at all, so there a clip-classified package keeps the stock shading
-whatever the stage does. Author the look on the EE clipper (*Preferences >
-Rendering*, what `examples/vu-lab` does) or accept it. The panel says so in as
-many words when it sees the combination.
+### A script gets all three
+
+`src/vumain.cpp` emits every program of every class a script claims: the `cull`
+half, the `clip` half, and the `as_is` half unless the script moves geometry (an
+as_is program is handed NDC, so there is nothing to displace in it — the
+generator skips it rather than tearing the mesh). The limitation above is
+therefore a look limitation, not a framework one:
+
+| the script's slot | cull | clip | as_is |
+|---|---|---|---|
+| `ObjectSpace` | yes | **yes** | not emitted |
+| `ClipSpace` | yes | **yes** | not emitted |
+| `Ndc` | yes | **yes**, per EMITTED vertex | yes |
+| `Color`, `Texture` | yes | **yes**, per corner, then interpolated through the cuts | yes |
+
+In the clip program the colour and texture slots run on the three input corners,
+like the flashlight does, and the result is interpolated across whatever the
+clipper cut — which is what Gouraud shading does across an uncut triangle
+anyway. `Ndc` is the exception: it is the only slot that cannot run per corner,
+because an NDC position only exists *after* the cut, per emitted vertex. It runs
+inside the shared vertex emitter, at the same point the as_is family's `Ndc`
+slot runs, so the same grid means the same thing in all three programs.
+
+`--vu-check` builds every script against every one of those programs and then
+proves the script CHANGED the output — comparing against the identical
+description with the script removed. Running is the weaker half of the claim: a
+body woven into the wrong place still runs and still draws, it just draws the
+stock picture.
 
 ### Swapping the look at run time
 

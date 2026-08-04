@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "vusim.hpp"
@@ -41,6 +42,18 @@ constexpr int kLightsDirsAddr = 12;
 constexpr int kLightsColorsAddr = 15;
 constexpr int kSetGifTagAddr = 19;
 constexpr int kAlphaAddr = 21;
+// The CLIP family's own memory (stapip_vu1_shared_defines.h). The constants sit
+// low with everything else; the plane table and the two scratch polygons live
+// ABOVE the double buffer, which is why VU1_STAPIP_DBUFFER_END stops where it
+// does.
+constexpr int kClipConstsAddr = 20;
+constexpr int kClipPlanesAddr = 944;
+// The two scratch polygons the clipper ping-pongs between. Fifteen quadwords
+// each - five vertices at the textured stride of three - which is what a
+// triangle cut by six planes can reach.
+constexpr int kClipPolyAAddr = 956;
+constexpr int kClipPolyBAddr = 986;
+constexpr float kClipGuard = 4096.0f;
 // The env (matcap) camera basis reuses the lights-matrix area: an env bag
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
 constexpr int kEnvBasisAddr = kLightsMatrixAddr;
@@ -375,6 +388,24 @@ int Vu::hoist(int from, int to) {
     std::vector<vuir::Instr> moved(p_->code.begin() + from, p_->code.end());
     p_->code.erase(p_->code.begin() + from, p_->code.end());
     p_->code.insert(p_->code.begin() + to, moved.begin(), moved.end());
+    // EVERYTHING THAT REMEMBERS A CODE INDEX MOVES WITH IT. Two things do:
+    // labels already bound, and branches still waiting for `finish` to resolve
+    // them. The as_is and cull families never noticed - their script hook sits
+    // in a straight run with no label between the hoist target and the code
+    // being hoisted - but the clip family's hooks are inside three nested
+    // loops, so one constant hoisted out of the vertex emitter steps over every
+    // label and every unresolved branch of the clipper and the program jumps
+    // into the middle of its own polygon loop.
+    auto shift = [&](int& at) {
+        if (at >= from)
+            at -= (from - to);
+        else if (at >= to)
+            at += n;
+    };
+    for (int& at : labelIndex_)
+        if (at >= 0) shift(at);
+    for (auto& f : fixups_)
+        if (f.first >= 0) shift(f.first);
     return n;
 }
 
@@ -421,6 +452,84 @@ void Vu::xtop(IVal dst) {
     Instr in;
     in.op = Op::Xtop;
     in.dst = dst.reg;
+    emit(in);
+}
+void Vu::branchIfEq(IVal a, IVal b, Lbl l) {
+    Instr in;
+    in.op = Op::Ibeq;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
+void Vu::branchIfGtz(IVal a, Lbl l) {
+    Instr in;
+    in.op = Op::Ibgtz;
+    in.s1 = a.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
+void Vu::branchIfLtz(IVal a, Lbl l) {
+    Instr in;
+    in.op = Op::Ibltz;
+    in.s1 = a.reg;
+    emit(in);
+    fixups_.push_back({(int)p_->code.size() - 1, l.id});
+}
+void Vu::moveInto(Val dst, Val a, uint8_t mask) {
+    Instr in;
+    in.op = Op::Move;
+    in.mask = mask;
+    in.dst = dst.reg;
+    // The SECOND source slot, like every other one-operand op in the IR (see
+    // Vu::move). Writing s1 instead reads vf00 and copies zeros - which is a
+    // silent no-op, not a compile error, and cost an afternoon: the clipper's
+    // `move ppos, cpos` cleared the previous vertex and every cut edge came out
+    // interpolated against the origin.
+    in.s2 = a.reg;
+    in.bc2 = a.bc;
+    emit(in);
+}
+void Vu::clipwInto(Val a, uint8_t mask) {
+    Instr in;
+    in.op = Op::Clipw;
+    in.mask = mask;
+    // Both operands are the same register: clipw judges xyz against the w of
+    // its SECOND source, and every caller wants the vertex judged against its
+    // own w. The handwritten programs spell it the same way.
+    in.s1 = a.reg;
+    in.s2 = a.reg;
+    emit(in);
+}
+void Vu::fcandInto(IVal dst, int mask) {
+    Instr in;
+    in.op = Op::Fcand;
+    in.dst = dst.reg;
+    in.imm = mask;
+    emit(in);
+}
+void Vu::iorInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Ior;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+}
+void Vu::iandInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Iand;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
+    emit(in);
+}
+void Vu::isubInto(IVal dst, IVal a, IVal b) {
+    Instr in;
+    in.op = Op::Isub;
+    in.dst = dst.reg;
+    in.s1 = a.reg;
+    in.s2 = b.reg;
     emit(in);
 }
 void Vu::xgkick(IVal address) {
@@ -982,6 +1091,72 @@ Desc descAsIsTextureEnv() {
     return d;
 }
 
+/** The flat-colour CLIP program, and the four variants that share its body.
+ *
+ * Same relationship the cull family has with as_is: one skeleton, five material
+ * classes, and the only differences are which attribute streams a vertex
+ * carries and where its colour comes from. */
+Desc descClipColor() {
+    Desc d;
+    d.vclName = "StaPipVU1ClipC";
+    d.asmName = "StaPipVU1Clip_C";
+    d.fileStem = "stapip_clip_c_vu1";
+    d.className = "StaPipClipCVU1Program";
+    d.programEnum = "StaPipClipColor";
+    d.title = "StaPip - Clip - C";
+    d.clip = true;
+    d.dir = "clip";
+    return d;
+}
+
+Desc descClipTextureColor() {
+    Desc d = descClipColor();
+    d.vclName = "StaPipVU1ClipTC";
+    d.asmName = "StaPipVU1Clip_TC";
+    d.fileStem = "stapip_clip_tc_vu1";
+    d.className = "StaPipClipTCVU1Program";
+    d.programEnum = "StaPipClipTextureColor";
+    d.title = "StaPip - Clip - TC";
+    d.texture = true;
+    return d;
+}
+
+Desc descClipDirLights() {
+    Desc d = descClipColor();
+    d.vclName = "StaPipVU1ClipD";
+    d.asmName = "StaPipVU1Clip_D";
+    d.fileStem = "stapip_clip_d_vu1";
+    d.className = "StaPipClipDVU1Program";
+    d.programEnum = "StaPipClipDirLights";
+    d.title = "StaPip - Clip - D";
+    d.dirLights = true;
+    return d;
+}
+
+Desc descClipTextureDirLights() {
+    Desc d = descClipDirLights();
+    d.vclName = "StaPipVU1ClipTD";
+    d.asmName = "StaPipVU1Clip_TD";
+    d.fileStem = "stapip_clip_td_vu1";
+    d.className = "StaPipClipTDVU1Program";
+    d.programEnum = "StaPipClipTextureDirLights";
+    d.title = "StaPip - Clip - TD";
+    d.texture = true;
+    return d;
+}
+
+Desc descClipTextureEnv() {
+    Desc d = descClipTextureColor();
+    d.vclName = "StaPipVU1ClipTCE";
+    d.asmName = "StaPipVU1Clip_TCE";
+    d.fileStem = "stapip_clip_tce_vu1";
+    d.className = "StaPipClipTCEVU1Program";
+    d.programEnum = "StaPipClipTextureEnv";
+    d.title = "StaPip - Clip - TCE";
+    d.env = true;
+    return d;
+}
+
 Desc descCullColor() {
     Desc d;
     d.vclName = "StaPipVU1CullC";
@@ -1060,30 +1235,51 @@ const char* classTitle(unsigned classBit) {
     }
 }
 
-Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
+const char* halfSuffix(Half h) {
+    return h == Half::AsIs ? "_ai" : h == Half::Clip ? "_cl" : "";
+}
+const char* halfSymbol(Half h) {
+    return h == Half::AsIs ? "AI" : h == Half::Clip ? "CL" : "";
+}
+
+Desc descForClass(unsigned classBit, int lookIndex, Half half) {
     Desc d;
     const char* tag = "c";    // file stem, lowercase like every generated file
     const char* upper = "C";  // symbol stem, matching the engine's own spelling
+    // Which of the three programs of this class is being described. `Cull`
+    // draws a package wholly inside the frustum; the other two draw one that
+    // crosses, and which of THEM is resident depends on the clipping mode.
+    auto pick = [&](Desc cull, Desc asIs, Desc clip) {
+        return half == Half::AsIs ? asIs : half == Half::Clip ? clip : cull;
+    };
     switch (classBit) {
         case 1u << 1:
-            d = asIs ? descAsIsDirLights() : descCullDirLights();
+            d = pick(descCullDirLights(), descAsIsDirLights(),
+                     descClipDirLights());
             tag = "d";
             upper = "D";
             break;
         case 1u << 2:
-            d = asIs ? descAsIsTextureDirLights() : descCullTextureDirLights(),
-            tag = "td", upper = "TD";
+            d = pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
+                     descClipTextureDirLights());
+            tag = "td";
+            upper = "TD";
             break;
         case 1u << 3:
-            d = asIs ? descAsIsTextureColor() : descCullTextureColor();
+            d = pick(descCullTextureColor(), descAsIsTextureColor(),
+                     descClipTextureColor());
             tag = "tc";
             upper = "TC";
             break;
         case 1u << 4:
-            d = asIs ? descAsIsTextureEnv() : descCullTextureEnv(), tag = "tce",
+            d = pick(descCullTextureEnv(), descAsIsTextureEnv(),
+                     descClipTextureEnv());
+            tag = "tce";
             upper = "TCE";
             break;
-        default: d = asIs ? descAsIsColor() : descCullColor(); break;
+        default:
+            d = pick(descCullColor(), descAsIsColor(), descClipColor());
+            break;
     }
     d.custom = true;
     d.dir = "gen";
@@ -1096,9 +1292,8 @@ Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
     // look look broken - the props at the edge of the screen keep the engine's
     // shading - so a look emits both.
     const std::string ix = std::to_string(lookIndex);
-    const std::string half = asIs ? "_ai" : "";
-    d.fileStem = std::string("vu_look") + ix + "_" + tag + half;
-    d.vclName = std::string("TyraXLook") + ix + upper + (asIs ? "AI" : "");
+    d.fileStem = std::string("vu_look") + ix + "_" + tag + halfSuffix(half);
+    d.vclName = std::string("TyraXLook") + ix + upper + halfSymbol(half);
     d.asmName = d.vclName;
     d.className = d.vclName + "VU1Program";
     d.title = std::string("TyraX look - ") + classTitle(classBit);
@@ -1106,11 +1301,14 @@ Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
 }
 
 std::vector<Desc> allDescs() {
-    return {descAsIsColor(),          descAsIsTextureColor(),
-            descAsIsDirLights(),      descAsIsTextureDirLights(),
-            descAsIsTextureEnv(),     descCullColor(),
-            descCullTextureColor(),   descCullDirLights(),
-            descCullTextureDirLights(), descCullTextureEnv()};
+    return {descAsIsColor(),            descAsIsTextureColor(),
+            descAsIsDirLights(),        descAsIsTextureDirLights(),
+            descAsIsTextureEnv(),       descCullColor(),
+            descCullTextureColor(),     descCullDirLights(),
+            descCullTextureDirLights(), descCullTextureEnv(),
+            descClipColor(),            descClipTextureColor(),
+            descClipDirLights(),        descClipTextureDirLights(),
+            descClipTextureEnv()};
 }
 
 // ---------------------------------------------------------------------------
@@ -1544,6 +1742,264 @@ void applyStages(StageCtx& c, const StagePlan& plan, Slot slot) {
         if (r.def->slot == slot) emitStage(c, r);
 }
 
+// ---------------------------------------------------------------------------
+// The preamble, shared by every family
+// ---------------------------------------------------------------------------
+//
+// Three skeletons now load the same per-mesh constants and stage the same GIF
+// tag block: as_is, cull and clip. Copying that block a third time is how the
+// twenty handwritten programs drifted in the first place - hardware fog, the
+// in-band ALPHA tag and the spot light each had to be threaded through every
+// one of them by hand - so it is written ONCE here and the families differ only
+// where they genuinely differ.
+
+/** `lq dst, offset(base)` into a NAMED register. Vu::lq mints a fresh
+ * temporary, which is right for an expression and wrong for a per-mesh
+ * constant: the emitted source is read on hardware, so those want the names the
+ * handwritten programs use. */
+void loadInto(Program& prog, Val dst, IVal base, int offset,
+              uint8_t mask = MALL, const char* comment = nullptr) {
+    Instr in;
+    in.op = Op::Lq;
+    in.dst = dst.reg;
+    in.base = base.reg;
+    in.imm = offset;
+    in.mask = mask;
+    if (comment) in.comment = comment;
+    prog.code.push_back(in);
+}
+
+/** The same off vi00 - a per-mesh constant at a fixed data address. */
+void loadK(Program& prog, Val dst, int address, uint8_t mask = MALL,
+           const char* comment = nullptr) {
+    loadInto(prog, dst, IVal{vuir::kVi00}, address, mask, comment);
+}
+
+/** `ilw.<field> dst, offset(base)` into a NAMED integer register. */
+void ilwInto(Program& prog, IVal dst, IVal base, int offset, int field,
+             const char* comment = nullptr) {
+    Instr in;
+    in.op = Op::Ilw;
+    in.dst = dst.reg;
+    in.base = base.reg;
+    in.imm = offset;
+    in.mask = (uint8_t)(1 << field);
+    if (comment) in.comment = comment;
+    prog.code.push_back(in);
+}
+
+/** Every per-mesh constant a StaPip program can load. */
+struct Constants {
+    Val gifSetTag{}, lodGifTag{}, testsTag{}, clutTag{}, alphaTag{}, fogParams{};
+    Val singleColor{}, mvp[4]{};
+    Val lightMatrix[3]{}, lightDirs[3]{}, lightColors[3]{}, ambient{};
+    Val spotPos{}, spotDirV{}, spotColV{};
+    Val envRight{}, envUp{}, envConsts{};
+    IVal singleColorEnabled{}, adcMask{};
+};
+
+/** The flashlight runs where there is a per-vertex COLOUR to add it to and the
+ * object-space position is still in hand: the cull and clip families, on the
+ * unlit non-env classes. A lit program computes its colour from normals further
+ * down and an env bag carries no lighting at all. */
+bool usesSpotLight(const Desc& d) {
+    return (d.cull || d.clip) && !d.dirLights && !d.env;
+}
+
+/** LoadTyraDirectionalLights: the rotation part of the world matrix, three
+ * light directions, three light colours and the ambient term.
+ *
+ * A function and not just preamble code because the CLIP family loads these
+ * INSIDE its triangle loop. Ten registers held live across the
+ * Sutherland-Hodgman block is more than VU1 has to spare, so clip_d and clip_td
+ * pay the reload once per triangle and get the clipper's registers back. */
+void loadDirLights(Vu& b, Program& prog, Constants& k) {
+    static const char* mn[3] = {"lightMatrix[0]", "lightMatrix[1]",
+                                "lightMatrix[2]"};
+    static const char* dn[3] = {"lightDirections[0]", "lightDirections[1]",
+                                "lightDirections[2]"};
+    static const char* cn[3] = {"lightColors[0]", "lightColors[1]",
+                                "lightColors[2]"};
+    for (int i = 0; i < 3; ++i) {
+        k.lightMatrix[i] = b.named(mn[i]);
+        loadInto(prog, k.lightMatrix[i], b.izero(), kLightsMatrixAddr + i, MXYZ,
+                 i == 0 ? "LoadTyraDirectionalLights" : nullptr);
+    }
+    for (int i = 0; i < 3; ++i) {
+        k.lightDirs[i] = b.named(dn[i]);
+        loadInto(prog, k.lightDirs[i], b.izero(), kLightsDirsAddr + i, MXYZ);
+    }
+    for (int i = 0; i < 3; ++i) {
+        k.lightColors[i] = b.named(cn[i]);
+        loadInto(prog, k.lightColors[i], b.izero(), kLightsColorsAddr + i, MXYZ);
+    }
+    k.ambient = b.named("ambientColor");
+    loadInto(prog, k.ambient, b.izero(), kLightsColorsAddr + 3, MXYZ);
+}
+
+/** Everything that runs once per BUFFER before the first vertex is touched. */
+void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
+    const bool colorStream = !d.dirLights;
+    // The families that judge a vertex against the frustum on VU1 start from a
+    // cleared clip-flag shift register.
+    if (d.cull || d.clip) b.resetClipFlags();
+    k.gifSetTag = b.named("gifSetTag");
+    loadK(prog, k.gifSetTag, kSetGifTagAddr, MALL, "VU1_SET_GIFTAG_ADDR");
+
+    // as_is is fed NDC by the EE clipper; cull and clip transform on VU1.
+    if (d.cull || d.clip) {
+        static const char* mn[4] = {"mvp[0]", "mvp[1]", "mvp[2]", "mvp[3]"};
+        for (int i = 0; i < 4; ++i) {
+            k.mvp[i] = b.named(mn[i]);
+            loadK(prog, k.mvp[i], kMvpMatrixAddr + i, MALL,
+                  i == 0 ? "MatrixLoad - VU1_MVP_MATRIX_ADDR" : nullptr);
+        }
+    }
+
+    if (colorStream) {
+        k.singleColor = b.named("singleColor");
+        loadK(prog, k.singleColor, kSingleColorAddr, MALL,
+              "VU1_SINGLE_COLOR_ADDR");
+        // The CLIP family deliberately does NOT keep the flag in an integer
+        // register: its inner loops need every one of the sixteen, so it pays
+        // an ilw per triangle instead (the handwritten programs say so too).
+        if (!d.clip) {
+            k.singleColorEnabled = b.inamed("singleColorEnabled");
+            ilwInto(prog, k.singleColorEnabled, b.izero(), kOptionsAddr, 0,
+                    "VU1_OPTIONS_ADDR.x = single colour flag");
+        }
+    } else if (!d.clip) {
+        // Same story: clip_d and clip_td reload these per triangle.
+        loadDirLights(b, prog, k);
+    }
+
+    k.lodGifTag = b.named("lodGifTag");
+    loadK(prog, k.lodGifTag, kLodAddr, MALL, "VU1_LOD_ADDR");
+    k.testsTag = b.named("testsTag");
+    loadK(prog, k.testsTag, kZTestsAddr, MALL, "VU1_Z_TESTS_ADDR");
+    if (d.texture) {
+        k.clutTag = b.named("texBufferClutGifTag");
+        loadK(prog, k.clutTag, kClutAddr, MALL, "VU1_CLUT_ADDR");
+    }
+    k.alphaTag = b.named("alphaGifTag");
+    loadK(prog, k.alphaTag, kAlphaAddr, MALL,
+          "VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band");
+    k.fogParams = b.named("fogParams");
+    loadK(prog, k.fogParams, kOptionsAddr, MALL,
+          "VU1_OPTIONS_ADDR.zw = GS hardware fog");
+
+    // The ADC mask is the cull family's alone: a clip program never derives an
+    // ADC bit from clip flags (the historically fragile path) - it cuts the
+    // triangle instead and every emitted vertex stores ADC = 0.
+    k.adcMask = b.inamed("adcMask");
+    if (d.cull) b.makeAdcMask(k.adcMask);
+
+    if (usesSpotLight(d)) {
+        static const char* sn[3] = {"spotPos", "spotDirV", "spotColV"};
+        Val* slot[3] = {&k.spotPos, &k.spotDirV, &k.spotColV};
+        for (int i = 0; i < 3; ++i) {
+            *slot[i] = b.named(sn[i]);
+            loadK(prog, *slot[i], kLightsDirsAddr + i, MALL,
+                  i == 0 ? "LoadTyraSpotLight - reuses the dir-lights slots, "
+                           "free in the colour programs"
+                         : nullptr);
+        }
+    }
+
+    if (d.env) {
+        static const char* en[3] = {"envRight", "envUp", "envConsts"};
+        Val* slot[3] = {&k.envRight, &k.envUp, &k.envConsts};
+        for (int i = 0; i < 3; ++i) {
+            *slot[i] = b.named(en[i]);
+            loadK(prog, *slot[i], kEnvBasisAddr + i, MALL,
+                  i == 0 ? "LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights "
+                           "matrix area; env bags carry no lighting)"
+                         : nullptr);
+        }
+    }
+}
+
+/** The registers a stage list or a script reads. */
+struct StageConstants {
+    Val params{}, timeV{}, kc{}, one{}, luma{};
+};
+
+/** A stage list's own constants - still preamble, so they cost a handful of
+ * slots once per buffer and are read as broadcasts for the rest of the
+ * program. */
+void emitStageConstants(Vu& b, Program& prog, StagePlan& plan, bool hasStages,
+                        StageConstants& s) {
+    if (!hasStages) return;
+    if (plan.needsParams) {
+        s.params = b.named("vuParams");
+        loadK(prog, s.params, kCustomParamsAddr, MALL,
+              "VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the "
+              "lights-colour area; a bag carrying these has no lighting)");
+    }
+    if (plan.needsTime) {
+        s.timeV = b.named("vuTime");
+        loadK(prog, s.timeV, kCustomTimeAddr, MALL,
+              "VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)");
+    }
+    s.one = b.named("vuOne");
+    b.onesInto(s.one);
+    if (plan.needsSine) {
+        s.kc = b.named("vuSinK");
+        b.constants(s.kc, 0.15915494f, 0.5f, 8388608.0f, 0.225f);
+        prog.code[prog.code.size() - 8].comment =
+            "sineApprox constants: 1/2pi, 0.5, 2^23 (the floor trick), 0.225";
+    }
+    if (plan.needsLuma) {
+        s.luma = b.named("vuLuma");
+        b.constants(s.luma, 0.299f, 0.587f, 0.114f, 0.0f);
+        prog.code[prog.code.size() - 8].comment = "luminance weights";
+    }
+    plan.lits.emit(b);
+    bindOperands(plan, s.params);
+}
+
+/** What every family reads out of the double buffer it was just handed. */
+struct BufferHeader {
+    IVal buffer{}, vertexData{}, vertexCount{};
+    Val scale{}, primTag{};
+};
+
+BufferHeader emitBufferHeader(Vu& b, Program& prog) {
+    BufferHeader h;
+    h.buffer = b.inamed("buffer");
+    b.xtop(h.buffer);
+    h.scale = b.named("scale");
+    loadInto(prog, h.scale, h.buffer, 0, MXYZ, "LoadTyraBufferTags");
+    h.primTag = b.named("primTag");
+    loadInto(prog, h.primTag, h.buffer, 1);
+    h.vertexData = b.inamed("vertexData");
+    b.iaddiuInto(h.vertexData, h.buffer, kVertDataAddr);
+    prog.code.back().comment = "VU1_STAPIP_VERT_DATA_ADDR";
+    h.vertexCount = b.inamed("vertexCount");
+    ilwInto(prog, h.vertexCount, h.buffer, 0, 3);
+    return h;
+}
+
+/** StoreTyraGifTagsAlpha (or its texture form): the GIF tag block, with
+ * `destAddress` advanced past it. */
+void emitTagBlock(Vu& b, Program& prog, const Desc& d, const Constants& k,
+                  Val primTag, IVal destAddress) {
+    int q = 0;
+    b.sq(k.gifSetTag, destAddress, q++);
+    prog.code.back().comment = "GIF tag block";
+    b.sq(k.testsTag, destAddress, q++);
+    b.sq(k.gifSetTag, destAddress, q++);
+    b.sq(k.lodGifTag, destAddress, q++);
+    if (d.texture) {
+        b.sq(k.gifSetTag, destAddress, q++);
+        b.sq(k.clutTag, destAddress, q++);
+    }
+    b.sq(k.gifSetTag, destAddress, q++);
+    b.sq(k.alphaTag, destAddress, q++);
+    b.sq(primTag, destAddress, q++);
+    b.iaddiuInto(destAddress, destAddress, q);
+}
+
 void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     Vu b(prog);
     const int stride = regsPerVertex(d);
@@ -1564,314 +2020,30 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     const bool hasStages = !plan.stages.empty() || d.script != nullptr;
 
     // --- preamble: the per-mesh constants ---------------------------------
-    if (d.cull) b.resetClipFlags();
-    const Val gifSetTag = b.named("gifSetTag");
-    {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = gifSetTag.reg;
-        in.base = b.izero().reg;
-        in.imm = kSetGifTagAddr;
-        in.comment = "VU1_SET_GIFTAG_ADDR";
-        prog.code.push_back(in);
-    }
-
-    // The cull family transforms on VU1, so it needs the MVP.
-    Val mvp[4];
-    if (d.cull) {
-        static const char* mn[4] = {"mvp[0]", "mvp[1]", "mvp[2]", "mvp[3]"};
-        for (int i = 0; i < 4; ++i) {
-            mvp[i] = b.named(mn[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = mvp[i].reg;
-                in.base = b.izero().reg;
-                in.imm = kMvpMatrixAddr + i;
-                if (i == 0) in.comment = "MatrixLoad - VU1_MVP_MATRIX_ADDR";
-                return in;
-            }());
-        }
-    }
-
-    Val singleColor{}, lightMatrix[3], lightDirs[3], lightColors[3], ambient{};
-    IVal singleColorEnabled{};
+    //
+    // Shared with the cull and clip families - see emitPreamble. A third copy
+    // of this block is how the handwritten programs drifted.
     const bool colorStream = !d.dirLights;
-    if (colorStream) {
-        singleColor = b.named("singleColor");
-        prog.code.push_back([&] {
-            Instr in;
-            in.op = Op::Lq;
-            in.dst = singleColor.reg;
-            in.base = b.izero().reg;
-            in.imm = kSingleColorAddr;
-            in.comment = "VU1_SINGLE_COLOR_ADDR";
-            return in;
-        }());
-        singleColorEnabled = b.inamed("singleColorEnabled");
-        prog.code.push_back([&] {
-            Instr in;
-            in.op = Op::Ilw;
-            in.dst = singleColorEnabled.reg;
-            in.base = b.izero().reg;
-            in.imm = kOptionsAddr;
-            in.mask = MX;
-            in.comment = "VU1_OPTIONS_ADDR.x = single colour flag";
-            return in;
-        }());
-    } else {
-        // LoadTyraDirectionalLights: the rotation part of the world matrix,
-        // three light directions, three light colours and the ambient term.
-        static const char* mn[3] = {"lightMatrix[0]", "lightMatrix[1]",
-                                    "lightMatrix[2]"};
-        static const char* dn[3] = {"lightDirections[0]", "lightDirections[1]",
-                                    "lightDirections[2]"};
-        static const char* cn[3] = {"lightColors[0]", "lightColors[1]",
-                                    "lightColors[2]"};
-        for (int i = 0; i < 3; ++i) {
-            lightMatrix[i] = b.named(mn[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = lightMatrix[i].reg;
-                in.base = b.izero().reg;
-                in.imm = kLightsMatrixAddr + i;
-                in.mask = MXYZ;
-                if (i == 0) in.comment = "LoadTyraDirectionalLights";
-                return in;
-            }());
-        }
-        for (int i = 0; i < 3; ++i) {
-            lightDirs[i] = b.named(dn[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = lightDirs[i].reg;
-                in.base = b.izero().reg;
-                in.imm = kLightsDirsAddr + i;
-                in.mask = MXYZ;
-                return in;
-            }());
-        }
-        for (int i = 0; i < 3; ++i) {
-            lightColors[i] = b.named(cn[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = lightColors[i].reg;
-                in.base = b.izero().reg;
-                in.imm = kLightsColorsAddr + i;
-                in.mask = MXYZ;
-                return in;
-            }());
-        }
-        ambient = b.named("ambientColor");
-        prog.code.push_back([&] {
-            Instr in;
-            in.op = Op::Lq;
-            in.dst = ambient.reg;
-            in.base = b.izero().reg;
-            in.imm = kLightsColorsAddr + 3;
-            in.mask = MXYZ;
-            return in;
-        }());
-    }
-
-    const Val lodGifTag = b.named("lodGifTag");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = lodGifTag.reg;
-        in.base = b.izero().reg;
-        in.imm = kLodAddr;
-        in.comment = "VU1_LOD_ADDR";
-        return in;
-    }());
-    const Val testsTag = b.named("testsTag");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = testsTag.reg;
-        in.base = b.izero().reg;
-        in.imm = kZTestsAddr;
-        in.comment = "VU1_Z_TESTS_ADDR";
-        return in;
-    }());
-    Val clutTag{};
-    if (d.texture) {
-        clutTag = b.named("texBufferClutGifTag");
-        prog.code.push_back([&] {
-            Instr in;
-            in.op = Op::Lq;
-            in.dst = clutTag.reg;
-            in.base = b.izero().reg;
-            in.imm = kClutAddr;
-            in.comment = "VU1_CLUT_ADDR";
-            return in;
-        }());
-    }
-    const Val alphaTag = b.named("alphaGifTag");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = alphaTag.reg;
-        in.base = b.izero().reg;
-        in.imm = kAlphaAddr;
-        in.comment = "VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band";
-        return in;
-    }());
-    const Val fogParams = b.named("fogParams");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = fogParams.reg;
-        in.base = b.izero().reg;
-        in.imm = kOptionsAddr;
-        in.comment = "VU1_OPTIONS_ADDR.zw = GS hardware fog";
-        return in;
-    }());
-
-    // The ADC mask and the spot light, both cull-only. The flashlight is added
-    // onto a per-vertex COLOUR, so the lit variants have nowhere to put it (they
-    // compute their colour from normals further down) and an env bag carries no
-    // lighting at all - the handwritten cull_d/td/tce skip the load for exactly
-    // that reason, and so must this.
-    const IVal adcMask = b.inamed("adcMask");
-    const bool spot = d.cull && colorStream && !d.env;
-    Val spotPos{}, spotDirV{}, spotColV{};
-    if (d.cull) b.makeAdcMask(adcMask);
-    if (spot) {
-        static const char* sn[3] = {"spotPos", "spotDirV", "spotColV"};
-        Val* slot[3] = {&spotPos, &spotDirV, &spotColV};
-        for (int i = 0; i < 3; ++i) {
-            *slot[i] = b.named(sn[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = slot[i]->reg;
-                in.base = b.izero().reg;
-                in.imm = kLightsDirsAddr + i;
-                if (i == 0)
-                    in.comment =
-                        "LoadTyraSpotLight - reuses the dir-lights slots, free "
-                        "in the colour programs";
-                return in;
-            }());
-        }
-    }
-
-    Val envRight{}, envUp{}, envConsts{};
-    if (d.env) {
-        static const char* en[3] = {"envRight", "envUp", "envConsts"};
-        Val* slot[3] = {&envRight, &envUp, &envConsts};
-        for (int i = 0; i < 3; ++i) {
-            *slot[i] = b.named(en[i]);
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = slot[i]->reg;
-                in.base = b.izero().reg;
-                in.imm = kEnvBasisAddr + i;
-                if (i == 0)
-                    in.comment =
-                        "LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights "
-                        "matrix area; env bags carry no lighting)";
-                return in;
-            }());
-        }
-    }
+    const bool spot = usesSpotLight(d);
+    Constants k;
+    emitPreamble(b, prog, d, k);
 
     // --- the stage list's own constants -------------------------------------
     //
-    // All of this is preamble: it runs once per BUFFER, not once per vertex, so
-    // a stage list pays for its constants at the cost of a handful of slots and
-    // then reads them as broadcasts for the rest of the program.
-    Val stageParams{}, stageTime{}, stageKc{}, stageOne{}, stageLuma{};
-    if (hasStages) {
-        if (plan.needsParams) {
-            stageParams = b.named("vuParams");
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = stageParams.reg;
-                in.base = b.izero().reg;
-                in.imm = kCustomParamsAddr;
-                in.comment =
-                    "VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the "
-                    "lights-colour area; a bag carrying these has no lighting)";
-                return in;
-            }());
-        }
-        if (plan.needsTime) {
-            stageTime = b.named("vuTime");
-            prog.code.push_back([&] {
-                Instr in;
-                in.op = Op::Lq;
-                in.dst = stageTime.reg;
-                in.base = b.izero().reg;
-                in.imm = kCustomTimeAddr;
-                in.comment =
-                    "VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)";
-                return in;
-            }());
-        }
-        stageOne = b.named("vuOne");
-        b.onesInto(stageOne);
-        if (plan.needsSine) {
-            stageKc = b.named("vuSinK");
-            b.constants(stageKc, 0.15915494f, 0.5f, 8388608.0f, 0.225f);
-            prog.code[prog.code.size() - 8].comment =
-                "sineApprox constants: 1/2pi, 0.5, 2^23 (the floor trick), 0.225";
-        }
-        if (plan.needsLuma) {
-            stageLuma = b.named("vuLuma");
-            b.constants(stageLuma, 0.299f, 0.587f, 0.114f, 0.0f);
-            prog.code[prog.code.size() - 8].comment = "luminance weights";
-        }
-        plan.lits.emit(b);
-        bindOperands(plan, stageParams);
-    }
+    // Still preamble: it runs once per BUFFER, not once per vertex, so a stage
+    // list pays for its constants at the cost of a handful of slots and then
+    // reads them as broadcasts for the rest of the program.
+    StageConstants sk;
+    emitStageConstants(b, prog, plan, hasStages, sk);
 
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
-    const IVal buffer = b.inamed("buffer");
-    b.xtop(buffer);
-
-    const Val scale = b.named("scale");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = scale.reg;
-        in.base = buffer.reg;
-        in.imm = 0;
-        in.mask = MXYZ;
-        in.comment = "LoadTyraBufferTags";
-        return in;
-    }());
-    const Val primTag = b.named("primTag");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Lq;
-        in.dst = primTag.reg;
-        in.base = buffer.reg;
-        in.imm = 1;
-        return in;
-    }());
-
-    const IVal vertexData = b.inamed("vertexData");
-    b.iaddiuInto(vertexData, buffer, kVertDataAddr);
-    prog.code.back().comment = "VU1_STAPIP_VERT_DATA_ADDR";
-    const IVal vertexCount = b.inamed("vertexCount");
-    prog.code.push_back([&] {
-        Instr in;
-        in.op = Op::Ilw;
-        in.dst = vertexCount.reg;
-        in.base = buffer.reg;
-        in.imm = 0;
-        in.mask = MW;
-        return in;
-    }());
+    const BufferHeader hdr = emitBufferHeader(b, prog);
+    const IVal buffer = hdr.buffer;
+    const IVal vertexData = hdr.vertexData;
+    const IVal vertexCount = hdr.vertexCount;
+    const Val scale = hdr.scale;
 
     IVal stqData{}, colorData{}, normalData{};
     const IVal kickAddress = b.inamed("kickAddress");
@@ -1887,7 +2059,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // at all: with a single colour the EE simply does not upload it.
         const Lbl multi = b.label("setDestAddrMultiColor");
         const Lbl done = b.label("setDestAddr");
-        b.branchIfLez(singleColorEnabled, multi);
+        b.branchIfLez(k.singleColorEnabled, multi);
         b.iaddInto(kickAddress, d.texture ? stqData : vertexData, vertexCount);
         b.branch(done);
         b.bind(multi);
@@ -1902,20 +2074,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     }
 
     // --- the GIF tag block --------------------------------------------------
-    int q = 0;
-    b.sq(gifSetTag, destAddress, q++);
-    prog.code.back().comment = "GIF tag block";
-    b.sq(testsTag, destAddress, q++);
-    b.sq(gifSetTag, destAddress, q++);
-    b.sq(lodGifTag, destAddress, q++);
-    if (d.texture) {
-        b.sq(gifSetTag, destAddress, q++);
-        b.sq(clutTag, destAddress, q++);
-    }
-    b.sq(gifSetTag, destAddress, q++);
-    b.sq(alphaTag, destAddress, q++);
-    b.sq(primTag, destAddress, q++);
-    b.iaddiuInto(destAddress, destAddress, q);
+    emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
 
     // --- the vertex loop ----------------------------------------------------
     const IVal vertexCounter = b.inamed("vertexCounter");
@@ -1945,8 +2104,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     if (colorStream) {
         const Lbl multiColor = b.label("multiColor");
         const Lbl processing = b.label("processing");
-        b.branchIfLez(singleColorEnabled, multiColor);
-        for (int i = 0; i < 3; ++i) b.addInto(color[i], b.zero(), singleColor);
+        b.branchIfLez(k.singleColorEnabled, multiColor);
+        for (int i = 0; i < 3; ++i) b.addInto(color[i], b.zero(), k.singleColor);
         b.branch(processing);
         b.bind(multiColor);
         for (int i = 0; i < 3; ++i) {
@@ -2014,12 +2173,14 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     StageCtx sc;
     sc.b = &b;
     sc.p = &prog;
-    sc.params = stageParams;
-    sc.timeV = stageTime;
-    sc.kc = stageKc;
-    sc.one = stageOne;
-    sc.lumaW = stageLuma;
+    sc.params = sk.params;
+    sc.timeV = sk.timeV;
+    sc.kc = sk.kc;
+    sc.one = sk.one;
+    sc.lumaW = sk.luma;
     sc.lits = &plan.lits;
+    sc.hasColor = true;
+    sc.hasSt = d.texture;
     // Where a script's constants go. Everything before this point is the
     // preamble proper - the per-mesh quadwords, the stage constants, the GIF
     // tag - and everything after it runs once per vertex.
@@ -2049,7 +2210,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
         // last Q write before the texture mulq reads it.
-        if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
+        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
         sc.vertex = vertex[i];
         sc.color = color[i];
         sc.st = d.texture ? st[i] : Val{};
@@ -2064,17 +2225,17 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         }
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
         if (spot)
-            b.spotLight(color[i], vertex[i], spotPos, spotDirV, spotColV,
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
-        b.transform(vertex[i], mvp, vertex[i]);
+        b.transform(vertex[i], k.mvp, vertex[i]);
         // Clip space: xyzw, w is the view distance. This is BEFORE the fog
         // coefficient and the frustum test on purpose - a stage that moves a
         // vertex in depth must move its fog and its clip verdict with it.
         if (hasStages) applyStages(sc, plan, Slot::ClipSpace);
         if (d.script && d.scriptSlot == Slot::ClipSpace) runScript(sc, d);
-        b.fogCoefficient(cullFogInt, vertex[i], fogParams, cullFogAccum);
+        b.fogCoefficient(cullFogInt, vertex[i], k.fogParams, cullFogAccum);
         b.fogClipCheck(vertex[i], destAddress, xyz + i * stride, cullFogInt,
-                       adcMask, adcBit);
+                       k.adcMask, adcBit);
         b.persCorrect(vertex[i], vertex[i]);
         // NDC, and the last chance before the 12.4 conversion makes the
         // position an integer. Nothing here may write Q: the texture
@@ -2092,8 +2253,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             // dirLightShade OVERWRITES the normal with its WORLD-space self, so
             // a script reading it at the colour slot gets the world normal -
             // which is the one a rim term wants anyway.
-            b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
-                            lightColors, ambient);
+            b.dirLightShade(color[i], normal[i], k.lightMatrix, k.lightDirs,
+                            k.lightColors, k.ambient);
             sc.normal = normal[i];
         }
         // Colour, before FixColor clamps it - so a stage may overshoot and the
@@ -2109,7 +2270,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     for (int i = 0; i < 3 && !d.cull; ++i) {
         // The env ST goes FIRST: its rsqrt writes Q, so the position divide
         // below has to be the last Q write before the perspective mulq.
-        if (d.env) b.envStq(st[i], envRight, envUp, envConsts, envScratch);
+        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
         // NDC, and this is the MIRROR of the cull half's Ndc slot - not an
         // approximation of it. This program never divides the position: the EE
         // clipper handed it over already projected, and w survives only for
@@ -2140,8 +2301,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
             // dirLightShade OVERWRITES the normal with its WORLD-space self, so
             // a script reading it at the colour slot gets the world normal -
             // which is the one a rim term wants anyway.
-            b.dirLightShade(color[i], normal[i], lightMatrix, lightDirs,
-                            lightColors, ambient);
+            b.dirLightShade(color[i], normal[i], k.lightMatrix, k.lightDirs,
+                            k.lightColors, k.ambient);
             sc.normal = normal[i];
         }
         // THE SAME BODY THE CULL HALF RUNS. Leaving it out is not a missing
@@ -2170,7 +2331,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     const Val fogScratch = b.named("fogAccum");
     const IVal fogInt = b.inamed("fogInt");
     for (int i = 0; i < 3 && !d.cull; ++i) {
-        b.fogCoefficient(fogInt, vertex[i], fogParams, fogScratch);
+        b.fogCoefficient(fogInt, vertex[i], k.fogParams, fogScratch);
         b.isw(fogInt, destAddress, xyz + i * stride, 3);
     }
 
@@ -2192,6 +2353,581 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.branchIfNotEq(vertexCounter, buffer, vertexLoop);
 
     b.xgkick(kickAddress);
+    prog.code.back().comment = "dispatch to the GS rasterizer";
+    b.barrier();
+    b.cont();
+    b.branch(begin);
+    b.finish();
+    if (planOut) {
+        plan.scriptWroteQ = sc.scriptWroteQ;
+        *planOut = plan;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The clip skeleton
+// ---------------------------------------------------------------------------
+
+/** The CLIP family: the frustum clipper that used to run on the EE, on VU1.
+ *
+ * Structurally it is the cull skeleton with the per-vertex chain cut in two.
+ * Everything up to the crossing judgement runs on the three INPUT corners -
+ * the lighting, the flashlight, the MVP multiply - and everything after it runs
+ * on whatever Sutherland-Hodgman leaves behind, which is between zero and nine
+ * vertices and is not the same set at all. So the fog word, the perspective
+ * divide, the GS scale and the colour clamp live in ONE shared emitter that the
+ * fan loop calls three times per output triangle, and the prim tag's NLOOP is
+ * patched at the very end with a count nobody knew in advance.
+ *
+ * Why the family is worth describing at all, beyond replacing the EE clipper:
+ * it still holds the OBJECT-SPACE position when it runs. The as_is family does
+ * not - the EE clipper hands it NDC - which is why a displacing script used to
+ * stop at the edge of the screen and the caller had to submit its props whole
+ * to compensate. Terrain cannot be submitted whole: its chunks straddle the
+ * near plane and an unclipped one wraps the GS raster window. A clip program
+ * with a script woven in is what reaches that geometry.
+ *
+ * The emitted program has to behave IDENTICALLY to the handwritten one, which
+ * `--vu-check` establishes by running both over randomised triangles and
+ * diffing the GIF stream - so the transcription below is free to read the way
+ * the builder reads best rather than line by line. */
+void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
+    Vu b(prog);
+    const bool colorStream = !d.dirLights;
+    const bool spot = usesSpotLight(d);
+    // One scratch-polygon vertex: [pos, colour], or [pos, stq, colour].
+    const int stride = d.texture ? 3 : 2;
+    const int polyStq = 1, polyCol = stride - 1;
+    // The GS store stride and where each register sits inside it.
+    const int outStride = regsPerVertex(d);
+    const int stqOut = 0, rgbaOut = d.texture ? 1 : 0, xyzOut = outStride - 1;
+    // The prim tag is the LAST quadword of the tag block, and its NLOOP is what
+    // gets patched once the emitted count is known.
+    const int primQuad = tagQuads(d) - 1;
+
+    StagePlan plan = planStages(d.stages, d);
+    if (d.script) {
+        plan.needsParams = true;
+        plan.needsTime = true;
+        if (plan.scratch < d.scriptScratch) plan.scratch = d.scriptScratch;
+    }
+    const bool hasStages = !plan.stages.empty() || d.script != nullptr;
+
+    // --- preamble -----------------------------------------------------------
+    Constants k;
+    emitPreamble(b, prog, d, k);
+    // x = nearZ - GUARD, y = -farZ - GUARD, z = 0, w = GUARD. The exact near
+    // and far planes are folded into a second clipw judgement through these
+    // biased constants, which is why they look nothing like a plane equation.
+    const Val cvec = b.named("cvec");
+    loadK(prog, cvec, kClipConstsAddr, MALL, "VU1_CLIP_CONSTS_ADDR");
+    // The judge vertex: x, y and w are rewritten per use, and z comes from here
+    // and stays at cvec's zero - so the z pair of clip flags never fires and
+    // every judgement below reads only the x and y bits.
+    const Val sjudge = b.named("sjudge");
+    b.moveInto(sjudge, cvec);
+    StageConstants sk;
+    emitStageConstants(b, prog, plan, hasStages, sk);
+
+    // --- per-buffer ---------------------------------------------------------
+    const Lbl begin = b.label("begin");
+    b.bind(begin);
+    const BufferHeader hdr = emitBufferHeader(b, prog);
+    const IVal buffer = hdr.buffer;
+    const IVal vertexData = hdr.vertexData;
+    const IVal vertexCount = hdr.vertexCount;
+    const Val scale = hdr.scale;
+
+    IVal stqData{}, colorData{}, normalData{};
+    const IVal destAddress = b.inamed("destAddress");
+    // Reloaded wherever it is needed rather than parked in an integer register:
+    // the clipper's three nested loops want every one of VU1's sixteen.
+    const IVal sceFlag = b.inamed("sceFlag");
+    if (d.texture) {
+        stqData = b.inamed("stqData");
+        b.iaddInto(stqData, vertexData, vertexCount);
+    }
+    const IVal lastBlock = d.texture ? stqData : vertexData;
+    if (colorStream) {
+        colorData = b.inamed("colorData");
+        b.iaddInto(colorData, lastBlock, vertexCount);
+        const Lbl multi = b.label("setDestAddrMultiColor");
+        const Lbl done = b.label("setDestAddr");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0,
+                "VU1_OPTIONS_ADDR.x = single colour flag");
+        b.branchIfLez(sceFlag, multi);
+        b.iaddInto(destAddress, lastBlock, vertexCount);
+        b.branch(done);
+        b.bind(multi);
+        b.iaddInto(destAddress, colorData, vertexCount);
+        b.bind(done);
+    } else {
+        normalData = b.inamed("normalData");
+        b.iaddInto(normalData, lastBlock, vertexCount);
+        b.iaddInto(destAddress, normalData, vertexCount);
+    }
+
+    emitTagBlock(b, prog, d, k, hdr.primTag, destAddress);
+
+    // What the NLOOP patch needs. A cut triangle fans out into as many as seven
+    // and a fully clipped one into none, so the count is accumulated rather
+    // than derived from vertexCount the way every other family derives it.
+    const IVal outCount = b.inamed("outCount");
+    b.iaddiuInto(outCount, b.izero(), 0);
+    const IVal vertexCounter = b.inamed("vertexCounter");
+    b.iaddInto(vertexCounter, b.izero(), vertexCount);
+
+    const Lbl triLoop = b.label("triLoop");
+    const Lbl triNext = b.label("triNext");
+    const Lbl fanStart = b.label("fanStart");
+    b.bind(triLoop);
+
+    // --- the three input corners --------------------------------------------
+    Val color[3], vertex[3], st[3], normal[3];
+    static const char* colorNames[3] = {"color1", "color2", "color3"};
+    static const char* vertexNames[3] = {"vertex1", "vertex2", "vertex3"};
+    static const char* stNames[3] = {"stq1", "stq2", "stq3"};
+    static const char* normalNames[3] = {"normal1", "normal2", "normal3"};
+    for (int i = 0; i < 3; ++i) {
+        color[i] = b.named(colorNames[i]);
+        vertex[i] = b.named(vertexNames[i]);
+        if (d.texture) st[i] = b.named(stNames[i]);
+        if (!colorStream) normal[i] = b.named(normalNames[i]);
+    }
+
+    if (colorStream) {
+        const Lbl multiColor = b.label("multiColor");
+        const Lbl processing = b.label("processing");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
+        b.branchIfLez(sceFlag, multiColor);
+        for (int i = 0; i < 3; ++i) b.addInto(color[i], b.zero(), k.singleColor);
+        b.branch(processing);
+        b.bind(multiColor);
+        for (int i = 0; i < 3; ++i) loadInto(prog, color[i], colorData, i);
+        b.bind(processing);
+    }
+    for (int i = 0; i < 3; ++i)
+        loadInto(prog, vertex[i], vertexData, i, MALL,
+                 i == 0 ? "object space - the MVP multiply is below" : nullptr);
+    if (d.texture)
+        for (int i = 0; i < 3; ++i) loadInto(prog, st[i], stqData, i);
+    if (!colorStream) {
+        for (int i = 0; i < 3; ++i)
+            loadInto(prog, normal[i], normalData, i, MXYZ);
+        // Lit on the ORIGINAL three corners; the colours are then interpolated
+        // through the cuts, which is what Gouraud shading does across an uncut
+        // triangle anyway. The light registers are loaded here rather than in
+        // the preamble so they are not live across the clipper.
+        loadDirLights(b, prog, k);
+        for (int i = 0; i < 3; ++i)
+            b.dirLightShade(color[i], normal[i], k.lightMatrix, k.lightDirs,
+                            k.lightColors, k.ambient);
+    }
+
+    Val envScratch[4];
+    if (d.env) {
+        static const char* sn[4] = {"tyraEnvLen", "tyraEnvNrm", "tyraEnvDotR",
+                                    "tyraEnvDotU"};
+        for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
+        // The matcap ST, from the object-space normals in the ST slot, BEFORE
+        // the transform and the judgement: the macro's rsqrt writes Q and every
+        // later Q write - the edge lerps, the emitter's divide - comes after.
+        for (int i = 0; i < 3; ++i)
+            b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+    }
+
+    Val spotScratch[7];
+    if (spot) {
+        static const char* sn[7] = {"spotD", "spotSq", "spotDist", "spotTm",
+                                    "spotT", "spotC",  "spotA"};
+        for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
+    }
+
+    StageCtx sc;
+    sc.b = &b;
+    sc.p = &prog;
+    sc.params = sk.params;
+    sc.timeV = sk.timeV;
+    sc.kc = sk.kc;
+    sc.one = sk.one;
+    sc.lumaW = sk.luma;
+    sc.lits = &plan.lits;
+    sc.hasColor = true;
+    sc.hasSt = d.texture;
+    if (hasStages) {
+        static const char* sn[6] = {"vuS0", "vuS1", "vuS2",
+                                    "vuS3", "vuS4", "vuS5"};
+        static const char* qn[3] = {"vuSinA", "vuSinB", "vuSinC"};
+        for (int i = 0; i < plan.scratch && i < 6; ++i) sc.s[i] = b.named(sn[i]);
+        if (plan.needsSine)
+            for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
+    }
+    // A script's constants are hoisted HERE - after every label the triangle
+    // loop has bound so far, which is what Vu::hoist's index fixups make safe.
+    // Once per triangle rather than once per buffer, the same compromise the
+    // cull skeleton makes: the alternative is holding them live across a
+    // clipper that has no registers to lend.
+    sc.scriptPreambleAt = b.mark();
+    if (d.scriptPrepare) {
+        ScriptCtx ps;
+        ps.b = &b;
+        ps.params = sc.params;
+        ps.time = sc.timeV;
+        ps.one = sc.one;
+        ps.preambleAt = sc.scriptPreambleAt;
+        d.scriptPrepare(ps);
+        sc.scriptPreambleAt = ps.preambleAt;
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        sc.vertex = vertex[i];
+        sc.color = color[i];
+        sc.st = d.texture ? st[i] : Val{};
+        sc.normal = colorStream ? Val{} : normal[i];
+        if (hasStages) {
+            if (d.texture) applyStages(sc, plan, Slot::Texture);
+            applyStages(sc, plan, Slot::ObjectSpace);
+        }
+        // THE POINT OF THE WHOLE EXERCISE. The position is in the mesh's own
+        // units here, exactly as it is in the cull half - so an object-space
+        // displacement means the same thing in both, and a package that
+        // crosses a plane no longer has to choose between being clipped and
+        // being displaced.
+        if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
+    }
+    if (spot)
+        for (int i = 0; i < 3; ++i)
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
+                        spotScratch);
+    if (spot)
+        for (int i = 0; i < 3; ++i) {
+            // CEILING BEFORE THE CLIPPER INTERPOLATES. The emitter clamps too,
+            // but that is after the lerp: a saturated corner left at its raw
+            // 400 drags a cut edge's midpoint to 250 where the cull path gets
+            // 177, and a lit surface visibly BRIGHTENED as it touched the edge
+            // of the screen. Upper bound only - the spot light strictly adds to
+            // non-negative colours, so the emitter's max-with-zero stays the
+            // only floor, and micro memory has no room for a second one.
+            b.loadI(255.0f);
+            b.minimumIInto(color[i], color[i], MXYZ);
+        }
+    for (int i = 0; i < 3; ++i) b.transform(vertex[i], k.mvp, vertex[i]);
+    if (d.script && d.scriptSlot == Slot::ClipSpace)
+        for (int i = 0; i < 3; ++i) {
+            // Clip space, and BEFORE the judgement on purpose: a script that
+            // moves a vertex in depth moves the verdict on it too.
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            runScript(sc, d);
+        }
+    if (hasStages) {
+        for (int i = 0; i < 3; ++i) {
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            applyStages(sc, plan, Slot::ClipSpace);
+        }
+    }
+    // The colour slot runs on the corners, like the flashlight above, and the
+    // result is interpolated through the cuts. The emitter's own clamp is the
+    // FixColor the cull half applies, so a stage may still overshoot here.
+    if (d.script && d.scriptSlot == Slot::Color)
+        for (int i = 0; i < 3; ++i) {
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            runScript(sc, d);
+        }
+    if (hasStages)
+        for (int i = 0; i < 3; ++i) {
+            sc.vertex = vertex[i];
+            sc.color = color[i];
+            sc.st = d.texture ? st[i] : Val{};
+            applyStages(sc, plan, Slot::Color);
+        }
+
+    // --- does this triangle cross anything? ---------------------------------
+    //
+    // Two clipw judgements per corner: the x/y guard band against the vertex's
+    // own w (the GS scissor trims the overhang pixel-exactly), then the exact
+    // near/far planes through the biased constants. NOTE that fcand yields 0 or
+    // 1 - "any masked bit set" - and NOT the bit pattern; every read below is
+    // written that way.
+    const IVal vi01 = b.inamed("VI01");
+    const IVal triOr = b.inamed("triOr");
+    for (int i = 0; i < 3; ++i) {
+        b.clipwInto(vertex[i]);
+        b.fcandInto(vi01, 0xF);
+        if (i == 0)
+            b.iaddInto(triOr, vi01, b.izero());
+        else
+            b.iorInto(triOr, triOr, vi01);
+        b.subInto(sjudge, cvec, vertex[i].broadcast(2), MX);
+        b.addInto(sjudge, cvec, vertex[i].broadcast(2), MY);
+        b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
+        b.clipwInto(sjudge);
+        b.fcandInto(vi01, 0xA);
+        b.iorInto(triOr, triOr, vi01);
+    }
+
+    // --- the clip-space triangle into scratch polygon A ---------------------
+    for (int i = 0; i < 3; ++i) {
+        b.sq(vertex[i], b.izero(), kClipPolyAAddr + i * stride);
+        if (i == 0) prog.code.back().comment = "VU1_CLIP_POLY_A_ADDR";
+        if (d.texture)
+            b.sq(st[i], b.izero(), kClipPolyAAddr + i * stride + polyStq);
+        b.sq(color[i], b.izero(), kClipPolyAAddr + i * stride + polyCol);
+    }
+    const IVal srcBase = b.inamed("srcBase");
+    const IVal srcEnd = b.inamed("srcEnd");
+    b.iaddiuInto(srcBase, b.izero(), kClipPolyAAddr);
+    b.iaddiuInto(srcEnd, srcBase, 3 * stride);
+    // Fully inside: no clipping, straight to the emitter. Every variant shares
+    // this single emitter rather than carrying an inlined fast path - VU1 micro
+    // memory cannot fit five clippers AND five fast paths.
+    b.branchIfEq(triOr, b.izero(), fanStart);
+
+    // --- Sutherland-Hodgman against the six planes --------------------------
+    //
+    // NEAR IS FIRST in the table and that ordering is load-bearing: everything
+    // which survives it has w > 0, which is what makes the w-relative side
+    // planes safe to apply at all.
+    const IVal planePtr = b.inamed("planePtr");
+    const IVal dstBase = b.inamed("dstBase");
+    const IVal curPtr = b.inamed("curPtr");
+    const IVal dstPtr = b.inamed("dstPtr");
+    const IVal prevPtr = b.inamed("prevPtr");
+    const IVal vertMask = b.inamed("vertMask");
+    b.iaddiuInto(planePtr, b.izero(), kClipPlanesAddr);
+    prog.code.back().comment = "VU1_CLIP_PLANES_ADDR - near plane first";
+    b.iaddiuInto(dstBase, b.izero(), kClipPolyBAddr);
+
+    const Lbl planeLoop = b.label("planeLoop");
+    b.bind(planeLoop);
+    const Val planeV = b.named("planeV");
+    const Val planeE = b.named("planeE");
+    loadInto(prog, planeV, planePtr, 0, MALL, "inside = dot4(v, ABCD) + E >= 0");
+    loadInto(prog, planeE, planePtr, 1);
+
+    const Val ppos = b.named("ppos");
+    const Val pstq = b.named("pstq");
+    const Val pcol = b.named("pcol");
+    const Val dtmp = b.named("dtmp");
+    const Val pd = b.named("pd");
+    const Val cd = b.named("cd");
+    /** dot4(v, planeV) + planeE.x, into `out`.x. */
+    auto planeDistance = [&](Val out, Val pos) {
+        b.mulInto(dtmp, pos, planeV);
+        b.addInto(dtmp, dtmp, dtmp.broadcast(1), MX);
+        b.addInto(dtmp, dtmp, dtmp.broadcast(2), MX);
+        b.addInto(dtmp, dtmp, dtmp.broadcast(3), MX);
+        b.addInto(out, dtmp, planeE.broadcast(0), MX);
+    };
+    // prev = the LAST vertex of the polygon, so the walk below closes the loop.
+    b.iaddiuInto(prevPtr, srcEnd, -stride);
+    loadInto(prog, ppos, prevPtr, 0);
+    if (d.texture) loadInto(prog, pstq, prevPtr, polyStq);
+    loadInto(prog, pcol, prevPtr, polyCol);
+    planeDistance(pd, ppos);
+    b.iaddInto(curPtr, srcBase, b.izero());
+    b.iaddInto(dstPtr, dstBase, b.izero());
+
+    const Lbl edgeLoop = b.label("edgeLoop");
+    const Lbl edgeCross = b.label("edgeCross");
+    const Lbl edgeEmitCur = b.label("edgeEmitCur");
+    const Lbl edgeAdvance = b.label("edgeAdvance");
+    b.bind(edgeLoop);
+    const Val cpos = b.named("cpos");
+    const Val cstq = b.named("cstq");
+    const Val ccol = b.named("ccol");
+    loadInto(prog, cpos, curPtr, 0);
+    if (d.texture) loadInto(prog, cstq, curPtr, polyStq);
+    loadInto(prog, ccol, curPtr, polyCol);
+    planeDistance(cd, cpos);
+
+    // Both signs out of ONE clipw: sjudge = (pd - GUARD, cd - GUARD, 0, GUARD),
+    // so the -x bit means prev is outside and the -y bit means cur is.
+    b.addInto(sjudge, b.zero(), pd.broadcast(0), MX);
+    b.addInto(sjudge, b.zero(), cd.broadcast(0), MY);
+    b.subInto(sjudge, sjudge, cvec.broadcast(3), (uint8_t)(MX | MY));
+    b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
+    b.clipwInto(sjudge);
+    b.fcandInto(vi01, 0x2);
+    prog.code.back().comment = "prev outside?";
+    b.iaddInto(vertMask, vi01, b.izero());
+    b.fcandInto(vi01, 0x8);
+    prog.code.back().comment = "cur outside?";
+    b.branchIfNotEq(vertMask, vi01, edgeCross);
+    b.branchIfNotEq(vi01, b.izero(), edgeAdvance);
+    b.branch(edgeEmitCur);
+
+    b.bind(edgeCross);
+    // t = pd / (pd - cd); out = prev + (cur - prev) * t.
+    const Val lerpP = b.named("lerpP");
+    const Val lerpT = b.named("lerpT");
+    const Val lerpC = b.named("lerpC");
+    b.subInto(dtmp, pd, cd.broadcast(0), MX);
+    b.divQ(pd, 0, dtmp, 0);
+    auto lerp = [&](Val out, Val cur, Val prev) {
+        b.subInto(out, cur, prev);
+        b.mulQInto(out, out);
+        b.addInto(out, out, prev);
+    };
+    lerp(lerpP, cpos, ppos);
+    if (d.texture) lerp(lerpT, cstq, pstq);
+    lerp(lerpC, ccol, pcol);
+    b.sq(lerpP, dstPtr, 0);
+    if (d.texture) b.sq(lerpT, dstPtr, polyStq);
+    b.sq(lerpC, dstPtr, polyCol);
+    b.iaddiuInto(dstPtr, dstPtr, stride);
+    // When cur is inside as well it is emitted after the crossing point.
+    b.branchIfNotEq(vi01, b.izero(), edgeAdvance);
+
+    b.bind(edgeEmitCur);
+    b.sq(cpos, dstPtr, 0);
+    if (d.texture) b.sq(cstq, dstPtr, polyStq);
+    b.sq(ccol, dstPtr, polyCol);
+    b.iaddiuInto(dstPtr, dstPtr, stride);
+
+    b.bind(edgeAdvance);
+    b.moveInto(ppos, cpos);
+    if (d.texture) b.moveInto(pstq, cstq);
+    b.moveInto(pcol, ccol);
+    b.addInto(pd, b.zero(), cd.broadcast(0), MX);
+    b.iaddiuInto(curPtr, curPtr, stride);
+    b.branchIfNotEq(curPtr, srcEnd, edgeLoop);
+
+    // Nothing left of the polygon - the whole triangle was outside this plane.
+    b.branchIfEq(dstPtr, dstBase, triNext);
+    // Ping-pong: what this plane produced is what the next one reads.
+    b.iaddInto(srcEnd, dstPtr, b.izero());
+    b.iaddInto(vertMask, srcBase, b.izero());
+    b.iaddInto(srcBase, dstBase, b.izero());
+    b.iaddInto(dstBase, vertMask, b.izero());
+    b.iaddiuInto(planePtr, planePtr, 2);
+    b.iaddiuInto(vertMask, b.izero(), kClipPlanesAddr + 12);
+    b.branchIfNotEq(planePtr, vertMask, planeLoop);
+
+    // --- fan-triangulate and emit -------------------------------------------
+    b.bind(fanStart);
+    // Fewer than three vertices left means there is nothing to draw.
+    b.iaddiuInto(vertMask, srcBase, 3 * stride);
+    b.isubInto(vertMask, srcEnd, vertMask);
+    b.branchIfLtz(vertMask, triNext);
+
+    const IVal fanPtr = b.inamed("fanPtr");
+    const IVal fanNext = b.inamed("fanNext");
+    const IVal emitPtr = b.inamed("emitPtr");
+    const IVal emitNxt = b.inamed("emitNxt");
+    const IVal emitCnt = b.inamed("emitCnt");
+    b.iaddiuInto(fanPtr, srcBase, stride);
+    prog.code.back().comment = "(P0, Pj, Pj+1) for j = 1 .. n-2";
+    const Lbl fanLoop = b.label("fanLoop");
+    b.bind(fanLoop);
+    b.iaddiuInto(fanNext, fanPtr, stride);
+    b.branchIfEq(fanNext, srcEnd, triNext);
+
+    // ONE emitter instance, with the corner pointer rotating srcBase -> fanPtr
+    // -> fanNext across three iterations. Three inlined copies would cost about
+    // three times the code, and the micro memory that saves is what lets five
+    // clip programs be considered for residency at all.
+    b.iaddInto(emitPtr, srcBase, b.izero());
+    b.iaddInto(emitNxt, fanPtr, b.izero());
+    b.iaddiuInto(emitCnt, b.izero(), 3);
+    const Lbl fanEmitLoop = b.label("fanEmitLoop");
+    b.bind(fanEmitLoop);
+    {
+        // EmitClipVertex: one scratch-polygon vertex to one GS vertex.
+        const Val ecPos = b.named("ecPos");
+        const Val ecStq = b.named("ecStq");
+        const Val ecCol = b.named("ecCol");
+        const Val ecFogF = b.named("ecFogF");
+        const IVal ecFog = b.inamed("ecFog");
+        loadInto(prog, ecPos, emitPtr, 0);
+        if (d.texture) loadInto(prog, ecStq, emitPtr, polyStq);
+        loadInto(prog, ecCol, emitPtr, polyCol);
+        // The fog coefficient rides in the W word beside an ADC bit that is
+        // always zero: a clip program never derives ADC from clip flags, it
+        // cut the triangle instead.
+        b.fogCoefficient(ecFog, ecPos, k.fogParams, ecFogF);
+        b.isw(ecFog, destAddress, xyzOut, 3);
+        b.persCorrect(ecPos, ecPos);
+        // No divide of its own for the ST: persCorrect just put 1/w in Q.
+        if (d.texture) b.mulQInto(ecStq, ecStq, MALL);
+        // NDC, and the mirror of the as_is family's Ndc slot - the same grid
+        // means the same thing in both, so a screen-space effect does not
+        // change scale when a package starts crossing a plane. This is the
+        // only place the clip family HAS an NDC position: it exists per
+        // EMITTED vertex, which is not the set the corners above belong to.
+        if (d.script && d.scriptSlot == Slot::Ndc) {
+            sc.vertex = ecPos;
+            sc.color = ecCol;
+            sc.st = d.texture ? ecStq : Val{};
+            sc.normal = Val{};
+            runScript(sc, d);
+        }
+        if (hasStages) {
+            sc.vertex = ecPos;
+            sc.color = ecCol;
+            sc.st = d.texture ? ecStq : Val{};
+            applyStages(sc, plan, Slot::Ndc);
+        }
+        b.scaleToGsFormat(ecPos, scale);
+        b.fixColor(ecCol);
+        if (d.texture) b.sq(ecStq, destAddress, stqOut);
+        b.sq(ecCol, destAddress, rgbaOut);
+        b.sq(ecPos, destAddress, xyzOut, MXYZ);
+        b.iaddiuInto(destAddress, destAddress, outStride);
+    }
+    b.iaddInto(emitPtr, emitNxt, b.izero());
+    b.iaddInto(emitNxt, fanNext, b.izero());
+    b.iaddiuInto(emitCnt, emitCnt, -1);
+    b.branchIfGtz(emitCnt, fanEmitLoop);
+    b.iaddiuInto(outCount, outCount, 3);
+    b.iaddInto(fanPtr, fanNext, b.izero());
+    b.branch(fanLoop);
+
+    b.bind(triNext);
+    b.iaddiuInto(vertexData, vertexData, 3);
+    if (d.texture) b.iaddiuInto(stqData, stqData, 3);
+    if (colorStream)
+        b.iaddiuInto(colorData, colorData, 3);
+    else
+        b.iaddiuInto(normalData, normalData, 3);
+    b.iaddiuInto(vertexCounter, vertexCounter, -3);
+    prog.code.back().comment = "decrement the loop counter";
+    b.branchIfGtz(vertexCounter, triLoop);
+
+    // --- the kick -----------------------------------------------------------
+    //
+    // destAddress walked away with the emitter, so the address to kick is
+    // rebuilt from scratch. xtop is stable within one activation, which is what
+    // makes asking a second time legal.
+    b.xtop(buffer);
+    b.iaddiuInto(vertexData, buffer, kVertDataAddr);
+    ilwInto(prog, vertexCount, buffer, 0, 3);
+    b.iaddInto(vertexData, vertexData, vertexCount);
+    if (d.texture) b.iaddInto(vertexData, vertexData, vertexCount);
+    if (!colorStream) {
+        b.iaddInto(vertexData, vertexData, vertexCount);
+    } else {
+        const Lbl kickMulti = b.label("kickMulti");
+        const Lbl kickPatch = b.label("kickPatch");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
+        b.branchIfLez(sceFlag, kickMulti);
+        b.branch(kickPatch);
+        b.bind(kickMulti);
+        b.iaddInto(vertexData, vertexData, vertexCount);
+        b.bind(kickPatch);
+    }
+    // The prim giftag's word 0 is NLOOP | EOP, and 0x8000 does not fit in one
+    // 15-bit immediate.
+    b.iaddiuInto(vertMask, outCount, 0x4000);
+    b.iaddiuInto(vertMask, vertMask, 0x4000);
+    b.isw(vertMask, vertexData, primQuad, 0);
+
+    b.xgkick(vertexData);
     prog.code.back().comment = "dispatch to the GS rasterizer";
     b.barrier();
     b.cont();
@@ -2230,7 +2966,13 @@ std::string emitVclpp(const Desc& d, const Program& p) {
         line("; the C++ description with: tyrax-editor --vu-emit <dir>");
         line(";");
         line("; " + d.title);
-        if (d.cull) {
+        if (d.clip) {
+            line("; Clip = replaces the EE clipper for frustum-crossing packages:");
+            line("; object-space vertices in, the MVP multiply and a full");
+            line("; Sutherland-Hodgman cut against six planes on VU1. The vertex");
+            line("; count is VARIABLE, so the prim giftag's NLOOP is patched at the");
+            line("; end with what the fan triangulation actually produced.");
+        } else if (d.cull) {
             line("; Cull = the standard PS2 path: object-space vertices in, the MVP");
             line("; multiply and the ADC frustum test on VU1.");
         } else {
@@ -2400,7 +3142,10 @@ Built build(const Desc& d) {
     out.regsPerVertex = regsPerVertex(d);
     out.attrStreams = attrStreams(d);
     StagePlan plan;
-    buildAsIsBody(d, out.program, &plan);
+    if (d.clip)
+        buildClipBody(d, out.program, &plan);
+    else
+        buildAsIsBody(d, out.program, &plan);
     out.errors = plan.errors;
     if (plan.scriptWroteQ)
         out.errors.push_back(
@@ -2418,7 +3163,10 @@ Built build(const Desc& d) {
         Desc bare = d;
         bare.stages.clear();
         Program plain;
-        buildAsIsBody(bare, plain);
+        if (bare.clip)
+            buildClipBody(bare, plain);
+        else
+            buildAsIsBody(bare, plain);
         out.stageInstrs = (int)out.program.code.size() - (int)plain.code.size();
     }
     out.vclpp = emitVclpp(d, out.program);
@@ -2887,6 +3635,43 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     puti(top + 1, 2, d.texture ? (0x2u | (0x1u << 4) | (0x4u << 8))
                                : (0x1u | (0x4u << 4)));
 
+    // The CLIP family reads two more blocks, and without them the handwritten
+    // program cannot even be RUN here - it would read zeroed planes, decide
+    // every vertex is outside and emit nothing, which compares equal to any
+    // other program that emits nothing. A vacuous PASS is worse than a
+    // failure, so these are written for every clip desc.
+    if (d.clip) {
+        // x = nearZ - GUARD, y = -farZ - GUARD, z = 0, w = GUARD: the near/far
+        // judgement folded into a second clipw through biased constants.
+        putf(kClipConstsAddr, 0, 1.0f - kClipGuard);
+        putf(kClipConstsAddr, 1, -1000.0f - kClipGuard);
+        putf(kClipConstsAddr, 2, 0.0f);
+        putf(kClipConstsAddr, 3, kClipGuard);
+        // Six planes as (A,B,C,D) + (E,0,0,0); inside = dot4(v,ABCD) + E >= 0.
+        // NEAR IS FIRST and that ordering is load-bearing: everything which
+        // survives it has w > 0, which is what makes the w-relative side
+        // planes below safe to apply at all.
+        static const float kPlaneV[6][4] = {
+            {0.0f, 0.0f, 1.0f, 0.0f},   // near
+            {-1.0f, 0.0f, 0.0f, 1.0f},  // right:  w - x >= 0
+            {1.0f, 0.0f, 0.0f, 1.0f},   // left:   w + x >= 0
+            {0.0f, -1.0f, 0.0f, 1.0f},  // top:    w - y >= 0
+            {0.0f, 1.0f, 0.0f, 1.0f},   // bottom: w + y >= 0
+            {0.0f, 0.0f, -1.0f, 0.0f},  // far
+        };
+        // The near plane sits where the staged geometry actually reaches:
+        // this MVP puts clip z in about -7..3, so z >= -5 cuts roughly half
+        // the vertices and the clipper has real work in most trials. Far is
+        // parked out of reach - one plane doing nothing is worth keeping, it
+        // proves the loop handles a pass that changes nothing.
+        static const float kPlaneE[6] = {5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1000.0f};
+        for (int i = 0; i < 6; ++i) {
+            for (int f = 0; f < 4; ++f)
+                putf(kClipPlanesAddr + i * 2, f, kPlaneV[i][f]);
+            putf(kClipPlanesAddr + i * 2 + 1, 0, kPlaneE[i]);
+        }
+    }
+
     // A project's own program reads two more quadwords, and they sit in the
     // lights-colour block the loop above just filled with noise - so they are
     // written LAST and unconditionally. Zeros here are what make the identity
@@ -2910,7 +3695,7 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     // positive (w = 60 - z over object-space z in +-5) - persCorrect divides by
     // it, and a w through zero would put the comparison in the saturation
     // region rather than in the arithmetic.
-    if (d.cull) {
+    if (d.cull || d.clip) {
         const float mvp[4][4] = {{1.2f, 0.0f, 0.0f, 0.0f},
                                  {0.0f, 1.6f, 0.0f, 0.0f},
                                  {0.0f, 0.0f, -1.002f, -1.0f},
@@ -2921,10 +3706,20 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
 
     int addr = top + kVertDataAddr;
     for (int i = 0; i < verts; ++i) {
-        if (d.cull) {
+        if (d.cull || d.clip) {
             // Object space, and W is 1 - a mesh vertex, not a clipper output.
-            putf(addr + i, 0, randomFloat(s, -5.0f, 5.0f));
-            putf(addr + i, 1, randomFloat(s, -5.0f, 5.0f));
+            //
+            // A CLIP trial spreads x and y far wider, and that is the whole
+            // difference between a real test and a vacuous one. With the cull
+            // range the projected |x| never approaches w, every triangle is
+            // trivially inside, the Sutherland-Hodgman loop is never entered
+            // and two programs that both skip it compare equal. At +-40 the
+            // sides genuinely cross, so most trials exercise the clipper and
+            // some still take the fully-inside fast path - which is the mix
+            // worth comparing.
+            const float span = d.clip ? 40.0f : 5.0f;
+            putf(addr + i, 0, randomFloat(s, -span, span));
+            putf(addr + i, 1, randomFloat(s, -span, span));
             putf(addr + i, 2, randomFloat(s, -5.0f, 5.0f));
             putf(addr + i, 3, 1.0f);
             continue;
@@ -3003,7 +3798,14 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
         // Compare the GIF stream the GS would actually read: from the kicked
         // address through the whole tag block and vertex payload.
         const int start = ra.kicks.empty() ? 0 : ra.kicks.front();
-        const int quads = tagQuads(d) + verts * regsPerVertex(d);
+        // A CLIP program emits a variable count: a triangle cut by six planes
+        // can reach nine vertices, and fan triangulation turns those into
+        // seven triangles. Compare a window generous enough to cover the worst
+        // case - anything neither program wrote is zero in both, and a program
+        // that emitted MORE than its twin differs inside the window, which is
+        // exactly the failure worth catching.
+        const int fanOut = d.clip ? 8 : 1;
+        const int quads = tagQuads(d) + verts * fanOut * regsPerVertex(d);
         for (int qw = start; qw < start + quads; ++qw)
             for (int f = 0; f < 4; ++f) {
                 const size_t k = (size_t)qw * 4 + f;
@@ -3017,6 +3819,19 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
                 eq.identical = false;
                 eq.firstBadTrial = t;
                 eq.detail = buf;
+                if (std::getenv("VUGEN_DUMP")) {
+                    std::fprintf(stderr, "kick %d, %d input vertices\n", start,
+                                 verts);
+                    for (int w = start; w < start + quads; ++w) {
+                        std::fprintf(stderr, "%4d ", w);
+                        for (int f = 0; f < 4; ++f)
+                            std::fprintf(stderr, " %08X", ra.mem[(size_t)w * 4 + f]);
+                        std::fprintf(stderr, "   |");
+                        for (int f = 0; f < 4; ++f)
+                            std::fprintf(stderr, " %08X", rb.mem[(size_t)w * 4 + f]);
+                        std::fprintf(stderr, "\n");
+                    }
+                }
                 return eq;
             }
     }

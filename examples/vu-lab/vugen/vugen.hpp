@@ -153,6 +153,29 @@ class Vu {
     void branch(Lbl l);
     void branchIfLez(IVal a, Lbl l);
     void branchIfNotEq(IVal a, IVal b, Lbl l);
+    void branchIfEq(IVal a, IVal b, Lbl l);
+    void branchIfGtz(IVal a, Lbl l);
+    void branchIfLtz(IVal a, Lbl l);
+
+    // --- the clip family's own primitives ---------------------------------
+    // Only the CLIP programs need these: the cull and as_is families judge a
+    // vertex through fogClipCheck, which bundles clipw+fcand for the one
+    // question they ask. A clipper asks several different questions of the
+    // same instruction pair, so it needs them apart.
+    /** Copy, field-masked. `add dst, vf00, src` would cost the same and read
+     * worse; the handwritten programs use `move` and so does this. */
+    void moveInto(Val dst, Val a, uint8_t mask = vuir::MALL);
+    /** Judge xyz against +/-w, setting the clip flags. Reads the register's
+     * OWN w, which is why the callers rewrite w before each use. */
+    void clipwInto(Val a, uint8_t mask = vuir::MXYZ);
+    /** Read the clip flags. NOTE the semantics the handwritten programs rely
+     * on: fcand sets its destination to 0 or 1 - "any masked bit set" - and
+     * NOT to the bit pattern. Every judgement is written to be read that
+     * way. */
+    void fcandInto(IVal dst, int mask);
+    void iorInto(IVal dst, IVal a, IVal b);
+    void iandInto(IVal dst, IVal a, IVal b);
+    void isubInto(IVal dst, IVal a, IVal b);
     void xtop(IVal dst);
     void xgkick(IVal address);
     /** VCL scheduling markers, reproduced so the emitted source matches the
@@ -435,6 +458,12 @@ struct Desc {
      * clipping, so cull is the one family a custom program can build on and
      * still draw under the default settings. */
     bool cull = false;
+    /** The CLIP family: replaces the EE clipper for frustum-crossing packages.
+     * Like cull it does its own MVP multiply - so unlike as_is it still has the
+     * object-space position, which is what lets a displacing script run on the
+     * geometry the clipper produced. Emits a VARIABLE number of vertices and
+     * patches the prim tag's NLOOP with the count. */
+    bool clip = false;
     std::string dir = "as_is";  // sub-directory under programs/
 
     /** A PROJECT's own program: the same skeleton with a stage list woven in.
@@ -470,12 +499,16 @@ struct Desc {
  * live in the directional-lights colour block, which a lit program needs
  * (project::vuClassCanBind).
  *
- * `asIs` picks the other half of the class's resident PAIR: the cull program
- * draws a package wholly inside the frustum, its twin (as_is, or the VU1
- * clipper when that mode is on) draws one that crosses a plane. A look has to
- * replace both or the props at the edge of the screen keep the stock shading.
- */
-Desc descForClass(unsigned classBit, int lookIndex = 0, bool asIs = false);
+ * `half` picks which of the class's programs is meant. A class is TWO resident
+ * programs at any moment: `Cull` draws a package wholly inside the frustum, and
+ * one of the other two draws a package that crosses a plane - `AsIs` under the
+ * EE clipper, `Clip` under VU1 clipping. An override has to replace the
+ * resident PAIR or the props at the edge of the screen keep the stock shading,
+ * and since the clipping mode is a run-time switch, replacing all three is what
+ * makes an effect survive it. */
+enum class Half : uint8_t { Cull, AsIs, Clip };
+Desc descForClass(unsigned classBit, int lookIndex = 0,
+                  Half half = Half::Cull);
 /** Every class bit, low to high. */
 const std::vector<unsigned>& customClasses();
 /** "Untextured (vertex colour)", "Textured", ... - THE label for a class, used
@@ -483,14 +516,21 @@ const std::vector<unsigned>& customClasses();
  * project::vuClassName forwards here. */
 const char* classTitle(unsigned classBit);
 
-/** The ten programs the StaPip pipeline keeps resident, exactly as the engine
- * ships them: five `as_is` (fed by the EE clipper) crossed with five `cull`
- * (transform + frustum test on VU1). The `clip` family is still handwritten. */
+/** The fifteen StaPip programs the engine ships: five `as_is` (fed by the EE
+ * clipper) crossed with five `cull` (transform + frustum test on VU1), plus the
+ * five `clip` programs that replace the EE clipper when VU1 clipping is on. A
+ * material class is always TWO resident programs - cull for a package wholly
+ * inside the frustum, and either as_is or clip for one that crosses. */
 Desc descAsIsColor();
 Desc descAsIsTextureColor();
 Desc descAsIsDirLights();
 Desc descAsIsTextureDirLights();
 Desc descAsIsTextureEnv();
+Desc descClipColor();
+Desc descClipTextureColor();
+Desc descClipDirLights();
+Desc descClipTextureDirLights();
+Desc descClipTextureEnv();
 Desc descCullColor();
 Desc descCullTextureColor();
 Desc descCullDirLights();

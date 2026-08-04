@@ -7962,13 +7962,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      // OFF while a script displaces vertices (vuscript::movesGeometry). The
-      // EE clipper cuts a mesh before any VU program sees it, so a vertex
-      // moved afterwards is moved past a cut computed without it and the prop
-      // tears at the edge of the screen. Whole-mesh cull path instead - safe
-      // for a prop, which is small enough to submit unclipped, and NOT done
-      // for the terrain or the sky, which are not.
-      part.infoBag->fullClipChecks = !vuscript::movesGeometry();
+      part.infoBag->fullClipChecks = true;  // refreshed below, per frame
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -7976,6 +7970,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->texture = nullptr;
       part.bag->lighting = nullptr;
     }
+    // OFF while a script displaces vertices AND the EE clipper is the one
+    // cutting. That clipper runs before any VU program sees the mesh, so a
+    // vertex moved afterwards is moved past a cut computed without it and the
+    // prop tears at the edge of the screen; the whole-mesh cull path is the
+    // way out, safe for a prop and NOT done for the terrain or the sky.
+    //
+    // Under VU1 CLIPPING there is nothing to compensate for: the clip program
+    // does its own MVP multiply, so the script displaces the vertex BEFORE the
+    // cut is computed and the clipper sees the final geometry. Set per frame
+    // rather than at bag creation because the mode is a run-time switch.
+    part.infoBag->fullClipChecks =
+        !vuscript::movesGeometry() || vuprog::vu1Clipping();
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());

@@ -1235,30 +1235,51 @@ const char* classTitle(unsigned classBit) {
     }
 }
 
-Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
+const char* halfSuffix(Half h) {
+    return h == Half::AsIs ? "_ai" : h == Half::Clip ? "_cl" : "";
+}
+const char* halfSymbol(Half h) {
+    return h == Half::AsIs ? "AI" : h == Half::Clip ? "CL" : "";
+}
+
+Desc descForClass(unsigned classBit, int lookIndex, Half half) {
     Desc d;
     const char* tag = "c";    // file stem, lowercase like every generated file
     const char* upper = "C";  // symbol stem, matching the engine's own spelling
+    // Which of the three programs of this class is being described. `Cull`
+    // draws a package wholly inside the frustum; the other two draw one that
+    // crosses, and which of THEM is resident depends on the clipping mode.
+    auto pick = [&](Desc cull, Desc asIs, Desc clip) {
+        return half == Half::AsIs ? asIs : half == Half::Clip ? clip : cull;
+    };
     switch (classBit) {
         case 1u << 1:
-            d = asIs ? descAsIsDirLights() : descCullDirLights();
+            d = pick(descCullDirLights(), descAsIsDirLights(),
+                     descClipDirLights());
             tag = "d";
             upper = "D";
             break;
         case 1u << 2:
-            d = asIs ? descAsIsTextureDirLights() : descCullTextureDirLights(),
-            tag = "td", upper = "TD";
+            d = pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
+                     descClipTextureDirLights());
+            tag = "td";
+            upper = "TD";
             break;
         case 1u << 3:
-            d = asIs ? descAsIsTextureColor() : descCullTextureColor();
+            d = pick(descCullTextureColor(), descAsIsTextureColor(),
+                     descClipTextureColor());
             tag = "tc";
             upper = "TC";
             break;
         case 1u << 4:
-            d = asIs ? descAsIsTextureEnv() : descCullTextureEnv(), tag = "tce",
+            d = pick(descCullTextureEnv(), descAsIsTextureEnv(),
+                     descClipTextureEnv());
+            tag = "tce";
             upper = "TCE";
             break;
-        default: d = asIs ? descAsIsColor() : descCullColor(); break;
+        default:
+            d = pick(descCullColor(), descAsIsColor(), descClipColor());
+            break;
     }
     d.custom = true;
     d.dir = "gen";
@@ -1271,9 +1292,8 @@ Desc descForClass(unsigned classBit, int lookIndex, bool asIs) {
     // look look broken - the props at the edge of the screen keep the engine's
     // shading - so a look emits both.
     const std::string ix = std::to_string(lookIndex);
-    const std::string half = asIs ? "_ai" : "";
-    d.fileStem = std::string("vu_look") + ix + "_" + tag + half;
-    d.vclName = std::string("TyraXLook") + ix + upper + (asIs ? "AI" : "");
+    d.fileStem = std::string("vu_look") + ix + "_" + tag + halfSuffix(half);
+    d.vclName = std::string("TyraXLook") + ix + upper + halfSymbol(half);
     d.asmName = d.vclName;
     d.className = d.vclName + "VU1Program";
     d.title = std::string("TyraX look - ") + classTitle(classBit);
