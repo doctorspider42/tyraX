@@ -12,7 +12,13 @@ Palette	Textured	268	StaPipCullTextureColor	8	main	manual
 Palette	Textured	165	StaPipAsIsTextureColor	8	twin	manual
 Vertex snap	Untextured (vertex colour)	229	StaPipCullColor	1	main	manual
 Vertex snap	Untextured (vertex colour)	111	StaPipAsIsColor	1	twin	manual
+Vertex snap	Directional lights	205	StaPipCullDirLights	2	main	manual
+Vertex snap	Directional lights	153	StaPipAsIsDirLights	2	twin	manual
+Vertex snap	Textured + lights	219	StaPipCullTextureDirLights	4	main	manual
+Vertex snap	Textured + lights	170	StaPipAsIsTextureDirLights	4	twin	manual
 Vertex snap	Textured	243	StaPipCullTextureColor	8	main	manual
 Vertex snap	Textured	128	StaPipAsIsTextureColor	8	twin	manual
+Vertex snap	Reflective (matcap)	228	StaPipCullTextureEnv	16	main	manual
+Vertex snap	Reflective (matcap)	179	StaPipAsIsTextureEnv	16	twin	manual
 Wobble	Untextured (vertex colour)	305	StaPipCullColor	1	main	manual
 Wobble	Textured	319	StaPipCullTextureColor	8	main	manual

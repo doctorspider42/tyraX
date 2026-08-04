@@ -541,6 +541,23 @@ raster window.
 `Slot::Ndc` does **not** need it. The divide has already happened, the vertex is
 in screen space, and a nudge of a few pixels stays inside the guard band.
 
+**A geometry effect must claim EVERY class.** A colour effect may claim a
+subset - an object whose base pass is posterised and whose reflection is not
+still reads as one object. A displacement may not: an object frequently draws
+several passes over the same vertices in different classes (a reflective ball
+has a base pass and a matcap pass), and if one of them moves while the other
+stays, the two copies separate and each shows through the other. On the vu-lab
+ball that appears as a grey wedge from underneath - which looks exactly like the
+coplanar depth bug in `docs/reflective-materials.md` and is nothing of the sort.
+
+**A `Slot::Ndc` script stops where clipping starts.** The `as_is` twin - the
+program that draws what the EE clipper cut - runs a script only in the `Color`
+and `Texture` slots. Its vertices arrive already transformed, in screen space
+rather than the space the cull half's `Ndc` stage sees, so geometry slots are
+filtered out of it. The visible consequence is that a screen-space effect
+switches itself off on any mesh touching the edge of the frame. Colour effects
+do not have this problem; they run in both halves.
+
 Two things that cost a console build each to learn:
 
 * **There are four scratch registers** (`vu::Ctx::kScratchCount`). Asking for a

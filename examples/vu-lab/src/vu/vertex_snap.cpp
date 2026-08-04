@@ -22,14 +22,23 @@ struct VertexSnap : vu::Program {
     // nothing to do with how the surface is coloured, and a scene where only
     // half the meshes jittered would look broken rather than retro.
     unsigned classes() const override {
-        // The unlit pair only, and that is not a compromise in THIS scene:
-        // it bakes shading into the vertex colours on the EE, so its props are
-        // flat-colour and its terrain is textured, and the lit classes are
-        // nearly empty. Claiming them costs two more microprograms per class
-        // through vcl and, for the palette, three live constant registers on
-        // the class that already holds ~30 of VCL's 31 - which is exactly
-        // where it failed with `failed to convert all uta linear->raw`.
-        return vu::kColour | vu::kTextured;
+        // EVERY class, and for a program that MOVES vertices that is not a
+        // preference - it is the only correct answer.
+        //
+        // A colour effect may claim a subset: an object whose base pass is
+        // posterised and whose reflection is not still looks like one object.
+        // A geometry effect may not. An object often draws SEVERAL passes over
+        // the same vertices in different classes - a reflective ball has its
+        // base pass and a matcap pass - and if one of them snaps to the grid
+        // while the other does not, the two copies separate by up to a cell
+        // and each shows through the other. On the ball in vu-lab that reads
+        // as a grey wedge from under it, which looks exactly like the coplanar
+        // depth bug and is nothing of the sort.
+        //
+        // Affordable because this program is three instructions and one
+        // constant register: the classes that are tight on registers can carry
+        // it. A heavier displacement (see wobble.cpp) has to weigh that.
+        return vu::kAll;
     }
 
     // Ndc: after the perspective divide, before the scale into the GS's 12.4
