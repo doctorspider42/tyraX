@@ -41,6 +41,13 @@ constexpr int kLightsDirsAddr = 12;
 constexpr int kLightsColorsAddr = 15;
 constexpr int kSetGifTagAddr = 19;
 constexpr int kAlphaAddr = 21;
+// The CLIP family's own memory (stapip_vu1_shared_defines.h). The constants sit
+// low with everything else; the plane table and the two scratch polygons live
+// ABOVE the double buffer, which is why VU1_STAPIP_DBUFFER_END stops where it
+// does.
+constexpr int kClipConstsAddr = 20;
+constexpr int kClipPlanesAddr = 944;
+constexpr float kClipGuard = 4096.0f;
 // The env (matcap) camera basis reuses the lights-matrix area: an env bag
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
 constexpr int kEnvBasisAddr = kLightsMatrixAddr;
@@ -1044,6 +1051,25 @@ Desc descAsIsTextureEnv() {
     d.programEnum = "StaPipAsIsTextureEnv";
     d.title = "StaPip - As is - TCE";
     d.env = true;
+    return d;
+}
+
+/** The flat-colour CLIP program - the first of the family to be described.
+ *
+ * Not in allDescs() yet on purpose: until build() can emit it, registering it
+ * there would turn --vu-check red for everyone. The check reports it in its own
+ * section instead, so the oracle exists while the emitter is being written -
+ * which is the whole point of doing the harness before the microcode. */
+Desc descClipColor() {
+    Desc d;
+    d.vclName = "StaPipVU1ClipC";
+    d.asmName = "StaPipVU1Clip_C";
+    d.fileStem = "stapip_clip_c_vu1";
+    d.className = "StaPipClipCVU1Program";
+    d.programEnum = "StaPipClipColor";
+    d.title = "StaPip - Clip - C";
+    d.clip = true;
+    d.dir = "clip";
     return d;
 }
 
@@ -2952,6 +2978,43 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     puti(top + 1, 2, d.texture ? (0x2u | (0x1u << 4) | (0x4u << 8))
                                : (0x1u | (0x4u << 4)));
 
+    // The CLIP family reads two more blocks, and without them the handwritten
+    // program cannot even be RUN here - it would read zeroed planes, decide
+    // every vertex is outside and emit nothing, which compares equal to any
+    // other program that emits nothing. A vacuous PASS is worse than a
+    // failure, so these are written for every clip desc.
+    if (d.clip) {
+        // x = nearZ - GUARD, y = -farZ - GUARD, z = 0, w = GUARD: the near/far
+        // judgement folded into a second clipw through biased constants.
+        putf(kClipConstsAddr, 0, 1.0f - kClipGuard);
+        putf(kClipConstsAddr, 1, -1000.0f - kClipGuard);
+        putf(kClipConstsAddr, 2, 0.0f);
+        putf(kClipConstsAddr, 3, kClipGuard);
+        // Six planes as (A,B,C,D) + (E,0,0,0); inside = dot4(v,ABCD) + E >= 0.
+        // NEAR IS FIRST and that ordering is load-bearing: everything which
+        // survives it has w > 0, which is what makes the w-relative side
+        // planes below safe to apply at all.
+        static const float kPlaneV[6][4] = {
+            {0.0f, 0.0f, 1.0f, 0.0f},   // near
+            {-1.0f, 0.0f, 0.0f, 1.0f},  // right:  w - x >= 0
+            {1.0f, 0.0f, 0.0f, 1.0f},   // left:   w + x >= 0
+            {0.0f, -1.0f, 0.0f, 1.0f},  // top:    w - y >= 0
+            {0.0f, 1.0f, 0.0f, 1.0f},   // bottom: w + y >= 0
+            {0.0f, 0.0f, -1.0f, 0.0f},  // far
+        };
+        // The near plane sits where the staged geometry actually reaches:
+        // this MVP puts clip z in about -7..3, so z >= -5 cuts roughly half
+        // the vertices and the clipper has real work in most trials. Far is
+        // parked out of reach - one plane doing nothing is worth keeping, it
+        // proves the loop handles a pass that changes nothing.
+        static const float kPlaneE[6] = {5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1000.0f};
+        for (int i = 0; i < 6; ++i) {
+            for (int f = 0; f < 4; ++f)
+                putf(kClipPlanesAddr + i * 2, f, kPlaneV[i][f]);
+            putf(kClipPlanesAddr + i * 2 + 1, 0, kPlaneE[i]);
+        }
+    }
+
     // A project's own program reads two more quadwords, and they sit in the
     // lights-colour block the loop above just filled with noise - so they are
     // written LAST and unconditionally. Zeros here are what make the identity
@@ -2975,7 +3038,7 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     // positive (w = 60 - z over object-space z in +-5) - persCorrect divides by
     // it, and a w through zero would put the comparison in the saturation
     // region rather than in the arithmetic.
-    if (d.cull) {
+    if (d.cull || d.clip) {
         const float mvp[4][4] = {{1.2f, 0.0f, 0.0f, 0.0f},
                                  {0.0f, 1.6f, 0.0f, 0.0f},
                                  {0.0f, 0.0f, -1.002f, -1.0f},
@@ -2986,10 +3049,20 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
 
     int addr = top + kVertDataAddr;
     for (int i = 0; i < verts; ++i) {
-        if (d.cull) {
+        if (d.cull || d.clip) {
             // Object space, and W is 1 - a mesh vertex, not a clipper output.
-            putf(addr + i, 0, randomFloat(s, -5.0f, 5.0f));
-            putf(addr + i, 1, randomFloat(s, -5.0f, 5.0f));
+            //
+            // A CLIP trial spreads x and y far wider, and that is the whole
+            // difference between a real test and a vacuous one. With the cull
+            // range the projected |x| never approaches w, every triangle is
+            // trivially inside, the Sutherland-Hodgman loop is never entered
+            // and two programs that both skip it compare equal. At +-40 the
+            // sides genuinely cross, so most trials exercise the clipper and
+            // some still take the fully-inside fast path - which is the mix
+            // worth comparing.
+            const float span = d.clip ? 40.0f : 5.0f;
+            putf(addr + i, 0, randomFloat(s, -span, span));
+            putf(addr + i, 1, randomFloat(s, -span, span));
             putf(addr + i, 2, randomFloat(s, -5.0f, 5.0f));
             putf(addr + i, 3, 1.0f);
             continue;
@@ -3068,7 +3141,14 @@ Equivalence equivalence(const Program& a, const Program& b, const Desc& d,
         // Compare the GIF stream the GS would actually read: from the kicked
         // address through the whole tag block and vertex payload.
         const int start = ra.kicks.empty() ? 0 : ra.kicks.front();
-        const int quads = tagQuads(d) + verts * regsPerVertex(d);
+        // A CLIP program emits a variable count: a triangle cut by six planes
+        // can reach nine vertices, and fan triangulation turns those into
+        // seven triangles. Compare a window generous enough to cover the worst
+        // case - anything neither program wrote is zero in both, and a program
+        // that emitted MORE than its twin differs inside the window, which is
+        // exactly the failure worth catching.
+        const int fanOut = d.clip ? 8 : 1;
+        const int quads = tagQuads(d) + verts * fanOut * regsPerVertex(d);
         for (int qw = start; qw < start + quads; ++qw)
             for (int f = 0; f < 4; ++f) {
                 const size_t k = (size_t)qw * 4 + f;

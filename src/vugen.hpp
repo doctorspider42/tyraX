@@ -457,6 +457,12 @@ struct Desc {
      * clipping, so cull is the one family a custom program can build on and
      * still draw under the default settings. */
     bool cull = false;
+    /** The CLIP family: replaces the EE clipper for frustum-crossing packages.
+     * Like cull it does its own MVP multiply - so unlike as_is it still has the
+     * object-space position, which is what lets a displacing script run on the
+     * geometry the clipper produced. Emits a VARIABLE number of vertices and
+     * patches the prim tag's NLOOP with the count. */
+    bool clip = false;
     std::string dir = "as_is";  // sub-directory under programs/
 
     /** A PROJECT's own program: the same skeleton with a stage list woven in.
@@ -513,6 +519,7 @@ Desc descAsIsTextureColor();
 Desc descAsIsDirLights();
 Desc descAsIsTextureDirLights();
 Desc descAsIsTextureEnv();
+Desc descClipColor();
 Desc descCullColor();
 Desc descCullTextureColor();
 Desc descCullDirLights();
