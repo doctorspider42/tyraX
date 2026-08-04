@@ -48,6 +48,19 @@ the verification, and any fact worth reusing belongs in the relevant
   scratch polygon buffers that an expression-level DSL will not express; the
   honest shape is a declarative skeleton with hand-written instruction blocks
   plugged into it.
+- **Colour grading through the CLUT.** Every texture is already palettized
+  (4-bit, 16 entries), so the GS is already doing a per-pixel colour lookup for
+  free - re-map those entries through a grading curve and textured surfaces get
+  true per-pixel grading at no runtime cost. That is strictly more than today's
+  grading can do: `grading.hpp` compiles to the GS blender's gain/lift/mix, with
+  no gamma and saturation only approximated, and the GS has no dependent texture
+  read so a full-frame LUT is not available at all. Pairs with a
+  luminance-indexed LUT on VU1 for the untextured half (the builder can already
+  express the indexed load); the two together cover a scene without grading
+  anything twice. See `.claude/plans/clut-grading.md` for the shape and the
+  traps - the first unknown is whether the CLUT is cached in VRAM, which decides
+  whether a run-time re-grade is cheap.
+
 - **VU framework: per-project program specialization.** The editor knows at build
   time which program variants a project can use - a project with no matcap
   material does not need the two `tce` programs, which is ~400 instructions of

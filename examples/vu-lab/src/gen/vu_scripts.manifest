@@ -10,12 +10,12 @@ Cell shading	Textured + lights	304	StaPipClipTextureDirLights	4	clip	boot	ok	pan
 Cell shading	Textured	252	StaPipCullTextureColor	8	main	boot	ok	panel
 Cell shading	Textured	149	StaPipAsIsTextureColor	8	twin	boot	ok	panel
 Cell shading	Textured	338	StaPipClipTextureColor	8	clip	boot	ok	panel
-Palette	Untextured (vertex colour)	254	StaPipCullColor	1	main	manual	ok	script
-Palette	Untextured (vertex colour)	148	StaPipAsIsColor	1	twin	manual	ok	script
-Palette	Untextured (vertex colour)	331	StaPipClipColor	1	clip	manual	ok	script
-Palette	Textured	268	StaPipCullTextureColor	8	main	manual	ok	script
-Palette	Textured	165	StaPipAsIsTextureColor	8	twin	manual	ok	script
-Palette	Textured	354	StaPipClipTextureColor	8	clip	manual	ok	script
+Palette	Untextured (vertex colour)	248	StaPipCullColor	1	main	manual	ok	script
+Palette	Untextured (vertex colour)	142	StaPipAsIsColor	1	twin	manual	ok	script
+Palette	Untextured (vertex colour)	325	StaPipClipColor	1	clip	manual	ok	script
+Palette	Textured	262	StaPipCullTextureColor	8	main	manual	ok	script
+Palette	Textured	159	StaPipAsIsTextureColor	8	twin	manual	ok	script
+Palette	Textured	348	StaPipClipTextureColor	8	clip	manual	ok	script
 Vertex snap	Untextured (vertex colour)	229	StaPipCullColor	1	main	manual	ok	script
 Vertex snap	Untextured (vertex colour)	123	StaPipAsIsColor	1	twin	manual	ok	script
 Vertex snap	Untextured (vertex colour)	298	StaPipClipColor	1	clip	manual	ok	script

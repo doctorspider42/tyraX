@@ -28,39 +28,53 @@ struct Palette : vu::Program {
 
     vu::Slot slot() const override { return vu::Slot::Color; }
 
+    // EVERY constant is pre-folded on the HOST, and on this program that is not
+    // micro-optimising - it is what keeps vcl's optimiser from giving up.
+    // The clip half of this look is the biggest program shape there is
+    // (Sutherland-Hodgman, nested loops, a scratch polygon buffer) and it
+    // already holds most of VCL's 31 registers live; three constants and two
+    // temporaries on top used to push it past the optimiser's time limit
+    // thirty-three times in one build. See the note under vertex().
     void prepare(vu::Ctx& c) {
-        // Rec.601, the same weights every program here uses, so "brightness"
-        // means one thing across the project.
-        kLuma_ = vu::constant(c, 0.299F, 0.587F, 0.114F, 0.0F);
-        // The dark end, with the 1/255 that turns a 0..255 luminance into the
-        // 0..1 blend factor packed into its spare w.
-        kDark_ = vu::constant(c, 40.0F, 30.0F, 70.0F, 1.0F / 255.0F);
-        // Warm against the cold dark: a ramp between two colours of the same
-        // temperature just looks like a faded photo.
-        kLight_ = vu::constant(c, 255.0F, 220.0F, 130.0F, 0.0F);
+        // Rec.601, ALREADY DIVIDED BY 255. The dot product then lands on the
+        // 0..1 blend factor directly instead of on a 0..255 luminance that
+        // needs scaling afterwards - one instruction and one live lane less,
+        // for a constant the host folds either way.
+        kLuma_ = vu::constant(c, 0.299F / 255.0F, 0.587F / 255.0F,
+                              0.114F / 255.0F, 0.0F);
+        // The dark end of the ramp.
+        kDark_ = vu::constant(c, 40.0F, 30.0F, 70.0F, 0.0F);
+        // The SPAN, light - dark, not the light end: the body wants the
+        // difference, and subtracting two constants per vertex to get a third
+        // constant is work the host can do once. Warm against the cold dark -
+        // a ramp between two colours of the same temperature just looks like a
+        // faded photo.
+        kSpan_ = vu::constant(c, 255.0F - 40.0F, 220.0F - 30.0F,
+                              130.0F - 70.0F, 0.0F);
     }
-    vu::Vec kLuma_, kDark_, kLight_;
+    vu::Vec kLuma_, kDark_, kSpan_;
 
     void vertex(vu::Ctx& c) override {
         vugen::Vu& b = c.raw();
         const vugen::Val s0 = c.scratch(0).val();
-        const vugen::Val s1 = c.scratch(1).val();
-        const vugen::Val inv255 = vugen::Val{kDark_.val().reg, 3};
 
-        // s0.x = luminance, then scaled into 0..1 as the blend factor.
+        // s0.x = the blend factor, straight out of the weighted sum.
         b.mulInto(s0, c.color.val(), kLuma_.val(), vuir::MXYZ);
         b.addInto(s0, s0, vugen::Val{s0.reg, 1}, vuir::MX);
         b.addInto(s0, s0, vugen::Val{s0.reg, 2}, vuir::MX);
-        b.mulInto(s0, s0, inv255, vuir::MX);
 
-        // colour = dark + (light - dark) * t. Whole-register subtract and a
-        // broadcast scale, so the ramp is three instructions however many
-        // colours are in it. No clamp needed: t comes from a luminance the GS
-        // already clamped to 0..255, so the result stays on the segment.
-        b.subInto(s1, kLight_.val(), kDark_.val(), vuir::MXYZ);
-        b.mulInto(s1, s1, vugen::Val{s0.reg, 0}, vuir::MXYZ);
+        // colour = dark + span * t, written STRAIGHT INTO the colour register.
+        // The obvious version builds it in a second scratch and copies; there
+        // is nothing to copy, because the colour is dead the moment its
+        // luminance has been taken. One fewer value live across the clipper's
+        // loops, which is the register that mattered.
+        //
+        // No clamp needed: t comes from a luminance the GS already clamped to
+        // 0..255, so the result cannot leave the segment between the two ends.
         // xyz only - a re-inked alpha turns every blended pass into stipple.
-        b.addInto(c.color.val(), kDark_.val(), s1, vuir::MXYZ);
+        b.mulInto(c.color.val(), kSpan_.val(), vugen::Val{s0.reg, 0},
+                  vuir::MXYZ);
+        b.addInto(c.color.val(), c.color.val(), kDark_.val(), vuir::MXYZ);
     }
 };
 

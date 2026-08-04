@@ -73,11 +73,11 @@ processing:
     lq         stq2, 1(stqData)
     lq         vertex3, 2(vertexData)
     lq         stq3, 2(stqData)
-    loi        0.298999995  ; constants
+    loi        0.00117254897  ; constants
     add.x      k0, vf00, i
-    loi        0.587000012
+    loi        0.00230196072
     add.y      k0, vf00, i
-    loi        0.114
+    loi        0.000447058817
     add.z      k0, vf00, i
     loi        0
     mul.w      k0, vf00, i
@@ -87,13 +87,13 @@ processing:
     add.y      k1, vf00, i
     loi        70
     add.z      k1, vf00, i
-    loi        0.00392156886
+    loi        0
     mul.w      k1, vf00, i
-    loi        255  ; constants
+    loi        215  ; constants
     add.x      k2, vf00, i
-    loi        220
+    loi        190
     add.y      k2, vf00, i
-    loi        130
+    loi        60
     add.z      k2, vf00, i
     loi        0
     mul.w      k2, vf00, i
@@ -105,10 +105,8 @@ processing:
     mul.xyz    vuS0, color1, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    mul.x      vuS0, vuS0, k1[w]
-    sub.xyz    vuS1, k2, k1
-    mul.xyz    vuS1, vuS1, vuS0[x]
-    add.xyz    color1, k1, vuS1
+    mul.xyz    color1, k2, vuS0[x]
+    add.xyz    color1, color1, k1
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color1, color1, i
     max.xyz    color1, color1, vf00[x]
@@ -121,10 +119,8 @@ processing:
     mul.xyz    vuS0, color2, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    mul.x      vuS0, vuS0, k1[w]
-    sub.xyz    vuS1, k2, k1
-    mul.xyz    vuS1, vuS1, vuS0[x]
-    add.xyz    color2, k1, vuS1
+    mul.xyz    color2, k2, vuS0[x]
+    add.xyz    color2, color2, k1
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color2, color2, i
     max.xyz    color2, color2, vf00[x]
@@ -137,10 +133,8 @@ processing:
     mul.xyz    vuS0, color3, k0
     add.x      vuS0, vuS0, vuS0[y]
     add.x      vuS0, vuS0, vuS0[z]
-    mul.x      vuS0, vuS0, k1[w]
-    sub.xyz    vuS1, k2, k1
-    mul.xyz    vuS1, vuS1, vuS0[x]
-    add.xyz    color3, k1, vuS1
+    mul.xyz    color3, k2, vuS0[x]
+    add.xyz    color3, color3, k1
     loi        255  ; FixColor: clamp to 0..255
     mini.xyz   color3, color3, i
     max.xyz    color3, color3, vf00[x]
