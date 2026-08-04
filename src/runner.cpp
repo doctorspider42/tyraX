@@ -794,10 +794,20 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             if (const fs::path cfg = platform::configDir(); !cfg.empty()) {
                 fs::path sdkCache = cfg / "ps2sdk";
                 std::error_code ec;
-                if (!fs::exists(sdkCache / "ee" / "include", ec)) {
+                // THREE trees, and `ports` is not optional even though it looks
+                // like it. The game compiles with -I.../ps2sdk/ports/include
+                // and `<tyra>` reaches libpng's `png.h`, which lives only
+                // there - so a cache without it makes cpptools give up on the
+                // whole translation unit ("#include errors detected. Squiggles
+                // are disabled for this translation unit") in exactly the file
+                // a script author is typing into. The `ports` test is what
+                // gates the export, so a machine that cached the first two
+                // before this existed re-exports rather than staying broken.
+                if (!fs::exists(sdkCache / "ports" / "include", ec)) {
                     appendLine("[editor] Exporting PS2SDK headers for IntelliSense...");
                     fs::create_directories(sdkCache / "ee", ec);
                     fs::create_directories(sdkCache / "common", ec);
+                    fs::create_directories(sdkCache / "ports", ec);
                     // Failure is non-fatal - IntelliSense just has fewer headers.
                     exec("docker compose cp compiler:/usr/local/ps2dev/ps2sdk/ee/include " +
                              platform::shellArg((sdkCache / "ee" / "include").string()),
@@ -805,6 +815,10 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                     exec("docker compose cp "
                          "compiler:/usr/local/ps2dev/ps2sdk/common/include " +
                              platform::shellArg((sdkCache / "common" / "include").string()),
+                         p.dir);
+                    exec("docker compose cp "
+                         "compiler:/usr/local/ps2dev/ps2sdk/ports/include " +
+                             platform::shellArg((sdkCache / "ports" / "include").string()),
                          p.dir);
                 }
             }

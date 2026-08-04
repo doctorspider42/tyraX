@@ -31800,8 +31800,15 @@ static std::string vscodeCppProperties(const Project& p) {
         out << ",\n        \"${workspaceFolder}/vugen\"";
     if (!engineInc.empty()) out << ",\n        \"" << engineInc << "\"";
     if (!sdk.empty())
+        // All three of the trees the game is actually compiled against. `ports`
+        // is the one that looks skippable and is not: `<tyra>` reaches libpng's
+        // `png.h`, which lives only there, and ONE unresolved include makes
+        // cpptools disable squiggles for the entire translation unit - so
+        // leaving it out costs every completion in the file, not one header's
+        // worth. (The Makefile has carried -I.../ports/include all along; this
+        // is the IntelliSense config catching up.)
         out << ",\n        \"" << sdk << "/ee/include\",\n        \"" << sdk
-            << "/common/include\"";
+            << "/common/include\",\n        \"" << sdk << "/ports/include\"";
     out << "\n      ],\n"
            "      \"defines\": [\"_EE\"],\n";
     if (!compiler.empty())
