@@ -50,20 +50,27 @@ struct VertexSnap : vu::Program {
     // It is displacement in OBJECT or CLIP space that outruns the clipper.
 
     void prepare(vu::Ctx& c) {
-        // NDC spans -1..1, so a grid of N cells across the screen is a step of
-        // 2/N. y is the reciprocal, z the step itself.
-        kGrid_ = vu::constant(c, 0.0F, kCells * 0.5F, 2.0F / kCells, 0.0F);
+        // steps and 1/steps, and NOT steps/2 and 2/steps. The first draft
+        // assumed this slot hands over a -1..1 NDC and halved accordingly; the
+        // values here are far smaller than that, so the grid came out several
+        // times too coarse and the whole scene collapsed into a horizontal
+        // band a few levels tall. The engine's own `snap` stage (the stage
+        // catalogue, Slot::Ndc) multiplies by the step count directly - one
+        // coordinate unit IS the screen - so these are its numbers, not a
+        // guess about the range.
+        kGrid_ = vu::constant(c, 0.0F, kCells, 1.0F / kCells, 0.0F);
     }
     vu::Vec kGrid_;
-    // Cells across the screen. 160 is a PS1-ish 320-wide raster seen at half
-    // resolution; 40 is unmistakable and slightly seasick.
-    static constexpr float kCells = 110.0F;
+    // Grid divisions across the screen, the same scale the built-in stage
+    // documents: 160 is roughly a PS1 look, 640 is subtle, and going far below
+    // 160 is where it stops being a wobble and starts being a fold.
+    static constexpr float kCells = 160.0F;
 
     void vertex(vu::Ctx& c) override {
         vugen::Vu& b = c.raw();
         const vugen::Val s0 = c.scratch(0).val();
         const vugen::Val toCells = vugen::Val{kGrid_.val().reg, 1};
-        const vugen::Val toNdc = vugen::Val{kGrid_.val().reg, 2};
+        const vugen::Val toScreen = vugen::Val{kGrid_.val().reg, 2};
 
         // x and y only. Snapping Z as well would quantise DEPTH, and every
         // surface that shares a plane with another would start z-fighting in
@@ -71,7 +78,7 @@ struct VertexSnap : vu::Program {
         const uint8_t xy = (uint8_t)(vuir::MX | vuir::MY);
         b.mulInto(s0, c.position.val(), toCells, xy);
         b.truncate(s0, s0, xy);
-        b.mulInto(c.position.val(), s0, toNdc, xy);
+        b.mulInto(c.position.val(), s0, toScreen, xy);
     }
 };
 

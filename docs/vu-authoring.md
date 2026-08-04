@@ -551,6 +551,12 @@ Two things that cost a console build each to learn:
 * **A wavelength shorter than a mesh tears the mesh open.** Displacement in
   object space moves a mesh's own vertices by different amounts; long waves lift
   whole objects, which is what water looks like.
+* **Do not guess the range a slot hands you.** `Slot::Ndc` here is not a -1..1
+  cube: the built-in `snap` stage quantises by multiplying by the step count
+  directly, so one coordinate unit IS the screen. A script that assumed the
+  wider range and halved its grid came out several times too coarse and folded
+  the whole scene into a horizontal band. When a slot's scale matters, copy the
+  numbers from the stage in the catalogue that already works in it.
 
 ## One class, one program
 

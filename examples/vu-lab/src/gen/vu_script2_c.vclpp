@@ -78,9 +78,9 @@ processing:
     lq         vertex3, 2(vertexData)
     loi        0  ; constants
     add.x      k0, vf00, i
-    loi        55
+    loi        160
     add.y      k0, vf00, i
-    loi        0.0181818176
+    loi        0.00625000009
     add.z      k0, vf00, i
     loi        0
     mul.w      k0, vf00, i
