@@ -316,6 +316,50 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## Before you hand-edit a `.vclpp`: run it on the host first
+
+The editor carries a **VU1 simulator and a microprogram generator**
+(`src/vuir|vuasm|vusim|vugen`, `docs/vu-framework.md`). It changes the loop for
+any VU work: instead of a Docker build plus a PCSX2 boot to find out what a
+program does, run it here.
+
+```bash
+tyrax-editor --vu-list <file.vclpp>   # expand the vclpp layer + disassemble
+tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budget
+```
+
+- **All 25 `.vclpp` files the engine ships parse and run**, including the clip
+  family and the VU0 raytracer kernel. `--vu-list` shows what the program looks
+  like AFTER macro expansion, which is the first thing to check when it does
+  something you did not write.
+- The simulator reports two things `vcl` and `dvp-as` will not: a **Q clobber**
+  (a `div`/`rsqrt` whose result is overwritten before anything read it - the
+  gotcha `CalculateTyraEnvStq` documents) and a **quadword address outside VU1
+  data memory**, which the hardware silently wraps.
+- What it does NOT model, deliberately: cycle timing, dual-issue pairing, branch
+  delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
+  registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
+  is not authoritatively simulated).
+- The five `as_is` programs also have C++ descriptions that generate them; a
+  generated program is proven **bit-identical** to the handwritten one by
+  simulating both on randomized input. If you change one of those five by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
+  the two have genuinely diverged and you should say which is right.
+- **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
+  diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
+  36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
+  be replayed, so you need the Debugger's flush picker to get a single-mesh
+  flush, and a project with no flow-graph node compiles the devkit layer away
+  entirely - the capture button then does nothing.
+- **The simulator rounds toward zero, because VU1 does.** An x86 rounds to
+  nearest-even; that difference is invisible on screen X/Y and shows up as one or
+  two units in the last place of the 24-bit Z (the coordinate scaled by
+  8388607.5). It was found by replaying a console capture, not reasoned about. If
+  you add arithmetic to `vusim`, do not compute outside `run()`'s rounding scope.
+- **Nothing in `vendor/tyra` is generated yet.** `--vu-emit` writes to a
+  directory you name on purpose: adopting generated microcode needs the full
+  Docker + hardware pass, not a host check.
+
 ## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
 
 TyraX addition: the editor can ask for one VU1 DMA chain and decode it

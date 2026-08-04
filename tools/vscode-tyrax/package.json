@@ -2,7 +2,7 @@
   "name": "tyrax-flownode",
   "displayName": "TyraX Flow Nodes & Screen Effects",
   "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "tyrax",
   "license": "MIT",
   "icon": "icon.png",
@@ -27,22 +27,47 @@
   ],
   "activationEvents": [
     "onLanguage:tyrax-flownode",
-    "onLanguage:tyrax-screenfx"
+    "onLanguage:tyrax-screenfx",
+    "onLanguage:tyrax-vu"
   ],
   "main": "./extension.js",
   "contributes": {
     "languages": [
       {
         "id": "tyrax-flownode",
-        "aliases": ["TyraX Flow Node", "flownode"],
-        "extensions": [".flownode"],
+        "aliases": [
+          "TyraX Flow Node",
+          "flownode"
+        ],
+        "extensions": [
+          ".flownode"
+        ],
         "configuration": "./language-configuration.json"
       },
       {
         "id": "tyrax-screenfx",
-        "aliases": ["TyraX Screen Effect", "screenfx"],
-        "extensions": [".screenfx"],
+        "aliases": [
+          "TyraX Screen Effect",
+          "screenfx"
+        ],
+        "extensions": [
+          ".screenfx"
+        ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "tyrax-vu",
+        "aliases": [
+          "TyraX VU1 microprogram",
+          "vclpp"
+        ],
+        "extensions": [
+          ".vclpp",
+          ".vcl",
+          ".vsm"
+        ],
+        "filenames": [],
+        "configuration": "./vu-language-configuration.json"
       }
     ],
     "grammars": [
@@ -61,6 +86,11 @@
         "embeddedLanguages": {
           "meta.embedded.block.cpp": "cpp"
         }
+      },
+      {
+        "language": "tyrax-vu",
+        "scopeName": "source.tyrax-vu",
+        "path": "./syntaxes/vu.tmLanguage.json"
       }
     ],
     "snippets": [
@@ -71,6 +101,10 @@
       {
         "language": "tyrax-screenfx",
         "path": "./snippets/screenfx.json"
+      },
+      {
+        "language": "tyrax-vu",
+        "path": "./snippets/vu.json"
       }
     ]
   }
