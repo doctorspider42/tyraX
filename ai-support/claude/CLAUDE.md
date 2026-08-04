@@ -17,6 +17,12 @@ Detailed guides live in `.claude/skills/`:
   custom screen effects (`.screenfx`), and the VS Code extension.
 - **tyra-building** — building, running in PCSX2, reading logs, debugging
   crashes and `TYRA_ASSERT` dumps.
+- **tyra-vu-programs** — writing the microprogram VU1 runs over every vertex, in
+  C++ (`src/vu/*.cpp`): slots, material classes, per-mesh parameters, the
+  micro-memory budget, and the traps that only appear on the console.
+- **tyra-vu0-kernels** — VU0 compute kernels (`src/vu0/*.cpp`): batching
+  quadwords through the other vector unit and reading the answers back on the
+  CPU.
 
 ## The three rules that prevent lost work
 

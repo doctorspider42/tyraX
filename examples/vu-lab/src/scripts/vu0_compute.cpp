@@ -1,19 +1,17 @@
 // Driving the two VU0 kernels (../../../../docs/vu-authoring.md).
 //
 //   "points"  - Tools > VU Programs > VU0 kernel: the stage library (Wobble +
-//               Squash) applied to quadwords instead of vertices. No C++.
-//               Its first result becomes the pillar's Desaturate parameter, so
-//               a number computed on VU0 drives a VU1 program.
+//               Squash) applied to quadwords instead of vertices. No C++. Run
+//               once at startup, because its point is a number you can check by
+//               hand (the project README does the arithmetic).
 //   "Ranges"  - src/vu0/ranges.cpp, a `vu::Kernel` in ordinary C++: distance
-//               and an LOD band for every object in the scene, one call.
+//               and an LOD band for every object in the scene, one call, every
+//               frame - and its answer is on screen.
 //
-// Two things worth knowing before copying this:
-//
-//   - run() BLOCKS the EE. VU0's register file is the one COP2 macro mode uses
-//     - the engine's own Vec4/M4x4 math - so nothing may have vector arithmetic
-//     in flight. 32 elements is microseconds; a big batch is not free.
-//   - Writing data.vuParams needs no `dirty` flag: it is not vertex data, so it
-//     rides along with the next frame's object-data packet.
+// One thing worth knowing before copying this: run() BLOCKS the EE. VU0's
+// register file is the one COP2 macro mode uses - the engine's own Vec4/M4x4
+// math - so nothing may have vector arithmetic in flight. A few dozen elements
+// is microseconds; a big batch is not free.
 #include "scripts/script.hpp"
 #include "scripts/vu0_kernels.gen.hpp"
 #include "vu0_points.gen.hpp"
@@ -38,26 +36,7 @@ class Vu0Compute : public Script {
   }
 
   void update(ScriptContext& ctx) override {
-    clock += 1.0F / 50.0F;
-    if (clock > 6433.98F) clock -= 6433.98F;  // 2*pi*1024, see setTime
-
-    kernel.setTime(clock);
-    kernel.run(in, out, kCount);
     runRanges(ctx);
-
-    // Wobble displaced Y by up to its amplitude (1.5); map that onto the 0..1
-    // the Desaturate slot wants. Visible while a stage look that reads mesh Y
-    // is on - this scene ships its looks switched off.
-    float grey = (out[0].y + 1.5F) * (1.0F / 3.0F);
-    if (grey < 0.0F) grey = 0.0F;
-    if (grey > 1.0F) grey = 1.0F;
-    for (int i = 0; i < ctx.objectCount; ++i) {
-      // Type 0 is a box and the pillar is the tall one. Matching on shape
-      // rather than on an index survives an edit to the scene.
-      if (ctx.objects[i].data.type != 0) continue;
-      if (ctx.objects[i].data.scale[1] < 2.0F) continue;
-      ctx.objects[i].data.vuParams[1] = grey;
-    }
   }
 
  private:
@@ -184,10 +163,16 @@ class Vu0Compute : public Script {
              worst, " units");
   }
 
+  // The stage-composed kernel, from the panel. Run ONCE, at startup: its
+  // number is checkable by hand (see the project README) and that is the whole
+  // job it has here. It used to run every frame and drive the pillar's
+  // Desaturate parameter, which showed nothing at all unless a look reading
+  // mesh Y happened to be on - and this scene ships its looks off. A demo that
+  // only demonstrates under a setting nobody turned on is worse than no demo.
   static constexpr int kCount = 32;
   Tyra::Vec4 in[kCount];
   Tyra::Vec4 out[kCount];
-  Tyra::TyraXVu0Kernel kernel;  // the stage-composed one, from the panel
+  Tyra::TyraXVu0Kernel kernel;
 
   // The C++ one, from src/vu0/ranges.cpp. The driver class is named after the
   // kernel; scripts/vu0_kernels.gen.hpp is written by the build container,
@@ -198,7 +183,6 @@ class Vu0Compute : public Script {
   Tyra::RangesKernel ranges;
   int lastNearest = -2;
   bool textShown = false;
-  float clock = 0.0F;
 };
 
 }  // namespace Vu_lab

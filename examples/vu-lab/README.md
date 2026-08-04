@@ -79,7 +79,7 @@ drawing path, plus a small 40x40 terrain:
 | `flat-ball` | Plain vertex colour, **baked lighting off** (it is displaced). | `0, 1, 0, 0` - Desaturate amount |
 | `lit-ball` | `Dynamic lighting` on, so it is in a LIT class - the one a look can only reach with plain values. | none |
 | `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | none |
-| `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below). | `0, 1, 0, 0` - Desaturate, written every frame by the VU0 kernel |
+| `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below), including the Display Text node the VU0 readout draws through. | `0, 1, 0, 0` - Desaturate |
 | `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | none |
 | `chrome-ball` | A `refl` (matcap) material - the ST slot carries a normal instead. | none |
 
@@ -159,7 +159,7 @@ another:
 scene rect        111 482 / 1 254 500 px differ
   sky                    0 px   a separate pass - no material class, no look
   the yellow ball   40 763 / 50 400   hard toon bands -> smooth shading
-  the pillar        18 720 / 18 850   posterized -> desaturated by the VU0 kernel
+  the pillar        18 720 / 18 850   posterized -> desaturated
   the terrain          666 / 252 000  flat tiles: already at the posterize step
   the red box            4 / 61 250   likewise
 ```

@@ -92,6 +92,31 @@ failures print a block delimited by `======= TYRA =======` ...
 recovered). Logs exist only in the debug build profile. Verify changes with
 `--refresh-gen` + diff first, then `--build`.
 
+## VU programs (the vector units)
+
+A project can replace the microprogram **VU1** runs over every vertex, and can
+run compute batches on **VU0** - both in ordinary C++, no assembly.
+
+- `src/vu/*.cpp` = a `vu::Program` (a per-vertex effect: cell shading, a
+  palette, a wobble, vertex snapping). `src/vu0/*.cpp` = a `vu::Kernel` (N
+  quadwords in, N out).
+- **The C++ does not run on the PS2.** It runs on the build machine once, and
+  every operation you write APPENDS an instruction - the file is a description
+  of a microprogram, not the microprogram's body.
+- A program replaces a **material class**, not an object, so it draws every mesh
+  of that class; per-mesh strength comes from four floats (`c.params`). A
+  program that MOVES geometry must claim every class, or an object's several
+  passes separate.
+- **Never divide** (`divQ`/`rsqrtQ`) inside a body: it lands in the perspective
+  divide's latency window and vertices come out wrong on hardware while the host
+  simulator shows nothing. There are exactly four scratch registers.
+- VU0 has **no cross-element reduction** - a kernel computes the terms, the CPU
+  folds them (find the minimum in a loop after `run()`), and `run()` blocks the
+  EE while it works.
+- `vugen/vushader.hpp` is the reference; `Tools > VU Programs` holds the
+  micro-memory budget (2042 slots for the whole resident set - overrunning it
+  hangs the frame in a release build).
+
 ## VS Code
 
 The TyraX extension (`.flownode`/`.screenfx` highlighting + validation) is
