@@ -127,7 +127,12 @@
 /src/src/gen/vu_script3_tce_cl.vclpp
 /src/src/gen/vu_script3_tce_cl_program.hpp
 /src/src/gen/vu_script3_tce_cl_program.cpp
+/src/src/gen/vu0_script0.vclpp
+/src/inc/scripts/vu0_script0_kernel.hpp
+/src/src/gen/vu0_script0_kernel.cpp
+/src/inc/scripts/vu0_kernels.gen.hpp
 /src/inc/scripts/vu_scripts.gen.hpp
 /src/src/gen/vu_scripts.gen.cpp
 /src/src/gen/vu_scripts.manifest
+/src/src/gen/vu0_scripts.manifest
 /src/src/gen/vu_scripts.emitted

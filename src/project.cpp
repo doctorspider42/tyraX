@@ -5453,6 +5453,16 @@ static bool isVuGenerated(const std::string& rel) {
         const size_t n = std::strlen(pre);
         return rel.size() >= n && rel.compare(0, n, pre) == 0;
     };
+    // NOT the container's, even though it shares the vu0_ prefix and the
+    // directory. src/vu0/*.cpp is compiled and RUN inside the build container -
+    // the host has no compiler to do it with - so a host-side sweep here would
+    // delete a kernel it cannot regenerate, and the next build would link a
+    // game against a driver whose microprogram had just been thrown away. The
+    // container keeps its own ledger for exactly this job (src/vumain.cpp), and
+    // the src/gen/vu_script* files of the VU1 half are left alone for the same
+    // reason. The prefixes have to differ because the PANEL's kernel is named
+    // by its author and defaults to "kernel".
+    if (startsWith("src\\gen\\vu0_script")) return false;
     return startsWith("src\\gen\\vu_look") ||
            startsWith("src\\gen\\vu_custom_") ||  // pre-look name, still swept
            startsWith("src\\gen\\vu0_") ||
@@ -5487,29 +5497,41 @@ static fs::path editorSourceDir() {
     return {};
 }
 
-bool hasVuScripts(const Project& p) {
+static bool anyCppIn(const fs::path& dir) {
     std::error_code ec;
-    const fs::path dir = fs::path(p.dir) / "src" / "vu";
     if (!fs::is_directory(dir, ec)) return false;
     for (const auto& e : fs::directory_iterator(dir, ec))
         if (e.is_regular_file(ec) && e.path().extension() == ".cpp") return true;
     return false;
 }
 
-/** Copy the framework in when the project has a script, and take it away again
- * when the last one is deleted - a stale copy would be compiled by the next
- * build and quietly resurrect a program the project no longer describes. */
+bool hasVuScripts(const Project& p) {
+    return anyCppIn(fs::path(p.dir) / "src" / "vu");
+}
+
+bool hasVuKernels(const Project& p) {
+    return anyCppIn(fs::path(p.dir) / "src" / "vu0");
+}
+
+bool hasVuSources(const Project& p) {
+    return hasVuScripts(p) || hasVuKernels(p);
+}
+
+/** Copy the framework in when the project has a script or a kernel, and take it
+ * away again when the last one is deleted - a stale copy would be compiled by
+ * the next build and quietly resurrect a program the project no longer
+ * describes. */
 static std::string syncVuFramework(const Project& p) {
     std::error_code ec;
     const fs::path dst = fs::path(p.dir) / "vugen";
-    if (!hasVuScripts(p)) {
+    if (!hasVuSources(p)) {
         fs::remove_all(dst, ec);
         return {};
     }
     const fs::path src = editorSourceDir();
     if (src.empty())
         return "the VU framework sources are missing next to the editor - "
-               "src/vu/*.cpp cannot be built";
+               "src/vu/*.cpp and src/vu0/*.cpp cannot be built";
     fs::create_directories(dst, ec);
     for (const char* name : kVuFrameworkFiles) {
         std::ifstream in(src / name, std::ios::binary);
@@ -5594,6 +5616,12 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\input_map.gen.cpp" ||
             f.relativePath == "inc\\scripts\\vu_programs.gen.hpp" ||
             f.relativePath == "inc\\scripts\\vu_scripts.gen.hpp" ||
+            // Only ever IN `generated` while the project has no VU sources at
+            // all (templates::generate leaves both stubs out otherwise, so the
+            // container's real headers survive) - but when it is there it has
+            // to be rewritten, or deleting the last kernel leaves a header
+            // naming driver classes that no longer exist.
+            f.relativePath == "inc\\scripts\\vu0_kernels.gen.hpp" ||
             f.relativePath == "src\\gen\\vu_programs.gen.cpp" ||
             // The project's own microprograms and their EE classes are named
             // after what they are, so they cannot be listed by hand - and a

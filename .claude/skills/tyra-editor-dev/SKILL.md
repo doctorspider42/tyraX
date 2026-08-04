@@ -562,6 +562,23 @@ rainbow noise where the simulator was clean); the lit class has ~1 register of
 headroom, so cell shading via 0..1 died as `no opt table` and the same effect in
 the GS's 0..255 scale fits; and `src/vu/` is excluded from the PS2 compile in
 Makefile.base because it is host code.
+**THE SAME AUTHORING EXISTS ON VU0** - `src/vu0/*.cpp` against `vu::Kernel`
+(name/maxElements/prepare/element), through the same container generator, the
+same `vugen/` copy and the same `vu::Ctx`. It emits `src/gen/vu0_script<i>.*`
+plus an EE driver class named after the kernel (`Tyra::RangesKernel`) and
+`inc/scripts/vu0_kernels.gen.hpp`. Differences that matter when changing this
+code: a kernel element is ONE quadword (c.position is it; c.color/c.uv alias it
+because there is nothing else to name); the element loop is a real BRANCH, not
+an unrolled run, so hoisting constants out of it is correctness and not tuning;
+Q IS ALLOWED (nothing else reads it here - the VU1 ban exists because
+persCorrect owns Q, and a distance kernel needs rsqrt), reported as a note;
+`hasVuSources` (either directory) is what gates the container step and the
+framework copy, `hasVuScripts`/`hasVuKernels` gate the two stub headers. THE
+FILE-PREFIX TRAP: the panel's stage-composed kernel is `src/gen/vu0_<name>` and
+is written AND SWEPT by the editor (project::isVuGenerated), while the
+container's are `src/gen/vu0_script<i>` and are swept by the generator's own
+ledger - the prefixes must stay apart or the host deletes microprograms it
+cannot regenerate (the panel kernel's default name is literally "kernel").
 A look emits BOTH halves of a class (cull + as_is) but only colour/texture
 stages go into the as_is twin - that program has no MVP multiply, its vertices
 are already transformed by the EE clipper, so a displacing stage there tears the

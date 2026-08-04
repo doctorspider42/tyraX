@@ -31658,6 +31658,62 @@ std::string vuScriptStub(const std::string& className) {
     return s;
 }
 
+std::string vuKernelStub(const std::string& className) {
+    std::string s;
+    s += "// A VU0 compute kernel, written in C++ (docs/vu-authoring.md).\n";
+    s += "//\n";
+    s += "// Like a VU1 program, this file runs on the HOST at build time and\n";
+    s += "// leaves a microprogram behind. Unlike one, it draws nothing: what\n";
+    s += "// the project gets back is a CLASS with a run() on it, and nothing\n";
+    s += "// calls it unless your game does.\n";
+    s += "//\n";
+    s += "//   #include \"scripts/vu0_kernels.gen.hpp\"\n";
+    s += "//   static Tyra::" + className + "Kernel k;\n";
+    s += "//   k.setParams(1.0F, 0.0F, 0.0F, 0.0F);\n";
+    s += "//   k.setTime(seconds);\n";
+    s += "//   k.run(in, out, count);      // Vec4 in, Vec4 out\n";
+    s += "//\n";
+    s += "// Four things about VU0 that are not true of VU1:\n";
+    s += "//\n";
+    s += "//   - It is a CALCULATOR. 512 micro slots against VU1's 2042, and\n";
+    s += "//     256 quadwords of data memory - about 112 elements each way.\n";
+    s += "//   - run() BLOCKS the EE and clobbers the register file the\n";
+    s += "//     engine's own Vec4/M4x4 math uses. 32 elements is\n";
+    s += "//     microseconds; a big batch is not free.\n";
+    s += "//   - It is SIMD over quadwords: the same operation on many\n";
+    s += "//     elements. A scalar loop with a dependency between steps does\n";
+    s += "//     not belong here.\n";
+    s += "//   - There is NO cross-element reduction. A sum is something the\n";
+    s += "//     EE does over the output array; VU0 computes the terms.\n";
+    s += "//\n";
+    s += "// And one thing that is pure gain: these instructions are VU0's own\n";
+    s += "// 512 slots. This costs NOTHING out of the VU1 drawing budget.\n";
+    s += "#include \"vushader.hpp\"\n\n";
+    s += "namespace {\n\n";
+    s += "struct " + className + " : vu::Kernel {\n";
+    s += "    const char* name() const override { return \"" + className +
+         "\"; }\n\n";
+    s += "    // Elements per run(). Both blocks have to fit VU0's 256\n";
+    s += "    // quadwords, which caps this at 124.\n";
+    s += "    int maxElements() const override { return 32; }\n\n";
+    s += "    // Once, before the element loop. Constants belong HERE: the\n";
+    s += "    // loop is a real branch, so anything built inside it is built\n";
+    s += "    // again for every element.\n";
+    s += "    void prepare(vu::Ctx& c) override { kHalf_ = vu::splat(c, 0.5F); }\n";
+    s += "    vu::Vec kHalf_;\n\n";
+    s += "    // Once per ELEMENT. c.position IS the element quadword, and\n";
+    s += "    // whatever it holds when this returns is what the EE reads back.\n";
+    s += "    // c.params is what setParams() sent, c.time is (t, sin t,\n";
+    s += "    // cos t, 1).\n";
+    s += "    void element(vu::Ctx& c) override {\n";
+    s += "        c.position = c.position * kHalf_;\n";
+    s += "    }\n";
+    s += "};\n\n";
+    s += "}  // namespace\n\n";
+    s += "VU_KERNEL(" + className + ");\n";
+    return s;
+}
+
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);
@@ -31733,14 +31789,14 @@ static std::string vscodeCppProperties(const Project& p) {
            "        \"${workspaceFolder}/inc\",\n"
            "        \"${workspaceFolder}/src\"";
     // A VU SCRIPT is not PS2 code and does not resolve like the rest of src/.
-    // src/vu/*.cpp includes "vushader.hpp", which lives in the framework copy
-    // the editor drops beside it (project::syncVuFramework) - so without this
-    // entry the one file a script author actually types in showed a red
-    // squiggle on its first line and offered no completion at all for vu:: or
-    // vugen::, while every other file in the project had working IntelliSense.
-    // Emitted only when the folder is there: an includePath entry pointing at
-    // nothing is a warning of its own in the C/C++ extension.
-    if (project::hasVuScripts(p))
+    // src/vu/*.cpp and src/vu0/*.cpp include "vushader.hpp", which lives in the
+    // framework copy the editor drops beside them (project::syncVuFramework) -
+    // so without this entry the one file a script author actually types in
+    // showed a red squiggle on its first line and offered no completion at all
+    // for vu:: or vugen::, while every other file in the project had working
+    // IntelliSense. Emitted only when the folder is there: an includePath entry
+    // pointing at nothing is a warning of its own in the C/C++ extension.
+    if (project::hasVuSources(p))
         out << ",\n        \"${workspaceFolder}/vugen\"";
     if (!engineInc.empty()) out << ",\n        \"" << engineInc << "\"";
     if (!sdk.empty())
@@ -32561,6 +32617,29 @@ std::string vuScriptsStubHeader() {
     return s;
 }
 
+/** inc/scripts/vu0_kernels.gen.hpp - the STUB, for the same reason.
+ *
+ * A kernel's driver class only exists once the container has compiled and run
+ * the project's src/vu0/*.cpp, so there is nothing the host can name here.
+ * What it CAN do is make the include legal and `vukernel::COUNT` a
+ * compile-time zero, which is what lets a script guard its use of a kernel the
+ * way it guards everything else. */
+std::string vuKernelsStubHeader() {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    s += "//\n";
+    s += "// A project with no src/vu0/*.cpp gets this: no driver classes, and\n";
+    s += "// ENABLED a compile-time false. When the project HAS a kernel, the\n";
+    s += "// build container replaces this file with one that includes every\n";
+    s += "// generated driver (docs/vu-authoring.md, \"VU0 kernels\").\n";
+    s += "#pragma once\n\nnamespace vukernel {\n\n";
+    s += "constexpr bool ENABLED = false;\n";
+    s += "constexpr int COUNT = 0;\n\n";
+    s += "inline const char* name(int) { return \"\"; }\n\n";
+    s += "}  // namespace vukernel\n";
+    return s;
+}
+
 /** src/gen/vu_programs.gen.cpp - an EMPTY translation unit when the project has
  * no custom program, so nothing of this reaches such a build. */
 std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
@@ -32838,9 +32917,23 @@ std::vector<File> generate(const Project& p) {
     // user's C++ can be compiled and run. Emitting the stub over it is how a
     // build ended up with a header declaring vuscript::install and nothing
     // defining it.
-    if (!project::hasVuScripts(p))
+    // hasVuSources, NOT hasVuScripts: the gate is "will the container run at
+    // all", because when it runs it writes BOTH headers - the one for the
+    // scripts and the one for the kernels - whether or not the project has any
+    // of each. Gating them separately means a project with scripts and no
+    // kernels has the host writing a stub over the container's real header on
+    // every refresh and the container writing it back on every build, and the
+    // file flip-flops for no reason.
+    if (!project::hasVuSources(p)) {
         files.push_back(
             {"inc\\scripts\\vu_scripts.gen.hpp", vuScriptsStubHeader()});
+        // The VU0 half. A kernel header is only ever included by a script the
+        // user wrote, so this stub is not what keeps the game compiling - it is
+        // what makes `#include "scripts/vu0_kernels.gen.hpp"` a line you can
+        // write before the first build.
+        files.push_back(
+            {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
+    }
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }

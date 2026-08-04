@@ -9830,23 +9830,34 @@ void App::drawNewScriptModal() {
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
 
-    // The two kinds are not variants of one thing and the wording says so: one
-    // runs on the EE every frame, the other runs on the HOST at build time and
-    // leaves a microprogram behind. Attaching the second to an object is
-    // meaningless - it replaces a material class - so the choice is disabled
-    // when the modal was opened from Properties > Scripts.
+    // The three kinds are not variants of one thing and the wording says so:
+    // one runs on the EE every frame, the other two run on the HOST at build
+    // time and leave a microprogram behind - one that draws, one that computes.
+    // Attaching either of those to an object is meaningless (a VU1 program
+    // replaces a material class, a VU0 kernel is a function your game calls) so
+    // the choice is disabled when the modal was opened from
+    // Properties > Scripts.
     ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
-    if (ImGui::RadioButton("Game script (runs on the EE)", !newScriptIsVu_))
-        newScriptIsVu_ = false;
+    if (ImGui::RadioButton("Game script (runs on the EE)", newScriptKind_ == 0))
+        newScriptKind_ = 0;
     ImGui::SameLine();
-    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptIsVu_))
-        newScriptIsVu_ = true;
+    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptKind_ == 1))
+        newScriptKind_ = 1;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU0 kernel (computes)", newScriptKind_ == 2))
+        newScriptKind_ = 2;
     ImGui::EndDisabled();
 
-    if (newScriptIsVu_)
+    if (newScriptKind_ == 1)
         ImGui::TextDisabled(
             "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
             "time, replacing the engine's VU1 program for the classes it claims.",
+            newScriptName_);
+    else if (newScriptKind_ == 2)
+        ImGui::TextDisabled(
+            "Creates src/vu0/%s.cpp - the same C++, on the other vector unit:\n"
+            "quadwords in, quadwords out, and a driver class your game calls.\n"
+            "Costs nothing out of the VU1 drawing budget.",
             newScriptName_);
     else
         ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
@@ -9886,9 +9897,10 @@ void App::drawNewScriptModal() {
             if (isdigit((unsigned char)className[0])) className = "Script" + className;
             className[0] = (char)toupper((unsigned char)className[0]);
 
+            const char* const kDirs[3] = {"src/scripts", "src/vu", "src/vu0"};
             const std::filesystem::path path =
-                std::filesystem::path(project_.dir) /
-                (newScriptIsVu_ ? "src/vu" : "src/scripts") / (name + ".cpp");
+                std::filesystem::path(project_.dir) / kDirs[newScriptKind_] /
+                (name + ".cpp");
             std::error_code ec;
             if (std::filesystem::exists(path, ec)) {
                 newScriptError_ = "Script already exists: " + name + ".cpp";
@@ -9896,15 +9908,16 @@ void App::drawNewScriptModal() {
                 std::filesystem::create_directories(path.parent_path(), ec);
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
-                    f << (newScriptIsVu_
-                              ? templates::vuScriptStub(className)
+                    f << (newScriptKind_ == 1 ? templates::vuScriptStub(className)
+                          : newScriptKind_ == 2
+                              ? templates::vuKernelStub(className)
                               : templates::scriptStub(project_, className,
                                                       name + ".cpp"));
                     f.close();
                     // The framework has to be next to it before the file is
                     // opened, or the include the stub carries is red in the
                     // editor the user just switched to.
-                    if (newScriptIsVu_) project::refreshGenerated(project_);
+                    if (newScriptKind_ != 0) project::refreshGenerated(project_);
                     // Invoked from Properties > Scripts: attach the new class
                     // to the object right away.
                     if (newScriptAttachTo_ >= 0 &&

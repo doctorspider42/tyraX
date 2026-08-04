@@ -1553,6 +1553,113 @@ static int vuCheckScripts(const std::string& engine) {
     return fails;
 }
 
+// The PROJECT-KERNEL half of --vu-check: a project's own C++ kernel
+// (src/vu0/*.cpp, `vu::Kernel`), built and run under the VU0 machine model.
+//
+// The claim is the same one vuCheckScripts makes about a VU1 script, and it is
+// worth as much here: not that the arithmetic is what the author meant - the
+// host cannot know that - but that the body REACHED the microprogram. A kernel
+// woven into the wrong place, or into a register the store overwrites a line
+// later, still builds and still runs; it just copies its input to its output.
+// So every kernel is run twice, once with the body and once without, and a
+// kernel whose output matches the bodyless one is reported as doing nothing.
+static vu::Kernel* vuCheckKernelCurrent = nullptr;
+
+static int vuCheckProjectKernels() {
+    std::printf("-- project kernels: build and run on VU0 --\n");
+    const std::vector<vu::Kernel*>& kerns = vu::registeredKernels();
+    if (kerns.empty()) {
+        std::printf("  (none registered)\n\n");
+        return 0;
+    }
+    int fails = 0;
+    // Eight elements spread over a couple of units in every lane, which is
+    // enough for a body that reads x, one that reads all four, and one that
+    // only writes - and small enough that a failure prints in one screen.
+    const int n = 8;
+    std::vector<float> in((size_t)n * 4);
+    for (int i = 0; i < n; ++i) {
+        in[(size_t)i * 4 + 0] = -1.5f + 0.5f * (float)i;
+        in[(size_t)i * 4 + 1] = 0.25f * (float)i;
+        in[(size_t)i * 4 + 2] = 2.0f - 0.3f * (float)i;
+        in[(size_t)i * 4 + 3] = 1.0f;
+    }
+    const float params[4] = {0.75f, 1.25f, -0.5f, 2.0f};
+    for (vu::Kernel* kp : kerns) {
+        vugen::KernelDesc kd;
+        kd.title = kp->name();
+        int want = kp->maxElements();
+        if (want < 1) want = 1;
+        kd.maxElements = want;
+        kd.outputAddr = kd.inputAddr + want;
+        kd.scriptPrepare = [](vugen::ScriptCtx& sc) {
+            vu::Ctx c(sc);
+            vuCheckKernelCurrent->prepare(c);
+        };
+        kd.script = [](vugen::ScriptCtx& sc) {
+            vu::Ctx c(sc);
+            vuCheckKernelCurrent->element(c);
+        };
+        vuCheckKernelCurrent = kp;
+        const vugen::BuiltKernel b = vugen::buildKernel(kd);
+        if (!b.errors.empty()) {
+            std::printf("  %-20s BUILD REFUSED: %s\n", kp->name(),
+                        b.errors[0].c_str());
+            ++fails;
+            continue;
+        }
+        for (const std::string& note : b.notes)
+            std::printf("  %-20s note: %s\n", kp->name(), note.c_str());
+        if (want < n) {
+            std::printf("  %-20s batch is %d - too small to check\n",
+                        kp->name(), want);
+            continue;
+        }
+        std::string err;
+        const std::vector<float> out =
+            vugen::simulateKernel(b, kd, in, params, 0.4f, &err);
+        if (out.size() != in.size()) {
+            std::printf("  %-20s did not run: %s\n", kp->name(), err.c_str());
+            ++fails;
+            continue;
+        }
+        // The same kernel with the body taken out. Its output is the input,
+        // element for element, so "changed nothing" is exactly "the body never
+        // reached the store".
+        vugen::KernelDesc bare = kd;
+        bare.script = nullptr;
+        bare.scriptPrepare = nullptr;
+        const vugen::BuiltKernel bb = vugen::buildKernel(bare);
+        const std::vector<float> plain =
+            vugen::simulateKernel(bb, bare, in, params, 0.4f, &err);
+        bool changes = plain.size() != out.size();
+        for (size_t i = 0; i < out.size() && !changes; ++i)
+            changes = out[i] != plain[i];
+        // AND IT HAS TO STAY A NUMBER. A NaN out of a kernel is a body dividing
+        // by a lane that happens to be zero, and it survives every structural
+        // check there is - the program built, it ran, it changed something.
+        bool finite = true;
+        for (float v : out)
+            if (!(v == v) || v > 1e30f || v < -1e30f) finite = false;
+        const int instrs = (int)b.program.code.size();
+        const bool fits = (instrs + 1) / 2 <= vugen::kVu0MicroCeiling;
+        const bool ok = changes && finite && fits;
+        std::printf("  %-20s %-7s %4d instructions (%d..%d of %d), %d per "
+                    "element, batch %d%s%s%s\n",
+                    kp->name(), ok ? "OK" : "FAILED", instrs, (instrs + 1) / 2,
+                    instrs, vugen::kVu0MicroCeiling, b.perElement, want,
+                    changes ? "" : "   (the body changes NOTHING)",
+                    finite ? "" : "   (the output is not a finite number)",
+                    fits ? "" : "   (it cannot fit VU0)");
+        if (!ok) ++fails;
+    }
+    std::printf("  %s\n\n", fails == 0
+                                ? "OK - every kernel builds, runs on VU0 and "
+                                  "changes what it was handed"
+                                : "FAILED");
+    return fails;
+}
+
 // The kernel half of --vu-check: build a VU0 kernel from the same stage
 // library, run it on the host, and check the numbers against arithmetic done
 // here in C++. `squash` is the one to pin exactly - it is three multiplies with
@@ -2036,8 +2143,9 @@ static int vuCheckFromCli(int argc, char** argv) {
     //    generated one built from the same stage library.
     const int vu0Fails = vuCheckVu0(engine) + vuCheckKernel();
 
-    // 7. A project's own C++ program, through the same emitter.
-    const int scriptFails = vuCheckScripts(engine);
+    // 7. A project's own C++ program, through the same emitter - and its own
+    //    C++ KERNEL, through the VU0 one.
+    const int scriptFails = vuCheckScripts(engine) + vuCheckProjectKernels();
 
     const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
                     stageFails == 0 && vu0Fails == 0 &&

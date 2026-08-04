@@ -604,6 +604,23 @@ struct KernelDesc {
      * ObjectSpace geometry stages work unchanged; anything reading a colour or
      * an ST is not offered for a kernel. */
     std::vector<Stage> stages;
+
+    /** A project's own C++ BODY, woven in exactly where the stage list is -
+     * the `vu::Kernel` half of src/vushader.hpp. The stage list above is the
+     * shortcut for what the catalogue happens to cover; this is the way out of
+     * it, and it is the only way to compute something the catalogue does not
+     * describe.
+     *
+     * Both may be set: the stages run first and the body sees what they left in
+     * the element, the same order a script and a stage list share on VU1. */
+    ScriptFn script = nullptr;
+    /** Run ONCE, where the preamble ends - before the element loop. A kernel's
+     * loop is a real branch rather than an unrolled run, so this matters more
+     * here than on VU1: a constant built per element is rebuilt per element. */
+    ScriptFn scriptPrepare = nullptr;
+    /** Scratch registers the body asked for, on top of what the stages take.
+     * Owned by the caller for the reason a stage's are - see Desc. */
+    int scriptScratch = 4;
 };
 
 struct BuiltKernel {

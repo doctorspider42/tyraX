@@ -72,7 +72,12 @@ again from source.
 game, so an edit there moves both. TyraX changes in it: single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+`src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
+programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
+by the container's g++, and handing them to the PS2 compiler fails on the very
+first include. A new host-code directory has to be added to that `find`
+exclusion or its first file breaks every build that has one. Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 

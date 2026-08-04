@@ -9,6 +9,14 @@
 //   src/gen/vu_script<i>_<class>_program.cpp  its EE-side twin
 //   src/gen/vu_scripts.gen.{hpp,cpp}          install() for the game
 //
+// and, from the project's src/vu0/*.cpp, the same thing for the other vector
+// unit:
+//
+//   src/gen/vu0_script<i>.vclpp               the VU0 microprogram
+//   src/gen/vu0_script<i>_kernel.cpp          the EE driver (setParams/run)
+//   inc/scripts/vu0_script<i>_kernel.hpp      its header, on the include path
+//   inc/scripts/vu0_kernels.gen.hpp           one include for all of them
+//
 // which the game's Makefile then puts through the same vclpp -> vcl -> dvp-as
 // chain as the engine's handwritten programs. A script author never sees this
 // file; they see a C++ compiler error with their own line number when they get
@@ -37,6 +45,21 @@ void prepareTrampoline(vugen::ScriptCtx& sc) {
 void scriptTrampoline(vugen::ScriptCtx& sc) {
     vu::Ctx c(sc);
     g_current->vertex(c);
+}
+
+/** The same arrangement for the VU0 half. Separate pointer rather than a
+ * common base: a kernel is not a program with a flag on it - it has no material
+ * class, no slot and no shell pass, and the two lists are walked apart. */
+vu::Kernel* g_currentKernel = nullptr;
+
+void kernelPrepareTrampoline(vugen::ScriptCtx& sc) {
+    vu::Ctx c(sc);
+    g_currentKernel->prepare(c);
+}
+
+void kernelTrampoline(vugen::ScriptCtx& sc) {
+    vu::Ctx c(sc);
+    g_currentKernel->element(c);
 }
 
 /** The lowercase tag the generated files carry, matching the engine's own
@@ -124,6 +147,21 @@ struct Emitted {
     const char* kind = "main";
     bool activeAtBoot = true;
     int instructions = 0;
+    /** "ok" | "noop" | "unchecked" - whether the script's body actually
+     * CHANGED this program's output, measured against the same description
+     * with the script removed. The editor cannot compute this (it has no
+     * compiler for a project's C++), so the build writes it down. */
+    const char* verdict = "ok";
+};
+
+struct EmittedKernel {
+    std::string title;      // the vu::Kernel that produced it
+    std::string className;  // the EE driver the game instantiates
+    std::string header;     // its header, relative to inc/
+    std::string symbol;     // the k<Name> constant in the aggregate header
+    int maxElements = 0;
+    int instructions = 0;   // the whole microprogram
+    int perElement = 0;
 };
 
 }  // namespace
@@ -201,6 +239,40 @@ int main(int argc, char** argv) {
                     !writeFile(out, d.fileStem + "_program.hpp", b.eeHeader) ||
                     !writeFile(out, d.fileStem + "_program.cpp", b.eeSource))
                     return 1;
+                // AND IT HAS TO CHANGE SOMETHING.
+                //
+                // Building is the weaker half of the claim: a body woven into
+                // the wrong slot, or writing a register the emitter overwrites
+                // a line later, still builds and still draws - it just draws
+                // the stock picture. The same description with the script
+                // REMOVED is the only honest comparison, and the simulator to
+                // run it is right here (vusim ships into the project next to
+                // this file), so the answer costs milliseconds and arrives
+                // before the microcode is even assembled.
+                //
+                // A no-op is reported, NOT a failure. A script may legitimately
+                // do nothing at some parameter values, and a build that refuses
+                // to produce an ELF over that would be wrong.
+                const char* verdict = "ok";
+                {
+                    vugen::Desc plain = vugen::descForClass(cls, 0, half);
+                    const vugen::Built pb = vugen::build(plain);
+                    // Parameters a mesh might actually carry - all zeros is the
+                    // one input where a stage is REQUIRED to be the identity.
+                    const float live[4] = {0.7f, 0.35f, 1.4f, 0.5f};
+                    const vugen::Equivalence eq = vugen::equivalence(
+                        pb.program, b.program, d, 12, 0x2B71C0DEu, live, 0.4f);
+                    if (!eq.ran)
+                        verdict = "unchecked";
+                    else if (eq.identical)
+                        verdict = "noop";
+                    if (eq.ran && eq.identical)
+                        std::fprintf(stderr,
+                                     "[vugen] NOTE %s on %s (%s): the script "
+                                     "changes nothing here\n",
+                                     p->name(), vugen::classTitle(cls), kind);
+                }
+
                 // The slot name comes from the DESCRIPTION, never spelled
                 // again here: a class renamed upstream cannot drift out of step
                 // with the override it installs.
@@ -212,11 +284,164 @@ int main(int argc, char** argv) {
                 emitted.push_back({d.className, d.fileStem + "_program.hpp",
                                    d.programEnum, p->name(),
                                    vugen::classTitle(cls), cls, pi, kind,
-                                   p->activeAtBoot(), instrs});
+                                   p->activeAtBoot(), instrs, verdict});
                 std::printf("[vugen] %s -> %s (%d instructions)\n", p->name(),
                             d.fileStem.c_str(), (int)b.program.code.size());
             }
         }
+    }
+
+    // --- the VU0 half: src/vu0/*.cpp --------------------------------------
+    //
+    // A kernel is not a look. It replaces nothing, it is installed nowhere, and
+    // it costs no VU1 micro memory at all - the instructions land in VU0's own
+    // 512 slots. What a project gets back is a CLASS with a run() on it, and
+    // nothing calls it unless the game does.
+    const std::vector<vu::Kernel*>& kerns = vu::registeredKernels();
+    std::vector<EmittedKernel> kernels;
+    for (size_t ki = 0; ki < kerns.size(); ++ki) {
+        vu::Kernel* kp = kerns[ki];
+        vugen::KernelDesc kd;
+        const std::string ix = std::to_string(ki);
+        // vu0_script<i>, mirroring the VU1 half's vu_script<i>, and NOT
+        // vu0_<name>: that is the PANEL's stage-composed kernel, written by the
+        // editor on the host and swept by it (project::isVuGenerated). Two
+        // owners writing files into src/gen under one prefix is how one of them
+        // ends up deleting the other's.
+        kd.fileStem = "vu0_script" + ix;
+        // The #vuprog name and the linker symbol stem carry the INDEX, not the
+        // author's name: `<asmName>_CodeStart` is a global symbol, and two
+        // kernels whose names sanitize to the same thing would link over each
+        // other with no diagnostic worth reading.
+        kd.vclName = "TyraXKernel" + ix;
+        kd.asmName = kd.vclName;
+        kd.title = kp->name();
+        // The DRIVER, on the other hand, is what the game types, so it is named
+        // after the kernel: "Noise field" -> Tyra::NoiseFieldKernel. A repeated
+        // name falls back to the index rather than colliding.
+        std::string sym = symbolName(kp->name());
+        // "Ranges" -> RangesKernel, but "Noise kernel" -> NoiseKernel and not
+        // NoiseKernelKernel: the suffix is there to say what the class IS, and
+        // a name that already says it does not need saying twice.
+        const bool named = sym.size() >= 6 &&
+                           sym.compare(sym.size() - 6, 6, "Kernel") == 0;
+        std::string cls = named ? sym : sym + "Kernel";
+        for (const EmittedKernel& e : kernels)
+            if (e.className == cls) {
+                sym += ix;
+                cls = named ? sym : sym + "Kernel";
+                break;
+            }
+        kd.className = cls;
+        // inc/ is the only directory on the game's include path, and a user
+        // script includes this - so the emitted .cpp cannot reach its own header
+        // through the file stem the way a VU1 program's twin does.
+        kd.headerName = "scripts/" + kd.fileStem + "_kernel.hpp";
+        // THE LAYOUT IS DERIVED FROM THE BATCH, not fixed. Both blocks have to
+        // fit VU0's 256 quadwords beside the two parameter quadwords, so the
+        // output block starts where the input block ends - which is what lets a
+        // small batch exist at all and a large one be refused with arithmetic
+        // instead of wrapping onto itself on hardware.
+        int want = kp->maxElements();
+        if (want < 1) want = 1;
+        kd.maxElements = want;
+        kd.outputAddr = kd.inputAddr + want;
+        kd.script = &kernelTrampoline;
+        kd.scriptPrepare = &kernelPrepareTrampoline;
+        g_currentKernel = kp;
+
+        const vugen::BuiltKernel b = vugen::buildKernel(kd);
+        if (!b.errors.empty()) {
+            std::fprintf(stderr, "[vugen] kernel %s: %s\n", kp->name(),
+                         b.errors[0].c_str());
+            ++failures;
+            continue;
+        }
+        int instrs = 0;
+        for (const vuir::Instr& in : b.program.code)
+            if (in.op != vuir::Op::Label && in.op != vuir::Op::Barrier &&
+                in.op != vuir::Op::Cont && in.op != vuir::Op::Nop)
+                ++instrs;
+        // VU0'S OWN CEILING, checked here rather than left to the driver's
+        // boot-time assert. VCL packs two ops into a slot when it can, so the
+        // program occupies between half and all of `instrs`; only the lower
+        // bound overflowing is CERTAIN, and the upper bound overflowing is
+        // worth a line because the alternative is finding out from a console.
+        if ((instrs + 1) / 2 > vugen::kVu0MicroCeiling) {
+            std::fprintf(stderr,
+                         "[vugen] kernel %s: %d instructions cannot fit VU0's "
+                         "%d micro-memory slots\n",
+                         kp->name(), instrs, vugen::kVu0MicroCeiling);
+            ++failures;
+            continue;
+        }
+        if (instrs > vugen::kVu0MicroCeiling)
+            std::fprintf(stderr,
+                         "[vugen] kernel %s: %d instructions - %d..%d of VU0's "
+                         "%d slots, so this only fits if VCL pairs well\n",
+                         kp->name(), instrs, (instrs + 1) / 2, instrs,
+                         vugen::kVu0MicroCeiling);
+        for (const std::string& n : b.notes)
+            std::printf("[vugen] kernel %s: %s\n", kp->name(), n.c_str());
+
+        if (!writeFile(out, kd.fileStem + ".vclpp", b.vclpp) ||
+            !writeFile(incOut, kd.fileStem + "_kernel.hpp", b.eeHeader) ||
+            !writeFile(out, kd.fileStem + "_kernel.cpp", b.eeSource))
+            return 1;
+        kernels.push_back({kp->name(), kd.className, kd.headerName, "k" + sym,
+                           kd.maxElements, instrs, b.perElement});
+        std::printf("[vugen] kernel %s -> %s (%d instructions, %d per element, "
+                    "batch %d)\n", kp->name(), kd.fileStem.c_str(), instrs,
+                    b.perElement, kd.maxElements);
+    }
+
+    // ONE INCLUDE FOR ALL OF THEM, and emitted even when there are none - a
+    // game that includes it unconditionally has to keep compiling when the last
+    // kernel is deleted, the same contract vu_scripts.gen.hpp keeps.
+    {
+        std::string kh;
+        kh += "// Generated by TyraX (the project's own VU0 kernels). Do not "
+              "edit.\n//\n";
+        kh += "// A kernel is a FUNCTION, not a look: nothing installs it and\n";
+        kh += "// nothing calls it unless your game does.\n//\n";
+        kh += "//   static Tyra::YourKernel k;\n";
+        kh += "//   k.setParams(1.0F, 0.0F, 0.0F, 0.0F);\n";
+        kh += "//   k.setTime(seconds);\n";
+        kh += "//   k.run(in, out, count);   // Vec4 in, Vec4 out, BLOCKS\n//\n";
+        kh += "// run() blocks the EE and clobbers the COP2 register file the\n";
+        kh += "// engine's own Vec4/M4x4 math uses, so nothing may have vector\n";
+        kh += "// arithmetic in flight while it runs. There is no cross-element\n";
+        kh += "// reduction on VU0 - a sum is something the EE does over the\n";
+        kh += "// output array afterwards.\n";
+        kh += "#pragma once\n\n";
+        for (const EmittedKernel& e : kernels)
+            kh += "#include \"" + e.header + "\"\n";
+        kh += "\nnamespace vukernel {\n\n";
+        kh += std::string("constexpr bool ENABLED = ") +
+              (kernels.empty() ? "false" : "true") + ";\n";
+        kh += "constexpr int COUNT = " + std::to_string(kernels.size()) + ";\n";
+        if (!kernels.empty()) {
+            kh += "\n// The kernels, in the order the generator found them.\n";
+            for (size_t i = 0; i < kernels.size(); ++i)
+                kh += "constexpr int " + kernels[i].symbol + " = " +
+                      std::to_string(i) + ";   // " + kernels[i].className +
+                      ", batch " + std::to_string(kernels[i].maxElements) +
+                      "\n";
+        }
+        kh += "\ninline const char* name(int kernel) {\n";
+        if (kernels.empty()) {
+            kh += "  (void)kernel;\n  return \"\";\n";
+        } else {
+            kh += "  static const char* const kNames[] = {";
+            for (size_t i = 0; i < kernels.size(); ++i)
+                kh += std::string(i ? ", " : "") + "\"" + kernels[i].title +
+                      "\"";
+            kh += "};\n";
+            kh += "  return (kernel >= 0 && kernel < COUNT) ? kNames[kernel] : "
+                  "\"\";\n";
+        }
+        kh += "}\n\n}  // namespace vukernel\n";
+        if (!writeFile(incOut, "vu0_kernels.gen.hpp", kh)) return 1;
     }
 
     // The runtime glue. Emitted even with no programs at all: the game includes
@@ -409,8 +634,21 @@ int main(int argc, char** argv) {
         m += e.script + "\t" + e.classTitle + "\t" +
              std::to_string(e.instructions) + "\t" + e.programEnum + "\t" +
              std::to_string(e.classBit) + "\t" + e.kind +
-             "\t" + (e.activeAtBoot ? "boot" : "manual") + "\n";
+             "\t" + (e.activeAtBoot ? "boot" : "manual") + "\t" + e.verdict +
+             "\n";
     if (!writeFile(out, "vu_scripts.manifest", m)) return 1;
+
+    // The kernels' own manifest, for the same reason and in its own file: the
+    // panel's script parser reads seven tab-separated fields per line and a
+    // kernel has neither a material class nor a program to replace, so mixing
+    // them would be a parser trick rather than a format. Always written, so the
+    // panel can tell "no kernels" from "never built".
+    std::string km;
+    for (const EmittedKernel& e : kernels)
+        km += e.title + "\t" + std::to_string(e.instructions) + "\t" +
+              std::to_string(e.perElement) + "\t" +
+              std::to_string(e.maxElements) + "\t" + e.className + "\n";
+    if (!writeFile(out, "vu0_scripts.manifest", km)) return 1;
 
     // DELETE WHAT THIS RUN NO LONGER PRODUCES. The project's Makefile builds
     // every .vclpp in src/gen, so a microprogram left behind by an earlier run
@@ -458,7 +696,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "[vugen] %d program(s) failed to build\n", failures);
         return 1;
     }
-    std::printf("[vugen] %d microprogram(s) from %d script(s)\n",
-                (int)emitted.size(), (int)progs.size());
+    std::printf("[vugen] %d microprogram(s) from %d script(s), "
+                "%d VU0 kernel(s)\n",
+                (int)emitted.size(), (int)progs.size(), (int)kernels.size());
     return 0;
 }

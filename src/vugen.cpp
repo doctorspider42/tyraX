@@ -1696,8 +1696,11 @@ void bindOperands(StagePlan& plan, Val params) {
 /** Hand the project's own script the registers the built-in stages get. The
  * ScriptCtx is a NARROW copy on purpose: StageCtx carries the sine scratch and
  * the literal pool, which are bookkeeping for the catalogue and would only be
- * traps in a script. */
-void runScript(StageCtx& c, const Desc& d) {
+ * traps in a script.
+ *
+ * Takes the FUNCTION rather than the Desc because a VU0 kernel body is woven in
+ * by exactly the same rules and has no Desc at all (see buildKernelBody). */
+void runScriptBody(StageCtx& c, ScriptFn fn) {
     ScriptCtx sc;
     sc.b = c.b;
     sc.preambleAt = c.scriptPreambleAt;
@@ -1713,7 +1716,7 @@ void runScript(StageCtx& c, const Desc& d) {
     sc.hasSt = c.hasSt;
     sc.hasNormal = c.normal.reg != 0;
     const int before = c.b->mark();
-    d.script(sc);
+    fn(sc);
     // A SCRIPT MUST NOT WRITE Q.
     //
     // Q carries the perspective divide - persCorrect puts 1/w there and the
@@ -1736,6 +1739,8 @@ void runScript(StageCtx& c, const Desc& d) {
     // next vertex has to start from where this one left off.
     c.scriptPreambleAt = sc.preambleAt;
 }
+
+void runScript(StageCtx& c, const Desc& d) { runScriptBody(c, d.script); }
 
 void applyStages(StageCtx& c, const StagePlan& plan, Slot slot) {
     for (const Resolved& r : plan.stages)
@@ -3184,6 +3189,16 @@ namespace {
 void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
     Vu b(prog);
 
+    // A project's own C++ body rides the SAME preamble the stage list does -
+    // it reads the parameter quadword and the clock out of the same registers.
+    // Asking for them HERE, before a single instruction is emitted, is what
+    // makes a body and a stage list interchangeable to the emitter below.
+    if (k.script) {
+        plan.needsParams = true;
+        plan.needsTime = true;
+        if (plan.scratch < k.scriptScratch) plan.scratch = k.scriptScratch;
+    }
+
     const IVal count = b.inamed("count");
     {
         Instr in;
@@ -3259,6 +3274,25 @@ void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
     if (plan.needsSine)
         for (int i = 0; i < 3; ++i) sc.sinS[i] = b.named(qn[i]);
 
+    // WHERE THE PREAMBLE ENDS. Everything after this is inside the loop, so
+    // this is where a body's constants get hoisted back to - and on VU0 that is
+    // not a tuning question the way it is on VU1: the element loop is a real
+    // branch rather than three unrolled copies, so a constant left where it was
+    // written is rebuilt on every single element, and a `loi` among them is the
+    // one construct vcl reorders in a way the host simulator cannot model.
+    sc.scriptPreambleAt = b.mark();
+    if (k.scriptPrepare) {
+        ScriptCtx ps;
+        ps.b = &b;
+        ps.params = params;
+        ps.time = timeV;
+        ps.one = one;
+        for (int i = 0; i < 6; ++i) ps.scratch[i] = sc.s[i];
+        ps.preambleAt = sc.scriptPreambleAt;
+        k.scriptPrepare(ps);
+        sc.scriptPreambleAt = ps.preambleAt;
+    }
+
     const Lbl loop = b.label("elementLoop");
     b.bind(loop);
     const Val elem = b.named("elem");
@@ -3271,10 +3305,18 @@ void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
         prog.code.push_back(in);
     }
     sc.vertex = elem;
+    // A kernel element is ONE quadword, so there is nothing else for these to
+    // name. They alias it rather than staying unnamed: an unnamed Val is vf00,
+    // and a body that reached for a colour would then be writing the hardwired
+    // register - which fails at vcl, minutes later, saying nothing about why.
     sc.color = elem;
     sc.st = elem;
     applyStages(sc, plan, Slot::ObjectSpace);
     applyStages(sc, plan, Slot::ClipSpace);
+    // The body runs LAST, after whatever the stage list did, for the reason it
+    // does on VU1: the catalogue is a shortcut layered on the framework and the
+    // body IS the framework, so the body gets the final say.
+    if (k.script) runScriptBody(sc, k.script);
     b.sq(elem, outAddr, 0);
     b.iaddiuInto(inAddr, inAddr, 1);
     b.iaddiuInto(outAddr, outAddr, 1);
@@ -3290,6 +3332,7 @@ void buildKernelBody(const KernelDesc& k, Program& prog, StagePlan& plan) {
     // kernel ran to completion".
     b.isw(count, b.izero(), k.controlAddr, 1);
     prog.code.back().comment = "elements left = 0: the kernel ran to completion";
+    plan.scriptWroteQ = sc.scriptWroteQ;
     b.finish();
 }
 
@@ -3508,14 +3551,36 @@ BuiltKernel buildKernel(const KernelDesc& k) {
 
     StagePlan built = planStages(k.stages, fake);
     buildKernelBody(k, out.program, built);
+    if (built.scriptWroteQ)
+        // A NOTE, not the error the same thing is on VU1. Q is dangerous there
+        // because the framework itself owns it - persCorrect puts 1/w in it and
+        // the position and the ST both ride on it, so a divide vcl slides into
+        // that window silently moves the vertex. A kernel has no framework
+        // around the body: nothing else reads Q, and a divide is ordinary
+        // microcode. Worth saying out loud, because the VU1 rule is absolute
+        // and the difference is not guessable.
+        out.notes.push_back(
+            "the body writes Q (a divide, an rsqrt or a sqrt). That is FINE in "
+            "a kernel - nothing else here reads Q - and it is forbidden in a "
+            "VU1 script, where the perspective divide owns it");
     out.vclpp = emitKernelVclpp(k, out.program);
     out.eeHeader = emitKernelHeader(k);
     out.eeSource = emitKernelSource(k);
-    // The loop body, measured against the same kernel with no stages.
+    // The loop body, measured against the same kernel with no stages and no
+    // C++ body. The preamble's parameter and clock loads are held CONSTANT
+    // across the two so the difference is the per-element cost and not the
+    // two quadword loads a body implies.
     KernelDesc bare = k;
     bare.stages.clear();
+    bare.script = nullptr;
+    bare.scriptPrepare = nullptr;
     Program plain;
     StagePlan emptyPlan = planStages({}, fake);
+    if (k.script) {
+        emptyPlan.needsParams = built.needsParams;
+        emptyPlan.needsTime = built.needsTime;
+        emptyPlan.scratch = built.scratch;
+    }
     buildKernelBody(bare, plain, emptyPlan);
     out.perElement = (int)out.program.code.size() - (int)plain.code.size();
     return out;

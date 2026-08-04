@@ -96,6 +96,10 @@ std::string scriptStub(const Project& p, const std::string& className,
 // at build time, leaving a VU1 microprogram behind (docs/vu-authoring.md).
 std::string vuScriptStub(const std::string& className);
 
+// ... and of a new VU0 kernel (src/vu0/*.cpp): the same C++, on the other
+// vector unit, leaving a microprogram and the EE driver that calls it.
+std::string vuKernelStub(const std::string& className);
+
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.

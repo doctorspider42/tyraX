@@ -56,6 +56,12 @@ both ways. The switch is `enterClipMode`/`leaveClipMode` in
 Edit the script, press Build, and it is a different microprogram - try `2.0F`
 bands, or `c.position` at `vu::Slot::ObjectSpace` instead of the colour.
 
+The same authoring exists for the **other vector unit**: `src/vu0/ranges.cpp` is
+a `vu::Kernel`, which draws nothing and instead hands the game a class with a
+`run()` on it. It costs nothing out of the VU1 budget above - those instructions
+live in VU0's own 512 slots. See [the other kernel](#the-other-kernel-written-in-c)
+below.
+
 The project also carries three **looks** - the stage-list shortcut, no code -
 switched OFF, so the script is unambiguous. Turn one on in *Tools > VU Programs*
 to see the other half of the feature; what they demonstrate is below.
@@ -78,14 +84,15 @@ drawing path, plus a small 40x40 terrain:
 
 *Tools > VU Programs* shows all of it: **three looks** — which become 18
 microprograms, because a look emits one per class it claims *and* the as_is twin
-of each — plus a **VU0 compute kernel**.
+of each — plus **two VU0 compute kernels**, one of each kind.
 
 | Look | Classes | Stages | Parameters |
 |---|---|---|---|
 | **Toon** (active at boot) | all four the scene draws | Posterize (6 levels), Scroll UV | all plain **values** |
 | ~~**Underwater**~~ (built, switched OFF) | Untextured + Textured | Wobble | see below - a displacing look breaks multi-pass props |
 | **Power down** | Untextured + Textured + Reflective | Desaturate | Amount ← mesh **Y** |
-| kernel | VU0 | Wobble, Squash | values |
+| `points` kernel | VU0 | Wobble, Squash | values |
+| `Ranges` kernel | VU0 | `src/vu0/ranges.cpp` — C++ | camera position, band width |
 
 **Press TRIANGLE to cycle the look.** (Two looks are live; the third is left in the project switched off - see below.) That is `vuprog::activate(next)` in
 `src/scripts/vu0_kernel_demo.cpp`, three lines. The three of them are chosen to
@@ -182,6 +189,40 @@ generated series gives `sin(3.2) ~= -0.05776`; times the amplitude 1.5 is
 `-0.0866`; Squash then scales Y by 1.25, giving **-0.1083**. X is untouched
 because Squash's X is 0. Getting a different number by hand is how the
 `Vu::constants` w-field bug was found - see docs/vu-authoring.md.
+
+### The other kernel, written in C++
+
+`src/vu0/ranges.cpp` is a `vu::Kernel` — the VU0 twin of `src/vu/*.cpp`, and
+the way out of the stage catalogue when the arithmetic you want is not in it.
+It answers the oldest question a PS2 game has, for the whole scene in one call:
+
+> how far away is everything?
+
+One subtract, one dot product and one square root per object, over the array
+the game already has. The answers pick levels of detail, decide what is worth
+drawing and set how loud a sound is; the demo uses them to name the nearest
+prop, which is what a *press USE* prompt needs.
+
+```
+LOG: VU0 Ranges: nearest object is #0 at 1.8 units, LOD band 0
+LOG: VU0 Ranges: 39 objects, worst disagreement with the EE 9.53674e-07 units
+```
+
+The second line is the point. The script computes the same distances with
+`sqrtf` on the EE and prints the worst disagreement — **1e-6 units**, which is
+single-precision float and not an approximation anyone chose. "The kernel ran"
+and "the kernel is right" are different claims.
+
+Two things it makes concrete that the stage-composed one cannot:
+
+- **The square root.** `rsqrt` writes Q, which a VU1 script must never do — the
+  framework owns Q there for the perspective divide. A kernel has no framework
+  around the body, so a root is ordinary microcode. The generator says so in a
+  note instead of refusing it.
+- **No cross-element reduction.** Finding the nearest object is a loop on the
+  EE, because VU0 has no instruction that folds one element into another. VU0
+  computes the terms; the CPU folds them. Every "compute a sum on VU0" idea
+  lands here.
 
 ### Three things the example is shaped to teach
 

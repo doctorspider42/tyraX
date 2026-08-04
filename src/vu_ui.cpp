@@ -426,6 +426,7 @@ void App::drawVuProgramsWindow() {
                 // instr[ci][fam].
                 int fam = 0;
                 bool boot = true;
+                std::string verdict;  // "ok" | "noop" | "" (older manifest)
                 int instrs = 0;
                 int delta = 0;  // against the engine program it REPLACES
                 bool resident = true;  // only two of the three ever are
@@ -453,6 +454,9 @@ void App::drawVuProgramsWindow() {
                     r.bit = (unsigned)std::atoi(f[4].c_str());
                     r.fam = f[5] == "twin" ? 2 : f[5] == "clip" ? 1 : 0;
                     r.boot = f[6] == "boot";
+                    // Written by the build (the editor has no compiler for a
+                    // project's C++), absent in a manifest from before it did.
+                    r.verdict = f.size() > 7 ? f[7] : "";
                     // A script REPLACES the engine's program for that class,
                     // so only the difference is new weight. Adding the whole
                     // thing on top is how this bar first said 3056 of 2042 for
@@ -640,13 +644,14 @@ void App::drawVuProgramsWindow() {
                 ImGui::TextDisabled(
                     "From the last build - the editor cannot compile these "
                     "itself, so the numbers are as stale as your last Build.");
-                for (const ScriptRow& r : scriptRows) {
+                // One emitted program, inside its script's node.
+                auto drawScriptRow = [&](const ScriptRow& r) {
                     ImGui::Bullet();
                     ImGui::SameLine();
-                    ImGui::Text("%s", r.script.c_str());
-                    ImGui::SameLine(scaled(190));
                     ImGui::TextDisabled("%s%s", r.cls.c_str(),
-                                        r.fam ? "  (frustum-cut half)" : "");
+                                        r.fam == 1   ? "  (VU1 clipper half)"
+                                        : r.fam == 2 ? "  (EE-clipper half)"
+                                                     : "");
                     ImGui::SameLine(scaled(430));
                     // The number that matters is the DIFFERENCE: the class row
                     // above already counts the engine's program, and this
@@ -657,7 +662,49 @@ void App::drawVuProgramsWindow() {
                     else
                         ImGui::TextDisabled("%d slots, %d under the engine's",
                                             r.instrs, -r.delta);
-                    if (!r.boot) {
+                    if (!r.resident) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("  [other clipping mode]");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "In the ELF but not on VU1: this half is the one the\n"
+                                "OTHER clipping mode uploads, so it costs nothing now.");
+                    }
+                    if (r.verdict == "noop") {
+                        ImGui::SameLine();
+                        ImGui::TextColored(theme::semantics().warn,
+                                           "  changes nothing");
+                    }
+                };
+                // ONE NODE PER SCRIPT, not one row per emitted program. A
+                // script claiming five classes emits up to fifteen programs -
+                // three per class - and the flat list that produced was forty
+                // rows of nearly identical text that no one could read down.
+                // The script is the thing a person turns on and off; the
+                // programs are how it is implemented.
+                for (size_t i = 0; i < scriptRows.size();) {
+                    const std::string& name = scriptRows[i].script;
+                    size_t j = i;
+                    int resident = 0, residentDelta = 0, noops = 0;
+                    while (j < scriptRows.size() && scriptRows[j].script == name) {
+                        if (scriptRows[j].resident && (mask & scriptRows[j].bit)) {
+                            ++resident;
+                            residentDelta += scriptRows[j].delta;
+                        }
+                        if (scriptRows[j].verdict == "noop") ++noops;
+                        ++j;
+                    }
+                    const bool boot = scriptRows[i].boot;
+                    char header[192];
+                    std::snprintf(header, sizeof header,
+                                  "%s##vuscript%zu", name.c_str(), i);
+                    const bool open = ImGui::TreeNodeEx(
+                        header, ImGuiTreeNodeFlags_SpanAvailWidth);
+                    ImGui::SameLine(scaled(190));
+                    ImGui::TextDisabled("%d program%s resident, %+d slots",
+                                        resident, resident == 1 ? "" : "s",
+                                        residentDelta);
+                    if (!boot) {
                         ImGui::SameLine();
                         ImGui::TextDisabled("  [off at boot]");
                         if (ImGui::IsItemHovered())
@@ -665,6 +712,23 @@ void App::drawVuProgramsWindow() {
                                 "activeAtBoot() is false, so this costs no micro\n"
                                 "memory until the game calls vuscript::activate().");
                     }
+                    if (noops) {
+                        ImGui::SameLine();
+                        ImGui::TextColored(theme::semantics().warn,
+                                           "  %d change nothing", noops);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "The build compared each program against the SAME\n"
+                                "description with the script removed, and these\n"
+                                "came out identical - the body runs and draws the\n"
+                                "stock picture. Usually the slot: a displacement\n"
+                                "at Slot::Color has nothing left to move.");
+                    }
+                    if (open) {
+                        for (size_t k = i; k < j; ++k) drawScriptRow(scriptRows[k]);
+                        ImGui::TreePop();
+                    }
+                    i = j;
                 }
             }
 
@@ -979,6 +1043,59 @@ void App::drawVuProgramsWindow() {
                             (n + 1) / 2, n);
                 ImGui::TextDisabled("%d instructions per element",
                                     bk.perElement);
+            }
+
+            // THE OTHER WAY TO WRITE ONE, and the one that is not limited to
+            // what the catalogue happens to cover: a C++ body in src/vu0/, the
+            // VU0 twin of src/vu/. Those are compiled and run inside the BUILD
+            // CONTAINER - the editor has no compiler to run them with - so what
+            // is listed here is the manifest the last build left behind, the
+            // same arrangement the script rows above use.
+            ImGui::Spacing();
+            ImGui::SeparatorText("Kernels written in C++ (src/vu0/*.cpp)");
+            {
+                struct KernelRow {
+                    std::string name, cls;
+                    int instrs = 0, perElement = 0, batch = 0;
+                };
+                std::vector<KernelRow> rows;
+                std::ifstream mf(std::filesystem::path(project_.dir) / "src" /
+                                 "gen" / "vu0_scripts.manifest");
+                std::string line;
+                while (std::getline(mf, line)) {
+                    std::vector<std::string> f;
+                    for (size_t at = 0;;) {
+                        const size_t tab = line.find('	', at);
+                        f.push_back(line.substr(at, tab == std::string::npos
+                                                       ? std::string::npos
+                                                       : tab - at));
+                        if (tab == std::string::npos) break;
+                        at = tab + 1;
+                    }
+                    if (f.size() < 5) continue;
+                    rows.push_back({f[0], f[4], std::atoi(f[1].c_str()),
+                                    std::atoi(f[2].c_str()),
+                                    std::atoi(f[3].c_str())});
+                }
+                if (rows.empty()) {
+                    ImGui::TextDisabled(
+                        "None. A .cpp in src/vu0/ that subclasses vu::Kernel "
+                        "gets a driver of its own - see docs/vu-authoring.md.");
+                } else {
+                    for (const KernelRow& r : rows) {
+                        ImGui::BulletText("%s - Tyra::%s", r.name.c_str(),
+                                          r.cls.c_str());
+                        ImGui::SameLine();
+                        ImGui::TextDisabled(
+                            "%d instructions (%d..%d of 512), %d per element, "
+                            "batch %d",
+                            r.instrs, (r.instrs + 1) / 2, r.instrs,
+                            r.perElement, r.batch);
+                    }
+                    ImGui::TextDisabled(
+                        "From the last build. These are VU0's OWN 512 slots - "
+                        "a kernel costs nothing out of the VU1 budget above.");
+                }
             }
             ImGui::EndTabItem();
         }

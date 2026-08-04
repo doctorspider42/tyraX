@@ -27,9 +27,13 @@ the verification, and any fact worth reusing belongs in the relevant
   and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and
   verified on hardware; see `.claude/plans/vu-authoring.md` for the plan, the
   decisions already made and the traps.
-- **VU0 as a target.** Parser and VS Code already handle it; the simulator's
-  memory size is VU1's and the generator's skeleton is the VU1 pipeline. Same
-  plan file has the steps, smallest first.
+- **VU0 kernels: real-hardware pass.** Done and verified in PCSX2: a project
+  writes `src/vu0/*.cpp` against `vu::Kernel`, the container emits the
+  microprogram and its EE driver, and `examples/vu-lab`'s `Ranges` kernel agrees
+  with the EE's own `sqrtf` to 1e-6 units over 39 objects. What is still owed is
+  the same run on a physical PS2 (PCSX2's COP2 timing is not the console's), and
+  a measurement of what `run()` actually costs in EE time per batch size - the
+  docs say "32 elements is microseconds" from reasoning, not from a stopwatch.
 - **VU framework: bit-exact replay on REAL hardware.** `--vu-replay` reproduces
   a PCSX2 capture exactly (36/36 GS vertices) but not one taken over ps2link
   from a physical PS2 - there the closest candidate is off by far more than

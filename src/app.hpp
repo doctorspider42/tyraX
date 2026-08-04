@@ -2056,7 +2056,10 @@ private:
     // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
     // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
     // to an object - it replaces a material class, not a behaviour.
-    bool newScriptIsVu_ = false;
+    // 0 = a game script on the EE, 1 = a VU1 program, 2 = a VU0 kernel. Three
+    // destinations (src/scripts, src/vu, src/vu0) and three stubs, so this
+    // stopped being a bool the moment the VU0 half became authorable.
+    int newScriptKind_ = 0;
 
     // Object script classes registered in src/scripts/*.cpp with
     // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache

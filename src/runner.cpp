@@ -823,7 +823,8 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                       p.dir) == 0;
         }
 
-        // The project's own VU scripts (src/vu/*.cpp, docs/vu-authoring.md).
+        // The project's own VU sources - src/vu/*.cpp (VU1 programs) and
+        // src/vu0/*.cpp (VU0 kernels), docs/vu-authoring.md.
         //
         // These are HOST C++: they run at build time and write the microprogram
         // the PS2 compiler then assembles. So they need a host compiler, and the
@@ -836,8 +837,8 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // Ordering matters twice over: AFTER the rsync, because the sources have
         // to be in the volume, and BEFORE make, because what this writes into
         // src/gen is what make compiles.
-        if (ok && project::hasVuScripts(p)) {
-            appendLine("[editor] Building the project's VU scripts...");
+        if (ok && project::hasVuSources(p)) {
+            appendLine("[editor] Building the project's VU sources...");
             ok = exec(dc + platform::shellArg(
                           "set -e; "
                           "if ! command -v g++ >/dev/null 2>&1; then "
@@ -848,6 +849,15 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "-qq --no-install-recommends g++ >/dev/null; "
                           "fi; "
                           "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
+                          // TWO source directories, and either may be empty - a
+                          // project can have kernels and no programs or the
+                          // other way round. An unmatched glob stays a literal
+                          // word in /bin/sh, which g++ would then try to open,
+                          // so the list is collected instead of pasted in.
+                          // Unquoted on purpose: the container's shell splits
+                          // it back into arguments, which is the whole point.
+                          "VUSRC=$(ls /src/src/vu/*.cpp /src/src/vu0/*.cpp "
+                          "2>/dev/null); "
                           // The stamp gates the COMPILE, never the run.
                           //
                           // Gating the run was a mistake that cost an evening:
@@ -862,14 +872,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           // writes nothing when the content is unchanged, which
                           // is what keeps vcl out of a no-op build), and only
                           // the ~20 s of g++ is skipped.
-                          "md5sum /src/vugen/* /src/src/vu/*.cpp "
+                          "md5sum /src/vugen/* $VUSRC "
                           "> /tmp/vu.stamp 2>/dev/null; "
                           "if ! cmp -s /tmp/vu.stamp /tmp/vu.stamp.built || "
                           "! test -x /tmp/vugen; then "
                           // -O0: this program runs once and writes a few files;
                           // compiling it fast matters, running it does not.
                           "  g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
-                          "/src/vugen/*.cpp /src/src/vu/*.cpp && "
+                          "/src/vugen/*.cpp $VUSRC && "
                           "  cp /tmp/vu.stamp /tmp/vu.stamp.built; "
                           "fi; "
                           "/tmp/vugen /src/src/gen /src/inc/scripts; "
@@ -884,16 +894,24 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           // readable in the project, like every other generated
                           // file.
                           "mkdir -p /host/src/gen /host/inc/scripts && "
-                          "cp /src/src/gen/vu_script* /host/src/gen/ && "
-                          "cp /src/src/gen/vu_scripts.manifest /host/src/gen/ && "
-                          "cp /src/inc/scripts/vu_scripts.gen.hpp "
-                          "/host/inc/scripts/"),
+                          // Guarded per file, because a project may have only
+                          // kernels or only programs and `cp` on an unmatched
+                          // glob is a hard failure under set -e.
+                          "for f in /src/src/gen/vu_script* "
+                          "/src/src/gen/vu_scripts.manifest "
+                          "/src/src/gen/vu0_script*; do "
+                          "if [ -e $f ]; then cp $f /host/src/gen/; fi; done; "
+                          "for f in /src/inc/scripts/vu_scripts.gen.hpp "
+                          "/src/inc/scripts/vu0_script* "
+                          "/src/inc/scripts/vu0_kernels.gen.hpp; do "
+                          "if [ -e $f ]; then cp $f /host/inc/scripts/; fi; "
+                          "done"),
                       p.dir) == 0;
             if (!ok)
                 appendLine(
-                    "[editor] A VU script failed to build. The errors above are "
-                    "ordinary C++ errors from your own file in src/vu/ - see "
-                    "docs/vu-authoring.md.");
+                    "[editor] A VU source failed to build. The errors above are "
+                    "ordinary C++ errors from your own file in src/vu/ or "
+                    "src/vu0/ - see docs/vu-authoring.md.");
         }
 
         if (ok) {

@@ -23,6 +23,11 @@
 //   };
 //   VU_PROGRAM(CellShading);
 //
+// The same layer authors a VU0 COMPUTE kernel - `vu::Kernel` at the bottom of
+// this file, dropped in `src/vu0/` rather than `src/vu/`. Same value types,
+// same scratch contract, same `c.raw()`; a body per ELEMENT instead of per
+// vertex, and what comes out is a function the EE calls rather than a look.
+//
 // The one cost to keep in mind is the one the whole framework keeps warning
 // about: every temporary is a VF register, VCL allocates 31 of them, and a
 // cull-family program already keeps ~23 live. Long expressions do not fail
@@ -332,10 +337,77 @@ class Program {
     virtual void vertex(Ctx& c) = 0;
 };
 
-/** Programs register themselves at static-init time; the generator's main()
- * walks the list. Returns the count so the macro can define a variable. */
+// --- the kernel -------------------------------------------------------------
+
+/** The same authoring, on the other vector unit: a VU0 COMPUTE kernel.
+ *
+ * A project drops this in `src/vu0/` instead of `src/vu/`, and what it gets
+ * back is not a look - it is a function the EE calls:
+ *
+ *     Tyra::IntegrandKernel k;
+ *     k.setParams(1.0F, 2.0F, 0.0F, 0.0F);
+ *     k.setTime(seconds);
+ *     k.run(in, out, count);        // count quadwords in, count out
+ *
+ * `element()` is the body, called once per element, and it is handed the same
+ * `vu::Ctx` a `vertex()` body is - the same operators, the same four scratch
+ * registers, the same `c.raw()` escape hatch, `prepare()` for the constants.
+ * The ONE difference is what is in it: a kernel element is one quadword and
+ * nothing else, so `c.position` IS the element (`c.color` and `c.uv` name the
+ * same register, because there is no second thing to name), `hasUv()` and
+ * `hasNormal()` are false, and there is no colour, no ST and no normal to read.
+ *
+ * Four things about VU0 that are not true of VU1, all of them cheap to say and
+ * expensive to discover (docs/vu-authoring.md, "VU0 kernels"):
+ *
+ *   - It is a CALCULATOR, not a GPU. 512 micro slots against VU1's 2042, and
+ *     256 quadwords of data memory - which the default layout splits into ~112
+ *     elements in and ~112 out.
+ *   - `run()` BLOCKS the EE and clobbers the COP2 register file the engine's
+ *     own Vec4/M4x4 math uses. 32 elements is microseconds; a batch is not free.
+ *   - It is SIMD over quadwords: the same operation on many elements. A scalar
+ *     loop whose step depends on the previous step does not belong here.
+ *   - There is NO cross-element reduction. A sum is something the EE does over
+ *     the output array afterwards - VU0 computes the terms.
+ *
+ * And one thing that is pure gain: these instructions are counted against VU0's
+ * own 512 slots. A kernel costs NOTHING out of the VU1 drawing budget. */
+class Kernel {
+   public:
+    virtual ~Kernel() = default;
+    /** Shown in the editor, and what the driver class is named after: "Noise
+     * field" becomes `Tyra::NoiseFieldKernel`. */
+    virtual const char* name() const = 0;
+
+    /** The most elements ONE `run()` may carry. Both blocks have to fit VU0's
+     * 256 quadwords next to the parameters, which caps this at 124; the
+     * generator refuses a larger one rather than letting the address wrap.
+     *
+     * Bigger is not better. The EE stores every element in and reads every
+     * element back out, blocked the whole time, so the batch is a latency
+     * choice - one the caller can also make per call, since `run()` takes its
+     * own count. */
+    virtual int maxElements() const { return 112; }
+
+    /** Called ONCE, before the element loop. Constants belong here for a
+     * sharper reason than on VU1: the kernel's loop is a real branch, not an
+     * unrolled run, so a constant built in `element()` is rebuilt on every
+     * single element unless `vu::splat` hoists it out - and `loi` inside a loop
+     * is the one thing vcl schedules in a way the host simulator cannot see. */
+    virtual void prepare(Ctx&) {}
+
+    /** Called once per ELEMENT. `c.position` is the element quadword; whatever
+     * it holds when this returns is what the EE reads back. */
+    virtual void element(Ctx& c) = 0;
+};
+
+/** Programs and kernels register themselves at static-init time; the
+ * generator's main() walks the lists. Returns the count so the macro can define
+ * a variable. */
 int registerProgram(Program* p);
 const std::vector<Program*>& registeredPrograms();
+int registerKernel(Kernel* k);
+const std::vector<Kernel*>& registeredKernels();
 
 }  // namespace vu
 
@@ -346,4 +418,12 @@ const std::vector<Program*>& registeredPrograms();
     Type g_vuProgramInstance_##Type;                         \
     const int g_vuProgramRegistered_##Type =                 \
         ::vu::registerProgram(&g_vuProgramInstance_##Type);  \
+    }
+
+/** The same line at the bottom of a src/vu0/ file. */
+#define VU_KERNEL(Type)                                     \
+    namespace {                                             \
+    Type g_vuKernelInstance_##Type;                         \
+    const int g_vuKernelRegistered_##Type =                 \
+        ::vu::registerKernel(&g_vuKernelInstance_##Type);   \
     }

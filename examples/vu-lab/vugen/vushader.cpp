@@ -12,6 +12,10 @@ std::vector<Program*>& registry() {
     static std::vector<Program*> v;
     return v;
 }
+std::vector<Kernel*>& kernelRegistry() {
+    static std::vector<Kernel*> v;
+    return v;
+}
 }  // namespace
 
 int registerProgram(Program* p) {
@@ -20,5 +24,12 @@ int registerProgram(Program* p) {
 }
 
 const std::vector<Program*>& registeredPrograms() { return registry(); }
+
+int registerKernel(Kernel* k) {
+    kernelRegistry().push_back(k);
+    return (int)kernelRegistry().size();
+}
+
+const std::vector<Kernel*>& registeredKernels() { return kernelRegistry(); }
 
 }  // namespace vu

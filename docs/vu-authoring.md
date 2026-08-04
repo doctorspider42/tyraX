@@ -12,6 +12,12 @@ Both produce the same thing - a program that REPLACES the engine's resident VU1
 program for a material class - so everything this page says about classes,
 budgets and the traps applies to both.
 
+And the same two ways exist on **the other vector unit** — `src/vu0/*.cpp` and
+the *VU0 kernel* tab of the same panel. A kernel draws nothing: it is quadwords
+in, quadwords out, and a class with a `run()` on it that your game calls. It
+costs nothing out of the VU1 drawing budget, because the instructions land in
+VU0's own micro memory. See [VU0 kernels](#vu0-kernels).
+
 [docs/vu-framework.md](vu-framework.md) is the machinery underneath: the
 instruction model, the parser, the host simulator and the emitter.
 
@@ -141,13 +147,14 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 ### Where it shows up in the editor
 
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
-  in VS Code. *New script...* creates one from a working stub (pick *VU program*
-  instead of *Game script*).
+  in VS Code. *New script...* creates one from a working stub - three kinds,
+  *Game script* (the EE), *VU program* (VU1) and *VU0 kernel* (`src/vu0/`).
 - **Tools > VU Programs > Micro memory** reads as a LIST of what runs on the VU,
   in three groups: what is resident (the clipping mode, the material classes,
   your looks, your scripts — this is the budget), what the other clipping mode
   would cost, and what runs on a VU but is not in this budget at all (animated
-  models, skinning, particle billboards, your VU0 kernel), each with why. The
+  models, skinning, particle billboards, your VU0 kernels — those land in VU0's
+  own 512 slots and never move this bar), each with why. The
   script rows come from a manifest the last BUILD wrote — the editor has no
   compiler to run a script with, so those numbers are as stale as your last
   build and the panel says so.
@@ -244,8 +251,9 @@ not through the EE one** - see "One class is two programs" below.
 
 ### Write it in VS Code, not in a text box
 
-`src/vu/*.cpp` is where the program actually gets written, so the editor's
-VS Code extension treats it as a first-class file rather than as anonymous C++
+`src/vu/*.cpp` and `src/vu0/*.cpp` are where the program actually gets written,
+so the editor's
+VS Code extension treats them as first-class files rather than as anonymous C++
 ([docs/vscode-extension.md](vscode-extension.md)). The Scripts panel opens it;
 `${workspaceFolder}/vugen` is on the generated includePath, so `c.` and
 `vugen::` complete out of the framework's own headers; and the rules on this
@@ -257,22 +265,27 @@ of by a container build or a console run. Type `vuprogram` for the skeleton.
 ### What the build actually does
 
 ```
-src/vu/*.cpp  +  vugen/*.cpp        your script and the framework
+src/vu/*.cpp + src/vu0/*.cpp  +  vugen/*.cpp   your code and the framework
         |  g++ (in the build container, installed once)
         v
      a generator                     runs on the HOST, at build time
         |
         v
-src/gen/vu_script*.vclpp + _program.cpp + vu_scripts.gen.{hpp,cpp}
+src/gen/vu_script*.vclpp  + _program.cpp + vu_scripts.gen.{hpp,cpp}
+src/gen/vu0_script*.vclpp + _kernel.cpp  + vu0_kernels.gen.hpp
         |  vclpp -> vcl -> dvp-as    the engine's own chain
         v
      the ELF
 ```
 
 The container ships no host compiler (it is a ps2dev image), so the first build
-with a script installs `g++` once - about a minute, stamped, and paid again only
-if the container is recreated. A mistake in your file is an ordinary C++ error
-with your own filename and line number.
+with a script or a kernel installs `g++` once - about a minute, stamped, and
+paid again only if the container is recreated. A mistake in your file is an
+ordinary C++ error with your own filename and line number.
+
+Neither directory reaches the PS2 compiler: `Makefile.base` excludes both from
+its `src/**.cpp` glob, because handing host C++ to `mips64r5900el-ps2-elf-g++`
+fails on the very first include.
 
 `vuscript::install(core)` is called by the generated game right after
 `vuprog::install`, so a script wins over a look claiming the same class. With no
@@ -306,7 +319,10 @@ script the header is a stub and every call folds away.
   a promise. It also reports Q clobbers, which is the one mistake the assembler
   will not catch.
 - **VU0 kernel** — the same stages on the other unit, with the instruction count
-  against VU0's 512 slots.
+  against VU0's 512 slots, and below it the project's C++ kernels
+  (`src/vu0/*.cpp`) with theirs. Those rows come from the last BUILD's manifest,
+  for the same reason the script rows do: the editor has no compiler to run them
+  with.
 
 Per-mesh numbers are set in the object inspector, under **VU program**, which
 first names the **class this object is in** and the look covering it. The four
@@ -1032,6 +1048,13 @@ its microprogram rather than orphaning it. This is not tidiness:
 `Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
 assembled and **linked**, taking micro memory for a program nobody asked for.
 
+What the editor writes, the editor sweeps; what the **container** writes
+(`src/gen/vu_script*` and `src/gen/vu0_script*`) it sweeps itself, against a
+ledger of every file the last generator run produced. The host cannot do that
+job for it — it has no compiler, so it cannot know which files the current
+sources would produce — and a host sweep over container output would delete
+microprograms it could not put back.
+
 ## The other ceiling: VF registers
 
 Micro memory is not the limit you hit first. **VU1 has 32 float registers**,
@@ -1079,18 +1102,113 @@ classes (a textured program and a colour one each get their own 31).
 
 ## VU0 kernels
 
-The same stage library, on the other vector unit, with none of the rendering
-around it: **N quadwords in, N quadwords out, one stage list per element**.
+The other vector unit, with none of the rendering around it: **N quadwords in,
+N quadwords out, one body per element**. A kernel draws nothing and replaces
+nothing — what a project gets back is a class with a `run()` on it, and nothing
+calls it unless the game does.
+
+Two ways to write one, exactly mirroring the VU1 side:
+
+| | |
+|---|---|
+| **A kernel** — `src/vu0/*.cpp` | You write C++, subclassing `vu::Kernel`. Same authoring as a script: same value types, same four scratch registers, same `c.raw()` escape hatch. **This is the main road.** |
+| **The stage list** — *Tools > VU Programs > VU0 kernel* | The stage catalogue, applied to quadwords instead of vertices. No code, and limited to what the catalogue covers. |
+
+### Writing one
+
+Put a `.cpp` under `src/vu0/` — or *New script…* and pick **VU0 kernel**, which
+writes the stub for you. That is the whole setup; the editor copies the
+framework next to it and the build compiles and runs it, exactly as for
+`src/vu/`.
 
 ```cpp
-vugen::KernelDesc k;
-k.title = "cloth solver";
-k.stages.push_back(vugen::makeStage("wobble"));
-vugen::BuiltKernel b = vugen::buildKernel(k);
-// b.vclpp     - the microprogram
-// b.eeHeader  - a driver class: init(), setParams(), setTime(), run(in, out, n)
-// b.eeSource
+#include "vushader.hpp"
+
+struct Ranges : vu::Kernel {
+  const char* name() const override { return "Ranges"; }
+  int maxElements() const override { return 64; }
+
+  void prepare(vu::Ctx& c) override {
+    kGuard_ = vu::constant(c, 1e-6F, 3.0F, 0.0F, 0.0F);
+  }
+  vu::Vec kGuard_;
+
+  void element(vu::Ctx& c) override {
+    // c.position IS the element quadword. c.params is what setParams() sent.
+    vugen::Vu& b = c.raw();
+    b.subInto(c.scratch(0).val(), c.position.val(), c.params.val(), vuir::MXYZ);
+    // ... dot, rsqrt, band; see examples/vu-lab/src/vu0/ranges.cpp
+  }
+};
+VU_KERNEL(Ranges);
 ```
+
+`element()` is handed the same `vu::Ctx` a `vertex()` body is. The one
+difference is what is in it: **a kernel element is one quadword and nothing
+else**, so `c.position` is the element, `c.color` and `c.uv` name that same
+register because there is no second thing to name, and `hasUv()`/`hasNormal()`
+are false.
+
+`prepare()` matters more here than on VU1. The element loop is a **real
+branch**, not three unrolled copies, so a constant built inside `element()` is
+rebuilt for every single element — and a `loi` among them is the one construct
+vcl reorders in a way the host simulator cannot model.
+
+### Using it from the game
+
+The generated driver is named after the kernel — `"Noise field"` becomes
+`Tyra::NoiseFieldKernel` — and one header brings them all in:
+
+```cpp
+#include "scripts/vu0_kernels.gen.hpp"
+
+static Tyra::RangesKernel ranges;
+static Tyra::Vec4 in[64], out[64];
+
+ranges.setParams(camX, camY, camZ, 1.0F / 12.0F);
+ranges.setTime(seconds);          // (t, sin t, cos t, 1) in c.time
+ranges.run(in, out, count);       // count <= maxElements(). BLOCKS.
+```
+
+`init()` is called for you on the first `run()` and is idempotent. The `.vclpp`
+is built automatically — `/tyra/Makefile.base` globs `src/**.vclpp`, and it
+skips `src/vu0/` for the PS2 compiler the same way it skips `src/vu/`. There is
+no Makefile work.
+
+`vukernel::COUNT` and `vukernel::ENABLED` are compile-time constants, so game
+code can be written before the first build and keeps compiling after the last
+kernel is deleted.
+
+### What a kernel is FOR, and what it is not
+
+**It is a calculator, not a GPU.** 512 micro-memory slots against VU1's 2042,
+and 256 quadwords of data memory — which the default layout splits into about
+112 elements each way.
+
+**It is SIMD over quadwords.** The same operation on many elements is what it is
+good at. A scalar loop whose step depends on the previous step is what it is
+worst at, and no amount of arranging changes that.
+
+**There is no cross-element reduction.** No instruction adds a lane of element 7
+to a lane of element 8; the quadwords are independent by construction. So
+"compute an integral on VU0" — the request this feature gets most — splits in
+two: VU0 evaluates the terms, and the **EE sums the output array**. That is not
+a workaround, it is the division of labour the hardware describes.
+
+**`run()` blocks the EE**, and it clobbers the COP2 register file — see the
+caveat below. 32 elements is microseconds; a big batch is not free.
+
+**It costs nothing out of the VU1 drawing budget.** These instructions are
+counted against VU0's own 512 slots, and nothing else is parked there. The
+micro-memory bar in *Tools > VU Programs* is about VU1 alone, and a kernel never
+moves it.
+
+The job that fits all of this at once is the oldest one a PS2 game has: **how
+far away is everything?** One subtract, one dot product and one root per object,
+over a list the game already has in an array, and the answers pick levels of
+detail, decide what to draw and set how loud a sound is. That is
+`examples/vu-lab/src/vu0/ranges.cpp`, and its numbers agree with the EE's own
+`sqrtf` to 1e-6 units on the console.
 
 ### What is different about VU0, concretely
 
@@ -1117,7 +1235,9 @@ The default layout leaves **112 elements** each way inside those 256 quadwords:
   120..231 output elements
 ```
 
-`buildKernel` refuses a layout that does not fit rather than letting it wrap —
+A C++ kernel's blocks are sized from its own `maxElements()` — the output block
+starts where the input block ends, which caps a batch at **124**. Either way
+`buildKernel` refuses a layout that does not fit rather than letting it wrap:
 on hardware an address past 255 wraps silently onto something else.
 
 ### The caveat no simulator can catch
@@ -1132,26 +1252,18 @@ saving and restoring the register file. The engine's raytracer does the same
 thing for the same reason. If you want VU0 work overlapping EE work, that is a
 project you own, not a flag.
 
-### Using a kernel from a project
+### The one rule a kernel does NOT inherit
 
-The generated `.vclpp` is built automatically: the game Makefile includes
-`/tyra/Makefile.base`, whose `VCL_SOURCES` globs `src/**.vclpp`. There is no
-Makefile work.
+Everything in [Six rules the compiler will not tell you](#six-rules-the-compiler-will-not-tell-you)
+applies to a kernel body — four scratch registers, constants in `prepare()`,
+`loi` needs `%.9g` — **except the ban on writing Q**.
 
-```cpp
-// inc/scripts/script.hpp
-#include "vu0_kernel_kernel.hpp"
-
-static Tyra::TyraXVu0Kernel kernel;
-static Tyra::Vec4 in[64], out[64];
-
-// ... once per frame
-kernel.setParams(0.5F, 2.0F, 0.0F, 0.0F);
-kernel.setTime(elapsedSeconds);
-kernel.run(in, out, 64);
-```
-
-`init()` is called for you on the first `run()` and is idempotent.
+A VU1 script must never emit a divide, an `rsqrt` or a `sqrt`, because the
+framework owns Q there: `persCorrect` puts 1/w in it, the position and the ST
+both ride on it, and a divide vcl slides into that window silently moves the
+vertex. A kernel has no framework around the body. Nothing else reads Q, and a
+root is ordinary microcode — which is what makes a distance kernel possible at
+all. The generator says so in a note rather than refusing it.
 
 ### Which stages a kernel can run
 
@@ -1160,11 +1272,34 @@ Inflate, Squash**. A kernel element is one quadword; a stage that reads a colour
 or an ST has nothing to read, and `buildKernel` refuses it by name rather than
 reinterpreting the fields.
 
+A C++ body has no such list — that is the whole point of writing one. Both can
+be present in the same kernel description, in which case the stages run first
+and the body sees what they left in the element.
+
+### Where the files land
+
+The build container compiles and runs `src/vu0/*.cpp` and leaves behind, per
+kernel:
+
+```
+  src/gen/vu0_script<i>.vclpp              the VU0 microprogram
+  src/gen/vu0_script<i>_kernel.cpp         the EE driver
+  inc/scripts/vu0_script<i>_kernel.hpp     its header
+  inc/scripts/vu0_kernels.gen.hpp          one include for all of them
+```
+
+`vu0_script<i>` and **not** `vu0_<name>` on purpose: the panel's stage-composed
+kernel is named by its author, is written by the *editor* on the host, and is
+swept by the editor when it stops being generated. Two owners writing under one
+prefix into one directory is how one of them ends up deleting the other's work.
+Kernels join the generator's own emitted-file ledger instead, so a deleted
+`src/vu0/*.cpp` takes its microprogram with it.
+
 ---
 
 ## How this is checked
 
-`tyrax-editor --vu-check` — no Docker, no PCSX2, no console. Six stages:
+`tyrax-editor --vu-check` — no Docker, no PCSX2, no console. Seven stages:
 
 1. Every `.vclpp` the engine ships parses.
 2. Every described program (all ten StaPip keeps resident) is run against its
@@ -1187,6 +1322,15 @@ reinterpreting the fields.
    approximation, so an exact comparison is fair) and `Wobble` against its
    amplitude, since the sine's error is the thing being stated rather than
    hidden.
+7. **Every project script and kernel**, built through the same emitters and run.
+   For a script, over every class it claims and all three halves of each; for a
+   kernel, under the VU0 machine model. Both are then run a second time with the
+   body removed, and a body whose output matches the bodyless one is reported as
+   changing NOTHING — because a body woven into the wrong place, or into a
+   register the next line overwrites, still builds and still runs. A kernel is
+   additionally required to produce finite numbers (an unguarded `1/sqrt(0)` is
+   an infinity that passes every structural check there is) and to fit VU0's 512
+   slots.
 
 What `--vu-check` does **not** cover is the EE side: it stages VU1 memory itself
 and diffs only what the microprogram staged for the GS, so the generated
