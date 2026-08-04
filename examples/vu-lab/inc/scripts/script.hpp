@@ -39,6 +39,21 @@ struct RuntimeObject {
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
+  // The per-object matrix path, as a Script can see it. Setting `dirty`
+  // rebuilds an object's whole WORLD-space vertex array on the EE, which is
+  // right for a one-shot move and ruinous for something that moves every
+  // frame - such an object is better baked ONCE in local space and then moved
+  // by refreshing its matrix (ObjectGeometry::objMat), which VU1 applies for
+  // free. Scripts have no access to objectGeometry, so the two flags mirror it:
+  // set `wantsMatrixPath` to ask for the promotion (renderScene does it as
+  // soon as the object is eligible), and read `onMatrixPath` to know whether
+  // it happened - while it is true, writing position/rotation is enough and
+  // `dirty` must be left alone. Scale is baked into the local vertices, so
+  // changing it still needs a `dirty` re-bake (the object is demoted and
+  // re-promoted on the next frame). Inherited trade-off, same as physics:
+  // baked shading freezes at the pose the object was promoted in.
+  bool wantsMatrixPath = false;
+  bool onMatrixPath = false;
   // False while the object's streaming layer is not resident: the object is
   // fully out of the game (no render, collision, sound, USE, physics) and
   // its geometry/assets may be freed. Managed by the game's layer streaming

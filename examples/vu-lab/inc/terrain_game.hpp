@@ -127,9 +127,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -251,6 +253,19 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -512,9 +527,62 @@ class TerrainGame : public Tyra::Game {
   // set per frame, so following the camera costs nothing measurable.
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  // The zenith the dome was last built with. Without this the runtime cycle
+  // could only move the horizon and a midnight sky kept a daylight zenith -
+  // the gradient is the half of a sky people actually read.
+  float skyTopR = -1, skyTopG = -1, skyTopB = -1;
   std::vector<Tyra::Sprite> hudSprites;
 
+  // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
+  // the dome radius in the baked SCENE_SUN_* / SCENE_MOON_* directions. Six
+  // vertices each, rebuilt per frame from the camera basis so they keep facing
+  // the viewer - the same shape the beam coronas use, and the same cost.
+  // DAYCYCLE_USED gates the textures; without a cycle nothing here is touched.
+  Tyra::Texture* sunDiscTex = nullptr;
+  Tyra::Texture* moonDiscTex = nullptr;
+  struct SkyBody {
+    std::vector<Tyra::Vec4> verts;  // 6
+    std::vector<Tyra::Vec4> sts;    // 6
+    Tyra::Color color{128.0F, 128.0F, 128.0F, 128.0F};
+    Tyra::M4x4 mat = Tyra::M4x4::Identity;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  SkyBody sunBody, moonBody;
+  // The night sky: one bag per magnitude tier (STAR_TIERS). Three submits for
+  // the whole field, and the brightness/twinkle ride the bags' additive FIX -
+  // so fading the stars in at dusk costs three bytes a frame, not a rebuild.
+  struct StarBag {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Vec4> sts;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  StarBag starBags[STAR_TIERS];
+  Tyra::M4x4 starMat = Tyra::M4x4::Identity;
+  void buildStarField();
+  void renderStarField();
+
+  void setupSkyBodies();
+  // The runtime day/night cycle (docs/day-night-cycle.md). dayNightTick
+  // advances the clock and stages everything the frame needs; the zenith is
+  // staged rather than written straight into skyTop* so the dome rebuild stays
+  // in one place (the retint check in renderScene).
+  float dayNightTopR = -1, dayNightTopG = -1, dayNightTopB = -1;
+  void dayNightTick();
+  // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
+  // portal or a camera feed needs them oriented for ITS eye, not the player's.
+  void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
+
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
@@ -682,6 +750,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -692,6 +763,19 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;

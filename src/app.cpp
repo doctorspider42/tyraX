@@ -839,6 +839,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawLoadingScreenWindow();
@@ -1503,6 +1504,13 @@ void App::drawMenuBar() {
                 showTreeGenerator_ = true;
                 treePreviewDirty_ = true;
             }
+            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                    "posterize - and see the micro memory it costs, the VCL it\n"
+                    "generates and what it computes, without a console. Also\n"
+                    "VU0 compute kernels.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -4170,6 +4178,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
@@ -4194,7 +4203,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "grading",  "ambience", "loading",  "disc",     "anim",   "tree",
     "debugger", "phonecam", "assets",   "gibake",   "input",  "drone",
-    "pad",      "proc",     "prefabs"};
+    "pad",      "proc",     "prefabs", "vu"};
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -7499,13 +7508,25 @@ std::string App::installVsCodeExtension() {
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
+    // The NEWEST .vsix, not the first one the directory happens to hand back.
+    // A leftover package is the documented trap here and it has already been
+    // paid for once: the committed 0.2.0 predated the whole VU1 language
+    // support, so for two releases the extension people actually installed had
+    // none of it while the source and the docs said otherwise. Deleting the old
+    // file is still the rule; this makes forgetting it harmless rather than
+    // silent.
     std::filesystem::path vsix;
+    std::filesystem::file_time_type newest{};
     if (std::filesystem::exists(dir, ec))
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
-            if (e.path().extension() == ".vsix") {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.path().extension() != ".vsix") continue;
+            const auto when = std::filesystem::last_write_time(e.path(), ec);
+            if (ec) continue;
+            if (vsix.empty() || when > newest) {
                 vsix = e.path();
-                break;
+                newest = when;
             }
+        }
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
@@ -10291,8 +10312,45 @@ void App::drawScriptsSection() {
         }
     }
 
+    // The project's VU programs (src/vu/*.cpp, docs/vu-authoring.md). Listed
+    // HERE rather than in the VU panel because that is what they are - scripts
+    // the project wrote - and because a file nobody can find is a feature
+    // nobody uses. They are a separate group, not part of the tree above: they
+    // do not run on the EE at all, they run on the host at build time and leave
+    // a microprogram behind, so filing them next to object scripts without
+    // saying so would be a lie about what they do.
+    const std::filesystem::path vuDir =
+        std::filesystem::path(project_.dir) / "src" / "vu";
+    std::vector<std::string> vuFiles;
+    if (std::filesystem::exists(vuDir, ec)) {
+        for (std::filesystem::directory_iterator it(vuDir, ec), end;
+             it != end && !ec; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".cpp")
+                vuFiles.push_back(it->path().filename().string());
+        std::sort(vuFiles.begin(), vuFiles.end());
+    }
+    if (!vuFiles.empty()) {
+        if (ImGui::TreeNodeEx("VU programs", ImGuiTreeNodeFlags_DefaultOpen |
+                                                 ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "src\\vu\\*.cpp - C++ compiled and RUN on the host at build\n"
+                    "time, leaving a VU1 microprogram in the ELF. They replace\n"
+                    "the engine's resident program for the material classes\n"
+                    "they claim (docs/vu-authoring.md).");
+            for (const std::string& f : vuFiles) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                if (ImGui::Selectable(f.c_str())) openInVSCode("src/vu/" + f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open in VS Code");
+            }
+            ImGui::TreePop();
+        }
+    }
+
     if (!any) {
-        ImGui::TextDisabled("No scripts yet.");
+        if (vuFiles.empty()) ImGui::TextDisabled("No scripts yet.");
         return;
     }
 
@@ -10337,8 +10395,39 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
-                        newScriptName_);
+
+    // The three kinds are not variants of one thing and the wording says so:
+    // one runs on the EE every frame, the other two run on the HOST at build
+    // time and leave a microprogram behind - one that draws, one that computes.
+    // Attaching either of those to an object is meaningless (a VU1 program
+    // replaces a material class, a VU0 kernel is a function your game calls) so
+    // the choice is disabled when the modal was opened from
+    // Properties > Scripts.
+    ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
+    if (ImGui::RadioButton("Game script (runs on the EE)", newScriptKind_ == 0))
+        newScriptKind_ = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptKind_ == 1))
+        newScriptKind_ = 1;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU0 kernel (computes)", newScriptKind_ == 2))
+        newScriptKind_ = 2;
+    ImGui::EndDisabled();
+
+    if (newScriptKind_ == 1)
+        ImGui::TextDisabled(
+            "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
+            "time, replacing the engine's VU1 program for the classes it claims.",
+            newScriptName_);
+    else if (newScriptKind_ == 2)
+        ImGui::TextDisabled(
+            "Creates src/vu0/%s.cpp - the same C++, on the other vector unit:\n"
+            "quadwords in, quadwords out, and a driver class your game calls.\n"
+            "Costs nothing out of the VU1 drawing budget.",
+            newScriptName_);
+    else
+        ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
+                            newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -10374,8 +10463,10 @@ void App::drawNewScriptModal() {
             if (isdigit((unsigned char)className[0])) className = "Script" + className;
             className[0] = (char)toupper((unsigned char)className[0]);
 
+            const char* const kDirs[3] = {"src/scripts", "src/vu", "src/vu0"};
             const std::filesystem::path path =
-                std::filesystem::path(project_.dir) / "src" / "scripts" / (name + ".cpp");
+                std::filesystem::path(project_.dir) / kDirs[newScriptKind_] /
+                (name + ".cpp");
             std::error_code ec;
             if (std::filesystem::exists(path, ec)) {
                 newScriptError_ = "Script already exists: " + name + ".cpp";
@@ -10383,8 +10474,16 @@ void App::drawNewScriptModal() {
                 std::filesystem::create_directories(path.parent_path(), ec);
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
-                    f << templates::scriptStub(project_, className, name + ".cpp");
+                    f << (newScriptKind_ == 1 ? templates::vuScriptStub(className)
+                          : newScriptKind_ == 2
+                              ? templates::vuKernelStub(className)
+                              : templates::scriptStub(project_, className,
+                                                      name + ".cpp"));
                     f.close();
+                    // The framework has to be next to it before the file is
+                    // opened, or the include the stub carries is red in the
+                    // editor the user just switched to.
+                    if (newScriptKind_ != 0) project::refreshGenerated(project_);
                     // Invoked from Properties > Scripts: attach the new class
                     // to the object right away.
                     if (newScriptAttachTo_ >= 0 &&

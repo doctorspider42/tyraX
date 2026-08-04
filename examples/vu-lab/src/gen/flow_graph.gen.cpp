@@ -2,6 +2,7 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
+#include "scripts/scroller.gen.hpp"  // Start/Stop Scroller nodes
 #include "scripts/credits.gen.hpp"  // Play/Stop Credits, On Credits Finished
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
@@ -14,6 +15,30 @@
 #include <string>
 
 namespace Vu_lab {
+
+// Text-plane helpers (Convert nodes / Get Save Value)
+static inline std::string flowNumText(float v) {
+  char b[32];
+  snprintf(b, sizeof(b), "%g", (double)v);
+  return std::string(b);
+}
+static inline std::string flowPosText(float x, float y, float z) {
+  char b[64];
+  snprintf(b, sizeof(b), "(%g, %g, %g)", (double)x, (double)y, (double)z);
+  return std::string(b);
+}
+
+// Display Text: copy a runtime string into its slot's buffer
+// (silently truncated - the slot is a fixed DYN_TEXT_LEN).
+static inline void flowSetDynText(ScriptContext& ctx, int slot,
+                                  const std::string& s) {
+  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;
+  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;
+  int n = (int)s.size();
+  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;
+  for (int i = 0; i < n; ++i) dst[i] = s[i];
+  dst[n] = '\0';
+}
 class FlowGraphScript_0_5;
 FlowGraphScript_0_5* g_time_FlowGraphScript_0_5 = nullptr;
 
@@ -35,6 +60,8 @@ class FlowGraphScript_0_5 : public Script {
       started = false;
     }
     frame++;
+    if (ctx.dynTextOn && ctx.dynTextOn[0])
+      flowSetDynText(ctx, 0, std::string(""));
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);

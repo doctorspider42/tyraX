@@ -182,7 +182,13 @@ and is the zero-cost rule working.
 `src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
 parses all 25 shipped microprograms, executes the described ones against their
 handwritten originals on randomized input, and diffs every quadword of the GIF
-packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
+packet the GS would receive. It also builds and runs the editor's own sample
+VU1 scripts (`src/vushader_*_sample.cpp`) and sample VU0 kernel
+(`src/vukernel_sample.cpp`) - each twice, with and without its body, so one that
+reaches nothing is reported instead of scoring full marks. Those files are
+linked into the editor precisely so the authoring path has host coverage; a
+change to `vushader.hpp` or `vumain.cpp` is covered by them.
+Milliseconds, no Docker, no PCSX2. It does not
 replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
@@ -703,7 +709,13 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **A TAB can** - it could not until recently, and the
+  reason is worth knowing if a widget ever turns up in `dump` with a rect and no
+  label: `TabItemEx` reports its LABEL before its RECT (the reverse of every
+  other widget), the registry dropped an info for an id it had not seen, and so
+  every tab in the editor was an unnamed rectangle and no tabbed panel could be
+  driven past its first tab. Unmatched info is now held until the rect arrives,
+  so `click "VU Programs/Generated"` resolves.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per

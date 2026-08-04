@@ -121,6 +121,21 @@ std::string projectNamespace(const Project& p);
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
 
+// The Docker volume holding the COMPILED engine, named after a hash of the
+// engine source path so projects built from one checkout share it and parallel
+// checkouts do not. Declared `external` in the generated docker-compose.yml -
+// it outlives any one project - so somebody has to create it: the runner does,
+// before `compose up`.
+std::string engineVolumeName();
+
+// Content of a new VU program (src/vu/*.cpp) - C++ compiled and RUN on the host
+// at build time, leaving a VU1 microprogram behind (docs/vu-authoring.md).
+std::string vuScriptStub(const std::string& className);
+
+// ... and of a new VU0 kernel (src/vu0/*.cpp): the same C++, on the other
+// vector unit, leaving a microprogram and the EE driver that calls it.
+std::string vuKernelStub(const std::string& className);
+
 // True when `content` is byte-identical to what an older editor version
 // generated for this file - i.e. the user never edited it and it is safe
 // to regenerate even though it predates the ownership marker.
@@ -134,5 +149,11 @@ std::filesystem::path nativePath(const std::string& relativePath);
 
 bool matchesLegacy(const Project& p, const std::string& relativePath,
                    const std::string& content);
+
+// `.vscode/extensions.json` with the ids the editor knows about ensured
+// present, given whatever the project already has. "" when nothing needs
+// adding, so an unchanged file is never rewritten. See the definition on why
+// this one file is merged rather than written once.
+std::string vscodeExtensionsMerged(const std::string& existing);
 
 }  // namespace templates

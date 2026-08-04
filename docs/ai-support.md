@@ -20,7 +20,7 @@ build and debug — and how to drive the editor's
 
 | Provider | Files |
 |---|---|
-| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-building` (each a `SKILL.md`) |
+| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-building`, `tyra-vu-programs`, `tyra-vu0-kernels` (each a `SKILL.md`) |
 | GitHub Copilot | `.github/copilot-instructions.md` (single condensed guide) |
 
 The `{TYRAX_EXE}` placeholder in the sources is replaced with the installing

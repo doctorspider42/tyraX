@@ -27,6 +27,14 @@ namespace {
 
 std::vector<uiscript::Item> g_items;
 std::unordered_map<uint32_t, size_t> g_byId;
+/** ItemInfo that arrived BEFORE the matching ItemAdd, held until it does.
+ *
+ * Most widgets call ItemAdd (a box) and then ItemInfo (a label). TAB ITEMS call
+ * them the other way round - ImGui's TabItemEx reports the label first so a
+ * contextual popup keeps the right id - so the label used to be dropped on the
+ * floor and every tab in the editor registered as an unnamed rectangle. That
+ * made a tabbed panel undrivable by name, which is a whole class of window. */
+std::unordered_map<uint32_t, uiscript::Item> g_pendingInfo;
 bool g_enabled = false;
 
 std::string lower(std::string s) {
@@ -81,6 +89,16 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
         return;
     }
     g_byId.emplace(it.id, g_items.size());
+    auto pending = g_pendingInfo.find(it.id);
+    if (pending != g_pendingInfo.end()) {
+        it.label = pending->second.label;
+        it.checkable = pending->second.checkable;
+        it.checked = pending->second.checked;
+        it.openable = pending->second.openable;
+        it.opened = pending->second.opened;
+        it.inputable = pending->second.inputable;
+        g_pendingInfo.erase(pending);
+    }
     g_items.push_back(it);
 }
 
@@ -89,8 +107,13 @@ void ImGuiTestEngineHook_ItemInfo(ImGuiContext* ctx, ImGuiID id, const char* lab
     if (!g_enabled || id == 0) return;
     (void)ctx;
     auto found = g_byId.find((uint32_t)id);
-    if (found == g_byId.end()) return;  // clipped away, or never got a box
-    uiscript::Item& it = g_items[found->second];
+    // No box yet. Either the item is clipped away and never gets one, or this
+    // is a TAB, which reports its label before its rect - hold the label and
+    // let ItemAdd claim it. Costs one entry per unmatched info per frame.
+    uiscript::Item pending;
+    uiscript::Item& it =
+        found == g_byId.end() ? (g_pendingInfo[(uint32_t)id] = pending)
+                              : g_items[found->second];
     it.label = displayLabel(label);
     it.checkable = (flags & ImGuiItemStatusFlags_Checkable) != 0;
     it.checked = (flags & ImGuiItemStatusFlags_Checked) != 0;
@@ -121,6 +144,7 @@ void setEnabled(bool on) {
     if (!on) {
         g_items.clear();
         g_byId.clear();
+        g_pendingInfo.clear();
     }
 }
 
@@ -129,6 +153,7 @@ bool enabled() { return g_enabled; }
 void beginFrame() {
     g_items.clear();
     g_byId.clear();
+    g_pendingInfo.clear();
 }
 
 const std::vector<Item>& items() { return g_items; }

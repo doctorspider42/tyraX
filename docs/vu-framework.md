@@ -12,7 +12,7 @@ Four modules in `src/`, host-only, no GL and no `project.hpp` (the
 |---|---|
 | `vuir.{hpp,cpp}` | The instruction model everything shares. VCL-level assembly with **unlimited virtual registers**. |
 | `vuasm.{hpp,cpp}` | Reads the engine's handwritten `.vclpp` into that model (the vclpp layer + VCL syntax). |
-| `vusim.{hpp,cpp}` | **Runs** a program on the host: 1024 quadwords of VU1 data memory, masked fields, ACC, Q/I, clip flags. |
+| `vusim.{hpp,cpp}` | **Runs** a program on the host, on either unit (`Target::VU1`/`VU0`): 1024 or 256 quadwords of data memory, masked fields, ACC, Q/I, clip flags. |
 | `vugen.{hpp,cpp}` | The C++ DSL, the program descriptions, the `.vclpp` + EE-side emitters, the equivalence check and the micro-memory budget. |
 
 ```bash
@@ -110,7 +110,7 @@ Do not reimplement GIF decoding on the simulator side.
 
 Models: masked destination fields, the accumulator, Q and I, the clip-flag shift
 register (`clipw`/`fcand`/`fcset`), integer registers with correct 16-bit
-wrapping, `lq`/`sq`/`ilw`/`isw` against 1024 quadwords, branches, `xtop` and
+wrapping, `lq`/`sq`/`ilw`/`isw` against the target's data memory, branches, `xtop` and
 `xgkick`.
 
 Also modelled, because host floats get it wrong in a way that quietly invalidates
@@ -213,6 +213,13 @@ only if every handwritten program parsed and every described one matched. This
 is the framework's test — there is no unit-test suite in this repo
 (`tyra-testing`).
 
+Set `VUGEN_DUMP=1` and a mismatch also prints the whole GIF window from both
+programs side by side, quadword by quadword. One differing field tells you
+almost nothing; the window tells you whether the two disagree about a value, a
+vertex COUNT, or where the packet starts — which are three different bugs. It is
+how the clip family's `moveInto` slip was found (the fifth emitted vertex was
+lerped against the origin, and only the fifth).
+
 ```bash
 tyrax-editor --vu-emit <outDir> [engineDir]
 ```
@@ -243,6 +250,12 @@ which is the honest answer: for a mesh entirely inside the frustum the clip
 program's Sutherland-Hodgman pass changes nothing, so the two stage identical
 output and nothing in the output can separate them.
 
+The candidate list is every microprogram the engine ships **plus every one the
+project generated** (`src/gen/*.vclpp`). Leaving the project's own out is not a
+gap in coverage, it is a wrong answer: a packet drawn by a project's script
+cannot match any shipped program, so the tool would report "not reproduced" for
+exactly the case its author most wants explained.
+
 Two limits worth knowing before using it. Only the **last mesh of a chain** can
 be replayed - everything before it has been overwritten in VU1 memory by
 definition, so a flush carrying fourteen terrain chunks is not resolvable and the
@@ -260,13 +273,18 @@ write.
 
 ## State: what is covered
 
-**Generated and proven bit-identical:** the five `as_is` programs (`c`, `tc`,
-`d`, `td`, `tce`) — the family the EE clipper feeds.
+**Generated and proven bit-identical: all fifteen StaPip programs** — the five
+`as_is` (the family the EE clipper feeds), the five `cull` (transform and
+frustum test on VU1) and the five `clip` (Sutherland–Hodgman on VU1, the family
+that replaces the EE clipper). Every one of them emits the same instruction
+COUNT as its handwritten file — the clip half at 299/259/322/301/282 against
+299/259/322/301/282 — which is a stronger statement than equivalence alone: the
+generator is not buying agreement with extra work.
 
 **Parsed and simulatable, not yet described:** everything else the engine ships —
-all twenty-five `.vclpp` files parse with no diagnostics, including the five
-Sutherland–Hodgman clip programs and the VU0 raytracer kernel. They can be run,
-traced and inspected today; they just do not have a C++ description yet.
+all twenty-five `.vclpp` files parse with no diagnostics, including the
+`billboard` family and the VU0 raytracer kernel. They can be run, traced and
+inspected today; they just do not have a C++ description yet.
 
 **Validated against hardware:** a capture from `examples/vu-lab` running in
 PCSX2 replays into a bit-identical GIF packet (36/36 vertices). That is the
@@ -312,36 +330,117 @@ capture does not contain. Whether the real VU also differs from the simulator in
 the last bits is UNKNOWN and not claimed either way; settling it needs that chain
 captured (see docs/backlog.md).
 
-**Not done:** the `clip` and `billboard` families are still handwritten, and of
-the `cull` family only the colour variant is described so far. The generated programs
-are proven equivalent in the simulator, but no generated microcode has been built
-in Docker or run on hardware. That is the next step and it needs the full e2e
-pass (`tyra-testing`), not a host check.
+**Not done:** the `billboard` family is still handwritten. Of the fifteen
+described programs only the five `as_is` are *adopted* — the generated `cull` and
+`clip` families are proven equivalent in the simulator but have not been built in
+Docker or run on hardware, and adoption needs the full e2e pass
+(`tyra-testing`), not a host check.
 
-The `cull` and `clip` families are the useful next targets, in that order —
-`cull` is `as_is` plus an MVP transform and the ADC clip check, both of which the
-builder already has (`transform`, and `clipw`/`fcand` in the IR). `clip` is the
-harder one: Sutherland–Hodgman with real control flow and scratch polygon buffers
-in high memory, which an expression-level DSL will not express. The honest shape
-there is a declarative skeleton with hand-written instruction blocks plugged into
-it — 80% generated, the clipper still artisanal.
+The `cull` family cost almost nothing to describe once `as_is` existed, and the
+shape of that diff is the argument for the whole approach: five new descriptions
+(seven lines each) plus **one** structural change to the shared body, because
+`cull` is `as_is` with the MVP multiply, the ADC frustum test and the spot light
+moved onto VU1 — all three of which the method library already had. The one
+genuinely new fact the exercise turned up is that the flashlight has nowhere to
+go in the lit and env variants (they compute their colour from normals, and an
+env bag carries no lighting at all), which is why `spot` is
+`cull && colorStream && !env` rather than just `cull`.
+
+`clip` was expected to be the hard one — Sutherland–Hodgman with real control
+flow and scratch polygon buffers in high memory, which an expression-level DSL
+will not express — and the prediction was that it would end up 80% generated
+with the clipper still artisanal. That turned out to be wrong, and the reason is
+worth keeping: **the builder is not an expression DSL.** It has labels, forward
+branches, `clipw`/`fcand`, indexed loads and stores; a nested loop reads in C++
+about the way it reads in assembly, and `buildClipBody` is one function with no
+hand-written instruction blocks in it at all. What the family actually needed
+was nine small primitives (`moveInto`, `clipwInto`, `fcandInto`, `iorInto`,
+`iandInto`, `isubInto`, `branchIfEq`, `branchIfGtz`, `branchIfLtz`) and the
+shared preamble pulled out of `buildAsIsBody` so a third family could call it.
+
+The exercise also paid for itself in bugs the cull family was hiding:
+
+- `moveInto` wrote its source into the wrong operand slot, so `move ppos, cpos`
+  copied `vf00` — zeros. No family had used it before.
+- `vuir::disassemble` printed `clipw`'s first source as `dst`, so **every**
+  emitted program said `clipw.xyz vf00, vertexN` — "judge the origin", i.e.
+  nothing is ever outside. That is live on hardware for generated project
+  programs. The round-trip stage could not catch it because the cull family's
+  own trials never put a vertex outside the frustum; the clip trials do, on
+  purpose (`stageInput` spreads them to ±40).
+- `Vu::hoist` moved instructions without shifting the code indices that labels
+  and unresolved branches remember. Harmless while the only script hook sat in a
+  straight run; fatal the moment one sits inside three nested loops.
 
 ## VU1 or VU0?
 
-The parser and the VS Code language handle both - the engine's one VU0 program,
-the raytracer kernel, parses with no diagnostics. Beyond that the framework is
-VU1-only, and deliberately says so rather than half-supporting VU0:
+Both, and the difference is **declared** rather than assumed. `vusim::Target`
+picks the machine, and everything downstream sizes itself from it:
 
-- `vusim` hardcodes 1024 quadwords of data memory. **VU0 has 256.** An address
-  the hardware would wrap wraps somewhere else here and the out-of-range warning
-  never fires, so a VU0 run looks plausible and is not trustworthy.
-- `vugen`'s skeleton *is* the VU1 pipeline: `xtop` a double-buffer half, emit
-  the GIF tag block, loop over vertex triples, `xgkick`. A VU0 program has none
-  of it - the raytracer is called with `vcallms` from the EE, restarts at
-  instruction 0 each time, uses fixed data addresses and never touches the GIF.
+| | VU1 | VU0 |
+|---|---|---|
+| Data memory | 1024 quadwords (16 KB) | **256** quadwords (4 KB) |
+| Micro memory | 2048 slots (2042 usable) | **512** slots, all usable |
+| GIF path | PATH1 — `xgkick` | none |
+| Input staging | VIF1 double buffer — `xtop` | fixed addresses, EE stores directly |
+| Entry | starts at 0, loops per buffer | `vcallms <addr>`, once per call |
+| Data memory between calls | a fresh buffer arrives | **persists** |
 
-`.claude/plans/vu-authoring.md` lists what VU0 support would take; parameterising
-the simulator's memory size is the small honest first step.
+Two of those rows are the reason a target exists at all rather than a comment
+saying "be careful". Address 300 is a legal VU1 quadword and a WRAP on VU0 —
+under the wrong model the run looks plausible, produces numbers, and is fiction.
+`xgkick` on VU0 draws nothing on hardware and silently succeeds in a VU1-shaped
+simulator. Both are now warnings that name the target.
+
+The `vcallms` contract is modelled by `vusim::runKernel`: a list of per-call
+writes applied to **one** data-memory image that carries forward, which is
+exactly how `vu0_raytracer.cpp` drives its kernel — the frame-static parameters
+(eye, light, sky, the sphere and triangle tables) are stored once, and each row
+kick only rewrites the row base and the texel count.
+
+**`--vu-check` runs the engine's VU0 kernel, it does not merely parse it.** The
+raytracer is staged with one sphere ten units out and a four-texel row that walks
+off it, then executed under the VU0 model:
+
+```
+-- VU0: the raytracer kernel, run under the VU0 model --
+  504 instructions, 608 steps, 256 quadwords of data memory
+  sphere texel (60, 30, 15)   sky texel (160, 192, 225)
+  micro memory: 494 instructions -> 247..494 of 512 VU0 slots  fits
+  OK - runs, stays inside VU0's 256 quadwords, and shades what it should
+```
+
+Those numbers are checkable by hand, which is what makes the check worth having.
+The sphere is colour (200, 100, 50); the hit's normal is perpendicular to the
+light, so `N·L` is 0 and the shade is the kernel's bare ambient 0.30 — 200×0.3 =
+60, 100×0.3 = 30, 50×0.3 = 15. The sky is a lerp between (180, 210, 235) and
+(40, 90, 170) on the ray's upward component, and the last texel's ray tilts up by
+0.142 — (160, 193, 226) by hand, (160, 192, 225) from the simulator, the
+one-unit gaps being the VU's truncate-toward-zero rounding rather than a
+disagreement. The assertions are on the *shape* of the answer (a direct-colour
+texel, channels in range, the sphere's own hue, a sky between the two stops), not
+on those exact triples: the kernel's shading constants are its business, and
+pinning them here would make this a change detector instead of a check.
+
+**The generator has two skeletons.** The StaPip one is the VU1 pipeline —
+`xtop` a double-buffer half, emit the GIF tag block, loop over vertex triples,
+`xgkick`. `buildKernel` is the VU0 shape — fixed input and output ranges in data
+memory, one element per loop iteration, no double buffer, no GIF, and nothing to
+branch back to. Both take the same stage list. See
+[docs/vu-authoring.md](vu-authoring.md).
+
+**What is still VU1-only, and honestly so:** most of the stage library assumes a
+vertex pipeline — only the four stages that touch nothing but the position are
+`kernelSafe`. The micro-memory ceiling of 2042 is a VU1
+fact too (it is the room below `Path1`'s draw-finish helper; VU0 has nothing
+parked in its 512 slots, hence the separate `kVu0MicroCeiling`).
+
+And one caveat no simulator can catch, so it belongs in prose: **VU0's register
+file is shared with COP2 macro mode**, which is the engine's own `Vec4`/`M4x4`
+math. A VU0 micro program and an inline macro-mode expression are the same 32 VF
+registers. The raytracer copes by never running concurrently with anything
+(`trace()` blocks the EE); a kernel that wants to overlap EE work has to own that
+problem itself.
 
 ## Notes on vclpp
 

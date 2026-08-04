@@ -27,13 +27,16 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"
+#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
+#include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -56,6 +59,9 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+// The clock the project's own VU1 stages AND scripts read, in seconds
+// (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
+float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
 // True while a pausing menu owns the frame (set at the top of loop()). Read by
@@ -408,6 +414,10 @@ struct DynLightRt {
 };
 std::vector<DynLightRt> g_dynLights;
 float g_dynLightTime = 0.0F;
+// The starfield's own clock. It cannot borrow g_dynLightTime: that one only
+// advances while the scene HAS dynamic lights, so a night sky over an unlit
+// scene would freeze mid-shimmer.
+float g_starTime = 0.0F;
 
 void collectScenePointLights() {
   g_scenePointLights.clear();
@@ -1152,10 +1162,15 @@ void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  // The underside sits slightly below the top face: nothing here backface-culls
+  // (the GS draws both), so two coplanar quads with different baked shades
+  // would z-fight into a dithered mess. Offset in local units (scales with the
+  // plane), invisible from either side. Twin: primmesh::unitPlane.
+  const float b = -0.01F;
   g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
   g_aoRegion = 1;  // bottom face - atlas region 1
-  pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+  pushQuad(verts, cols, sts, o, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
 }
 
 // Decal: a flat unit quad in the XY plane facing +Z, textured via the assigned
@@ -1790,6 +1805,15 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -1815,7 +1839,9 @@ void TerrainGame::init() {
   // and join mid-game (Start, see the loop).
   if (MULTIPLAYER_MODE != 0) pad2.initOptional(1);
 
-  // Player start: the first spawn point in the scene (if any)
+  // Player start: the first spawn point in the scene (if any). This runs before
+  // the deferred boot load, so it is SCENE 0's spawn; the boot re-places the
+  // player at the start scene's own (fppSpawnPending in the loop).
   float spawnY = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     if (SCENE_OBJECTS[i].type == 4) {
@@ -1834,7 +1860,8 @@ void TerrainGame::init() {
   buildScene();
 
   // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
-  // after the deferred scene load - scripts' onStart must see scene 0's objects.
+  // after the deferred scene load - scripts' onStart must see the START scene's
+  // objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -1901,10 +1928,18 @@ void TerrainGame::loop() {
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
-  //   phase 1 - load scene 0 behind the loading screen (when enabled).
+  //   phase 1 - load START_SCENE behind the loading screen (when enabled).
   // Everything runs from the loop, not init(): a frame presented from init()
   // (before the main loop) isn't vsync-paced and flashes by, so the boot
   // visuals were invisible; from the loop they pace normally.
+  //
+  // Declared here, ahead of the boot block, because the BOOT load needs it too:
+  // init() placed the built-in FPP player at scene 0's spawn point, and the
+  // scene the game boots into is not necessarily scene 0 (Scene > Preferences >
+  // Startup). Without this a start scene other than the first one dropped the
+  // player on the FIRST scene's spawn coordinates - inside a wall or off the
+  // level, depending on the project.
+  static bool fppSpawnPending = false;
   if (bootPhase < 2) {
     if (bootPhase == 0) {
       if (splashIndex < SPLASH_COUNT) {
@@ -1916,20 +1951,24 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = 0;
+        loadingTarget = START_SCENE;
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
     if (bootPhase == 1) {
       if (!LOADING_SCREEN) {
         bootFirstScene();
+        fppSpawnPending = true;
         bootPhase = 2;
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
-          if (loadingFrames == loadingTotal - 5) bootFirstScene();
+          if (loadingFrames == loadingTotal - 5) {
+            bootFirstScene();
+            fppSpawnPending = true;
+          }
           return;
         }
         bootPhase = 2;
@@ -2022,7 +2061,6 @@ void TerrainGame::loop() {
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
   // player respawns at the new scene's spawn point.
-  static bool fppSpawnPending = false;
   if (scriptCtx.requestScene >= 0) {
     const int target = scriptCtx.requestScene;
     scriptCtx.requestScene = -1;
@@ -2047,7 +2085,9 @@ void TerrainGame::loop() {
     return;
   }
   if (fppSpawnPending) {
-    // The built-in FPP player respawns at the new scene's spawn point.
+    // The built-in FPP player respawns at the new scene's spawn point - after a
+    // switch, and after the boot load (which is a scene switch in every way
+    // that matters here).
     fppSpawnPending = false;
     playerX = 0.0F;
     playerZ = 0.0F;
@@ -2283,6 +2323,20 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -2290,6 +2344,9 @@ void TerrainGame::loop() {
     // P1's camera and bottom half from P2's (players[1].camPos, written by
     // its walker). A cutscene camera override takes the whole screen. HUD /
     // menus / post fx stay full-screen, drawn after splitView.end().
+    // The runtime day/night clock, once per FRAME and before any pass: a split
+    // frame renders the scene twice and both halves must see the same instant.
+    dayNightTick();
     const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
                             players[1].objIndex >= 0 &&
                             !scriptCtx.cameraOverride;
@@ -2445,6 +2502,8 @@ void TerrainGame::buildScene() {
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
+  // NOT buildStarField() here: the star bags need beamCoronaTex, which the
+  // texture block further down has not loaded yet. It is built there instead.
 
   // Save system: BIOS mc modules, custom values, menu sprites (hud/save-*.png)
   saveValues.assign(SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1, 0.0F);
@@ -2593,14 +2652,30 @@ void TerrainGame::buildScene() {
       }
       flareTexturesLoaded = true;
     }
-    // Light-beam corona texture (Point Light > Beam; shape in RGB).
-    if (BEAMS_USED)
+    // Light-beam corona texture (Point Light > Beam; shape in RGB). The night
+    // sky's stars are drawn through the SAME sprite - one 64x64 for both, and a
+    // star without it is a hard square - so a starfield loads it too.
+    if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
+    // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
+    // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
+    // cycle-less project pays no VRAM for a sky it does not draw. Together they
+    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    if (DAYCYCLE_USED) {
+      sunDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/sun-disc.png"));
+      moonDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/moon-disc.png"));
+      setupSkyBodies();
+    }
+    // The night sky, now that the corona sprite its stars are drawn through
+    // exists. A scene reload rebuilds it (see loadScene) - this is the boot one.
+    buildStarField();
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
@@ -2638,7 +2713,7 @@ void TerrainGame::buildScene() {
 // sequence so the load runs at vsync pace (a visible loading-screen progress
 // bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(0);
+  loadScene(START_SCENE);
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -3780,7 +3855,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
         o.data.type == 14 ||                       // 14 = camera marker
         o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18)                         // 18 = scatter volume (authoring only)
+        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
+        o.data.type == 19)                         // 19 = scroller belt marker
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -4235,7 +4311,23 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
+    skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+    // Park the runtime clock at the authored hour, so a scene's first frame is
+    // what the editor previewed rather than wherever the last scene's clock got
+    // to. Must happen BEFORE buildSkyDome, which bakes the zenith in.
+    daynight::reset(sceneIndex);
+    if (daynight::active(sceneIndex)) {
+      skyHorizonR = daynight::g_sky[0] * 255.0F;
+      skyHorizonG = daynight::g_sky[1] * 255.0F;
+      skyHorizonB = daynight::g_sky[2] * 255.0F;
+      skyTopR = daynight::g_top[0] * 255.0F;
+      skyTopG = daynight::g_top[1] * 255.0F;
+      skyTopB = daynight::g_top[2] * 255.0F;
+      dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
+      scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
+    }
     buildSkyDome();
+    buildStarField();
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
@@ -4803,7 +4895,8 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14 || o.data.type == 17 || o.data.type == 18)
+        o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
+        o.data.type == 19)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -5857,7 +5950,31 @@ void TerrainGame::updateSunFx() {
     return;
   }
 
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // A lens flare is the SUN, not "the light". Without a day/night cycle those
+  // are the same thing and SCENE_LIGHT_* is the sun vector. With one they are
+  // not: after sunset the resolved light is the MOON (clamped above the horizon
+  // so the bake stays sane), and pointing the flare at it put a blue glow with
+  // ghost rings in the night sky - the moon wearing the sun's lens flare. So a
+  // cycle scene aims at SCENE_SUN_* and switches the whole effect off while the
+  // sun is down (SCENE_SUN_R is 0 exactly then, the same flag the disc uses).
+  float sxd, syd, szd;
+  if (daynight::active(currentScene)) {
+    if (daynight::g_sunRad <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = daynight::g_sun[0], syd = daynight::g_sun[1], szd = daynight::g_sun[2];
+  } else if (DAYCYCLE_USED) {
+    if (SCENE_SUN_R <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = SCENE_SUN_X, syd = SCENE_SUN_Y, szd = SCENE_SUN_Z;
+  } else {
+    sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  }
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl < 0.0001F) {
     postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
@@ -5966,6 +6083,365 @@ void TerrainGame::renderFlare() {
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
     engine->renderer.renderer2D.render(flareSprites[i]);
+}
+
+// The night sky (docs/day-night-cycle.md "Stars"). Builds one additive bag per
+// magnitude tier out of the generated STARS table - the same list
+// starfield::generate handed the editor, so the console's sky IS the preview's.
+//
+// Additive is the whole feature: the GS computes Cs*FIX + Cd, so a star ADDS
+// its colour to the sky behind it. That is what makes a bright star bright
+// (and gives the bloom pass something to flare) rather than a grey pixel, and
+// it is why the per-star colour lives in the Gouraud vertex colours.
+//
+// The quads are built once in WORLD space around the origin and the bag is
+// re-centred on the camera each frame like the sky dome; VU1 does the rest.
+void TerrainGame::buildStarField() {
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    starBags[t].verts.clear();
+    starBags[t].colors.clear();
+    starBags[t].bag.reset();
+  }
+  if (STAR_COUNT <= 0) return;
+
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Further out than the sun and moon discs (0.94), so a star can never
+  // z-fight its way in front of the moon.
+  const float dist = domeR * 0.96F;
+
+  for (int i = 0; i < STAR_COUNT; ++i) {
+    const StarData& sd = STARS[i];
+    int t = sd.tier;
+    if (t < 0) t = 0;
+    if (t >= STAR_TIERS) t = STAR_TIERS - 1;
+    StarBag& sb = starBags[t];
+    const float half = dist * sd.size;
+    const float cx = sd.x * dist, cy = sd.y * dist, cz = sd.z * dist;
+    // A star is a dot: two triangles in the plane perpendicular to its own
+    // direction. It is far enough away that not billboarding it costs nothing
+    // visible, and it keeps the bag STATIC - which is what makes the whole sky
+    // three submits and no per-frame vertex work.
+    float rx = -sd.z, ry = 0.0F, rz = sd.x;  // cross(up, dir)
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl < 1e-4F) { rx = 1.0F; ry = 0.0F; rz = 0.0F; }
+    else { rx /= rl; rz /= rl; }
+    const float ux = sd.y * rz - sd.z * ry;
+    const float uy = sd.z * rx - sd.x * rz;
+    const float uz = sd.x * ry - sd.y * rx;
+    const Vec4 c0(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
+                  cz + (-rz - uz) * half, 1.0F);
+    const Vec4 c1(cx + (rx - ux) * half, cy + (ry - uy) * half,
+                  cz + (rz - uz) * half, 1.0F);
+    const Vec4 c2(cx + (rx + ux) * half, cy + (ry + uy) * half,
+                  cz + (rz + uz) * half, 1.0F);
+    const Vec4 c3(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
+                  cz + (-rz + uz) * half, 1.0F);
+    // 128 is full strength in the engine's colour space for an untextured bag.
+    const Color col((float)sd.r * 0.5F, (float)sd.g * 0.5F, (float)sd.b * 0.5F,
+                    128.0F);
+    sb.verts.push_back(c0); sb.verts.push_back(c1); sb.verts.push_back(c2);
+    sb.verts.push_back(c0); sb.verts.push_back(c2); sb.verts.push_back(c3);
+    // Full-sprite STs: the star IS the soft dot. Without the texture a star
+    // draws as a hard little square, which is the "grey pixel" look the whole
+    // additive arrangement exists to avoid.
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    for (int k = 0; k < 6; ++k) sb.colors.push_back(col);
+  }
+
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (sb.verts.empty()) continue;
+    sb.info = std::make_unique<StaPipInfoBag>();
+    sb.info->model = &starMat;  // re-centred on the camera every frame
+    sb.info->shadingType = TyraShadingGouraud;
+    // NOT the dome's precise/full-clip settings, and this is a measured
+    // decision: the dome is ~500 vertices of huge triangles that genuinely
+    // cross the screen edge, while the field is ~3000 vertices of tiny quads
+    // scattered all over it. Precise per-package classification plus the EE
+    // clipper on that many crossing packages cost ~6 FPS of a 32 FPS sky view
+    // in PCSX2 (26 -> 32 with the field off). A star is a few pixels: dropping
+    // one whose package straddles the border is invisible, and clipping it is
+    // not worth a millisecond.
+    // _None, not the dome's _Precise: the field is CENTRED ON THE CAMERA, so
+    // it surrounds the view by construction and per-package classification can
+    // only ever answer "keep" while costing a bbox test per package.
+    sb.info->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    sb.info->fullClipChecks = false;
+    sb.info->fogDisabled = true;    // past the fog end, like the dome
+    sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->additiveBlendFix = 128;
+    sb.colorBag = std::make_unique<StaPipColorBag>();
+    sb.colorBag->many = sb.colors.data();
+    sb.bag = std::make_unique<StaPipBag>();
+    sb.bag->info = sb.info.get();
+    sb.bag->color = sb.colorBag.get();
+    sb.bag->vertices = sb.verts.data();
+    sb.bag->count = static_cast<u32>(sb.verts.size());
+    if (beamCoronaTex) {
+      sb.texBag = std::make_unique<StaPipTextureBag>();
+      sb.texBag->texture = beamCoronaTex;
+      sb.texBag->coordinates = sb.sts.data();
+      sb.bag->texture = sb.texBag.get();
+    } else {
+      sb.bag->texture = nullptr;
+    }
+    sb.bag->lighting = nullptr;
+    sb.bag->bboxVersion = ++g_bboxStamp;
+  }
+}
+
+// Submits the field. The scene's star brightness and the twinkle both ride the
+// additive FIX, so this is three byte writes and three submits - no geometry
+// touched, whatever the time of day.
+void TerrainGame::renderStarField() {
+  const bool liveSky = daynight::active(currentScene);
+  const float starLevel = liveSky ? daynight::g_stars : SCENE_STARS_BRIGHT;
+  if (STAR_COUNT <= 0 || starLevel <= 0.004F) return;
+  if (!g_gameplayPaused) g_starTime += g_frameDt;
+  starMat.identity();
+  starMat.data[12] = cameraPosition.x;
+  starMat.data[13] = cameraPosition.y;
+  starMat.data[14] = cameraPosition.z;
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (!sb.bag) continue;
+    float k = starLevel;
+    if (SCENE_STARS_TWINKLE > 0.0F) {
+      // Per TIER, not per star: each tier shimmers at its own rate, which is
+      // enough to read as twinkling and costs three multiplies a frame.
+      const float phase =
+          g_starTime * (0.7F + 0.45F * (float)t) + (float)t * 2.1F;
+      k *= 1.0F - SCENE_STARS_TWINKLE * 0.35F * (0.5F - 0.5F * cosf(phase));
+    }
+    // ...and the same compensation, averaged over the channels because the FIX
+    // is a single scalar for the whole bag.
+    if (liveSky)
+      k *= (daynight::g_comp[0] + daynight::g_comp[1] + daynight::g_comp[2]) / 3.0F;
+    float fix = 128.0F * k;
+    sb.info->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    stapip.core.render(sb.bag.get());
+  }
+}
+
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). One call a frame, and everything it moves is something the frame was
+// already going to compute: the sun and moon directions, the sky gradient, the
+// fog colour, the star brightness and a colour grade. The BAKED half - vertex
+// shading, the AO lightmap, GI - stays at the hour the scene was built at,
+// which is exactly what the grade is here to paper over.
+void TerrainGame::dayNightTick() {
+  if (!daynight::active(currentScene)) return;
+  daynight::tick(currentScene, g_frameDt);
+
+  // The horizon rides scriptCtx.skyColor, which the dome retint already
+  // watches (and which a Set Ambience node also writes - last writer in the
+  // frame wins, and a running clock is the more specific statement). The
+  // zenith is staged for the same check.
+  // g_comp cancels the full-screen grade on everything that is already
+  // hour-correct - see ambience::driftCompensation. Without it the night sky is
+  // graded a second time and comes out nearly black.
+  auto c255 = [](float v, float comp) {
+    const float x = v * 255.0F * comp;
+    return x > 255.0F ? 255.0F : x;
+  };
+  scriptCtx.skyColor = Color(c255(daynight::g_sky[0], daynight::g_comp[0]),
+                             c255(daynight::g_sky[1], daynight::g_comp[1]),
+                             c255(daynight::g_sky[2], daynight::g_comp[2]));
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  dayNightTopR = c255(daynight::g_top[0], daynight::g_comp[0]);
+  dayNightTopG = c255(daynight::g_top[1], daynight::g_comp[1]);
+  dayNightTopB = c255(daynight::g_top[2], daynight::g_comp[2]);
+
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(c255(daynight::g_fog[0], daynight::g_comp[0]),
+                                      c255(daynight::g_fog[1], daynight::g_comp[1]),
+                                      c255(daynight::g_fog[2], daynight::g_comp[2])),
+                                 FOG_START, FOG_END);
+
+  // The drift grade. setGrading is a handful of register writes, so this is
+  // cheaper than any of the geometry it stands in for - and it is identity while
+  // the clock sits on the baked hour, so a parked cycle changes nothing.
+  if (daynight::gradeOn(currentScene)) {
+    // setGrading is fixed point: gain 128 = 1x, lift is a signed 0..255-scale
+    // offset, mixAmt 128 = full replace. The float globals stay the twin of the
+    // host's ambience::driftGrade; the conversion lives only here.
+    auto u8 = [](float v) {
+      const int n = (int)(v + 0.5F);
+      return (unsigned char)(n < 0 ? 0 : (n > 255 ? 255 : n));
+    };
+    const unsigned char gain[3] = {u8(daynight::g_gain[0] * 128.0F),
+                                   u8(daynight::g_gain[1] * 128.0F),
+                                   u8(daynight::g_gain[2] * 128.0F)};
+    const short lift[3] = {(short)(daynight::g_lift[0] * 255.0F),
+                           (short)(daynight::g_lift[1] * 255.0F),
+                           (short)(daynight::g_lift[2] * 255.0F)};
+    const unsigned char mixColor[3] = {u8(daynight::g_mixColor[0] * 255.0F),
+                                       u8(daynight::g_mixColor[1] * 255.0F),
+                                       u8(daynight::g_mixColor[2] * 255.0F)};
+    float amt = daynight::g_mixAmount * 128.0F;
+    if (amt > 128.0F) amt = 128.0F;
+    engine->renderer.core.postFx.setGrading(gain, lift, mixColor,
+                                            (unsigned char)(amt + 0.5F));
+  }
+}
+
+// Day/night cycle sky bodies (docs/day-night-cycle.md): one-time setup of the
+// sun and moon quads. Six vertices each and a fixed full-sprite ST quad; the
+// positions are written every frame by renderSkyBodies.
+//
+// The two differ in how they blend, and it is not a style choice. The sun is
+// ADDITIVE (Cs*FIX + Cd), which is what makes it read as a light source and
+// what feeds the bloom pass a bright spot to flare - so its sprite carries its
+// shape in RGB, because an additive bag never reads texture alpha. The moon is
+// an ordinary alpha-blended quad: it is a lit ROCK, and adding it to the sky
+// would make a night sky glow through it.
+void TerrainGame::setupSkyBodies() {
+  if (!DAYCYCLE_USED) return;
+  auto init = [](SkyBody& b, Tyra::Texture* tex, bool additive) {
+    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.clear();
+    // Two triangles over the whole sprite, matching the corner order below.
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.mat.identity();
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // The discs ride the dome, past the fog end - hardware fog would paint
+    // them solid fog colour, exactly as it would the dome itself.
+    b.info->fogDisabled = true;
+    // Centred on the camera like the dome: a nearby torch must not tint the sun.
+    b.info->dynLightPick = false;
+    b.info->fullClipChecks = true;  // crosses the screen edge constantly
+    if (additive) b.info->additiveBlendFix = 128;
+    else b.info->blendingEnabled = true;
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = tex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = 6;
+  };
+  if (sunDiscTex) init(sunBody, sunDiscTex, true);
+  if (moonDiscTex) init(moonBody, moonDiscTex, false);
+}
+
+// Places and submits the two discs. Called right after the sky dome, so they
+// are behind everything and write no depth of their own.
+void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
+  if (!DAYCYCLE_USED) return;
+  // View basis: the quads are billboards, so their corners are rebuilt from
+  // this view's right/up every frame (six vertices - the beam-corona deal).
+  V3 fwd = {look.x - eye.x, look.y - eye.y, look.z - eye.z};
+  float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl < 1e-4F) return;
+  fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  V3 right = {fwd.z, 0.0F, -fwd.x};
+  float rl = sqrtf(right.x * right.x + right.z * right.z);
+  if (rl < 1e-4F) {
+    right = {1.0F, 0.0F, 0.0F};
+    rl = 1.0F;
+  }
+  right.x /= rl, right.y = 0.0F, right.z /= rl;
+  const V3 up = {right.y * fwd.z - right.z * fwd.y,
+                 right.z * fwd.x - right.x * fwd.z,
+                 right.x * fwd.y - right.y * fwd.x};
+
+  // The dome's own radius, so a body sits ON the sky rather than in front of
+  // the terrain. Mirrors buildSkyDome's clamp - keep the two in step.
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Just inside the dome, or z-fighting decides per frame whether the sun is
+  // in front of the sky.
+  const float dist = domeR * 0.94F;
+
+  auto place = [&](SkyBody& b, float dx, float dy, float dz, float rFrac,
+                   float roll) {
+    if (!b.bag || rFrac <= 0.0F) return;
+    if (b.color.a <= 1.0F) return;  // fully transparent: nothing to draw
+    const float cx = eye.x + dx * dist;
+    const float cy = eye.y + dy * dist;
+    const float cz = eye.z + dz * dist;
+    const float half = dist * rFrac;
+    // Roll the billboard axes so the moon's lit limb faces the sun; the sun
+    // passes roll 0 and pays only a cosf/sinf of nothing.
+    const float cr = cosf(roll), sr = sinf(roll);
+    const V3 rx = {right.x * cr + up.x * sr, right.y * cr + up.y * sr,
+                   right.z * cr + up.z * sr};
+    const V3 uy = {up.x * cr - right.x * sr, up.y * cr - right.y * sr,
+                   up.z * cr - right.z * sr};
+    const Vec4 c0(cx + (-rx.x - uy.x) * half, cy + (-rx.y - uy.y) * half,
+                  cz + (-rx.z - uy.z) * half, 1.0F);
+    const Vec4 c1(cx + (rx.x - uy.x) * half, cy + (rx.y - uy.y) * half,
+                  cz + (rx.z - uy.z) * half, 1.0F);
+    const Vec4 c2(cx + (rx.x + uy.x) * half, cy + (rx.y + uy.y) * half,
+                  cz + (rx.z + uy.z) * half, 1.0F);
+    const Vec4 c3(cx + (-rx.x + uy.x) * half, cy + (-rx.y + uy.y) * half,
+                  cz + (-rx.z + uy.z) * half, 1.0F);
+    b.verts[0] = c0;
+    b.verts[1] = c1;
+    b.verts[2] = c2;
+    b.verts[3] = c0;
+    b.verts[4] = c2;
+    b.verts[5] = c3;
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  };
+
+  // The sun takes the scene's light colour, so a red sunset sun is red without
+  // a second authored colour anywhere.
+  // With a running clock every one of these comes from the live evaluation
+  // instead of the baked instant; without one they are the same constants they
+  // always were. Two branches, no duplicated placement code.
+  const bool live = daynight::active(currentScene);
+  // The discs are hour-correct already, so they carry the grade compensation
+  // (1..2x, which is exactly the headroom a 128-nominal colour bag has).
+  const float cr = live ? daynight::g_comp[0] : 1.0F;
+  const float cg = live ? daynight::g_comp[1] : 1.0F;
+  const float cb2 = live ? daynight::g_comp[2] : 1.0F;
+  const float lr = (live ? 1.0F : SCENE_LIGHT_COL_R) * cr;
+  const float lg = (live ? 1.0F : SCENE_LIGHT_COL_G) * cg;
+  const float lb = (live ? 1.0F : SCENE_LIGHT_COL_B) * cb2;
+  sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
+  // The moon is an alpha-blended bag, so its VERTEX COLOUR ALPHA is its
+  // opacity - no second texture and no extra pass for the slider.
+  {
+    const float op = live ? DAYCYCLE_MOON_ALPHAS[currentScene] : SCENE_MOON_ALPHA;
+    moonBody.color.set(128.0F * cr, 128.0F * cg, 128.0F * cb2,
+                       128.0F * (op < 0.0F ? 0.0F : (op > 1.0F ? 1.0F : op)));
+  }
+  if (live) {
+    place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
+          daynight::g_sunRad, 0.0F);
+    place(moonBody, daynight::g_moon[0], daynight::g_moon[1], daynight::g_moon[2],
+          daynight::g_moonRad, daynight::g_moonRoll);
+  } else {
+    place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
+    place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
+          SCENE_MOON_ROLL);
+  }
 }
 
 // Visible light beams (Point Light > Beam): per-scene setup. One additive
@@ -6302,6 +6778,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
+    // NOT the day/night handover fade (daynight::g_shadowFade), which the
+    // projected silhouettes do take: this quad sits UNDER the caster and has no
+    // direction, so it has nothing to hide when the light swaps bodies - and
+    // fading it anyway left every object unmoored for the hour around twilight,
+    // on top of the low-sun window the silhouettes were already dark for.
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -6473,9 +6954,24 @@ void TerrainGame::renderProjShadows() {
   // is how much of the scene's shading it actually accounts for, so a black
   // sun (a night scene lit only by torches) scores 0 and any lit torch beats
   // it, while a daylight scene still throws the sun shadow it always did.
-  // Below ~15 degrees of elevation the ground projection runs away, so a low
-  // sun is simply not a candidate.
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // A low sun is a problem for the RECEIVER, not for the light: the patch is
+  // capped at 3.5x the caster radius (see the sizing below), so a shadow longer
+  // than that gets cropped square at its tip. This used to be a cliff - `syd <
+  // 0.25`, no shadow at all below ~14.5 degrees - and with an arc that peaks
+  // around 28 degrees (the day/night example, whose sun has to stay inside the
+  // frame) that cliff swallowed roughly four hours either side of the middle of
+  // the day: reported from the console as "shadows only turn up just before noon
+  // and just before midnight". So it is a RAMP instead, and the shadows it lets
+  // through are exactly the ones that are cropped, faded in proportion: gone at
+  // the light's 5-degree floor (ambience::kMinLightElevation, where the shadow
+  // would be 11x the caster's height), full from 16 degrees up. The most
+  // truncated shadow is the faintest, which is what makes the crop invisible.
+  // The live light when the clock runs - this is the line that makes a
+  // projected shadow actually sweep across the ground as the sun moves.
+  const bool liveLight = daynight::active(currentScene);
+  float sxd = liveLight ? daynight::g_light[0] : SCENE_LIGHT_X;
+  float syd = liveLight ? daynight::g_light[1] : SCENE_LIGHT_Y;
+  float szd = liveLight ? daynight::g_light[2] : SCENE_LIGHT_Z;
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl > 0.0001F)
     sxd /= sl, syd /= sl, szd /= sl;
@@ -6484,7 +6980,17 @@ void TerrainGame::renderProjShadows() {
   float sunCol = SCENE_LIGHT_COL_R;
   if (SCENE_LIGHT_COL_G > sunCol) sunCol = SCENE_LIGHT_COL_G;
   if (SCENE_LIGHT_COL_B > sunCol) sunCol = SCENE_LIGHT_COL_B;
-  const float sunScore = syd < 0.25F ? 0.0F : SCENE_DIFFUSE * sunCol;
+  // sin(5 deg) .. sin(16 deg). The bottom is the light's own elevation floor, so
+  // "the body is at or below the horizon" and "no sun shadow" stay the same
+  // statement they were.
+  float sunLow = (syd - 0.0871557F) / (0.2756374F - 0.0871557F);
+  if (sunLow < 0.0F) sunLow = 0.0F;
+  if (sunLow > 1.0F) sunLow = 1.0F;
+  sunLow = sunLow * sunLow * (3.0F - 2.0F * sunLow);  // smooth both ends
+  // Scoring the sun by the ramp too, not just fading it: a torch really does
+  // out-light a sun sitting on the horizon, and the candidate loop should agree
+  // with what the alpha is about to say.
+  const float sunScore = sunLow <= 0.0F ? 0.0F : SCENE_DIFFUSE * sunCol * sunLow;
 
   // Nearest visible casters win the slots; shadows fade out 35..50 units
   // from the camera so a slot handoff never pops.
@@ -6703,6 +7209,8 @@ void TerrainGame::renderProjShadows() {
     const float dist = sqrtf(c.d2);
     sfade[used] =
         (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
+    // ...and the low-sun ramp, for the slots the sun actually threw.
+    if (bestSun) sfade[used] *= sunLow;
     ++used;
   }
   if (used == 0) return;
@@ -6821,7 +7329,9 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 55.0F * sfade[s];
+    // sfade = the distance fade; the day/night factor is the twilight handover
+    // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
+    b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }
@@ -7575,10 +8085,13 @@ void TerrainGame::buildSkyDome() {
   if (radius > 450.0F) radius = 450.0F;
 
   const int stacks = 6, slices = 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
   auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
-    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
-                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
-                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
   auto domeVert = [&](int stack, int slice) {
     // Start slightly below the horizon so the seam is never visible
@@ -7639,11 +8152,47 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+  u32 size = 0;
+  for (Tyra::StaPipBag* b : bags) {
+    if (!b || b->count == 0) continue;
+    b->packageSize = 0;  // ask for the DERIVED size, not the last pin
+    const u32 s = stapip.core.getMaxVertCountByBag(b);
+    if (s != 0 && (size == 0 || s < size)) size = s;
+  }
+  if (size == 0) return;
+  for (Tyra::StaPipBag* b : bags)
+    if (b && b->count != 0) b->packageSize = size;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.matrixMode = localSpace;
+  o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
@@ -7859,6 +8408,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
         break;
       }
+      case 19: break;  // scroller - invisible belt marker (drives clones)
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -7890,7 +8440,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      part.infoBag->fullClipChecks = true;
+      part.infoBag->fullClipChecks = true;  // refreshed below, per frame
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -7898,6 +8448,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->texture = nullptr;
       part.bag->lighting = nullptr;
     }
+    // OFF while a script displaces vertices AND the EE clipper is the one
+    // cutting. That clipper runs before any VU program sees the mesh, so a
+    // vertex moved afterwards is moved past a cut computed without it and the
+    // prop tears at the edge of the screen; the whole-mesh cull path is the
+    // way out, safe for a prop and NOT done for the terrain or the sky.
+    //
+    // Under VU1 CLIPPING there is nothing to compensate for: the clip program
+    // does its own MVP multiply, so the script displaces the vertex BEFORE the
+    // cut is computed and the clipper sees the final geometry. Set per frame
+    // rather than at bag creation because the mode is a run-time switch.
+    part.infoBag->fullClipChecks =
+        !vuscript::movesGeometry() || vuprog::vu1Clipping();
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
@@ -8148,6 +8710,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->color = part.colorBag.get();
       part.bag->lighting = nullptr;
     }
+
+    // Last, once every bag of this part has its final program shape (the
+    // dyn-lit swap above changes the base bag's): give the base pass and its
+    // coplanar companions ONE package size. LOD tiers only re-aim the
+    // pointers, never the program class, so this pin survives applyGeoLod.
+    pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
+                    part.emisBag.get()});
   }
   g_litNormals = nullptr;
   if (needsLitSeed) fillDynLitColors(index);
@@ -9749,10 +10318,13 @@ void TerrainGame::renderScene() {
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
-                      scriptCtx.skyColor.b != skyHorizonB)) {
+                      scriptCtx.skyColor.b != skyHorizonB ||
+                      dayNightTopR != skyTopR || dayNightTopG != skyTopG ||
+                      dayNightTopB != skyTopB)) {
     skyHorizonR = scriptCtx.skyColor.r;
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
+    skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
     buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
@@ -9821,6 +10393,7 @@ void TerrainGame::renderScene() {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
@@ -9877,6 +10450,10 @@ void TerrainGame::renderScene() {
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
     stapip.core.render(skyDome.bag.get());
+    // Stars behind the discs: with the dome's depth arrangement the draw order
+    // is the depth order, and a star must never land in front of the moon.
+    renderStarField();
+    renderSkyBodies(cameraPosition, cameraLookAt);
   }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
@@ -9922,6 +10499,8 @@ void TerrainGame::renderScene() {
     }
     stapip.core.render(part.envBag.get());
   };
+  // Once a frame, before anything is submitted: the clock every time-varying
+  // script reads. One quadword, and only when the project has a script at all.
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -9932,7 +10511,19 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
-    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Something that moves EVERY frame asked for the matrix path (an endless
+    // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
+    // bake buys it a whole belt's worth of per-frame motion at the price of a
+    // matrix refresh; without it a running belt re-bakes every clone's world
+    // vertices every frame, which is what held the endless-runner example at
+    // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
+    // itself on the frame it asks, and a world-space rebuild would clear the
+    // flag and leave it asking again forever.
+    if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
+        physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    else if (runtimeObjects[i].dirty)
+      rebuildObjectGeometry(i);
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
@@ -9992,6 +10583,12 @@ void TerrainGame::renderScene() {
           break;
         }
     }
+    // The four numbers this mesh hands to the project's own microprogram.
+    // Staged per object rather than per bag because every bag of one object
+    // shares them; a static BATCH is one bag for many objects, so its members
+    // share whatever the batch was built with (docs/vu-authoring.md).
+    if (vuprog::ENABLED)
+      vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -10003,6 +10600,16 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    // Back to zero the moment this object's bags are out. The numbers are
+    // RENDERER STATE, not a property of the bag, so everything drawn after an
+    // object - the terrain, the sky dome, a static batch, the next object -
+    // would otherwise inherit them. Zero is the "wants nothing" case every
+    // stage renders bit-identically to the untouched program, so scoping them
+    // to one object is what makes the rest of the frame predictable.
+    if (vuprog::ENABLED) {
+      const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      vuprog::setParams(stapip.core, none);
+    }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -10040,6 +10647,11 @@ void TerrainGame::renderScene() {
         hlListD2[a] = hlListD2[b];
         hlListD2[b] = td;
       }
+  // After the scene, before the highlight: the ink line wants the objects'
+  // depth already in the buffer, and the highlight glow wants to sit on top of
+  // the line rather than under it.
+  renderOutlineShells();
+
   for (int a = 0; a < hlCount; ++a) {
     const int i = hlList[a];
     const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
@@ -10575,6 +11187,7 @@ void TerrainGame::renderCameraFeed() {
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, look);
       skyDome.infoBag->zTestType = prevZTest;
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
@@ -10715,6 +11328,7 @@ void TerrainGame::renderObjectProbe(int index) {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
@@ -11050,6 +11664,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, at);
     }
     // resident chunks only - the streaming ring follows the MAIN camera, so
     // with terrain streaming on, keep the pair inside the streamed radius
@@ -11907,6 +12522,121 @@ void TerrainGame::renderHighlightHull(int index) {
 // its full-detail silhouette, invisible under the soft rim. Models have no
 // cheaper source, so their parts are concatenated as-is (one submit per
 // shell instead of one per part).
+// The shell pass a project's own VU program can ask for: every visible object
+// drawn once more from its low-detail proxy, as a flat-colour bag whose
+// per-vertex colours carry the outward direction. The PROGRAM grows it - this
+// only supplies the copy, the depth pushback and the width.
+//
+// Growing on VU1 rather than by scaling the matrix is the whole point: a scale
+// about the centre moves a far vertex further than a near one, so the line
+// fattens at the ends of anything long, while a step along the vertex normal
+// is the same length everywhere.
+void TerrainGame::renderOutlineShells() {
+  if (!vuscript::shellActive()) return;
+  const float wScreen = vuscript::shellWidth();
+  if (wScreen <= 0.0F) return;
+
+  if (!outlineBag) {
+    outlineInfoBag = std::make_unique<StaPipInfoBag>();
+    outlineInfoBag->model = &outlineMat;
+    outlineInfoBag->shadingType = TyraShadingFlat;
+    outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // Clip checks ON, like any other prop - which is only correct because the
+    // shell arrives ALREADY GROWN. Growing it on VU1 instead put the clipper
+    // ahead of the growth: a package at the edge of the screen was cut on the
+    // un-grown silhouette and then grown past the cut, and the line tore into
+    // blobs exactly where an object met the edge. Turning these off to dodge
+    // that only traded it for the raster wrap raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry; the only
+    // place that can be arranged is where the geometry is built.
+    outlineInfoBag->fullClipChecks = true;
+    // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
+    // relationships on the close-up clipped path - that is what commit
+    // 67e2893f found on the reflection pass, and an outline is close-up
+    // geometry by nature.
+    outlineInfoBag->zTestType = PipelineZTest_Standard;
+    outlineColorBag = std::make_unique<StaPipColorBag>();
+    outlineBag = std::make_unique<StaPipBag>();
+    outlineBag->info = outlineInfoBag.get();
+    outlineBag->color = outlineColorBag.get();
+    outlineBag->texture = nullptr;
+    outlineBag->lighting = nullptr;
+  }
+
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    // A STATICALLY BATCHED object owns no solo bag - its geometry lives only
+    // in the merged batch - so the proxy builder found nothing to copy and
+    // that object silently wore no outline at all. It is not obvious from the
+    // picture either: the batched props are the still ones, so it reads as
+    // "that box just does not get a line". Bake the solo geometry on first
+    // use, exactly like the projected-shadow pass does for the same reason.
+    // A DIRTY member is left alone - rebuildObjectGeometry would eat the flag
+    // renderStaticBatches keys its demotion on, and this pass runs after it.
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched && objectGeometry[i].parts.empty() && !o.dirty)
+      rebuildObjectGeometry(i);
+
+    ObjectGeometry& g = objectGeometry[i];
+    if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
+      g.hullProxyVerts.clear();  // built coarse before this program came on
+    if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
+    if (g.outlineVerts.empty()) continue;  // marker-only object
+
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    if (half < 0.01F) half = 0.01F;
+
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    // What buildHighlightProxy already walked each vertex by - needed here
+    // only to size the pushback. A fraction of the object rather than a screen
+    // width, because baked geometry cannot follow the camera, and because a
+    // line proportional to the thing it surrounds is what keeps small props
+    // from wearing tyres anyway.
+    const float grow = wScreen * half;
+
+    float behind = dist - half;
+    if (behind < 0.5F) behind = 0.5F;
+    // Scale about the eye: projected size unchanged, depth multiplied. Enough
+    // to clear the object's own front surface without reaching whatever sits
+    // right behind it.
+    const float k = 1.0F + (grow + 0.15F) / behind;
+    outlineMat.identity();
+    outlineMat.data[0] = k;
+    outlineMat.data[5] = k;
+    outlineMat.data[10] = k;
+    outlineMat.data[12] = (1.0F - k) * cameraPosition.x;
+    outlineMat.data[13] = (1.0F - k) * cameraPosition.y;
+    outlineMat.data[14] = (1.0F - k) * cameraPosition.z;
+
+    // x = 1 says "this mesh is a shell, paint it flat". Every other mesh this
+    // frame carries 0, so ONE program serves the shells and the ordinary
+    // objects without a branch - which is why x of the mesh parameters is
+    // RESERVED once a shell-pass program is active.
+    //
+    // The colour cannot simply be black vertices: the program rounds to band
+    // CENTRES, so black would come back at half a step and the ink line would
+    // be dark grey. It has to be zeroed after the quantise, on VU1.
+    stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
+    outlineColorBag->single = &outlineCol;
+    outlineBag->vertices = g.outlineVerts.data();
+    outlineBag->count = static_cast<u32>(g.outlineVerts.size());
+    outlineBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(outlineBag.get());
+  }
+  // Hand the parameters back, or the next flat-colour prop inherits the shell
+  // flag and paints itself black.
+  stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
+}
+
 void TerrainGame::buildHighlightProxy(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -11923,11 +12653,22 @@ void TerrainGame::buildHighlightProxy(int index) {
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;
+    // A SHELL PASS cannot use a coarser stand-in, and this is the difference
+    // between an outline and a handful of black plates. The proxy's vertices
+    // sit ON the object's surface but its faces are CHORDS, so they run below
+    // it - by the sagitta, which at detail 12 against a detail-24 sphere is
+    // far more than a line is wide. Push the proxy out by a constant and it
+    // emerges only near its vertices and stays buried across each face: caps
+    // at the poles, nothing at the equator. The highlight can afford the
+    // coarse version because a glow is forgiving about its own silhouette; a
+    // drawn line is exactly a silhouette, so it pays the full detail.
+    const bool shell = vuscript::shellActive();
     switch (o.data.type) {
       case 1:
       case 2:
       case 3:
-        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        low.primDetail = (shell || o.data.primDetail < 12) ? o.data.primDetail
+                                                           : 12;
         break;
       default:
         break;  // boxes, planes, decals: detail 1
@@ -11948,6 +12689,54 @@ void TerrainGame::buildHighlightProxy(int index) {
         break;  // marker-only types keep the proxy empty
     }
   }
+  // The outward direction a shell-pass program grows along, baked once and
+  // encoded around 128 so it rides in the colour slot. Radial from the proxy's
+  // own centroid: for a convex low-detail stand-in that IS the smoothed
+  // normal, and at a box corner it is exactly the average of the three faces
+  // meeting there - which is what stops a grown box from splitting open along
+  // its edges. Concave shapes are the honest limit of this, and the proxy is
+  // deliberately too coarse to be concave.
+  g.outlineVerts.clear();
+  if (!g.hullProxyVerts.empty() && vuscript::shellActive()) {
+    float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+    for (const Vec4& v : g.hullProxyVerts) {
+      cx += v.x;
+      cy += v.y;
+      cz += v.z;
+    }
+    const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
+    cx *= inv, cy *= inv, cz *= inv;
+    g.outlineVerts.reserve(g.hullProxyVerts.size());
+    // How far to walk each vertex: a fraction of the object's own size, so
+    // small props do not wear tyres and nothing has to follow the camera.
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    const float grow = vuscript::shellWidth() * 0.5F * (half > 0.02F ? half
+                                                                    : 0.02F);
+    // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
+    // and half the props in a scene are - it leans toward the long axis, so a
+    // constant step along it grows the squashed sides more than the stretched
+    // ones and the line comes out thick on one edge and thin on the other. The
+    // ellipsoid normal divides each axis by its own squared radius, which
+    // costs three multiplies here and nothing at all on VU1.
+    const float rx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float ry = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float rz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 1.0F;
+    const float ix = 1.0F / (rx * rx), iy = 1.0F / (ry * ry),
+                iz = 1.0F / (rz * rz);
+    for (const Vec4& v : g.hullProxyVerts) {
+      float dx = (v.x - cx) * ix, dy = (v.y - cy) * iy, dz = (v.z - cz) * iz;
+      const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (l > 0.0001F)
+        dx /= l, dy /= l, dz /= l;
+      else
+        dx = 0.0F, dy = 1.0F, dz = 0.0F;
+      g.outlineVerts.push_back(
+          Vec4(v.x + dx * grow, v.y + dy * grow, v.z + dz * grow, 1.0F));
+    }
+  }
+  g.hullProxyFine = vuscript::shellActive();
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
@@ -12474,6 +13263,20 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {
     ch.emisBag.reset();
+  }
+
+  // Every pass above draws ch.vertices, so they all have to split it the same
+  // way - an untextured terrain base under textured layer/lightmap passes is
+  // the exact split that makes baked shadows fight z-index with the ground.
+  {
+    std::vector<Tyra::StaPipBag*> pins;
+    pins.reserve(3 + ch.layerPasses.size());
+    pins.push_back(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      pins.push_back(lp.bag.get());
+    pins.push_back(ch.aoBag.get());
+    pins.push_back(ch.emisBag.get());
+    pinPackageSize(pins);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

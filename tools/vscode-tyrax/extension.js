@@ -18,6 +18,7 @@
 
 const vscode = require("vscode");
 const vu = require("./vu");
+const vuscript = require("./vuscript");
 
 // ---- Per-language specification --------------------------------------------
 
@@ -351,8 +352,21 @@ function activate(context) {
     )
   );
 
+  // A project's own VU program - src/vu/*.cpp. Ordinary C++, so this is scoped
+  // by PATH: every other .cpp in the project is game code and none of the rules
+  // in vuscript.js hold for it.
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(vuscript.SELECTOR, {
+      provideHover: vuscript.provideHover,
+    }),
+    vscode.languages.registerCompletionItemProvider(vuscript.SELECTOR, {
+      provideCompletionItems: vuscript.provideCompletions,
+    })
+  );
+
   const run = (doc) => {
     if (doc.languageId === vu.LANG) return vu.refreshDiagnostics(doc, collection);
+    if (vuscript.applies(doc)) return vuscript.refreshDiagnostics(doc, collection);
     if (SPEC[doc.languageId]) refreshDiagnostics(doc, collection);
   };
   vscode.workspace.textDocuments.forEach(run);

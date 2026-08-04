@@ -17,6 +17,8 @@ struct SceneObjectData {
              //    layer zones, In Area triggers - pointInArea below)
              // 18=scatter volume (procedural authoring region; its
              //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -87,6 +89,13 @@ struct SceneObjectData {
   int batchStatic; // 1 = may merge into a combined static batch bag
                    // (build-time verdict: non-moving primitive with
                    // no physics/logic/graph refs/save-state/layer)
+  float vuParams[4]; // the four numbers this mesh hands to the
+                   // project's own VU1 microprogram, if it has one
+                   // (docs/vu-authoring.md). All zero = no effect,
+                   // which every stage is required to render
+                   // bit-identically to the untouched program.
+                   // Uploaded per BAG, so batched objects share one
+                   // set - one bag is one sendObjectData.
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -191,22 +200,58 @@ inline bool areaHoldsObject(const AreaBasis& b,
 }
 
 constexpr int SCENE_COUNT = 1;
+constexpr int START_SCENE = 0;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[6] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {0, {-4.5F, 1.0F, -7.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.85F, 0.18F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // flat-box
-    {1, {-1.5F, 1.0F, -7.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.8F, 1.8F}, {0.95F, 0.78F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // flat-ball
-    {0, {1.5F, 1.0F, -7.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // tex-box
-    {1, {4.5F, 1.1F, -7.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // chrome-ball
-    {0, {0.0F, 2.5F, -12.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.25F, 0.45F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // tall-pillar
+constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
+    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
+    {0, {-4.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.85F, 0.18F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}},  // flat-box
+    {1, {-1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.8F, 1.8F}, {0.95F, 0.78F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 1.0F, 0.0F, 0.0F}},  // flat-ball
+    {0, {1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0, {0.12F, 0.0F, 0.9F, 0.0F}},  // tex-box
+    {1, {4.5F, 1.1F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // chrome-ball
+    {0, {0.0F, 2.5F, 15.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.25F, 0.45F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0, {0.0F, 1.0F, 0.0F, 0.0F}},  // tall-pillar
+    {1, {2.0F, 1.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.35F, 0.7F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // lit-ball
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {6};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[6] = {0xc47970d74b2dc250ULL, 0xa4fede5c47620779ULL, 0x789b272e64c8d053ULL, 0xb1ac6c791407e2bdULL, 0x21995347c6583232ULL, 0x48c7ba9ec8a2a22bULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0xc47970d74b2dc250ULL, 0xa4fede5c47620779ULL, 0x789b272e64c8d053ULL, 0xb1ac6c791407e2bdULL, 0x21995347c6583232ULL, 0x48c7ba9ec8a2a22bULL, 0xdfd73614969417f8ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
+
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+constexpr int SCROLLER_COUNT = 0;
+constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+constexpr int SCROLLER_CLONE_COUNT = 0;
+constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+constexpr int SCROLLER_HIDDEN_COUNT = 0;
+constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
 constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
 constexpr int SCENE_MAX_LAYERS = 1;
@@ -349,7 +394,7 @@ constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {false};
 constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
 constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
@@ -405,11 +450,44 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_XS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_YS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0F};
+constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false};
+constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false};
+constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {240.0F};
+constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {90.0F};
+constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {25.0F};
+constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F};
+constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.0F};
+constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {90.0F};
+constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {35.0F};
+constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0F};
+constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0F};
+constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.0F};
+struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
+constexpr int DAY_KEY_TOTAL = 0;
+constexpr DayKeyData DAY_KEYS[1] = {{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}};
+constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0};
+constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {0};
+constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.0F};
 constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
 constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
-constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
+constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
@@ -426,6 +504,11 @@ constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
 constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 0;
+constexpr int DAYCYCLE_USED = 0;
+constexpr int STAR_COUNT = 0;
+struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
+constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
+constexpr int STAR_TIERS = 3;
 constexpr int BLOB_SHADOWS = 0;
 constexpr int PROJ_SHADOWS_USED = 0;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
@@ -480,7 +563,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 6;
+constexpr int SAVE_OBJECT_MAX = 7;
 
 }  // namespace Vu_lab
 
@@ -595,6 +678,22 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
+// and the moon, their apparent radius as a fraction of the dome radius (0 = the
+// body is down, draw nothing) and the moon disc's roll so its lit limb faces
+// the sun. All resolved at build - the game places two quads and no more.
+#define SCENE_SUN_X SCENE_SUN_XS[g_activeScene]
+#define SCENE_SUN_Y SCENE_SUN_YS[g_activeScene]
+#define SCENE_SUN_Z SCENE_SUN_ZS[g_activeScene]
+#define SCENE_SUN_R SCENE_SUN_RS[g_activeScene]
+#define SCENE_MOON_X SCENE_MOON_XS[g_activeScene]
+#define SCENE_MOON_Y SCENE_MOON_YS[g_activeScene]
+#define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
+#define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
+#define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
+#define SCENE_MOON_ALPHA SCENE_MOON_ALPHAS[g_activeScene]
+#define SCENE_STARS_BRIGHT SCENE_STARS_BRIGHTS[g_activeScene]
+#define SCENE_STARS_TWINKLE SCENE_STARS_TWINKLES[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
