@@ -91,10 +91,16 @@ element — and the instruction that loads it is the one construct the host
 simulator cannot model faithfully, because the assembler reorders it. Build
 constants in `prepare()`; they are made once.
 
-## The same rules as a VU1 program, where they apply
+## Where the VU1 rules do and do not apply
 
-- **Never divide** (`divQ`, `rsqrtQ`) from the body — see the `tyra-vu-programs`
-  skill; the reasoning is identical.
+- **You MAY divide here.** `divQ` and `rsqrtQ` are ordinary microcode in a
+  kernel, and `normalize` needs one — the `Ranges` kernel uses `rsqrtQ`. The
+  absolute "never write Q" rule is a **VU1** rule and does not carry over: there
+  the framework owns Q (the perspective divide puts 1/w in it and both the
+  position and the ST ride on it), so a divide the assembler slides into that
+  window silently moves the vertex. A kernel has no framework wrapped around the
+  body — nothing else reads Q. The build says so out loud as a note rather than
+  refusing, because the difference is not guessable from the VU1 rule.
 - Four scratch registers, `c.scratch(0..3)`.
 - Guard the arithmetic yourself: something standing exactly on the camera makes
   `1/sqrt(0)` and spreads infinities through everything downstream, so floor the

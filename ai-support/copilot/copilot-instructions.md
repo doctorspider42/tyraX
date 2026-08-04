@@ -107,9 +107,10 @@ run compute batches on **VU0** - both in ordinary C++, no assembly.
   of that class; per-mesh strength comes from four floats (`c.params`). A
   program that MOVES geometry must claim every class, or an object's several
   passes separate.
-- **Never divide** (`divQ`/`rsqrtQ`) inside a body: it lands in the perspective
-  divide's latency window and vertices come out wrong on hardware while the host
-  simulator shows nothing. There are exactly four scratch registers.
+- **Never divide** (`divQ`/`rsqrtQ`) inside a **VU1** body: it lands in the
+  perspective divide's latency window and vertices come out wrong on hardware
+  while the host simulator shows nothing. A **VU0 kernel** may divide freely -
+  nothing else there owns Q. Four scratch registers on both.
 - VU0 has **no cross-element reduction** - a kernel computes the terms, the CPU
   folds them (find the minimum in a loop after `run()`), and `run()` blocks the
   EE while it works.
