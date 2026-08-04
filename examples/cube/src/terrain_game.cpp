@@ -1152,10 +1152,15 @@ void addAreaWireframe(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addPlane(std::vector<Vec4>& verts, std::vector<Color>& cols,
               std::vector<Vec4>& sts, const SceneObjectData& o) {
   const float h = 0.5F;
+  // The underside sits slightly below the top face: nothing here backface-culls
+  // (the GS draws both), so two coplanar quads with different baked shades
+  // would z-fight into a dithered mess. Offset in local units (scales with the
+  // plane), invisible from either side. Twin: primmesh::unitPlane.
+  const float b = -0.01F;
   g_aoRegion = 0;  // top face - atlas region 0
   pushQuad(verts, cols, sts, o, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
   g_aoRegion = 1;  // bottom face - atlas region 1
-  pushQuad(verts, cols, sts, o, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+  pushQuad(verts, cols, sts, o, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
 }
 
 // Decal: a flat unit quad in the XY plane facing +Z, textured via the assigned
@@ -3780,7 +3785,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
         o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
         o.data.type == 14 ||                       // 14 = camera marker
         o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18)                         // 18 = scatter volume (authoring only)
+        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
+        o.data.type == 19)                         // 19 = scroller belt marker
       continue;
     if (o.data.collision == 2) continue;  // none
     // Portal pass-through (updatePortalPass): while the walker stands in a
@@ -4803,7 +4809,8 @@ void TerrainGame::updateUseTarget() {
     if (!o.active || !(o.data.usable || o.data.pickable) || !o.visible) continue;
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
-        o.data.type == 14 || o.data.type == 17 || o.data.type == 18)
+        o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
+        o.data.type == 19)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -7639,11 +7646,47 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+  u32 size = 0;
+  for (Tyra::StaPipBag* b : bags) {
+    if (!b || b->count == 0) continue;
+    b->packageSize = 0;  // ask for the DERIVED size, not the last pin
+    const u32 s = stapip.core.getMaxVertCountByBag(b);
+    if (s != 0 && (size == 0 || s < size)) size = s;
+  }
+  if (size == 0) return;
+  for (Tyra::StaPipBag* b : bags)
+    if (b && b->count != 0) b->packageSize = size;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
   g.matrixMode = localSpace;
+  o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
@@ -7859,6 +7902,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         for (Color& c : p0.colors) c.a = 70.0F;  // ~55% energy-glass alpha
         break;
       }
+      case 19: break;  // scroller - invisible belt marker (drives clones)
       default: addBox(p0.vertices, p0.colors, p0.sts, o.data); break;
     }
     g_primKd = nullptr;
@@ -8148,6 +8192,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->color = part.colorBag.get();
       part.bag->lighting = nullptr;
     }
+
+    // Last, once every bag of this part has its final program shape (the
+    // dyn-lit swap above changes the base bag's): give the base pass and its
+    // coplanar companions ONE package size. LOD tiers only re-aim the
+    // pointers, never the program class, so this pin survives applyGeoLod.
+    pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
+                    part.emisBag.get()});
   }
   g_litNormals = nullptr;
   if (needsLitSeed) fillDynLitColors(index);
@@ -9932,7 +9983,19 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0) continue;
-    if (runtimeObjects[i].dirty) rebuildObjectGeometry(i);
+    // Something that moves EVERY frame asked for the matrix path (an endless
+    // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
+    // bake buys it a whole belt's worth of per-frame motion at the price of a
+    // matrix refresh; without it a running belt re-bakes every clone's world
+    // vertices every frame, which is what held the endless-runner example at
+    // 16 FPS. This is checked BEFORE `dirty` on purpose: such an object dirties
+    // itself on the frame it asks, and a world-space rebuild would clear the
+    // flag and leave it asking again forever.
+    if (runtimeObjects[i].wantsMatrixPath && !objectGeometry[i].matrixMode &&
+        physFastPathEligible(i))
+      rebuildObjectGeometry(i, true);
+    else if (runtimeObjects[i].dirty)
+      rebuildObjectGeometry(i);
     // Fast-path bodies: this matrix refresh is their whole per-frame render
     // cost - it also folds in pass-2 separations and player pushes applied
     // after the physics integration wrote the matrix.
@@ -12474,6 +12537,20 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {
     ch.emisBag.reset();
+  }
+
+  // Every pass above draws ch.vertices, so they all have to split it the same
+  // way - an untextured terrain base under textured layer/lightmap passes is
+  // the exact split that makes baked shadows fight z-index with the ground.
+  {
+    std::vector<Tyra::StaPipBag*> pins;
+    pins.reserve(3 + ch.layerPasses.size());
+    pins.push_back(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      pins.push_back(lp.bag.get());
+    pins.push_back(ch.aoBag.get());
+    pins.push_back(ch.emisBag.get());
+    pinPackageSize(pins);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

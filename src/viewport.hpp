@@ -120,6 +120,47 @@ public:
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
                 float zenithSize = 0.5f);
 
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). The editor's twin of
+    // the generated game's renderSkyBodies: two camera-facing quads on the sky
+    // dome, placed from the SAME ambience::evaluate the codegen bakes
+    // SCENE_SUN_* / SCENE_MOON_* from - so dragging the time slider previews
+    // exactly what the console will draw.
+    struct SkyBodies {
+        bool enabled = false;
+        float sunDir[3] = {0.0f, 1.0f, 0.0f};
+        float moonDir[3] = {0.0f, -1.0f, 0.0f};
+        // Apparent radius as a fraction of the dome radius, tan(size/2).
+        // 0 = the body is below the horizon; draw nothing.
+        float sunRadius = 0.0f;
+        float moonRadius = 0.0f;
+        float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
+        float moonOpacity = 1.0f;
+        float sunColor[3] = {1.0f, 1.0f, 1.0f};
+        // Cancels the drift grade on the discs, which are hour-correct already
+        // (ambience::driftCompensation). 1,1,1 without a runtime grade.
+        float compensation[3] = {1.0f, 1.0f, 1.0f};
+    };
+    void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
+    // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
+    // same ones refreshGenerated PNG-encodes) so a phase edit previews without a
+    // build. 0 = the sun disc, 1 = the moon disc, 2 = the star dot (the soft
+    // radial corona - a hard-edged quad is exactly the "grey pixel" a starfield
+    // must not look like).
+    enum SkySprite { SkySun = 0, SkyMoon = 1, SkyStarDot = 2, SkySpriteCount = 3 };
+    void setSkyBodyTexture(int which, int w, int h, const unsigned char* rgba);
+
+    // Procedural night sky (starfield.hpp). The app hands over the generated
+    // star list and a 0..1 brightness; the viewport turns each star into an
+    // additive camera-facing quad, exactly as the generated game does. An empty
+    // list or brightness 0 draws nothing.
+    // `timeSec` drives the twinkle - the viewport owns no clock, and taking one
+    // would be a second answer to "what time is it" next to ImGui's.
+    void setStarField(const std::vector<starfield::Star>& stars, float brightness,
+                      float twinkle, float timeSec);
+    // The uploaded moon disc, for the Ambience Editor's own preview - the SAME
+    // texture the viewport draws, so the panel cannot show a different moon.
+    uint32_t moonDiscTexture() const { return skySpriteTex_[SkyMoon]; }
+
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
                      float brightness);
@@ -467,6 +508,12 @@ public:
     void orbit(float dxPixels, float dyPixels);
     void zoom(float wheel);
     void pan(float dxPixels, float dyPixels);
+    // Moves the pivot ALONG the view direction - a forward/back pan rather than
+    // a zoom: the eye travels with the target instead of closing in on it, so
+    // the framing keeps its perspective and the distance is untouched. Bound to
+    // a right+middle drag (down = forward, the pan sense), and the natural way
+    // to lift the pivot off the ground so the sky comes into view.
+    void dolly(float dPixels);
     void fly(float forward, float strafe, float dt);
 
     // Snap the orbit pivot to a world-space point (e.g. the selected object),
@@ -594,10 +641,35 @@ private:
     bool skyGradient_ = true;
     float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
+    // Day/night cycle discs: one shared unit quad, oriented per body by a
+    // billboard model matrix (see drawSkyBodies).
+    SkyBodies skyBodies_;
+    Mesh skyBodyQuad_;
+    uint32_t skySpriteTex_[SkySpriteCount] = {0, 0, 0};
+    // Night sky: one mesh per magnitude tier, rebuilt only when the star list
+    // itself changes (the brightness fade is a uniform, not a rebuild - the
+    // same split the console makes with the bags' additive FIX).
+    std::vector<starfield::Star> stars_;
+    Mesh starMesh_[starfield::kTiers];
+    bool starMeshDirty_ = false;
+    float starBrightness_ = 0.0f;
+    float starTwinkle_ = 0.0f;
+    float starTime_ = 0.0f;
+    void drawStarField(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
+    // Plain floats rather than the internal Mat4/CamView: both are declared
+    // below this point (Mat4 lives in viewport.cpp's anonymous namespace).
+    void drawSkyBodies(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 
     // camera (orbit around a movable target, initially the terrain center)
+    // How far the orbit camera may tip, in radians, above AND below its pivot
+    // (85.9 deg). The limit exists because camView's up vector is world +Y: at
+    // exactly +/-90 deg it aligns with the view axis, the basis degenerates and
+    // yaw stops meaning anything.
+    static constexpr float kOrbitPitchLimit = 1.5f;
     float yaw_ = 0.8f;
     float pitch_ = 0.6f;
     float distance_ = 90.0f;

@@ -142,6 +142,15 @@ struct EditorConfig {
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
     bool runOnPs2 = false;
+    // Log panels (docs/log-panels.md): which severity levels the Output and
+    // Debug windows show, as a logview level bitmask, plus their selectable-text
+    // toggles. Both default to everything visible, so the split changes nothing
+    // until someone hides a level - and which noise a person wants hidden is a
+    // property of how they work, not of the project.
+    unsigned logMaskOutput = logview::kAll;
+    unsigned logMaskDebug = logview::kAll;
+    bool logSelectOutput = false;
+    bool logSelectDebug = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -181,6 +190,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("navMoveKeys", v)) cfg.nav.moveKeys = toI(v, 0) == 1 ? NavMoveKeys::Arrows : NavMoveKeys::WASD;
         else if (match("navOrbitSens", v)) cfg.nav.orbitSensitivity = toF(v, 1.0f);
         else if (match("navPanSens", v)) cfg.nav.panSensitivity = toF(v, 1.0f);
+        else if (match("navDollySens", v)) cfg.nav.dollySensitivity = toF(v, 1.0f);
         else if (match("navZoomSens", v)) cfg.nav.zoomSensitivity = toF(v, 1.0f);
         else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
         else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
@@ -223,6 +233,15 @@ static EditorConfig loadEditorConfig() {
             cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
+        // An out-of-range mask (a config written by a newer editor with more
+        // levels) is clamped to the levels this build has, never to zero - an
+        // empty mask would look like an empty log.
+        else if (match("logMaskOutput", v))
+            cfg.logMaskOutput = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logMaskDebug", v))
+            cfg.logMaskDebug = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
+        else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -248,6 +267,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navMoveKeys=" << (int)n.moveKeys << "\n"
       << "navOrbitSens=" << n.orbitSensitivity << "\n"
       << "navPanSens=" << n.panSensitivity << "\n"
+      << "navDollySens=" << n.dollySensitivity << "\n"
       << "navZoomSens=" << n.zoomSensitivity << "\n"
       << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
@@ -286,7 +306,11 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
-      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
+      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
+      << "logMaskOutput=" << cfg.logMaskOutput << "\n"
+      << "logMaskDebug=" << cfg.logMaskDebug << "\n"
+      << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
+      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -527,6 +551,10 @@ int App::run(const std::string& initialProjectDir) {
         viewportPs2_ = cfg.viewportPs2;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
+        logOut_.mask = cfg.logMaskOutput;
+        logDbg_.mask = cfg.logMaskDebug;
+        logOut_.selectText = cfg.logSelectOutput;
+        logDbg_.selectText = cfg.logSelectDebug;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -975,7 +1003,8 @@ void App::saveGlobalConfig() {
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
-                      std::move(recent)});
+                      logOut_.mask, logDbg_.mask, logOut_.selectText,
+                      logDbg_.selectText, std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1124,6 +1153,21 @@ void App::drawMenuBar() {
             ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
+            // The one navigation setting worth reaching without opening a
+            // modal: it changes what a click DOES to the camera, so it gets
+            // toggled far more often than sensitivities are tuned. Same field
+            // the Navigation controls popup edits - one setting, two doors.
+            if (ImGui::MenuItem("Orbit around selected object", nullptr,
+                                nav_.orbitAroundSelection)) {
+                nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
+                saveGlobalConfig();
+                navFocusedIndex_ = -1;  // re-snap next frame if something is selected
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Selecting an object moves the camera pivot onto it, so a\n"
+                    "right-drag orbits around that object instead of the terrain\n"
+                    "centre. Pan, zoom and the forward drag still move freely.");
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
 
             // Theme next to the interface scale: both are "how the editor
@@ -2239,16 +2283,68 @@ void App::drawViewportWindow() {
                                  selectedAmbience_ < (int)project_.ambiencePresets.size();
             if (preview) {
                 const AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
-                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
-                viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
-                                      a.brightness);
+                // A cycle owns the sky, the light and the fog colour at its
+                // authored hour - exactly the overlay project::resolvedSettings
+                // applies for the bake, so dragging the time slider previews
+                // the light the build will actually use.
+                ambience::Resolved d{};
+                if (a.cycle.enabled) {
+                    d = ambience::evaluate(a.cycle, a.cycle.time);
+                    viewport_.setSky(d.skyColor, d.skyTopColor, a.skyDome,
+                                     a.zenithSize);
+                    viewport_.setLighting(d.lightDir, d.ambient, d.diffuse,
+                                          d.lightColor, d.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, d.fogColor,
+                                     a.fogStart, a.fogEnd);
+                } else {
+                    viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
+                    viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
+                                          a.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
+                }
                 viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
-                viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 ambiencePreviewPushed_ = true;
+                // With the runtime half on, the console also applies a drift
+                // grade every frame (docs/day-night-cycle.md). The slider is how
+                // you author that, so the preview has to include it - otherwise
+                // the editor shows a brightly lit midnight the game will not.
+                if (a.cycle.enabled && a.cycle.runtime && a.cycle.runtimeGrade) {
+                    const ambience::Resolved now =
+                        ambience::evaluate(a.cycle, a.cycle.time);
+                    const ambience::Resolved baked =
+                        ambience::evaluate(a.cycle, ambience::bakedHour(a.cycle));
+                    const ambience::Grade g = ambience::driftGrade(now, baked);
+                    ColorGradingPreset cg;
+                    for (int i = 0; i < 3; ++i) {
+                        cg.gain[i] = g.gain[i];
+                        cg.lift[i] = g.lift[i];
+                        cg.tint[i] = g.mixColor[i];
+                    }
+                    cg.tintAmount = g.mixAmount;
+                    viewport_.setGrading(true, compileGrading(cg));
+                    // Pre-compensate the sky the same way the game does, or the
+                    // preview shows a night the console will not.
+                    ambience::driftCompensation(g, skyBodyComp_);
+                    float sky[3], top[3], fog[3];
+                    for (int i = 0; i < 3; ++i) {
+                        sky[i] = std::min(1.0f, d.skyColor[i] * skyBodyComp_[i]);
+                        top[i] = std::min(1.0f, d.skyTopColor[i] * skyBodyComp_[i]);
+                        fog[i] = std::min(1.0f, d.fogColor[i] * skyBodyComp_[i]);
+                    }
+                    viewport_.setSky(sky, top, a.skyDome, a.zenithSize);
+                    viewport_.setFog(a.fogEnabled && showFog_, fog, a.fogStart,
+                                     a.fogEnd);
+                } else {
+                    skyBodyComp_[0] = skyBodyComp_[1] = skyBodyComp_[2] = 1.0f;
+                }
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
                 applyProjectToViewport();  // restore the scene's own ambience
             }
+            // The sun/moon discs follow whichever cycle is being shown: the
+            // previewed preset while the editor is open, the scene's own
+            // otherwise - so they are visible during ordinary scene work too.
+            updateSkyBodyPreview(preview ? selectedAmbience_ : -1);
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -2744,6 +2840,11 @@ void App::drawViewportWindow() {
             const bool alt = io.KeyAlt, shift = io.KeyShift;
             bool doOrbit = false, doPan = false;
             float dolly = 0.0f;  // extra wheel-equivalent zoom from a drag
+            // Right + middle together: pan the pivot FORWARD/BACK along the view
+            // direction. Checked before the scheme switch because it has to beat
+            // whatever those two buttons mean on their own - and it is scheme
+            // independent, since every scheme leaves the pair unused.
+            const bool doDollyPan = rmb && mmb;
             switch (nav_.scheme) {
                 case NavScheme::Blender:
                     doOrbit = mmb && !shift;
@@ -2765,6 +2866,13 @@ void App::drawViewportWindow() {
                     doOrbit = rmb;
                     doPan = mmb;
                     break;
+            }
+            if (doDollyPan) {
+                doOrbit = doPan = false;  // the pair is its own gesture
+                // Dragging DOWN moves forward. That is the pan sense, not the
+                // zoom sense: a pan drags the WORLD under the cursor, so pulling
+                // the mouse toward you pulls the scene toward you.
+                viewport_.dolly(io.MouseDelta.y * nav_.dollySensitivity);
             }
             if (doOrbit) {
                 const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
@@ -3963,7 +4071,8 @@ void App::drawProjectWindow() {
         for (int i = 0; i < (int)project_.scenes.size(); ++i) {
             ImGui::PushID(i + 3000);
             const std::string label =
-                project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
+                project_.scenes[i].name +
+                (i == project_.startScene ? "  (start)" : "") + "##scene";
             if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
                                   ImGuiSelectableFlags_AllowOverlap) &&
                 project_.activeScene != i) {
@@ -8416,6 +8525,10 @@ void App::drawAmbienceWindow() {
             drawAmbiencePresets(changed);
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Day / night")) {
+            drawAmbienceDayCycle(changed);
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Global illumination", nullptr,
                                 wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
             drawGiBakeSection();
@@ -8618,6 +8731,486 @@ void App::drawAmbiencePresets(bool& changed) {
     }
 
     ImGui::EndChild();
+}
+
+// The day/night half of the Ambience Editor (docs/day-night-cycle.md). Edits
+// the SELECTED preset's cycle: a preset is a scene's mood bundle, so "which
+// preset" doubles as "which time of day", and a scene picks one already.
+void App::drawAmbienceDayCycle(bool& changed) {
+    if (selectedAmbience_ < 0 ||
+        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
+        ImGui::TextDisabled("Select a preset on the Presets tab first.");
+        ImGui::TextDisabled(
+            "\nA day/night cycle belongs to a preset: the sun and moon arcs,\n"
+            "the colours through the day, and the hour the scene is built at.");
+        return;
+    }
+    AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
+    DayCycle& c = a.cycle;
+
+    ImGui::Text("Preset: %s", a.name.c_str());
+    // Which preset the ACTIVE SCENE actually resolves to. Without this line the
+    // tab is genuinely misleading: the viewport previews whatever preset is
+    // selected here, and closing the window puts the SCENE's preset back - which
+    // reads exactly like the edit having been thrown away when the two differ.
+    {
+        const int sceneIdx = project::ambienceIndexFor(project_, project_.active());
+        if (sceneIdx != selectedAmbience_) {
+            ImGui::SameLine(0.0f, scaled(12.0f));
+            ImGui::TextColored(theme::semantics().warn, "(not this scene's)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Scene \"%s\" is lit by %s, so the viewport goes back to that\n"
+                    "when this window closes. Edits here are NOT lost - the title\n"
+                    "bar shows the project unsaved until you save - they just are\n"
+                    "not what this scene uses.",
+                    project_.active().name.c_str(),
+                    sceneIdx >= 0 && sceneIdx < (int)project_.ambiencePresets.size()
+                        ? project_.ambiencePresets[sceneIdx].name.c_str()
+                        : "no preset");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Use for this scene")) {
+                project_.active().ambiencePreset = a.name;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Point scene \"%s\" at this preset, so what you\n"
+                                  "author here is what it is lit by.",
+                                  project_.active().name.c_str());
+        }
+    }
+    ImGui::SameLine(0.0f, scaled(24.0f));
+    if (ImGui::Checkbox("Enable day/night cycle", &c.enabled)) {
+        // First enable with nothing authored would resolve every hour to one
+        // default key, i.e. a flat sky - seed a real day instead.
+        if (c.enabled && c.keys.empty()) c.keys = ambience::defaultKeys();
+        changed = true;
+    }
+    prefHelp(
+        "Replaces this preset's sky, light direction/colour and fog colour with\n"
+        "whatever the cycle resolves to at the hour below.\n\n"
+        "It is not a screen tint: the resolved direction is what the vertex\n"
+        "shading, the AO bake, the GI bake and the runtime projected shadows,\n"
+        "lens flare and god rays are all built from.");
+    if (!c.enabled) {
+        ImGui::TextDisabled(
+            "\nOff - the preset's own sky/lighting/fog on the Presets tab is used.");
+        return;
+    }
+
+    // --- the slider --------------------------------------------------------
+    ImGui::SeparatorText("Time of day");
+    const ambience::Resolved now = ambience::evaluate(c, c.time);
+    {
+        char label[32];
+        std::snprintf(label, sizeof(label), "%02d:%02d", (int)c.time,
+                      (int)((c.time - (float)(int)c.time) * 60.0f));
+        ImGui::SetNextItemWidth(-scaled(120.0f));
+        ImGui::SliderFloat("##tod", &c.time, 0.0f, 24.0f, label);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Noon")) { c.time = 12.0f; changed = true; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Midnight")) { c.time = 0.0f; changed = true; }
+
+    // A 24-hour strip of the horizon colour, with the current hour marked. It
+    // is the fastest way to see that a key list has a hole in it.
+    {
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float h = scaled(22.0f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const int steps = 96;
+        for (int i = 0; i < steps; ++i) {
+            const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
+            const DayKey k = ambience::sampleKeys(c, t0 * 24.0f);
+            dl->AddRectFilled(
+                ImVec2(p0.x + w * t0, p0.y), ImVec2(p0.x + w * t1 + 1.0f, p0.y + h),
+                IM_COL32((int)(k.skyColor[0] * 255), (int)(k.skyColor[1] * 255),
+                         (int)(k.skyColor[2] * 255), 255));
+        }
+        const theme::Semantics& sem = theme::semantics();
+        for (const DayKey& k : c.keys) {
+            const float x = p0.x + w * (k.hour / 24.0f);
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + h * 0.35f),
+                        ImGui::GetColorU32(sem.textDim), 1.0f);
+        }
+        const float sx = p0.x + w * (ambience::wrap24(c.time) / 24.0f);
+        dl->AddLine(ImVec2(sx, p0.y), ImVec2(sx, p0.y + h),
+                    ImGui::GetColorU32(sem.accent), scaled(2.0f));
+        ImGui::Dummy(ImVec2(w, h));
+    }
+    ImGui::TextDisabled(
+        "Sun %+.0f deg, moon %+.0f deg above the horizon - %s is lighting the "
+        "scene.",
+        now.sunElevation, now.moonElevation,
+        now.sunElevation >= now.moonElevation ? "the sun" : "the moon");
+    prefHelp(
+        "The baked light direction never dips below +5 degrees, whichever body\n"
+        "is up: a light at the horizon gives flat ground no diffuse at all, and\n"
+        "one below it lights the world from underneath. Night gets dark from\n"
+        "the key colours, not from aiming the sun into the floor.");
+
+    // --- sun ---------------------------------------------------------------
+    ImGui::SeparatorText("Sun");
+    ImGui::SliderFloat("Rises at (bearing)", &c.sunAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Compass bearing of sunrise: 0 = +Z, 90 = +X.");
+    ImGui::SliderFloat("Arc tilt", &c.sunTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("How far the arc leans off the zenith. 0 puts the sun straight\n"
+             "overhead at midday; 60 is a low winter sun with long shadows.");
+    ImGui::SliderFloat("Sunrise", &c.sunrise, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sunset", &c.sunset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sun size", &c.sunSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Apparent diameter of the disc. The real sun is about 0.5 deg,\n"
+             "which is almost invisible on a 512x448 frame - 3 reads better.");
+
+    // --- moon --------------------------------------------------------------
+    ImGui::SeparatorText("Moon");
+    ImGui::SliderFloat("Moon bearing", &c.moonAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Moon arc tilt", &c.moonTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Hours behind the sun", &c.moonOffset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("12 puts the moon up exactly while the sun is down, which is what\n"
+             "you want unless you are after a moon visible in daylight.");
+    ImGui::SliderFloat("Moon size", &c.moonSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Opacity", &c.moonOpacity, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp(
+        "How solid the disc is. Applied when it is DRAWN, not baked into the\n"
+        "texture, so dragging this needs no re-bake and one texture serves\n"
+        "every value.\n\n"
+        "Below 1 the sky shows through - which is what a moon behind thin cloud\n"
+        "or a daytime moon actually looks like. 0 draws nothing at all.");
+    prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a\n"
+             "terminator, so it costs the console nothing.");
+    {
+        ImGui::Text("Moon texture: %s",
+                    c.moonTexture.empty() ? "built-in (NASA LRO colour map)"
+                                          : c.moonTexture.c_str());
+        if (ImGui::Button("Import moon texture...")) {
+            // Same import shape as the HUD image pickers: copy into res/ and
+            // store the project-relative path.
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    c.moonTexture = "res/textures/" + fileName;
+                    skyBodyMoonSig_.clear();  // force a re-bake
+                    changed = true;
+                } else {
+                    statusMessage_ = "Moon texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (!c.moonTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Reset to built-in")) {
+                c.moonTexture.clear();
+                skyBodyMoonSig_.clear();
+                changed = true;
+            }
+        }
+        prefHelp(
+            "Empty = NASA's Lunar Reconnaissance Orbiter colour map, built into\n"
+            "the editor. A 2:1 image is treated as an equirectangular map of the\n"
+            "sphere and projected; anything else is used as the disc face.\n\n"
+            "The map itself never ships - only the small baked disc does.");
+    }
+    // The disc as it will be baked, at the size it is baked (the preview and
+    // the shipped texture are the same pixels - see menubake::bakeMoonRGBA).
+    if (uint32_t t = viewport_.moonDiscTexture())
+        ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
+
+    // --- the runtime half ----------------------------------------------------
+    ImGui::SeparatorText("Let the clock run (hybrid)");
+    if (ImGui::Checkbox("Advance the time in game", &c.runtime)) changed = true;
+    prefHelp(
+        "The half of the cycle that costs nothing per frame follows a live\n"
+        "clock: the sun and moon move, the sky dome and the fog retint, the\n"
+        "projected shadows swing, the flare and god rays track the sun and the\n"
+        "stars fade in.\n\n"
+        "What does NOT follow is the BAKED half - vertex shading, the AO\n"
+        "lightmap, any GI. Those stay at the hour above, because re-baking them\n"
+        "is ~170 ms of EE work. That is what the colour grade below is for.");
+    if (c.runtime) {
+        ImGui::SliderFloat("Day length", &c.dayLength, 8.0f, 1800.0f, "%.0f s");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Real seconds for a whole 24 hours. The time above is where\n"
+                 "the clock STARTS (and still the hour everything bakes at).");
+        ImGui::TextDisabled("%.1f s per in-game hour; sunrise to sunset takes %.0f s.",
+                            c.dayLength / 24.0f,
+                            c.dayLength * ambience::wrap24(c.sunset - c.sunrise) / 24.0f);
+        if (ImGui::Checkbox("Drift a colour grade with the clock", &c.runtimeGrade))
+            changed = true;
+        prefHelp(
+            "Without this, geometry baked at noon stays brightly lit under a\n"
+            "midnight sky. The grade carries the world's overall level and\n"
+            "warmth per frame - one postFx call, no re-bake - and is identity\n"
+            "when the clock sits on the hour the scene was baked at.\n\n"
+            "Turn it off if the project drives its own grading and you would\n"
+            "rather bake several times of day as separate scenes.");
+        ImGui::SliderFloat("Bake lighting at", &c.bakeHour, 0.0f, 24.0f, "%.1f h");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp(
+            "The hour shadows, AO and GI are baked at - a separate question from\n"
+            "where the clock starts, once it moves. Noon is usually the right\n"
+            "answer: it is the most neutral light for a lightmap, and the drift\n"
+            "grade measures every other hour against it.");
+        ImGui::TextDisabled("Clock starts %02d:%02d, geometry baked %02d:%02d.",
+                            (int)c.time,
+                            (int)((c.time - (float)(int)c.time) * 60.0f),
+                            (int)c.bakeHour,
+                            (int)((c.bakeHour - (float)(int)c.bakeHour) * 60.0f));
+    }
+
+    // --- stars ---------------------------------------------------------------
+    ImGui::SeparatorText("Stars");
+    if (ImGui::Checkbox("Night sky", &c.starsEnabled)) changed = true;
+    prefHelp(
+        "Real glowing points, not a sky texture: the field is drawn through\n"
+        "ADDITIVE bags, so each star ADDS its colour to the sky behind it and a\n"
+        "bright one saturates and blooms.\n\n"
+        "One bag per magnitude tier = 3 submits for the whole sky, and the\n"
+        "brightness rides the bags' additive FIX - so fading the stars in at\n"
+        "dusk costs three bytes a frame, not a rebuild. How bright they get at\n"
+        "each hour is the Stars column in the key table below.");
+    if (c.starsEnabled) {
+        starfield::Params& sp = c.starField;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::InputInt("Seed", &sp.seed)) changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reroll")) {
+            sp.seed = (int)(ImGui::GetTime() * 1000.0) & 0x7fffffff;
+            changed = true;
+        }
+        prefHelp("The same seed is the same sky, always - so nudging a slider\n"
+                 "adjusts the sky instead of reshuffling it.");
+        ImGui::SliderInt("Star count", &sp.count, 0, starfield::kMaxStars);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Magnitude spread", &sp.magnitudeSpread, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("0 = every star equally bright; 1 = a realistic long tail of\n"
+                 "faint stars under a handful of bright ones.");
+        ImGui::SliderFloat("Milky Way", &sp.milkyWay, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Density along a band. Without it a random sky reads as\n"
+                 "uniform noise rather than as a sky.");
+        ImGui::SliderFloat("Band tilt", &sp.milkyWayTilt, -89.0f, 89.0f, "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Star size", &sp.sizeScale, 0.25f, 4.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Twinkle", &c.starTwinkle, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Each magnitude tier shimmers at its own rate. Per BAG, not\n"
+                 "per star - three multiplies a frame for the whole sky.");
+        ImGui::TextDisabled("%d stars = %d vertices in %d submits (the sky dome "
+                            "next to it is 504).",
+                            sp.count, sp.count * 6, starfield::kTiers);
+    }
+
+    // --- keys --------------------------------------------------------------
+    ImGui::SeparatorText("Colours through the day");
+    if (ImGui::Button("Seed a default day")) {
+        c.keys = ambience::defaultKeys();
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    prefHelp("Replaces the key list with a night/dawn/day/dusk/night set.");
+    ImGui::SameLine();
+    if (ImGui::Button("+ Key at current time")) {
+        DayKey k = ambience::sampleKeys(c, c.time);  // continue the curve
+        k.hour = ambience::wrap24(c.time);
+        c.keys.push_back(k);
+        project::sortDayKeys(c);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(selectedDayKey_ < 0 || selectedDayKey_ >= (int)c.keys.size());
+    if (ImGui::Button("Remove key")) {
+        c.keys.erase(c.keys.begin() + selectedDayKey_);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+
+    if (c.keys.empty()) {
+        ImGui::TextDisabled("No keys - every hour resolves to the same neutral sky.");
+        return;
+    }
+    if (ImGui::BeginTable("##daykeys", 8,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingFixedFit |
+                              ImGuiTableFlags_ScrollY,
+                          ImVec2(0, scaled(200)))) {
+        ImGui::TableSetupColumn("Hour");
+        ImGui::TableSetupColumn("Horizon");
+        ImGui::TableSetupColumn("Zenith");
+        ImGui::TableSetupColumn("Light");
+        ImGui::TableSetupColumn("Fog");
+        ImGui::TableSetupColumn("Amb");
+        ImGui::TableSetupColumn("Diff");
+        ImGui::TableSetupColumn("Stars");
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+        bool resort = false;
+        for (int i = 0; i < (int)c.keys.size(); ++i) {
+            DayKey& k = c.keys[i];
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(scaled(64));
+            if (ImGui::DragFloat("##h", &k.hour, 0.05f, 0.0f, 24.0f, "%.2f"))
+                selectedDayKey_ = i;
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                resort = true;
+                changed = true;
+            }
+            if (ImGui::IsItemActivated()) selectedDayKey_ = i;
+            const ImGuiColorEditFlags cf =
+                ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
+            auto colCell = [&](const char* id, float* rgb) {
+                ImGui::TableNextColumn();
+                if (ImGui::ColorEdit3(id, rgb, cf)) selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            colCell("##sky", k.skyColor);
+            colCell("##top", k.skyTopColor);
+            colCell("##lit", k.lightColor);
+            colCell("##fog", k.fogColor);
+            auto numCell = [&](const char* id, float* v, float hi) {
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(scaled(52));
+                if (ImGui::DragFloat(id, v, 0.01f, 0.0f, hi, "%.2f"))
+                    selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            numCell("##amb", &k.ambient, 1.0f);
+            numCell("##dif", &k.diffuse, 1.0f);
+            numCell("##str", &k.stars, 1.0f);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+        if (resort) {
+            project::sortDayKeys(c);
+            selectedDayKey_ = -1;
+        }
+    }
+    ImGui::TextDisabled(
+        "Keys interpolate cyclically, so the last key of the day carries "
+        "through\nmidnight into the first. Two keys holding the same colour "
+        "are how you\nkeep night looking like night instead of ramping into "
+        "dawn from 00:00.");
+
+    if (changed) project::clampDayCycle(c);
+}
+
+// Pushes the sun/moon discs into the viewport, re-baking the moon only when its
+// inputs moved. `presetIndex` >= 0 = preview that preset (the Ambience Editor is
+// showing it); -1 = whatever the active scene resolves to.
+void App::updateSkyBodyPreview(int presetIndex) {
+    const DayCycle* c = nullptr;
+    if (presetIndex >= 0 && presetIndex < (int)project_.ambiencePresets.size()) {
+        const DayCycle& pc = project_.ambiencePresets[presetIndex].cycle;
+        if (pc.enabled) c = &pc;
+    } else {
+        c = templates::sceneDayCycle(project_, project_.active());
+    }
+    if (!c) {
+        viewport_.setSkyBodies(Viewport::SkyBodies{});
+        viewport_.setStarField({}, 0.0f, 0.0f, 0.0f);
+        return;
+    }
+
+    // The sun sprite is fixed, so it uploads once per session.
+    if (!skyBodySunUploaded_) {
+        std::vector<unsigned char> rgba;
+        menubake::bakeSunRGBA(rgba);
+        viewport_.setSkyBodyTexture(Viewport::SkySun, menubake::kSunDiscSize,
+                                    menubake::kSunDiscSize, rgba.data());
+        // The star dot rides along - it is fixed too, and it is what keeps a
+        // star from drawing as a hard little square.
+        menubake::bakeFlareRGBA(2, rgba);
+        viewport_.setSkyBodyTexture(Viewport::SkyStarDot,
+                                    menubake::kFlareSpriteSize,
+                                    menubake::kFlareSpriteSize, rgba.data());
+        skyBodySunUploaded_ = true;
+    }
+    // The moon is a real image projection - only re-bake when its inputs move.
+    {
+        char sig[64];
+        std::snprintf(sig, sizeof(sig), "%.4f|", c->moonPhase);
+        const std::string want = std::string(sig) + c->moonTexture;
+        if (want != skyBodyMoonSig_) {
+            std::vector<unsigned char> rgba;
+            const std::string srcAbs = c->moonTexture.empty()
+                                           ? std::string()
+                                           : project_.filePath(c->moonTexture);
+            if (menubake::bakeMoonRGBA(c->moonPhase, srcAbs, rgba)) {
+                viewport_.setSkyBodyTexture(Viewport::SkyMoon,
+                                            menubake::kMoonDiscSize,
+                                            menubake::kMoonDiscSize, rgba.data());
+                skyBodyMoonSig_ = want;
+            }
+        }
+    }
+
+    // The night sky. Regenerated only when its Params change - generate() is
+    // deterministic, so the same seed is always the same sky and there is
+    // nothing to gain from re-rolling it every frame.
+    if (c->starsEnabled && c->starField.count > 0) {
+        if (c->starField != skyBodyStarParams_) {
+            skyBodyStarParams_ = c->starField;
+            skyBodyStars_ = starfield::generate(c->starField);
+        }
+    } else if (!skyBodyStars_.empty()) {
+        skyBodyStars_.clear();
+        skyBodyStarParams_ = starfield::Params{};
+    }
+
+    const ambience::Resolved d = ambience::evaluate(*c, c->time);
+    Viewport::SkyBodies b;
+    b.enabled = true;
+    for (int i = 0; i < 3; ++i) {
+        b.sunDir[i] = d.sunDir[i];
+        b.moonDir[i] = d.moonDir[i];
+        b.sunColor[i] = d.lightColor[i];
+    }
+    // Same "keep drawing a little below the horizon" rule codegen bakes, so a
+    // setting body slides out of view here too instead of vanishing whole.
+    const float kDeg = 3.14159265f / 180.0f;
+    b.sunRadius =
+        d.sunElevation < -10.0f ? 0.0f : std::tan(c->sunSize * 0.5f * kDeg);
+    b.moonRadius =
+        d.moonElevation < -10.0f ? 0.0f : std::tan(c->moonSize * 0.5f * kDeg);
+    b.moonRoll = d.moonUpAngle;
+    b.moonOpacity = c->moonOpacity;
+    for (int i = 0; i < 3; ++i) b.compensation[i] = skyBodyComp_[i];
+    viewport_.setStarField(skyBodyStars_,
+                           d.stars * (skyBodyComp_[0] + skyBodyComp_[1] +
+                                      skyBodyComp_[2]) / 3.0f,
+                           c->starTwinkle, (float)ImGui::GetTime());
+    viewport_.setSkyBodies(b);
 }
 
 // --- Options-menu "option blocks" ------------------------------------------
@@ -9839,9 +10432,9 @@ void App::drawDeleteSceneModal() {
                         "go with it. Undo (Ctrl+Z) can bring the scene back,\n"
                         "but not its heightmap.",
                         (int)sc.objects.size());
-    if (deleteScenePending_ == 0)
+    if (deleteScenePending_ == project_.startScene)
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "This is the start scene - the next one takes its place.");
+                           "This is the start scene - the first one takes its place.");
 
     ImGui::Separator();
     if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
@@ -9849,6 +10442,14 @@ void App::drawDeleteSceneModal() {
         if (project_.activeScene >= (int)project_.scenes.size() ||
             project_.activeScene == deleteScenePending_)
             project_.activeScene = 0;
+        // Deleting shifts every later index down by one, so the start scene
+        // follows its scene rather than staying on a number. Deleting the start
+        // scene itself falls back to the first one.
+        if (project_.startScene == deleteScenePending_)
+            project_.startScene = 0;
+        else if (project_.startScene > deleteScenePending_)
+            --project_.startScene;
+        project::clampStartScene(project_);
         clearSelection();
         flowGraphObject_ = -1;
         flowPositionsApplied_ = false;
@@ -10164,41 +10765,212 @@ void App::drawNewSceneModal() {
     ImGui::EndPopup();
 }
 
-void App::drawOutputWindow() {
-    ImGui::Begin("Output");
-    const std::string log = runner_.log();
+// ---------------------------------------------------------------------------
+// The log panels (docs/log-panels.md). Output (the Runner's build/run stream)
+// and Debug (the game's own log.txt / PCSX2's emulog.txt) are the same problem:
+// a growing pile of lines whose interesting part is a handful of warnings and
+// errors buried in tool chatter. logview.cpp classifies every line into
+// error / warning / info / verbose; the two functions below draw that
+// classification - a filter chip per level with its count, then the lines
+// coloured by level - and both panels share the body so they cannot drift.
+// ---------------------------------------------------------------------------
 
-    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+// A level's colour. Meanings, not literals (docs/editor-theme.md): an error is
+// the theme's danger colour, ordinary tool output its dim text.
+static ImVec4 logLevelColor(logview::Level l) {
+    const theme::Semantics& s = theme::semantics();
+    switch (l) {
+        case logview::Level::Error: return s.danger;
+        case logview::Level::Warning: return s.warn;
+        case logview::Level::Info: return s.text;
+        default: return s.textDim;
+    }
+}
+
+// One filter chip - "3 errors", in its level's colour, quiet while the level is
+// hidden. Returns true when clicked; the caller flips the mask bit.
+static bool logLevelChip(logview::Level l, int count, bool on) {
+    ImVec4 col = logLevelColor(l);
+    if (!on) col.w *= 0.40f;  // hidden, but still readable enough to click back
+    char label[64];
+    // The count is part of the label, so the id has to be pinned separately -
+    // otherwise every appended line gives the chip a new id and drops its hover.
+    snprintf(label, sizeof(label), "%d %s##logchip%d", count,
+             logview::label(l, count != 1), (int)l);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(on ? ImGuiCol_FrameBgActive
+                                                      : ImGuiCol_FrameBg));
+    const bool clicked = ImGui::SmallButton(label);
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(on ? "Showing these lines - click to hide them"
+                             : "These lines are hidden - click to show them");
+    return clicked;
+}
+
+// Hands a panel its current text and classifies what is new in it.
+void App::logSetText(LogView& v, std::string&& text) {
+    // Append-only is the common case - a build streaming lines in - so keep the
+    // classified prefix and look only at what arrived: re-classifying a
+    // megabyte on every appended line costs far more than a frame. Anything
+    // else (Clear, a new run recreating bin/log.txt, the Debug window's source
+    // combo, a 1 MB tail whose start has moved) starts over.
+    const bool appended =
+        text.size() >= v.text.size() && text.compare(0, v.text.size(), v.text) == 0;
+    if (appended && text.size() == v.text.size()) return;  // nothing new
+    if (!appended) {
+        v.lines.clear();
+        v.parsed = 0;
+        v.complete = 0;
+        v.state = logview::State{};
+    }
+    v.text = std::move(text);
+    v.lines.resize(v.complete);  // drop last frame's provisional tail line
+    v.parsed = logview::parse(v.text, v.parsed, v.state, v.lines);
+    v.complete = v.lines.size();
+    logview::appendPartial(v.text, v.parsed, v.state, v.lines);
+    v.dirty = true;
+}
+
+// Rebuilds what the draw needs from (lines, mask). Call once per frame per
+// panel, before the panel's own buttons - they read the counts and the filtered
+// text. Cheap while nothing changed.
+void App::logRefresh(LogView& v) {
+    const float font = ImGui::GetFontSize();
+    if (!v.dirty && v.widthFont == font) return;
+
+    v.visible.clear();
+    for (int i = 0; i < logview::kLevelCount; ++i) v.counts[i] = 0;
+    size_t widest = 0, widestLen = 0;
+    for (size_t i = 0; i < v.lines.size(); ++i) {
+        const logview::Line& ln = v.lines[i];
+        // The chips count ENTRIES, not lines: a compiler error plus its source
+        // snippet is one problem, and "4 errors" for it would be a lie.
+        if (!ln.cont) v.counts[(int)ln.level]++;
+        if (!(v.mask & logview::bit(ln.level))) continue;
+        v.visible.push_back((int)i);
+        if (ln.end - ln.begin > widestLen) {
+            widestLen = ln.end - ln.begin;
+            widest = i;
+        }
+    }
+    // The horizontal scroll range. A clipper only submits the lines on screen,
+    // so the child cannot measure its own content width - and measuring every
+    // line of a megabyte log is not affordable per rebuild. The longest line in
+    // BYTES stands in for the widest in pixels (a log's lines are all the same
+    // typeface), and one CalcTextSize on it is free.
+    v.width = 0.0f;
+    if (widestLen) {
+        const logview::Line& ln = v.lines[widest];
+        v.width = ImGui::CalcTextSize(v.text.c_str() + ln.begin, v.text.c_str() + ln.end).x;
+    }
+    v.widthFont = font;
+    // Only the selectable-text mode needs the lines as one string; Copy builds
+    // its own on demand, so an ordinary streaming build pays no joins.
+    if (v.selectText)
+        v.joined = logview::join(v.text, v.lines, v.mask);
+    else
+        v.joined.clear();
+    v.dirty = false;
+}
+
+void App::drawLogPanel(const char* id, LogView& v) {
+    // Here rather than in the callers: a Clear / source switch above this point
+    // has just replaced v.text and cleared v.lines, and `visible` still indexes
+    // the text that is gone. A no-op when nothing changed.
+    logRefresh(v);
+
+    // Most severe first - that is the order a reader scans a log console in.
+    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
+        const logview::Level l = (logview::Level)i;
+        if (i != logview::kLevelCount - 1) ImGui::SameLine();
+        if (logLevelChip(l, v.counts[i], (v.mask & logview::bit(l)) != 0)) {
+            v.mask ^= logview::bit(l);
+            v.dirty = true;
+            saveGlobalConfig();
+        }
+    }
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(log.c_str());
+    if (ImGui::Checkbox("Select text", &v.selectText)) {
+        v.dirty = true;
+        v.scrollBottom = true;  // the two modes measure their content differently
+        saveGlobalConfig();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Draw the filtered log in a read-only text box so it can be\n"
+            "selected with the mouse. ImGui's editable text is one colour,\n"
+            "so this trades the per-level colouring for selection - the\n"
+            "filter above keeps working either way.");
     ImGui::Separator();
 
-    // Own scrolling child so we can drive the scroll directly. The nested
-    // InputTextMultiline keeps the text mouse-selectable; sizing it to its own
-    // content means this child (not the input) owns the scrollbars, so
-    // GetScrollY/SetScrollHereY below actually refer to what we see.
-    ImGui::BeginChild("##logscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+    // Own scrolling child so the scroll can be driven directly (see the
+    // autoscroll note below).
+    if (!v.selectText)
+        ImGui::SetNextWindowContentSize(
+            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f, 0.0f));
+    ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
 
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(log.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##log", const_cast<char*>(log.c_str()), log.size() + 1,
-                              inputSize, ImGuiInputTextFlags_ReadOnly);
+    if (v.selectText) {
+        // Sizing the input to its own content means this child (not the input)
+        // owns the scrollbars, so GetScrollY/SetScrollHereY refer to what we see.
+        const ImVec2 pad = ImGui::GetStyle().FramePadding;
+        const ImVec2 textSize = ImGui::CalcTextSize(v.joined.c_str(), nullptr, false);
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
+                               ImMax(textSize.y + pad.y * 2.0f, avail.y));
+        ImGui::InputTextMultiline("##logtext", const_cast<char*>(v.joined.c_str()),
+                                  v.joined.size() + 1, inputSize,
+                                  ImGuiInputTextFlags_ReadOnly);
+    } else if (v.visible.empty()) {
+        // Say WHY it is empty: an all-levels-off filter otherwise reads exactly
+        // like a log that has nothing in it.
+        if (v.lines.empty())
+            ImGui::TextDisabled("(nothing logged yet)");
+        else
+            ImGui::TextDisabled("%d line%s hidden by the filter above.",
+                                (int)v.lines.size(), v.lines.size() == 1 ? "" : "s");
+    } else {
+        ImGuiListClipper clipper;
+        clipper.Begin((int)v.visible.size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const logview::Line& ln = v.lines[v.visible[i]];
+                ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
+                ImGui::TextUnformatted(v.text.c_str() + ln.begin, v.text.c_str() + ln.end);
+                ImGui::PopStyleColor();
+            }
+        }
+    }
 
     // Stick to the bottom while new lines arrive, but only when the user is
     // already at the bottom (scrolling up to read or select holds position).
     // GetScrollMaxY() lags one frame behind the content just appended, so when
     // we were pinned last frame Scroll.y still equals it here and the test
     // passes; once the user scrolls up it no longer does and we let go.
-    static size_t lastLogSize = 0;
-    if (log.size() != lastLogSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+    if (v.scrollBottom ||
+        (v.visible.size() != v.shown && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f))
         ImGui::SetScrollHereY(1.0f);
-    lastLogSize = log.size();
+    v.scrollBottom = false;
+    v.shown = v.visible.size();
 
     ImGui::EndChild();
+}
+
+void App::drawOutputWindow() {
+    ImGui::Begin("Output");
+    logSetText(logOut_, runner_.log());
+
+    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logOut_.text, logOut_.lines, logOut_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
+    ImGui::SameLine();
+    drawLogPanel("##logscroll", logOut_);
     ImGui::End();
 }
 
@@ -10213,15 +10985,9 @@ void App::drawOutputWindow() {
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
-    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
-    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
-    const char* sources[] = {"Game log", "Emulator log"};
-    ImGui::SetNextItemWidth(140.0f);
-    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
-        debugLog_.clear();       // don't show the other source's stale content
-        debugNextReload_ = 0.0;  // reload immediately from the new source
-    }
-
+    // The source file is resolved and READ first, because the buttons below
+    // report on the classified lines (the level counts, Copy) - so the Reload
+    // button arms the next frame's read rather than this one's.
     std::string path;
     if (hasProject_) {
         if (debugLogSource_ == 0)
@@ -10229,18 +10995,37 @@ void App::drawDebugWindow() {
         else
             path = runner_.emulatorLogPath(project_);
     }
+    // Refresh from disk on demand, and while Auto is on, at most twice a second
+    // (per-frame file reads would be wasteful for a possibly large log).
+    const double now = ImGui::GetTime();
+    if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
+        logSetText(logDbg_, readTextFileTail(path, 1u << 20));  // last 1 MB
+        debugNextReload_ = now + 0.5;
+    }
+    debugReloadNow_ = false;
+
+    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
+    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
+    const char* sources[] = {"Game log", "Emulator log"};
+    ImGui::SetNextItemWidth(scaled(140));
+    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
+        logSetText(logDbg_, std::string());  // don't show the other source's content
+        debugNextReload_ = 0.0;              // reload immediately from the new source
+    }
 
     ImGui::SameLine();
-    bool reloadNow = false;
-    if (ImGui::SmallButton("Reload")) reloadNow = true;
+    if (ImGui::SmallButton("Reload")) debugReloadNow_ = true;
     ImGui::SameLine();
     ImGui::Checkbox("Auto", &debugAutoReload_);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(debugLog_.c_str());
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logDbg_.text, logDbg_.lines, logDbg_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Clear log") && !path.empty()) {
         std::ofstream(path, std::ios::trunc);  // best effort; may be held open
-        debugLog_.clear();
+        logSetText(logDbg_, std::string());
         debugNextReload_ = 0.0;
     }
     ImGui::SameLine();
@@ -10261,33 +11046,8 @@ void App::drawDebugWindow() {
                 : "Emulator not found. Set the path in Edit > Preferences.");
     else
         ImGui::TextDisabled("%s", path.c_str());
-    ImGui::Separator();
 
-    // Refresh from disk on demand, and while Auto is on, at most twice a second
-    // (per-frame file reads would be wasteful for a possibly large log).
-    const double now = ImGui::GetTime();
-    if (!path.empty() && (reloadNow || (debugAutoReload_ && now >= debugNextReload_))) {
-        debugLog_ = readTextFileTail(path, 1u << 20);  // last 1 MB
-        debugNextReload_ = now + 0.5;
-    }
-
-    ImGui::BeginChild("##debugscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(debugLog_.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##debuglog", const_cast<char*>(debugLog_.c_str()),
-                              debugLog_.size() + 1, inputSize, ImGuiInputTextFlags_ReadOnly);
-
-    // Follow the tail while new output arrives, unless the user scrolled up.
-    static size_t lastSize = 0;
-    if (debugLog_.size() != lastSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
-        ImGui::SetScrollHereY(1.0f);
-    lastSize = debugLog_.size();
-
-    ImGui::EndChild();
+    drawLogPanel("##debugscroll", logDbg_);
     ImGui::End();
 }
 
@@ -12286,6 +13046,15 @@ void App::drawNavigationModal() {
     changed |= ImGui::SliderFloat("Orbit", &nav_.orbitSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Pan", &nav_.panSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Zoom", &nav_.zoomSensitivity, 0.2f, 3.0f, "%.2fx");
+    // Wider than the others on purpose: this one crosses whole scenes, and 3x
+    // was not enough on a large terrain.
+    changed |= ImGui::SliderFloat("Forward pan", &nav_.dollySensitivity, 0.1f, 8.0f,
+                                  "%.2fx");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Speed of the right+middle drag, which pans forward and back along\n"
+            "the view direction (drag down = forward). It scales with zoom like\n"
+            "the other moves, so this is a multiplier on top of that.");
     changed |= ImGui::Checkbox("Invert horizontal", &nav_.invertX);
     ImGui::SameLine();
     changed |= ImGui::Checkbox("Invert vertical", &nav_.invertY);
@@ -12324,6 +13093,7 @@ void App::openScenePreferences() {
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
+    scenePrefStart_ = project_.startScene == project_.activeScene;
     openScenePrefsPopup_ = true;
 }
 
@@ -12335,10 +13105,17 @@ void App::drawScenePreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // Every category is drawn whether it is overridden or not, so the content is
+    // ~1000 px tall: with AlwaysAutoResize the modal grew past the bottom of a
+    // 900 px screen and OK/Cancel could not be reached at all. An explicit
+    // height capped to the viewport keeps the footer on screen and lets the
+    // categories scroll (the window is still user-resizable from its corner).
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(1040), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
+    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr, 0))
         return;
     if (scenePrefScene_ < 0 || scenePrefScene_ >= (int)project_.scenes.size()) {
         ImGui::CloseCurrentPopup();
@@ -12352,6 +13129,10 @@ void App::drawScenePreferencesModal() {
     prefHelp(
         "Each category inherits Project > Preferences until you tick\n"
         "\"Override project settings\" for it.");
+    // -reserve for the footer (separator + button row) below.
+    ImGui::BeginChild("##sceneprefs_scroll",
+                      ImVec2(0, -(ImGui::GetFrameHeightWithSpacing() +
+                                  ImGui::GetStyle().ItemSpacing.y * 2.0f)));
 
     // One category: a header, an override toggle, then its widgets disabled
     // (grayed, previewing the inherited value) until the toggle is on.
@@ -12364,6 +13145,34 @@ void App::drawScenePreferencesModal() {
         ImGui::EndDisabled();
         ImGui::PopID();
     };
+
+    // Which scene the game boots into. Project-wide (Project::startScene), but
+    // it reads as a property OF a scene, so it is authored from here rather
+    // than from Project > Preferences.
+    ImGui::SeparatorText("Startup");
+    {
+        const bool isStart = project_.startScene == scenePrefScene_;
+        const char* startName =
+            project_.startScene >= 0 &&
+                    project_.startScene < (int)project_.scenes.size()
+                ? project_.scenes[project_.startScene].name.c_str()
+                : "?";
+        // Something must always be the start scene, so the tick can only be
+        // MOVED here, never cleared - untickable once it is this scene.
+        ImGui::BeginDisabled(isStart);
+        ImGui::Checkbox("Boot into this scene", &scenePrefStart_);
+        ImGui::EndDisabled();
+        const std::string tip =
+            isStart ? std::string(
+                          "The game boots into this scene. Some scene always "
+                          "has to, so the tick can only be MOVED: open another "
+                          "scene's preferences and tick it there.")
+                    : std::string("The game currently boots into \"") +
+                          startName +
+                          "\". Ticking this moves the start here on OK - the "
+                          "Project panel marks it (start).";
+        prefHelp(tip.c_str());
+    }
 
     // Ambience (sky + lighting + fog) comes from a preset, not per-scene
     // overrides. Empty = the project default preset.
@@ -12462,6 +13271,7 @@ void App::drawScenePreferencesModal() {
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
+    ImGui::EndChild();
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
         SceneData& sc = project_.scenes[scenePrefScene_];
@@ -12469,6 +13279,7 @@ void App::drawScenePreferencesModal() {
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
         sc.loadingScreen = scenePrefLoading_;
+        if (scenePrefStart_) project_.startScene = scenePrefScene_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();

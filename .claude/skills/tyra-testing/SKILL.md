@@ -1059,6 +1059,21 @@ Notes:
   debug keys/state look wrong), suspect the wire STRIDE first, and check that
   `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
   game's parser - a stale editor binary generates a stale interpreter.
+- **The log panels' severity split** (docs/log-panels.md): `logview.cpp` is a
+  pure function of text - no ImGui, no `Project` - so which bucket a line lands
+  in is checkable from a 40-line harness (`g++ -std=c++20 -Isrc harness.cpp
+  src/logview.cpp`) fed a realistic build log, no editor needed. Assert TWO
+  things there, because both broke while it was written: that the counts are per
+  ENTRY (a gcc error plus its snippet is one error, not four), and that parsing
+  the log **one line at a time** through `parse(log, from, state, out)` +
+  `appendPartial` gives byte-identical results to one-shot parsing - the panels
+  classify incrementally while a build streams, and the carried continuation
+  state is what a chunk boundary breaks. The panel itself is then a `--ui-script`
+  job (`click 'Output/3 errors'`, `expect-unchecked 'Output/Select text'`), with
+  one catch: the **Debug** window is a dock TAB behind Output in every built-in
+  layout, and a docked tab is an unnamed item, so no script can select it -
+  verify it by temporarily pointing that layout's `pendingFocusWindow_` at
+  `"Debug"`, screenshotting, and reverting.
 - **The editor window sometimes renders WHITE on this machine** (title bar
   only, capture is blank) - a GL present quirk, not a code regression. The
   check that settles it costs 30 seconds: capture

@@ -59,7 +59,8 @@ guides. What is queued is in [Backlog](backlog.md).
 - [Loading screens](loading-screens.md) - defining named loading screens
   (background, images, baked texts, continuous/quantized progress bars),
   assigning them per scene or as the project default, how the progress bar
-  tracks real load work, and the built-in fallback.
+  tracks real load work, the built-in fallback, and which scene the game boots
+  into (the start scene).
 - [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
   wrapped lines, images and page breaks, scrolled or shown as cards over music,
   with a skip button and a finish action (resume / scene / menu / flow event);
@@ -136,6 +137,11 @@ guides. What is queued is in [Backlog](backlog.md).
   requirement, the clickable LIVE toolbar chip (per-project on/off), what
   updates live vs what needs a build, and how the host-filesystem transport
   and the spawn-pool cloning work.
+- [The log panels (errors, warnings, verbose)](log-panels.md) - the *Output* and
+  *Debug* windows classify every line into error / warning / info / verbose,
+  count the entries per level, colour them and let you hide a level with one
+  click: what lands in each bucket, why a compiler error keeps its four
+  explaining lines when verbose is hidden, and the selectable-text escape hatch.
 - [Running and debugging on a real PS2](ps2link-setup.md) - the one-time
   console setup for the F6 network deploy: building the TyraX ps2link (the only
   one supported - a pinned upstream plus our patch, built in Docker), flashing

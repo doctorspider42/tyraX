@@ -61,6 +61,8 @@ typedef ptrdiff_t GLintptr;
 #define GL_BLEND 0x0BE2
 #define GL_SRC_ALPHA 0x0302
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+// Additive blending, the GS's Cs*FIX + Cd - the day/night sun disc.
+#define GL_ONE 1
 #define GL_MULTISAMPLE 0x809D
 #define GL_POLYGON_OFFSET_FILL 0x8037
 #define GL_FRONT_AND_BACK 0x0408
