@@ -191,13 +191,25 @@ the verification, and any fact worth reusing belongs in the relevant
     3982, and VU1 micro memory holds 2048 instructions per program set.
     **The encouraging part:** openvcl emits the same work (4836 occupied pipe
     slots vs 4822) and a perfect packer's floor is **2989** - 25% *below* what
-    Sony achieves. Nothing is missing but packing. 1860 of its cycles are pure
-    stalls, and the cause is located: the scheduler's window is a "segment" that
-    gets cut several times per vertex. Two measured experiments (widen the
-    candidate set: -9%, 2 tests fail; one segment per block: -3% more, 12 tests
-    fail) are written up in `docs/toolchain-image.md` along with the two things
-    the remaining ~33% actually needs - per-token flag masks in the dependency
-    graph, and modulo scheduling across loop iterations.
+    Sony achieves. Nothing is missing but packing.
+    **Down to 5913 cycles (-12%)** as of 2026-08-05: the flag-WAW mask now comes
+    from the segment's last token (which is what it always meant), and
+    `--schedule-flag-readers` lets `fcand`-shaped instructions be scheduled instead
+    of ending the segment. 419/419 upstream tests stay green; the image's `vcl`
+    wrapper passes the flag.
+    The pass/fail number is sharper than the totals: what must fit is the
+    resident VU1 set (5x `cull_*` + 5x `clip_*`) against a **2042**-instruction
+    ceiling. Legacy uses **2035** - seven words spare - and openvcl **3072**, so
+    the target is **-34% on ten specific programs**, not parity everywhere.
+    What is left is **latency hiding for serial FMAC chains**, and it is
+    concentrated: `vu0_rt_kernel` alone is +478 of the remaining +1931 cycles
+    (961 vs 483, with 418 stall cycles - and VU0 micro memory holds only 512
+    instructions, so that kernel cannot load at all under openvcl), then the five
+    `clip_*` programs at +108..+127 each. Either openvcl learns to schedule across
+    basic-block boundaries, or the raytracer's branchless mixing gets its
+    independent chains interleaved by hand (which would help legacy too).
+    Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as
+    well), `-C`, `-f`, `--bthres`. Full write-up in `docs/toolchain-image.md`.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV
     built from source on a glibc base (the official images are Alpine, and the
     legacy `vcl` is a glibc i386 binary), so ~1 h of CI per rebuild.

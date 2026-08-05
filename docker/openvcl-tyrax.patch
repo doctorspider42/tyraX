@@ -1,3 +1,111 @@
+diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
+index e6a6dea..7de55a1 100644
+--- a/src/CommandLine.cpp
++++ b/src/CommandLine.cpp
+@@ -75,6 +75,7 @@ CommandLine::CommandLine()
+ 	m_dumpScheduleInfo = false;
+ 	m_dumpScheduleInfoJson = false;
+ 	m_knownLoopOptimizations = false;
++	m_scheduleFlagReaders = false;
+ 	m_genericSoftwarePipelining = true;
+ 	m_strictScheduleSlots = false;
+ 
+@@ -125,6 +126,7 @@ CommandLine::CommandLine()
+ 	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
+ 	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
+ 	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
++	m_options.push_back(Option('\0',"schedule-flag-readers",SCHEDULE_FLAG_READERS,false));
+ 	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
+ 	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
+ 	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
+@@ -239,6 +241,7 @@ bool CommandLine::parse( int argc, char* argv[] )
+ 				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
+ 				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
+ 				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
++				case SCHEDULE_FLAG_READERS: m_scheduleFlagReaders = true; break;
+ 				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
+ 				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
+ 				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
+@@ -330,6 +333,7 @@ void CommandLine::showUsage( std::ostream& stream )
+ 	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
+ 	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
+ 	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
++	stream << "  --schedule-flag-readers            Let MAC/CLIP flag readers take part in scheduling." << std::endl;
+ 	stream << "  --disable-known-loop-optimizations  Kept for compatibility; generic compilation is the default." << std::endl;
+ 	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
+ 	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
+diff --git a/src/CommandLine.h b/src/CommandLine.h
+index f5e4b3d..4cad943 100644
+--- a/src/CommandLine.h
++++ b/src/CommandLine.h
+@@ -56,6 +56,7 @@ public:
+ 	bool dumpScheduleInfo() const;
+ 	bool dumpScheduleInfoJson() const;
+ 	bool knownLoopOptimizations() const;
++	bool scheduleFlagReaders() const;
+ 	bool genericSoftwarePipelining() const;
+ 	bool strictScheduleSlots() const;
+ 	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
+@@ -130,6 +131,7 @@ private:
+ 		DUMP_SCHEDULE_INFO,
+ 		DUMP_SCHEDULE_INFO_JSON,
+ 		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
++		SCHEDULE_FLAG_READERS,
+ 		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
+ 		ENABLE_GENERIC_SOFTWARE_PIPELINING,
+ 		DISABLE_GENERIC_SOFTWARE_PIPELINING,
+@@ -185,6 +187,7 @@ private:
+ 	bool m_dumpScheduleInfo;
+ 	bool m_dumpScheduleInfoJson;
+ 	bool m_knownLoopOptimizations;
++	bool m_scheduleFlagReaders;
+ 	bool m_genericSoftwarePipelining;
+ 	bool m_strictScheduleSlots;
+ 	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
+diff --git a/src/CommandLine.inl b/src/CommandLine.inl
+index 5500026..43cc4e2 100644
+--- a/src/CommandLine.inl
++++ b/src/CommandLine.inl
+@@ -175,6 +175,13 @@ inline bool CommandLine::knownLoopOptimizations() const
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
++inline bool CommandLine::scheduleFlagReaders() const
++{
++	return m_scheduleFlagReaders;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
+ inline bool CommandLine::genericSoftwarePipelining() const
+ {
+ 	return m_genericSoftwarePipelining;
+diff --git a/src/Parser.cpp b/src/Parser.cpp
+index b8b1946..70aac0a 100644
+--- a/src/Parser.cpp
++++ b/src/Parser.cpp
+@@ -14,6 +14,7 @@
+ #include "VsmCostAnalyzer.h"
+ #include "VuInstructionInfo.h"
+ #include "VuSchedulerAnalysis.h"
++#include "VuSchedulingRules.h"
+ 
+ #include <iostream>
+ #include <fstream>
+@@ -2045,6 +2046,13 @@ bool Parser::tokenize()
+ 	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
+ 	m_tokenizer.setOperands( m_operands );
+ 
++	// Scheduling policy, consulted by the free functions in VuSchedulingRules that
++	// every scheduler entry point calls. Set here rather than next to the register
++	// allocator because --dump-schedule-info leaves the state machine before
++	// allocation runs, and a diagnostic that does not describe the code we would
++	// emit is worse than no diagnostic.
++	setVuScheduleFlagReadersEnabled( m_cmdLine.scheduleFlagReaders() );
++
+ 	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
+ 	{
+ 		if( !m_tokenizer.parse( *i ) )
 diff --git a/src/Token.cpp b/src/Token.cpp
 index 586585b..606b02d 100644
 --- a/src/Token.cpp
@@ -57,3 +165,158 @@ index ba4e871..6403fbc 100644
  	};
  
  	enum
+diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
+index 3260370..43f1969 100644
+--- a/src/VuSchedulerAnalysis.cpp
++++ b/src/VuSchedulerAnalysis.cpp
+@@ -904,6 +904,7 @@ namespace
+ 		std::vector<VuScheduledIssueSlot> slots;
+ 		std::vector<const Token*> segment;
+ 		unsigned int segmentMask = VU_RESOURCE_NONE;
++		unsigned int segmentLastIndex = block.firstTokenIndex;
+ 		bool haveSegment = false;
+ 		unsigned int currentCycle = blockStartCycle;
+ 
+@@ -913,45 +914,32 @@ namespace
+ 			const Token& token = *block.tokens[offset];
+ 			if( isVuReadyScheduleCandidate( token ) )
+ 			{
+-				const unsigned int tokenMask =
+-					ignoredFlagWawMaskForIndex( tokenIndex,
+-					                            liveness.lastMacReader,
+-					                            liveness.lastClipReader );
+-				if( haveSegment && tokenMask != segmentMask )
+-				{
+-					appendReadyScheduledSegmentSlots( segment,
+-					                                 slots,
+-					                                 segmentMask,
+-					                                 latencyTracker,
+-					                                 blockStartCycle,
+-					                                 currentCycle );
+-					segment.clear();
+-					haveSegment = false;
+-				}
+-
+-				if( !haveSegment )
+-				{
+-					segmentMask = tokenMask;
+-					haveSegment = true;
+-				}
+-
++				// The ignorable-flag-WAW mask answers ONE question:
++				// is this flag read after the token range the dependency graph is
++				// about to be built over? Inside that range
++				// addPreciseImplicitFlagDependencies already finds every reader
++				// itself and orders the writers against it; the mask only decides
++				// whether the writers TRAILING the last reader have to keep their
++				// order (a live-out flag) or may be reordered freely.
++				//
++				// So it belongs to the end of the segment, not to each token in
++				// it. Deriving it per token forced a segment break at every change
++				// and again at the last MAC/CLIP reader - several breaks per
++				// vertex - and the scheduler can only hide a latency with work
++				// that is inside its current segment, which is where the nop
++				// padding came from. Taking the mask from the segment's LAST token
++				// keeps exactly the same answer for the trailing writers (an
++				// index equal to the last reader stays conservative) while letting
++				// one segment span everything between two real barriers.
++				segmentLastIndex = tokenIndex;
++				haveSegment = true;
+ 				segment.push_back( &token );
+-
+-				if( tokenIndex == static_cast<unsigned int>( liveness.lastMacReader )
+-				    || tokenIndex == static_cast<unsigned int>( liveness.lastClipReader ) )
+-				{
+-					appendReadyScheduledSegmentSlots( segment,
+-					                                 slots,
+-					                                 segmentMask,
+-					                                 latencyTracker,
+-					                                 blockStartCycle,
+-					                                 currentCycle );
+-					segment.clear();
+-					haveSegment = false;
+-				}
+ 				continue;
+ 			}
+ 
++			segmentMask = ignoredFlagWawMaskForIndex( segmentLastIndex,
++			                                          liveness.lastMacReader,
++			                                          liveness.lastClipReader );
+ 			appendReadyScheduledSegmentSlots( segment,
+ 			                                 slots,
+ 			                                 segmentMask,
+@@ -993,6 +981,9 @@ namespace
+ 			}
+ 		}
+ 
++		segmentMask = ignoredFlagWawMaskForIndex( segmentLastIndex,
++		                                          liveness.lastMacReader,
++		                                          liveness.lastClipReader );
+ 		appendReadyScheduledSegmentSlots( segment,
+ 		                                 slots,
+ 		                                 segmentMask,
+diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
+index c28ec6d..e535196 100644
+--- a/src/VuSchedulingRules.cpp
++++ b/src/VuSchedulingRules.cpp
+@@ -547,12 +547,43 @@ bool isVuReadyScheduleCandidate( const Token& token )
+ 	    && access.memoryKind != VU_MEMORY_LOAD
+ 	    && access.memoryKind != VU_MEMORY_STORE )
+ 		return false;
+-	if( access.implicitReads & (VU_RESOURCE_MAC | VU_RESOURCE_CLIP) )
++	// Readers of the MAC/CLIP flags are excluded from scheduling by default, which
++	// breaks the scheduling segment at every one of them - in a vertex pipeline
++	// that is once per vertex, at the fcand after each clipw - and the scheduler
++	// can only hide a latency with work inside its current segment, so those
++	// breaks are where the nop padding comes from.
++	//
++	// The exclusion is not needed for correctness: buildVuDependencyGraph models
++	// ACC/MAC/CLIP as precise resources, and addPreciseImplicitFlagDependencies
++	// orders every writer of a flag against the reader it finds. The mask handed
++	// to it only has to say whether the flag is read AFTER the range, which is why
++	// the caller derives it from the segment's last token rather than per token.
++	//
++	// It stays behind --schedule-flag-readers because it does change what the
++	// known-loop-optimisation path decides: with a cheaper unpipelined estimate,
++	// that path stops software-pipelining the loops its own tests pin down. Off by
++	// default, nothing moves for anyone who does not ask.
++	if( !vuScheduleFlagReadersEnabled() && (access.implicitReads & (VU_RESOURCE_MAC | VU_RESOURCE_CLIP)) )
+ 		return false;
+ 
+ 	return true;
+ }
+ 
++namespace
++{
++	bool g_scheduleFlagReaders = false;
++}
++
++void setVuScheduleFlagReadersEnabled( bool enabled )
++{
++	g_scheduleFlagReaders = enabled;
++}
++
++bool vuScheduleFlagReadersEnabled()
++{
++	return g_scheduleFlagReaders;
++}
++
+ bool isVuLowerPipe( const Token& token )
+ {
+ 	return token.operand() && token.operand()->isLowerExecutionPath();
+diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
+index 8188099..ae25e55 100644
+--- a/src/VuSchedulingRules.h
++++ b/src/VuSchedulingRules.h
+@@ -55,6 +55,11 @@ bool isVuMemoryOrderingAccess( const Token& token );
+ bool isVuBoundaryOperand( const Token& token );
+ bool isVuSchedulingBarrier( const Token& token );
+ bool isVuReadyScheduleCandidate( const Token& token );
++
++// --schedule-flag-readers: let instructions that implicitly read the MAC/CLIP
++// flags take part in list scheduling instead of ending the scheduling segment.
++void setVuScheduleFlagReadersEnabled( bool enabled );
++bool vuScheduleFlagReadersEnabled();
+ bool isVuLowerPipe( const Token& token );
+ bool isVuLongLatencyProducer( const Token& token );
+ bool isVuLatencyLoad( const Token& token );

@@ -140,10 +140,18 @@ COPY --from=openvcl-build /out/bin/openvcl /usr/local/bin/openvcl
 # image's PATH, so shadowing it there is enough and the original stays reachable
 # at /usr/bin/vcl for an A/B run. Fail loudly on a typo in VCL_IMPL rather than
 # silently building a game with the assembler nobody asked for.
+#
+# The openvcl form is a wrapper, not a symlink, because it has to pass
+# --schedule-flag-readers: that flag lets instructions reading the MAC/CLIP flags
+# take part in list scheduling, which is worth 12% of the emitted cycles on this
+# engine's microprograms (6728 -> 5913). It is off by default in the tool because
+# it changes what the known-loop-optimisation path decides - see "The openvcl
+# migration" in docs/toolchain-image.md.
 RUN set -e; \
     case "${VCL_IMPL:-legacy}" in \
       legacy)  ln -sf /usr/bin/vcl /usr/local/bin/vcl ;; \
-      openvcl) ln -sf /usr/local/bin/openvcl /usr/local/bin/vcl ;; \
+      openvcl) printf '#!/bin/sh\nexec /usr/local/bin/openvcl --schedule-flag-readers "$@"\n' \
+                 > /usr/local/bin/vcl && chmod 0755 /usr/local/bin/vcl ;; \
       *) echo "VCL_IMPL must be 'legacy' or 'openvcl', got '${VCL_IMPL}'" >&2; exit 1 ;; \
     esac; \
     echo "${VCL_IMPL:-legacy}" > /usr/local/share/tyrax/vcl-impl; \

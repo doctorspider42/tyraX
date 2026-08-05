@@ -220,6 +220,7 @@ Over the engine's 25 microprograms, current sources:
 |---|---|---|
 | compile | 25 | **25** |
 | lose a `clipw` | 0 | **0** |
+| cycles emitted | 3982 | **5913** (was 6728) |
 | a game builds | yes | **yes** |
 | a game runs | yes | **no** |
 
@@ -276,37 +277,87 @@ that is inside its current segment, so the cuts are where the 1860 stall cycles
 come from. `stapip_cull_c`'s vertex loop is a fair sample: 187 cycles for 118
 upper-pipe and 41 lower-pipe ops, of which 50 cycles are pure stalls.
 
-### Two experiments, both measured, both reverted
+### What was done about it: -12%, and the segment is where it lives
 
-- **Let flag readers be scheduled.** `isVuReadyScheduleCandidate` rejects any
-  token that implicitly reads MAC/CLIP - i.e. every `fcand` - even though the
-  dependency graph already orders flag readers against their producer. Admitting
-  them widens segments across the clip check: **6728 → 6118 cycles (-9%)**, all 25
-  still compile. Cost: 2 of openvcl's 419 tests fail (one asserts a specific
-  `mulw`+`fcand` pairing that the segment scheduler then places differently, one
-  asserts the two scheduling paths agree).
-- **One segment per basic block**, with the conservative flag mask: a further
-  **6118 → 5930 (-3%)**, but **12** tests fail, most of them software-pipelining
-  ones. Those segment cuts are load-bearing for the pipeliner.
+Two changes, both in `docker/openvcl-tyrax.patch`, both with openvcl's 419 tests
+still green:
 
-Neither is in `docker/openvcl-tyrax.patch`: 12% does not unblock anything (we need
-~33% to match legacy and fit VU1 memory), and shipping upstream test regressions
-to buy it is a bad trade. They are recorded here because they locate the work.
+- **The flag-WAW mask now comes from the segment's last token, not from each
+  token.** That mask answers exactly one question - is this flag read *after* the
+  range the dependency graph covers - because inside the range
+  `addPreciseImplicitFlagDependencies` finds every reader itself and orders the
+  writers against it. Deriving it per token forced a segment break at every change
+  and again at the last MAC/CLIP reader. On its own this changes no output; it is
+  what makes the next change honest.
+- **`--schedule-flag-readers`** lets instructions that implicitly read MAC/CLIP
+  (i.e. every `fcand`) take part in list scheduling instead of ending the segment.
+  In a vertex pipeline that is one break per vertex, at the `fcand` after each
+  `clipw`. Result: **6728 → 5913 cycles (-12%)**, 25/25 still compile, no `clipw`
+  lost.
 
-### What the remaining ~33% needs
+It is a flag, off by default, because it does change one thing: with a cheaper
+unpipelined estimate, the `--enable-known-loop-optimizations` path stops
+software-pipelining the loops its own tests pin down. That path is opt-in and
+**never fires on this engine's programs** (measured: 0 of 25 emit a `MAIN_LOOP`
+label, with or without the flag), so the image's `vcl` wrapper passes
+`--schedule-flag-readers` and upstream's defaults stay exactly as they were.
 
-- **Per-token flag masks in the dependency graph.** The segment exists only
-  because `buildVuDependencyGraph` takes one `ignoredImplicitWawResources` for the
-  whole segment. Give it the per-token mask vector that the caller already
-  computes, and a segment can span a whole basic block without lying about which
-  flag WAWs are ignorable - which is what broke the pipeliner above.
-- **Latency hiding across loop iterations.** Even with a perfect window, three
-  vertex chains at 4-cycle FMAC latency cannot fill every cycle; Sony's vcl gets to
-  33% above floor, openvcl to 98%. The difference is modulo scheduling / software
-  pipelining, which openvcl has (`findVuLoopPipelineOpportunities`,
-  `buildVuSoftwarePipelineRewritePlans`) but rarely applies to these loops.
+Also measured and rejected: **one segment per basic block** with a conservative
+mask - a further -3%, but 12 test failures, most of them software-pipelining ones.
+Those cuts are load-bearing for the pipeliner; the mask fix above is the same idea
+done properly.
+
+### Where the remaining 48% sits
+
+`openvcl 5913` against `legacy 3982` is +1931 cycles, and **1251 of those are
+still stall padding**. It is concentrated, not spread:
+
+| program | openvcl | legacy | gap | padding |
+|---|---|---|---|---|
+| `vu0_rt_kernel` | 961 | 483 | **+478** | 418 |
+| `stapip_clip_d` | 336 | 209 | +127 | 85 |
+| `stapip_clip_tce` | 378 | 254 | +124 | 84 |
+| `stapip_clip_td` | 345 | 222 | +123 | 78 |
+| `stapip_clip_c` | 370 | 257 | +113 | 77 |
+
+**The actual pass/fail number is smaller and sharper than the 48%.** What has to
+fit is the *resident* VU1 set that `StaPipQBufferRenderer` uploads: five `cull_*`
+plus five `clip_*` programs, against a ceiling of **2042** instructions
+(`VU1_MICRO_MEM_SIZE` 2048 minus the draw-finish helper parked at the top).
+
+| the resident 10-program set | instructions |
+|---|---|
+| legacy `vcl` | **2035** — seven words of headroom |
+| patched `openvcl` | **3072** |
+
+So the target is not "be as good as Sony", it is **−34% on ten specific
+programs**. The engine's own comment next to that upload is worth reading first:
+the set only fits at all because the five clip programs share one rotating fan
+emitter (inlining three emit copies each measured 2162 against the same ceiling).
+
+**Separately, one program is a quarter of the total cycle gap**, and it is ours: the VU0 raytracer.
+Its 24 basic blocks include three at 36-53% stall cycles with almost no pairing
+(block 20: 102 cycles, 54 of them padding, 2 paired rows) - long serial FMAC
+chains from the branchless nearest-hit mixing, where a 4-cycle latency has nothing
+inside the same block to hide behind. Note it also has a hard ceiling of its own:
+VU0 micro memory is 4 KB = 512 instructions, so at 961 that kernel cannot load at
+all, while legacy's 483 just fits.
+
+So the remaining work is **latency hiding for serial chains**, which means either
+scheduling across basic-block boundaries in openvcl, or exposing more ILP in the
+kernel source (interleaving the independent sphere/slab/triangle math by hand -
+that would help both assemblers).
+
+Dead ends, so nobody repeats them:
+
+- **`--LoopCS` is not the answer.** openvcl's software pipeliner only recognises
+  loops carrying that directive, which this engine never emits - but adding it to
+  a vertex loop changes *nothing* for either tool (`stapip_cull_c`: openvcl 200 →
+  201 cycles, legacy 175 → 175, i.e. Sony's vcl ignores it here too). Sony's
+  advantage is not pipelining, it is plain better scheduling inside the body.
 - `-C` (REDUCE_CODE) and `-f` (ALIGN_CODE) are inert in this version - measured,
-  byte-identical output. There is no knob to turn.
+  byte-identical output. `--bthres` is a register-allocation knob, not a
+  scheduling one. There is no flag to flip.
 
 Reproducing the cycle numbers takes one command per program, and openvcl reports
 them itself (no parsing of the emitted `.vsm` required):
