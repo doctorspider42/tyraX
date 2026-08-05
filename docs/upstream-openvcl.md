@@ -157,6 +157,13 @@ Note how SCE reaches the source's semantics: it issues `clipw` #N+1 *before* rea
 #N's flags, exactly because #N+1's bits are not visible yet. Any scheduler that moves a
 flag reader has to model that window, not a scalar latency.
 
+And the constraint has to be enforced where the words are. openvcl's scheduler honours a
+cycle-level CLIP latency correctly, yet still emitted reads one to three rows after their
+CLIP: a wait the hardware interlocks is a cycle that costs no instruction, so four cycles
+can come out as two rows. The window is counted in instructions, so it belongs in the
+emitter - `CodeGenerator::padForClipFlagWindow` in our copy, which walks the rows already
+emitted and pads to distance, treating a label as a barrier.
+
 ## 5. Four density flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this

@@ -66,7 +66,7 @@ index 5bec71c..504039b 100644
  		newDependency = new Dependency;
  		newDependency->setAlias( newAlias );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..354496c 100644
+index 699abe7..d1608d1 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -185,7 +185,113 @@ index 699abe7..354496c 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -2039,12 +2129,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -1549,6 +1639,80 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+ 	}
+ }
+ 
++unsigned int CodeGenerator::emittedRowsSinceClipWrite() const
++{
++	// How many instruction rows have been EMITTED since the row holding a CLIP.
++	//
++	// The scheduler already keeps its distance in cycles (VuLatencyTracker), and that
++	// is not the same measurement: a wait the hardware interlocks is a cycle that
++	// costs no word, so a four-cycle separation can come out as two emitted rows. The
++	// CLIP flag window is counted in instructions - six bits pushed in per CLIP - so
++	// this has to be checked where the words actually are.
++	//
++	// Read backwards over m_codeLines, skipping what is not an instruction row
++	// (labels, directives, source comments). A label is a barrier: the reader below it
++	// may be entered from somewhere else entirely, so the distance is unknown and
++	// padding it would be guesswork.
++	unsigned int rows = 0;
++	for( std::list<std::string>::const_reverse_iterator i = m_codeLines.rbegin();
++	     i != m_codeLines.rend(); ++i )
++	{
++		const std::string& line = *i;
++		const std::string::size_type first = line.find_first_not_of( " 	" );
++		if( first == std::string::npos )
++			continue;
++		if( line[first] == ';' || line[first] == '.' )
++			continue;
++		if( line[line.size() - 1] == ':' )
++			break;
++		// The mnemonic comes from the opcode metadata, never a literal - there is a
++		// unit test that enforces exactly that (test_codegen_instruction_literals).
++		if( line.find( vuInstr( VU_OP_CLIP ) ) != std::string::npos )
++			return rows;
++		++rows;
++		if( rows > 32 )
++			break;
++	}
++	return 0xFFFFu;
++}
++
++void CodeGenerator::padForClipFlagWindow( const Token& a, const Token* b )
++{
++	const unsigned int latency = vuClipFlagVisibilityLatency();
++	if( latency <= 1 )
++		return;
++
++	bool readsClip = false;
++	bool writesClip = false;
++	const Token* pair[2] = { &a, b };
++	for( int k = 0; k < 2; ++k )
++	{
++		if( !pair[k] || !pair[k]->operand() )
++			continue;
++		VuTokenResourceAccess access;
++		if( !buildVuTokenResourceAccess( *pair[k], access ) )
++			continue;
++		if( access.implicitReads & VU_RESOURCE_CLIP )
++			readsClip = true;
++		if( access.implicitWrites & VU_RESOURCE_CLIP )
++			writesClip = true;
++	}
++	// A row that both writes and reads the flag cannot be helped by padding above it;
++	// leave it to the scheduler rather than emit nops that change nothing.
++	if( !readsClip || writesClip )
++		return;
++
++	unsigned int rows = emittedRowsSinceClipWrite();
++	if( rows == 0xFFFFu )
++		return;
++	while( rows + 1 < latency )
++	{
++		addNopLine();
++		m_currentCycle++;
++		++rows;
++	}
++}
++
+ void CodeGenerator::emitSingleToken( const Token& token )
+ {
+ 	std::string instruction = generateInstruction(token);
+@@ -1592,6 +1756,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+ 		}
+ 	}
+ 
++	padForClipFlagWindow( token, NULL );
++
+ 	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
+ 	if( branchDelaySlots > 0 )
+ 	{
+@@ -1701,6 +1867,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+ 		pairedLine = formatPairedLine(b, a);
+ 	else
+ 		pairedLine = formatPairedLine(a, b);
++	padForClipFlagWindow( a, &b );
+ 	if( branchNeedsPreBubble(a) )
+ 		padForBranchPreBubble(a);
+ 	if( branchNeedsPreBubble(b) )
+@@ -1724,6 +1891,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+ 		pairedLine = formatPairedLine(b, a);
+ 	else
+ 		pairedLine = formatPairedLine(a, b);
++	padForClipFlagWindow( a, &b );
+ 	if( branchNeedsPreBubble(a) )
+ 		padForBranchPreBubble(a);
+ 	if( branchNeedsPreBubble(b) )
+@@ -2039,12 +2207,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -207,7 +313,7 @@ index 699abe7..354496c 100644
  			break;
  		}
  
-@@ -2230,6 +2324,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2402,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -217,7 +323,7 @@ index 699abe7..354496c 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2334,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2412,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -262,7 +368,7 @@ index 699abe7..354496c 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2532,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2610,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -310,7 +416,7 @@ index 699abe7..354496c 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +2840,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +2918,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -329,7 +435,7 @@ index 699abe7..354496c 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +2861,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +2939,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -348,10 +454,10 @@ index 699abe7..354496c 100644
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
-index 1845035..d0f3c5b 100644
+index 1845035..6ebfd03 100644
 --- a/src/CodeGenerator.h
 +++ b/src/CodeGenerator.h
-@@ -68,11 +68,20 @@ private:
+@@ -68,11 +68,22 @@ private:
  	std::string accumulatorArg( const Token::Argument& arg, const Token& token );
  
  	void addNopLine();
@@ -364,6 +470,8 @@ index 1845035..d0f3c5b 100644
  	void emitUpperWithWait( const Token& token, bool waitQ );
  	bool branchNeedsPreBubble( const Token& token ) const;
  	void padForBranchPreBubble( const Token& token );
++	void padForClipFlagWindow( const Token& a, const Token* b );
++	unsigned int emittedRowsSinceClipWrite() const;
 +	bool slotCanBecomeBranchDelayFiller( const VuScheduledIssueSlot& slot,
 +	                                     const Token& branch ) const;
 +	bool scheduledSlotsFeedBranch( const std::vector<const VuScheduledIssueSlot*>& slots,
@@ -372,7 +480,7 @@ index 1845035..d0f3c5b 100644
  	void emitSingleToken( const Token& token );
  	void emitBranchWithDelayFiller( const Token& branch, const Token& filler );
  	void emitPairedTokens( const Token& a, const Token& b );
-@@ -195,11 +204,15 @@ private:
+@@ -195,11 +206,15 @@ private:
  	bool m_knownLoopOptimizations;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;

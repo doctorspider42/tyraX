@@ -716,7 +716,16 @@ banner both, so a previously built ELF still reports.
   the source's semantics by issuing the NEXT `clipw` before the read, which is safe for
   exactly the same reason. When you touch flag scheduling, measure the window depth per
   read (`clipflags.py` in the working notes: how many `clipw`s precede each `fcand`), not
-  just the row gap.
+  just the row gap. And measure it in EMITTED ROWS: a scheduler counting cycles is
+  counting a different thing, because a wait the hardware interlocks is a cycle that
+  costs no instruction word, so four cycles of separation can come out as two rows.
+- **A microprogram too big for the resident set can still be booted — shrink the SET.**
+  `StaPipQBufferRenderer::setProgramsCache` uploads ten programs from address 0, and the
+  packet tap names the program each mesh actually runs (`program @<addr>`, matched against
+  the cache order). `vclab`'s twelve meshes all run `programs[1]`, so passing 2 instead of
+  `count` frees ~1600 words and the scene still boots. Prove the harness first by running
+  SCE's build under it — if SCE stages the same triangle count as under the full set, the
+  harness is measuring the clipper and not itself.
 - **Count VU words with `nm`, not by counting rows in the `.vsm`.** The uploader sizes
   each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
   rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program

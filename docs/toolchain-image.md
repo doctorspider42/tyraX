@@ -1144,21 +1144,49 @@ visible yet. `clipflags.py` shows the two window depths side by side, and openvc
 match the source's order.
 
 `g_clipFlagVisibilityLatency` is tracked separately and stays at 4 whatever
-`--sce-latencies` says. **This is progress, not the finish**, and the honest numbers are:
+`--sce-latencies` says. That alone left sites at a gap of 2-3, and the reason is worth
+keeping: **the scheduler's constraint was being honoured, in the wrong unit.**
+Instrumenting the check shows it asked and got `delay=3` / `delay=2` at exactly those
+sites - but cycles and emitted rows are not the same measurement, because a wait the
+hardware interlocks is a cycle that costs no word. Four cycles of separation can come
+out as two rows. The CLIP window is counted in *instructions*, so
+`CodeGenerator::padForClipFlagWindow` now enforces it at the emitter: walk back over the
+rows already emitted, count instruction rows to the one holding a CLIP, pad with nops
+until the reader is far enough. A label is a barrier - a reader below one may be entered
+from anywhere, so the distance is unknown and padding it would be guesswork.
+
+Every positional test in all five `clip_*` programs now sits exactly 4 rows behind its
+own CLIP with no other CLIP in between, which is both the source's order and SCE's
+minimum. **And it still does not fix the miscompile.** The honest numbers:
 
 | VU1 packet capture, same draw | triangles staged | GS vertices |
 |---|---|---|
 | SCE `vcl` | **24** | 72 |
 | openvcl, flag read at gap 1 | 28 | 84 |
-| openvcl, CLIP latency restored to 4 | 17 | 51 |
+| openvcl, CLIP window enforced (gap 4) | 17 | 51 |
+| openvcl, window raised to 8 | 17 | 51 |
 
-The count moves with the timing, which is the mechanism confirmed - but some sites still
-schedule at a gap of 2-3, so it overshoots the other way. And the wait costs the resident
-set about **58 instructions** (2100 against the 2042 ceiling), so the VU1-clipper set no
-longer fits. That is recoverable in principle rather than fatal: SCE fits in 2042 while
-paying the same waits as three empty `NOP NOP` rows, so the words are there to be won
-back by filling those slots instead of by skipping the wait. A compiler that miscompiles
-to save words is not a smaller compiler.
+The count moves with the timing, which is the mechanism confirmed; raising the window to
+8 changes nothing, so the flag now reads a settled value and **a separate defect
+remains.** Also eliminated on the way: `--emit-delay-fillers` retraction is not what
+shortened the gaps (building without it leaves every gap byte-identical), the CLIP window
+*depth* matches the source (each `fcand` reads its own `clipw`, none intervening), and
+`sjudge` - whose `.z` is written once above `begin:` and read by every `clipw.xyz` in the
+loop - holds VF11 alone and is never overwritten inside it.
+
+The cost is **98 instructions** (2140 against the 2042 ceiling), so the VU1-clipper set no
+longer fits. The padding is pure nops for a structural reason: the scheduler still
+measures this wait in cycles, where it is free, so it cannot fill rows it does not know
+about. Teaching it to count this one in rows is how the words come back - SCE pays the
+same waits and fits in 2042. A compiler that miscompiles to save words is not a smaller
+compiler.
+
+To boot a clip program that no longer fits, shrink the *set* rather than the program:
+`StaPipQBufferRenderer::setProgramsCache` uploads ten, and the packet tap names the
+program each mesh runs (`program @174` for all twelve of `vclab`'s, i.e. `programs[1]`),
+so uploading two is enough to judge the clipper. SCE under that harness stages the same
+24/72 as under the full set, which is what makes it a valid harness rather than a
+different experiment.
 
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
