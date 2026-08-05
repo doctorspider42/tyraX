@@ -799,11 +799,20 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // identical screenshots. md5 of the resolved binaries covers both
                            // forms - the legacy symlink resolves to the 32-bit vcl, the
                            // openvcl form is a wrapper script whose text carries its flags.
+                           // The wrapper form has to be hashed TWICE OVER: the script
+                           // itself (it carries the flags) and the openvcl binary it
+                           // calls. Hashing only what `command -v vcl` resolves to
+                           // misses a rebuilt openvcl behind an unchanged wrapper, and
+                           // then the previous image's microcode is silently relinked -
+                           // which is the same trap this stamp exists to close.
+                           //
                            // Unquoted on purpose: no double quotes may appear in these
                            // commands (platform::shellArg - cmd.exe cannot pass them), and
-                           // none of the three paths has a space in it.
+                           // none of these paths has a space in it.
                            "md5sum $(readlink -f $(command -v vcl)) "
-                           "$(readlink -f $(command -v vclpp)) > /tmp/vcl.stamp 2>/dev/null; "
+                           "$(readlink -f $(command -v vclpp)) "
+                           "$(readlink -f $(command -v openvcl) 2>/dev/null) "
+                           "> /tmp/vcl.stamp 2>/dev/null; "
                            "if ! cmp -s /tmp/vcl.stamp /tyra/.vcl-stamp 2>/dev/null; then "
                            "echo '[editor] VU assembler changed - rebuilding the "
                            "microprograms (takes a minute or two)...'; " +

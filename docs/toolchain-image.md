@@ -440,18 +440,40 @@ branch must not read what the candidate writes - it used to see the new value):
   before the branch - taking its already-emitted row back and re-emitting the pair
   as branch + filler.
 
-### Where it stands now
+### Where it stands now: it fits
 
-| resident set | instructions |
+| resident set (`nm`-measured, see the budget note) | instructions |
 |---|---|
 | openvcl, `--fmac-interlock` only | 2180 |
 | + flag latency 1 | 2116 |
 | + load ready at +3 | 2094 |
 | + delay fillers | 2075 |
-| + branch interlock | **2070** |
-| SCE `vcl` | 2035 |
+| + branch interlock | 2070 |
+| + **branch bubble on dependency** | **2040** |
+| SCE `vcl` | 2042 |
 | ceiling | 2042 |
-| **over by** | **28** |
+| **spare** | **2** |
+
+**The budget arithmetic, because everyone re-derives it wrong once.** The ceiling is
+not a constant: `Path1::createProgramsCache` asserts against
+`drawFinishAddr = VU1_MICRO_MEM_SIZE - <draw-finish size>`, which is
+2048 - 6 = **2042** today. And each program contributes
+`VU1Program::calculateProgramSize()`, which is `(CodeEnd - CodeStart) / 8` **rounded
+up to an even instruction count** - MPG uploads in 64-bit pairs. Ten programs means
+up to ten words of rounding, so summing raw rows out of the `.vsm` files understates
+the total. Ask the objects instead:
+
+```bash
+# in the project directory, after a build
+docker compose exec -T compiler sh -c 'cd /tyra/engine/obj && for f in $(find . -name "stapip_cull_*_vu1.o" -o -name "stapip_clip_*_vu1.o" -o -name "draw_finish.o" | sort); do
+  s=$(mips64r5900el-ps2-elf-nm "$f" | grep -i CodeStart | awk "{print \$1}")
+  e=$(mips64r5900el-ps2-elf-nm "$f" | grep -i CodeEnd | awk "{print \$1}")
+  n=$(( (0x$e - 0x$s) / 8 )); r=$n; [ $((n % 2)) -eq 1 ] && r=$((n+1))
+  printf "%-44s %4d -> %4d\n" "$(basename $f)" "$n" "$r"; done'
+```
+
+Measured that way **SCE's set lands on 2042 exactly** - not one word of slack - and
+openvcl's on 2040.
 
 Per program openvcl is now within a few words of SCE everywhere - **and smaller on
 two of the ten**:
@@ -480,14 +502,14 @@ things*. Over the ten resident programs:
 | everything else | 19 | 30 |
 | **total** | **104** | **130** |
 
-**Almost all of it is one shape: a stall in front of a branch, and openvcl has
-twice as many of those sites.** Both assemblers pay one word when an ordinary
-integer op feeds a branch - SCE never comes closer than two instructions either (24
-of its 45 cases sit at exactly two) - so this is not another latency constant. SCE
-simply arrives at the branch with something left to put in front of it.
+**Almost all of it was one shape: a stall in front of a branch, and openvcl had
+twice as many of those sites.** That is now fixed - see "The last 28 words" below.
+Both assemblers pay one word when an ordinary integer op feeds a branch (SCE never
+comes closer than two instructions either, 24 of its 45 cases sit at exactly two);
+what openvcl was doing was paying it *unconditionally*.
 
-**Three levers were built and measured against that, and all three are dead ends -
-recorded so the next attempt starts past them:**
+**Three levers were built and measured as dead ends first, recorded because they
+each look like the obvious fix:**
 
 * **Rank the ready list by the critical path in CYCLES** rather than in
   instructions, counting each dependence edge at its real issue distance, and hand
@@ -508,8 +530,62 @@ recorded so the next attempt starts past them:**
   longer reports a hazard at all (17 calls, 0 with a delay). The rows come from the
   emitter's own padding path, one level below where this pass sits.
 
-So the next attempt belongs in `CodeGenerator`, on emitted rows, not in the
-scheduler - and it needs the emitter's tracker replayed the same way.
+All three failed for the same reason, which is the answer: **the rows were never the
+scheduler's.** `CodeGenerator::padForBranchPreBubble` inserts one nop in front of a
+branch, and its test is `branchNeedsPreBubble` - which looks only at the branch's own
+flags:
+
+```cpp
+if( access.instructionFlags & VU_INSTR_REGISTER_BRANCH )  return true;
+return !(access.instructionFlags & VU_INSTR_UNCONDITIONAL_BRANCH);
+```
+
+Every conditional branch, always, whether or not anything above it produces an
+operand. That is the entire 80-against-36 difference.
+
+### The last 28 words: `--branch-bubble-on-dependency`
+
+The bubble now gets decided per branch, from the slots the strict emitter is holding:
+does the row above write a register this branch reads? Three details, each one
+measured rather than assumed:
+
+* **Do not ask the latency tracker.** The first attempt gated the bubble on
+  `manualReadHazardDelay` and produced **32 sites where a branch reads a register
+  written by the row directly above it** - a distance SCE never emits. Cause:
+  `recordWrites()` returns early for anything with `latency() <= 1`, i.e. for most
+  integer ops, so the tracker has never heard of this hazard. **The unconditional
+  bubble was its implementation.** Caught by re-running the SCE-gap measurement, not
+  by a test.
+* **Interlocked producers still do not need it.** A load or flag reader above the
+  branch answers "yes, I write it" but the hardware stalls anyway
+  (`--branch-interlock`), so the bubble has to skip those too - otherwise it takes
+  back exactly the words that flag saved.
+* **Look two rows up only when the row above can be taken away.** With
+  `--emit-delay-fillers` the i-1 row can be retracted into the delay slot, which
+  promotes i-2 to being adjacent. Checking i-2 unconditionally kept bubbles SCE does
+  not need - `fcand` / `iadd VI10` / `fcand` / `ibne VI10,VI01` in `clip_c` and
+  `clip_d`, where SCE emits no bubble at all. Gated on the filler's own legality test
+  so the two decisions cannot disagree.
+
+Result: **2070 → 2040 against the 2042 ceiling**, 100 stall rows against SCE's 104,
+and every hazard distance now matches SCE's measured minimum exactly:
+
+| producer of the branch's operand | SCE | openvcl |
+|---|---|---|
+| ordinary integer op | 2 | **2** |
+| integer load | 1 | **1** |
+| flag reader | 1 | **1** |
+| `mtir` | 2 | **2** |
+
+Over all 25 programs openvcl now emits 3996 words against SCE's 3982 - +0.35%, from
++75% where this started.
+
+**Verified, not just counted:** 419/419 upstream tests, 25/25 outputs through
+`dvp-as`, the loop-carried liveness checker clean, and in PCSX2 with the VU1 clipper
+the full openvcl build **boots with 0 assertions** (it no longer overflows) while
+nine of the ten resident programs are pixel-identical to a legacy build - the tenth
+is the `stapip_clip_c` miscompile below, which predates all of this. The EE-clipper
+path stays pixel-identical too.
 
 Every output was checked through `dvp-as` as well as counted: 25 of 25 assemble.
 
@@ -600,6 +676,32 @@ second build with the same image compiles nothing at all. If that line is missin
 after a swap, do not trust the picture - count the work in the log
 (`grep -cE '(^| )vcl ' `, one line per program) before believing it.
 
+**The stamp had the same hole once**, and it cost an hour: it hashed what
+`command -v vcl` resolves to, which for the openvcl form is the *wrapper script*. Its
+text carries the flags, so a flag change was caught - but a rebuilt `openvcl` behind
+unchanged flags was not, and the previous binary's microcode was relinked while the
+numbers said the new one should fit. It now hashes the wrapper AND the openvcl binary
+it calls.
+
+### What the density costs at runtime: nothing measurable
+
+openvcl needs 5913 cycles over the 25 programs where SCE needs 3982, which sounds
+like it should show up as frames. It does not. The documented perfbench scene (128x128
+terrain, ~98k verts, debug build, `showFps`, vsync off so 50/25 quantisation cannot
+hide anything), ten HUD samples per configuration, read by exact pixel signature:
+
+| | readings | mean |
+|---|---|---|
+| SCE `vcl` | 70x5, 69x2, 68x2, 64x1 | 68.8 |
+| openvcl | 70x6, 69x1, 68x2, 64x1 | 68.9 |
+
+Indistinguishable - and there is a reason rather than luck: **the per-vertex loops are
+the same length**. Summed over the seven programs the scene touches, both assemblers
+emit 554 rows of vertex loop, with openvcl shorter on `cull_d` (-3) and `cull_td`
+(-6). Every extra word it spends is in per-batch setup, which runs once per `xtop`,
+not once per vertex. The static cycle figure counts that setup - and counts stalls the
+hardware absorbs - so it overstates the runtime cost badly.
+
 ### A miscompile this uncovered
 
 The first openvcl build that really ran drew **no terrain**: sky, a horizon smear
@@ -683,12 +785,28 @@ resident set fits at 2033, so the VU1 clipper can actually run:
 | `cull_d` + `cull_td` from openvcl | 0 | **0 of 514600 pixels differ** |
 | the same plus `clip_c` | 0 | **453644 differ** |
 
-So two of openvcl's programs are now *proven* correct on the VU1 clipper path and
-`clip_c` is proven wrong. That changes what the migration is waiting on: **not only
-the 28 words, but a correctness bug in the clipper program as well.** Whoever picks
-it up should start where the last one was found - diff `clip_c`'s openvcl output
-against SCE's around the Sutherland-Hodgman edge loop, which is the part `as_is_c`
-does not have.
+The whole family was then measured the same way, one program at a time:
+
+| from openvcl, VU1 clipper | asserts | framebuffer vs legacy |
+|---|---|---|
+| `clip_d` | 0 | **0 of 514600 differ** |
+| `clip_td` | 0 | **0** |
+| `clip_tc` | 0 | **0** |
+| `clip_tce` | 0 | **0** |
+| `cull_d` + `cull_td` | 0 | **0** |
+| everything except `clip_c` | 0 | **0** |
+| `clip_c` | 0 | **453644** |
+
+**One program.** And it is not the tag-load move that fixed nine others: the source
+as it stood *before* that change is miscompiled too (a different pixel count, both
+wrong), so the engine change is exonerated.
+
+The static routes are exhausted - no instruction is dropped or added (283 in both),
+and generalising the liveness checker to every backward branch drowns in false
+positives, because "set up before the loop, read inside, written inside" is also the
+shape of every induction variable, in both assemblers' output. So the next step is
+dynamic: the VU1 packet tap, capturing the staged GIF output for one batch under each
+assembler and finding the first quadword that differs.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

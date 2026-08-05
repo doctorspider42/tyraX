@@ -343,8 +343,11 @@ Notes:
   and produced three identical screenshots, one of which was then chased as a
   rendering bug. Since 2026-08-05 the Runner stamps the VU assembler itself
   (`/tyra/.vcl-stamp`) and prints `VU assembler changed - rebuilding the
-  microprograms`. Look for that line after a swap, and in general **verify from
-  the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
+  microprograms`. The stamp hashes the resolved `vcl`, `vclpp` AND the `openvcl`
+  binary behind the wrapper - hashing only the wrapper missed a rebuilt openvcl whose
+  flags had not changed, and the previous binary's microcode was relinked while the
+  measurements said the new one should fit. Look for that line after a swap, and in
+  general **verify from the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
   microprogram, 25 of them) and `grep -c 'elf-g++ .* -c -o'` — before you believe
   any picture. Note that a full microcode rebuild is ~2 min under Sony's `vcl`
   but **seconds** under openvcl, so a fast build is not by itself evidence that

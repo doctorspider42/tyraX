@@ -1,8 +1,16 @@
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..cc145cb 100644
+index 699abe7..354496c 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
-@@ -1475,6 +1475,21 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
+@@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
+ 	m_knownLoopOptimizations = false;
+ 	m_genericSoftwarePipelining = false;
+ 	m_strictScheduleSlots = false;
++	m_skipBranchPreBubble = false;
+ 	m_enableUpperMoves = false;
+ 	m_ignoredImplicitWawResources = VU_RESOURCE_NONE;
+ }
+@@ -1475,6 +1476,21 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -24,7 +32,93 @@ index 699abe7..cc145cb 100644
  void CodeGenerator::addNopLine()
  {
  	m_codeLines.push_back( formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) );
-@@ -2039,12 +2054,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -1536,11 +1552,85 @@ bool CodeGenerator::branchNeedsPreBubble( const Token& token ) const
+ 	return !(access.instructionFlags & VU_INSTR_UNCONDITIONAL_BRANCH);
+ }
+ 
++// Would --emit-delay-fillers move this slot's instruction into `branch`'s delay
++// slot? Same conditions the emitter applies later, so the bubble decision above and
++// the move below cannot disagree.
++bool CodeGenerator::slotCanBecomeBranchDelayFiller( const VuScheduledIssueSlot& slot,
++                                                    const Token& branch ) const
++{
++	if( !vuEmitDelayFillersEnabled() || slot.padding )
++		return false;
++	if( !slot.firstToken || slot.secondToken || slot.firstToken == &branch )
++		return false;
++	return canMoveIntoBranchDelaySlot( *slot.firstToken, branch );
++}
++
++// Does either of the two slots above `index` write a register `branch` reads?
++// i-1 is the row that creates the hazard; i-2 is checked as well because
++// --emit-delay-fillers can move the i-1 row into the delay slot, which puts i-2
++// directly above the branch. Padding slots produce nothing, so they answer no.
++bool CodeGenerator::scheduledSlotsFeedBranch(
++    const std::vector<const VuScheduledIssueSlot*>& slots,
++    unsigned int index,
++    const Token& branch ) const
++{
++	std::list<std::string> reads;
++	collectVuRegisterReadKeys( branch, reads );
++	if( reads.empty() )
++		return false;
++
++	for( unsigned int back = 1; back <= 2 && back <= index; ++back )
++	{
++		const VuScheduledIssueSlot& slot = *slots[index - back];
++		if( slot.padding )
++			continue;
++		// The row two up only becomes adjacent if the one above it is about to be
++		// retracted into the delay slot; otherwise it is already far enough away.
++		if( back == 2 && !slotCanBecomeBranchDelayFiller( *slots[index - 1], branch ) )
++			continue;
++		const Token* tokens[2] = { slot.firstToken, slot.secondToken };
++		for( int t = 0; t < 2; ++t )
++		{
++			if( !tokens[t] || tokens[t] == &branch )
++				continue;
++			// Interlocked producers do not need the word - see --branch-interlock.
++			if( vuBranchInterlockEnabled()
++			    && ( isVuPlainMemoryLoad( *tokens[t] )
++			         || isVuClipReader( lowerVuTokenName( *tokens[t] ) )
++			         || isVuMacReader( lowerVuTokenName( *tokens[t] ) ) ) )
++				continue;
++			std::list<std::string> writes;
++			collectVuRegisterWriteKeys( *tokens[t], writes );
++			for( std::list<std::string>::const_iterator w = writes.begin(); w != writes.end(); ++w )
++			{
++				for( std::list<std::string>::const_iterator r = reads.begin(); r != reads.end(); ++r )
++				{
++					if( *w == *r )
++						return true;
++				}
++			}
++		}
++	}
++	return false;
++}
++
+ void CodeGenerator::padForBranchPreBubble( const Token& token )
+ {
+ 	if( !branchNeedsPreBubble( token ) )
+ 		return;
+ 
++	// branchNeedsPreBubble() answers "is this the kind of branch that can need a
++	// bubble", never "does THIS one". The strict emitter decides that per branch
++	// from the slots above it and parks the answer here - see
++	// --branch-bubble-on-dependency. Do NOT ask the latency tracker: recordWrites()
++	// ignores anything with latency <= 1, so it has never heard of this hazard and
++	// would happily drop every bubble.
++	if( m_skipBranchPreBubble )
++	{
++		m_skipBranchPreBubble = false;
++		return;
++	}
++
+ 	if( m_codeLines.empty()
+ 	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
+ 	{
+@@ -2039,12 +2129,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -46,7 +140,17 @@ index 699abe7..cc145cb 100644
  			break;
  		}
  
-@@ -2237,6 +2256,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2324,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+ 			continue;
+ 		}
+ 		const Token* branch = branchTokenInScheduledSlot(slot);
++		m_skipBranchPreBubble = branch != NULL
++		                        && vuBranchBubbleOnDependencyEnabled()
++		                        && !scheduledSlotsFeedBranch( slots, i, *branch );
+ 		const Token* delayFiller = NULL;
+ 		unsigned int delayFillerSlot = i + 1;
+ 		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
+@@ -2237,6 +2334,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -91,7 +195,7 @@ index 699abe7..cc145cb 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2454,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2532,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -139,7 +243,7 @@ index 699abe7..cc145cb 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +2762,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +2840,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -158,7 +262,7 @@ index 699abe7..cc145cb 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +2783,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +2861,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -177,10 +281,10 @@ index 699abe7..cc145cb 100644
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
-index 1845035..33a0b40 100644
+index 1845035..d0f3c5b 100644
 --- a/src/CodeGenerator.h
 +++ b/src/CodeGenerator.h
-@@ -68,6 +68,10 @@ private:
+@@ -68,11 +68,20 @@ private:
  	std::string accumulatorArg( const Token::Argument& arg, const Token& token );
  
  	void addNopLine();
@@ -191,7 +295,25 @@ index 1845035..33a0b40 100644
  	void emitWaitQ();
  	void emitWaitP();
  	void emitUpperWithWait( const Token& token, bool waitQ );
-@@ -200,6 +204,7 @@ private:
+ 	bool branchNeedsPreBubble( const Token& token ) const;
+ 	void padForBranchPreBubble( const Token& token );
++	bool slotCanBecomeBranchDelayFiller( const VuScheduledIssueSlot& slot,
++	                                     const Token& branch ) const;
++	bool scheduledSlotsFeedBranch( const std::vector<const VuScheduledIssueSlot*>& slots,
++	                               unsigned int index,
++	                               const Token& branch ) const;
+ 	void emitSingleToken( const Token& token );
+ 	void emitBranchWithDelayFiller( const Token& branch, const Token& filler );
+ 	void emitPairedTokens( const Token& a, const Token& b );
+@@ -195,11 +204,15 @@ private:
+ 	bool m_knownLoopOptimizations;
+ 	bool m_genericSoftwarePipelining;
+ 	bool m_strictScheduleSlots;
++	// Set per branch by the strict emitter when the row above it produces none of
++	// its operands, so padForBranchPreBubble() can skip a word nobody needs.
++	bool m_skipBranchPreBubble;
+ 	bool m_enableUpperMoves;
+ 	unsigned int m_ignoredImplicitWawResources;
  	std::string m_name;
  
  	int m_currentCycle;
@@ -200,10 +322,10 @@ index 1845035..33a0b40 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..a065de4 100644
+index e6a6dea..2896245 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,11 @@ CommandLine::CommandLine()
+@@ -75,6 +75,12 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -212,10 +334,11 @@ index e6a6dea..a065de4 100644
 +	m_sceLatencies = false;
 +	m_emitDelayFillers = false;
 +	m_branchInterlock = false;
++	m_branchBubbleOnDependency = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +130,11 @@ CommandLine::CommandLine()
+@@ -125,6 +131,12 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -224,10 +347,11 @@ index e6a6dea..a065de4 100644
 +	m_options.push_back(Option(0,"sce-latencies",SCE_LATENCIES,false));
 +	m_options.push_back(Option(0,"emit-delay-fillers",EMIT_DELAY_FILLERS,false));
 +	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
++	m_options.push_back(Option(0,"branch-bubble-on-dependency",BRANCH_BUBBLE_ON_DEPENDENCY,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +249,11 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +251,12 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -236,10 +360,11 @@ index e6a6dea..a065de4 100644
 +				case SCE_LATENCIES: m_sceLatencies = true; break;
 +				case EMIT_DELAY_FILLERS: m_emitDelayFillers = true; break;
 +				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
++				case BRANCH_BUBBLE_ON_DEPENDENCY: m_branchBubbleOnDependency = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +345,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +348,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -250,10 +375,10 @@ index e6a6dea..a065de4 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..4c20c6b 100644
+index f5e4b3d..cfa528a 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,11 @@ public:
+@@ -56,6 +56,12 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -262,10 +387,11 @@ index f5e4b3d..4c20c6b 100644
 +	bool sceLatencies() const;
 +	bool emitDelayFillers() const;
 +	bool branchInterlock() const;
++	bool branchBubbleOnDependency() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +135,11 @@ private:
+@@ -130,6 +136,12 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -274,10 +400,11 @@ index f5e4b3d..4c20c6b 100644
 +		SCE_LATENCIES,
 +		EMIT_DELAY_FILLERS,
 +		BRANCH_INTERLOCK,
++		BRANCH_BUBBLE_ON_DEPENDENCY,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +195,11 @@ private:
+@@ -185,6 +197,12 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -286,14 +413,15 @@ index f5e4b3d..4c20c6b 100644
 +	bool m_sceLatencies;
 +	bool m_emitDelayFillers;
 +	bool m_branchInterlock;
++	bool m_branchBubbleOnDependency;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..614bb39 100644
+index 5500026..71396d1 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,41 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,48 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -332,11 +460,18 @@ index 5500026..614bb39 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::branchBubbleOnDependency() const
++{
++	return m_branchBubbleOnDependency;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
  inline bool CommandLine::genericSoftwarePipelining() const
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..2ef3548 100644
+index b8b1946..dd9e0ff 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -347,7 +482,7 @@ index b8b1946..2ef3548 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,18 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,19 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -362,6 +497,7 @@ index b8b1946..2ef3548 100644
 +	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
++	setVuBranchBubbleOnDependencyEnabled( m_cmdLine.branchBubbleOnDependency() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
@@ -592,7 +728,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..5c59cc5 100644
+index 3260370..f688f10 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -654,7 +790,7 @@ index 3260370..5c59cc5 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +391,27 @@ namespace
+@@ -368,9 +391,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -681,11 +817,12 @@ index 3260370..5c59cc5 100644
 +				                      currentCycle - blockStartCycle,
 +				                      paddingCycleCount );
 +			paddingSlot.emitCycleCount = emitCycleCount;
++			if( emitCycleCount > 0 )
 +			slots.push_back( paddingSlot );
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -904,6 +945,7 @@ namespace
+@@ -904,6 +946,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -693,7 +830,7 @@ index 3260370..5c59cc5 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +955,32 @@ namespace
+@@ -913,45 +956,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -761,7 +898,7 @@ index 3260370..5c59cc5 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +993,7 @@ namespace
+@@ -964,7 +994,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -770,7 +907,7 @@ index 3260370..5c59cc5 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1022,9 @@ namespace
+@@ -993,6 +1023,9 @@ namespace
  			}
  		}
  
@@ -780,7 +917,7 @@ index 3260370..5c59cc5 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +5714,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +5715,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -806,10 +943,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..e13d0e2 100644
+index c28ec6d..2ad632f 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,98 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,109 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -844,6 +981,7 @@ index c28ec6d..e13d0e2 100644
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
++	bool g_branchBubbleOnDependency = false;
 +}
 +
 +void setVuScheduleFlagReadersEnabled( bool enabled )
@@ -896,6 +1034,16 @@ index c28ec6d..e13d0e2 100644
 +	return g_emitDelayFillers;
 +}
 +
++void setVuBranchBubbleOnDependencyEnabled( bool enabled )
++{
++	g_branchBubbleOnDependency = enabled;
++}
++
++bool vuBranchBubbleOnDependencyEnabled()
++{
++	return g_branchBubbleOnDependency;
++}
++
 +void setVuBranchInterlockEnabled( bool enabled )
 +{
 +	g_branchInterlock = enabled;
@@ -910,10 +1058,10 @@ index c28ec6d..e13d0e2 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..4d6bd88 100644
+index 8188099..6b19113 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,50 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,59 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -958,6 +1106,15 @@ index 8188099..4d6bd88 100644
 +// immediately before `ibne ...,VI01,...`. An ordinary integer op is NOT in this
 +// class - SCE never comes closer than two instructions there (24 cases at
 +// exactly two), which is what openvcl already emits.
++// --branch-bubble-on-dependency: emit the pre-branch bubble only when the row
++// above the branch actually produces one of its operands. The emitter's own rule
++// is unconditional - one nop in front of every conditional branch - which is
++// where openvcl's remaining stall rows are: 80 sites over the resident program
++// set against SCE's 36, for the same hazard and the same one-word cost where it
++// is real.
++void setVuBranchBubbleOnDependencyEnabled( bool enabled );
++bool vuBranchBubbleOnDependencyEnabled();
++
 +void setVuBranchInterlockEnabled( bool enabled );
 +bool vuBranchInterlockEnabled();
 +

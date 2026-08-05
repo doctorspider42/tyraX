@@ -24,10 +24,11 @@
 # version: the from-source `openvcl` compiles all 25 of the engine's VU1
 # microprograms and a game built with it RUNS - pixel-identical to Sony's vcl in
 # PCSX2 (2026-08-05), which is why `openvcl` is a supported choice here (see
-# VCL_IMPL) and no longer an experiment. It is not the default because of the VU1
-# clipper: that program set needs 2070 instructions against a 2042 ceiling, and one
-# of its programs (stapip_clip_c) is still miscompiled. On the EE clipper - which
-# is what a project gets unless it asks for `vu1` - openvcl is verified.
+# VCL_IMPL) and no longer an experiment. Its VU1-clipper set now FITS as well (2040
+# instructions against a 2042 ceiling, and denser than SCE's own output on 8 of the
+# 10 programs), so the one thing left before it can be the default is a miscompile
+# in stapip_clip_c - nine of the ten resident programs are pixel-identical to a
+# legacy build, that one is not. On the EE clipper openvcl is verified end to end.
 #
 # Build it: docker/build.ps1 (Windows) or docker/build.sh (Linux).
 #
@@ -64,11 +65,13 @@ ARG VCL_IMPL=legacy
 #   docker/build.ps1 -Tag t:probe -VclImpl openvcl `
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
-# Each one is measured in docs/toolchain-image.md; none is on by default in the
-# tool itself, and with all four the rendered frame is pixel-identical to the one
-# Sony's vcl produces. When bisecting, force the microcode to rebuild
-# (--build --rebuild) - the engine's make will not do it for an image swap.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock"
+# Each one is measured in docs/toolchain-image.md; none is on by default in the tool
+# itself, and with all six the rendered frame is pixel-identical to the one Sony's
+# vcl produces while the resident VU1 set is SMALLER (2040 against SCE's 2042). The
+# Runner rebuilds the microcode when this string changes, so a bisection does not
+# need --rebuild - but check the log says "VU assembler changed" before trusting a
+# picture.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc

@@ -253,8 +253,31 @@ the verification, and any fact worth reusing belongs in the relevant
     distinction as --fmac-interlock, one file down: the cycles are real, the words
     are not ours to spend. 419/419 tests, 25/25 through dvp-as, EE-clipper e2e
     still pixel-identical.
-    The rest is ONE shape: **a stall in front of a branch, and openvcl has twice as
-    many sites (80 against 36)**. Not another constant - SCE pays the same word when
+    **2026-08-05, resolved: the VU1 set FITS.** The remaining rows were never the
+    scheduler's - `CodeGenerator::padForBranchPreBubble` inserts one nop before EVERY
+    conditional branch, because `branchNeedsPreBubble` looks at the branch's own flags
+    and never at whether the row above produces an operand. That is the whole
+    80-against-36 difference. `--branch-bubble-on-dependency` decides it per branch
+    from the emitted slots: **2070 -> 2040 against a 2042 ceiling**, 100 stall rows
+    against SCE's 104, and every hazard distance matches SCE exactly (int-op 2, load 1,
+    flag reader 1, mtir 2). Over all 25 programs 3996 words against SCE's 3982 (+0.35%,
+    from +75%). Two wrong turns worth not repeating: gating on `manualReadHazardDelay`
+    put 32 sites at distance 1 (SCE never goes below 2) because `recordWrites` ignores
+    latency<=1 instructions, so the tracker never modelled this hazard at all - the
+    unconditional bubble WAS its implementation; and checking two rows up
+    unconditionally keeps bubbles SCE does not need (gate it on the delay-filler's own
+    legality test). **Budget arithmetic:** the ceiling is `2048 - draw_finish size` (6
+    today = 2042), and each program is rounded UP TO EVEN by
+    `VU1Program::calculateProgramSize` (MPG uploads 64-bit pairs), so summing raw .vsm
+    rows understates it - ask `nm` for CodeStart/CodeEnd instead. SCE's set lands on
+    2042 exactly.
+    **Verified:** 419/419 tests, 25/25 through dvp-as, the full openvcl VU1 build boots
+    with 0 asserts, nine of the ten resident programs pixel-identical (only clip_c
+    differs), EE path pixel-identical, and **no measurable FPS cost** - the per-vertex
+    loops are the same length in both assemblers (554 rows), so openvcl's extra words
+    are all in per-batch setup (perfbench, 10 HUD samples each: 68.8 vs 68.9 mean).
+    The historical shape of the problem, for context: **a stall in front of a branch,
+    where openvcl had twice as many sites (80 against 36)**. Not another constant - SCE pays the same word when
     an ordinary integer op feeds a branch, it just arrives with something left to
     put there. **Three levers built and measured as dead ends, do not repeat:**
     critical-path priorities in cycles (+ handing the scheduler the token that
@@ -265,8 +288,17 @@ the verification, and any fact worth reusing belongs in the relevant
     of padding - zero, because at the segment boundary the scheduler reports no
     hazard at all (17 calls, 0 with a delay). The rows come from `CodeGenerator`'s
     own padding path, which is where the next attempt belongs.
-    **Also new, and it changes the shape of the blocker: `stapip_clip_c` from
-    openvcl is MISCOMPILED.** Found by pairing it with `cull_d`/`cull_td`, where
+    **The one blocker left: `stapip_clip_c` from openvcl is MISCOMPILED.** Measured
+    program by program in vu1 mode - `clip_d`, `clip_td`, `clip_tc`, `clip_tce`,
+    `cull_d`, `cull_td` and "everything except clip_c" are ALL pixel-identical; only
+    clip_c differs (453644 pixels). It also predates the tag-load move (the pre-fix
+    source is broken too, differently), so the engine change is exonerated. Static
+    routes are exhausted - no instruction is dropped (283 in both) and generalising
+    the liveness checker to every backward branch drowns in induction-variable false
+    positives in BOTH assemblers - so the next step is the VU1 packet tap: capture the
+    staged GIF output for one batch under each assembler, find the first differing
+    quadword.
+    Earlier note on the same bug: Found by pairing it with `cull_d`/`cull_td`, where
     openvcl is SMALLER than SCE, so the VU1-clipper set fits at 2033 and can boot:
     those two alone render pixel-identically, adding `clip_c` breaks 453644 pixels.
     Not the liveness bug (the checker is clean on it) and not any of the flags (it

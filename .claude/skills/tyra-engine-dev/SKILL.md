@@ -708,10 +708,11 @@ banner both, so a previously built ELF still reports.
   source, no license). The from-source `openvcl` compiles all 25 programs since
   2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
   in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
-  with it **runs, pixel-identical to Sony's output, on the EE clipper** - but it
-  schedules less densely (5913 cycles against 3982), so with the *VU1* clipper its
-  resident set is 28 words over VU1 micro memory, and `stapip_clip_c` is
-  miscompiled there on top of that. It also schedules *differently*, so **any VU1
+  with it **runs, pixel-identical to Sony's output** - on the EE clipper, and on the
+  VU1 clipper for nine of the ten resident programs (the tenth, `stapip_clip_c`, is
+  miscompiled; that is the last blocker). Its VU1 set fits since 2026-08-05 (2040
+  against the 2042 ceiling) and costs no measurable frames. It schedules
+  *differently* though, so **any VU1
   timing you measure belongs to one assembler, not to the engine**. Say which one
   in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`
   picks it when building the image; the image records its choice in
