@@ -8105,6 +8105,19 @@ void App::drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin) {
     ImGui::Image((ImTextureID)(intptr_t)saveSpinnerPreviewTex_,
                  ImVec2(side, side * aspect), ImVec2(u0, 0.0f),
                  ImVec2(u1, 1.0f));
+    // What the sheet IS lives on the preview rather than in a paragraph under
+    // it: the numbers matter when you are choosing a sheet and are noise the
+    // rest of the time.
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "%s\n%dx%d, %d cell%s of %dx%d.\n\n"
+            "Any project PNG works as a spinner as long as BOTH its sides are\n"
+            "8/16/32/64/128/256/512 - that is the console's own rule, and a\n"
+            "sheet that breaks it is rejected here rather than shipped.",
+            spin.custom ? spin.resPath.c_str()
+                        : "Built-in (res/hud/save-spinner.png)",
+            spin.sheetW, spin.sheetH, spin.frames, spin.frames == 1 ? "" : "s",
+            spin.cellW, spin.cellH);
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("cell %d/%d", cell + 1, spin.frames);
@@ -8236,6 +8249,19 @@ void App::drawSaveEditorWindow() {
             }
             ImGui::EndCombo();
         }
+        // The (?) sits OUTSIDE the disabled block on purpose: a disabled item
+        // takes no hover, and the .glb case - the one where the picker is
+        // greyed out - is exactly when someone wants to know why.
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s",
+                              clipDriven
+                                  ? "The .glb clip drives this icon's motion,\n"
+                                    "so these presets do not apply to it."
+                                  : motions[cur].desc);
+        ImGui::BeginDisabled(clipDriven);
         if (savebake::iconMotionIndex(project_.saveIconMotion) != 5) {
             ImGui::SetNextItemWidth(scaled(120.0f));
             ImGui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f,
@@ -8243,14 +8269,6 @@ void App::drawSaveEditorWindow() {
             if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
         }
         ImGui::EndDisabled();
-        // TextWrapped, not TextDisabled: these descriptions are a sentence or
-        // two and the panel is narrow, so an unwrapped one is simply cut off.
-        ImGui::PushStyleColor(ImGuiCol_Text,
-                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-        ImGui::TextWrapped("%s", clipDriven
-                                     ? "The .glb clip drives this icon's motion."
-                                     : motions[cur].desc);
-        ImGui::PopStyleColor();
     }
 
     // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
@@ -8478,17 +8496,6 @@ void App::drawSaveEditorWindow() {
             ImGui::TextWrapped("Using the built-in instead: %s.",
                                spin.warning.c_str());
             ImGui::PopStyleColor();
-        } else {
-            ImGui::PushStyleColor(
-                ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-            ImGui::TextWrapped(
-                "%s - %dx%d, %d cell%s of %dx%d. Any project PNG works as long "
-                "as both its sides are 8/16/32/64/128/256/512.",
-                spin.custom ? spin.resPath.c_str()
-                            : "Built-in (res/hud/save-spinner.png)",
-                spin.sheetW, spin.sheetH, spin.frames,
-                spin.frames == 1 ? "" : "s", spin.cellW, spin.cellH);
-            ImGui::PopStyleColor();
         }
     }
 
@@ -8534,6 +8541,19 @@ void App::drawSaveEditorWindow() {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::Text("Card space used (1 KB clusters)");
+        // Why this row disagrees with the one above it belongs ON this row -
+        // it is the only place the question comes up. The (?) is there because
+        // a bare line of table text advertises no tooltip.
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A PS2 card allocates whole %d-byte clusters and no two files\n"
+                "share one, so each of the %d slots costs at least one cluster\n"
+                "however small it is - plus one for icon.sys, one or more for\n"
+                "list.icn, and one for the save's own directory. That rounding\n"
+                "is why this row and \"All data\" differ.",
+                sz.cardClusterBytes, templates::kSaveSlots);
         ImGui::TableNextColumn();
         // The number to quote, so it gets the theme's one bright colour -
         // emphasis, not a warning (nothing here is wrong).
@@ -8541,12 +8561,6 @@ void App::drawSaveEditorWindow() {
                            bytes(sz.cardFootprintBytes).c_str());
         ImGui::EndTable();
     }
-    ImGui::TextDisabled(
-        "A PS2 card allocates whole %d-byte clusters and no two files share\n"
-        "one, so each of the %d slots costs at least one cluster however small\n"
-        "it is - plus one for icon.sys, one or more for list.icn, and one for\n"
-        "the save's own directory. That rounding is why the two rows differ.",
-        sz.cardClusterBytes, templates::kSaveSlots);
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
