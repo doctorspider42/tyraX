@@ -212,9 +212,11 @@ exactly once. It is the same trick the engine already used one level down, where
 the light registers are reloaded per triangle "so they do not stay live across the
 Sutherland-Hodgman block".
 
-### Where it stands: compiles, does not fit
+### Where it started: compiles, does not fit
 
-Over the engine's 25 microprograms, current sources:
+Over the engine's 25 microprograms, at the point the density work began (where it
+ended up, including a game that runs and renders identically, is two sections
+down):
 
 | | legacy `vcl` | patched `openvcl` |
 |---|---|---|
@@ -473,6 +475,128 @@ an order that avoids the hazard, not another calibrated constant - the constants
 now agree with SCE on every class measured.
 
 Every output was checked through `dvp-as` as well as counted: 25 of 25 assemble.
+
+### It runs - and the picture is identical to Sony's
+
+Counting instructions says a program fits. It does not say the microcode is
+*right*, and until 2026-08-05 nothing built by `openvcl` had ever been executed.
+It has now, because a project does not have to use the set that overflows: with
+the **EE clipper** (Project Preferences > Rendering > Clipping, anything other
+than `vu1`) the resident VU1 set is five `cull_*` plus five `as_is_*` programs -
+**1403** instructions against the same 2042 ceiling, 639 to spare.
+
+A terrain project built that way, `VCL_IMPL=openvcl` with all four flags, in
+PCSX2, **after the miscompile the next section describes was fixed**:
+
+| | boots | `bin/log.txt` asserts | FPS | framebuffer vs legacy |
+|---|---|---|---|---|
+| openvcl, all four flags | yes | 0 | 50 (PAL cap) | **0 of 514600 pixels differ** |
+
+Pixel-identical, not "looks the same": the emulator's framebuffer area was
+compared channel by channel against a legacy build of the same project, and the
+maximum channel delta is 0. The four density flags change *where* instructions
+sit, and this is the evidence that they do not change what the program computes.
+
+Two things it does NOT say, both worth stating because the first run of this
+experiment claimed more than it had:
+
+* **openvcl with no flags does not even fit this set.** It trips the same
+  overflow assertion (the flags are what make openvcl competitive, not a tuning
+  nicety), so "openvcl renders correctly" always means openvcl *with the image's
+  flags*.
+* This is one scene on one emulator. It exercises `cull_*` and `as_is_c`; the
+  textured and clip variants are only covered by the static checks.
+
+So the migration is down to one number - the 33 words that the `vu1Clipping` set
+is over - and not to any doubt about correctness.
+
+**The trap that cost the first attempt, and the fix that closed it:** switching
+the image did not rebuild the microcode. The engine's make keys off `.vclpp`
+timestamps and an image swap touches no source, so three consecutive "bisection"
+probes each booted the *previous* probe's VU objects and produced three identical
+screenshots of a program none of them had built - including a "corrupted terrain"
+that belonged to no configuration at all.
+
+The Runner now stamps the assembler itself (`/tyra/.vcl-stamp`, the md5 of the
+resolved `vcl` and `vclpp` - which for the openvcl form is the wrapper script, so
+a change of `VCL_FLAGS` counts too, `src/runner.cpp`). Swapping the image is
+enough on its own:
+
+```
+[editor] VU assembler changed - rebuilding the microprograms (takes a minute or two)...
+```
+
+Verified both ways: a switch rebuilds all 25 programs with no `--rebuild`, and a
+second build with the same image compiles nothing at all. If that line is missing
+after a swap, do not trust the picture - count the work in the log
+(`grep -cE '(^| )vcl ' `, one line per program) before believing it.
+
+### A miscompile this uncovered
+
+The first openvcl build that really ran drew **no terrain**: sky, a horizon smear
+and one green quad. Not a crash, not an assertion - 50 FPS of wrong picture. What
+it turned out to be is worth writing down, because the shape is generic and
+nothing in the build would have told us.
+
+**Attributing it needed a new instrument.** Whole-set openvcl builds are all-or-
+nothing, and without the density flags they do not fit, so "which program is
+wrong?" could not be asked. The answer was a `vcl` that dispatches per input file:
+
+```dockerfile
+FROM tyrax-toolchain:openvcl
+ARG PATTERN='*none*'
+ARG FLAGS=''
+RUN printf '#!/bin/sh\ncase "$1" in\n  %s) exec /usr/local/bin/openvcl %s "$@" ;;\n  *) exec /usr/bin/vcl "$@" ;;\nesac\n' \
+        "${PATTERN}" "${FLAGS}" > /usr/local/bin/vcl && chmod 0755 /usr/local/bin/vcl
+```
+
+One program from openvcl and 24 from Sony's vcl fits trivially, so size stops
+interfering and each program can be tested alone. Five probes (`*_cull_*` clean →
+`*_as_is_*` wrong → `*_as_is_t*` clean → `*_as_is_d_*` clean → `*_as_is_c_*`
+**wrong**) put it on **one** microprogram, `stapip_as_is_c`. A sixth, with no
+flags at all, reproduced it - so the defect was in openvcl's base code generation
+and none of the four density flags was implicated.
+
+**The defect: live ranges do not survive the loop back edge.** These programs end
+in `b begin`, so `begin:` is a loop over batches, and the GIF tags loaded above it
+have to stay live through the whole body. openvcl instead reuses those registers
+for per-vertex values:
+
+```
+lq VF01, 19(VI00)              ; gifSetTag, loaded once, above begin:
+...
+sq VF01, 0(VI07)               ; written into the GIF tag block, every batch
+...
+add.xyzw VF01, VF00, VF02      ; and VF01 is the per-vertex colour inside the loop
+```
+
+The first batch is correct; every batch after it writes a *colour* where the GS
+expects a GIFtag, so its geometry never draws. Sony's vcl keeps them apart.
+
+**Nine programs had it, and a static check found them all.** Eyeballing does not
+scale to 25 microprograms, so the condition got a checker
+(`scratchpad/loopcarry.py` in the working notes): per register **component**, flag
+anything written in the preamble, read in the body before the body writes it, and
+written in the body. Field masks are not optional - Sony's `clip_tce` loads
+`VF11.xyz` before the loop and uses `VF11.w` as scratch inside it, which is
+correct and looks like a violation if you track whole registers. It reports **0 of
+25 for Sony's vcl** and **9 of 25 for openvcl**: `as_is_c`/`tc`/`tce`,
+`clip_c`/`tc`/`tce`, `cull_c`/`tc`/`tce` - exactly the variants that the earlier
+register-pressure work had not already moved.
+
+**Fixed in the engine, and it is the same fix three siblings already carried**:
+the tag loads moved inside `begin:`, next to the store that is their only reader
+(`stapip_as_is_c` and the eight others). It costs nothing - the tag block is
+written once per batch either way - it cuts peak register pressure, and it makes
+the source robust under both assemblers rather than relying on one of them being
+clever. After it: 25 of 25 compile, the checker is clean for both assemblers, and
+the render is the pixel-identical one in the table above.
+
+The tool bug is still a tool bug, and it is the one thing here worth upstreaming
+after the CLIPw patch: **openvcl's liveness analysis ignores a backward branch**,
+so any program of this shape can be silently miscompiled. It is not fixed in
+`docker/openvcl-tyrax.patch` - that is a real analysis change, not a one-token one
+- and until it is, the checker above is what stands in for it.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

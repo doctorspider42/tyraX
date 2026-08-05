@@ -30,6 +30,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."   # the build context is the repo root
 TAG='tyrax-toolchain:local'
 TOOLCHAIN=''
 VCL_IMPL='legacy'
+VCL_FLAGS=''
+VCL_FLAGS_SET=0
 PUSH=0
 EXTRA=()
 while [ $# -gt 0 ]; do
@@ -37,9 +39,10 @@ while [ $# -gt 0 ]; do
         --tag|-Tag)             TAG="$2"; shift 2 ;;
         --toolchain|-Toolchain) TOOLCHAIN="$2"; shift 2 ;;
         --vcl-impl|-VclImpl)    VCL_IMPL="$2"; shift 2 ;;
+        --vcl-flags|-VclFlags)  VCL_FLAGS="$2"; VCL_FLAGS_SET=1; shift 2 ;;
         --push|-Push)           PUSH=1; shift ;;
         --no-cache)             EXTRA+=(--no-cache); shift ;;
-        *) echo "Unknown option: $1 (expected --tag, --toolchain, --vcl-impl, --push, --no-cache)" >&2; exit 2 ;;
+        *) echo "Unknown option: $1 (expected --tag, --toolchain, --vcl-impl, --vcl-flags, --push, --no-cache)" >&2; exit 2 ;;
     esac
 done
 case "$VCL_IMPL" in
@@ -53,6 +56,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 EXTRA+=(--build-arg "VCL_IMPL=$VCL_IMPL")
+# Passed whenever it was given, EMPTY INCLUDED: `--vcl-flags ''` is how you ask
+# for a stock openvcl with no flags at all, and skipping the build-arg would
+# silently hand you the Dockerfile's default set instead - which is exactly the
+# mistake that made the first flag bisection meaningless.
+[ "$VCL_FLAGS_SET" = 1 ] && EXTRA+=(--build-arg "VCL_FLAGS=$VCL_FLAGS")
 [ -n "$TOOLCHAIN" ] && EXTRA+=(--build-arg "TOOLCHAIN_IMAGE=$TOOLCHAIN")
 [ "$PUSH" = 1 ] && EXTRA+=(--push)
 

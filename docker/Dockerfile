@@ -21,11 +21,12 @@
 # same bits every game in this repo has ever been built with. That is the whole
 # point of inheriting rather than rebuilding - see "Why the toolchain is
 # inherited" in docs/toolchain-image.md for the measurements behind that. Short
-# version: the from-source `openvcl` now compiles all 25 of the engine's VU1
-# microprograms (this image can build with it - see VCL_IMPL), but it emits 71%
-# more instructions than Sony's vcl, so the programs no longer fit VU1's 16 KB of
-# micro memory and the game trips its own overflow assertion. Scheduling density,
-# not correctness, is what remains between openvcl and being the default.
+# version: the from-source `openvcl` compiles all 25 of the engine's VU1
+# microprograms and a game built with it RUNS - pixel-identical to Sony's vcl in
+# PCSX2 (2026-08-05), which is why `openvcl` is a supported choice here (see
+# VCL_IMPL) and no longer an experiment. It is not the default for one reason:
+# with the VU1 clipper its resident program set needs 2075 instructions against a
+# 2042 ceiling. 33 words of scheduling density, not correctness, is what remains.
 #
 # Build it: docker/build.ps1 (Windows) or docker/build.sh (Linux).
 #
@@ -56,6 +57,17 @@ ARG PS2DEV_IMAGE=ps2dev/ps2dev:v2.0.0
 # with its own verification (render A/B + FPS), tracked in
 # docs/toolchain-image.md - not a flag to flip casually.
 ARG VCL_IMPL=legacy
+
+# Flags the `vcl` wrapper passes to openvcl when VCL_IMPL=openvcl. Overridable so
+# a suspect flag can be bisected against a booting game without editing anything:
+#   docker/build.ps1 -Tag t:probe -VclImpl openvcl `
+#     -VclFlags "--schedule-flag-readers --fmac-interlock"
+#   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
+# Each one is measured in docs/toolchain-image.md; none is on by default in the
+# tool itself, and with all four the rendered frame is pixel-identical to the one
+# Sony's vcl produces. When bisecting, force the microcode to rebuild
+# (--build --rebuild) - the engine's make will not do it for an image swap.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
@@ -127,6 +139,7 @@ RUN cd /src/ps2link && make clean && make LOADHIGH=0 NOUSB=1 \
 # -------------------------------------------------------------------- image --
 FROM ${TOOLCHAIN_IMAGE}
 ARG VCL_IMPL
+ARG VCL_FLAGS
 
 # Host-side artifacts, not part of the compile: the console loader, ready to copy
 # out of the image (docker compose cp) instead of built per machine. See
@@ -150,7 +163,7 @@ COPY --from=openvcl-build /out/bin/openvcl /usr/local/bin/openvcl
 RUN set -e; \
     case "${VCL_IMPL:-legacy}" in \
       legacy)  ln -sf /usr/bin/vcl /usr/local/bin/vcl ;; \
-      openvcl) printf '#!/bin/sh\nexec /usr/local/bin/openvcl --schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers "$@"\n' \
+      openvcl) printf '#!/bin/sh\nexec /usr/local/bin/openvcl %s "$@"\n' "${VCL_FLAGS}" \
                  > /usr/local/bin/vcl && chmod 0755 /usr/local/bin/vcl ;; \
       *) echo "VCL_IMPL must be 'legacy' or 'openvcl', got '${VCL_IMPL}'" >&2; exit 1 ;; \
     esac; \

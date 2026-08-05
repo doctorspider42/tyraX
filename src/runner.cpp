@@ -28,6 +28,16 @@ std::vector<std::string> emulatorProcessNames(const std::string& exe) {
     return names;
 }
 
+// Every object built by the VU chain (vclpp -> vcl -> dvp-as), for the two cases
+// make cannot see by itself: an #included .i/.h changed, or the assembler itself
+// did. Named explicitly because the naming is not uniform - most microprograms
+// are *_vu1, the draw-finish helper and the VU0 raytracer kernel are not, and
+// leaving those two out is how an included-file change used to rebuild 23 of the
+// 25 programs. The .vcl/.vsm intermediates go with them; make regenerates both.
+constexpr const char* kPurgeVuObjects =
+    "find /tyra/engine/obj \\( -name '*vu1.o*' -o -name 'draw_finish.o*' "
+    "-o -name 'vu0_rt_kernel.o*' \\) -delete 2>/dev/null; ";
+
 }  // namespace
 
 Runner::~Runner() {
@@ -754,7 +764,9 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // EVERY build. That, together with the editor rewriting its
                            // generated sources, is why no build here was ever incremental.
                            //
-                           // Two stamps, because they answer two different questions.
+                           // Two stamps for the overlay, because they answer two
+                           // different questions (a third, unrelated one for the VU
+                           // assembler follows them).
                            // The container-side one guards the files that live in the
                            // IMAGE, so a recreated container has no stamp and re-applies
                            // the overlay. The /tyra one guards the compiled ENGINE in the
@@ -775,6 +787,29 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // this bin2s never re-runs and the OLD irx stays inside libtyra.
                            "rm -f /tyra/engine/bin/libtyra.a /tyra/engine/obj/irx/audsrv.o; "
                            "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi; "
+                           // Third stamp, same idea, for the VU chain: WHICH ASSEMBLER built
+                           // the microcode is a build input, and nothing else here can see it.
+                           // Two implementations of `vcl` exist now (Sony's prebuilt VCL and
+                           // the from-source openvcl, plus the flags the image's wrapper
+                           // passes it - docs/toolchain-image.md), and swapping the toolchain
+                           // image touches no engine source, so every check below says
+                           // "nothing changed" and the PREVIOUS image's microcode is relinked.
+                           // That is not a slow build, it is a wrong one: three consecutive
+                           // A/B probes booted the same VU objects and produced three
+                           // identical screenshots. md5 of the resolved binaries covers both
+                           // forms - the legacy symlink resolves to the 32-bit vcl, the
+                           // openvcl form is a wrapper script whose text carries its flags.
+                           // Unquoted on purpose: no double quotes may appear in these
+                           // commands (platform::shellArg - cmd.exe cannot pass them), and
+                           // none of the three paths has a space in it.
+                           "md5sum $(readlink -f $(command -v vcl)) "
+                           "$(readlink -f $(command -v vclpp)) > /tmp/vcl.stamp 2>/dev/null; "
+                           "if ! cmp -s /tmp/vcl.stamp /tyra/.vcl-stamp 2>/dev/null; then "
+                           "echo '[editor] VU assembler changed - rebuilding the "
+                           "microprograms (takes a minute or two)...'; " +
+                           std::string(kPurgeVuObjects) +
+                           "rm -f /tyra/engine/bin/libtyra.a; "
+                           "cp /tmp/vcl.stamp /tyra/.vcl-stamp; fi; "
                            "rsync -rlci --delete --exclude=obj --exclude=bin "
                            "/engine-src/engine/ /tyra/engine/ "
                            "| grep -v '^.d' > /tmp/engine-sync.txt; "
@@ -793,8 +828,8 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // include (grep the .vclpp/.i files: only .i and .h).
                            "if grep -qE '[.](vclpp|vcl|vsm|i|h)$' /tmp/engine-sync.txt; then "
                            "echo '[editor] VU1 sources changed - rebuilding the "
-                           "microprograms (takes a minute or two)...'; "
-                           "find /tyra/engine/obj -name '*vu1.o*' -delete 2>/dev/null; "
+                           "microprograms (takes a minute or two)...'; " +
+                           std::string(kPurgeVuObjects) +
                            "fi; "
                            "cd /tyra/engine && make -j$(nproc) && rm -f /src/bin/*.elf; "
                           "fi"),

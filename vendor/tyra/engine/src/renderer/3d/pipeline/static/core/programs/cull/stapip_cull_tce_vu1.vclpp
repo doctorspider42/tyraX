@@ -35,14 +35,21 @@
 #vuprog StaPipVU1CullTCE
 
     ResetClipFlags{ }
-    LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
     LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
-    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
     LoadTyraEnvBasis{ envRight, envUp, envConsts }
+
+    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
+    ; (below, next to the store that is their only reader) rather than here.
+    ; `begin:` is a loop, so a register loaded above it has to stay live across the
+    ; whole body - and the from-source assembler reuses these four for per-vertex
+    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
+    ; its geometry never reached the GS. Free either way: the tag block is written
+    ; once per batch, so the loads simply moved to their reader, and peak register
+    ; pressure drops with them. Three sibling programs already carry this change;
+    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
 
 begin:
     xtop buffer
@@ -60,6 +67,10 @@ setDestAddrMultiColor:
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     ;--- Loop

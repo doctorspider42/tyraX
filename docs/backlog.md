@@ -215,6 +215,35 @@ the verification, and any fact worth reusing belongs in the relevant
     `--fmac-interlock`, `--sce-latencies` (flag visibility 1, load result at
     issue+3 - both calibrated against the minimum gaps SCE's own output contains)
     and `--emit-delay-fillers`.
+    **2026-08-05, the same day: openvcl-built microcode RUNS, and the frame is
+    pixel-identical to Sony's** - but only after a real miscompile was found and
+    fixed. A project does not have to use the set that overflows: with the EE
+    clipper the resident set is 5x `cull_*` + 5x `as_is_*` = **1403** words
+    against the same 2042 ceiling. Built that way in PCSX2 (openvcl + the four
+    flags): boots, 0 assertions, 50 FPS (PAL cap), **0 of 514600 framebuffer
+    pixels differ** from a legacy build of the same project. Stock openvcl with no
+    flags does not fit even this set, so "openvcl renders correctly" always means
+    with the image's flags.
+    **The miscompile, worth knowing because the shape is generic:** the first run
+    drew no terrain at 50 FPS. Attribution needed a `vcl` wrapper that dispatches
+    PER INPUT FILE (one program from openvcl, 24 from Sony's - size stops
+    interfering), which put it on ONE microprogram, `stapip_as_is_c`, and
+    reproduced with no flags - so the density flags were not implicated.
+    Cause: **openvcl's liveness ignores the `b begin` back edge**, so the GIF tags
+    loaded above the loop get reused as per-vertex registers and every batch after
+    the first stores garbage tags. A per-component static check (preamble-written,
+    read-before-written in the body, written in the body - field masks matter)
+    finds **9 of 25 under openvcl, 0 of 25 under Sony's vcl**; all nine fixed
+    engine-side by moving the tag loads inside `begin:`, the change `clip_d` /
+    `clip_td` / `cull_td` already carried. The tool bug is still open and is the
+    next thing worth upstreaming after the CLIPw patch.
+    **The trap that nearly hid all of it:** switching the toolchain image did NOT
+    rebuild the microcode (the engine's make keys off `.vclpp` timestamps), so
+    three "bisection" probes booted the previous probe's VU objects and produced
+    three identical screenshots - including a "corrupted terrain" that belonged to
+    no configuration at all. `src/runner.cpp` now stamps the assembler
+    (`/tyra/.vcl-stamp`, md5 of the resolved `vcl`/`vclpp`, so `VCL_FLAGS` counts
+    too) and rebuilds the microprograms when it changes.
     The last 33 words are stall rows SCE avoids by WHERE IT PUTS THINGS, not by
     knowing another constant - the constants now agree on every class measured. On
     `stapip_clip_c` it has 15 hazard sites against openvcl's 30, and 17 nop/nop

@@ -28,6 +28,7 @@ param(
     [string]$Toolchain = '',
     [ValidateSet('legacy', 'openvcl')]
     [string]$VclImpl = 'legacy',
+    [string]$VclFlags = '',
     [switch]$Push,
     [switch]$NoCache
 )
@@ -43,6 +44,11 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 $extra = @('--build-arg', "VCL_IMPL=$VclImpl")
+# Passed whenever it was given, EMPTY INCLUDED: `-VclFlags ''` is how you ask for
+# a stock openvcl with no flags at all, and skipping the build-arg would silently
+# hand you the Dockerfile's default set instead - which is exactly the mistake
+# that made the first flag bisection meaningless.
+if ($PSBoundParameters.ContainsKey('VclFlags')) { $extra += @('--build-arg', "VCL_FLAGS=$VclFlags") }
 if ($Toolchain) { $extra += @('--build-arg', "TOOLCHAIN_IMAGE=$Toolchain") }
 if ($Push)      { $extra += '--push' }
 if ($NoCache)   { $extra += '--no-cache' }

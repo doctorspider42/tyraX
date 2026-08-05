@@ -32,6 +32,12 @@ Rules:
   `stapip_qbuffer.cpp`, `render_bbox.cpp`, `vcl_sml.i`).
 - **LF line endings only** under `vendor/tyra/**` — enforced by
   `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
+  It only fails on files that contain a `#macro`, and the message names a line
+  that is fine (`Preprocessor directive inside macro block: '#endmacro'`), so it
+  reads like a source error rather than an encoding one. Editing tools respect
+  this; a **script** that rewrites these files may not — Python's
+  `Path.write_text()` turns every `\n` back into CRLF on Windows. Write bytes, or
+  check `grep -c $'\r'` afterwards.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
   non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
 
@@ -679,18 +685,37 @@ banner both, so a previously built ELF still reports.
 - Related, same file: `[..]` is vclpp's **register-array index**
   (`t_lightMatrix[0]`), so a field suffix like `[w]` on a macro parameter is not
   a spelling choice, it breaks expansion the same silent way.
+- **`begin:` in every pipeline program is a LOOP** (`b begin` at the bottom, one
+  iteration per batch), so anything loaded above it must stay live through the
+  whole body — and one of the two assemblers does not honour that. openvcl's
+  liveness ignores the back edge, reuses those registers per vertex, and every
+  batch after the first stored garbage GIF tags: 50 FPS of missing terrain, no
+  assertion. **Load per-batch values next to the store that reads them, inside the
+  loop** — the nine `*_c` / `*_tc` / `*_tce` / `*_td` programs now do, and it cuts
+  register pressure as well. The check that finds this class (per register
+  *component*: written in the preamble, read in the body before the body writes it,
+  written in the body) is described in `docs/toolchain-image.md`, "A miscompile this
+  uncovered"; it also names the per-input-file `vcl` dispatch wrapper, which is how
+  you attribute a bad frame to ONE microprogram instead of to a whole build.
 - **Two VU1 assemblers exist now, and which one built your microcode matters.**
   `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
   source, no license). The from-source `openvcl` compiles all 25 programs since
   2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
-  in `stapip_clip_d` / `clip_td` / `cull_td`), but it *schedules* far less densely
-  - 6728 cycles against Sony's 3982, so its output does not fit VU1 micro memory
-  yet - and differently, so **any VU1 timing you measure belongs to one assembler,
-  not to the engine**. Say which one in the
-  commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl` picks it
-  when building the image; the image records its choice in
+  in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
+  with it **runs, pixel-identical to Sony's output** - but it schedules less
+  densely (5913 cycles against 3982), so with the *VU1* clipper its resident set
+  is 33 words over VU1 micro memory. It also schedules *differently*, so **any VU1
+  timing you measure belongs to one assembler, not to the engine**. Say which one
+  in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`
+  picks it when building the image; the image records its choice in
   `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
   `docs/toolchain-image.md`.
+- **Swapping the toolchain image rebuilds NO microcode.** The engine's make keys
+  off `.vclpp` timestamps, and an image swap touches neither them nor their
+  checksums, so the previous build's VU objects are relinked and the change looks
+  like it did nothing (this produced three identical "bisection" screenshots
+  before anyone noticed). Build with `--rebuild`, and confirm the log shows 25
+  `vcl` invocations.
 
 ## Performance context
 
