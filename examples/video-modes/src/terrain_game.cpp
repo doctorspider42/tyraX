@@ -2558,6 +2558,8 @@ void TerrainGame::buildScene() {
     menuStateSprites.clear();
     menuListSprites.clear();
     menuDescSprites.clear();
+    menuBgSprites.clear();
+    menuBgSprites.reserve(MENU_COUNT);
     menuStateSprites.reserve(MENU_COUNT);
     menuListSprites.reserve(MENU_COUNT);
     menuDescSprites.reserve(MENU_COUNT);
@@ -2581,6 +2583,15 @@ void TerrainGame::buildScene() {
             FileUtils::fromCwd(m.listTex));
         t->addLink(menuListSprites.back().id);
       }
+      Sprite bg;
+      bg.mode = SpriteMode::MODE_REPEAT;
+      bg.size = Vec2((float)m.panelW, (float)m.contentH);
+      menuBgSprites.push_back(bg);
+      if (m.bgTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.bgTex));
+        t->addLink(menuBgSprites.back().id);
+      }
       Sprite ds;
       ds.mode = SpriteMode::MODE_REPEAT;
       ds.size = Vec2((float)m.descCellW, (float)m.descCellH);
@@ -2590,6 +2601,18 @@ void TerrainGame::buildScene() {
             FileUtils::fromCwd(m.descTex));
         t->addLink(menuDescSprites.back().id);
       }
+    }
+    // The sheen is shared and only exists when a sheet sweeps one; loading a
+    // texture nothing draws would pin GS VRAM for nothing.
+    menuSheenLoaded = false;
+    for (int i = 0; i < MENU_COUNT && !menuSheenLoaded; ++i)
+      menuSheenLoaded = MENUS[i].sheenSec > 0.0F;
+    if (menuSheenLoaded) {
+      setupSprite(menuSheenSprite, "menus/sheen.png", 64, 64, 0.0F, 0.0F);
+      // MODE_REPEAT so `offset`/`size` select a PART of the band - that is what
+      // lets it be cropped to the panel as it enters and leaves.
+      menuSheenSprite.mode = SpriteMode::MODE_REPEAT;
+      menuSheenSprite.additive = true;  // light passing over, never darkening
     }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
@@ -2682,6 +2705,8 @@ void TerrainGame::buildScene() {
       gameMenuCursor = 0;
       gameMenuScroll = 0;
       gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
       gameMenuCursorRow = -1;
       // The pad reconfigures for ~3.5s after boot and reports garbage
       // clicks - one of those must not press a title entry.
@@ -5702,6 +5727,8 @@ bool TerrainGame::updateGameMenu() {
       gameMenuCursor = 0;
       gameMenuScroll = 0;
       gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
       gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
@@ -5720,6 +5747,8 @@ bool TerrainGame::updateGameMenu() {
       gameMenuCursor = 0;
       gameMenuScroll = 0;
       gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
       gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;
@@ -5732,6 +5761,15 @@ bool TerrainGame::updateGameMenu() {
       gameMenuIndex = -1;
       return false;
     }
+  }
+
+  // A menu that is closing keeps drawing for the length of its close transition
+  // and takes no input. Only the plain dismissals animate: a scene switch or a
+  // hand-off to the save menu clears immediately, because a panel lingering over
+  // a loading scene is worse than no transition at all.
+  if (gameMenuClosing >= 0) {
+    gameMenuCloseT += g_frameDt;
+    if (gameMenuCloseT >= MENUS[gameMenuClosing].closeSec) gameMenuClosing = -1;
   }
 
   if (gameMenuIndex < 0) return false;
@@ -5791,6 +5829,7 @@ bool TerrainGame::updateGameMenu() {
     if (v < 0) v = 0;
     if (v >= e.optionCount) v = e.optionCount - 1;
     saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+    gameMenuValueFlash = m.valueFlashSec;  // 0 when the sheet asks for none
   };
   if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
     const MenuEntryData& cur = m.entries[gameMenuCursor];
@@ -5811,9 +5850,15 @@ bool TerrainGame::updateGameMenu() {
       gameMenuCursor = 0;
       gameMenuScroll = 0;
       gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
       gameMenuCursorRow = -1;
       menuRebindRow = -1;
     } else if (!m.titleScreen) {
+      if (m.closeSec > 0.0F) {
+        gameMenuClosing = gameMenuIndex;
+        gameMenuCloseT = 0.0F;
+      }
       gameMenuIndex = -1;
     }
     return pausing();
@@ -5825,6 +5870,10 @@ bool TerrainGame::updateGameMenu() {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     switch (e.action) {
       case 0:  // close
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
         gameMenuIndex = -1;
         gameMenuStackDepth = 0;
         break;
@@ -5848,6 +5897,8 @@ bool TerrainGame::updateGameMenu() {
           gameMenuCursor = 0;
           gameMenuScroll = 0;
           gameMenuOpenT = 0.0F;
+          gameMenuClock = 0.0F;
+          gameMenuScrollShown = 0.0F;
           gameMenuCursorRow = -1;
           menuRebindRow = -1;
         }
@@ -6098,10 +6149,14 @@ void TerrainGame::menuFollowCursor(int menu) {
 }
 
 void TerrainGame::renderGameMenu() {
-  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
+  // A menu that is closing still draws: its transition is the whole reason the
+  // index was parked in gameMenuClosing instead of simply cleared.
+  const int drawMenu = gameMenuIndex >= 0 ? gameMenuIndex : gameMenuClosing;
+  if (drawMenu < 0 || drawMenu >= (int)menuSprites.size()) return;
   if (saveMenuOpen) return;  // the save menu draws on top instead
-  const MenuData& m = MENUS[gameMenuIndex];
-  Sprite& panel = menuSprites[gameMenuIndex];
+  const MenuData& m = MENUS[drawMenu];
+  Sprite& panel = menuSprites[drawMenu];
+  const bool closing = gameMenuIndex < 0;
 
   // --- resolution scale (docs/menu-styles.md "Resolutions") ----------------
   // A menu is authored in the logical 512x448 space of the interlaced mode, but
@@ -6120,15 +6175,24 @@ void TerrainGame::renderGameMenu() {
   // --- the open transition -------------------------------------------------
   // Sprite properties only: an offset added to every piece and one alpha. The
   // baked pixels never move, which is why this costs nothing.
+  gameMenuClock += g_frameDt;
   float prog = 1.0F;
-  if (m.openSec > 0.0F) {
+  float ofsX = 0.0F, ofsY = 0.0F;
+  bool fade = false;
+  if (closing) {
+    prog = m.closeSec > 0.0F ? 1.0F - menuEase(gameMenuCloseT / m.closeSec, m.closeEase)
+                             : 0.0F;
+    ofsX = m.closeDX * (1.0F - prog);
+    ofsY = m.closeDY * (1.0F - prog);
+    fade = m.closeFade != 0;
+  } else if (m.openSec > 0.0F) {
     gameMenuOpenT += g_frameDt;
     prog = menuEase(gameMenuOpenT / m.openSec, m.openEase);
+    ofsX = m.openDX * (1.0F - prog);
+    ofsY = m.openDY * (1.0F - prog);
+    fade = m.openFade != 0;
   }
-  const float slide = 1.0F - prog;
-  const float ofsX = m.openDX * slide, ofsY = m.openDY * slide;
-  const unsigned char alpha =
-      (unsigned char)(m.openFade ? 128.0F * prog + 0.5F : 128.0F);
+  const unsigned char alpha = (unsigned char)(fade ? 128.0F * prog + 0.5F : 128.0F);
   // The panel is centred on its normalized screen position, in the mode's own
   // buffer, at its scaled size.
   const float baseX =
@@ -6142,18 +6206,60 @@ void TerrainGame::renderGameMenu() {
     menuDimSprite.drawSize = Vec2(uiScr.getWidth(), uiScr.getHeight());
     engine->renderer.renderer2D.render(menuDimSprite);
   }
+  // The moving background layer, under everything the panel bakes. Scroll walks
+  // the sampling window across the tiled copy; frames jump it between frames.
+  // Either way it is one sprite and one offset - no re-bake, no second texture
+  // per frame (docs/menu-styles.md "Motion").
+  if (m.bgTex[0] != '\0' && drawMenu < (int)menuBgSprites.size()) {
+    Sprite& bg = menuBgSprites[drawMenu];
+    bg.color.a = alpha;
+    bg.drawSize = Vec2(sxi(m.panelW), syi(m.contentH));
+    if (m.bgMode == 2 && m.bgFrames > 0) {
+      int f = (int)(gameMenuClock / (m.bgSeconds > 0.0F ? m.bgSeconds : 1.0F) *
+                    m.bgFrames);
+      f %= m.bgFrames;
+      if (f < 0) f += m.bgFrames;
+      bg.offset = Vec2(0.0F, (float)(f * m.bgFrameH));
+    } else {
+      auto wrap = [](float v, float span) {
+        if (span <= 0.0F) return 0.0F;
+        v = fmodf(v, span);
+        return v < 0.0F ? v + span : v;
+      };
+      bg.offset = Vec2(wrap(gameMenuClock * m.bgScrollX, (float)m.bgTileW),
+                       wrap(gameMenuClock * m.bgScrollY, (float)m.bgTileH));
+    }
+    bg.position = Vec2(baseX, baseY);
+    engine->renderer.renderer2D.render(bg);
+  }
+
   panel.color.a = alpha;
   panel.drawSize = Vec2(sxi(m.panelW), syi(m.panelH));
   panel.position = Vec2(baseX, baseY);
   engine->renderer.renderer2D.render(panel);
 
+  // A scrolling list settles into its new window instead of jumping. One float:
+  // every row-indexed piece below reads `shown` rather than the integer scroll,
+  // so the highlight, the values and the rows all move together (they must - a
+  // highlight that arrives before its row is worse than no easing).
+  if (m.scrollSec > 0.0F) {
+    const float k = menuEase(g_frameDt / m.scrollSec, 1);
+    gameMenuScrollShown += ((float)gameMenuScroll - gameMenuScrollShown) *
+                           (k > 1.0F ? 1.0F : k);
+    if (fabsf((float)gameMenuScroll - gameMenuScrollShown) < 0.01F)
+      gameMenuScrollShown = (float)gameMenuScroll;
+  } else {
+    gameMenuScrollShown = (float)gameMenuScroll;
+  }
+  const float shown = gameMenuScrollShown;
+
   // --- the row strip of a scrolling list -----------------------------------
   // One window into the strip texture; scrolling moves `offset`, so a 32-row
   // menu costs exactly what an 8-row one does.
-  if (m.listTex[0] != '\0' && gameMenuIndex < (int)menuListSprites.size()) {
-    Sprite& ls = menuListSprites[gameMenuIndex];
+  if (m.listTex[0] != '\0' && drawMenu < (int)menuListSprites.size()) {
+    Sprite& ls = menuListSprites[drawMenu];
     ls.color.a = alpha;
-    ls.offset = Vec2(0.0F, (float)(gameMenuScroll * m.rowH));
+    ls.offset = Vec2(0.0F, shown * (float)m.rowH);
     ls.drawSize = Vec2(sxi(m.panelW), syi(m.rowsVisible * m.rowH));
     ls.position = Vec2(baseX, baseY + syi(m.row0Y));
     engine->renderer.renderer2D.render(ls);
@@ -6163,8 +6269,8 @@ void TerrainGame::renderGameMenu() {
   // Disabled rows first, then the selected one, all from ONE texture so the
   // draws share a texture bind (a per-row texture switch would re-upload a
   // CLUT every row - see docs/gs-vram.md).
-  if (m.rowsTex[0] != '\0' && gameMenuIndex < (int)menuStateSprites.size()) {
-    Sprite& ss = menuStateSprites[gameMenuIndex];
+  if (m.rowsTex[0] != '\0' && drawMenu < (int)menuStateSprites.size()) {
+    Sprite& ss = menuStateSprites[drawMenu];
     ss.color.a = alpha;
     ss.drawSize = Vec2(sxi(m.rowsCellW), syi(m.rowsCellH));
     const int first = gameMenuScroll;
@@ -6173,7 +6279,8 @@ void TerrainGame::renderGameMenu() {
       const MenuEntryData& e = m.entries[i];
       if (e.disCell < 0 || menuRowEnabled(gameMenuIndex, i)) continue;
       ss.offset = Vec2(0.0F, (float)(e.disCell * m.rowsPitch));
-      ss.position = Vec2(baseX, baseY + syi(m.row0Y + (i - first) * m.rowH));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)i - shown) * (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(ss);
     }
     const MenuEntryData& sel = m.entries[gameMenuCursor >= 0 && gameMenuCursor < m.entryCount
@@ -6181,18 +6288,22 @@ void TerrainGame::renderGameMenu() {
                                              : 0];
     if (sel.selCell >= 0 && menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
       ss.offset = Vec2(0.0F, (float)(sel.selCell * m.rowsPitch));
-      ss.position =
-          Vec2(baseX, baseY + syi(m.row0Y + (gameMenuCursor - first) * m.rowH));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)gameMenuCursor - shown) *
+                                        (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(ss);
+      ss.color.a = alpha;  // the pulse is this row's alone
     }
   }
 
   // --- the selection caret -------------------------------------------------
   // It eases toward its row when the sheet asks for it; with no cursor
-  // transition it snaps, which is what every menu did before.
-  if (m.entryCount > 0) {
+  // transition it snaps, which is what every menu did before. A style whose
+  // selected row paints a full-width plate turns it off (`marker: none`) - the
+  // caret would only sit on top of the plate.
+  if (m.entryCount > 0 && m.markerOn) {
     const float targetY =
-        (float)(m.row0Y + (gameMenuCursor - gameMenuScroll) * m.rowH) + 1.0F;
+        (float)m.row0Y + ((float)gameMenuCursor - shown) * (float)m.rowH + 1.0F;
     if (m.cursorSec > 0.0F) {
       if (gameMenuCursorRow != gameMenuCursor) {
         // Re-target: ease from wherever the caret actually is.
@@ -6207,18 +6318,25 @@ void TerrainGame::renderGameMenu() {
     }
     menuCursorSprite.color.a = alpha;
     menuCursorSprite.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
-    menuCursorSprite.position =
-        Vec2(baseX + m.markerX * uiSX, baseY + gameMenuCursorY * uiSY);
+    const float bob =
+        m.bobSec > 0.0F
+            ? m.bobPx * sinf(gameMenuClock * 6.2831853F / m.bobSec)
+            : 0.0F;
+    menuCursorSprite.position = Vec2(baseX + (m.markerX + bob) * uiSX,
+                                     baseY + gameMenuCursorY * uiSY);
     engine->renderer.renderer2D.render(menuCursorSprite);
   }
 
   // Toggle/Choice rows: the current option label (or bar), a cell of the baked
   // value strip drawn right-aligned on the row.
   if (m.values[0] != '\0' &&
-      gameMenuIndex < (int)menuValueSprites.size()) {
-    Sprite& vs = menuValueSprites[gameMenuIndex];
+      drawMenu < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[drawMenu];
     vs.color.a = alpha;
     vs.drawSize = Vec2(sxi(m.valueCellW), syi(m.valueCellH));
+    // The row whose value just changed flashes brighter, which is how a player
+    // sees that a press did something on a row whose label never moves.
+    if (gameMenuValueFlash > 0.0F) gameMenuValueFlash -= g_frameDt;
     const int first = gameMenuScroll;
     const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
     for (int i = first; i < last && i < m.entryCount; ++i) {
@@ -6229,25 +6347,60 @@ void TerrainGame::renderGameMenu() {
                   : 0;
       if (v < 0) v = 0;
       if (v >= e.optionCount) v = e.optionCount - 1;
+      const bool flash = gameMenuValueFlash > 0.0F && i == gameMenuCursor;
+      vs.color.r = vs.color.g = vs.color.b = flash ? 255 : 128;
       vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
       vs.position = Vec2(baseX + sxi(m.valueX),
-                         baseY + syi(m.row0Y + (i - first) * m.rowH));
+                         baseY + (float)m.row0Y * uiSY +
+                             ((float)i - shown) * (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(vs);
     }
   }
 
   // --- the description pane ------------------------------------------------
   // The selected row's cell, drawn into the box the panel already framed.
-  if (m.descTex[0] != '\0' && gameMenuIndex < (int)menuDescSprites.size() &&
+  if (m.descTex[0] != '\0' && drawMenu < (int)menuDescSprites.size() &&
       gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     if (e.descCell >= 0) {
-      Sprite& ds = menuDescSprites[gameMenuIndex];
+      Sprite& ds = menuDescSprites[drawMenu];
       ds.color.a = alpha;
       ds.drawSize = Vec2(sxi(m.descCellW), syi(m.descCellH));
       ds.offset = Vec2(0.0F, (float)(e.descCell * m.descPitch));
       ds.position = Vec2(baseX + sxi(m.descX), baseY + syi(m.descY));
       engine->renderer.renderer2D.render(ds);
+    }
+  }
+
+  // The sheen: a soft band sweeping across the panel, additive so it only ever
+  // adds light. It crosses from off the left edge to off the right, then waits
+  // out the rest of the period - a sweep every few seconds reads as a highlight,
+  // a sweep that never stops reads as a strobe.
+  if (m.sheenSec > 0.0F && menuSheenLoaded) {
+    const float bandW = m.sheenPx > 0.0F ? m.sheenPx : 48.0F;
+    // The band travels from just off the left edge to just off the right, and
+    // is CROPPED to the panel on the way in and out. A 2D sprite is not clipped
+    // by anything, so without this the sweep is visible beside the menu before
+    // it arrives - which is exactly how it was reported. The crop is the same
+    // window-into-a-texture trick the value strip uses: move `offset` and
+    // shrink `size`, and the sprite samples only the part that belongs inside.
+    const float phase = fmodf(gameMenuClock, m.sheenSec) / m.sheenSec;
+    const float x0 = phase * ((float)m.panelW + bandW * 2.0F) - bandW;
+    const float vx0 = x0 < 0.0F ? 0.0F : x0;
+    const float vx1 = x0 + bandW > (float)m.panelW ? (float)m.panelW : x0 + bandW;
+    if (vx1 > vx0) {
+      const float u0 = (vx0 - x0) / bandW * 64.0F;
+      const float u1 = (vx1 - x0) / bandW * 64.0F;
+      menuSheenSprite.color.r = (unsigned char)m.sheenR;
+      menuSheenSprite.color.g = (unsigned char)m.sheenG;
+      menuSheenSprite.color.b = (unsigned char)m.sheenB;
+      menuSheenSprite.color.a =
+          (unsigned char)((float)m.sheenA * (alpha / 128.0F) * 0.5F);
+      menuSheenSprite.offset = Vec2(u0, 0.0F);
+      menuSheenSprite.size = Vec2(u1 - u0, 64.0F);
+      menuSheenSprite.drawSize = Vec2((vx1 - vx0) * uiSX, syi(m.contentH));
+      menuSheenSprite.position = Vec2(baseX + vx0 * uiSX, baseY);
+      engine->renderer.renderer2D.render(menuSheenSprite);
     }
   }
 

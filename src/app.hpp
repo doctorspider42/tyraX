@@ -1541,6 +1541,12 @@ private:
     int menuPreviewRow_ = 0;                // simulated cursor row
     int menuPreviewScroll_ = 0;             // first visible row of a long list
     bool showMenuPreview_ = false;          // the standalone Menu Preview window
+    // The preview PLAYS the sheet's motion, with the same formulas the runtime
+    // uses - a transition you cannot see while authoring it is a transition you
+    // tune by rebuilding the game.
+    bool menuPreviewPlay_ = true;
+    float menuPreviewClock_ = 0.0f;
+    float menuPreviewOpenT_ = 1e9f;  // large = the open transition has finished
     int menuPreviewWinMode_ = 0;            // its own display mode
     float menuPreviewZoom_ = 2.0f;
     unsigned menuPreviewTex_ = 0;

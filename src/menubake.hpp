@@ -129,6 +129,19 @@ bool bakeStateAtlasRGBA(const GameMenu& menu, const Project& p,
 bool bakeStateAtlasPNG(const GameMenu& menu, const Project& p,
                        std::vector<unsigned char>& png);
 
+// The animated background layer: a tiled scroll or a frame strip, baked to the
+// panel's own size (docs/menu-styles.md "Motion").
+bool bakeBgAnimRGBA(const GameMenu& menu, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h);
+bool bakeBgAnimPNG(const GameMenu& menu, const Project& p,
+                   std::vector<unsigned char>& png);
+
+// The sheen band swept across a panel - procedural, shared by every menu that
+// asks for one, drawn additively (shape in RGB, like the flare corona).
+constexpr int kSheenSize = 64;
+void bakeSheenRGBA(std::vector<unsigned char>& rgba);
+bool bakeSheenPNG(std::vector<unsigned char>& png);
+
 // Every row stacked, for a list the game shows a window of (scrolling menus).
 bool bakeListRGBA(const GameMenu& menu, const Project& p,
                   std::vector<unsigned char>& out, int& w, int& h);

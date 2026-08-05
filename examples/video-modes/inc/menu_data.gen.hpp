@@ -75,6 +75,9 @@ struct MenuData {
   const char* descTex;
   int descCellW, descCellH, descPitch, descX, descY;
   float markerX;    // selection caret x inside the panel
+  int markerOn;     // 0 = `marker: none` - a style whose selected
+                    // row paints a plate does not want a caret on
+                    // top of it (docs/menu-styles.md)
   // Motion. The panel slides/fades in over openSec (ease 0 linear,
   // 1 ease-out, 2 ease-in-out) and the caret eases to its row over
   // cursorSec. Sprite properties only - nothing is re-baked.
@@ -83,6 +86,26 @@ struct MenuData {
   float openDX, openDY, openScale;
   float cursorSec;
   int cursorEase;
+  // The close transition, and the two easings that are not about
+  // the panel: a scrolling list settling into its new window, and
+  // the flash a Toggle/Choice value gives when it changes.
+  float closeSec;
+  int closeEase, closeFade;
+  float closeDX, closeDY;
+  float scrollSec, valueFlashSec;
+  // Loops. All three are sprite properties - an alpha, an offset, a
+  // position - so a menu that never stops moving costs what a still
+  // one costs (docs/menu-styles.md "Motion").
+  float pulseSec, pulseAmt;   // the selected row's cell breathes
+  float bobSec, bobPx;        // the caret slides back and forth
+  float sheenSec, sheenPx;    // a band sweeps across the panel
+  int sheenR, sheenG, sheenB, sheenA;
+  // The moving background layer ("" = none): mode 1 scrolls a
+  // tiled texture by moving the sampling window, mode 2 steps
+  // through a frame strip. Both are one sprite and one texture.
+  const char* bgTex;
+  int bgMode, bgTileW, bgTileH, bgFrameH, bgFrames;
+  float bgScrollX, bgScrollY, bgSeconds;
 };
 
 constexpr int MENU_COUNT = 2;
@@ -103,8 +126,8 @@ constexpr MenuEntryData MENU_1_ENTRIES[1] = {
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/video.png", 256, 256, 254, 50, 26, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "menus/video-rows.png", 256, 26, 34, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 0.18F, 1, 1, 0.0F, 10.0F, 0.0F, 0.11F, 1},  // video
-    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1},  // save
+    {"menus/video.png", 256, 256, 254, 50, 26, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "menus/video-rows.png", 256, 26, 34, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 0, 0.18F, 1, 1, 0.0F, 10.0F, 0.0F, 0.11F, 1, 0.14F, 1, 1, 0.0F, 6.0F, 0.12F, 0.18F, 1.8F, 0.22F, 0.0F, 0.0F, 3.4F, 52.0F, 255, 255, 255, 46, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // video
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
 constexpr int TITLE_MENU = 0;

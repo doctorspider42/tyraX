@@ -6162,6 +6162,8 @@ std::string refreshGenerated(const Project& p) {
             {&menubake::bakeListPNG, &menulayout::listFileName, "menu row strip"},
             {&menubake::bakeDescAtlasPNG, &menulayout::descAtlasFileName,
              "menu descriptions"},
+            {&menubake::bakeBgAnimPNG, &menulayout::bgAnimFileName,
+             "menu background layer"},
         };
         for (const StyleTex& st : kStyleTex) {
             const fs::path path =
@@ -6177,6 +6179,29 @@ std::string refreshGenerated(const Project& p) {
                 return std::string("Cannot write ") + st.what + ": " + path.string();
             tf.write(reinterpret_cast<const char*>(png.data()),
                      (std::streamsize)png.size());
+        }
+    }
+
+    // The sheen band, shared by every menu whose sheet sweeps one. Procedural
+    // like the flare sprites, and written only while something uses it - a
+    // texture the game never draws still costs the disc and the loader.
+    {
+        bool wantSheen = false;
+        for (const GameMenu& m : p.menus)
+            wantSheen |= menustyle::animation(menulayout::sheetFor(m),
+                                              menustyle::Animation::Panel) != nullptr;
+        const fs::path path = fs::path(p.dir) / "res" / "menus" / "sheen.png";
+        std::error_code ec;
+        if (!wantSheen) {
+            fs::remove(path, ec);
+        } else {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeSheenPNG(png)) return "Menu sheen bake failed";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write menu sheen: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
         }
     }
 

@@ -127,6 +127,7 @@ enum class Prop {
     BarSize,
     BarFill,
     BarTrack,
+    BackgroundAnim_,
     // panel-level
     Quant,
     Gap,
@@ -190,9 +191,18 @@ struct Rule {
 };
 
 // An animation the RUNTIME plays (nothing here is baked): the sprite-level
-// layer of docs/menu-styles.md.
+// layer of docs/menu-styles.md. A Transition is a REACTION to something (the
+// menu opened, the cursor moved, a value changed); an Animation below is a loop
+// that never stops.
 struct Transition {
-    enum Which { Open = 0, Close = 1, Cursor = 2, WhichCount = 3 };
+    enum Which {
+        Open = 0,
+        Close = 1,
+        Cursor = 2,
+        Scroll = 3,  // a scrolling list easing to its new window
+        Value = 4,   // the flash a Toggle/Choice value gives when it changes
+        WhichCount = 5
+    };
     int which = Open;
     float seconds = 0.0f;
     int ease = 1;          // 0 linear, 1 ease-out, 2 ease-in-out
@@ -200,6 +210,38 @@ struct Transition {
     float translateX = 0;  // px the panel slides from
     float translateY = 0;
     float scale = 0;       // extra scale it grows from (0 = no scale)
+};
+
+// A continuous animation, one per target. Everything it can do is a sprite
+// property - alpha, position, a texel offset - which is why a menu can be alive
+// and still cost what a still one costs.
+struct Animation {
+    enum Which { Selected = 0, Marker = 1, Panel = 2, WhichCount = 3 };
+    enum Kind {
+        None = 0,
+        Pulse,  // Selected: the highlight cell breathes (amount = alpha swing)
+        Bob,    // Marker: the caret slides back and forth (amount = pixels)
+        Sheen   // Panel: a soft band sweeps across it (amount = band width)
+    };
+    int which = Selected;
+    int kind = None;
+    float seconds = 1.0f;  // period of one cycle
+    float amount = 0.0f;
+    Color color{255, 255, 255, 40};  // Sheen only
+};
+
+// How an animated background layer moves. It is a layer of its OWN (one sprite,
+// one texture) rather than part of the baked panel, because baked pixels cannot
+// move: a gradient that slides is a texture whose OFFSET slides, and a flame is
+// a strip of frames the offset jumps through. Both are free.
+struct BackgroundAnim {
+    enum Mode { Off = 0, Scroll = 1, Frames = 2 };
+    int mode = Off;
+    std::string image;    // res/... PNG (a tiling pattern, or a frame strip)
+    float scrollX = 0;    // Scroll: pixels per second
+    float scrollY = 0;
+    int frames = 0;       // Frames: how many are stacked in the strip
+    float seconds = 1.0f;  // Frames: how long the whole loop takes
 };
 
 struct Diag {
@@ -214,6 +256,7 @@ struct Sheet {
     std::vector<std::pair<std::string, Value>> vars;  // :root --name: value
     std::vector<Rule> rules;
     std::vector<Transition> transitions;
+    std::vector<Animation> animations;
     std::vector<Diag> diags;  // parse errors/warnings, with line numbers
     bool builtin = false;     // shipped with the editor, installed on demand
 
@@ -233,6 +276,9 @@ struct Computed {
     Fill background{};
     std::string backgroundImage;
     float slice = 0;  // 9-slice inset, 0 = stretch
+    // The moving background layer (see BackgroundAnim): its own sprite under
+    // everything the panel bakes.
+    BackgroundAnim bgAnim;
     float borderW = 0;
     Color borderColor{};
     float radius = 0;
@@ -300,6 +346,7 @@ bool statePaints(const Sheet& sheet, const std::string& menuName,
                  const std::string& cls, int state);
 
 const Transition* transition(const Sheet& sheet, int which);
+const Animation* animation(const Sheet& sheet, int which);
 
 // --- text I/O ---------------------------------------------------------------
 

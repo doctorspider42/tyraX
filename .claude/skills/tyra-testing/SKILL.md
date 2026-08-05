@@ -359,6 +359,15 @@ docs/menu-styles.md):
   It found a double-composited background (every translucent panel came out
   (7,10,21) instead of (8,12,24)) and a save menu that lost its "X SAVE O LOAD"
   hint line - neither visible without a diff.
+- **Checking that something SCROLLS: never use a pattern aligned with the
+  scroll.** A menu's animated background was measured as frozen through three
+  rebuilds - correlating two frames found a shift of exactly 0 - because the test
+  tile was diagonal stripes and the scroll vector ran along them. Vertical bars
+  plus a pure horizontal scroll showed 53 px in one second, matching the declared
+  speed. The emulator has a second trap in the same area: **PCSX2 unfocused does
+  not take injected keys**, so click into its window before driving it, and read
+  its status bar (FPS/VPS/Speed) to know the machine is actually running before
+  concluding anything about motion.
 
 **`App`'s own private methods are reachable from such a harness too**, which is
 the difference between testing a copy of the logic and testing the shipped

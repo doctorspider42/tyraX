@@ -75,6 +75,13 @@ const std::vector<PropSpec>& propSpecs() {
         {Prop::BackgroundImage, "background-image", Kind::Url, nullptr,
          "url(res/hud/x.png), optionally `9-slice <n>px` so the corners keep\n"
          "their shape while the middle stretches. Composited into the bake."},
+        {Prop::BackgroundAnim_, "background-anim", Kind::Url, nullptr,
+         "A MOVING background layer, drawn as its own sprite under the panel -\n"
+         "which is how you animate what a gradient cannot be: baked pixels never\n"
+         "move, a texture's offset does.\n"
+         "  url(res/hud/bg.png) scroll 12px/s 4px/s   - tiles and slides\n"
+         "  url(res/hud/flame.png) frames 8 1.2s      - a vertical frame strip\n"
+         "Costs one texture and one sprite, and nothing per frame."},
         {Prop::Slice, "slice", Kind::Length, nullptr,
          "9-slice inset for background-image when written separately."},
         {Prop::BorderWidth, "border", Kind::Border, nullptr,
@@ -279,6 +286,14 @@ void applyDecl(Computed& c, const Decl& d) {
             if (v.n[0] > 0) c.slice = v.n[0];
             break;
         case Prop::Slice: c.slice = v.n[0]; break;
+        case Prop::BackgroundAnim_:
+            c.bgAnim.image = v.s;
+            c.bgAnim.mode = v.i;
+            c.bgAnim.scrollX = v.n[0];
+            c.bgAnim.scrollY = v.n[1];
+            c.bgAnim.frames = (int)v.n[2];
+            c.bgAnim.seconds = v.n[3] > 0 ? v.n[3] : 1.0f;
+            break;
         case Prop::BorderWidth:
             c.borderW = v.n[0];
             c.borderColor = v.c;
@@ -386,6 +401,12 @@ bool statePaints(const Sheet& sheet, const std::string& menuName,
 const Transition* transition(const Sheet& sheet, int which) {
     for (const Transition& t : sheet.transitions)
         if (t.which == which) return &t;
+    return nullptr;
+}
+
+const Animation* animation(const Sheet& sheet, int which) {
+    for (const Animation& a : sheet.animations)
+        if (a.which == which) return &a;
     return nullptr;
 }
 
@@ -637,6 +658,12 @@ void parseUrl(const std::string& in, Value& v, const char* keywords) {
     }
 }
 
+// "12px/s" -> "12", "1.2s" -> "1.2". A unit is documentation, not data.
+std::string stripUnit(const std::string& in, const char* unit) {
+    const size_t at = in.find(unit);
+    return at == std::string::npos ? in : in.substr(0, at);
+}
+
 bool parseEnum(const std::string& in, const char* keywords, int& out) {
     const std::string t = lower(trim(in));
     int idx = 0;
@@ -761,6 +788,30 @@ bool parseValue(const PropSpec& spec, const std::string& text, Value& v) {
         }
         case Kind::Url:
             parseUrl(text, v, spec.keywords);
+            if (spec.prop == Prop::BackgroundAnim_) {
+                // `scroll <x>px/s <y>px/s` or `frames <n> <sec>` after the url.
+                const auto words = splitWs(lower(text));
+                for (size_t k = 0; k < words.size(); ++k) {
+                    if (words[k] == "scroll") {
+                        v.i = BackgroundAnim::Scroll;
+                        float f = 0;
+                        if (k + 1 < words.size() &&
+                            parseLength(stripUnit(words[k + 1], "px/s"), f))
+                            v.n[0] = f;
+                        if (k + 2 < words.size() &&
+                            parseLength(stripUnit(words[k + 2], "px/s"), f))
+                            v.n[1] = f;
+                    } else if (words[k] == "frames") {
+                        v.i = BackgroundAnim::Frames;
+                        float f = 0;
+                        if (k + 1 < words.size() && parseLength(words[k + 1], f))
+                            v.n[2] = f;
+                        if (k + 2 < words.size() &&
+                            parseLength(stripUnit(words[k + 2], "s"), f))
+                            v.n[3] = f;
+                    }
+                }
+            }
             return !v.s.empty();
         case Kind::Str: {
             std::string t = trim(text);
@@ -855,6 +906,8 @@ void parseTransition(const std::string& name, const std::vector<RawDecl>& decls,
     if (n == "open") t.which = Transition::Open;
     else if (n == "close") t.which = Transition::Close;
     else if (n == "cursor") t.which = Transition::Cursor;
+    else if (n == "scroll") t.which = Transition::Scroll;
+    else if (n == "value") t.which = Transition::Value;
     else {
         sheet.diags.push_back(Diag{line, "unknown transition '" + name + "'"});
         return;
@@ -910,6 +963,69 @@ void parseTransition(const std::string& name, const std::vector<RawDecl>& decls,
     sheet.transitions.push_back(t);
 }
 
+void parseAnimation(const std::string& name, const std::string& body, Sheet& sheet,
+                    int line) {
+    Animation a;
+    const std::string n = lower(trim(name));
+    if (n == "selected") a.which = Animation::Selected;
+    else if (n == "marker" || n == "caret") a.which = Animation::Marker;
+    else if (n == "panel") a.which = Animation::Panel;
+    else {
+        sheet.diags.push_back(Diag{line, "unknown animation target '" + name + "'"});
+        return;
+    }
+    // Space/semicolon separated terms, like @transition: `pulse 1.6s 0.25`.
+    std::string cur;
+    std::vector<std::string> terms;
+    for (char c : body) {
+        if (c == ';' || c == '\n') {
+            if (!trim(cur).empty()) terms.push_back(trim(cur));
+            cur.clear();
+            continue;
+        }
+        cur += c;
+    }
+    if (!trim(cur).empty()) terms.push_back(trim(cur));
+    for (const std::string& term : terms) {
+        const auto words = splitWs(term);
+        for (size_t k = 0; k < words.size(); ++k) {
+            const std::string w = lower(words[k]);
+            if (w == "pulse") a.kind = Animation::Pulse;
+            else if (w == "bob") a.kind = Animation::Bob;
+            else if (w == "sheen") a.kind = Animation::Sheen;
+            else if (!w.empty() && w.back() == 's' &&
+                     (w.size() < 2 || w[w.size() - 2] != 'p')) {
+                float f = 0;
+                if (w.size() > 2 && w.compare(w.size() - 2, 2, "ms") == 0) {
+                    if (parseLength(w.substr(0, w.size() - 2), f))
+                        a.seconds = f / 1000.0f;
+                } else if (parseLength(w.substr(0, w.size() - 1), f)) {
+                    a.seconds = f;
+                }
+            } else {
+                Color c{};
+                if (parseColorText(words[k], c)) {
+                    a.color = c;
+                    continue;
+                }
+                float f = 0;
+                if (parseLength(w, f)) a.amount = f;
+            }
+        }
+    }
+    if (a.kind == Animation::None) {
+        sheet.diags.push_back(
+            Diag{line, "@animate " + n + " says nothing to animate (pulse / bob / sheen)"});
+        return;
+    }
+    for (Animation& ex : sheet.animations)
+        if (ex.which == a.which) {
+            ex = a;
+            return;
+        }
+    sheet.animations.push_back(a);
+}
+
 }  // namespace
 
 Sheet parse(const std::string& textIn, const std::string& key,
@@ -927,7 +1043,7 @@ Sheet parse(const std::string& textIn, const std::string& key,
         std::string name, body;
         int line;
     };
-    std::vector<RawTransition> transitions;
+    std::vector<RawTransition> transitions, animations;
 
     Scanner sc{text, 0, 1, &sheet.diags};
     std::string menuScope;
@@ -951,7 +1067,7 @@ Sheet parse(const std::string& textIn, const std::string& key,
                 if (!n.empty()) sheet.name = n;
                 sc.skipWs();
                 if (sc.peek() == ';') sc.get();
-            } else if (word == "transition") {
+            } else if (word == "animate" || word == "transition") {
                 sc.skipWs();
                 const std::string n = sc.readIdent();
                 sc.skipWs();
@@ -959,9 +1075,10 @@ Sheet parse(const std::string& textIn, const std::string& key,
                     sc.get();
                     const std::string body = sc.readUntil("}");
                     if (sc.peek() == '}') sc.get();
-                    transitions.push_back(RawTransition{n, body, line});
+                    (word == "animate" ? animations : transitions)
+                        .push_back(RawTransition{n, body, line});
                 } else {
-                    sc.err("expected '{' after @transition");
+                    sc.err("expected '{' after @" + word);
                 }
             } else {
                 sc.err("unknown @" + word);
@@ -1071,6 +1188,8 @@ Sheet parse(const std::string& textIn, const std::string& key,
 
     for (const RawTransition& t : transitions)
         parseTransition(t.name, {}, t.body, sheet, t.line);
+    for (const RawTransition& a : animations)
+        parseAnimation(a.name, a.body, sheet, a.line);
     return sheet;
 }
 
@@ -1217,7 +1336,7 @@ std::string write(const Sheet& sheet) {
         writeRules(out, sheet, m, "  ");
         out << "}\n";
     }
-    static const char* kWhich[] = {"open", "close", "cursor"};
+    static const char* kWhich[] = {"open", "close", "cursor", "scroll", "value"};
     for (const Transition& t : sheet.transitions) {
         if (t.which < 0 || t.which >= Transition::WhichCount) continue;
         out << "\n@transition " << kWhich[t.which] << " {\n  ";
@@ -1227,6 +1346,16 @@ std::string write(const Sheet& sheet) {
         if (t.translateX != 0) out << "; translate-x " << fmtPx(t.translateX);
         if (t.translateY != 0) out << "; translate-y " << fmtPx(t.translateY);
         if (t.scale != 0) out << "; scale " << fmtNum(t.scale);
+        out << ";\n}\n";
+    }
+    static const char* kAnim[] = {"selected", "marker", "panel"};
+    static const char* kKind[] = {"", "pulse", "bob", "sheen"};
+    for (const Animation& a : sheet.animations) {
+        if (a.which < 0 || a.which >= Animation::WhichCount) continue;
+        if (a.kind <= 0 || a.kind > Animation::Sheen) continue;
+        out << "\n@animate " << kAnim[a.which] << " {\n  " << kKind[a.kind] << " "
+            << fmtNum(a.seconds) << "s " << fmtNum(a.amount);
+        if (a.kind == Animation::Sheen) out << " " << fmtColor(a.color);
         out << ";\n}\n";
     }
     return out.str();

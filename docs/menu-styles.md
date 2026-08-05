@@ -149,6 +149,63 @@ the list **scrolls**: the rows move into their own texture and the game shows a
 window of it, so scrolling is an offset change and a 32-row menu costs what an
 8-row one does.
 
+## Motion
+
+Nothing here re-bakes anything: every one of these is a sprite property the
+console changes per frame - an alpha, a position, a texel offset - so a menu
+that never stops moving costs what a still one costs.
+
+**Transitions** react to something:
+
+```css
+@transition open   { 180ms ease-out; fade; translate-y 10px; }
+@transition close  { 140ms ease-in; fade; }
+@transition cursor { 110ms ease-out; }   /* the caret eases between rows */
+@transition scroll { 120ms ease-out; }   /* a long list settles into its window */
+@transition value  { 180ms; }            /* the row whose value changed flashes */
+```
+
+A closing menu keeps drawing until its transition finishes - that is why the
+menu index is parked rather than cleared. Only the plain dismissals animate: a
+scene switch or a hand-off to the save menu clears immediately, because a panel
+lingering over a loading scene is worse than no transition.
+
+**Animations** are loops that never stop:
+
+```css
+@animate selected { pulse 1.8s 0.22; }                      /* the highlight breathes */
+@animate marker   { bob 0.9s 3px; }                         /* the caret drifts */
+@animate panel    { sheen 3.4s 52px rgba(255,255,255,0.18); } /* light sweeps across */
+```
+
+The sheen is a soft band drawn additively and **cropped to the panel** as it
+enters and leaves (a 2D sprite is clipped by nothing, so without the crop the
+sweep is visible beside the menu before it arrives - which is exactly how it was
+first reported). Its texture is procedural and shared by every menu that asks
+for one.
+
+### Animating what a gradient cannot
+
+Baked pixels never move: a gradient inside the panel is frozen at bake time, and
+no amount of style will slide it. What moves is a texture's sampling **window**,
+so an animated background is a layer of its own:
+
+```css
+panel { background-anim: url(res/hud/stars.png) scroll 12px/s -4px/s; }
+panel { background-anim: url(res/hud/flame.png) frames 8 1.2s; }
+```
+
+- **scroll** tiles the image and walks the window across it. The bake lays two
+  copies along each scrolled axis, so the window travels a full tile and lands
+  back where it started without ever sampling past the edge - no wrap mode, the
+  same rule the value strip follows.
+- **frames** stacks a vertical frame strip and jumps the window between frames.
+
+Either way it is **one sprite and one texture**, drawn under everything the
+panel bakes - so give the panel's own background some transparency or the layer
+will not show. This is the mechanism to reach for when you want a living
+backdrop: a drifting starfield, a slow gradient wash, a flickering torch.
+
 ## Resolutions
 
 The framebuffer is not the same shape in every scan mode:
@@ -194,6 +251,8 @@ how the editor knows which ones to check.
 | `res/menus/<menu>-values.png` | option labels or bars | only with Toggle / Choice rows |
 | `res/menus/<menu>-list.png` | every row, for a scrolling list | only when the list scrolls |
 | `res/menus/<menu>-desc.png` | one cell per row with a description | only with a description pane |
+| `res/menus/<menu>-bganim.png` | the moving background layer | only with `background-anim` |
+| `res/menus/sheen.png` | the swept band, procedural and shared | only when some sheet sweeps one |
 
 A state cell carries the panel's **own background** at that row, which is what
 lets it be drawn over the baked normal row and cover it whatever the
@@ -212,10 +271,14 @@ The CSS framing invites all of these, and none of them are here:
 - no runtime layout or text reflow — a baked string is a build-time snapshot
   (an in-game key-rebind row stays the exception: it draws from a glyph atlas)
 - `px` only, no `%` or `em`; texture axes are powers of two, 512 max
-- shadows and outlines are baked, so they cannot follow motion
+- shadows and outlines are baked, so they cannot follow motion - and a baked
+  gradient cannot slide (that is what `background-anim` is for: a layer whose
+  sampling window moves)
 - the layer order is fixed: dim, chrome, rows, values, description, overlay,
   caret
-- motion is sprite position / tint / size only — never a re-bake
+- motion is sprite position / tint / size / texel offset only — never a re-bake,
+  which also means per-row entry animations are out: rows live inside the panel
+  texture, so staggering them would need a sprite each
 - no media queries, no inheritance beyond the cascade above, no functions
   besides `var()` and the colour / gradient forms
 

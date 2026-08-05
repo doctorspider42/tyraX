@@ -167,6 +167,10 @@ std::string listFileName(const std::string& menuName) {
     return sanitizeName(menuName, "menu") + "-list.png";
 }
 
+std::string bgAnimFileName(const std::string& menuName) {
+    return sanitizeName(menuName, "menu") + "-bganim.png";
+}
+
 std::string stateAtlasFileName(const std::string& menuName) {
     return sanitizeName(menuName, "menu") + "-rows.png";
 }
@@ -411,6 +415,29 @@ Layout compute(const GameMenu& menuIn, const Project& p) {
     for (ImagePlace& ip : L.images)
         if (ip.stretchBackground) ip.box = Box{0, 0, L.panelW, L.contentH};
 
+    // --- the animated background layer --------------------------------------
+    {
+        const menustyle::BackgroundAnim& b = L.panel.bgAnim;
+        if (b.mode == menustyle::BackgroundAnim::Scroll && !b.image.empty()) {
+            // One tile is the panel's drawn area; the texture holds two of them
+            // along each scrolled axis so the window can walk a full tile
+            // without ever sampling past the edge.
+            L.bgAnimTileW = L.panelW;
+            L.bgAnimTileH = L.contentH;
+            L.bgAnimW = pow2AtLeast(b.scrollX != 0 ? L.panelW * 2 : L.panelW);
+            L.bgAnimH = pow2AtLeast(b.scrollY != 0 ? L.contentH * 2 : L.contentH);
+        } else if (b.mode == menustyle::BackgroundAnim::Frames && !b.image.empty() &&
+                   b.frames > 0) {
+            // Frames are stacked; what fits in 512px decides how many ship.
+            L.bgAnimFrameH = L.contentH;
+            int frames = b.frames;
+            while (frames > 1 && frames * L.bgAnimFrameH > kMaxAxis) --frames;
+            L.bgAnimFrames = frames;
+            L.bgAnimW = pow2AtLeast(L.panelW);
+            L.bgAnimH = pow2AtLeast(frames * L.bgAnimFrameH);
+        }
+    }
+
     // --- the scrolling strip ------------------------------------------------
     // Rows leave the panel when the list scrolls: they go into their own
     // texture and the game shows a window of it. 512px of strip is the cap, so
@@ -466,6 +493,9 @@ Layout compute(const GameMenu& menuIn, const Project& p) {
     const int panelBits = bitsForQuant(L.panel.quant);
     L.textures.push_back(
         Texture{panelFileName(menu.name), L.panelW, L.canvasH, panelBits});
+    if (L.hasBgAnim())
+        L.textures.push_back(Texture{bgAnimFileName(menu.name), L.bgAnimW,
+                                     L.bgAnimH, panelBits});
     if (L.scrolls)
         L.textures.push_back(Texture{listFileName(menu.name), L.panelW,
                                      L.listCanvasH, panelBits});
@@ -477,8 +507,11 @@ Layout compute(const GameMenu& menuIn, const Project& p) {
                                      L.descCanvasH, panelBits});
     // Worst case per frame: panel + the selected row's cell + one description +
     // one value cell per row + the cursor. Grouped by texture at draw time.
-    L.spritesPerFrame = 1 + (L.stateCells > 0 ? 1 : 0) + (L.descCells > 0 ? 1 : 0) +
-                        entries + 1;
+    L.spritesPerFrame = 1 + (L.hasBgAnim() ? 1 : 0) + (L.stateCells > 0 ? 1 : 0) +
+                        (L.descCells > 0 ? 1 : 0) + entries + 1 +
+                        (menustyle::animation(sheet, menustyle::Animation::Panel)
+                             ? 1
+                             : 0);
     return L;
 }
 

@@ -1116,6 +1116,87 @@ bool bakeStateAtlasPNG(const GameMenu& menu, const Project& p,
                                   w * 4) != 0;
 }
 
+// --- the animated background layer (<menu>-bganim.png) ------------------------
+// The one way to animate what a baked gradient cannot: a texture whose sampling
+// WINDOW moves. Scroll bakes the source tiled twice along each scrolled axis, so
+// the window walks a full tile and lands back where it started without ever
+// leaving the texture (no wrap mode needed - the value-strip rule). Frames
+// stacks a strip's frames at the panel's own size.
+
+bool bakeBgAnimRGBA(const GameMenu& menuIn, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h) {
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    if (!L.hasBgAnim() || p.dir.empty()) return false;
+    const menustyle::BackgroundAnim& b = L.panel.bgAnim;
+    int sw = 0, sh = 0, comp = 0;
+    unsigned char* px = stbi_load(p.filePath(b.image).c_str(), &sw, &sh, &comp, 4);
+    if (!px) return false;
+
+    w = L.bgAnimW;
+    h = L.bgAnimH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+    if (b.mode == menustyle::BackgroundAnim::Frames) {
+        // The strip's frames, top to bottom, each scaled to the panel's size.
+        const int srcFrameH = L.bgAnimFrames > 0 ? sh / b.frames : sh;
+        for (int f = 0; f < L.bgAnimFrames; ++f)
+            drawImageScaledSub(canvas, px, sw, sh, 0, f * srcFrameH, sw, srcFrameH,
+                               0, f * L.bgAnimFrameH, L.panelW, L.bgAnimFrameH);
+    } else {
+        // Two copies along each scrolled axis.
+        const int cols = b.scrollX != 0 ? 2 : 1;
+        const int rows = b.scrollY != 0 ? 2 : 1;
+        for (int r = 0; r < rows; ++r)
+            for (int c = 0; c < cols; ++c)
+                drawImageScaled(canvas, px, sw, sh, c * L.bgAnimTileW,
+                                r * L.bgAnimTileH, L.bgAnimTileW, L.bgAnimTileH);
+    }
+    stbi_image_free(px);
+    return true;
+}
+
+bool bakeBgAnimPNG(const GameMenu& menu, const Project& p,
+                   std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeBgAnimRGBA(menu, p, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
+}
+
+// --- the sheen band (res/menus/sheen.png) -------------------------------------
+// A soft diagonal band, drawn ADDITIVELY and swept across a panel: the
+// "light passing over the glass" every console menu of the era had. Procedural
+// like the lens-flare sprites, so it costs no authoring and one small texture
+// shared by every menu that asks for it. The shape lives in RGB because an
+// additive sprite blends Cs*As + Cd and a flat alpha would only wash the panel.
+
+void bakeSheenRGBA(std::vector<unsigned char>& rgba) {
+    rgba.assign((size_t)kSheenSize * kSheenSize * 4, 0);
+    for (int y = 0; y < kSheenSize; ++y)
+        for (int x = 0; x < kSheenSize; ++x) {
+            // Distance from a diagonal running bottom-left to top-right.
+            const float u = (float)x / kSheenSize, v = (float)y / kSheenSize;
+            const float d = std::fabs((u + v * 0.35f) - 0.5f) * 2.6f;
+            float a = 1.0f - d;
+            if (a < 0) a = 0;
+            a = a * a * a;  // a narrow core with a long, soft falloff
+            const unsigned char c = (unsigned char)(a * 255.0f + 0.5f);
+            unsigned char* q = &rgba[((size_t)y * kSheenSize + x) * 4];
+            q[0] = q[1] = q[2] = c;
+            q[3] = 255;
+        }
+}
+
+bool bakeSheenPNG(std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    bakeSheenRGBA(rgba);
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, kSheenSize, kSheenSize, 4,
+                                  rgba.data(), kSheenSize * 4) != 0;
+}
+
 // --- the scrolling row strip (<menu>-list.png) --------------------------------
 // Every row stacked at the panel's pitch in its own texture. The game draws a
 // window of it (MODE_REPEAT + offset, the value-strip trick), so a 32-row menu

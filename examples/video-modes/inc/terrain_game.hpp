@@ -1011,6 +1011,12 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Sprite> menuStateSprites;
   std::vector<Tyra::Sprite> menuListSprites;
   std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -1138,6 +1144,14 @@ class TerrainGame : public Tyra::Game {
   // and the caret have been running (docs/menu-styles.md - motion is sprite
   // properties, so this is all the state it needs).
   int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
   float gameMenuOpenT = 0.0F;
   float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
   int gameMenuCursorRow = -1;     // the row that position belongs to

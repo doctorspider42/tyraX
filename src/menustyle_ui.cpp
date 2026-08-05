@@ -9,6 +9,7 @@
 // the same call), and a readout of what the look costs on the console.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -946,6 +947,18 @@ void App::menuPreviewRefresh(const GameMenu& m) {
 
 // The mode picker + the simulated cursor. `mode` is per-window: 0 = the baked
 // pixels, 1.. = the project's supported resolutions.
+// The same easing the generated game uses (templates.cpp menuEase) - a preview
+// that eases differently is a preview that lies about the timing.
+static float previewEase(float t, int ease) {
+    if (t <= 0.0f) return 0.0f;
+    if (t >= 1.0f) return 1.0f;
+    if (ease == 0) return t;
+    if (ease == 2)
+        return t < 0.5f ? 2.0f * t * t : 1.0f - 2.0f * (1.0f - t) * (1.0f - t);
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv;
+}
+
 void App::menuPreviewControls(const GameMenu& m, int& mode) {
     // Mode 0 is the panel at its baked pixels; the rest are the project's
     // SUPPORTED resolutions (Preferences > Display), each showing the panel the
@@ -988,19 +1001,93 @@ void App::menuPreviewControls(const GameMenu& m, int& mode) {
     ImGui::TextDisabled("row %d", rows > 0 ? menuPreviewRow_ + 1 : 0);
     prefHelp("Moves the simulated cursor. The preview then draws the same cells\n"
              "the game picks - selected row, disabled rows, the description.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Play", &menuPreviewPlay_);
+    prefHelp("Runs the sheet's motion here, with the same formulas the console\n"
+             "uses: the loops (@animate), the caret easing and the open\n"
+             "transition. Off freezes it so a still frame can be judged.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Replay")) {
+        menuPreviewOpenT_ = 0.0f;
+        menuPreviewClock_ = 0.0f;
+    }
+    prefHelp("Plays the open transition again from the top.");
+    if (menuPreviewPlay_) {
+        const float dt = ImGui::GetIO().DeltaTime;
+        menuPreviewClock_ += dt;
+        menuPreviewOpenT_ += dt;
+    }
 }
 
 void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
     if (!menuPreviewTex_) return;
+    // What the motion does to the panel THIS frame, computed exactly the way
+    // renderGameMenu computes it: the open transition's offset and alpha, the
+    // sheen's position, the pulse's alpha. The preview then applies them to the
+    // image it is about to draw, so the timing you tune here is the timing that
+    // ships.
+    const menustyle::Sheet& sheet = menulayout::sheetFor(m);
+    const menulayout::Layout L = menulayout::compute(m, project_);
+    float openProg = 1.0f, ofsX = 0.0f, ofsY = 0.0f, tint = 1.0f;
+    if (const menustyle::Transition* op =
+            menustyle::transition(sheet, menustyle::Transition::Open)) {
+        if (op->seconds > 0.0f) {
+            openProg = previewEase(menuPreviewOpenT_ / op->seconds, op->ease);
+            ofsX = op->translateX * (1.0f - openProg);
+            ofsY = op->translateY * (1.0f - openProg);
+            if (op->fade) tint = openProg;
+        }
+    }
+    const menustyle::Animation* pulse =
+        menustyle::animation(sheet, menustyle::Animation::Selected);
+    const menustyle::Animation* sheen =
+        menustyle::animation(sheet, menustyle::Animation::Panel);
+    const ImU32 panelTint =
+        IM_COL32(255, 255, 255, (int)(255.0f * (tint < 0 ? 0 : tint)));
+    (void)pulse;  // the pulse rides the cell, drawn into the composite below
+
     if (mode == 0) {
         // Baked at native PS2 pixels; upscale the on-screen copy so it isn't a
         // postage stamp next to the DPI-scaled controls.
+        const ImVec2 at = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(at.x + scaled(ofsX * zoom),
+                                   at.y + scaled(ofsY * zoom)));
+        // ImGui's Image() lost its tint parameter, so the open transition's
+        // fade rides the style alpha instead - same result for a whole image.
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, tint < 0.0f ? 0.0f : tint);
         ImGui::Image((ImTextureID)(intptr_t)menuPreviewTex_,
                      ImVec2(scaled((float)menuPreviewW_ * zoom),
                             scaled((float)menuPreviewContentH_ * zoom)),
                      ImVec2(0.0f, 0.0f),
                      ImVec2(1.0f, (float)menuPreviewContentH_ /
                                       (float)menuPreviewH_));
+        ImGui::PopStyleVar();
+        // The sheen sweeps here too, drawn over the image the same additive way.
+        if (sheen && sheen->seconds > 0.0f && menuPreviewPlay_) {
+            const ImVec2 p0 = ImGui::GetItemRectMin(), p1 = ImGui::GetItemRectMax();
+            // Same travel as the runtime: from one band-width before the panel
+            // to one after, cropped to it (here by a clip rect, on the console
+            // by the sprite's own window - the geometry has to match).
+            const float bandW = sheen->amount > 0 ? sheen->amount : 48.0f;
+            const float phase =
+                std::fmod(menuPreviewClock_, sheen->seconds) / sheen->seconds;
+            const float x0 = phase * ((float)menuPreviewW_ + bandW * 2.0f) - bandW;
+            {
+                const float bw = scaled(bandW * zoom);
+                const float cx = p0.x + scaled((x0 + bandW * 0.5f) * zoom);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->PushClipRect(p0, p1, true);
+                dl->AddRectFilledMultiColor(
+                    ImVec2(cx - bw * 0.5f, p0.y), ImVec2(cx + bw * 0.5f, p1.y),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
+                             sheen->color.a),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
+                             sheen->color.a),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0));
+                dl->PopClipRect();
+            }
+        }
     } else {
         // A mock TV for one display mode: its framebuffer stretched to the
         // physical shape of its display window, with the panel scaled exactly
@@ -1030,11 +1117,32 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
         const float panelH = menuPreviewContentH_ * uiSY;
         const float panelX = m.screenPos[0] * bufW - panelW * 0.5f;
         const float panelY = m.screenPos[1] * bufH - panelH * 0.5f;
-        const ImVec2 m0(p0.x + panelX * toX, p0.y + panelY * toY);
+        const ImVec2 m0(p0.x + (panelX + ofsX) * toX, p0.y + (panelY + ofsY) * toY);
         const ImVec2 m1(m0.x + panelW * toX, m0.y + panelH * toY);
         dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1, ImVec2(0, 0),
                      ImVec2(1.0f, (float)menuPreviewContentH_ /
-                                      (float)menuPreviewH_));
+                                      (float)menuPreviewH_),
+                     panelTint);
+        if (sheen && sheen->seconds > 0.0f && menuPreviewPlay_) {
+            const float bandW = sheen->amount > 0 ? sheen->amount : 48.0f;
+            const float phase =
+                std::fmod(menuPreviewClock_, sheen->seconds) / sheen->seconds;
+            const float x0 = phase * ((float)menuPreviewW_ + bandW * 2.0f) - bandW;
+            {
+                const float bw = bandW * uiSX * toX;
+                const float cx = m0.x + (x0 + bandW * 0.5f) * uiSX * toX;
+                dl->PushClipRect(m0, m1, true);
+                dl->AddRectFilledMultiColor(
+                    ImVec2(cx - bw * 0.5f, m0.y), ImVec2(cx + bw * 0.5f, m1.y),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
+                             sheen->color.a),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b,
+                             sheen->color.a),
+                    IM_COL32(sheen->color.r, sheen->color.g, sheen->color.b, 0));
+                dl->PopClipRect();
+            }
+        }
         dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 120));
         char tag[96];
         std::snprintf(tag, sizeof(tag), "%s  %.0fx%.0f  %s", dm.label, bufW, bufH,

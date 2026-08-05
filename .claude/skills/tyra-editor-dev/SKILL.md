@@ -777,6 +777,13 @@ differs from every other feature here, because most of it is data:
   then `.menustyle`). Bump `version` in package.json, run `python3
   tools/vscode-tyrax/package-vsix.py`, let it delete the old file, read the
   language list it prints.
+- **motion is sprite properties, and only sprite properties** (`@transition`
+  reacts, `@animate` loops). A baked gradient cannot slide, so the animated
+  background is a LAYER whose sampling window moves - and a scroll bakes two
+  copies of the tile along each scrolled axis so the window never leaves the
+  texture (no wrap mode, the value-strip rule again). Anything drawn over the
+  panel must be cropped by hand: a 2D sprite is clipped by nothing, which is how
+  the sheen first appeared beside the menu instead of inside it.
 - the compatibility rule that must not be broken: **an empty `GameMenu::style`
   bakes byte-identically to the pre-stylesheet editor.** It is checkable -
   `--refresh-gen` an example with both binaries and diff `res/menus/*.png` (that

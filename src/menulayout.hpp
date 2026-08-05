@@ -96,6 +96,17 @@ struct Layout {
     int stateCells = 0, stateCanvasH = 0;
     bool stateClipped = false;  // cells did not fit 512px - reported, not hidden
 
+    // --- the animated background layer (<menu>-bganim.png) ------------------
+    // Its own sprite under the panel, because baked pixels cannot move. Scroll
+    // bakes the source tiled TWICE along each scrolled axis and walks a window
+    // through the first copy - the window then never leaves the texture, so this
+    // needs no wrap mode and behaves exactly like the value strip. Frames stacks
+    // the strip's frames and jumps the window between them.
+    int bgAnimW = 0, bgAnimH = 0;        // texture size (pow2)
+    int bgAnimTileW = 0, bgAnimTileH = 0;  // Scroll: how far the window walks
+    int bgAnimFrameH = 0;                // Frames: one frame's height
+    int bgAnimFrames = 0;
+
     // --- the description atlas (<menu>-desc.png) ----------------------------
     int descCellW = 0, descCellH = 0, descPitch = 0;
     int descCells = 0, descCanvasH = 0;
@@ -104,6 +115,7 @@ struct Layout {
     std::vector<Texture> textures;  // every texture this menu ships
     int spritesPerFrame = 0;        // worst case, excluding the dim overlay
 
+    bool hasBgAnim() const { return bgAnimW > 0 && bgAnimH > 0; }
     bool hasStateAtlas() const { return stateCells > 0; }
     bool hasDescAtlas() const { return descCells > 0; }
     int words() const;         // total GS words
@@ -134,6 +146,7 @@ std::string sanitizeName(const std::string& name, const char* fallback);
 std::string panelFileName(const std::string& menuName);
 std::string valueStripFileName(const std::string& menuName);
 std::string listFileName(const std::string& menuName);
+std::string bgAnimFileName(const std::string& menuName);
 std::string stateAtlasFileName(const std::string& menuName);
 std::string descAtlasFileName(const std::string& menuName);
 
