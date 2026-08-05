@@ -556,6 +556,10 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
 
+// Commit Checkpoint slot modes decided at runtime (-1 = no request)
+constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+constexpr int SAVE_COMMIT_NEXT = -3;
+
 constexpr int SAVE_VALUE_COUNT = 1;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"coins"};
 constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};

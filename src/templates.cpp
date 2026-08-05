@@ -1487,6 +1487,14 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
@@ -2614,6 +2622,14 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
@@ -5265,6 +5281,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -8088,8 +8109,8 @@ bool TerrainGame::updateSaveMenu() {
     scriptCtx.loadCheckpoint = false;
     if (checkpointValid) applyState(checkpointData);
   }
-  if (scriptCtx.commitCheckpoint >= 0) {
-    const int slot = scriptCtx.commitCheckpoint;
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
     scriptCtx.commitCheckpoint = -1;
     if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
       if (SAVE_ASYNC) {
@@ -8209,6 +8230,27 @@ void TerrainGame::beginCardOp(int op, int slot) {
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
 }
 
 void TerrainGame::captureState(SaveGameData& d) {
@@ -21493,6 +21535,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Save system: custom values (Tools > Save Editor) and the largest
     // scene object count - sizes the fixed save-slot payload at compile time.
     const size_t valueCount = p.saveValues.size();
+    // ScriptContext::commitCheckpoint carries a slot index, or one of these.
+    // They live HERE, in the header both sides include, because the flow graph
+    // writes them and TerrainGame resolves them - save_system.gen.hpp is not on
+    // flow_graph.gen.cpp's include list.
+    out << "\n// Commit Checkpoint slot modes decided at runtime (-1 = no "
+           "request)\n"
+           "constexpr int SAVE_COMMIT_AUTOSAVE = -2;\n"
+           "constexpr int SAVE_COMMIT_NEXT = -3;\n";
     out << "\nconstexpr int SAVE_VALUE_COUNT = " << valueCount << ";\n"
         << "inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? "
            "SAVE_VALUE_COUNT : 1] = {";
@@ -25568,10 +25618,24 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "LoadCheckpoint") {
                 c << pad << "ctx.loadCheckpoint = true;\n";
             } else if (n.type == "CommitCheckpoint") {
-                int slot = (int)n.num[0];
-                if (slot < 0) slot = 0;
-                if (slot > 2) slot = 2;  // SAVE_SLOTS is fixed at 3
-                c << pad << "ctx.commitCheckpoint = " << slot << ";\n";
+                // The slot is a MODE, not always a number: "autosave" and
+                // "next" are decided while the game runs. "" is fixed, so a
+                // graph written before the mode existed emits what it always
+                // did. A -1 reaches the game as "do nothing" (no autosave slot
+                // is set), which beats silently writing slot 0.
+                // The graph can only write into ScriptContext, so the two
+                // runtime modes travel as sentinels and the game resolves
+                // them (SAVE_COMMIT_* in save_system.gen.hpp).
+                if (n.str == "autosave") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_AUTOSAVE;\n";
+                } else if (n.str == "next") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_NEXT;\n";
+                } else {
+                    int slot = (int)n.num[0];
+                    if (slot < 0) slot = 0;
+                    if (slot >= kSaveSlots) slot = kSaveSlots - 1;
+                    c << pad << "ctx.commitCheckpoint = " << slot << ";\n";
+                }
             } else if (n.type == "SetVarInt") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) {
@@ -32577,6 +32641,13 @@ static std::string saveSystemHeader(const Project& p) {
         << floatLit(p.saveSpinnerMargin) << ";\n"
         << "constexpr float SAVE_SPINNER_SCALE = "
         << floatLit(p.saveSpinnerScale) << ";\n"
+           "\n"
+           "// The slot Commit Checkpoint's \"autosave\" mode writes, and the\n"
+           "// one its \"next free slot\" mode never picks. -1 = none set, in\n"
+           "// which case an autosave commit does nothing at all.\n"
+        << "constexpr int SAVE_AUTOSAVE_SLOT = " << p.saveAutosaveSlot << ";\n"
+           "// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:\n"
+           "// the flow graph writes them and does not include this header.)\n"
            "\n}  // namespace "
         << ns << "\n";
     return out.str();

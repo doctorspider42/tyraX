@@ -132,7 +132,34 @@ enum class FlowParamKind {
     PrefabName,  // name of a Project::prefabs entry (Tools > Prefabs)
     EventName,  // name of a graph event (free text; exists by being named)
     ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
+    // Which slot a Commit Checkpoint writes: "" / "fixed" = the Slot number
+    // below it, "autosave" = the project's autosave slot, "next" = the next
+    // free one. "" is fixed so a graph written before this existed is
+    // unchanged. A closed list, not a project lookup - see saveSlotModes().
+    SaveSlotMode,
 };
+
+// The SaveSlotMode choices. Order is cosmetic; the KEY is what a graph stores.
+struct SaveSlotModeInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<SaveSlotModeInfo>& saveSlotModes() {
+    static const std::vector<SaveSlotModeInfo> modes = {
+        {"fixed", "This slot",
+         "Always the Slot number below. What every Commit Checkpoint did "
+         "before there was a choice."},
+        {"autosave", "Autosave slot",
+         "The slot set aside for autosaves in Tools > Save Editor. With none "
+         "set this writes nothing at all, rather than guessing at a slot."},
+        {"next", "Next free slot",
+         "The first slot with nothing in it, so a run leaves a trail instead "
+         "of one save. When they are all full it cycles through them, oldest "
+         "of this session first. The autosave slot is never picked."},
+    };
+    return modes;
+}
 
 struct FlowNodeType {
     const char* key = "";
@@ -1513,14 +1540,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "yet, so it is safe to wire unconditionally - guard it with "
                  "Has Checkpoint when the player should be told."},
         {.key = "CommitCheckpoint", .title = "Commit Checkpoint",
-         .category = "Save", .numCount = 1, .numLabels = {"Slot"},
+         .category = "Save", .strKind = FlowParamKind::SaveSlotMode,
+         .strTip = "Which slot to write. \"This slot\" uses the number below; "
+                   "the other two are decided at runtime.",
+         .numCount = 1, .numLabels = {"Slot"},
          .numTips = {"Memory card slot 0-2, the same three the save menu "
-                     "shows. Out-of-range values are ignored."},
+                     "shows. Out-of-range values are ignored. Only read when "
+                     "the mode above is \"This slot\"."},
          .numIn = true,
-         .desc = "Writes the checkpoint buffer to a real memory card slot, "
-                 "behind the \"checking memory card\" warning screen. This is "
-                 "the one checkpoint node that touches the card, so it is the "
-                 "one that can be slow - a chapter break, not a death."},
+         .desc = "Writes the checkpoint buffer to a real memory card slot. "
+                 "This is the one checkpoint node that touches the card, so "
+                 "it is the one that can be slow - a chapter break, not a "
+                 "death. (Save Editor > Write in the background takes the "
+                 "pause out of it.)"},
         {.key = "HasCheckpoint", .title = "Has Checkpoint", .category = "Save",
          .pure = true, .boolOut = true,
          .desc = "True once a checkpoint has been taken this session. A pure "

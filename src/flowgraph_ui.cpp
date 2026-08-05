@@ -602,6 +602,29 @@ void App::drawFlowGraphWindow() {
                                     inputBindingLabel(project_.input.resolve(a->name))
                                         .c_str());
             }
+        } else if (t->strKind == FlowParamKind::SaveSlotMode) {
+            const std::vector<SaveSlotModeInfo>& modes = saveSlotModes();
+            size_t cur = 0;  // "" reads as fixed, so an old graph is unchanged
+            for (size_t i = 0; i < modes.size(); ++i)
+                if (n.str == modes[i].key) cur = i;
+            if (beginCombo("Writes to", modes[cur].label, t->strTip)) {
+                for (size_t i = 0; i < modes.size(); ++i) {
+                    if (ImGui::Selectable(modes[i].label, i == cur)) {
+                        n.str = modes[i].key;
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", modes[i].desc);
+                }
+                endCombo();
+            }
+            // A node body is not the place for a paragraph - the combo's own
+            // items carry these descriptions on hover. What DOES stay in the
+            // body is the one thing that is wrong right now: an autosave mode
+            // with no autosave slot set is a silent no-op in game.
+            if (n.str == "autosave" && project_.saveAutosaveSlot < 0)
+                ImGui::TextColored(theme::semantics().warn,
+                                   "No autosave slot set (Tools > Save Editor)");
         } else if (t->strKind == FlowParamKind::KeyName) {
             if (beginCombo("Key",
                            n.str.empty() ? "(pick a key)" : n.str.c_str(),
@@ -1357,7 +1380,19 @@ void App::drawFlowGraphWindow() {
                                          ImNodesPinShape_CircleFilled);
             // A Math node folds every wired input, so say so on the pin: it is
             // the difference between "a + b + c" and "the first link wins".
-            ImGui::TextDisabled(flowNumFolds(*t) ? "numbers" : "number");
+            // Everything else REPLACES num[0], so the pin takes that param's
+            // own name - "slot", "value", "radius" - which says what the link
+            // will do far better than a repeated "number" ever did.
+            std::string numPinLabel = "number";
+            if (flowNumFolds(*t)) {
+                numPinLabel = "numbers";
+            } else if (t->numCount > 0 && t->numLabels[0] &&
+                       t->numLabels[0][0]) {
+                numPinLabel = t->numLabels[0];
+                for (char& ch : numPinLabel)
+                    ch = (char)tolower((unsigned char)ch);
+            }
+            ImGui::TextDisabled("%s", numPinLabel.c_str());
             ImNodes::EndInputAttribute();
             ImNodes::PopColorStyle();
         }

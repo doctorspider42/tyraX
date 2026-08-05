@@ -138,6 +138,25 @@ Note this changes only the **menu**. *Commit Checkpoint* always writes the
 checkpoint buffer, and it writes it as it was captured — not the state at the
 moment you fire the node.
 
+## Which slot a commit goes to
+
+*Commit Checkpoint* has a **Writes to** mode:
+
+| Mode | Slot |
+| --- | --- |
+| **This slot** (default) | The node's own Slot number — what the node always did, so existing graphs are unchanged. |
+| **Autosave slot** | The slot named below. With none set the node does nothing at all, rather than guessing at slot 1. |
+| **Next free slot** | The first empty slot, so a run leaves a trail of saves instead of one. When they are all full it cycles, and it never picks the autosave slot. |
+
+The **Autosave slot** (Save Editor) sets one slot aside for the game's own
+saves: *Autosave slot* writes it and *Next free slot* leaves it alone, so a
+rotating autosave cannot eat the one the game relies on.
+
+It is a **designation, not a lock** — the in-game menu can still save over that
+slot and load from it like any other. Nothing stops a player from doing what
+they like with their own memory card, which is usually the right default; if a
+game needs the slot protected, that is a menu rule to add, not a card one.
+
 ## Writing in the background
 
 Every libmc call is asynchronous already; the blocking path just answers each

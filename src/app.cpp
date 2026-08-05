@@ -8406,6 +8406,44 @@ void App::drawSaveEditorWindow() {
             ImGui::EndCombo();
         }
 
+        // The slot Commit Checkpoint's "autosave" mode targets, and the one
+        // its "next free slot" mode leaves alone.
+        {
+            char cur[32];
+            if (project_.saveAutosaveSlot < 0)
+                std::snprintf(cur, sizeof(cur), "(none)");
+            else
+                std::snprintf(cur, sizeof(cur), "Slot %d",
+                              project_.saveAutosaveSlot + 1);
+            if (ImGui::BeginCombo("Autosave slot", cur)) {
+                if (ImGui::Selectable("(none)", project_.saveAutosaveSlot < 0) &&
+                    project_.saveAutosaveSlot >= 0) {
+                    project_.saveAutosaveSlot = -1;
+                    saveAll("Saved");
+                }
+                for (int i = 0; i < templates::kSaveSlots; ++i) {
+                    char label[32];
+                    std::snprintf(label, sizeof(label), "Slot %d", i + 1);
+                    if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) &&
+                        project_.saveAutosaveSlot != i) {
+                        project_.saveAutosaveSlot = i;
+                        saveAll("Saved");
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Sets one slot aside for the game's own saves. A Commit\n"
+                    "Checkpoint set to \"Autosave slot\" writes it, and one set\n"
+                    "to \"Next free slot\" never picks it - so a rotating\n"
+                    "autosave cannot eat the one the game relies on.\n\n"
+                    "It is a designation, not a lock: the in-game menu can\n"
+                    "still save over it and load from it like any other slot.");
+        }
+
         if (ImGui::Checkbox("Write in the background", &project_.saveAsync))
             saveAll("Saved");
         if (ImGui::IsItemHovered())

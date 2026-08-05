@@ -2253,6 +2253,12 @@ struct Project {
     // With no checkpoint taken yet it falls back to a fresh snapshot, so the
     // menu is never dead at the start of a game.
     bool saveMenuWritesCheckpoint = false;
+    // The slot a Commit Checkpoint in "autosave" mode writes, and the one the
+    // "next free slot" mode never picks - so a rotating autosave cannot eat
+    // the game's own. -1 = no autosave slot, which makes that mode a no-op
+    // rather than a guess. This is a DESIGNATION, not a lock: the in-game menu
+    // can still save over it and load from it like any other slot.
+    int saveAutosaveSlot = -1;
     // Write to the card WITHOUT freezing the game behind the "do not remove
     // the memory card" overlay: the transfer is driven a step per frame and
     // the player keeps playing. Loads stay blocking (the world is being

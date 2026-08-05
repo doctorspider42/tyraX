@@ -56,7 +56,7 @@ spinner in the corner is the whole interruption.
 | `flag-a`, `flag-b` | `Near Object` (radius 3) → `Do Once` → `Sequence`: *Set Save Text* `checkpoint`, then **Save Checkpoint**. The Sequence is there because the order matters — the text has to be written *before* the snapshot, or the checkpoint records the previous flag's name. |
 | `hazard` | `Near Object` (radius 4) → `Cooldown` 2 s → `Sequence`: *Set Int* `deaths` **+1**, then `Branch` on **Has Checkpoint** → **Load Checkpoint** / `Restart Scene`. The Branch is what makes the very first death (before any flag) restart the scene instead of doing nothing. |
 | `coin-1..4` | `Near Object` (radius 1.5) → `Branch` on **Is Visible** → *Add To Save Value* `coins` +1 and *hide self*. Testing its own visibility is what makes a crystal re-collectable: a checkpoint load turns it visible again, and the same graph then works a second time. A `Do Once` here would have collected it once and never again. |
-| `commit-pedestal` | `On Used` → `Sequence`: **Commit Checkpoint** slot 0, then a *Display Text* confirming which checkpoint went to the card. |
+| `commit-pedestal` | `On Used` → `Sequence`: **Commit Checkpoint** set to *Next free slot*, then a *Display Text* confirming which checkpoint went to the card. Using it repeatedly fills slot 1, then 2, then 3, and then starts cycling — so the pedestal builds a trail rather than overwriting one save. |
 | `hud` | `On Start` → three *Display Text* nodes fed by `Get Save Value`, `Get Int` → *Number To Text*, and `Get Save Text`. |
 
 `Near Object` fires on the frame you come **inside** the radius, not every frame

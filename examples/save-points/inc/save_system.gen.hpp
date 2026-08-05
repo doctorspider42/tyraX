@@ -94,4 +94,11 @@ constexpr int SAVE_SPINNER_CORNER = 3;  // 0 TL, 1 TR, 2 BL, 3 BR
 constexpr float SAVE_SPINNER_MARGIN = 20.0F;
 constexpr float SAVE_SPINNER_SCALE = 1.0F;
 
+// The slot Commit Checkpoint's "autosave" mode writes, and the
+// one its "next free slot" mode never picks. -1 = none set, in
+// which case an autosave commit does nothing at all.
+constexpr int SAVE_AUTOSAVE_SLOT = -1;
+// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:
+// the flow graph writes them and does not include this header.)
+
 }  // namespace Save_points

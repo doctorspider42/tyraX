@@ -2523,6 +2523,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -5346,8 +5351,8 @@ bool TerrainGame::updateSaveMenu() {
     scriptCtx.loadCheckpoint = false;
     if (checkpointValid) applyState(checkpointData);
   }
-  if (scriptCtx.commitCheckpoint >= 0) {
-    const int slot = scriptCtx.commitCheckpoint;
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
     scriptCtx.commitCheckpoint = -1;
     if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
       if (SAVE_ASYNC) {
@@ -5467,6 +5472,27 @@ void TerrainGame::beginCardOp(int op, int slot) {
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
 }
 
 void TerrainGame::captureState(SaveGameData& d) {

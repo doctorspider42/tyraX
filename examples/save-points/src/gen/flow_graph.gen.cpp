@@ -642,7 +642,7 @@ class FlowGraphScript_0_12 : public Script {
       livedbg::hit(34);
       {  // Sequence output 1
         livedbg::hit(35);
-        ctx.commitCheckpoint = 0;
+        ctx.commitCheckpoint = SAVE_COMMIT_NEXT;
       }
       {  // Sequence output 2
         livedbg::hit(36);
@@ -656,7 +656,7 @@ class FlowGraphScript_0_12 : public Script {
       livedbg::hit(34);
       {  // Sequence output 1
         livedbg::hit(35);
-        ctx.commitCheckpoint = 0;
+        ctx.commitCheckpoint = SAVE_COMMIT_NEXT;
       }
       {  // Sequence output 2
         livedbg::hit(36);

@@ -1550,6 +1550,7 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << ",\n  \"saveIconMotionAmount\": " << fmtFloat(p.saveIconMotionAmount);
     json << ",\n  \"saveMenuWritesCheckpoint\": "
          << (p.saveMenuWritesCheckpoint ? "true" : "false");
+    json << ",\n  \"saveAutosaveSlot\": " << p.saveAutosaveSlot;
     json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
     json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
     json << ",\n  \"saveSpinnerImage\": \"" << jsonEscape(p.saveSpinnerImage)
@@ -4090,6 +4091,12 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
     }
     if (const auto* v = root.find("saveMenuWritesCheckpoint"))
         out.saveMenuWritesCheckpoint = v->boolOr(false);
+    if (const auto* v = root.find("saveAutosaveSlot")) {
+        out.saveAutosaveSlot = (int)v->numberOr(-1.0);
+        if (out.saveAutosaveSlot < -1 ||
+            out.saveAutosaveSlot >= templates::kSaveSlots)
+            out.saveAutosaveSlot = -1;
+    }
     if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
     if (const auto* v = root.find("saveSpinner"))
         out.saveSpinner = v->boolOr(true);

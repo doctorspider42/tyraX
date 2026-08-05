@@ -932,6 +932,14 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
