@@ -1100,6 +1100,66 @@ branch (`srcEnd = srcBase + 6` above `ibeq triOr,vi00,fanStart`, the `emitNxt`/`
 rotations inside `fanEmitLoop`, the src/dst swap above `ibne ...,planeLoop`). Those are
 meant to run on both paths.
 
+### The cause: the CLIP flag is positional, and our own flag shortened its wait
+
+The remaining defect is not in what openvcl computes but in **when it reads a flag**,
+and it was introduced by one of our density flags.
+
+`--sce-latencies` sets flag visibility to 1 - for MAC flags and the CLIP flag alike -
+calibrated from the shortest gaps SCE's own output contains. That minimum was taken over
+two populations that behave differently. MAC flags summarise the last FMAC. The CLIP flag
+register is a **24-bit shift window** that every `CLIP` pushes six new bits into, so
+reading it early does not return a partly-settled answer: it returns a **different
+vertex's** answer, with the mask silently selecting the wrong window position. A
+full-window test (`fcand VI01,0x3FFFF`, "is anything outside") survives that. A
+single-bit positional test - which is exactly what a Sutherland-Hodgman edge loop runs -
+does not.
+
+Over all 25 programs, counting only positional tests (mask below `0x3FFFF`):
+
+| producer → flag read | SCE `vcl` | openvcl |
+|---|---|---|
+| gap 1 | 5 (all full-window) | **72** |
+| gap 2 | 7 | 1 |
+| gap 3 | **36** | 0 |
+| gap 4 | 5 | 0 |
+
+Per program, SCE keeps every positional test at 3 and the edge loop's `fcand VI01,2` at
+4; openvcl kept all of them at 1, in all five `clip_*` programs and both billboards. So
+`clip_d`/`td`/`tc`/`tce` carry the same defect and merely got lucky on this geometry -
+which also retires the earlier "flag visibility of 1 cycle" hypothesis being *eliminated*
+because `clip_d` renders correctly. It was not eliminated; it was under-tested.
+
+The source is unambiguous about the intent - each `fcand` reads the `clipw` directly
+above it:
+
+```
+clipw.xyz   vertex1,    vertex1
+fcand       VI01,       0xF
+```
+
+SCE reaches the same semantics by a scheduling trick that looks alarming and is correct:
+it issues `clipw` #N+1 *before* reading #N's flags, precisely because #N+1's bits are not
+visible yet. `clipflags.py` shows the two window depths side by side, and openvcl's now
+match the source's order.
+
+`g_clipFlagVisibilityLatency` is tracked separately and stays at 4 whatever
+`--sce-latencies` says. **This is progress, not the finish**, and the honest numbers are:
+
+| VU1 packet capture, same draw | triangles staged | GS vertices |
+|---|---|---|
+| SCE `vcl` | **24** | 72 |
+| openvcl, flag read at gap 1 | 28 | 84 |
+| openvcl, CLIP latency restored to 4 | 17 | 51 |
+
+The count moves with the timing, which is the mechanism confirmed - but some sites still
+schedule at a gap of 2-3, so it overshoots the other way. And the wait costs the resident
+set about **58 instructions** (2100 against the 2042 ceiling), so the VU1-clipper set no
+longer fits. That is recoverable in principle rather than fatal: SCE fits in 2042 while
+paying the same waits as three empty `NOP NOP` rows, so the words are there to be won
+back by filling those slots instead of by skipping the wait. A compiler that miscompiles
+to save words is not a smaller compiler.
+
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
 wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.

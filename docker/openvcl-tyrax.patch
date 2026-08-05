@@ -551,7 +551,7 @@ index 5500026..bfccd9b 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..5b40efb 100644
+index b8b1946..967aa6f 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -562,7 +562,7 @@ index b8b1946..5b40efb 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,20 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,21 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -574,6 +574,7 @@ index b8b1946..5b40efb 100644
 +	setVuScheduleFlagReadersEnabled( m_cmdLine.scheduleFlagReaders() );
 +	setVuFmacInterlockEnabled( m_cmdLine.fmacInterlock() );
 +	setVuFlagVisibilityLatency( m_cmdLine.sceLatencies() ? 1u : 4u );
++	setVuClipFlagVisibilityLatency( 4u );
 +	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
@@ -885,7 +886,7 @@ index ba4e871..6403fbc 100644
  
  	enum
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..63a64c5 100644
+index 71ee7cb..e05b60d 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
 @@ -51,6 +51,44 @@ void VuLatencyTracker::reset()
@@ -957,7 +958,7 @@ index 71ee7cb..63a64c5 100644
  		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
  		if( ready == m_registerReadyCycle.end() )
  			continue;
-@@ -120,18 +175,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -120,18 +175,26 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
  	}
  
@@ -977,15 +978,18 @@ index 71ee7cb..63a64c5 100644
  	}
  	if( readsClip )
  	{
++		// Not flagLatency: the CLIP window is positional, so --sce-latencies must
++		// not shorten this wait (see setVuClipFlagVisibilityLatency).
++		const int clipLatency = static_cast<int>( vuClipFlagVisibilityLatency() );
  		const int gap = flagCycle - m_lastClipwCycle;
 -		if( 4 - gap > flagDelay )
 -			flagDelay = 4 - gap;
-+		if( flagLatency - gap > flagDelay )
-+			flagDelay = flagLatency - gap;
++		if( clipLatency - gap > flagDelay )
++			flagDelay = clipLatency - gap;
  	}
  	if( flagDelay > 0 )
  		needed += flagDelay;
-@@ -149,7 +209,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+@@ -149,7 +212,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
  	if( !token.operand() || token.operand()->latency() <= 1 )
  		return;
  
@@ -1266,10 +1270,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..03b5349 100644
+index c28ec6d..be076a3 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,120 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,138 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -1301,6 +1305,7 @@ index c28ec6d..03b5349 100644
 +	bool g_scheduleFlagReaders = false;
 +	bool g_fmacInterlock = false;
 +	unsigned int g_flagVisibilityLatency = 4;
++	unsigned int g_clipFlagVisibilityLatency = 4;
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
@@ -1336,6 +1341,23 @@ index c28ec6d..03b5349 100644
 +unsigned int vuFlagVisibilityLatency()
 +{
 +	return g_flagVisibilityLatency;
++}
++
++// The CLIP flag is tracked separately from the MAC flags, because the two are not
++// interchangeable. MAC flags summarise the last FMAC; the CLIP flag register is a
++// 24-bit shift window into which every CLIP pushes six new bits. Reading it early
++// therefore does not return a partly-settled answer - it returns a DIFFERENT
++// vertex's answer, with the mask silently selecting the wrong window position. A
++// full-window test (0x3FFFF, "is anything outside") survives that; a single-bit
++// positional test does not, and that is what a Sutherland-Hodgman edge loop does.
++void setVuClipFlagVisibilityLatency( unsigned int cycles )
++{
++	g_clipFlagVisibilityLatency = cycles > 0 ? cycles : 1;
++}
++
++unsigned int vuClipFlagVisibilityLatency()
++{
++	return g_clipFlagVisibilityLatency;
 +}
 +
 +void setVuIntegerLoadReadyCycles( unsigned int cycles )
@@ -1392,10 +1414,10 @@ index c28ec6d..03b5349 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..0b0a352 100644
+index 8188099..d1d7e55 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,65 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,67 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1419,6 +1441,8 @@ index 8188099..0b0a352 100644
 +// and 0x3FFFF/0x3F masks mean that fcand is testing the clipw right above it.
 +void setVuFlagVisibilityLatency( unsigned int cycles );
 +unsigned int vuFlagVisibilityLatency();
++void setVuClipFlagVisibilityLatency( unsigned int cycles );
++unsigned int vuClipFlagVisibilityLatency();
 +
 +// Cycles after which a memory load's destination may be read, or 0 to keep the
 +// instruction table's latency+1. --sce-latencies sets 3 (see VuLatencyTracker).

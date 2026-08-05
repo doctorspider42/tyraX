@@ -4,8 +4,8 @@ TyraX builds its VU1 microcode with [openvcl](https://github.com/ps2dev/openvcl)
 as an alternative to Sony's unlicensed `vcl` — the whole reason being that a
 publishable toolchain image cannot contain `vcl` (see
 [toolchain-image.md](toolchain-image.md), "Licensing of the published image"). This
-page is the part of that work that belongs to openvcl rather than to us: one bug with
-a fix, one bug without one, and four optional flags.
+page is the part of that work that belongs to openvcl rather than to us: two bugs with
+a fix, one bug without one, one calibration mistake of our own, and the density flags.
 
 Nothing here has been submitted, and no pull request is open. Everything is against
 upstream commit `a5867c3daf03828806ee966aca4116622da3f671`.
@@ -141,7 +141,23 @@ that matters.** It prints ranges for anonymous aliases, before allocation runs, 
 `=== Final assignment ===` block printing name → register after allocation. Every finding
 above came out of that dump.
 
-## 4. Four density flags, all off by default
+## 4. The CLIP flag is positional - flag visibility is not one number
+
+Ours, and a warning about our own calibration rather than a bug in upstream's defaults
+(upstream uses 4, which is right). `--sce-latencies` lowered flag visibility to 1 for
+MAC flags and the CLIP flag alike, from the shortest gaps SCE's output contains. MAC
+flags summarise the last FMAC; the CLIP flag register is a 24-bit shift window that
+every `CLIP` pushes six new bits into, so reading it early returns a **different
+vertex's** answer with the mask selecting the wrong window position. A full-window test
+(`fcand VI01,0x3FFFF`) tolerates it; the single-bit tests in a Sutherland-Hodgman edge
+loop do not. Over 25 real microprograms, positional tests sit at gap 3 (x36) and 4 (x5)
+in SCE's output and at gap 1 (x72) in openvcl's.
+
+Note how SCE reaches the source's semantics: it issues `clipw` #N+1 *before* reading
+#N's flags, exactly because #N+1's bits are not visible yet. Any scheduler that moves a
+flag reader has to model that window, not a scalar latency.
+
+## 5. Four density flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **2040**, against

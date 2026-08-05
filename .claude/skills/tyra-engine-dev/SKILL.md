@@ -708,6 +708,15 @@ banner both, so a previously built ELF still reports.
   ```bash
   grep -n "CLIP_VU1S" <project>/inc/scene_data.hpp
   ```
+- **The CLIP flag is a shift window, not a value** — 24 bits, six pushed in by every
+  `CLIP`, so a mask names a POSITION in it. Reading it too soon after its `clipw` does
+  not give a half-settled answer, it gives the previous vertex's answer, and a clipper
+  then keeps and drops the wrong edges (data-dependent: correct in one scene, a blank
+  frame in another). SCE keeps positional tests 3-4 rows behind their `clipw` and reaches
+  the source's semantics by issuing the NEXT `clipw` before the read, which is safe for
+  exactly the same reason. When you touch flag scheduling, measure the window depth per
+  read (`clipflags.py` in the working notes: how many `clipw`s precede each `fcand`), not
+  just the row gap.
 - **Count VU words with `nm`, not by counting rows in the `.vsm`.** The uploader sizes
   each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
   rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
