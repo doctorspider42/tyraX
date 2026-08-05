@@ -200,10 +200,10 @@ index 1845035..33a0b40 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..0f3bd7e 100644
+index e6a6dea..a065de4 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,10 @@ CommandLine::CommandLine()
+@@ -75,6 +75,11 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -211,10 +211,11 @@ index e6a6dea..0f3bd7e 100644
 +	m_fmacInterlock = false;
 +	m_sceLatencies = false;
 +	m_emitDelayFillers = false;
++	m_branchInterlock = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +129,10 @@ CommandLine::CommandLine()
+@@ -125,6 +130,11 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -222,10 +223,11 @@ index e6a6dea..0f3bd7e 100644
 +	m_options.push_back(Option('\0',"fmac-interlock",FMAC_INTERLOCK,false));
 +	m_options.push_back(Option(0,"sce-latencies",SCE_LATENCIES,false));
 +	m_options.push_back(Option(0,"emit-delay-fillers",EMIT_DELAY_FILLERS,false));
++	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +247,10 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +249,11 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -233,10 +235,11 @@ index e6a6dea..0f3bd7e 100644
 +				case FMAC_INTERLOCK: m_fmacInterlock = true; break;
 +				case SCE_LATENCIES: m_sceLatencies = true; break;
 +				case EMIT_DELAY_FILLERS: m_emitDelayFillers = true; break;
++				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +342,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +345,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -247,10 +250,10 @@ index e6a6dea..0f3bd7e 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..556c4ed 100644
+index f5e4b3d..4c20c6b 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,10 @@ public:
+@@ -56,6 +56,11 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -258,10 +261,11 @@ index f5e4b3d..556c4ed 100644
 +	bool fmacInterlock() const;
 +	bool sceLatencies() const;
 +	bool emitDelayFillers() const;
++	bool branchInterlock() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +134,10 @@ private:
+@@ -130,6 +135,11 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -269,10 +273,11 @@ index f5e4b3d..556c4ed 100644
 +		FMAC_INTERLOCK,
 +		SCE_LATENCIES,
 +		EMIT_DELAY_FILLERS,
++		BRANCH_INTERLOCK,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +193,10 @@ private:
+@@ -185,6 +195,11 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -280,14 +285,15 @@ index f5e4b3d..556c4ed 100644
 +	bool m_fmacInterlock;
 +	bool m_sceLatencies;
 +	bool m_emitDelayFillers;
++	bool m_branchInterlock;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..1c85eed 100644
+index 5500026..614bb39 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,34 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,41 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -319,11 +325,18 @@ index 5500026..1c85eed 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::branchInterlock() const
++{
++	return m_branchInterlock;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
  inline bool CommandLine::genericSoftwarePipelining() const
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..fcb6b9c 100644
+index b8b1946..2ef3548 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -334,7 +347,7 @@ index b8b1946..fcb6b9c 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,17 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,18 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -348,6 +361,7 @@ index b8b1946..fcb6b9c 100644
 +	setVuFlagVisibilityLatency( m_cmdLine.sceLatencies() ? 1u : 4u );
 +	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
++	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
@@ -412,10 +426,10 @@ index ba4e871..6403fbc 100644
  
  	enum
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..1d092e0 100644
+index 71ee7cb..63a64c5 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
-@@ -51,6 +51,33 @@ void VuLatencyTracker::reset()
+@@ -51,6 +51,44 @@ void VuLatencyTracker::reset()
  int VuLatencyTracker::readHazardDelay( const Token& token,
                                         const Token* partner,
                                         int currentCycle ) const
@@ -434,6 +448,17 @@ index 71ee7cb..1d092e0 100644
 +{
 +	// Register keys are the allocated register names, "VF00".."VF31" /
 +	// "VI00".."VI15" (see vuRegisterKey).
++	// Producers whose result a BRANCH may read without a padding word: the
++	// hardware stalls for these on its own. Integer loads and the flag readers
++	// (which write an integer register) qualify; an ordinary integer op does not
++	// - see the file comment for the SCE output this is calibrated against.
++	bool isBranchInterlockedProducer( const std::string& mnemonic )
++	{
++		return mnemonic.compare( 0, 3, "ilw" ) == 0
++		    || mnemonic.compare( 0, 2, "lq" ) == 0
++		    || isVuClipReader( mnemonic )
++		    || isVuMacReader( mnemonic );
++	}
 +	bool isFloatRegisterKey( const std::string& key )
 +	{
 +		return key.length() >= 2
@@ -449,7 +474,7 @@ index 71ee7cb..1d092e0 100644
  {
  	std::list<std::string> reads;
  	collectVuRegisterReadKeys( token, reads );
-@@ -68,6 +95,11 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -68,6 +106,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  	int needed = 0;
  	for( std::list<std::string>::const_iterator i = reads.begin(); i != reads.end(); ++i )
  	{
@@ -457,11 +482,23 @@ index 71ee7cb..1d092e0 100644
 +		// itself, so this wait must not be paid for in instruction words.
 +		if( skipInterlockedRegisters && isFloatRegisterKey( *i ) )
 +			continue;
++		// Same distinction for the integer file, but it depends on the CONSUMER:
++		// a branch reading a load result or a flag-reader result stalls in
++		// hardware, so those words are not ours to spend either.
++		if( skipInterlockedRegisters && vuBranchInterlockEnabled()
++			&& vuTokenHasInstructionFlag( token, VU_INSTR_BRANCH ) )
++		{
++			std::map<std::string, std::string>::const_iterator branchProducer =
++			    m_registerProducerMnemonic.find( *i );
++			if( branchProducer != m_registerProducerMnemonic.end()
++			    && isBranchInterlockedProducer( branchProducer->second ) )
++				continue;
++		}
 +
  		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
  		if( ready == m_registerReadyCycle.end() )
  			continue;
-@@ -120,18 +152,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -120,18 +175,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
  	}
  
@@ -489,7 +526,7 @@ index 71ee7cb..1d092e0 100644
  	}
  	if( flagDelay > 0 )
  		needed += flagDelay;
-@@ -149,7 +186,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+@@ -149,7 +209,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
  	if( !token.operand() || token.operand()->latency() <= 1 )
  		return;
  
@@ -769,10 +806,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..af6e7ca 100644
+index c28ec6d..e13d0e2 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,87 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,98 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -806,6 +843,7 @@ index c28ec6d..af6e7ca 100644
 +	unsigned int g_flagVisibilityLatency = 4;
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
++	bool g_branchInterlock = false;
 +}
 +
 +void setVuScheduleFlagReadersEnabled( bool enabled )
@@ -858,14 +896,24 @@ index c28ec6d..af6e7ca 100644
 +	return g_emitDelayFillers;
 +}
 +
++void setVuBranchInterlockEnabled( bool enabled )
++{
++	g_branchInterlock = enabled;
++}
++
++bool vuBranchInterlockEnabled()
++{
++	return g_branchInterlock;
++}
++
  bool isVuLowerPipe( const Token& token )
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..e987a1d 100644
+index 8188099..4d6bd88 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,37 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,50 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -899,6 +947,19 @@ index 8188099..e987a1d 100644
 +// its delay-slot filler, instead of leaving the slot as a nop word.
 +void setVuEmitDelayFillersEnabled( bool enabled );
 +bool vuEmitDelayFillersEnabled();
++
++// --branch-interlock: a branch reading a register produced by a LOAD or by a
++// flag reader waits in hardware, so that wait must not be paid in instruction
++// words. SCE's vcl emits exactly that, and annotates the latency it is leaving
++// to the hardware:
++//     ilw.x  VI01,8(VI00)
++//     iblez  VI01,multiColor      ;  STALL_LATENCY ?3
++// Five of the engine's programs do it, and five more put `fcand VI01,8`
++// immediately before `ibne ...,VI01,...`. An ordinary integer op is NOT in this
++// class - SCE never comes closer than two instructions there (24 cases at
++// exactly two), which is what openvcl already emits.
++void setVuBranchInterlockEnabled( bool enabled );
++bool vuBranchInterlockEnabled();
 +
  bool isVuLowerPipe( const Token& token );
  bool isVuLongLatencyProducer( const Token& token );

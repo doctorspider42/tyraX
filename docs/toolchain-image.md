@@ -447,10 +447,11 @@ branch must not read what the candidate writes - it used to see the new value):
 | openvcl, `--fmac-interlock` only | 2180 |
 | + flag latency 1 | 2116 |
 | + load ready at +3 | 2094 |
-| + delay fillers | **2075** |
+| + delay fillers | 2075 |
+| + branch interlock | **2070** |
 | SCE `vcl` | 2035 |
 | ceiling | 2042 |
-| **over by** | **33** |
+| **over by** | **28** |
 
 Per program openvcl is now within a few words of SCE everywhere - **and smaller on
 two of the ten**:
@@ -468,13 +469,79 @@ two of the ten**:
 | `cull_tce` | 177 | 167 | +10 |
 | `clip_c` | 267 | 257 | +10 |
 
-The last 33 words are stall rows that SCE does not need because of *where it puts
-things*: on `stapip_clip_c` it has half as many hazard sites (15 against 30) and 17
-`nop`/`nop` rows against openvcl's 24. Removing those means the scheduler choosing
-an order that avoids the hazard, not another calibrated constant - the constants
-now agree with SCE on every class measured.
+The remaining words are stall rows that SCE does not need because of *where it puts
+things*. Over the ten resident programs:
+
+| nop/nop rows | SCE | openvcl |
+|---|---|---|
+| in front of a branch | 46 in 36 sites | 90 in 80 sites |
+| unfilled delay slots | 39 | 35 |
+| the `[E]` / `b begin` epilogue | 30 | 30 |
+| everything else | 19 | 30 |
+| **total** | **104** | **130** |
+
+**Almost all of it is one shape: a stall in front of a branch, and openvcl has
+twice as many of those sites.** Both assemblers pay one word when an ordinary
+integer op feeds a branch - SCE never comes closer than two instructions either (24
+of its 45 cases sit at exactly two) - so this is not another latency constant. SCE
+simply arrives at the branch with something left to put in front of it.
+
+**Three levers were built and measured against that, and all three are dead ends -
+recorded so the next attempt starts past them:**
+
+* **Rank the ready list by the critical path in CYCLES** rather than in
+  instructions, counting each dependence edge at its real issue distance, and hand
+  the segment scheduler the token that follows it so the producers of a branch's
+  operands can rise. Correct in principle, **zero words on this engine**: the
+  producers it wants to hoist are pinned where they are by an anti-dependence, not
+  by their priority.
+* **Prefer a register nobody read recently** when several are free. That
+  anti-dependence comes from first-fit allocation reusing the lowest non-conflicting
+  register - `ilw.x VI01,8(VI00)` cannot move above the four rows that read VI01 as
+  the buffer pointer, and SCE gives that flag a register of its own. Also zero:
+  instrumented, and the allocator's free-register search **never runs** on these
+  programs. Every alias is already decided by the preallocation and two-address
+  chain passes above it, so the choice this would improve does not exist yet.
+* **Swap the last two emitted rows** instead of padding in front of a branch, with
+  the crossing checked both ways and the latency model replayed over the new order.
+  Zero as well, and the trace says why: at the segment boundary the scheduler no
+  longer reports a hazard at all (17 calls, 0 with a delay). The rows come from the
+  emitter's own padding path, one level below where this pass sits.
+
+So the next attempt belongs in `CodeGenerator`, on emitted rows, not in the
+scheduler - and it needs the emitter's tracker replayed the same way.
 
 Every output was checked through `dvp-as` as well as counted: 25 of 25 assemble.
+
+### A fifth flag, and SCE annotating the answer
+
+`--branch-interlock` is worth its own note because SCE's output *says* what the rule
+is. Asked for the minimum distance it keeps between an integer write and a branch
+reading it, its 25 programs answer in three different ways:
+
+| producer of the branch's operand | SCE's minimum | openvcl's | |
+|---|---|---|---|
+| ordinary integer op | 2 (24 cases at exactly 2) | 2 | agrees |
+| integer **load** | **1** | 3 | 2 words wasted per site |
+| **flag reader** (`fcand`) | **1** | 2 | 1 word wasted per site |
+
+And the gap-1 cases are not an artefact of reading the listing linearly - no label
+sits between them, and SCE labels one of them itself:
+
+```
+ilw.x  VI01,8(VI00)
+iblez  VI01,multiColor      ;  STALL_LATENCY ?3
+```
+
+That comment is SCE saying "three cycles, left to the hardware". It is the same
+distinction `--fmac-interlock` draws for the FMAC pipeline, one file down: the cycles
+are real, the instruction words are not ours to spend. Five programs put an `ilw`
+directly in front of the branch that reads it, five more put `fcand VI01,8` there.
+
+Worth **-5 words** on the resident set (2075 → 2070) - less than the 15 the sites
+add up to, because at some of them a second hazard needs the row anyway. 419/419
+upstream tests still pass, 25 of 25 outputs still assemble, and the loop-carried
+liveness checker stays clean for both assemblers.
 
 ### It runs - and the picture is identical to Sony's
 
@@ -505,10 +572,12 @@ experiment claimed more than it had:
   nicety), so "openvcl renders correctly" always means openvcl *with the image's
   flags*.
 * This is one scene on one emulator. It exercises `cull_*` and `as_is_c`; the
-  textured and clip variants are only covered by the static checks.
+  textured variants are only covered by the static checks, and the clip programs
+  are covered separately (two of them run, one is miscompiled - see
+  "And a second one, still open" below).
 
-So the migration is down to one number - the 33 words that the `vu1Clipping` set
-is over - and not to any doubt about correctness.
+So for a project on the EE clipper the migration is done. For the VU1 clipper it
+waits on two things: **28 words**, and a correctness bug in `stapip_clip_c`.
 
 **The trap that cost the first attempt, and the fix that closed it:** switching
 the image did not rebuild the microcode. The engine's make keys off `.vclpp`
@@ -597,6 +666,29 @@ after the CLIPw patch: **openvcl's liveness analysis ignores a backward branch**
 so any program of this shape can be silently miscompiled. It is not fixed in
 `docker/openvcl-tyrax.patch` - that is a real analysis change, not a one-token one
 - and until it is, the checker above is what stands in for it.
+
+### And a second one, still open: `stapip_clip_c`
+
+The same harness found a second miscompile, and this one is **not** the liveness bug
+(the checker is clean on it) and not caused by any of the five flags (it reproduces
+with four of them, and with none of the new ones).
+
+Testing it needed a trick, because a program that does not fit cannot be booted: put
+`stapip_clip_c` on openvcl **together with `cull_d` and `cull_td`, where openvcl is
+smaller than SCE** (-3 and -6). That buys the seven words `clip_c` costs and the
+resident set fits at 2033, so the VU1 clipper can actually run:
+
+| VU1-clipper build, `clipping: "vu1"` | asserts | framebuffer vs legacy |
+|---|---|---|
+| `cull_d` + `cull_td` from openvcl | 0 | **0 of 514600 pixels differ** |
+| the same plus `clip_c` | 0 | **453644 differ** |
+
+So two of openvcl's programs are now *proven* correct on the VU1 clipper path and
+`clip_c` is proven wrong. That changes what the migration is waiting on: **not only
+the 28 words, but a correctness bug in the clipper program as well.** Whoever picks
+it up should start where the last one was found - diff `clip_c`'s openvcl output
+against SCE's around the Sutherland-Hodgman edge loop, which is the part `as_is_c`
+does not have.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

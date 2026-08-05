@@ -244,11 +244,34 @@ the verification, and any fact worth reusing belongs in the relevant
     no configuration at all. `src/runner.cpp` now stamps the assembler
     (`/tyra/.vcl-stamp`, md5 of the resolved `vcl`/`vclpp`, so `VCL_FLAGS` counts
     too) and rebuilds the microprograms when it changes.
-    The last 33 words are stall rows SCE avoids by WHERE IT PUTS THINGS, not by
-    knowing another constant - the constants now agree on every class measured. On
-    `stapip_clip_c` it has 15 hazard sites against openvcl's 30, and 17 nop/nop
-    rows against 24. That is a scheduling-order problem: pick an order that avoids
-    the hazard instead of padding it.
+    **2026-08-05, later: 2075 -> 2070, i.e. 28 short, on a fifth flag SCE
+    annotates for us.** `--branch-interlock`: asked for the minimum distance it
+    keeps between an integer write and a branch reading it, SCE's output answers 2
+    for an ordinary integer op (which openvcl matches) but **1** for an integer
+    LOAD and **1** for a flag reader - and labels one of them itself,
+    `ilw.x VI01,8(VI00)` / `iblez VI01,multiColor  ; STALL_LATENCY ?3`. Same
+    distinction as --fmac-interlock, one file down: the cycles are real, the words
+    are not ours to spend. 419/419 tests, 25/25 through dvp-as, EE-clipper e2e
+    still pixel-identical.
+    The rest is ONE shape: **a stall in front of a branch, and openvcl has twice as
+    many sites (80 against 36)**. Not another constant - SCE pays the same word when
+    an ordinary integer op feeds a branch, it just arrives with something left to
+    put there. **Three levers built and measured as dead ends, do not repeat:**
+    critical-path priorities in cycles (+ handing the scheduler the token that
+    follows the segment) - zero, the producers are pinned by an anti-dependence;
+    preferring a register nobody read recently - zero, and instrumentation shows the
+    allocator's free-register search NEVER RUNS (preallocation and the two-address
+    chain pass decide everything first); swapping the last two emitted rows instead
+    of padding - zero, because at the segment boundary the scheduler reports no
+    hazard at all (17 calls, 0 with a delay). The rows come from `CodeGenerator`'s
+    own padding path, which is where the next attempt belongs.
+    **Also new, and it changes the shape of the blocker: `stapip_clip_c` from
+    openvcl is MISCOMPILED.** Found by pairing it with `cull_d`/`cull_td`, where
+    openvcl is SMALLER than SCE, so the VU1-clipper set fits at 2033 and can boot:
+    those two alone render pixel-identically, adding `clip_c` breaks 453644 pixels.
+    Not the liveness bug (the checker is clean on it) and not any of the flags (it
+    reproduces with none of the new ones). So the migration waits on 28 words AND a
+    second correctness bug, in the clipper program.
     Also still open, and a separate budget: `vu0_rt_kernel` at 961 cycles against
     VU0's 512-instruction micro memory.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as

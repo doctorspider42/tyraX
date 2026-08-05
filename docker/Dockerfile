@@ -24,9 +24,10 @@
 # version: the from-source `openvcl` compiles all 25 of the engine's VU1
 # microprograms and a game built with it RUNS - pixel-identical to Sony's vcl in
 # PCSX2 (2026-08-05), which is why `openvcl` is a supported choice here (see
-# VCL_IMPL) and no longer an experiment. It is not the default for one reason:
-# with the VU1 clipper its resident program set needs 2075 instructions against a
-# 2042 ceiling. 33 words of scheduling density, not correctness, is what remains.
+# VCL_IMPL) and no longer an experiment. It is not the default because of the VU1
+# clipper: that program set needs 2070 instructions against a 2042 ceiling, and one
+# of its programs (stapip_clip_c) is still miscompiled. On the EE clipper - which
+# is what a project gets unless it asks for `vu1` - openvcl is verified.
 #
 # Build it: docker/build.ps1 (Windows) or docker/build.sh (Linux).
 #
@@ -67,7 +68,7 @@ ARG VCL_IMPL=legacy
 # tool itself, and with all four the rendered frame is pixel-identical to the one
 # Sony's vcl produces. When bisecting, force the microcode to rebuild
 # (--build --rebuild) - the engine's make will not do it for an image swap.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers"
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
