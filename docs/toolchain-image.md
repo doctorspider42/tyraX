@@ -845,9 +845,40 @@ wrong), so the engine change is exonerated.
 The static routes are exhausted - no instruction is dropped or added (283 in both),
 and generalising the liveness checker to every backward branch drowns in false
 positives, because "set up before the loop, read inside, written inside" is also the
-shape of every induction variable, in both assemblers' output. So the next step is
-dynamic: the VU1 packet tap, capturing the staged GIF output for one batch under each
-assembler and finding the first quadword that differs.
+shape of every induction variable, in both assemblers' output.
+
+**The VU1 packet tap turned the screenshot into a number.** Arm a capture of the same
+flush under each build (`arm-vucap.py`, see `tyra-testing`; the flush index has to be
+named or "the next packet" is a different draw each time) and decode both:
+
+| flush 0, identical scene | Sony `vcl` | openvcl |
+|---|---|---|
+| DMA chain + VU1 memory | — | **byte-identical** |
+| GIF packets staged | 14 | 14 |
+| GS vertices staged | 72 | **81** |
+| triangles staged | 24 | **27** |
+
+So the input to VU1 is provably the same and **openvcl's `clip_c` emits three
+triangles too many** - nine extra GS vertices, i.e. the Sutherland-Hodgman clipper
+keeps three output vertices it should have dropped. Not a transform error: a
+*vertex-count* error.
+
+Two hypotheses were then eliminated, both cleanly:
+
+* **The filled branch delay slot.** openvcl puts `iadd VI08, VI13, VI00` in the delay
+  slot of `ibeq VI03,VI12,triNext`, where SCE keeps a `nop` - so VI08 is clobbered on
+  the taken path too. Harmless: nothing reads VI08 after `triNext`. It is also
+  upstream's own pre-pass, not `--emit-delay-fillers` (it appears with no flags at
+  all).
+* **Flag visibility of 1 cycle** (`--sce-latencies`). SCE emits each `fcand` three rows
+  after the *next* `clipw`, reading the previous one's flags, where openvcl emits it one
+  row after its own - which looks exactly like a latency the flag got wrong. It is not:
+  **`clip_d` has the identical shape and renders pixel-identically.** If flag
+  visibility were the bug, clip_d would be broken too.
+
+What is left to look at is the edge loop's output accounting - `edgeCross` /
+`edgeEmitCur` / `edgeAdvance` and the `outCount` pointer arithmetic - where the three
+extra vertices are actually appended.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops
