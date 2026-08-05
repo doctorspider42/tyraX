@@ -256,6 +256,17 @@ struct ScriptContext {
   char* saveTexts = nullptr;
   int saveTextCount = 0;
   bool openSaveMenu = false;
+  // Checkpoints: ONE in-RAM snapshot of the exact payload a card slot
+  // stores (a single static buffer, a few KB - never grows, no history).
+  // saveCheckpoint captures it, loadCheckpoint restores it (no-op when none
+  // was taken); both are instant RAM ops. commitCheckpoint >= 0 writes the
+  // snapshot to that card slot behind the "checking memory card" warning.
+  // hasCheckpoint mirrors whether the buffer holds one (Has Checkpoint
+  // node). The game applies and clears the requests each frame.
+  bool saveCheckpoint = false;
+  bool loadCheckpoint = false;
+  int commitCheckpoint = -1;
+  bool hasCheckpoint = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
   // to open it (the game applies and clears it). menuEvent holds the index

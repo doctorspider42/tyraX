@@ -193,6 +193,7 @@ inline bool areaHoldsObject(const AreaBasis& b,
 }
 
 constexpr int SCENE_COUNT = 1;
+constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
@@ -443,6 +444,39 @@ constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_XS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_YS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0F};
+constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false};
+constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false};
+constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {240.0F};
+constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {90.0F};
+constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {25.0F};
+constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F};
+constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.0F};
+constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {90.0F};
+constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {35.0F};
+constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F};
+constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0F};
+constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0F};
+constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.0F};
+struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
+constexpr int DAY_KEY_TOTAL = 0;
+constexpr DayKeyData DAY_KEYS[1] = {{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}};
+constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0};
+constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {0};
+constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.0F};
+constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.0F};
 constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
 constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
 constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
@@ -464,6 +498,11 @@ constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
 constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 0;
+constexpr int DAYCYCLE_USED = 0;
+constexpr int STAR_COUNT = 0;
+struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
+constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
+constexpr int STAR_TIERS = 3;
 constexpr int BLOB_SHADOWS = 0;
 constexpr int PROJ_SHADOWS_USED = 0;
 constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
@@ -518,7 +557,7 @@ constexpr int SAVE_TEXT_COUNT = 0;
 constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 8;
+constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Two_players
 
@@ -633,6 +672,22 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
+// and the moon, their apparent radius as a fraction of the dome radius (0 = the
+// body is down, draw nothing) and the moon disc's roll so its lit limb faces
+// the sun. All resolved at build - the game places two quads and no more.
+#define SCENE_SUN_X SCENE_SUN_XS[g_activeScene]
+#define SCENE_SUN_Y SCENE_SUN_YS[g_activeScene]
+#define SCENE_SUN_Z SCENE_SUN_ZS[g_activeScene]
+#define SCENE_SUN_R SCENE_SUN_RS[g_activeScene]
+#define SCENE_MOON_X SCENE_MOON_XS[g_activeScene]
+#define SCENE_MOON_Y SCENE_MOON_YS[g_activeScene]
+#define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
+#define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
+#define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
+#define SCENE_MOON_ALPHA SCENE_MOON_ALPHAS[g_activeScene]
+#define SCENE_STARS_BRIGHT SCENE_STARS_BRIGHTS[g_activeScene]
+#define SCENE_STARS_TWINKLE SCENE_STARS_TWINKLES[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]

@@ -38,6 +38,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "savebake.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -778,6 +779,7 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
@@ -1477,6 +1479,27 @@ private:
     // the baked panel (re-baked whenever the menu's content changes)
     bool showMenusEditor_ = false;
     int selectedMenu_ = -1;
+
+    // Save Editor (Tools > Save Editor): live preview of the memory card
+    // icon texture + baked-icon stats (rebuilt when any icon setting
+    // changes), and the cached clip list of the picked .glb icon model.
+    bool showSaveEditor_ = false;
+    // ONE GL texture per animation shape of the baked icon, cycled on a timer
+    // so the panel previews the motion the PS2 browser will play, not a still.
+    // Rebuilt (and the old textures deleted) whenever saveIconPreviewKey_ -
+    // every input the bake reads - changes.
+    std::vector<unsigned> saveIconPreviewTex_;
+    std::string saveIconPreviewKey_;
+    // The spinner sheet, uploaded whole; the preview picks a cell with UVs and
+    // cycles them, so swapping a sheet in the picker is a visible change
+    // rather than something you find out about after a build.
+    void drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin);
+    unsigned saveSpinnerPreviewTex_ = 0;
+    int saveSpinnerPreviewW_ = 0, saveSpinnerPreviewH_ = 0;
+    std::string saveSpinnerPreviewKey_;
+    savebake::IconInfo saveIconInfo_;
+    std::string saveIconClipsModel_;
+    std::vector<std::string> saveIconClips_;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)

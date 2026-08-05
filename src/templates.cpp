@@ -1,4 +1,4 @@
-#include "templates.hpp"
+﻿#include "templates.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +35,7 @@
 #include "prefab.hpp"
 #include "procrt.hpp"
 #include "project.hpp"
+#include "savebake.hpp"
 #include "scrollsim.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
@@ -1480,21 +1481,62 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
@@ -2575,21 +2617,62 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
@@ -2772,8 +2855,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"
-#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
+#include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -5200,6 +5283,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -5211,19 +5299,60 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+    // "Checking memory card" warning (save_system.gen.hpp carries the baked
+    // sprite's size) - centered, drawn over a dim while a card op runs.
+    setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
+                (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
+                (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sw
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -7984,6 +8113,80 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
 bool TerrainGame::updateSaveMenu() {
   if (saveFeedbackFrames > 0) --saveFeedbackFrames;
 
+  // Checkpoint requests (flow graph). Save/Load touch only the single RAM
+  // buffer - instant, no card, no overlay. Commit turns into a card op.
+  scriptCtx.hasCheckpoint = checkpointValid;
+  if (scriptCtx.saveCheckpoint) {
+    scriptCtx.saveCheckpoint = false;
+    captureState(checkpointData);
+    checkpointValid = true;
+    scriptCtx.hasCheckpoint = true;
+  }
+  if (scriptCtx.loadCheckpoint) {
+    scriptCtx.loadCheckpoint = false;
+    if (checkpointValid) applyState(checkpointData);
+  }
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
+    scriptCtx.commitCheckpoint = -1;
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
+  }
+
+  // A card op owns the pad. The blocking libmc transfer only runs once the
+  // "do not remove the memory card" overlay has been on screen for a few
+  // frames; afterwards the warning holds up its minimum time.
+  if (cardOp >= 0) {
+    if (cardOpDelay > 0) {
+      --cardOpDelay;
+    } else {
+      const int op = cardOp;
+      cardOp = -1;
+      if (op == 0) {
+        doSave(cardOpSlot);
+      } else if (op == 1) {
+        doLoad(cardOpSlot);
+      } else {  // commit the RAM checkpoint to a slot
+        const bool ok = saveWrite(cardOpSlot, checkpointData);
+        if (ok) slotUsed[cardOpSlot] = true;
+        saveFeedback = ok ? 1 : 3;
+        saveFeedbackFrames = everyFrames(1.8F);
+      }
+    }
+    return true;
+  }
+  if (cardBusyFrames > 0) {
+    --cardBusyFrames;
+    return true;
+  }
+
   if (scriptCtx.openSaveMenu) {
     scriptCtx.openSaveMenu = false;
     if (!saveMenuOpen) {
@@ -8006,26 +8209,79 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
   }
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) doSave(saveMenuSlot);
+  // Buttons come from the remappable input map (main), the work goes through
+  // beginCardOp so the "checking memory card" screen is up while the card is
+  // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
+  // warning has actually been drawn.
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
-    doLoad(saveMenuSlot);
+    beginCardOp(1, saveMenuSlot);
   return true;
+}
+
+void TerrainGame::beginCardOp(int op, int slot) {
+  cardOp = op;
+  cardOpSlot = slot;
+  cardOpDelay = 3;  // present the warning before the blocking transfer
+  cardBusyFrames = everyFrames(1.5F);
 }
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
 }
 
-void TerrainGame::doSave(int slot) {
-  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
+}
+
+void TerrainGame::captureState(SaveGameData& d) {
   d = SaveGameData();
   d.magic = SAVE_MAGIC;
   d.version = SAVE_VERSION;
@@ -8060,10 +8316,35 @@ void TerrainGame::doSave(int slot) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
-  const bool ok = saveWrite(slot, d);
+}
+
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -8073,6 +8354,15 @@ void TerrainGame::doLoad(int slot) {
     saveFeedbackFrames = everyFrames(1.8F);
     return;
   }
+  applyState(d);
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+// Restores a payload captured by captureState - a card slot's or the RAM
+// checkpoint's. Mutates d only to NUL-terminate texts (corrupted cards).
+void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
@@ -8090,9 +8380,6 @@ void TerrainGame::doLoad(int slot) {
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
     applySavedObjects();
-  saveMenuOpen = false;
-  saveFeedback = 2;
-  saveFeedbackFrames = 90;
 }
 
 void TerrainGame::applySavedObjects() {
@@ -8115,15 +8402,64 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
     }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
+    }
+  }
+  // The "do not remove the memory card" warning covers everything while a
+  // card op is pending or holding; feedback sprites wait until it clears.
+  if (cardOp >= 0 || cardBusyFrames > 0) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveBusySprite);
+    return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -17769,6 +18105,17 @@ struct ScriptContext {
   char* saveTexts = nullptr;
   int saveTextCount = 0;
   bool openSaveMenu = false;
+  // Checkpoints: ONE in-RAM snapshot of the exact payload a card slot
+  // stores (a single static buffer, a few KB - never grows, no history).
+  // saveCheckpoint captures it, loadCheckpoint restores it (no-op when none
+  // was taken); both are instant RAM ops. commitCheckpoint >= 0 writes the
+  // snapshot to that card slot behind the "checking memory card" warning.
+  // hasCheckpoint mirrors whether the buffer holds one (Has Checkpoint
+  // node). The game applies and clears the requests each frame.
+  bool saveCheckpoint = false;
+  bool loadCheckpoint = false;
+  int commitCheckpoint = -1;
+  bool hasCheckpoint = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
   // to open it (the game applies and clears it). menuEvent holds the index
@@ -18301,6 +18648,11 @@ static const char* TPL_RES_GITIGNORE =
 # checked in - a pulled project must render without missing files. Only
 # build-regenerated output is ignored.
 /menus/
+# Baked memory card icon (docs/save-editor.md): icon.sys + list.icn, derived
+# from the title/icon settings in the .tyra and rebaked on every build. The
+# "checking memory card" overlay in res/hud/ is NOT here - that one is written
+# only when missing, so it is user-replaceable like the other HUD sprites.
+/save/
 # Baked credits page strips (docs/credits.md). The roll ITSELF is in the
 # .tyra - these are its pixels, rewritten on every build. The images an
 # Image block points at live in res/credits/ and ARE checked in.
@@ -21245,9 +21597,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "      GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);\n"
            "}\n";
 
-    // Save system: custom values (Project panel, Save data) and the largest
+    // Save system: custom values (Tools > Save Editor) and the largest
     // scene object count - sizes the fixed save-slot payload at compile time.
     const size_t valueCount = p.saveValues.size();
+    // ScriptContext::commitCheckpoint carries a slot index, or one of these.
+    // They live HERE, in the header both sides include, because the flow graph
+    // writes them and TerrainGame resolves them - save_system.gen.hpp is not on
+    // flow_graph.gen.cpp's include list.
+    out << "\n// Commit Checkpoint slot modes decided at runtime (-1 = no "
+           "request)\n"
+           "constexpr int SAVE_COMMIT_AUTOSAVE = -2;\n"
+           "constexpr int SAVE_COMMIT_NEXT = -3;\n";
     out << "\nconstexpr int SAVE_VALUE_COUNT = " << valueCount << ";\n"
         << "inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? "
            "SAVE_VALUE_COUNT : 1] = {";
@@ -21291,9 +21651,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 << "\"";
     }
     out << "};\n";
+    // Only save-flagged objects ever land in a slot (captureState skips the
+    // rest), so the fixed payload is sized by their count, not the scene
+    // size - keeps slot files and the in-RAM checkpoint buffer small.
+    // Mirrored by templates::saveSizeInfo (the Save Editor's estimate).
     size_t maxObjects = 1;
-    for (const SceneData& sc : p.scenes)
-        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+    for (const SceneData& sc : p.scenes) {
+        size_t flagged = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.saveState) ++flagged;
+        if (flagged > maxObjects) maxObjects = flagged;
+    }
     out << "constexpr int SAVE_OBJECT_MAX = " << maxObjects << ";\n";
 
     out << "\n}  // namespace " << ns << "\n";
@@ -24556,6 +24924,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                            ") <= " + floatLit(std::fabs(n.num[1])) + ")";
                 return "(" + e + " >= " + floatLit(n.num[0]) + ")";
             }
+            if (n.type == "HasCheckpoint") return "ctx.hasCheckpoint";
             if (n.type == "GetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
                 if (vi < 0) return "false";
@@ -25309,6 +25678,29 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
             } else if (n.type == "OpenSaveMenu") {
                 c << pad << "ctx.openSaveMenu = true;\n";
+            } else if (n.type == "SaveCheckpoint") {
+                c << pad << "ctx.saveCheckpoint = true;\n";
+            } else if (n.type == "LoadCheckpoint") {
+                c << pad << "ctx.loadCheckpoint = true;\n";
+            } else if (n.type == "CommitCheckpoint") {
+                // The slot is a MODE, not always a number: "autosave" and
+                // "next" are decided while the game runs. "" is fixed, so a
+                // graph written before the mode existed emits what it always
+                // did. A -1 reaches the game as "do nothing" (no autosave slot
+                // is set), which beats silently writing slot 0.
+                // The graph can only write into ScriptContext, so the two
+                // runtime modes travel as sentinels and the game resolves
+                // them (SAVE_COMMIT_* in save_system.gen.hpp).
+                if (n.str == "autosave") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_AUTOSAVE;\n";
+                } else if (n.str == "next") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_NEXT;\n";
+                } else {
+                    int slot = (int)n.num[0];
+                    if (slot < 0) slot = 0;
+                    if (slot >= saveSlotCount(p)) slot = saveSlotCount(p) - 1;
+                    c << pad << "ctx.commitCheckpoint = " << slot << ";\n";
+                }
             } else if (n.type == "SetVarInt") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) {
@@ -32152,9 +32544,76 @@ static std::string saveGameDir(const Project& p) {
     return "/TYRA-" + id;
 }
 
+std::string saveDirName(const Project& p) { return saveGameDir(p); }
+
+// Mirrors the generated SaveGameData layout (saveSystemHeader below) so the
+// Save Editor's size estimate is exact: every field is 4-byte aligned, a
+// SaveObjectState is 32 bytes, and alignas(64) rounds the struct size up.
+SaveSizeInfo saveSizeInfo(const Project& p) {
+    SaveSizeInfo s;
+    s.values = (int)p.saveValues.size();
+    s.texts = (int)p.saveTexts.size();
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes) {
+        size_t flagged = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.saveState) ++flagged;
+        if (flagged > maxObjects) maxObjects = flagged;
+    }
+    s.objectSlots = (int)maxObjects;
+    // magic + version + scene + playerPos[3] + playerYaw + the 3 counters
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4;
+    s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
+    s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
+    s.objectsBytes = 32 * s.objectSlots;
+    const int raw =
+        s.headerBytes + s.valuesBytes + s.textsBytes + s.objectsBytes;
+    s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
+    // list.icn size depends on the icon source (flat quad vs a project
+    // model's triangle/shape count) - ask the baker.
+    s.iconSysBytes = savebake::kIconSysBytes;
+    s.iconIcnBytes = savebake::iconInfo(p).bytes;
+    s.iconBytes = s.iconSysBytes + s.iconIcnBytes;
+    // Real card usage, not the byte sum. A PS2 card allocates in 1 KB
+    // clusters, a file never shares a cluster with another file, and the
+    // save's own directory costs one - so round every FILE up individually
+    // and add the directory. Reporting the raw sum as a "card footprint"
+    // understates a save this small by several times (each 128-byte slot
+    // still consumes a whole 1 KB cluster).
+    const int cluster = 1024;
+    auto clustersFor = [cluster](int bytes) {
+        return bytes <= 0 ? 1 : (bytes + cluster - 1) / cluster;
+    };
+    s.cardClusterBytes = cluster;
+    s.cardFootprintBytes =
+        (1 /* the save directory itself */
+         + saveSlotCount(p) * clustersFor(s.payloadBytes) +
+         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
+        cluster;
+    return s;
+}
+
+int saveSlotCount(const Project& p) {
+    return std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots));
+}
+int saveSlotsPerPage(const Project& p) {
+    return std::max(1, std::min(p.saveSlotsPerPage, kMaxSaveSlotsPerPage));
+}
+int saveSlotPages(const Project& p) {
+    const int per = saveSlotsPerPage(p);
+    return (saveSlotCount(p) + per - 1) / per;
+}
+
 // inc/save_system.gen.hpp - memory card save slots (fixed-size payload)
 static std::string saveSystemHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
+    // The "checking memory card" overlay is baked from this same HudText
+    // (refreshGenerated), so the sprite constants below match the PNG.
+    int busyW = 512, busyH = 64;  // fallback when no TTF font is around
+    menubake::textLayout(savebake::busyText(), p, busyW, busyH);
+    // One source of truth for the spinner sheet - the Save Editor previews
+    // and warns from this same call.
+    const savebake::SpinnerInfo spin = savebake::spinnerInfo(p);
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
            "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
@@ -32164,12 +32623,18 @@ static std::string saveSystemHeader(const Project& p) {
            "// (libmc, card-root-relative path). When the BIOS mc modules cannot\n"
            "// be loaded or no formatted PS2 card responds, the slots fall back\n"
            "// to save<n>.sav next to the ELF (host: under PCSX2).\n"
-           "constexpr int SAVE_SLOTS = 3;\n"
-        << "constexpr const char* SAVE_MC_DIR = \"" << saveGameDir(p)
+        << "constexpr int SAVE_SLOTS = "
+        << std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots))
+        << ";\n"
+           "constexpr const char* SAVE_MC_DIR = \""
+        << saveGameDir(p)
         << "\";\n"
            "constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // \"TYSV\"\n"
            "// v2: SaveGameData gained the text-value block (SAVE_TEXT_*)\n"
-           "constexpr int SAVE_VERSION = 2;\n"
+           "// v3: the objects array is sized by the save-flagged object\n"
+           "// count (SAVE_OBJECT_MAX), not the scene size - older, larger\n"
+           "// slot files fail the size/version check and read as empty.\n"
+           "constexpr int SAVE_VERSION = 3;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -32206,6 +32671,69 @@ static std::string saveSystemHeader(const Project& p) {
            "bool saveSlotUsed(int slot);\n"
            "bool saveWrite(int slot, const SaveGameData& data);\n"
            "bool saveRead(int slot, SaveGameData& out);\n"
+           "\n"
+           "// Asynchronous write: Begin copies the payload and starts the\n"
+           "// libmc chain, Poll drives it one step per frame and returns true\n"
+           "// the frame it is finished (*okOut = whether the slot was\n"
+           "// written). Busy is the guard against starting a second one.\n"
+           "bool saveWriteBegin(int slot, const SaveGameData& data);\n"
+           "bool saveWritePoll(bool* okOut);\n"
+           "bool saveWriteBusy();\n"
+           "\n"
+           "// Copies the editor-baked save icon (save/icon.sys + list.icn,\n"
+           "// shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser\n"
+           "// shows the game's title and icon. Runs once per boot when the\n"
+           "// card is ready and has no icon yet; the host fallback skips it.\n"
+           "void saveEnsureIcons();\n"
+           "\n"
+           "// hud/save-busy.png sprite size (\"checking memory card\" warning)\n"
+        << "constexpr int SAVE_BUSY_W = " << busyW << ";\n"
+        << "constexpr int SAVE_BUSY_H = " << busyH << ";\n"
+           "\n"
+           "// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu\n"
+           "// writes the last checkpoint instead of a live snapshot.\n"
+           "// SAVE_ASYNC: writes are stepped one libmc call per frame while\n"
+           "// the game keeps running, with the spinner instead of the\n"
+           "// \"checking memory card\" overlay (loads stay blocking).\n"
+        << "constexpr bool SAVE_MENU_CHECKPOINT = "
+        << (p.saveMenuWritesCheckpoint ? "true" : "false") << ";\n"
+        << "constexpr bool SAVE_ASYNC = " << (p.saveAsync ? "true" : "false")
+        << ";\n"
+        << "constexpr bool SAVE_SPINNER = " << (p.saveSpinner ? "true" : "false")
+        << ";\n"
+        << "constexpr int SAVE_SPINNER_FRAMES = " << spin.frames << ";\n"
+        << "constexpr int SAVE_SPINNER_CELL_W = " << spin.cellW << ";\n"
+        << "constexpr int SAVE_SPINNER_CELL_H = " << spin.cellH << ";\n"
+           "// The sheet the game loads, cwd-relative (the Makefile copies\n"
+           "// res/ into bin/). A picked image that failed validation is not\n"
+           "// here - spinnerInfo falls back to the built-in.\n"
+        << "constexpr const char* SAVE_SPINNER_TEX = \""
+        << escapeCString(resToBin(spin.resPath)) << "\";\n"
+           "// Frames each cell is held for - the sheet is walked at 50/HOLD\n"
+           "// cells a second, which is a calm spin rather than a blur.\n"
+        << "constexpr int SAVE_SPINNER_HOLD = 4;\n"
+        << "constexpr int SAVE_SPINNER_CORNER = " << p.saveSpinnerCorner
+        << ";  // 0 TL, 1 TR, 2 BL, 3 BR\n"
+        << "constexpr float SAVE_SPINNER_MARGIN = "
+        << floatLit(p.saveSpinnerMargin) << ";\n"
+        << "constexpr float SAVE_SPINNER_SCALE = "
+        << floatLit(p.saveSpinnerScale) << ";\n"
+           "\n"
+           "// The slot Commit Checkpoint's \"autosave\" mode writes, and the\n"
+           "// one its \"next free slot\" mode never picks. -1 = none set, in\n"
+           "// which case an autosave commit does nothing at all.\n"
+        << "constexpr int SAVE_AUTOSAVE_SLOT = " << p.saveAutosaveSlot << ";\n"
+           "// The save menu is a GameMenu (Tools > Menu Editor), so its panel,\n"
+           "// font, colours and placement come from MENUS[SAVE_MENU_INDEX].\n"
+           "// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE\n"
+           "// blank rows and the game draws the labels, which is what lets a\n"
+           "// project have more slots than fit on one screen.\n"
+        << "constexpr int SAVE_MENU_INDEX = " << project::saveMenuIndex(p)
+        << ";\n"
+        << "constexpr int SAVE_SLOTS_PER_PAGE = " << saveSlotsPerPage(p) << ";\n"
+        << "constexpr int SAVE_PAGES = " << saveSlotPages(p) << ";\n"
+           "// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:\n"
+           "// the flow graph writes them and does not include this header.)\n"
            "\n}  // namespace "
         << ns << "\n";
     return out.str();
@@ -32309,6 +32837,7 @@ bool saveInit() {
       mcReady = fd >= 0;
     }
   }
+  if (mcReady) saveEnsureIcons();
   TYRA_LOG("Save system: ", mcReady ? "memory card ready"
                                     : "no memory card - using host files");
   return mcReady;
@@ -32317,6 +32846,60 @@ bool saveInit() {
 bool saveMcReady() { return mcReady; }
 
 const int* saveInitCodes() { return initCodes; }
+
+// --- Save icon (icon.sys + list.icn) ----------------------------------------
+// The editor bakes both into res/save/ (savebake.cpp) and the Makefile ships
+// them next to the ELF as save/icon.sys + save/list.icn; here they are copied
+// into the save directory so the PS2 browser shows the game's title and icon.
+// mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
+// slot payload. The buffer is sized by codegen to this build's baked icon.
+alignas(64) static unsigned char iconBuf[{{ICON_BUF_BYTES}}];
+
+static bool mcCopyToCard(const char* hostRel, const char* cardName) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  const long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (n <= 0 || n > (long)sizeof(iconBuf)) {
+    fclose(f);
+    return false;
+  }
+  const size_t got = fread(iconBuf, 1, (size_t)n, f);
+  fclose(f);
+  if ((long)got != n) return false;
+  std::string path = std::string(SAVE_MC_DIR) + "/" + cardName;
+  int fd = -1;
+  mcOpen(0, 0, path.c_str(), kMcWronly | kMcCreat);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd < 0) return false;
+  int wrote = -1, ret = 0;
+  mcWrite(fd, iconBuf, (int)n);
+  mcSync(MC_WAIT, nullptr, &wrote);
+  mcClose(fd);
+  mcSync(MC_WAIT, nullptr, &ret);
+  return wrote == (int)n;
+}
+
+void saveEnsureIcons() {
+  static bool tried = false;
+  if (!mcReady || tried) return;
+  tried = true;
+  // Already iconized by a previous boot - skip the ~33KB rewrite.
+  int fd = -100;
+  std::string probe = std::string(SAVE_MC_DIR) + "/icon.sys";
+  mcOpen(0, 0, probe.c_str(), kMcRdonly);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd >= 0) {
+    int r = 0;
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &r);
+    return;
+  }
+  const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+  const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+  TYRA_LOG("Save icons: ", sys && icn ? "written to the card" : "copy failed");
+}
 
 static std::string mcSlotName(int slot) {
   char buf[96];
@@ -32349,6 +32932,80 @@ bool saveWrite(int slot, const SaveGameData& data) {
   const size_t written = fwrite(&data, 1, sizeof(data), f);
   fclose(f);
   return written == sizeof(data);
+}
+
+// --- Asynchronous write (docs/save-editor.md) --------------------------------
+// Every libmc call is asynchronous already - the blocking saveWrite above just
+// answers each one with mcSync(MC_WAIT). Here the same open/write/close chain
+// is driven ONE STEP PER FRAME with mcSync(MC_NOWAIT), whose contract is:
+// 0 = still executing, 1 = finished (result written out), -1 = nothing
+// registered. The game keeps running in between.
+//
+// The payload is copied into asyncData up front, so nothing the player does
+// during the transfer can change the bytes being written.
+static SaveGameData asyncData;
+static int asyncStage = 0;  // 0 idle, 1 open, 2 write, 3 close, 4 host one-shot
+static int asyncSlot = -1, asyncFd = -1;
+static bool asyncOk = false;
+
+bool saveWriteBusy() { return asyncStage != 0; }
+
+bool saveWriteBegin(int slot, const SaveGameData& data) {
+  if (asyncStage != 0) return false;  // one transfer at a time
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  asyncData = data;
+  asyncSlot = slot;
+  asyncOk = false;
+  asyncFd = -1;
+  if (!mcReady) {
+    // The host fallback is a plain fwrite next to the ELF - microseconds, and
+    // there is no libmc chain to step through. Finish it on the next poll so
+    // both paths look identical to the caller.
+    asyncStage = 4;
+    return true;
+  }
+  mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+  asyncStage = 1;
+  return true;
+}
+
+bool saveWritePoll(bool* okOut) {
+  if (asyncStage == 0) return true;
+  if (asyncStage == 4) {  // host fallback
+    asyncOk = saveWrite(asyncSlot, asyncData);
+    asyncStage = 0;
+    if (okOut) *okOut = asyncOk;
+    return true;
+  }
+  int cmd = 0, res = -1;
+  const int sync = mcSync(MC_NOWAIT, &cmd, &res);
+  if (sync == 0) return false;  // still executing - come back next frame
+  if (sync < 0) {               // nothing registered: the chain is broken
+    asyncStage = 0;
+    if (okOut) *okOut = false;
+    return true;
+  }
+  if (asyncStage == 1) {
+    asyncFd = res;
+    if (asyncFd < 0) {
+      asyncStage = 0;
+      if (okOut) *okOut = false;
+      return true;
+    }
+    mcWrite(asyncFd, &asyncData, sizeof(asyncData));
+    asyncStage = 2;
+    return false;
+  }
+  if (asyncStage == 2) {
+    asyncOk = res == (int)sizeof(asyncData);
+    mcClose(asyncFd);
+    asyncStage = 3;
+    return false;
+  }
+  // stage 3: the close landed, so the slot is on the card
+  asyncStage = 0;
+  if (okOut) *okOut = asyncOk;
+  return true;
 }
 
 bool saveRead(int slot, SaveGameData& out) {
@@ -32385,7 +33042,11 @@ bool saveSlotUsed(int slot) {
 
 }  // namespace )"
         << ns << "\n";
-    return out.str();
+    // Size the icon copy buffer for THIS build's baked icon (a 3D model icon
+    // can be several hundred KB; the flat quad ~34 KB), 64-byte aligned.
+    const int icnBytes = savebake::iconInfo(p).bytes;
+    const int bufBytes = ((icnBytes > 964 ? icnBytes : 964) + 63) / 64 * 64;
+    return replaceAll(out.str(), "{{ICON_BUF_BYTES}}", std::to_string(bufBytes));
 }
 
 std::string scriptStub(const Project& p, const std::string& className,
