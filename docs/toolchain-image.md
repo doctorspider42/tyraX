@@ -1288,6 +1288,14 @@ emitting fewer vertices. That is either the finding or an artefact of the two ex
 integer aliases the accumulator needs - four of them made **both** assemblers run out of
 integer registers, which is worth knowing on its own about how tight `clip_c` is.
 
+Two more mechanisms are out. **The wrap edge is not it**: re-loading the previous vertex
+through `prevPtr` on every iteration - which makes the first edge's `ppos` explicit
+instead of inherited from the plane prologue - leaves the counts exactly where they were
+(24 against 17). And **the plane loop's head is equivalent**: openvcl initialises
+`curPtr = srcBase` and `dstPtr = dstBase` inside `planeLoop`, on every entry, as SCE does
+(SCE just reuses one register as a copy of `srcEnd` to address `ppos` at `-2`/`-1` before
+it becomes `curPtr`).
+
 Also settled, and it retires a whole line of suspicion: **the density flags are innocent.**
 The two-program harness leaves enough micro memory to build `clip_c` with no flags but
 `--loop-liveness-always`, and it stages the same 17/51. The defect is in openvcl's base
