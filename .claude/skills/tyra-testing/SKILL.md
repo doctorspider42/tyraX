@@ -339,6 +339,16 @@ Notes:
   microcode A/B into numbers instead of screenshots:
   `python .claude/skills/tyra-testing/scripts/arm-vucap.py <projectDir> <flushIndex>`
   writes the same `bin/livedbg.cmd` the *Debugger > VU > Capture VU1 packet* button
+  **`--full` and `--peek` are what make it a comparison tool.** The plain decode
+  prints the first four staged packets and four vertices of each, which is right for
+  reading and useless for diffing two builds - the packet that differs is rarely the
+  first. `--dump-vucap <dir> --full` prints all of them; `--peek <qw>[,n]` prints raw
+  data-memory quadwords as floats and words. That second one is how a microprogram
+  reports its own intermediates: **quadwords 1016..1023 are free** in the static
+  pipeline's map, and code ABOVE `begin:` runs once per activation while `begin:`
+  loops per batch - so a slot pointer set up there turns those eight quadwords into a
+  ring with one slot per batch. Without that, every peek reports the LAST batch,
+  which is exactly the one where two builds usually agree.
   does, the game answers with `bin/vucap.bin`, and
   `tyrax-editor --dump-vucap <projectDir>` decodes it — chain, VU1 memory, and **the
   GIF packets the program staged for XGKICK**. Name the flush index: "the next packet"

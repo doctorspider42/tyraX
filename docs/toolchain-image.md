@@ -1247,6 +1247,52 @@ staged packets, and those belong to an earlier batch, so the instrumented colour
 appeared. Either widen the decode, or parse `vucap.bin` directly for the packet the clip
 program staged.
 
+### Reading the batches instead of the totals
+
+Two things made that possible. `--dump-vucap --full` prints every staged packet and every
+vertex instead of the first four - the packet that differs is rarely the first. And
+`--dump-vucap --peek <qw>[,n]` prints raw data-memory quadwords as floats and words, so an
+instrumented microprogram can report its own intermediate values: **1016..1023 are free**
+in the static pipeline's map, and code above `begin:` runs once per activation while
+`begin:` loops per batch - which is the hook that turns those eight quadwords into a ring
+with one slot per batch.
+
+With `--full`, the divergence stops being a total and becomes two packets:
+
+| staged packet | SCE | openvcl |
+|---|---|---|
+| gif 5 @VU1 72 | nloop=**24** | nloop=**21** |
+| gif 13 @VU1 533 | nloop=**24** | nloop=**6** |
+
+Every other packet matches. And the vertex data says the two fail differently: gif 13's
+first six vertices are identical and then openvcl simply stops (peeking past its nloop
+shows unwritten slots - zero colours), while gif 5 diverges at v3 onto stale memory.
+
+The instrumented runs then answered the two questions that matter:
+
+* **The GIF tag never lies.** Recording `outCount` next to a counter of what the fan
+  emitter actually wrote gives `claimed == written` in both assemblers, every batch. So
+  this is not a patched-NLOOP bug.
+* **The tests are not being fed different numbers, nor answering differently.** Parking
+  `sjudge` as `clipw` sees it, the raw `pd`/`cd`, and both `fcand` results in spare
+  quadwords gives **bit-identical values in both** - `sjudge` = (-4141.83, -4151.66, 0,
+  4096), `pd`/`cd` = (-45.835, -55.6648), both answers 1.
+* **What differs is the polygon.** Per batch openvcl reports 21 where SCE reports 24 -
+  and a fan over an n-vertex polygon emits n-2 triangles, so that is **exactly one
+  polygon vertex fewer**, consistently.
+
+One more measurement is in flight and its instrument is not yet trusted: summing the
+polygon size after every plane of every triangle gives SCE 84 quadwords against openvcl's
+252 and 216, which would mean openvcl's plane loop doing about three times the work while
+emitting fewer vertices. That is either the finding or an artefact of the two extra
+integer aliases the accumulator needs - four of them made **both** assemblers run out of
+integer registers, which is worth knowing on its own about how tight `clip_c` is.
+
+Also settled, and it retires a whole line of suspicion: **the density flags are innocent.**
+The two-program harness leaves enough micro memory to build `clip_c` with no flags but
+`--loop-liveness-always`, and it stages the same 17/51. The defect is in openvcl's base
+code generation.
+
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
 wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.
