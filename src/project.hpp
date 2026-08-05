@@ -2263,6 +2263,13 @@ struct Project {
     // overlay. Corner: 0 = top-left, 1 = top-right, 2 = bottom-left,
     // 3 = bottom-right. Margin is in 512x448 pixels.
     bool saveSpinner = true;
+    // The sheet the spinner is drawn from: "" = the built-in one baked to
+    // res/hud/save-spinner.png, otherwise any project image laid out as a
+    // horizontal strip of saveSpinnerFrames equal cells. Validated by
+    // savebake::spinnerInfo, which falls back to the built-in rather than
+    // letting a bad sheet halt the game.
+    std::string saveSpinnerImage;
+    int saveSpinnerFrames = 8;
     int saveSpinnerCorner = 3;
     float saveSpinnerMargin = 20.0f;
     float saveSpinnerScale = 1.0f;

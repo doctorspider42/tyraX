@@ -151,6 +151,8 @@
   "saveMenuWritesCheckpoint": false,
   "saveAsync": true,
   "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
   "saveSpinnerCorner": 3,
   "saveSpinnerMargin": 20,
   "saveSpinnerScale": 1,

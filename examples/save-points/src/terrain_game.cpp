@@ -2559,17 +2559,18 @@ void TerrainGame::buildScene() {
     {
       saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
       saveSpinnerSprite.size =
-          Vec2((float)SAVE_SPINNER_CELL, (float)SAVE_SPINNER_CELL);
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
       saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
-      const float sz = (float)SAVE_SPINNER_CELL * SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
       const float m = SAVE_SPINNER_MARGIN;
       const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
-                           ? scr.getWidth() - m - sz
+                           ? scr.getWidth() - m - sw
                            : m;
-      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sz : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
       saveSpinnerSprite.position = Vec2(sx, sy);
       engine->renderer.getTextureRepository()
-          .add(FileUtils::fromCwd("hud/save-spinner.png"))
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
           ->addLink(saveSpinnerSprite.id);
     }
 
@@ -5612,7 +5613,7 @@ void TerrainGame::renderSaveMenu() {
     ++spinnerFrame;
     const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
     saveSpinnerSprite.offset =
-        Vec2((float)(cell * SAVE_SPINNER_CELL), 0.0F);
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
     engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)

@@ -156,11 +156,24 @@ shown. That is the trade, and it is why this is off by default.
 The **spinner** is the replacement signal — a small activity ring in a corner
 you choose, with its own margin and size. It holds for a minimum time even when
 the write finishes instantly, because a one-frame flash reads as a glitch
-rather than as "your game was saved". It lives in `res/hud/save-spinner.png`, a
-strip of 8 cells of 32×32 written only when missing, so dropping your own strip
-in replaces the animation. **Both dimensions of a replacement must be powers of
-two** (the GS takes 8/16/32/…/512 and the engine asserts otherwise — the
-symptom is the game never leaving the TyraX splash).
+rather than as "your game was saved".
+
+### Using your own spinner
+
+*Spinner sheet* points at **any PNG in the project**; *Cells* says how many
+animation frames the strip is cut into. The sheet is one horizontal row, so a
+cell is `width / cells` by `height` — the editor works the cell size out for
+you, previews the animation at the speed the console will play it, and prints
+what it decided. `res/hud/save-spinner.png` (8 cells of 32×32) is the built-in
+default, written only when missing, so overwriting that file works too.
+
+The one hard rule is the console's: **both sides of the sheet must be
+8/16/32/64/128/256/512**. A 256×64 strip of 4 cells is fine; a 100×20 one is
+not. You do not have to remember this — a sheet the console would reject is
+**not shipped**: the Save Editor says why in amber and the build falls back to
+the built-in. That matters because the failure it replaces is unhelpful: the
+engine asserts while loading the texture and the game simply never leaves the
+TyraX splash, which looks like a hang rather than like a bad image.
 
 ## The "checking memory card" screen
 

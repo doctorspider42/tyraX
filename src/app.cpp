@@ -8064,9 +8064,55 @@ void App::drawSoundsSection() {
 static constexpr int kSaveIconPreviewPx = 128;
 static constexpr double kSaveIconLoopSeconds = 2.0;
 
+// The spinner sheet as the game will use it: one cell at a time, cycled at the
+// console's own rate. Whatever spinnerInfo settled on is what is drawn - so a
+// rejected custom sheet previews as the built-in, exactly like it will ship.
+void App::drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin) {
+    namespace fs = std::filesystem;
+    const std::string key = project_.dir + "|" + spin.resPath + "|" +
+                            std::to_string(spin.frames);
+    if (saveSpinnerPreviewKey_ != key || !saveSpinnerPreviewTex_) {
+        const fs::path full = fs::path(project_.dir) / spin.resPath;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load(full.string().c_str(), &w, &h, &comp, 4);
+        if (px) {
+            if (!saveSpinnerPreviewTex_) glGenTextures(1, &saveSpinnerPreviewTex_);
+            glBindTexture(GL_TEXTURE_2D, saveSpinnerPreviewTex_);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
+                         GL_UNSIGNED_BYTE, px);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            stbi_image_free(px);
+            saveSpinnerPreviewW_ = w;
+            saveSpinnerPreviewH_ = h;
+            saveSpinnerPreviewKey_ = key;
+        } else {
+            saveSpinnerPreviewW_ = saveSpinnerPreviewH_ = 0;
+        }
+    }
+    if (!saveSpinnerPreviewTex_ || saveSpinnerPreviewW_ <= 0) return;
+    // SAVE_SPINNER_HOLD frames a cell at 50 Hz - the same cadence the game
+    // uses, so what you see here is the speed that ships.
+    const double cellsPerSecond = 50.0 / 4.0;
+    const int cell =
+        (int)((long long)(ImGui::GetTime() * cellsPerSecond) % spin.frames);
+    const float u0 = (float)(cell * spin.cellW) / (float)saveSpinnerPreviewW_;
+    const float u1 =
+        (float)((cell + 1) * spin.cellW) / (float)saveSpinnerPreviewW_;
+    const float side = scaled(48.0f);
+    const float aspect = spin.cellH > 0 ? (float)spin.cellH / (float)spin.cellW
+                                        : 1.0f;
+    ImGui::Image((ImTextureID)(intptr_t)saveSpinnerPreviewTex_,
+                 ImVec2(side, side * aspect), ImVec2(u0, 0.0f),
+                 ImVec2(u1, 1.0f));
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("cell %d/%d", cell + 1, spin.frames);
+}
+
 void App::drawSaveEditorWindow() {
     if (!showSaveEditor_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(440.0f), scaled(600.0f)),
+    ImGui::SetNextWindowSize(ImVec2(scaled(460.0f), scaled(760.0f)),
                              ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Save Editor", &showSaveEditor_)) {
         ImGui::End();
@@ -8311,6 +8357,9 @@ void App::drawSaveEditorWindow() {
     // --- How a save behaves --------------------------------------------------
     ImGui::SeparatorText("Saving");
     {
+        // Settled up front: the Size readout, the preview and the warning all
+        // have to describe the sheet that will actually ship.
+        const savebake::SpinnerInfo spin = savebake::spinnerInfo(project_);
         const char* srcLabel = project_.saveMenuWritesCheckpoint
                                    ? "the last checkpoint"
                                    : "a live snapshot";
@@ -8378,19 +8427,69 @@ void App::drawSaveEditorWindow() {
                            "%.2fx");
         if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
         ImGui::SameLine();
-        ImGui::TextDisabled("%.0f px", savebake::kSpinnerCell *
-                                           project_.saveSpinnerScale);
+        ImGui::TextDisabled("%.0fx%.0f px", spin.cellW * project_.saveSpinnerScale,
+                            spin.cellH * project_.saveSpinnerScale);
+        // The sheet itself: any project image laid out as a horizontal strip.
+        if (ImGui::BeginCombo("Spinner sheet",
+                              project_.saveSpinnerImage.empty()
+                                  ? "(built-in)"
+                                  : project_.saveSpinnerImage.c_str())) {
+            if (ImGui::Selectable("(built-in)",
+                                  project_.saveSpinnerImage.empty()) &&
+                !project_.saveSpinnerImage.empty()) {
+                project_.saveSpinnerImage.clear();
+                saveAll("Saved");
+            }
+            std::error_code ec;
+            const fs::path res = fs::path(project_.dir) / "res";
+            for (fs::recursive_directory_iterator it(res, ec), end; it != end;
+                 it.increment(ec)) {
+                if (ec) break;
+                if (!it->is_regular_file(ec)) continue;
+                std::string ext = it->path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png") continue;
+                const std::string rel =
+                    "res/" + fs::relative(it->path(), res, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(),
+                                      rel == project_.saveSpinnerImage)) {
+                    project_.saveSpinnerImage = rel;
+                    saveAll("Saved");
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (!project_.saveSpinnerImage.empty()) {
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            ImGui::SliderInt("Cells", &project_.saveSpinnerFrames, 1, 32);
+            if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How many animation cells the strip is cut into. The\n"
+                    "sheet is one ROW, so a cell is (width / cells) x height.");
+        }
+        drawSaveSpinnerPreview(spin);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
-        ImGui::PushStyleColor(ImGuiCol_Text,
-                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-        ImGui::TextWrapped(
-            "The spinner is res/hud/save-spinner.png - a strip of %d cells of "
-            "%dx%d, written when missing, so replacing the file replaces the "
-            "animation.",
-            savebake::kSpinnerFrames, savebake::kSpinnerCell,
-            savebake::kSpinnerCell);
-        ImGui::PopStyleColor();
+        if (!spin.warning.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+            ImGui::TextWrapped("Using the built-in instead: %s.",
+                               spin.warning.c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::PushStyleColor(
+                ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::TextWrapped(
+                "%s - %dx%d, %d cell%s of %dx%d. Any project PNG works as long "
+                "as both its sides are 8/16/32/64/128/256/512.",
+                spin.custom ? spin.resPath.c_str()
+                            : "Built-in (res/hud/save-spinner.png)",
+                spin.sheetW, spin.sheetH, spin.frames,
+                spin.frames == 1 ? "" : "s", spin.cellW, spin.cellH);
+            ImGui::PopStyleColor();
+        }
     }
 
     // --- What lands in a save slot ------------------------------------------

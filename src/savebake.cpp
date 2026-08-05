@@ -62,6 +62,53 @@ bool spinnerPNG(std::vector<unsigned char>& png) {
     return stbi_write_png_to_func(pngWrite, &png, W, C, 4, rgba.data(), W * 4) != 0;
 }
 
+// What the GS will accept as a texture dimension. Anything else trips the
+// engine's own assert at load time (texture.cpp), which halts the game before
+// it has drawn a frame.
+static bool powerOfTwoDim(int v) {
+    return v == 8 || v == 16 || v == 32 || v == 64 || v == 128 || v == 256 ||
+           v == 512;
+}
+
+SpinnerInfo spinnerInfo(const Project& p) {
+    SpinnerInfo s;
+    s.resPath = "res/hud/save-spinner.png";
+    s.frames = kSpinnerFrames;
+    s.cellW = s.cellH = kSpinnerCell;
+    s.sheetW = kSpinnerCell * kSpinnerFrames;
+    s.sheetH = kSpinnerCell;
+    if (p.saveSpinnerImage.empty()) return s;
+
+    const std::filesystem::path full =
+        std::filesystem::path(p.dir) / p.saveSpinnerImage;
+    int w = 0, h = 0, comp = 0;
+    if (!stbi_info(full.string().c_str(), &w, &h, &comp)) {
+        s.warning = "cannot read " + p.saveSpinnerImage;
+        return s;
+    }
+    const int frames = std::max(1, std::min(p.saveSpinnerFrames, 64));
+    if (!powerOfTwoDim(w) || !powerOfTwoDim(h)) {
+        s.warning = p.saveSpinnerImage + " is " + std::to_string(w) + "x" +
+                    std::to_string(h) +
+                    " - both sides must be 8/16/32/64/128/256/512 or the "
+                    "console refuses the texture";
+        return s;
+    }
+    if (w % frames != 0) {
+        s.warning = std::to_string(w) + " px does not divide into " +
+                    std::to_string(frames) + " frames";
+        return s;
+    }
+    s.resPath = p.saveSpinnerImage;
+    s.frames = frames;
+    s.sheetW = w;
+    s.sheetH = h;
+    s.cellW = w / frames;
+    s.cellH = h;
+    s.custom = true;
+    return s;
+}
+
 std::string displayTitle(const Project& p) {
     return p.saveTitle.empty() ? p.name : p.saveTitle;
 }

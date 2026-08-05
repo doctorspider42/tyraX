@@ -1490,6 +1490,13 @@ private:
     // every input the bake reads - changes.
     std::vector<unsigned> saveIconPreviewTex_;
     std::string saveIconPreviewKey_;
+    // The spinner sheet, uploaded whole; the preview picks a cell with UVs and
+    // cycles them, so swapping a sheet in the picker is a visible change
+    // rather than something you find out about after a build.
+    void drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin);
+    unsigned saveSpinnerPreviewTex_ = 0;
+    int saveSpinnerPreviewW_ = 0, saveSpinnerPreviewH_ = 0;
+    std::string saveSpinnerPreviewKey_;
     savebake::IconInfo saveIconInfo_;
     std::string saveIconClipsModel_;
     std::vector<std::string> saveIconClips_;

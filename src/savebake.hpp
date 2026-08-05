@@ -112,4 +112,21 @@ constexpr int kSpinnerFrames = 8;
 constexpr int kSpinnerCell = 32;
 bool spinnerPNG(std::vector<unsigned char>& png);
 
+// The sheet a project will actually ship, after Project::saveSpinnerImage has
+// been checked. This is the one place that decides, so the Save Editor's
+// preview, its warning and the generated constants can never disagree.
+//
+// A rejected image FALLS BACK to the built-in rather than shipping: the
+// failure mode it prevents is a game that asserts at boot and never leaves the
+// TyraX splash, which is a miserable thing to debug from a screenshot.
+struct SpinnerInfo {
+    std::string resPath;  // project-relative, e.g. "res/hud/save-spinner.png"
+    int frames = kSpinnerFrames;
+    int sheetW = 0, sheetH = 0;
+    int cellW = kSpinnerCell, cellH = kSpinnerCell;
+    bool custom = false;    // a picked image is in use (not the built-in)
+    std::string warning;    // why a picked image was rejected ("" = fine)
+};
+SpinnerInfo spinnerInfo(const Project& p);
+
 }  // namespace savebake

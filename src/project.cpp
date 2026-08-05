@@ -1552,6 +1552,9 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
          << (p.saveMenuWritesCheckpoint ? "true" : "false");
     json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
     json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
+    json << ",\n  \"saveSpinnerImage\": \"" << jsonEscape(p.saveSpinnerImage)
+         << "\"";
+    json << ",\n  \"saveSpinnerFrames\": " << p.saveSpinnerFrames;
     json << ",\n  \"saveSpinnerCorner\": " << p.saveSpinnerCorner;
     json << ",\n  \"saveSpinnerMargin\": " << fmtFloat(p.saveSpinnerMargin);
     json << ",\n  \"saveSpinnerScale\": " << fmtFloat(p.saveSpinnerScale);
@@ -4090,6 +4093,13 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
     if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
     if (const auto* v = root.find("saveSpinner"))
         out.saveSpinner = v->boolOr(true);
+    if (const auto* v = root.find("saveSpinnerImage"))
+        out.saveSpinnerImage = v->stringOr("");
+    if (const auto* v = root.find("saveSpinnerFrames")) {
+        out.saveSpinnerFrames = (int)v->numberOr(8.0);
+        if (out.saveSpinnerFrames < 1) out.saveSpinnerFrames = 1;
+        if (out.saveSpinnerFrames > 64) out.saveSpinnerFrames = 64;
+    }
     if (const auto* v = root.find("saveSpinnerCorner")) {
         out.saveSpinnerCorner = (int)v->numberOr(3.0);
         if (out.saveSpinnerCorner < 0 || out.saveSpinnerCorner > 3)

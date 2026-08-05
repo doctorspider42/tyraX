@@ -81,7 +81,12 @@ constexpr bool SAVE_MENU_CHECKPOINT = false;
 constexpr bool SAVE_ASYNC = true;
 constexpr bool SAVE_SPINNER = true;
 constexpr int SAVE_SPINNER_FRAMES = 8;
-constexpr int SAVE_SPINNER_CELL = 32;
+constexpr int SAVE_SPINNER_CELL_W = 32;
+constexpr int SAVE_SPINNER_CELL_H = 32;
+// The sheet the game loads, cwd-relative (the Makefile copies
+// res/ into bin/). A picked image that failed validation is not
+// here - spinnerInfo falls back to the built-in.
+constexpr const char* SAVE_SPINNER_TEX = "hud/save-spinner.png";
 // Frames each cell is held for - the sheet is walked at 50/HOLD
 // cells a second, which is a calm spin rather than a blur.
 constexpr int SAVE_SPINNER_HOLD = 4;
