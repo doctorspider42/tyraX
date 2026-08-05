@@ -722,7 +722,14 @@ Notes:
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
+  click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
+  click will land**: a window taller than the room it got still submits the items
+  past its bottom edge, so they are listed with rects OUTSIDE the window, and
+  `click` on one presses over nothing and still reports success - which reads as
+  a broken feature when the code is fine. Compare the item's y against its
+  window's rect (both are in the same `dump`) and **pair every state-changing
+  click with `expect-checked` / `expect-unchecked`**, which turns a silent no-op
+  into a failed run. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
   result off a `shot`. **The same goes for any widget whose whole label is

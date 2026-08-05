@@ -143,5 +143,6 @@ baked to `res/hud/text-ls-<screen>-<name>.png`. Everything is bundled into the
 disc's startup group on ISO export.
 
 Loading screens are project-wide data (like Ambience presets and Color Grading),
-so edits save immediately and are not part of undo; the per-scene *assignment*
-is undoable with the rest of the scene.
+so edits here are not part of undo — but they are ordinary unsaved edits: the
+toolbar save icon lights and Ctrl+S writes them, same as everything else. The
+per-scene *assignment* is undoable with the rest of the scene.

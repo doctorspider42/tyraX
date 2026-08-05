@@ -162,5 +162,8 @@ frame that answers "does that row look right". It selects the block too, and
 anything past the page budget is listed in amber (it is not baked and never
 shows).
 
-Rolls are project-wide data: edits save immediately and are **not** part of
-undo/redo.
+Rolls are project-wide data, so an edit here is **not** part of undo/redo — but
+it is still an ordinary unsaved edit: the toolbar save icon lights, closing the
+project asks, and the bytes reach disk on Ctrl+S like everything else. (Until
+TyraX 1.0.1 this panel wrote the whole project on every widget instead, which
+left the icon dark and made a roll edit invisible to a live session.)
