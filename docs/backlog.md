@@ -181,17 +181,23 @@ the verification, and any fact worth reusing belongs in the relevant
     an optimisation. Moving the image to its own repo does NOT change this
     (same bits, same terms, whoever pushes them) - reasoning in
     `docs/toolchain-image.md`.
-  - **The `openvcl` migration - now blocked on ONE thing: scheduling density.**
-    Attempted 2026-08-04 and taken as far as it goes without writing a VU
-    scheduler. All 25 programs compile under it and none loses an instruction
-    (two fixes to openvcl in `docker/openvcl-tyrax.patch`, two engine-side
-    changes), a game builds - and then dies on its own assertion, `VU1 pipeline
-    programs overflow into the draw-finish program`, because **openvcl emits 71%
-    more instructions** (1925 -> 3295 over 15 programs, worst case `dynpip_c`
-    99 -> 248) and VU1 micro memory holds 2048. Packing two pipes per cycle is
-    exactly what Sony's vcl is for. Next step for whoever picks this up: openvcl's
-    scheduler, not its allocator - and the harness is already there
-    (`VCL_IMPL=openvcl`, `docs/toolchain-image.md` has every measurement).
+  - **The `openvcl` migration - blocked on ONE thing: scheduling density, and it
+    is worth finishing.** All 25 programs compile under it, none loses an
+    instruction, and it needs exactly ONE patch (`docker/openvcl-tyrax.patch`,
+    the CLIPw operand) with openvcl's own 419 tests staying green - the register
+    pressure that looked like a second tool bug turned out to belong to the
+    engine. A game builds and then dies on `VU1 pipeline programs overflow into
+    the draw-finish program`: openvcl needs 6728 cycles where Sony's vcl needs
+    3982, and VU1 micro memory holds 2048 instructions per program set.
+    **The encouraging part:** openvcl emits the same work (4836 occupied pipe
+    slots vs 4822) and a perfect packer's floor is **2989** - 25% *below* what
+    Sony achieves. Nothing is missing but packing. 1860 of its cycles are pure
+    stalls, and the cause is located: the scheduler's window is a "segment" that
+    gets cut several times per vertex. Two measured experiments (widen the
+    candidate set: -9%, 2 tests fail; one segment per block: -3% more, 12 tests
+    fail) are written up in `docs/toolchain-image.md` along with the two things
+    the remaining ~33% actually needs - per-token flag masks in the dependency
+    graph, and modulo scheduling across loop iterations.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV
     built from source on a glibc base (the official images are Alpine, and the
     legacy `vcl` is a glibc i386 binary), so ~1 h of CI per rebuild.

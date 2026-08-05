@@ -179,28 +179,29 @@ register"*. Rewritten as `sub.x bT, vf00, vf00` (vf00 is hardwired `0,0,0,1`), 1
 places in `vu0_rt_kernel.vclpp`. Again byte-identical under the legacy vcl (483
 instructions, zero diff), and openvcl then compiles the kernel.
 
-**3. openvcl needed two fixes of its own** — [`docker/openvcl-tyrax.patch`](../docker/openvcl-tyrax.patch),
+**3. openvcl needed exactly one fix of its own** — [`docker/openvcl-tyrax.patch`](../docker/openvcl-tyrax.patch),
 applied in the image's `openvcl-build` stage (openvcl is AFL-2.0; same pattern as
-`tools/ps2link/tyrax.patch`). Both are worth upstreaming:
+`tools/ps2link/tyrax.patch`), and it is worth upstreaming: *accept CLIPw's implied
+w component*. The ISA gives the second operand no other meaning, and the original
+VCL infers it. Rejecting it would be defensible; what openvcl did instead was emit
+the program **without** that instruction. Fixed by defaulting the field to `w` when
+the source omits it, so the engine's sources need no change at all (and must not
+have one — see the vclpp trap above). openvcl's own 419 tests stay green.
 
-- *Accept CLIPw's implied w component.* The ISA gives the second operand no other
-  meaning, and the original VCL infers it. Rejecting it would be defensible; what
-  openvcl did instead was emit the program **without** that instruction. Fixed by
-  defaulting the field to `w` when the source omits it, so the engine's sources
-  need no change at all (and must not have one — see the vclpp trap above).
-- *Stop treating live ranges that merely touch as a register conflict.* One range
-  ending on the line another begins is not a conflict: a VU instruction reads its
-  sources before writing its destination. Counting it as one costs a register per
-  touching pair, and that single rule is the difference between failing and
-  fitting for `stapip_clip_d` — measured peak pressure 32 simultaneous aliases
-  counting touches, **31 without, against 31 allocatable VF registers**.
+A second hunk was written and then thrown away, which is worth recording because it
+is the kind of fix that looks right: relaxing the register allocator's conflict
+test so live ranges that merely *touch* (one ending on the line the next begins)
+could share a register. It bought exactly the one register `stapip_clip_d` was
+short of — and it fails an upstream test that pins the strict rule deliberately.
+The pressure belonged to the engine anyway (next paragraph), so the tool did not
+need changing at all.
 
-**4. Two programs needed one register more than exists** — and the fix was in the
-engine, not the tool. `stapip_clip_td` peaked at **35** simultaneous float values
-and `stapip_cull_td` at **34**, against 31 allocatable. Real pressure, not a
-counting artefact: `begin:` in those programs is a *loop* (`b begin` at the
-bottom, one iteration per batch), so everything loaded above it stays live through
-the whole body.
+**4. Three programs wanted more registers than exist** — and the fix was in the
+engine, not the tool. `stapip_clip_td` peaked at **35** simultaneous float values,
+`stapip_cull_td` at **34** and `stapip_clip_d` at **32**, against 31 allocatable.
+Real pressure, not a counting artefact: `begin:` in those programs is a *loop*
+(`b begin` at the bottom, one iteration per batch), so everything loaded above it
+stays live through the whole body.
 
 Five of those values are GIF tags (`gifSetTag`, `lodGifTag`, `testsTag`,
 `texBufferClutGifTag`, `alphaGifTag`) that are read **once per batch**, by the tag
@@ -239,12 +240,111 @@ stop. Measured over the 15 programs both assemblers had produced at the time:
 | patched `openvcl` | 3295 (**+71%**) |
 
 Per program the spread runs from +18% (`mcpip_as_is`) to +150% (`dynpip_c`:
-99 → 248). That is not a rounding difference in a scheduler, it is the scheduler:
-VCL's job is packing two pipes per cycle and hiding latencies, and this is roughly
-what you get from a correct assembler that does not pack. So the blocker on
-`openvcl` is no longer correctness - it compiles everything, and drops nothing -
-but **scheduling density**, which is a much deeper piece of work than the two
-fixes above.
+99 → 248). So the blocker on `openvcl` is no longer correctness - it compiles
+everything and drops nothing - but **scheduling density**.
+
+### How much density is missing, and where
+
+Measured over all 25 programs (`--dump-schedule-info` gives openvcl's own slot
+list, so the numbers are its opinion of its own output, not a reconstruction):
+
+| | cycles |
+|---|---|
+| openvcl | 6728 |
+| **floor: a perfect packer** (`max(upper ops, lower ops)`) | **2989** |
+| Sony's vcl | 3982 |
+| of openvcl's total: pure `nop`/`nop` stall cycles | **1860** |
+
+Two things follow, and the first one is the reason this is worth finishing:
+
+1. **The floor is 25% BELOW what Sony's vcl achieves.** openvcl is emitting the
+   same work - 4836 occupied pipe slots against the legacy 4822, a 0.3%
+   difference - so nothing is missing from its output except packing. A good
+   scheduler here would not just match VCL, it could beat it.
+2. **openvcl sits 98% above that floor; Sony's vcl sits 33% above it.** The gap is
+   entirely stalls and unpaired cycles: 6% of openvcl's rows use both pipes,
+   against 25% for legacy.
+
+The scheduler is not naive, which is worth knowing before touching it: it builds a
+real dependency graph (with ACC/MAC/CLIP modelled as precise resources), keeps a
+ready list with critical-path-ish priorities, scores candidates by latency delay,
+and tries to pair a partner into the other pipe. What limits it is **window**: it
+runs per *segment*, and segments are cut at every non-schedulable token, at every
+change of the ignorable-flag-WAW mask, and at the last MAC/CLIP reader - which in a
+vertex pipeline is several cuts per vertex. It can only hide a latency with work
+that is inside its current segment, so the cuts are where the 1860 stall cycles
+come from. `stapip_cull_c`'s vertex loop is a fair sample: 187 cycles for 118
+upper-pipe and 41 lower-pipe ops, of which 50 cycles are pure stalls.
+
+### Two experiments, both measured, both reverted
+
+- **Let flag readers be scheduled.** `isVuReadyScheduleCandidate` rejects any
+  token that implicitly reads MAC/CLIP - i.e. every `fcand` - even though the
+  dependency graph already orders flag readers against their producer. Admitting
+  them widens segments across the clip check: **6728 → 6118 cycles (-9%)**, all 25
+  still compile. Cost: 2 of openvcl's 419 tests fail (one asserts a specific
+  `mulw`+`fcand` pairing that the segment scheduler then places differently, one
+  asserts the two scheduling paths agree).
+- **One segment per basic block**, with the conservative flag mask: a further
+  **6118 → 5930 (-3%)**, but **12** tests fail, most of them software-pipelining
+  ones. Those segment cuts are load-bearing for the pipeliner.
+
+Neither is in `docker/openvcl-tyrax.patch`: 12% does not unblock anything (we need
+~33% to match legacy and fit VU1 memory), and shipping upstream test regressions
+to buy it is a bad trade. They are recorded here because they locate the work.
+
+### What the remaining ~33% needs
+
+- **Per-token flag masks in the dependency graph.** The segment exists only
+  because `buildVuDependencyGraph` takes one `ignoredImplicitWawResources` for the
+  whole segment. Give it the per-token mask vector that the caller already
+  computes, and a segment can span a whole basic block without lying about which
+  flag WAWs are ignorable - which is what broke the pipeliner above.
+- **Latency hiding across loop iterations.** Even with a perfect window, three
+  vertex chains at 4-cycle FMAC latency cannot fill every cycle; Sony's vcl gets to
+  33% above floor, openvcl to 98%. The difference is modulo scheduling / software
+  pipelining, which openvcl has (`findVuLoopPipelineOpportunities`,
+  `buildVuSoftwarePipelineRewritePlans`) but rarely applies to these loops.
+- `-C` (REDUCE_CODE) and `-f` (ALIGN_CODE) are inert in this version - measured,
+  byte-identical output. There is no knob to turn.
+
+Reproducing the cycle numbers takes one command per program, and openvcl reports
+them itself (no parsing of the emitted `.vsm` required):
+
+```bash
+# in the toolchain image, with an openvcl binary and a vclpp'd program
+openvcl --dump-schedule-info prog.vcl | head -1     # program_cycle_count=...
+openvcl --show-reg-alloc      prog.vcl              # per-alias live ranges
+```
+
+The per-slot lines of `--dump-schedule-info` carry `upper=`/`lower=`/`padding=`,
+which is where the pipe-occupancy and stall figures above come from.
+
+The loop that produced the totals, for whoever iterates on the scheduler next —
+build openvcl from a clone, then run everything inside the toolchain image, which
+owns `vclpp` and the legacy `vcl` (the binary is glibc-compatible with it, both
+being Ubuntu 20.04):
+
+```bash
+# 1. build the candidate, drop the binary somewhere shared
+docker run --rm -v "$CLONE:/p" -v "$OUT:/out" ubuntu:20.04 sh -c '
+  apt-get update >/dev/null && apt-get install -y --no-install-recommends g++ cmake make >/dev/null
+  cp -r /p /b && cmake -S /b -B /b/build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF >/dev/null
+  cmake --build /b/build -j"$(nproc)" >/dev/null && install -m755 /b/openvcl /out/openvcl'
+
+# 2. sweep the engine's 25 programs and total the cycles
+docker run --rm -v "<repo>/vendor/tyra:/e:ro" -v "$OUT:/out" tyrax-toolchain:local sh -c '
+  cd /e/engine; tot=0
+  for f in $(find src -name "*.vclpp"); do
+    vclpp "$f" /tmp/p.vcl >/dev/null 2>&1 || continue
+    c=$(/out/openvcl --dump-schedule-info /tmp/p.vcl 2>/dev/null | grep -oE "program_cycle_count=[0-9]+" | cut -d= -f2)
+    tot=$((tot + ${c:-0}))
+  done; echo "cycles: $tot"'
+```
+
+And always run openvcl's own suite next to it (`cmake -B build && ctest`,
+419 tests, ~8 s) — both experiments above were rejected on its verdict, not on the
+cycle count.
 
 `VCL_IMPL=openvcl` therefore stays what it is: a switch for continuing that work,
 not a supported configuration. The default is `legacy`, and the image's own check

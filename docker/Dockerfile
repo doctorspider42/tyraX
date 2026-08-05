@@ -72,16 +72,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends g++ cmake make git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# openvcl-tyrax.patch - two fixes this engine needs, both measured, both worth
-# upstreaming (see "The openvcl migration" in docs/toolchain-image.md):
-#   * accept CLIPw's implied w component, instead of rejecting the operand and
-#     emitting the program WITHOUT the clipw while keeping the fcand that reads
-#     its clip flags;
-#   * stop counting two live ranges that merely touch (one ends on the line the
-#     other begins) as a register conflict - an instruction reads its sources
-#     before writing its destination, so the register is free. That single rule
-#     is the difference between failing and fitting for stapip_clip_d: 32
-#     simultaneous aliases counting touches, 31 without, against 31 registers.
+# openvcl-tyrax.patch - one fix this engine needs, and it is worth upstreaming
+# (see "The openvcl migration" in docs/toolchain-image.md): accept CLIPw's implied
+# w component, instead of rejecting the operand and then emitting the program
+# WITHOUT the clipw while keeping the fcand that reads its clip flags.
+#
+# It used to carry a second hunk that relaxed the register allocator's conflict
+# test (live ranges that merely touch). It is gone: openvcl's own test suite
+# asserts the strict rule, and the register pressure it was working around
+# belonged to the engine, where three programs were holding GIF tags live across
+# a whole batch loop. Fixing it there made the allocator change unnecessary -
+# all 25 programs allocate with stock openvcl, and its 419 tests stay green.
 COPY docker/openvcl-tyrax.patch /tmp/openvcl-tyrax.patch
 
 # BUILD_EXAMPLES defaults to ON when $PS2SDK is set and cross-compiles four PS2

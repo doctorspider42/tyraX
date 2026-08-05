@@ -682,9 +682,11 @@ banner both, so a previously built ELF still reports.
 - **Two VU1 assemblers exist now, and which one built your microcode matters.**
   `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
   source, no license). The from-source `openvcl` compiles all 25 programs since
-  2026-08-04 (one patch to it, one source change in `stapip_clip_td` /
-  `stapip_cull_td`), but it *schedules differently*, so **any VU1 timing you
-  measure belongs to one assembler, not to the engine**. Say which one in the
+  2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
+  in `stapip_clip_d` / `clip_td` / `cull_td`), but it *schedules* far less densely
+  - 6728 cycles against Sony's 3982, so its output does not fit VU1 micro memory
+  yet - and differently, so **any VU1 timing you measure belongs to one assembler,
+  not to the engine**. Say which one in the
   commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl` picks it
   when building the image; the image records its choice in
   `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
