@@ -30,18 +30,20 @@ row:selected {
   background: linear-gradient(0deg, rgba(120, 209, 255, 0.42), rgba(120, 209, 255, 0.05));
   translate-x: 6px;
 }
-row:disabled { color: #4d5a6b; }
-value { color: var(--accent); }
-hint { color: var(--dim); letter-spacing: 1px; }
 /* The selected row is a full-width plate, so the built-in caret would
    only sit on top of it. */
 marker { marker: none; }
+row:disabled { color: #4d5a6b; }
+value { color: var(--accent); }
+hint { color: var(--dim); letter-spacing: 1px; }
 
-/* Motion. All of it is sprite properties - an alpha, an offset, a position -
-   so the console pays nothing for any of it (docs/menu-styles.md "Motion").
-   A moving background layer would go here too:
-     panel { background-anim: url(res/hud/bg.png) scroll 12px/s 0px/s; }
-   which is how you animate what a baked gradient cannot. */
+/* Motion. All of it is sprite properties - an alpha, a position, a
+   texel offset - so the console pays nothing for any of it
+   (docs/menu-styles.md "Motion"). A moving background layer would go
+   here too, and is the one way to animate what a baked gradient
+   cannot:
+     panel { background-anim: url(res/hud/stars.png) scroll 8px/s -3px/s; }
+*/
 @transition open   { 180ms ease-out; fade; translate-y 10px; }
 @transition close  { 140ms ease-in; fade; translate-y 6px; }
 @transition cursor { 110ms ease-out; }

@@ -75,13 +75,13 @@ struct MenuData {
   const char* descTex;
   int descCellW, descCellH, descPitch, descX, descY;
   float markerX;    // selection caret x inside the panel
+  int markerOn;     // 0 = `marker: none` - a style whose selected
+                    // row paints a plate does not want a caret on
+                    // top of it (docs/menu-styles.md)
   // The caret's own image ("" = the built-in hud/save-cursor.png,
   // which is also the save menu's). A sheet points at its own with
   // `marker { marker: url(res/hud/caret.png); }`.
   const char* markerTex;
-  int markerOn;     // 0 = `marker: none` - a style whose selected
-                    // row paints a plate does not want a caret on
-                    // top of it (docs/menu-styles.md)
   // Motion. The panel slides/fades in over openSec (ease 0 linear,
   // 1 ease-out, 2 ease-in-out) and the caret eases to its row over
   // cursorSec. Sprite properties only - nothing is re-baked.

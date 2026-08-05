@@ -1484,8 +1484,20 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "value { color: var(--accent); }\n"
          "hint { color: var(--dim); letter-spacing: 1px; }\n"
          "\n"
-         "@transition open { 180ms ease-out; fade; translate-y 10px; }\n"
-         "@transition cursor { 110ms ease-out; }\n"},
+         "/* Motion. All of it is sprite properties - an alpha, a position, a\n"
+         "   texel offset - so the console pays nothing for any of it\n"
+         "   (docs/menu-styles.md \"Motion\"). A moving background layer would go\n"
+         "   here too, and is the one way to animate what a baked gradient\n"
+         "   cannot:\n"
+         "     panel { background-anim: url(res/hud/stars.png) scroll 8px/s -3px/s; }\n"
+         "*/\n"
+         "@transition open   { 180ms ease-out; fade; translate-y 10px; }\n"
+         "@transition close  { 140ms ease-in; fade; translate-y 6px; }\n"
+         "@transition cursor { 110ms ease-out; }\n"
+         "@transition scroll { 120ms ease-out; }\n"
+         "@transition value  { 180ms; }\n"
+         "@animate selected  { pulse 1.8s 0.22; }\n"
+         "@animate panel     { sheen 3.4s 52px rgba(255, 255, 255, 0.18); }\n"},
 
         {"blade",
          "@style \"Blade\"\n"
@@ -1519,8 +1531,14 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "value { color: var(--edge); }\n"
          "hint { color: #6f7783; align: right; margin-right: 20px; }\n"
          "\n"
-         "@transition open { 140ms ease-out; translate-x -14px; fade; }\n"
-         "@transition cursor { 90ms linear; }\n"},
+         "/* Faster and harder than Neon: the plate is already loud, so it does\n"
+         "   not breathe - the motion is the slide and one quick edge of light. */\n"
+         "@transition open   { 140ms ease-out; translate-x -14px; fade; }\n"
+         "@transition close  { 100ms ease-in; translate-x -10px; fade; }\n"
+         "@transition cursor { 90ms linear; }\n"
+         "@transition scroll { 90ms linear; }\n"
+         "@transition value  { 120ms; }\n"
+         "@animate panel     { sheen 2.2s 34px rgba(255, 154, 60, 0.22); }\n"},
 
         {"parchment",
          "@style \"Parchment\"\n"
@@ -1545,7 +1563,13 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "row:disabled { color: #9c8a72; }\n"
          "value { color: var(--gold); }\n"
          "hint { color: #6b5636; }\n"
-         "\n@transition cursor { 120ms ease-out; }\n"},
+         "\n"
+         "/* Slow and soft, like the paper it is pretending to be. */\n"
+         "@transition open   { 260ms ease-in-out; fade; }\n"
+         "@transition close  { 180ms ease-in-out; fade; }\n"
+         "@transition cursor { 120ms ease-out; }\n"
+         "@transition scroll { 160ms ease-in-out; }\n"
+         "@animate selected  { pulse 2.6s 0.12; }\n"},
 
         {"minimal",
          "@style \"Minimal\"\n"
@@ -1562,7 +1586,13 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "row:disabled { color: rgba(255, 255, 255, 0.25); }\n"
          "value { color: rgba(255, 255, 255, 0.72); }\n"
          "hint { color: rgba(255, 255, 255, 0.4); }\n"
-         "\n@transition cursor { 100ms ease-out; }\n"},
+         "\n"
+         "/* A minimal style earns its motion: a fade, a caret that keeps up,\n"
+         "   and a caret that drifts because here it IS the selection. */\n"
+         "@transition open   { 120ms ease-out; fade; }\n"
+         "@transition close  { 90ms ease-out; fade; }\n"
+         "@transition cursor { 100ms ease-out; }\n"
+         "@animate marker    { bob 1.4s 2px; }\n"},
     };
     return v;
 }

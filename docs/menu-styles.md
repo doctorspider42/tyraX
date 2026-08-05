@@ -106,7 +106,12 @@ menu#pause { panel { width: 256px; } }   /* this menu only */
 one. A state rule only ADDS to the normal one.
 
 Five sheets ship with the editor as starting points — **Classic**, **Neon**,
-**Blade**, **Parchment**, **Minimal**. *Install a copy…* writes one into the
+**Blade**, **Parchment**, **Minimal**. Four of them carry motion, and each one
+argues for a different amount of it: Neon has the full set (slide, fade, a
+breathing highlight, a slow sheen), Blade is faster and harder with one quick
+edge of light and no pulse (its plate is already loud), Parchment is slow and
+soft, and Minimal allows itself a fade and a caret that drifts — because there
+the caret IS the selection. Classic has none, as it should. *Install a copy…* writes one into the
 project, where it is yours; *Delete sheet…* removes one the project owns (with a
 confirm that names the menus using it — they fall back to Classic). A built-in
 is not a file and cannot be deleted, which is what keeps a fresh copy always
