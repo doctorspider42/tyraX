@@ -207,17 +207,19 @@ the verification, and any fact worth reusing belongs in the relevant
     tests green.
     The pass/fail number is sharper than the totals: what must fit is the
     resident VU1 set (5x `cull_*` + 5x `clip_*`) against a **2042**-instruction
-    ceiling. Legacy uses **2035** - seven words spare - and openvcl **3072**, so
-    the target is **-34% on ten specific programs**, not parity everywhere.
-    What is left is the **stall rows the hardware really does need**: on
-    `stapip_clip_c` both tools emit exactly 283 operations, and openvcl spends 286
-    rows on them against SCE's 257 - 43 stall rows against 18, plus 4 pairings.
-    Two ways at it, and the first is safer: schedule so the hazard does not arise
-    (SCE has half as many hazard *sites*, 15 against 30), or calibrate the
-    non-interlocked latencies against what SCE actually emits (`scratchpad/calib.py`
-    in the session notes measures the minimum gaps per producer/consumer class from
-    its output - int -> branch bottoms out at 2, VI loads at 3 - but the producer
-    detection there is too coarse to set constants from yet).
+    ceiling. **2026-08-05: 3072 -> 2075, i.e. 33 words short**, with openvcl now
+    SMALLER than SCE on two of the ten programs (`cull_td` -6, `cull_d` -3) and
+    within +10 on the rest. Four flags got it there, all off by default, all
+    passed by the image's `vcl` wrapper, 419/419 upstream tests green and 25/25
+    outputs verified through `dvp-as`: `--schedule-flag-readers`,
+    `--fmac-interlock`, `--sce-latencies` (flag visibility 1, load result at
+    issue+3 - both calibrated against the minimum gaps SCE's own output contains)
+    and `--emit-delay-fillers`.
+    The last 33 words are stall rows SCE avoids by WHERE IT PUTS THINGS, not by
+    knowing another constant - the constants now agree on every class measured. On
+    `stapip_clip_c` it has 15 hazard sites against openvcl's 30, and 17 nop/nop
+    rows against 24. That is a scheduling-order problem: pick an order that avoids
+    the hazard instead of padding it.
     Also still open, and a separate budget: `vu0_rt_kernel` at 961 cycles against
     VU0's 512-instruction micro memory.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as

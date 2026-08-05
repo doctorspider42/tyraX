@@ -417,23 +417,62 @@ addw.x    VF05,VF05,.. | fcand VI01,63
 
 `--sce-latencies` sets both (flag visibility 1, load result at issue+3).
 
+### Delay slots: a word each, and most of them were empty
+
+A branch's delay slot is an instruction word whether or not anything useful sits in
+it. `fillBranchDelaySlots()` runs *before* scheduling and gives up after **one**
+try - the instruction immediately preceding the branch in source order - so on
+`stapip_clip_c` 13 of 20 slots stayed empty, against 9 of 20 for SCE, whose filled
+slots hold `sq`/`isw` as often as integer ops (34 against 37 of its 94 filled
+slots across the corpus).
+
+`--emit-delay-fillers` does two things about that, both reusing openvcl's own
+legality test `canMoveIntoBranchDelaySlot` (no label, no second branch, and the
+branch must not read what the candidate writes - it used to see the new value):
+
+- the pre-scheduling pass keeps **walking back** when the immediate predecessor
+  will not fit, accepting a candidate further up as long as it can cross
+  everything in between (`vuTokenCanMoveBefore`, the same rule the scheduler uses),
+  and plain stores are now candidates too;
+- the emitter offers, as a last resort, the instruction the *schedule* placed just
+  before the branch - taking its already-emitted row back and re-emitting the pair
+  as branch + filler.
+
+### Where it stands now
+
 | resident set | instructions |
 |---|---|
 | openvcl, `--fmac-interlock` only | 2180 |
 | + flag latency 1 | 2116 |
-| + load ready at +3 | **2094** |
+| + load ready at +3 | 2094 |
+| + delay fillers | **2075** |
+| SCE `vcl` | 2035 |
 | ceiling | 2042 |
-| **over by** | **52** |
+| **over by** | **33** |
 
-So a working openvcl-built game is **52 instructions** away, and the last of them
-are stall rows in front of branches. SCE avoids them by *scheduling* - it has half
-as many hazard sites (15 against 30 in `stapip_clip_c`) and fills 11 of its 20
-branch delay slots against openvcl's 7. Its filled slots hold `sq`/`isw` (34 of 94
-across the corpus), integer ALU ops (37) and FMAC ops (~14); openvcl's delay-slot
-filler only ever considers the instruction immediately preceding the branch **in
-source order**, so widening what it accepts changes nothing until the *scheduler*
-gets to pick the filler from its ready set. That is the next piece of work, and it
-is the same piece that would remove the pre-branch padding.
+Per program openvcl is now within a few words of SCE everywhere - **and smaller on
+two of the ten**:
+
+| | openvcl | SCE | |
+|---|---|---|---|
+| `cull_td` | 149 | 155 | **-6** |
+| `cull_d` | 142 | 145 | **-3** |
+| `cull_c` | 177 | 175 | +2 |
+| `cull_tc` | 184 | 181 | +3 |
+| `clip_d` | 213 | 209 | +4 |
+| `clip_td` | 226 | 222 | +4 |
+| `clip_tc` | 278 | 270 | +8 |
+| `clip_tce` | 262 | 254 | +8 |
+| `cull_tce` | 177 | 167 | +10 |
+| `clip_c` | 267 | 257 | +10 |
+
+The last 33 words are stall rows that SCE does not need because of *where it puts
+things*: on `stapip_clip_c` it has half as many hazard sites (15 against 30) and 17
+`nop`/`nop` rows against openvcl's 24. Removing those means the scheduler choosing
+an order that avoids the hazard, not another calibrated constant - the constants
+now agree with SCE on every class measured.
+
+Every output was checked through `dvp-as` as well as counted: 25 of 25 assemble.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

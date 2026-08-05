@@ -150,7 +150,7 @@ COPY --from=openvcl-build /out/bin/openvcl /usr/local/bin/openvcl
 RUN set -e; \
     case "${VCL_IMPL:-legacy}" in \
       legacy)  ln -sf /usr/bin/vcl /usr/local/bin/vcl ;; \
-      openvcl) printf '#!/bin/sh\nexec /usr/local/bin/openvcl --schedule-flag-readers --fmac-interlock --sce-latencies "$@"\n' \
+      openvcl) printf '#!/bin/sh\nexec /usr/local/bin/openvcl --schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers "$@"\n' \
                  > /usr/local/bin/vcl && chmod 0755 /usr/local/bin/vcl ;; \
       *) echo "VCL_IMPL must be 'legacy' or 'openvcl', got '${VCL_IMPL}'" >&2; exit 1 ;; \
     esac; \
