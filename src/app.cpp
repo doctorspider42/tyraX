@@ -8058,6 +8058,12 @@ void App::drawSoundsSection() {
 // to res/save/ by refreshGenerated), an exact byte breakdown of what one
 // slot stores (the same fixed payload the in-RAM checkpoint buffer holds),
 // and the custom save values/texts (drawSaveDataSection below).
+//
+// The icon preview is rendered at the card icon's own texture resolution and
+// shown smaller, so the model's edges stay clean on a HiDPI panel.
+static constexpr int kSaveIconPreviewPx = 128;
+static constexpr double kSaveIconLoopSeconds = 2.0;
+
 void App::drawSaveEditorWindow() {
     if (!showSaveEditor_ || !hasProject_) return;
     ImGui::SetNextWindowSize(ImVec2(scaled(440.0f), scaled(600.0f)),
@@ -8195,36 +8201,57 @@ void App::drawSaveEditorWindow() {
         ImGui::EndCombo();
     }
 
-    // Preview: decoded straight from the baked .icn's texture segment, so
-    // it is byte-exact with what ships (model texture included) - and the
-    // same bake fills the stats line below.
-    const std::string previewKey = project_.saveIcon + "|" +
-                                   project_.saveIconModel + "|" +
+    // Preview: the baked GEOMETRY rendered the way the browser draws it
+    // (texture x vertex colour, shaded), one image per animation shape. The
+    // same bake fills the stats line below, so the picture and the numbers can
+    // never describe different icons.
+    // project_.dir is in the key because two projects can carry identical icon
+    // settings ("" everywhere is the default), and without it opening the
+    // second one would keep showing the first one's render.
+    const std::string previewKey = project_.dir + "|" + project_.saveIcon +
+                                   "|" + project_.saveIconModel + "|" +
                                    project_.saveIconClip + "|" +
                                    std::to_string(project_.saveIconFrames);
-    if (saveIconPreviewKey_ != previewKey || !saveIconPreviewTex_) {
-        const std::vector<unsigned char> icn =
-            savebake::iconIcn(project_, &saveIconInfo_);
-        std::vector<unsigned char> rgba(128 * 128 * 4, 255);
-        if (icn.size() >= 128 * 128 * 2) {
-            const unsigned char* tex = icn.data() + icn.size() - 128 * 128 * 2;
-            for (int i = 0; i < 128 * 128; ++i) {
-                const unsigned v = tex[i * 2] | (tex[i * 2 + 1] << 8);
-                rgba[i * 4 + 0] = (unsigned char)((v & 0x1F) << 3);
-                rgba[i * 4 + 1] = (unsigned char)(((v >> 5) & 0x1F) << 3);
-                rgba[i * 4 + 2] = (unsigned char)(((v >> 10) & 0x1F) << 3);
-            }
+    if (saveIconPreviewKey_ != previewKey || saveIconPreviewTex_.empty()) {
+        saveIconInfo_ = savebake::iconInfo(project_);  // stats line, same bake
+        const std::vector<std::vector<unsigned char>> frames =
+            savebake::iconPreviewFrames(project_, kSaveIconPreviewPx);
+        if (!saveIconPreviewTex_.empty()) {
+            glDeleteTextures((GLsizei)saveIconPreviewTex_.size(),
+                             saveIconPreviewTex_.data());
+            saveIconPreviewTex_.clear();
         }
-        if (!saveIconPreviewTex_) glGenTextures(1, &saveIconPreviewTex_);
-        glBindTexture(GL_TEXTURE_2D, saveIconPreviewTex_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 128, 128, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, rgba.data());
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        for (const std::vector<unsigned char>& f : frames) {
+            unsigned tex = 0;
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSaveIconPreviewPx,
+                         kSaveIconPreviewPx, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                         f.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            saveIconPreviewTex_.push_back(tex);
+        }
         saveIconPreviewKey_ = previewKey;
     }
-    ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_,
-                 ImVec2(scaled(72.0f), scaled(72.0f)));
+    if (!saveIconPreviewTex_.empty()) {
+        // One loop every kSaveIconLoopSeconds, however many shapes there are -
+        // so raising Frames makes the SAME motion smoother rather than faster,
+        // which is what the slider means.
+        const size_t n = saveIconPreviewTex_.size();
+        const double phase =
+            ImGui::GetTime() / kSaveIconLoopSeconds * (double)n;
+        const size_t f = (size_t)((long long)phase % (long long)n);
+        ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_[f],
+                     ImVec2(scaled(96.0f), scaled(96.0f)));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The baked icon, rendered the way the PS2 browser draws it:\n"
+                "the model's triangles with texture x vertex colour, cycling\n"
+                "through the %d animation shape%s that ship in list.icn.\n"
+                "The browser's own lighting and camera differ slightly.",
+                (int)n, n == 1 ? "" : "s");
+    }
     ImGui::SameLine();
     ImGui::BeginGroup();
     std::string title = savebake::displayTitle(project_);

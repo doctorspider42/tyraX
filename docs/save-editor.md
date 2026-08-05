@@ -26,7 +26,17 @@ The **icon** is a real PS2 3D icon (`list.icn`), not a picture:
 
 Models are auto-fitted into icon space. Anything over **800 triangles** falls
 back to the quad (the browser gets sluggish past that) and the Save Editor says
-so. The editor bakes `icon.sys` + `list.icn` into `res/save/` on every build and
+so.
+
+The panel **previews the baked icon, animated**: it renders the actual
+triangles that go into `list.icn`, multiplying texture by vertex colour the way
+the browser does, and cycles the animation shapes so you can see the sway or the
+clip before it ever reaches a card. That product matters — a model with no
+`map_Kd` keeps its colours in its vertices against a near-white texture, so the
+texture on its own tells you nothing about what the icon looks like. The picture
+and the stats line under it come from the same bake. The browser's own lighting
+and camera differ slightly, so treat it as a faithful preview of the *geometry
+and colour*, not a pixel-exact mock of the BIOS screen. The editor bakes `icon.sys` + `list.icn` into `res/save/` on every build and
 the generated save system copies them onto the card the first time it writes.
 
 `res/save/` is **derived output and gitignored** — the settings live in the

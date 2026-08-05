@@ -519,6 +519,121 @@ static int animSegmentBytes(int shapes) {
     return b;
 }
 
+std::vector<std::vector<unsigned char>> iconPreviewFrames(const Project& p,
+                                                          int size) {
+    IconInfo info;
+    const IconGeo g = buildGeo(p, info);
+    std::vector<std::vector<unsigned char>> frames;
+    if (size <= 0 || g.verts() < 3) return frames;
+    const int nv = g.verts();
+
+    // ONE transform for every shape, derived from the bbox over ALL of them.
+    // Per-shape fitting would rescale the model each frame and the sway would
+    // read as breathing rather than turning.
+    float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
+    for (size_t i = 0; i + 2 < g.pos.size(); i += 3)
+        for (int a = 0; a < 3; ++a) {
+            mn[a] = std::min(mn[a], g.pos[i + a]);
+            mx[a] = std::max(mx[a], g.pos[i + a]);
+        }
+    const float ext = std::max({mx[0] - mn[0], mx[1] - mn[1], 0.001f});
+    const float sc = (float)size * 0.84f / ext;
+    const float cx = (mn[0] + mx[0]) * 0.5f, cy = (mn[1] + mx[1]) * 0.5f;
+    const float half = (float)size * 0.5f;
+
+    // Icon space is y-DOWN already (fitToIconSpace mirrors it), which is also
+    // the image's row order - so y maps straight through with no second flip.
+    // The camera sits on +z, so the larger z of two fragments is the nearer.
+    const float L[3] = {-0.34f, -0.72f, 0.60f};
+
+    for (int k = 0; k < g.shapes; ++k) {
+        std::vector<unsigned char> img((size_t)size * size * 4);
+        std::vector<float> zbuf((size_t)size * size, -1e30f);
+        for (int y = 0; y < size; ++y) {  // the browser's dark backdrop
+            const float t = (float)y / (float)(size > 1 ? size - 1 : 1);
+            for (int x = 0; x < size; ++x) {
+                unsigned char* px = &img[((size_t)y * size + x) * 4];
+                px[0] = (unsigned char)(20 + 14 * t);
+                px[1] = (unsigned char)(24 + 20 * t);
+                px[2] = (unsigned char)(42 + 32 * t);
+                px[3] = 255;
+            }
+        }
+        const float* sp = &g.pos[(size_t)k * nv * 3];
+        for (int t = 0; t + 2 < nv; t += 3) {
+            float X[3], Y[3], Z[3];
+            for (int c = 0; c < 3; ++c) {
+                X[c] = (sp[(size_t)(t + c) * 3 + 0] - cx) * sc + half;
+                Y[c] = (sp[(size_t)(t + c) * 3 + 1] - cy) * sc + half;
+                Z[c] = sp[(size_t)(t + c) * 3 + 2];
+            }
+            const float area = (X[1] - X[0]) * (Y[2] - Y[0]) -
+                               (X[2] - X[0]) * (Y[1] - Y[0]);
+            if (std::fabs(area) < 1e-6f) continue;  // degenerate
+            int x0 = (int)std::floor(std::min({X[0], X[1], X[2]}));
+            int x1 = (int)std::ceil(std::max({X[0], X[1], X[2]}));
+            int y0 = (int)std::floor(std::min({Y[0], Y[1], Y[2]}));
+            int y1 = (int)std::ceil(std::max({Y[0], Y[1], Y[2]}));
+            x0 = std::max(0, x0); y0 = std::max(0, y0);
+            x1 = std::min(size - 1, x1); y1 = std::min(size - 1, y1);
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x) {
+                    const float px_ = (float)x + 0.5f, py = (float)y + 0.5f;
+                    float w[3];
+                    w[0] = ((X[1] - px_) * (Y[2] - py) -
+                            (X[2] - px_) * (Y[1] - py)) / area;
+                    w[1] = ((X[2] - px_) * (Y[0] - py) -
+                            (X[0] - px_) * (Y[2] - py)) / area;
+                    w[2] = 1.0f - w[0] - w[1];
+                    if (w[0] < 0.0f || w[1] < 0.0f || w[2] < 0.0f) continue;
+                    const float z = w[0] * Z[0] + w[1] * Z[1] + w[2] * Z[2];
+                    float& zb = zbuf[(size_t)y * size + x];
+                    if (z <= zb) continue;
+                    zb = z;
+                    // Normals and colours are per-vertex of shape 0; the sway
+                    // only moves positions, so they are shared by every shape.
+                    float n[3] = {0, 0, 0}, uv[2] = {0, 0};
+                    float col[3] = {0, 0, 0};
+                    for (int c = 0; c < 3; ++c) {
+                        const size_t v = (size_t)(t + c);
+                        for (int a = 0; a < 3; ++a) {
+                            n[a] += w[c] * g.normal[v * 3 + a];
+                            col[a] += w[c] * (float)g.rgba[v * 4 + a];
+                        }
+                        uv[0] += w[c] * g.uv[v * 2];
+                        uv[1] += w[c] * g.uv[v * 2 + 1];
+                    }
+                    const float nl = std::sqrt(std::max(
+                        1e-8f, n[0] * n[0] + n[1] * n[1] + n[2] * n[2]));
+                    // abs(): icons are drawn two-sided, so a back face lights
+                    // like a front one instead of going flat black.
+                    const float d = std::fabs((n[0] * L[0] + n[1] * L[1] +
+                                               n[2] * L[2]) / nl);
+                    const float shade = 0.34f + 0.66f * d;
+                    float tex[3] = {255.0f, 255.0f, 255.0f};
+                    if (g.texture.size() >= 128 * 128 * 4) {
+                        auto wrap = [](float u) {
+                            u -= std::floor(u);
+                            return std::min(127, std::max(0, (int)(u * 128.0f)));
+                        };
+                        const size_t ti =
+                            ((size_t)wrap(uv[1]) * 128 + wrap(uv[0])) * 4;
+                        for (int a = 0; a < 3; ++a)
+                            tex[a] = (float)g.texture[ti + a];
+                    }
+                    unsigned char* px = &img[((size_t)y * size + x) * 4];
+                    for (int a = 0; a < 3; ++a) {
+                        const float v = col[a] * tex[a] / 255.0f * shade;
+                        px[a] = (unsigned char)std::min(255.0f, std::max(0.0f, v));
+                    }
+                    px[3] = 255;
+                }
+        }
+        frames.push_back(std::move(img));
+    }
+    return frames;
+}
+
 IconInfo iconInfo(const Project& p) {
     IconInfo info;
     const IconGeo g = buildGeo(p, info);

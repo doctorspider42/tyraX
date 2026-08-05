@@ -1484,7 +1484,11 @@ private:
     // icon texture + baked-icon stats (rebuilt when any icon setting
     // changes), and the cached clip list of the picked .glb icon model.
     bool showSaveEditor_ = false;
-    unsigned saveIconPreviewTex_ = 0;
+    // ONE GL texture per animation shape of the baked icon, cycled on a timer
+    // so the panel previews the motion the PS2 browser will play, not a still.
+    // Rebuilt (and the old textures deleted) whenever saveIconPreviewKey_ -
+    // every input the bake reads - changes.
+    std::vector<unsigned> saveIconPreviewTex_;
     std::string saveIconPreviewKey_;
     savebake::IconInfo saveIconInfo_;
     std::string saveIconClipsModel_;

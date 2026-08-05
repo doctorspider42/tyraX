@@ -53,6 +53,18 @@ struct IconInfo {
 IconInfo iconInfo(const Project& p);
 std::vector<unsigned char> iconIcn(const Project& p, IconInfo* info = nullptr);
 
+// What the Save Editor shows: `size` x `size` RGBA renders of the baked icon,
+// ONE PER ANIMATION SHAPE, so cycling them previews the motion that ships.
+//
+// This rasterizes the GEOMETRY and multiplies texture x vertex colour the way
+// the PS2 browser does. That product is the whole point: a model with no
+// map_Kd carries its colours in the vertices and gets a near-white texture
+// (modelFallbackTexture), so a preview that drew the texture segment alone -
+// which is what this replaced - showed a blank square for every such icon.
+// Empty when there is no geometry to draw.
+std::vector<std::vector<unsigned char>> iconPreviewFrames(const Project& p,
+                                                          int size);
+
 constexpr int kMaxIconTris = 800;  // beyond this the browser gets sluggish
 constexpr int kMaxIconShapes = 8;
 constexpr int kQuadShapes = 6;  // the flat icon's sway animation
