@@ -2139,6 +2139,12 @@ static std::string manifestJson(const Project& p) {
     std::ostringstream json;
     json << "{\n"
          << "  \"name\": \"" << jsonEscape(p.name) << "\",\n"
+         // The on-disk format contract (gates opening + migrations) and the
+         // editor that wrote the file (informational only). See version.hpp.
+         // These ride the collaboration wire too - manifestFiles() ships these
+         // same bytes - so a peer sees the same stamp the file carries.
+         << "  \"formatVersion\": " << version::kFormatVersion << ",\n"
+         << "  \"editorVersion\": \"" << version::kEditorVersion << "\",\n"
          << "  \"template\": \"" << p.gameTemplate << "\"";
     // Omitted while empty so a project never born through ensureProjectId
     // round-trips unchanged (and the golden byte layout predates the key).
@@ -4743,6 +4749,26 @@ std::string load(Project& out, const std::string& projectDir) {
 
     out = Project{};
     out.dir = fs::path(projectDir).string();
+
+    // Format gate, before anything else is read: a file written by a NEWER
+    // editor is refused outright - this editor would silently drop the fields
+    // it does not know and destroy them on the next save. Older files load
+    // normally; the caller checks migrations::stepsFor(formatVersionOnDisk)
+    // to decide whether an (irreversible) migration prompt is needed.
+    out.formatVersionOnDisk = 0;  // no field = saved before versioning existed
+    if (const auto* v = root.find("formatVersion"))
+        out.formatVersionOnDisk = (int)v->numberOr(0);
+    if (out.formatVersionOnDisk > version::kFormatVersion) {
+        std::string wrote;
+        if (const auto* v = root.find("editorVersion")) wrote = v->stringOr("");
+        return tyraPath.filename().string() + " was saved by a newer editor" +
+               (wrote.empty() ? "" : " (TyraX " + wrote + ")") +
+               ": project format v" + std::to_string(out.formatVersionOnDisk) +
+               ", this editor (TyraX " + version::kEditorVersion +
+               ") reads up to v" + std::to_string(version::kFormatVersion) +
+               ". Update TyraX to open this project.";
+    }
+
     // Register the project's custom flow nodes BEFORE the graphs are parsed:
     // readFlowGraph drops any node whose type is unknown (line ~156), so a
     // "custom:*" node only survives the load if its .flownode file is present.

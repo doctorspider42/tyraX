@@ -14,6 +14,7 @@
 #include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
+#include "version.hpp"
 
 struct TerrainConfig {
     int width = 100;  // world units, X axis
@@ -2104,6 +2105,12 @@ struct Project {
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
+
+    // Format version read from the .tyra manifest by load() (0 = a file from
+    // before versioning existed). Pure transport for the open-time migration
+    // gate (migrations::stepsFor) - save() always writes the current
+    // version::kFormatVersion, and load() refuses files newer than it.
+    int formatVersionOnDisk = version::kFormatVersion;
 
     // The active scene - what the editor UI operates on.
     SceneData& active() {
