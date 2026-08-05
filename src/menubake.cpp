@@ -1461,6 +1461,42 @@ bool bakeMenuPreviewRGBA(const GameMenu& menuIn, const Project& p, int selectedR
         }
     overlayValuePreview(menuIn, p, optionValues, scroll, out, w, h);
     overlayStatePreview(menuIn, p, selectedRow, disabled, scroll, out, w, h);
+
+    // The selection caret, last, exactly where renderGameMenu puts it: the
+    // marker's own x inside the panel, the row's top + 1. The preview left it
+    // out at first, which hid the one thing a full-plate style needs to know -
+    // that the built-in cursor would sit ON the plate unless the sheet says
+    // `marker { marker: none; }`.
+    if (L.marker.marker != "none" && selectedRow >= 0 &&
+        selectedRow < (int)L.rows.size() && !menu.entries.empty()) {
+        const int row = selectedRow - scroll;
+        if (row >= 0 && row < std::max(L.rowsVisible, 1)) {
+            const int cx = (int)L.marker.translateX;
+            const int cy = L.row0Y + row * L.rowH + 1;
+            // A sheet may name its own caret PNG; otherwise it is the built-in
+            // sprite the game loads (res/hud/save-cursor.png), so the preview
+            // shows the same image rather than a stand-in.
+            const std::string path = L.marker.marker.empty()
+                                         ? std::string("res/hud/save-cursor.png")
+                                         : L.marker.marker;
+            int sw = 0, sh = 0, comp = 0;
+            unsigned char* px = nullptr;
+            if (!p.dir.empty())
+                px = stbi_load(p.filePath(path).c_str(), &sw, &sh, &comp, 4);
+            if (px) {
+                drawImageScaled(canvas, px, sw, sh, cx, cy, 16, 16);
+                stbi_image_free(px);
+            } else {
+                // Before the first build there is no sprite on disk yet; a plain
+                // triangle keeps the geometry honest instead of showing nothing.
+                for (int y = 0; y < 16; ++y)
+                    for (int x = 0; x < 16 - y; ++x)
+                        if (y < 8 ? x < y * 2 : x < (15 - y) * 2)
+                            canvas.blend(cx + x + 3, cy + y,
+                                         toRGBA(L.marker.color), 255);
+            }
+        }
+    }
     return true;
 }
 

@@ -121,7 +121,9 @@ const std::vector<PropSpec>& propSpecs() {
          "Box for a row's own icon, left of its label. 0 = no icon column."},
         {Prop::Marker, "marker", Kind::Url, "left|right",
          "url(...) for the selection caret, plus `left` or `right`. Unset uses\n"
-         "the built-in cursor sprite."},
+         "the built-in cursor sprite; `none` draws no caret at all, which is what\n"
+         "a style whose selected row paints a full-width plate wants (the caret\n"
+         "would sit on top of it)."},
         {Prop::MarkerSide, "marker-side", Kind::Enum, "left|right",
          "Which side of the row the caret sits on."},
         {Prop::Selectable, "selectable", Kind::Bool, nullptr,
@@ -315,6 +317,8 @@ void applyDecl(Computed& c, const Decl& d) {
         case Prop::TranslateX: c.translateX = v.n[0]; break;
         case Prop::IconSize: c.iconSize = v.n[0]; break;
         case Prop::Marker:
+            // "none" is a sentinel, not a path: it turns the caret off. The
+            // layout, the preview and codegen all read it the same way.
             c.marker = v.s;
             if (v.i >= 0) c.markerSide = v.i;
             break;
@@ -1283,6 +1287,9 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "  background: linear-gradient(0deg, rgba(120, 209, 255, 0.42), rgba(120, 209, 255, 0.05));\n"
          "  translate-x: 6px;\n"
          "}\n"
+         "/* The selected row is a full-width plate, so the built-in caret would\n"
+         "   only sit on top of it. */\n"
+         "marker { marker: none; }\n"
          "row:disabled { color: #4d5a6b; }\n"
          "value { color: var(--accent); }\n"
          "hint { color: var(--dim); letter-spacing: 1px; }\n"
@@ -1317,6 +1324,7 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "  color: #14161a;\n"
          "  background: linear-gradient(90deg, var(--edge), rgba(255, 154, 60, 0.15));\n"
          "}\n"
+         "marker { marker: none; }  /* the plate IS the selection */\n"
          "row:disabled { color: #5d646f; }\n"
          "value { color: var(--edge); }\n"
          "hint { color: #6f7783; align: right; margin-right: 20px; }\n"
@@ -1343,6 +1351,7 @@ const std::vector<std::pair<std::string, std::string>>& builtinSources() {
          "title { color: var(--ink); letter-spacing: 2px; rule-below: 1px solid var(--gold); }\n"
          "row { color: #3b2b1e; padding: 3px 0 8px 48px; }\n"
          "row:selected { color: #1b1208; background: rgba(122, 90, 30, 0.28); }\n"
+         "marker { marker: none; }\n"
          "row:disabled { color: #9c8a72; }\n"
          "value { color: var(--gold); }\n"
          "hint { color: #6b5636; }\n"

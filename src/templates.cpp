@@ -9067,8 +9067,10 @@ void TerrainGame::renderGameMenu() {
 
   // --- the selection caret -------------------------------------------------
   // It eases toward its row when the sheet asks for it; with no cursor
-  // transition it snaps, which is what every menu did before.
-  if (m.entryCount > 0) {
+  // transition it snaps, which is what every menu did before. A style whose
+  // selected row paints a full-width plate turns it off (`marker: none`) - the
+  // caret would only sit on top of the plate.
+  if (m.entryCount > 0 && m.markerOn) {
     const float targetY =
         (float)(m.row0Y + (gameMenuCursor - gameMenuScroll) * m.rowH) + 1.0F;
     if (m.cursorSec > 0.0F) {
@@ -32666,6 +32668,9 @@ static std::string menuDataHeader(const Project& p) {
            "  const char* descTex;\n"
            "  int descCellW, descCellH, descPitch, descX, descY;\n"
            "  float markerX;    // selection caret x inside the panel\n"
+           "  int markerOn;     // 0 = `marker: none` - a style whose selected\n"
+           "                    // row paints a plate does not want a caret on\n"
+           "                    // top of it (docs/menu-styles.md)\n"
            "  // Motion. The panel slides/fades in over openSec (ease 0 linear,\n"
            "  // 1 ease-out, 2 ease-in-out) and the caret eases to its row over\n"
            "  // cursorSec. Sprite properties only - nothing is re-baked.\n"
@@ -32788,7 +32793,7 @@ static std::string menuDataHeader(const Project& p) {
     if (p.menus.empty()) {
         out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
                "\"\", 0, 0, 0, 0, 0, \"\", 0, 0, 0, \"\", 0, 0, \"\", 0, 0, 0, 0, "
-               "0, 0.0F, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1},\n";
+               "0, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -32845,7 +32850,8 @@ static std::string menuDataHeader(const Project& p) {
                     << ml.descPitch << ", " << ml.descBox.x << ", " << ml.descBox.y;
             else
                 out << ", \"\", 0, 0, 0, 0, 0";
-            out << ", " << floatLit(ml.marker.translateX);
+            out << ", " << floatLit(ml.marker.translateX) << ", "
+                << (ml.marker.marker == "none" ? 0 : 1);
             const menustyle::Sheet& sheet = menulayout::sheetFor(m);
             const menustyle::Transition* open =
                 menustyle::transition(sheet, menustyle::Transition::Open);

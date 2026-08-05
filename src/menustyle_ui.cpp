@@ -953,14 +953,18 @@ void App::menuPreviewControls(const GameMenu& m, int& mode) {
     // interlaced but 448x540 in 1080i, so "does my menu still fit" is a
     // per-resolution question (docs/menu-styles.md "Resolutions").
     const std::vector<std::string> modes =
-        project::supportedDisplayModes(project_.settings);
+        project::previewDisplayModes(project_.settings);
     // ImGui's combo takes a NUL-separated list, and a std::string built from a
     // "\0" literal is EMPTY (the char* constructor stops at the NUL) - so the
     // separators go in one character at a time.
     std::string modeItems = "Panel (baked pixels)";
+    const std::string boot = project::bootDisplayMode(project_.settings);
     for (const std::string& k : modes) {
         modeItems.push_back('\0');
         modeItems += project::displayModeInfo(k).label;
+        // Which one the project boots in is a guess whenever the region is Auto,
+        // so say so rather than let the default look authoritative.
+        if (k == boot) modeItems += "  (boots in this)";
     }
     modeItems.push_back('\0');
     if (mode > (int)modes.size()) mode = 0;
@@ -1002,7 +1006,7 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
         // physical shape of its display window, with the panel scaled exactly
         // the way renderGameMenu scales it (the same two factors).
         const std::vector<std::string> modes =
-            project::supportedDisplayModes(project_.settings);
+            project::previewDisplayModes(project_.settings);
         if (mode - 1 >= (int)modes.size()) return;
         const std::string modeKey = modes[(size_t)mode - 1];
         const DisplayModeInfo& dm = project::displayModeInfo(modeKey);

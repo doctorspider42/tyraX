@@ -133,6 +133,23 @@ std::string bootDisplayMode(const ProjectSettings& s) {
     return s.displayMode;
 }
 
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s) {
+    const std::string boot = bootDisplayMode(s);
+    std::vector<std::string> out{boot};
+    const std::vector<std::string> declared = supportedDisplayModes(s);
+    const bool any = !s.supportedModes.empty();
+    for (const DisplayModeInfo& d : displayModes()) {
+        if (d.key == boot) continue;
+        if (any) {
+            for (const std::string& k : declared)
+                if (k == d.key) out.push_back(d.key);
+        } else {
+            out.push_back(d.key);
+        }
+    }
+    return out;
+}
+
 std::vector<std::string> supportedDisplayModes(const ProjectSettings& s) {
     std::vector<std::string> out;
     for (const DisplayModeInfo& d : displayModes())

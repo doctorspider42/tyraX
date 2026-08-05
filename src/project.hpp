@@ -2529,6 +2529,15 @@ std::string bootDisplayMode(const ProjectSettings& s);
 // any, otherwise just the boot mode.
 std::vector<std::string> supportedDisplayModes(const ProjectSettings& s);
 
+// The modes a PREVIEW should offer: the boot mode first, then the rest of the
+// declared set - and when nothing is declared, ALL of them rather than the boot
+// mode alone. The reason is that the boot mode is a GUESS whenever the region
+// is Auto: a new project has palFullHeight on, so it "boots" as 576i (512x512)
+// here while PCSX2 runs the same ELF as NTSC 480i (512x448), and a preview that
+// offers no way to look at the other one just quietly disagrees with the screen
+// (which is exactly how it was reported).
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
+
 // One entry of displayModes() by key; an unknown key resolves to "interlaced".
 const DisplayModeInfo& displayModeInfo(const std::string& key);
 
