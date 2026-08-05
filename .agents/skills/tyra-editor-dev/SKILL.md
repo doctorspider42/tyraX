@@ -67,7 +67,7 @@ Two sibling skills cover the rest of the system:
 | `hud_ui.cpp` | ~3250 | The 2D-authoring windows: UI Editor, Loading Screen, Splash, Font Manager, button icons, Input Map, Animation Editor, plus the GI-bake and Tree-generator tool windows. |
 | `procui.cpp` | ~1060 | The Procedural window (Tools > Procedural, docs/procedural-generation.md): the scatter-graph canvas (its OWN imnodes editor context - `procEditorCtx_`, never `EditorContextSet(nullptr)`), the live budget readout, per-instance overrides, `addScatterVolume`, `updateProcPreview` and the bake verbs (`bakeProcVolume`/`bakeStaleProcVolumes`/`projectForBuild`), and the **seed simulator** for runtime volumes (`runProcSeedSweep` + `procSeedPreview_`, docs/procedural-runtime.md - N evaluations at N seeds, so the author sees the SPREAD a "new world every run" volume will hand players rather than the one draw they happened to author with; the simulated seed rides `procgen::Options::seedOverride` and is a way of LOOKING at the graph, never an edit - it must stay out of `bakeHash`). Two traps this file has already paid for: a node's context menu must remember its target in `procCtxNode_` and NOT in the hover tracker `procDescNode_` (that one is reset to -1 on every frame the cursor is not over a node, which an open popup is - the menu closed the frame after it opened and right-click read as dead); and the sweep uses a SCRATCH `procgen::Cache` per trial so it cannot evict the live preview's memo. **A point carries an asset OR a prefab**, and the prefab half has no mesh of its own - `updateProcPreview` expands each such instance through `prefab::instantiate` (the same function Insert into scene and the runtime spawner use, so the preview cannot invent a placement) into `ScatterPreview::prefabObjects`; a consumer that only looks at `Instance::asset` silently shows/counts NOTHING for a prefab-scattering graph, which is how the cube example previewed as empty ground at 0 triangles. App:: methods declared in app.hpp, own TU (the droneui.cpp precedent). |
 | `cutscene_ui.cpp` | ~2180 | The Cutscene Director (dopesheet, camera shots), the phone-camera link UI and camera-take import. |
-| `credits_ui.cpp` | ~740 | **Credits Editor** (Tools > Credits Editor, docs/credits.md) - App:: methods declared in app.hpp, own TU (the assetbrowser.cpp precedent). Rolls are project-wide data edited through `saveAll()` (not undo), like Loading Screens. The load-bearing decision: the roll's BAKE is the single source of its look - `menubake::bakeCreditsStripRGBA` (in menubake.cpp, next to every other text bake) lays the blocks out and rasterizes them into a strip of pow2 PAGE textures, and the preview here uploads THOSE pixels and positions them with the generated player's own arithmetic. So there is no second layout implementation to drift, and "what scrolls in the editor is what scrolls on the console" is a property, not a promise. `creditsPreviewRefresh()` re-bakes when the roll changes, compared with `CreditsRoll::operator==` plus the fonts' TTF paths (a hand-built signature string forgets a field the day someone adds one). Pages instead of one sprite per line is a VRAM decision (`menubake::kCreditsMaxPages` = 16): the GS pins every texture it draws, so the window reports pages / duration / VRAM and says *content clipped* rather than silently cutting a roll. The layout is settings-over-preview with a **height splitter** (`creditsSplit_`, the matEdSplit_ idiom: InvisibleButton + `MouseDelta` + `saveGlobalConfig()` on release, persisted in editor.ini because how much room a preview deserves is a property of the monitor); the space a 512x448 preview leaves in a wide window is the **Jump to** list, which inverts the roll's own timing arithmetic ("when is this block centred") so a click scrubs to a block instead of hunting on the slider. |
+| `credits_ui.cpp` | ~740 | **Credits Editor** (Tools > Credits Editor, docs/credits.md) - App:: methods declared in app.hpp, own TU (the assetbrowser.cpp precedent). Rolls are project-wide data, so they are outside undo like Loading Screens - but they are still edited with `commitChange()` like everything else (see rule 1); the file used to call `saveAll()` per widget, which is why the save icon never lit for a roll. The load-bearing decision: the roll's BAKE is the single source of its look - `menubake::bakeCreditsStripRGBA` (in menubake.cpp, next to every other text bake) lays the blocks out and rasterizes them into a strip of pow2 PAGE textures, and the preview here uploads THOSE pixels and positions them with the generated player's own arithmetic. So there is no second layout implementation to drift, and "what scrolls in the editor is what scrolls on the console" is a property, not a promise. `creditsPreviewRefresh()` re-bakes when the roll changes, compared with `CreditsRoll::operator==` plus the fonts' TTF paths (a hand-built signature string forgets a field the day someone adds one). Pages instead of one sprite per line is a VRAM decision (`menubake::kCreditsMaxPages` = 16): the GS pins every texture it draws, so the window reports pages / duration / VRAM and says *content clipped* rather than silently cutting a roll. The layout is settings-over-preview with a **height splitter** (`creditsSplit_`, the matEdSplit_ idiom: InvisibleButton + `MouseDelta` + `saveGlobalConfig()` on release, persisted in editor.ini because how much room a preview deserves is a property of the monitor); the space a 512x448 preview leaves in a wide window is the **Jump to** list, which inverts the roll's own timing arithmetic ("when is this block centred") so a click scrubs to a block instead of hunting on the slider. |
 | `mateditor_ui.cpp` | ~3800 | The Material Editor: `.mtl` load/save, paint-layer stack + its own undo, the raytraced map bake, the UV validator. |
 | `devkit_ui.cpp` | ~2130 | The devkit host side: `liveLinkTick`, `liveLogicTick`, `livedbgTick`, `livetimeTick`, the Debugger window, the time-machine panel, the game-error modal. |
 | `assetbrowser.cpp` | ~1500 | **Asset Browser** (Tools > Asset Browser, docs/asset-browser.md) - App:: methods declared in app.hpp, in their own TU (the save_assets.cpp precedent) because they are a self-contained subsystem. `res/` IS the asset database, so everything is a view over the file system (`scanAssetTree`, throttled while the window is open) plus the two things a file manager cannot do: **`rebuildAssetUsage`** - ONE pass over the model recording every stored asset path (the census the grid's unused-ring, the inspector's user list and the delete warnings all read; keyed off `modelEditSerial_`) - and **the sibling invariant**: a Wavefront reference (`mtllib`/`map_Kd`/`refl`) is a bare name resolved next to the file that named it and the PS2 cannot walk `..`, so `moveAssets` moves a transitively closed dependency group (`assetWavefrontDeps`), COPIES a dependency the files left behind still need, and REFUSES rather than half-applying a move that would break a reference; `renameAsset` (same folder = safe) rewrites the siblings instead (`rewriteWavefrontRef`) and carries the `.mtl` a model exclusively owns. A new file type becomes a first-class asset by joining `assetKindOf`/`assetKindName`, the filter-chip counts, `matchesFilter`, `kindColor` (append - the cases are numeric, so inserting shifts every colour), `activateAsset` and the inspector switch - the `.drone` audio project (the drone batch's 213) is the worked example. **`retargetAssetPath` is the single list of every field that stores an asset path** - a new such field must join it or renaming its file silently breaks it. Sidecars (`.uvs`, `.aov`, the Drone Generator's `.drone` patch, `<tex>.layers/`) travel with their asset; the baked `.tmdl` is deleted for the next build to redo. Host-only apart from `Viewport::assetThumb` (thumbnails: one render per asset into a dedicated FBO, copied into its own texture, budgeted a few per frame) - so the whole non-UI half is exercisable from a harness (PROGRESS 105). |
@@ -138,15 +138,63 @@ codegen changed since, they drift silently. Regenerate (load + save +
 ## The rules that keep the system consistent
 
 ### 1. Editing model: mutate, then `commitChange()`
-UI code in `app.cpp` mutates `project_` freely; one logical user action ends with
-a single `commitChange()`, which pushes an undo snapshot and saves. If you add
-an editable property and skip this, undo/redo and autosave silently break.
+UI code mutates `project_` freely; one logical user action ends with a single
+`commitChange()`, which pushes an undo snapshot and marks the project dirty.
+**There is no autosave** — the bytes reach disk only on an explicit Save
+(Ctrl+S / File > Save / the toolbar button). If you add an editable property
+and skip the commit, undo/redo and the dirty flag silently break.
 **Collaboration corollary:** the live-session sync detects edits through
 `modelEditSerial_`, bumped only in `commitChange()`, `applySnapshot()` and
 `setDirty(true)`. A mutation path that avoids all three (writes project state
 but never dirties) will save fine locally and **silently never reach session
 peers** — route new edit paths through commitChange/setDirty like everything
 else.
+
+**`commitChange()` is the one verb, project-wide data included.** The undo
+snapshot only carries `project_.scenes`, so for a project-wide collection —
+menus, credits, loading screens, splashes, the Input Map, fonts, button icons,
+the HUD, save values, per-asset overrides — `history_.push()` returns false and
+**no undo step appears**; the commit still dirties and still bumps the serial.
+That is exactly what those panels need, and it is why committing per widget
+costs nothing and cannot spam undo during a slider drag.
+
+**Never reach for `saveAll()` from a widget.** It writes the whole project AND
+the history file, then clears the dirty flag — so the toolbar save icon never
+lights, the exit prompt never appears (the edit is quietly losable), every
+slider release rewrites the project, the serial bump is skipped, and whatever
+else the user had pending is silently persisted too. `saveAll()` is for an
+explicit save **command** (Ctrl+S, File > Save, the toolbar button, the discard
+modal, "Layout saved") or for an action whose file-system side effect the model
+must match on disk (asset import). Nothing else. This was settled repo-wide
+after the Save Editor, the Credits Editor, Loading Screens, the Animation
+Editor, the insert-object presets and the per-asset LOD/quality popups had each
+grown their own answer; `credits_ui.cpp` had a file header documenting the
+opposite rule, which is how the two conventions survived side by side.
+
+**A hand-set `bool changed` is not enough on its own.** It is the usual trigger
+accumulated over a window body, but the next widget someone adds forgets to set
+it — that is precisely how the Menu Editor left the icon dark for titles,
+colours, sizes and images. A window that owns a `project::Section` pairs the
+flag with a comparison of `project::sectionJson()` taken across the whole body:
+
+```cpp
+const std::string before = project::sectionJson(project_, project::Section::Credits);
+... window body ...
+if (changed || project::sectionJson(project_, project::Section::Credits) != before)
+    commitChange();
+```
+
+A window with early returns wraps that in a local `commitIfEdited` lambda and
+calls it at each exit (`drawLoadingScreenWindow`, `drawCreditsWindow`); a window
+spanning two sections concatenates both blobs. Take the `before` snapshot
+**after** any repair the window does on entry (`if (fonts.empty()) push_back`),
+or merely opening the panel reads as an edit.
+
+**View state is not an edit.** The render mode, the projection and the active
+scene are read off the viewport by `saveProject()` at save time — they neither
+dirty the project nor write to disk (`setViewProjection` is the reference).
+Editor state that IS stored in the `.tyra` but has no undo meaning — window
+layouts, debugger breakpoints — marks dirty directly with `setDirty(true)`.
 
 ### 2. Generated-file ownership markers
 `project::refreshGenerated()` (project.cpp:914) runs at the start of every build

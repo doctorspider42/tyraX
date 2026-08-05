@@ -1233,12 +1233,15 @@ void App::drawMenuBar() {
             ImGui::Separator();
             ImGui::TextDisabled("Render mode");
             const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+            // Switching costs no write and no dirty flag: the render mode is
+            // VIEW state, not content, and saveProject() reads it off the
+            // viewport at save time - exactly like the projection below. This
+            // used to call saveAll(), which silently committed every pending
+            // scene edit and cleared the save icon along the way.
             for (int i = 0; i < 3; ++i) {
                 const bool active = (int)viewport_.viewMode() == i;
-                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active) {
+                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
                     viewport_.setViewMode((Viewport::ViewMode)i);
-                    saveAll("Saved");  // persist the view mode in the project file
-                }
             }
 
             ImGui::Separator();
@@ -5869,8 +5872,13 @@ void App::attachProject() {
     openErrorPopup_ = false;
 }
 
+// The Insert-menu presets: a default object from addObject(), then the preset's
+// own field tweaks, then ONE commitChange() covering both. They used to end in
+// saveAll(), which wrote the whole project to disk and cleared the save icon -
+// so inserting a point light behaved differently from inserting a box, and the
+// tweaks landed outside the undo snapshot addObject() had already pushed.
 void App::addEmitter(int kind) {
-    addObject(PrimitiveType::Emitter);
+    addObject(PrimitiveType::Emitter, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.emitterKind = kind;
     // preset tints (the color tints the particles / their texture)
@@ -5898,77 +5906,77 @@ void App::addEmitter(int kind) {
         o.emitterCount = 64;
         o.emitterSize = 0.3f;
     }
-    saveAll("Saved");
+    commitChange();
 }
 void App::addSoundEmitter() {
-    addObject(PrimitiveType::SoundEmitter);
+    addObject(PrimitiveType::SoundEmitter, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 1.0f;
     o.color[0] = 0.65f, o.color[1] = 0.3f, o.color[2] = 0.9f;  // violet marker
     o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
     if (!project_.sounds.empty()) o.soundPath = project_.sounds.front();
-    saveAll("Saved");
+    commitChange();
 }
 void App::addPointLight() {
-    addObject(PrimitiveType::PointLight);
+    addObject(PrimitiveType::PointLight, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 3.0f;  // hovers above the ground by default
     o.color[0] = 1.0f, o.color[1] = 0.95f, o.color[2] = 0.8f;  // warm white
     o.scale[0] = o.scale[1] = o.scale[2] = 0.4f;  // small bulb gizmo
     o.lightBright = 1.0f;
     o.lightRadius = 8.0f;
-    saveAll("Saved");
+    commitChange();
 }
 void App::addEmpty() {
-    addObject(PrimitiveType::Empty);
+    addObject(PrimitiveType::Empty, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // small neutral sphere marker, floats where scripts expect an anchor
     o.position[1] = 1.0f;
     o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
     o.color[0] = o.color[1] = o.color[2] = 0.75f;
     o.collisionMode = 2;  // pure transform - never blocks the player
-    saveAll("Saved");
+    commitChange();
 }
 void App::addDecal() {
-    addObject(PrimitiveType::Decal);
+    addObject(PrimitiveType::Decal, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 1.5f;  // eye height on a wall
     // white so the texture shows untinted (color modulates the map_Kd)
     o.color[0] = o.color[1] = o.color[2] = 1.0f;
     o.collisionMode = 2;  // visual overlay - never blocks the player
-    saveAll("Saved");
+    commitChange();
 }
 void App::addMirror() {
-    addObject(PrimitiveType::Mirror);
+    addObject(PrimitiveType::Mirror, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // an upright dressing-mirror rectangle at standing height, cool glass tint
     o.position[1] = 1.2f;
     o.scale[0] = 1.4f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
-    saveAll("Saved");
+    commitChange();
 }
 void App::addScroller() {
-    addObject(PrimitiveType::Scroller);
+    addObject(PrimitiveType::Scroller, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // an invisible belt marker; a bright arrow gizmo shows the scroll axis
     o.position[1] = 1.0f;
     o.color[0] = 0.2f, o.color[1] = 0.85f, o.color[2] = 1.0f;
     o.collisionMode = 2;   // pure marker - never blocks the player
     o.castShadow = false;  // no geometry - nothing to occlude with
-    saveAll("Saved");
+    commitChange();
 }
 void App::addPortal() {
-    addObject(PrimitiveType::Portal);
+    addObject(PrimitiveType::Portal, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // a door-sized upright frame at standing height, warm energy tint
     o.position[1] = 1.2f;
     o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
     o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
     o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
-    saveAll("Saved");
+    commitChange();
 }
 void App::addArea() {
-    addObject(PrimitiveType::Area);
+    addObject(PrimitiveType::Area, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // A room-sized box resting on the ground, cool green so the wireframe
     // reads as "volume", not "prop".
@@ -5977,10 +5985,10 @@ void App::addArea() {
     o.color[0] = 0.3f, o.color[1] = 0.95f, o.color[2] = 0.5f;
     o.collisionMode = 2;  // a volume, never a wall
     o.castShadow = false;  // no geometry - nothing to occlude with
-    saveAll("Saved");
+    commitChange();
 }
 void App::addSavePoint() {
-    addObject(PrimitiveType::SavePoint);
+    addObject(PrimitiveType::SavePoint, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // a slim cyan pillar - reads as a save terminal, box collision in game
     o.position[1] = 0.75f;
@@ -5988,9 +5996,9 @@ void App::addSavePoint() {
     o.color[0] = 0.25f, o.color[1] = 0.85f, o.color[2] = 0.95f;
     o.usable = true;  // implicit in the game; mirrored here for the viewport
     snapInsertedObject();  // re-snap: the pillar's real height is set here
-    saveAll("Saved");
+    commitChange();
 }
-void App::addObject(PrimitiveType type) {
+void App::addObject(PrimitiveType type, bool commit) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
     std::string name;
@@ -6022,7 +6030,7 @@ void App::addObject(PrimitiveType type) {
     // Rest it on whatever is under the spawn spot instead of spawning inside
     // it (the marker types have no volume, so this is a no-op for them).
     snapInsertedObject();
-    commitChange();
+    if (commit) commitChange();
 }
 
 std::string App::importModelAsset() {
@@ -6333,16 +6341,17 @@ void App::drawModelSizeModal() {
                         o.scale[0] = o.scale[1] = o.scale[2] = insertScale;
             commitChange();  // object scales are an undoable scene edit
         }
-        // The asset size itself lives in the manifest, not in a scene, so an
-        // undo snapshot would not carry it - write it out like the LOD and
-        // texture-quality overrides do. setDirty first: that is what advances
-        // the session serial, so a peer sees the section change too.
-        setDirty(true);
+        // The asset size itself lives in the manifest, not in a scene, so
+        // history_.push() carries nothing - but commitChange() still marks the
+        // project dirty and advances the session serial, which is what a
+        // project-wide edit needs (see the editing model in app.hpp). No disk
+        // write: like the LOD and texture-quality overrides, this waits for a
+        // real save.
+        commitChange();
         char msg[192];
         std::snprintf(msg, sizeof msg, "%s: 1 unit = %g m, inserted at scale %g",
                       std::filesystem::path(modelSizePath_).filename().string().c_str(),
                       modelSizeMeters_, insertScale);
-        saveAll("Saved");
         statusMessage_ = msg;
         modelSizePath_.clear();
         modelSizeFresh_ = false;
@@ -6756,7 +6765,7 @@ void App::drawAssetQualityCombo(const std::string& assetRel) {
         else
             project_.textureQuality[assetRel] =
                 cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
-        saveAll("Saved");
+        commitChange();
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Texture quality of this asset's textures\n"
@@ -6832,7 +6841,7 @@ void App::drawAssetLodButton(const std::string& assetRel) {
             project_.modelLods.erase(assetRel);
         else
             project_.modelLods[assetRel] = tiers;
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::EndPopup();
 }
@@ -10851,7 +10860,10 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 hudTexCache_.erase(d.relPath);
             }
             statusMessage_ = "Deleted " + d.label;
-            saveAll("Saved");  // HUD edits are not on the undo stack
+            // Like every other branch of this function: mark, don't write. The
+            // HUD lives outside the undo snapshot, so commitChange() pushes
+            // nothing here - it marks dirty and advances the session serial.
+            commitChange();
             break;
         }
     }
