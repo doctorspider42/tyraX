@@ -249,6 +249,9 @@ Developer design docs (internals, not user guides):
   another image with `TYRAX_IMAGE`, and the measurements behind keeping the
   inherited toolchain (the from-source `openvcl` changes all 25 VU1
   microprograms and fails on 4).
+- [What to send upstream to openvcl](upstream-openvcl.md) - the two openvcl bugs
+  this work found (one with a patch, one without a reproducer) and the four
+  density flags, ready to hand over.
 - [Profiling the generated game](profiling.md) - the built-in debug frame
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)

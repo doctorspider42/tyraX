@@ -763,11 +763,14 @@ the source robust under both assemblers rather than relying on one of them being
 clever. After it: 25 of 25 compile, the checker is clean for both assemblers, and
 the render is the pixel-identical one in the table above.
 
-The tool bug is still a tool bug, and it is the one thing here worth upstreaming
-after the CLIPw patch: **openvcl's liveness analysis ignores a backward branch**,
-so any program of this shape can be silently miscompiled. It is not fixed in
-`docker/openvcl-tyrax.patch` - that is a real analysis change, not a one-token one
-- and until it is, the checker above is what stands in for it.
+The tool bug is still a tool bug and still unfixed, but **the obvious explanation for
+it is wrong.** "openvcl's liveness ignores the back edge" does not survive testing:
+narrow the register pool with `.init_vf vf01-vf03`, keep a value live across `b begin`
+and make the body need the whole pool - with and without an inner loop - and openvcl
+**refuses cleanly** (`Register allocation ran out of registers`) rather than clobbering
+anything. So the trigger is narrower than that, a minimal reproducer is still missing,
+and the checker above is what stands in for a fix. Written up for upstream, with both
+failed reproducers, in [upstream-openvcl.md](upstream-openvcl.md).
 
 ### And a second one, still open: `stapip_clip_c`
 
@@ -852,9 +855,13 @@ emitter (inlining three emit copies each measured 2162 against the same ceiling)
 Its 24 basic blocks include three at 36-53% stall cycles with almost no pairing
 (block 20: 102 cycles, 54 of them padding, 2 paired rows) - long serial FMAC
 chains from the branchless nearest-hit mixing, where a 4-cycle latency has nothing
-inside the same block to hide behind. Note it also has a hard ceiling of its own:
-VU0 micro memory is 4 KB = 512 instructions, so at 961 that kernel cannot load at
-all, while legacy's 483 just fits.
+inside the same block to hide behind.
+
+**That number was cycles, and it read as a second overflow for a while - it is not
+one.** VU0 micro memory holds 512 instructions, and measured as *instructions* the
+kernel is **469 under openvcl against SCE's 483**: it fits, with openvcl's copy the
+smaller of the two. The cycle gap is still real and still worth closing, but nothing
+here fails to load.
 
 So the remaining work is **latency hiding for serial chains**, which means either
 scheduling across basic-block boundaries in openvcl, or exposing more ILP in the

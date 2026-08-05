@@ -302,10 +302,11 @@ the verification, and any fact worth reusing belongs in the relevant
     openvcl is SMALLER than SCE, so the VU1-clipper set fits at 2033 and can boot:
     those two alone render pixel-identically, adding `clip_c` breaks 453644 pixels.
     Not the liveness bug (the checker is clean on it) and not any of the flags (it
-    reproduces with none of the new ones). So the migration waits on 28 words AND a
-    second correctness bug, in the clipper program.
-    Also still open, and a separate budget: `vu0_rt_kernel` at 961 cycles against
-    VU0's 512-instruction micro memory.
+    reproduces with none of the new ones).
+    **`vu0_rt_kernel` is NOT a problem after all** - the old "961 against VU0's 512"
+    note compared cycles with instructions. Measured as instructions it is 469 under
+    openvcl against SCE's 483, and VU0 micro memory holds 512: it fits, and openvcl's
+    copy is the smaller one.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as
     well), `-C`, `-f`, `--bthres`. Full write-up in `docs/toolchain-image.md`.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV
