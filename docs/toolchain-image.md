@@ -1168,7 +1168,16 @@ minimum. **And it still does not fix the miscompile.** The honest numbers:
 
 The count moves with the timing, which is the mechanism confirmed; raising the window to
 8 changes nothing, so the flag now reads a settled value and **a separate defect
-remains.** Also eliminated on the way: `--emit-delay-fillers` retraction is not what
+remains.**
+
+Where that defect is NOT, so the next attempt starts somewhere new. Every `fcand` in
+this program writes the same VI01, so the emission order has to be strictly test,
+consumer, test, consumer - a consumer left behind the next test would read a different
+plane's answer. It is not: `flagchain.py` reports 0 overwrites-before-read for both
+assemblers. And `edgeCross`'s divide is structurally identical - `div` then two rows
+later the `mulq` paired with `waitq`, in both - so the interpolation is not reading `q`
+early, which matters because the clipper is iterative and bad positions from one plane
+would change the next plane's decisions. Also eliminated on the way: `--emit-delay-fillers` retraction is not what
 shortened the gaps (building without it leaves every gap byte-identical), the CLIP window
 *depth* matches the source (each `fcand` reads its own `clipw`, none intervening), and
 `sjudge` - whose `.z` is written once above `begin:` and read by every `clipw.xyz` in the
