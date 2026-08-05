@@ -290,7 +290,12 @@ private:
     void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
     void applyProjectToViewport();
-    void addObject(PrimitiveType type);
+    // Appends a default object of `type`, selects it and rests it on whatever
+    // is under it. `commit` false leaves the commit to the caller: the preset
+    // wrappers below tweak the fresh object AFTER this returns, and one insert
+    // must be ONE undo step - committing here as well would make the first
+    // undo roll back only the tweak.
+    void addObject(PrimitiveType type, bool commit = true);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void addSoundEmitter();
     void addPointLight();
@@ -847,6 +852,38 @@ private:
     // logical action - it pushes an undo snapshot and marks the project dirty.
     // The project is written to disk only on demand (Save / Ctrl+S / the
     // toolbar button); there is no autosave.
+    //
+    // commitChange() is the ONE verb for a model edit, project-wide data
+    // included. The undo snapshot only carries project_.scenes, so for a
+    // project-wide collection - menus, credits, loading screens, the Input
+    // Map, save values, per-asset overrides - history_.push() returns false
+    // and NO undo step appears; the commit still marks the project dirty and
+    // advances modelEditSerial_, which is what the collaboration / Live Link
+    // diff watches. That is why committing per widget costs nothing and why a
+    // panel must not reach for saveAll() instead: writing on every slider
+    // release rewrites the whole project AND the history file, clears the
+    // dirty flag so the toolbar save icon never lights, skips the serial bump,
+    // and silently persists whatever else the user had pending.
+    //
+    // saveAll() is for an explicit save COMMAND (Ctrl+S, File > Save, the
+    // toolbar button, the discard modal) or for an action whose file-system
+    // side effect the model must match on disk (asset import). Not for a
+    // widget. A `bool changed` flag accumulated over a window body is the
+    // usual trigger, but it is set by hand and the next widget added forgets
+    // it - so a window that owns a section pairs it with a comparison of
+    // project::sectionJson() across the whole body, which cannot be forgotten.
+    // EVERY project-wide panel carries that guard now (Save Editor, Menus,
+    // Credits, Loading Screens, UI Editor, icons, Fonts, Input Map, Animation
+    // Editor, Grading, Ambience, Cutscene Director, Prefabs) - copy the
+    // nearest one rather than inventing a third answer. The only saveAll()
+    // sites left are the five save commands, the three asset imports and the
+    // Drone Generator's render.
+    //
+    // View state is NOT an edit: the render mode, the projection and the
+    // active scene are read off the viewport by saveProject() and neither
+    // dirty the project nor write to disk (see setViewProjection). Editor
+    // state that IS stored in the .tyra but has no undo meaning - window
+    // layouts, debugger breakpoints - marks dirty directly with setDirty().
     void commitChange();
     void saveAll(const char* status);
     void applySnapshot(const SceneSnapshot& s);

@@ -765,7 +765,14 @@ Notes:
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it.
+  click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
+  click will land**: a window taller than the room it got still submits the items
+  past its bottom edge, so they are listed with rects OUTSIDE the window, and
+  `click` on one presses over nothing and still reports success - which reads as
+  a broken feature when the code is fine. Compare the item's y against its
+  window's rect (both are in the same `dump`) and **pair every state-changing
+  click with `expect-checked` / `expect-unchecked`**, which turns a silent no-op
+  into a failed run.
 
   **Combos and tabs ARE nameable now** (they were not, and both were silent
   gaps): `BeginCombo` never calls ImGui's item-info hook at all, and `TabItemEx`

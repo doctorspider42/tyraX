@@ -10,7 +10,15 @@
 //    generated player uses. It is not a re-implementation of the roll's look:
 //    if the two ever disagree, one of them is wrong, and it is not the bake.
 //  - Rolls are project-wide data like Ambience presets or Loading Screens, so
-//    edits go through saveAll() and are NOT part of undo/redo.
+//    they are NOT part of undo/redo - but that is a statement about the undo
+//    stack, not about saving. Edits go through commitChange() like every other
+//    edit in the editor (app.hpp): for a project-wide collection history_.push
+//    carries nothing and returns false, so no undo step appears, while the
+//    project is still marked dirty and the session serial advances. This file
+//    used to call saveAll() per widget instead, which wrote the whole project
+//    AND the history file on every slider frame and cleared the dirty flag -
+//    so the save icon never lit for a roll and the edit was not visible to the
+//    collaboration / Live Link diff.
 //
 // App:: methods declared in app.hpp, in their own TU (the assetbrowser.cpp
 // precedent) so the editor keeps building in parallel.
@@ -181,6 +189,20 @@ void App::drawCreditsWindow() {
     auto& rolls = project_.credits;
     if (selectedCredits_ >= (int)rolls.size()) selectedCredits_ = -1;
 
+    // Belt and braces: `changed` is set by hand at each widget, so the next
+    // one added here can forget it. Comparing the section's serialized form
+    // across the whole body cannot be forgotten. The Credits section alone is
+    // enough - a roll rename also retargets menu rows and flow nodes, but it
+    // renames the roll itself in the same breath, so this catches it too and
+    // the window need not re-serialize Menus every frame it is open.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Credits);
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::Credits) != beforeSection)
+            commitChange();
+    };
+
     // The window is two stacked halves with a draggable splitter: settings on
     // top, the preview below. Which one deserves the room depends on what you
     // are doing - writing a roll wants the block list tall, judging its timing
@@ -261,7 +283,7 @@ void App::drawCreditsWindow() {
             "scene, open a menu, or fire a flow event.");
         ImGui::EndChild();
         ImGui::EndChild();  // cr_top
-        if (changed) saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -306,7 +328,7 @@ void App::drawCreditsWindow() {
         changed = true;
         ImGui::EndChild();
         ImGui::EndChild();  // cr_top
-        saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -318,7 +340,7 @@ void App::drawCreditsWindow() {
         creditsPreviewDrop();
         ImGui::EndChild();
         ImGui::EndChild();  // cr_top
-        saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -956,6 +978,6 @@ void App::drawCreditsWindow() {
         ImGui::EndChild();
     }
 
-    if (changed) saveAll("Saved");
+    commitIfEdited();
     ImGui::End();
 }
