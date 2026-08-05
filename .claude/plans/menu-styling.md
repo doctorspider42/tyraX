@@ -336,8 +336,12 @@ Each is one PR with docs in the same commit.
 - **`OpenPopup`/`BeginPopupModal` must use the same string**, and an
   open-but-undrawn modal eats every click (PROGRESS 215).
 - **Wrap every pixel literal in `scaled()`**; the preview is full of them.
-- **Mirror the format in the VS Code extension** (`tools/vscode-tyrax`
-  `SPEC` + grammar) the way `.flownode`/`.screenfx` are, or `.menustyle` files
-  get no highlighting or validation.
+- **Mirror the format in the VS Code extension** (`tools/vscode-tyrax`) the way
+  `.flownode`/`.screenfx` are, or `.menustyle` files get no highlighting. Adding
+  the grammar is only half of it, and the other half is what actually bit: the
+  extension ships as a **committed `.vsix`** that nothing rebuilds, so the
+  language was registered in the sources and invisible to every user until the
+  package was regenerated (`package-vsix.py`). The same had already happened to
+  the VU language one release earlier.
 - **`ai-support/` describes the project format to agents** — a new menu-styling
   surface belongs there in the same commit.

@@ -134,9 +134,31 @@ code --install-extension tyrax-flownode-*.vsix
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
   `package.json` first so `code --install-extension --force` picks up the new
-  build): `cd tools/vscode-tyrax && npx @vscode/vsce package`, then delete the old
-  versioned `.vsix`. A stale `.vsix` is a real trap — the source looks updated
-  but users get the old build.
+  build). Either way works:
+
+  ```sh
+  cd tools/vscode-tyrax && npx @vscode/vsce package     # canonical, needs node
+  python3 tools/vscode-tyrax/package-vsix.py            # same archive, stdlib only
+  ```
+
+  The Python packager exists because this trap has already fired **twice**: the
+  VU language shipped in 0.3.0 sources against a committed 0.2.0 package, and
+  menu stylesheets did the same — in both cases the source looked updated while
+  every user got the old build, with no error anywhere. It derives its file list
+  from `package.json`'s own `grammars`/`snippets` entries (so a language added to
+  the manifest and forgotten in the script is impossible), deletes the previous
+  `.vsix` (the editor globs `*.vsix` and would otherwise pick whichever it found
+  first) and prints what went in. **Check the printed language list against what
+  you changed** before committing.
+
+  A grammar itself is worth a look before packaging, and it does not need VS
+  Code: applying its top-level patterns to a real sample file line by line shows
+  which rule claims which token and, more usefully, whether some rule never
+  fires at all (a dead pattern is the normal way a grammar "works" but colours
+  nothing). Keep such a checker in the scratchpad — a 50-line script over
+  `json` + `re` is enough, and remember to descend into a rule's nested
+  `patterns` only when it has no `match`/`begin` of its own, or `declaration`
+  and `variable-decl` read as dead when they are fine.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
 tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock

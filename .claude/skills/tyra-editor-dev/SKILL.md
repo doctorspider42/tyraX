@@ -770,6 +770,13 @@ differs from every other feature here, because most of it is data:
   geometry table - `App::ps2ViewportOutput` and the Menu Editor's
   per-resolution preview both read it, and it is the host twin of
   `RendererSettings::updateGeometry`.
+- the sheet's editor support lives in `tools/vscode-tyrax`, and **a change there
+  is not done until the `.vsix` is repackaged**: that committed package is what
+  the editor installs, nothing rebuilds it, and a source-only change is invisible
+  to every user with no error anywhere (it has fired twice - the VU language,
+  then `.menustyle`). Bump `version` in package.json, run `python3
+  tools/vscode-tyrax/package-vsix.py`, let it delete the old file, read the
+  language list it prints.
 - the compatibility rule that must not be broken: **an empty `GameMenu::style`
   bakes byte-identically to the pre-stylesheet editor.** It is checkable -
   `--refresh-gen` an example with both binaries and diff `res/menus/*.png` (that
