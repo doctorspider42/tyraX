@@ -725,10 +725,15 @@ banner both, so a previously built ELF still reports.
   loads ADPCM samples from 0x5010 upward, so they collide only past ~1.9 MB of
   effects. Changing preset zeroes that area, which is why the game only does it
   at zero wet level and never per frame.
-- **audsrv uses core 1 only** - all 24 ADPCM voices and the music stream - and
-  leaves core 0 muted (`MVOLL/MVOLR = 0`). That is why there is exactly one
-  reverb bus today; a second one means putting voices on core 0, which is an
-  audsrv change, not an engine one.
+- **The audsrv fork plays voices on BOTH cores**: channels 0-23 are core 1
+  (unchanged, so old callers cannot tell), 24-47 are core 0. Upstream muted
+  core 0's master outright, which is what made the SECOND reverb unit
+  unreachable - a reverb is per core and only that core's voices feed it.
+  Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
+  volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
+  master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
+  `BusB` (core 0). The generated game still drives bus A alone - room
+  cross-fading is the remaining half, see docs/backlog.md.
 - **The SPU2's hardware reverb is reachable, and only through a second RPC
   server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
   exposes playback and nothing else, so the registers come from PS2SDK's

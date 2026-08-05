@@ -122,9 +122,14 @@ static void update_volume()
 	sceSdSetParam(SD_CORE_1 | SD_PARAM_BVOLL, vol);
 	sceSdSetParam(SD_CORE_1 | SD_PARAM_BVOLR, vol);
 
-	/* set master volume for core 0 */
-	sceSdSetParam(SD_CORE_0 | SD_PARAM_MVOLL, 0);
-	sceSdSetParam(SD_CORE_0 | SD_PARAM_MVOLR, 0);
+	/* Modified by TyraX: core 0's master was muted here, which is what made
+	 * its 24 voices - and with them the SPU2's second reverb unit -
+	 * unreachable. Its output already arrives at core 1 at full level (the
+	 * AVOL pinned above IS the core-0-into-core-1 volume), so raising this is
+	 * the entire routing change. cdrom.c has always done the same for CDDA,
+	 * which is the precedent that says it is safe. */
+	sceSdSetParam(SD_CORE_0 | SD_PARAM_MVOLL, MAX_VOLUME);
+	sceSdSetParam(SD_CORE_0 | SD_PARAM_MVOLR, MAX_VOLUME);
 
 	/* set master volume for core 1 */
 	sceSdSetParam(SD_CORE_1 | SD_PARAM_MVOLL, MAX_VOLUME);

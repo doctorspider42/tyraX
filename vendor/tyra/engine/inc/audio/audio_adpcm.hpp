@@ -47,7 +47,8 @@ class AudioAdpcm {
   /**
    * Try play ADPCM sample if channel(s) is not occupied.
    * @param t_adpcm ADPCM data, created by load();
-   * @param t_ch Channel (0-23). Type -1 for use any free channel.
+   * @param t_ch Channel (0-47: 0-23 on SPU2 core 1, 24-47 on core 0 - see
+   *             vendor/tyra/audsrv). Type -1 for use any free channel.
    */
   AdpcmResult tryPlay(audsrv_adpcm_t* t_adpcm);
   AdpcmResult tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch);
@@ -56,7 +57,7 @@ class AudioAdpcm {
    * Play ADPCM sample, if channel is occupied, wait for it.
    * If not used properly, can hugely reduce performance.
    * @param t_adpcm ADPCM data, created by load();
-   * @param t_ch Channel (0-23). Type -1 for use any free channel.
+   * @param t_ch Channel (0-47). Type -1 for use any free channel.
    */
   void playWait(audsrv_adpcm_t* t_adpcm);
   void playWait(audsrv_adpcm_t* t_adpcm, const s8& t_ch);
@@ -64,7 +65,7 @@ class AudioAdpcm {
   /**
    * Set ADPCM volume (centered - equal left/right).
    * @param t_vol Value 0-100
-   * @param t_ch Channel (0-23)
+   * @param t_ch Channel (0-47)
    */
   void setVolume(const u8& t_vol, const s8& t_ch) {
     audsrv_adpcm_set_volume(t_ch, t_vol);  // 2-arg macro -> centered (pan 0)
@@ -74,7 +75,7 @@ class AudioAdpcm {
    * Set ADPCM volume with stereo panning.
    * @param t_vol Value 0-100
    * @param t_pan -100 (full left) .. 0 (center) .. 100 (full right)
-   * @param t_ch Channel (0-23)
+   * @param t_ch Channel (0-47)
    */
   // Added by TyraX: positional stereo for sound emitters. Uses the forked
   // audsrv's audsrv_adpcm_set_volume_and_pan (vendor/tyra/audsrv/README.md).

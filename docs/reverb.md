@@ -13,8 +13,8 @@ strength.
 ## What the hardware actually gives you
 
 Everything below follows from one fact: the SPU2 has **one reverb unit per
-core**, and the whole game's audio — the streamed music and all 24 sound-effect
-voices — lives on one of them. So:
+core**, and the generated game currently puts the streamed music and every
+sound effect it plays on one of them. So:
 
 | | |
 |---|---|
@@ -25,10 +25,20 @@ voices — lives on one of them. So:
 | **Music stays dry** | Deliberately, and it takes an explicit register write to keep it that way: the sound driver's own defaults send everything into the reverb, music included. |
 
 Nothing here is a TyraX limitation to be lifted later by better code — it is the
-shape of the chip. The one part that *could* change is "one room at a time":
-the second SPU2 core sits unused, and putting voices on it would buy a second
-reverb bus and with it real cross-fades between rooms. That is queued work, not
-a promise.
+shape of the chip, with one exception that is now half-lifted.
+
+**"One room at a time" is on its way out.** The SPU2 has two cores and therefore
+*two* reverb units; upstream audsrv used only one and left the other core muted.
+The [audsrv fork](../vendor/tyra/audsrv/README.md) now plays voices on both
+(channels 0-23 = core 1, 24-47 = core 0) and `Tyra::AudioReverb` drives both
+units as `BusA` / `BusB`. What is not written yet is the game side: choosing a
+bus per room, moving new sounds onto it and ramping the two depths past each
+other. Until that lands the generated game still drives bus A alone, so
+everything in the table above holds as written — a preset change still cuts.
+The design intended, recorded so it is not re-derived: a room owns a bus, new
+sounds go to the incoming room's bus while the ones already playing finish on
+the outgoing one, which is also what a real room does to a sound you carry out
+of it.
 
 ## Presets
 
@@ -127,7 +137,9 @@ frame measurably costs frame rate.
 ## How it is wired (for the curious)
 
 The EE cannot normally reach the sound chip's registers — the audio server the
-engine uses exposes only playback. The path this feature opens is PS2SDK's own
+engine uses exposes only playback (which is separate from the fork of that
+server described in `vendor/tyra/audsrv/`; the reverb needs no audsrv change at
+all, only the second bus does). The path this feature opens is PS2SDK's own
 `ps2snd` RPC server over `libsd`, embedded and loaded alongside the existing
 modules; the engine wraps it in `Tyra::AudioReverb`
 (`vendor/tyra/engine/{inc,src}/audio/audio_reverb.*`). The audio server keeps

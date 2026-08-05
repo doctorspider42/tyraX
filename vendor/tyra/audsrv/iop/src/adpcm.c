@@ -40,6 +40,31 @@ typedef struct adpcm_list_t
 	int spu2_addr;
 } adpcm_list_t;
 
+/*
+ * Modified by TyraX: ADPCM voices on BOTH SPU2 cores.
+ *
+ * Upstream puts every voice on core 1 and leaves core 0 muted, which caps the
+ * effects at 24 voices and - the reason this change exists - leaves the SPU2's
+ * SECOND reverb unit unreachable, because a reverb is per core and only the
+ * voices on that core can feed it.
+ *
+ * The numbering is deliberately backwards-compatible: channels 0..23 are core
+ * 1's voices exactly as before (so every existing caller, and audsrv's own
+ * "channels 16-23 are the sound emitters" convention, behaves identically),
+ * and 24..47 are core 0's. A caller that never asks for a channel above 23
+ * cannot tell this build from the old one.
+ *
+ * Core 0 is made audible in audsrv.c's update_volume(): its output already
+ * reaches core 1 at full level (core 1's AVOL is pinned at 0x7fff there), so
+ * unmuting its master is the whole routing change. cdrom.c has always done the
+ * same thing for CDDA.
+ */
+#define ADPCM_VOICES_PER_CORE 24
+#define ADPCM_MAX_CHANNELS    (ADPCM_VOICES_PER_CORE * 2)
+#define ADPCM_CH_CORE(ch)  ((ch) < ADPCM_VOICES_PER_CORE ? SD_CORE_1 : SD_CORE_0)
+#define ADPCM_CH_VOICE(ch) ((ch) < ADPCM_VOICES_PER_CORE \
+                                ? (ch) : (ch) - ADPCM_VOICES_PER_CORE)
+
 static adpcm_list_t *adpcm_list_head = 0;
 static adpcm_list_t *adpcm_list_tail = 0;
 
@@ -213,11 +238,11 @@ int audsrv_is_adpcm_playing(int ch, u32 id)
 	u32 endx;
 	adpcm_list_t *a;
 
-	if (ch > 24)
+	if (ch < 0 || ch >= ADPCM_MAX_CHANNELS)
 		return 0;
 
-	endx = sceSdGetSwitch(SD_CORE_1 | SD_SWITCH_ENDX);
-	if ((endx & (1 << ch)) != 0)
+	endx = sceSdGetSwitch(ADPCM_CH_CORE(ch) | SD_SWITCH_ENDX);
+	if ((endx & (1 << ADPCM_CH_VOICE(ch))) != 0)
 		return 0;
 
 	a = adpcm_loaded(id);
@@ -227,50 +252,48 @@ int audsrv_is_adpcm_playing(int ch, u32 id)
 		return AUDSRV_ERR_ARGS;
 	}
 
-	return a->spu2_addr == sceSdGetAddr(SD_CORE_1 | (ch << 1) | SD_VOICE_START);
+	return a->spu2_addr == sceSdGetAddr(ADPCM_CH_CORE(ch) |
+	                                   (ADPCM_CH_VOICE(ch) << 1) | SD_VOICE_START);
 }
 
 static int audsrv_adpcm_alloc_channel(void)
 {
-	int i, channel;
+	int i, base;
 	u32 endx;
 
-	endx = sceSdGetSwitch(SD_CORE_1 | SD_SWITCH_ENDX);
-	if (endx == 0)
+	/* Core 1 first, then core 0 (TyraX): a caller that only ever needs a
+	 * handful of voices keeps landing on exactly the channels it used to,
+	 * and core 0 is the overflow. Voice 0 is skipped on both cores, as
+	 * upstream always did here. */
+	for (base = 0; base < ADPCM_MAX_CHANNELS; base += ADPCM_VOICES_PER_CORE)
 	{
-		/* all channels are occupied */
-		return -AUDSRV_ERR_NO_MORE_CHANNELS;
-	}
-
-	/* find first channel available */
-	i = 1;
-	channel = -1;
-	while ((channel < 0) && (i < 24))
-	{
-		if (endx & (1 << i))
+		endx = sceSdGetSwitch(ADPCM_CH_CORE(base) | SD_SWITCH_ENDX);
+		if (endx == 0)
 		{
-			channel = i;
+			/* every voice of this core is occupied */
+			continue;
 		}
 
-		i++;
+		for (i = 1; i < ADPCM_VOICES_PER_CORE; i++)
+		{
+			if (endx & (1 << i))
+			{
+				return base + i;
+			}
+		}
 	}
 
-	if (channel == -1)
-	{
-		/* cannot find a single channel free */
-		return -AUDSRV_ERR_NO_MORE_CHANNELS;
-	}
-
-	return channel;
+	/* cannot find a single channel free */
+	return -AUDSRV_ERR_NO_MORE_CHANNELS;
 }
 
 /** Plays an adpcm sample already uploaded with audsrv_load_adpcm()
- * @param ch    channel identifier. Specifies one of the 24 voice channel to play the ADPCM channel on. If set to an invalid channel ID, an unoccupied channel will be selected.
+ * @param ch    channel identifier. Specifies one of the 48 voice channels to play the ADPCM channel on (0-23 = SPU2 core 1, 24-47 = core 0). If set to an invalid channel ID, an unoccupied channel will be selected.
  * @param id    sample identifier, as specified in load()
  * @returns channel identifier on success, negative value on error
  *
  * When ch is set to an invalid channel ID, the sample will be played in an unoccupied channel.
- * If all 24 channels are used, then -AUDSRV_ERR_NO_MORE_CHANNELS is returned.
+ * If all 48 channels are used, then -AUDSRV_ERR_NO_MORE_CHANNELS is returned.
  * When ch is set to a valid channel ID, -AUDSRV_ERR_NO_MORE_CHANNELS is returned if the channel is currently in use.
  * Trying to play a sample which is unavailable will result in -AUDSRV_ERR_ARGS
  */
@@ -288,10 +311,10 @@ int audsrv_ch_play_adpcm(int ch, u32 id)
 	}
 
 	/* sample was loaded */
-	if (ch >= 0 && ch < 24)
+	if (ch >= 0 && ch < ADPCM_MAX_CHANNELS)
 	{
-		endx = sceSdGetSwitch(SD_CORE_1 | SD_SWITCH_ENDX);
-		if (!(endx & (1 << ch)))
+		endx = sceSdGetSwitch(ADPCM_CH_CORE(ch) | SD_SWITCH_ENDX);
+		if (!(endx & (1 << ADPCM_CH_VOICE(ch))))
 		{
 			/* Channel in use. */
 			return -AUDSRV_ERR_NO_MORE_CHANNELS;
@@ -306,9 +329,12 @@ int audsrv_ch_play_adpcm(int ch, u32 id)
 			return channel;
 	}
 
-	sceSdSetParam(SD_CORE_1 | (channel << 1) | SD_VPARAM_PITCH, a->pitch);
-	sceSdSetAddr(SD_CORE_1 | (channel << 1) | SD_VOICE_START, a->spu2_addr);
-	sceSdSetSwitch(SD_CORE_1 | SD_SWITCH_KON, (1 << channel));
+	sceSdSetParam(ADPCM_CH_CORE(channel) | (ADPCM_CH_VOICE(channel) << 1) |
+	              SD_VPARAM_PITCH, a->pitch);
+	sceSdSetAddr(ADPCM_CH_CORE(channel) | (ADPCM_CH_VOICE(channel) << 1) |
+	             SD_VOICE_START, a->spu2_addr);
+	sceSdSetSwitch(ADPCM_CH_CORE(channel) | SD_SWITCH_KON,
+	               (1 << ADPCM_CH_VOICE(channel)));
 	return channel;
 }
 
@@ -322,11 +348,16 @@ int audsrv_adpcm_init()
 
 	printf("audsrv_adpcm_init()\n");
 
-	for (voice = 0; voice < 24; voice++)
+	/* TyraX: both cores - see the note at the top of this file. */
+	for (voice = 0; voice < ADPCM_VOICES_PER_CORE; voice++)
 	{
 		sceSdSetSwitch(SD_CORE_1 | SD_SWITCH_KOFF, (1 << voice));
 		sceSdSetParam(SD_CORE_1 | (voice << 1) | SD_VPARAM_VOLL, 0x3fff);
 		sceSdSetParam(SD_CORE_1 | (voice << 1) | SD_VPARAM_VOLR, 0x3fff);
+
+		sceSdSetSwitch(SD_CORE_0 | SD_SWITCH_KOFF, (1 << voice));
+		sceSdSetParam(SD_CORE_0 | (voice << 1) | SD_VPARAM_VOLL, 0x3fff);
+		sceSdSetParam(SD_CORE_0 | (voice << 1) | SD_VPARAM_VOLR, 0x3fff);
 	}
 
 	if (adpcm_list_head != NULL)
@@ -352,8 +383,15 @@ int audsrv_adpcm_set_volume(int ch, int voll, int volr)
 		return AUDSRV_ERR_ARGS;
 	}
 
-	sceSdSetParam(SD_CORE_1 | (ch << 1) | SD_VPARAM_VOLL, voll);
-	sceSdSetParam(SD_CORE_1 | (ch << 1) | SD_VPARAM_VOLR, volr);
+	if (ch < 0 || ch >= ADPCM_MAX_CHANNELS)
+	{
+		return AUDSRV_ERR_ARGS;
+	}
+
+	sceSdSetParam(ADPCM_CH_CORE(ch) | (ADPCM_CH_VOICE(ch) << 1) |
+	              SD_VPARAM_VOLL, voll);
+	sceSdSetParam(ADPCM_CH_CORE(ch) | (ADPCM_CH_VOICE(ch) << 1) |
+	              SD_VPARAM_VOLR, volr);
 
 	return AUDSRV_ERR_NOERROR;
 }

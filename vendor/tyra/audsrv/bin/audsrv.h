@@ -210,6 +210,20 @@ extern int audsrv_get_cd_type();
  */
 extern int audsrv_on_fillbuf(int amount, audsrv_callback_t cb, void *arg);
 
+/* Added by TyraX: ADPCM voices live on BOTH SPU2 cores. Channels 0-23 are
+ * core 1's voices - exactly what every previous build offered, so old callers
+ * are unaffected - and 24-47 are core 0's. The point is not only the voice
+ * count: a reverb unit is per core, and only voices on that core can feed it,
+ * so this is what makes a SECOND reverb bus reachable at all.
+ */
+#define AUDSRV_ADPCM_VOICES_PER_CORE 24
+#define AUDSRV_ADPCM_CHANNELS        (AUDSRV_ADPCM_VOICES_PER_CORE * 2)
+/* The SPU2 core a channel lives on, for callers that talk to libsd directly
+ * (the reverb's per-voice send bits are per core). */
+#define AUDSRV_ADPCM_CH_CORE(ch)  ((ch) < AUDSRV_ADPCM_VOICES_PER_CORE ? 1 : 0)
+#define AUDSRV_ADPCM_CH_VOICE(ch) ((ch) < AUDSRV_ADPCM_VOICES_PER_CORE \
+                                       ? (ch) : (ch) - AUDSRV_ADPCM_VOICES_PER_CORE)
+
 /** Initializes adpcm unit of audsrv
  * @returns zero on success, negative value on error
  *
@@ -236,12 +250,13 @@ extern int audsrv_adpcm_set_volume_and_pan(int ch, int vol, int pan);
 extern int audsrv_load_adpcm(audsrv_adpcm_t *adpcm, void *buffer, int size);
 
 /** Plays an adpcm sample already uploaded with audsrv_load_adpcm()
- * @param ch    channel identifier. Specifies one of the 24 voice channel to play the ADPCM channel on.
+ * @param ch    channel identifier. One of the AUDSRV_ADPCM_CHANNELS voice
+ *              channels: 0-23 are SPU2 core 1, 24-47 are core 0 (TyraX).
  * @param id    sample identifier, as specified in load()
  * @returns channel identifier on success, negative value on error
  *
  * When ch is set to an invalid channel ID, the sample will be played in an unoccupied channel.
- * If all 24 channels are used, then -AUDSRV_ERR_NO_MORE_CHANNELS is returned.
+ * If all channels are used, then -AUDSRV_ERR_NO_MORE_CHANNELS is returned.
  * When ch is set to a valid channel ID, -AUDSRV_ERR_NO_MORE_CHANNELS is returned if the channel is currently in use.
  * Trying to play a sample which is unavailable will result in -AUDSRV_ERR_ARGS
  */

@@ -95,6 +95,10 @@ extern int audsrv_get_cd_status();
 extern int audsrv_get_cd_type();
 
 /* adpcm functions */
+/* Added by TyraX: voices on BOTH SPU2 cores - channels 0-23 are core 1 (as
+ * every previous build), 24-47 are core 0. See iop/src/adpcm.c. */
+#define AUDSRV_ADPCM_VOICES_PER_CORE 24
+#define AUDSRV_ADPCM_CHANNELS        (AUDSRV_ADPCM_VOICES_PER_CORE * 2)
 extern int audsrv_adpcm_init();
 extern int audsrv_adpcm_set_volume(int ch, int voll, int volr);
 extern void *audsrv_load_adpcm(u32 *buffer, int size, int id);

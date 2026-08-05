@@ -54,7 +54,10 @@ if (-not (Test-Path (Join-Path $work '.git'))) {
 
 Write-Host '[audsrv] overlaying the TyraX sources...'
 # Copy, do not link: the build runs in a container where a host link pointing
-# outside the mount resolves to nothing.
+# outside the mount resolves to nothing. The removal goes through the container
+# so both twins behave alike (on Linux a previous build leaves root-owned
+# obj/irx/lib directories behind).
+docker run --rm -v "${work}:/w" $Image sh -c 'rm -rf /w/iop/sound/audsrv /w/ee/rpc/audsrv' | Out-Null
 foreach ($pair in @(@('iop', 'iop\sound\audsrv'), @('ee', 'ee\rpc\audsrv'))) {
     $dst = Join-Path $work $pair[1]
     Remove-Item -Recurse -Force $dst -ErrorAction SilentlyContinue

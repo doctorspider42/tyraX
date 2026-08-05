@@ -7327,7 +7327,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (REVERB_ZONE_COUNT > 0) {
     reverbAmtCur = 0.0F;
     reverbDepthSent = -1;
-    engine->audio.reverb.setDepth(0, 0);
+    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, 0, 0);
   }
 
   // A loaded save targeting this scene: apply the stored object state now
@@ -7509,9 +7509,14 @@ void TerrainGame::updateReverb() {
 
   if (swapping && reverbAmtCur <= 0.0F) {
     reverbPresetCur = wantPreset;
-    engine->audio.reverb.setDelay((u8)wantDelay);
-    engine->audio.reverb.setFeedback((u8)wantFeedback);
-    engine->audio.reverb.setPreset((Tyra::AudioReverb::Preset)wantPreset);
+    // Bus A is SPU2 core 1, where the sound emitters' channels (16-23) live.
+    // The SECOND bus exists (core 0, channels 24-47 - the audsrv fork) and is
+    // what a real room CROSS-FADE will use; this pass still runs one room at a
+    // time, so it drives A alone. See docs/reverb.md.
+    engine->audio.reverb.setDelay(Tyra::AudioReverb::BusA, (u8)wantDelay);
+    engine->audio.reverb.setFeedback(Tyra::AudioReverb::BusA, (u8)wantFeedback);
+    engine->audio.reverb.setPreset(Tyra::AudioReverb::BusA,
+                                   (Tyra::AudioReverb::Preset)wantPreset);
   }
 
   // Quantize to 64 steps and only push a real change: this is a synchronous
@@ -7522,7 +7527,7 @@ void TerrainGame::updateReverb() {
   if (q != reverbDepthSent) {
     reverbDepthSent = q;
     const s16 depth = (s16)((q * 0x7FFF) / 64);
-    engine->audio.reverb.setDepth(depth, depth);
+    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, depth, depth);
   }
 }
 

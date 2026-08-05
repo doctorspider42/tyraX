@@ -31,11 +31,39 @@ So the sources here are upstream PS2SDK pinned at **`e78a9cb2ea816a72a7466000c51
 (`00f199ae~1`) — the last commit that carries the panning API *and* still builds
 with the image's toolchain.
 
-**TyraX changes so far: none.** The fork exists so that changing it is possible
-at all — the previous arrangement shipped three prebuilt blobs and a recipe,
-which meant every idea about audsrv started with "first, reconstruct the
-sources". Any TyraX departure from upstream gets a `Modified by TyraX` comment
-at the top of the file it touches, the same rule the engine fork follows.
+Every TyraX departure from upstream gets a `Modified by TyraX` comment where it
+happens, the same rule the engine fork follows.
+
+## TyraX change 1: voices on BOTH SPU2 cores
+
+Upstream puts every ADPCM voice on core 1 and leaves core 0 muted. That caps
+the effects at 24 voices, and — the reason this change exists — leaves the
+SPU2's **second reverb unit** unreachable, because a reverb is per core and
+only the voices on that core can feed it. One reverb unit is why reverb zones
+cannot cross-fade between different presets (see `docs/reverb.md`).
+
+- `iop/src/adpcm.c` — channels are now `0..47`. **0-23 are core 1's voices,
+  exactly as before**, so every existing caller (and audsrv's own "channels
+  16-23 are the sound emitters" convention) behaves identically; 24-47 are core
+  0's. `ADPCM_CH_CORE` / `ADPCM_CH_VOICE` are the mapping, the allocator fills
+  core 1 first and spills to core 0, and `audsrv_adpcm_init` keys off and
+  levels both cores' voices.
+- `iop/src/audsrv.c` — core 0's master volume was pinned at 0 in
+  `update_volume()`. Its output already reaches core 1 at full level (the
+  `AVOL` set two lines above IS the core-0-into-core-1 volume), so raising this
+  is the **entire** routing change. `cdrom.c` has always done the same for
+  CDDA, which is the precedent that says it is safe.
+- Both `audsrv.h` headers gain `AUDSRV_ADPCM_CHANNELS` and the
+  `AUDSRV_ADPCM_CH_CORE` / `_CH_VOICE` macros, because a caller that talks to
+  libsd directly — the reverb's per-voice send bits are per core — needs to
+  know which core a channel is on.
+
+Verified in PCSX2: with the sound emitters temporarily moved to channel 40
+(core 0) the game still plays them at the same level, and — the useful half —
+they arrive **dry** while a Hall reverb zone is active, because that zone
+drives the core 1 unit. Moving them back restored the 450-500 ms tails. Two
+independent confirmations that the bus/core mapping is real. Not yet confirmed
+on hardware.
 
 ## Licence: this module is LGPL v2, not AFL
 

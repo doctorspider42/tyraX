@@ -14,9 +14,10 @@
 
 namespace Tyra {
 
-// audsrv puts every ADPCM voice AND the streamed music on SPU2 core 1
-// (core 0 is left muted), so this is the only core with anything to reverb.
-static const int kCore = 1;
+// The SPU2 core behind each bus. Bus A is core 1 - where audsrv has always put
+// its voices and where the music stream lands - and bus B is core 0, which the
+// TyraX audsrv fork unmuted and now plays channels 24-47 on.
+static const int kBusCore[AudioReverb::BusCount] = {1, 0};
 
 // libsd's sceSdInit() flag. 0 = cold: reset the whole SPU2. Anything else
 // keeps the registers but STILL clears libsd's transfer callbacks, which is
@@ -32,17 +33,19 @@ static const int kInitCold = 0;
 // 6/7 - the dry pair - when a stream ends.)
 static const u16 kMmixMusicToEffect = (1 << 4) | (1 << 5);
 
-// All 24 ADPCM channels.
+// The 24 ADPCM channels of one core.
 static const u32 kAllChannels = 0x00FFFFFF;
 
 AudioReverb::AudioReverb() {
   isAvailable = false;
   isEnabled = false;
-  preset = Off;
-  delay = 0;
-  feedback = 0;
-  sendMask = kAllChannels;
   musicSend = false;
+  for (int b = 0; b < BusCount; ++b) {
+    preset[b] = Off;
+    delay[b] = 0;
+    feedback[b] = 0;
+    sendMask[b] = kAllChannels;
+  }
 }
 
 AudioReverb::~AudioReverb() {}
@@ -69,117 +72,131 @@ void AudioReverb::init() {
 void AudioReverb::enable() {
   if (!isAvailable) return;
 
-  // audsrv's own sceSdInit() ran between init() and here and reset the core
-  // attributes, so the effect bit is off again. It has to go on BEFORE the
-  // first preset is set: libsd only zeroes the reverb work area when effects
-  // were already enabled, and an unzeroed work area circulates as noise.
-  sceSdSetCoreAttr(kCore | SD_CORE_EFFECT_ENABLE, 1);
   isEnabled = true;
+  for (int b = 0; b < BusCount; ++b) {
+    const Bus bus = static_cast<Bus>(b);
 
-  // Silence first - the preset below is applied at depth 0 so nothing is
-  // heard while the work area is being cleared.
-  setDepth(0, 0);
+    // audsrv's own sceSdInit() ran between init() and here and reset the core
+    // attributes, so the effect bit is off again. It has to go on BEFORE the
+    // first preset is set: libsd only zeroes the reverb work area when
+    // effects were already enabled, and an unzeroed work area circulates as
+    // noise.
+    sceSdSetCoreAttr(kBusCore[b] | SD_CORE_EFFECT_ENABLE, 1);
 
-  applyPreset(true);
-  applySendMask();
+    // Silence first - the preset below is applied at depth 0 so nothing is
+    // heard while the work area is being cleared.
+    setDepth(bus, 0, 0);
+    applyPreset(bus, true);
+    applySendMask(bus);
+  }
+
   setMusicSend(musicSend);
 }
 
-void AudioReverb::setPreset(const Preset& t_preset) {
-  if (preset == t_preset) return;
+void AudioReverb::setPreset(const Bus& t_bus, const Preset& t_preset) {
+  if (preset[t_bus] == t_preset) return;
 
-  preset = t_preset;
+  preset[t_bus] = t_preset;
   if (!isAvailable || !isEnabled) return;
 
-  applyPreset(true);
+  applyPreset(t_bus, true);
 }
 
-void AudioReverb::setDepth(const s16& t_left, const s16& t_right) {
+void AudioReverb::setDepth(const Bus& t_bus, const s16& t_left,
+                           const s16& t_right) {
   if (!isAvailable) return;
 
   // EVOLL/EVOLR is the reverb's return level. Writing it directly is exactly
   // what sceSdSetEffectAttr does with attr->depth_*, minus the work-area
   // clear - which is what makes a per-frame ramp affordable.
-  sceSdSetParam(kCore | SD_PARAM_EVOLL, static_cast<u16>(t_left));
-  sceSdSetParam(kCore | SD_PARAM_EVOLR, static_cast<u16>(t_right));
+  sceSdSetParam(kBusCore[t_bus] | SD_PARAM_EVOLL, static_cast<u16>(t_left));
+  sceSdSetParam(kBusCore[t_bus] | SD_PARAM_EVOLR, static_cast<u16>(t_right));
 }
 
-void AudioReverb::setDelay(const u8& t_delay) {
-  if (delay == t_delay) return;
+void AudioReverb::setDelay(const Bus& t_bus, const u8& t_delay) {
+  const u8 clamped = t_delay > 127 ? 127 : t_delay;
+  if (delay[t_bus] == clamped) return;
 
-  delay = t_delay > 127 ? 127 : t_delay;
+  delay[t_bus] = clamped;
   if (!isAvailable || !isEnabled) return;
 
   // Delay and feedback are carried by the attribute struct, so they can only
   // be changed by re-sending the preset. No work-area clear: the algorithm
   // did not change, only its timing.
-  applyPreset(false);
+  applyPreset(t_bus, false);
 }
 
-void AudioReverb::setFeedback(const u8& t_feedback) {
-  if (feedback == t_feedback) return;
+void AudioReverb::setFeedback(const Bus& t_bus, const u8& t_feedback) {
+  const u8 clamped = t_feedback > 127 ? 127 : t_feedback;
+  if (feedback[t_bus] == clamped) return;
 
-  feedback = t_feedback > 127 ? 127 : t_feedback;
+  feedback[t_bus] = clamped;
   if (!isAvailable || !isEnabled) return;
 
-  applyPreset(false);
+  applyPreset(t_bus, false);
 }
 
 void AudioReverb::setChannelSend(const s8& t_ch, const bool& t_on) {
-  if (t_ch < 0 || t_ch > 23) return;
+  if (t_ch < 0 || t_ch > 47) return;
 
-  u32 bit = 1u << static_cast<u32>(t_ch);
-  setSendMask(t_on ? (sendMask | bit) : (sendMask & ~bit));
+  const Bus bus = busOfChannel(t_ch);
+  const u32 bit = 1u << static_cast<u32>(t_ch < 24 ? t_ch : t_ch - 24);
+  setSendMask(bus, t_on ? (sendMask[bus] | bit) : (sendMask[bus] & ~bit));
 }
 
-void AudioReverb::setSendMask(const u32& t_mask) {
-  u32 masked = t_mask & kAllChannels;
-  if (sendMask == masked) return;
+void AudioReverb::setSendMask(const Bus& t_bus, const u32& t_mask) {
+  const u32 masked = t_mask & kAllChannels;
+  if (sendMask[t_bus] == masked) return;
 
-  sendMask = masked;
+  sendMask[t_bus] = masked;
   if (!isAvailable) return;
 
-  applySendMask();
+  applySendMask(t_bus);
 }
 
 void AudioReverb::setMusicSend(const bool& t_on) {
   musicSend = t_on;
   if (!isAvailable) return;
 
-  u16 mmix = sceSdGetParam(kCore | SD_PARAM_MMIX);
+  // The music is a core 1 input, so it can only ever reach bus A's unit.
+  const int core = kBusCore[BusA];
+  u16 mmix = sceSdGetParam(core | SD_PARAM_MMIX);
   if (t_on)
     mmix |= kMmixMusicToEffect;
   else
     mmix &= static_cast<u16>(~kMmixMusicToEffect);
 
-  sceSdSetParam(kCore | SD_PARAM_MMIX, mmix);
+  sceSdSetParam(core | SD_PARAM_MMIX, mmix);
 }
 
-void AudioReverb::applyPreset(const bool& t_clearWorkArea) {
+void AudioReverb::applyPreset(const Bus& t_bus, const bool& t_clearWorkArea) {
+  const int core = kBusCore[t_bus];
+
   sceSdEffectAttr attr;
-  attr.core = kCore;
-  attr.mode = static_cast<int>(preset);
+  attr.core = core;
+  attr.mode = static_cast<int>(preset[t_bus]);
   // The depth is owned by setDepth() - a preset change must not undo a ramp
   // that is in progress, so re-read what the hardware currently has.
-  attr.depth_L = static_cast<short>(sceSdGetParam(kCore | SD_PARAM_EVOLL));
-  attr.depth_R = static_cast<short>(sceSdGetParam(kCore | SD_PARAM_EVOLR));
-  attr.delay = delay;
-  attr.feedback = feedback;
+  attr.depth_L = static_cast<short>(sceSdGetParam(core | SD_PARAM_EVOLL));
+  attr.depth_R = static_cast<short>(sceSdGetParam(core | SD_PARAM_EVOLR));
+  attr.delay = delay[t_bus];
+  attr.feedback = feedback[t_bus];
 
   // SD_EFFECT_MODE_CLEAR zeroes the work area of the OLD mode and then of the
   // new one. It is a write of up to 96 KB of SPU2 RAM over the IOP, so it
   // belongs to a preset change and nothing else.
   if (t_clearWorkArea) attr.mode |= SD_EFFECT_MODE_CLEAR;
 
-  sceSdSetEffectAttr(kCore, &attr);
+  sceSdSetEffectAttr(core, &attr);
 }
 
-void AudioReverb::applySendMask() {
+void AudioReverb::applySendMask(const Bus& t_bus) {
   // Per-voice wet send. libsd's init turns every voice's send ON, so this
   // normally REMOVES voices from the reverb rather than adding them. The dry
   // path (VMIXL/VMIXR) is left alone - a voice out of the reverb still plays.
-  sceSdSetSwitch(kCore | SD_SWITCH_VMIXEL, sendMask);
-  sceSdSetSwitch(kCore | SD_SWITCH_VMIXER, sendMask);
+  const int core = kBusCore[t_bus];
+  sceSdSetSwitch(core | SD_SWITCH_VMIXEL, sendMask[t_bus]);
+  sceSdSetSwitch(core | SD_SWITCH_VMIXER, sendMask[t_bus]);
 }
 
 }  // namespace Tyra

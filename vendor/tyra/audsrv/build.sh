@@ -69,8 +69,11 @@ fi
 
 echo "[audsrv] overlaying the TyraX sources..."
 # Copy, do not symlink: the build runs in a container where a host symlink
-# pointing outside the mount resolves to nothing.
-rm -rf "$WORK/iop/sound/audsrv" "$WORK/ee/rpc/audsrv"
+# pointing outside the mount resolves to nothing. The removal goes through the
+# container because a previous build left root-owned obj/irx/lib directories
+# behind (Docker on Linux runs it as root).
+docker run --rm -v "$WORK:/w" "$IMAGE" \
+  sh -c 'rm -rf /w/iop/sound/audsrv /w/ee/rpc/audsrv' >/dev/null
 mkdir -p "$WORK/iop/sound/audsrv" "$WORK/ee/rpc/audsrv"
 cp -r "$HERE/iop/." "$WORK/iop/sound/audsrv/"
 cp -r "$HERE/ee/." "$WORK/ee/rpc/audsrv/"
