@@ -386,8 +386,54 @@ docker run --rm -v "tyra-engine-<hash>:/tyra" tyrax-toolchain:local sh -c '
 
 Per program the overshoot is almost entirely the five clip variants (+29, +21, +20,
 +28, +30); the cull five are within +13 of SCE and two of them are already
-*smaller*. So a working openvcl-built game is 138 instructions away, and they are
-the stall rows above.
+*smaller*.
+
+### Calibrating the rest against SCE, not against a manual
+
+The same trick works for the latencies that are *not* interlocked, and it needs no
+documentation at all: run the analysis over SCE's own output and take, per
+producer/consumer class, the **smallest distance it ever emits**. A tool that
+shipped games does not emit an illegal gap, so that minimum is the requirement.
+Then run the identical analysis over openvcl's output and compare what it believes:
+
+| dependency | SCE emits (min) | openvcl assumed |
+|---|---|---|
+| integer ALU → integer op | 1 | 1 |
+| `xtop` → integer op | 1 | 1 |
+| `mtir` → integer op | 1 | 1 |
+| integer ALU → branch condition | 2 | 2 |
+| **`clipw` → `fcand` (CLIP flags)** | **1** | **4** |
+| **`ilw` (memory) → integer op** | **3** | **5** |
+
+The two mismatches were worth 22 and 61 words on the resident set. The flag one is
+verified down to the rows - SCE emits five `clipw` → `fcand` pairs exactly one row
+apart, and the `0x3FFFF`/`0x3F` masks say the `fcand` is testing the `clipw` right
+above it:
+
+```
+clipw.xyz VF15xyz,VF15 | ior   VI09,VI09,VI08
+addw.x    VF05,VF05,.. | fcand VI01,63
+```
+
+`--sce-latencies` sets both (flag visibility 1, load result at issue+3).
+
+| resident set | instructions |
+|---|---|
+| openvcl, `--fmac-interlock` only | 2180 |
+| + flag latency 1 | 2116 |
+| + load ready at +3 | **2094** |
+| ceiling | 2042 |
+| **over by** | **52** |
+
+So a working openvcl-built game is **52 instructions** away, and the last of them
+are stall rows in front of branches. SCE avoids them by *scheduling* - it has half
+as many hazard sites (15 against 30 in `stapip_clip_c`) and fills 11 of its 20
+branch delay slots against openvcl's 7. Its filled slots hold `sq`/`isw` (34 of 94
+across the corpus), integer ALU ops (37) and FMAC ops (~14); openvcl's delay-slot
+filler only ever considers the instruction immediately preceding the branch **in
+source order**, so widening what it accepts changes nothing until the *scheduler*
+gets to pick the filler from its ready set. That is the next piece of work, and it
+is the same piece that would remove the pre-branch padding.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

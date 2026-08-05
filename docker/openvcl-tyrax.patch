@@ -1,105 +1,86 @@
-diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..464ac41 100644
---- a/src/CodeGenerator.cpp
-+++ b/src/CodeGenerator.cpp
-@@ -2039,12 +2039,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
- 
- 		case VU_SCHEDULED_PADDING_NOP:
- 		{
--			const unsigned int count = slot.cycleCount > 0 ? slot.cycleCount : 1;
--			for( unsigned int i = 0; i < count; ++i )
--			{
-+			// emitCycleCount, not cycleCount: a wait on the interlocked FMAC
-+			// pipeline costs cycles on the hardware either way, and writing nops
-+			// for it only burns micro memory. See VuLatencyTracker's
-+			// manualReadHazardDelay. m_currentCycle still advances by the full
-+			// count so the cycle model stays truthful.
-+			const unsigned int cycles = slot.cycleCount > 0 ? slot.cycleCount : 1;
-+			const unsigned int words = slot.emitCycleCount < cycles ? slot.emitCycleCount : cycles;
-+			for( unsigned int i = 0; i < words; ++i )
- 				addNopLine();
--				m_currentCycle++;
--			}
-+			m_currentCycle += cycles;
- 			break;
- 		}
- 
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..7df8b06 100644
+index e6a6dea..973ba46 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,8 @@ CommandLine::CommandLine()
+@@ -75,6 +75,9 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
 +	m_scheduleFlagReaders = false;
 +	m_fmacInterlock = false;
++	m_sceLatencies = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +127,8 @@ CommandLine::CommandLine()
+@@ -125,6 +128,9 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
 +	m_options.push_back(Option('\0',"schedule-flag-readers",SCHEDULE_FLAG_READERS,false));
 +	m_options.push_back(Option('\0',"fmac-interlock",FMAC_INTERLOCK,false));
++	m_options.push_back(Option(0,"sce-latencies",SCE_LATENCIES,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +243,8 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +245,9 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
 +				case SCHEDULE_FLAG_READERS: m_scheduleFlagReaders = true; break;
 +				case FMAC_INTERLOCK: m_fmacInterlock = true; break;
++				case SCE_LATENCIES: m_sceLatencies = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +336,8 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +339,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
 +	stream << "  --schedule-flag-readers            Let MAC/CLIP flag readers take part in scheduling." << std::endl;
 +	stream << "  --fmac-interlock                   Trust the VU FMAC interlock; do not pad VF waits with nops." << std::endl;
++	stream << "  --sce-latencies                    Non-interlocked latencies calibrated to what SCE vcl emits." << std::endl;
  	stream << "  --disable-known-loop-optimizations  Kept for compatibility; generic compilation is the default." << std::endl;
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..7ef7863 100644
+index f5e4b3d..fbe34da 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,8 @@ public:
+@@ -56,6 +56,9 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
 +	bool scheduleFlagReaders() const;
 +	bool fmacInterlock() const;
++	bool sceLatencies() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +132,8 @@ private:
+@@ -130,6 +133,9 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
 +		SCHEDULE_FLAG_READERS,
 +		FMAC_INTERLOCK,
++		SCE_LATENCIES,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +189,8 @@ private:
+@@ -185,6 +191,9 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
 +	bool m_scheduleFlagReaders;
 +	bool m_fmacInterlock;
++	bool m_sceLatencies;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..f3764ca 100644
+index 5500026..fb0e7e3 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,20 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,27 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -117,11 +98,18 @@ index 5500026..f3764ca 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::sceLatencies() const
++{
++	return m_sceLatencies;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
  inline bool CommandLine::genericSoftwarePipelining() const
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..5de9ecc 100644
+index b8b1946..0485a5a 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -132,7 +120,7 @@ index b8b1946..5de9ecc 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,14 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,16 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -143,6 +131,8 @@ index b8b1946..5de9ecc 100644
 +	// emit is worse than no diagnostic.
 +	setVuScheduleFlagReadersEnabled( m_cmdLine.scheduleFlagReaders() );
 +	setVuFmacInterlockEnabled( m_cmdLine.fmacInterlock() );
++	setVuFlagVisibilityLatency( m_cmdLine.sceLatencies() ? 1u : 4u );
++	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
@@ -207,7 +197,7 @@ index ba4e871..6403fbc 100644
  
  	enum
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..53cb5cc 100644
+index 71ee7cb..1d092e0 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
 @@ -51,6 +51,33 @@ void VuLatencyTracker::reset()
@@ -256,6 +246,63 @@ index 71ee7cb..53cb5cc 100644
  		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
  		if( ready == m_registerReadyCycle.end() )
  			continue;
+@@ -120,18 +152,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+ 		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
+ 	}
+ 
++	// How long after its producer a flag may be read. 4 by default;
++	// --sce-flag-latency calibrates it to the 1 that SCE's vcl emits (see
++	// vuFlagVisibilityLatency).
++	const int flagLatency = static_cast<int>( vuFlagVisibilityLatency() );
++
+ 	int flagDelay = 0;
+ 	if( readsMac )
+ 	{
+ 		const int gap = flagCycle - m_lastFMACCycle;
+-		if( 4 - gap > flagDelay )
+-			flagDelay = 4 - gap;
++		if( flagLatency - gap > flagDelay )
++			flagDelay = flagLatency - gap;
+ 	}
+ 	if( readsClip )
+ 	{
+ 		const int gap = flagCycle - m_lastClipwCycle;
+-		if( 4 - gap > flagDelay )
+-			flagDelay = 4 - gap;
++		if( flagLatency - gap > flagDelay )
++			flagDelay = flagLatency - gap;
+ 	}
+ 	if( flagDelay > 0 )
+ 		needed += flagDelay;
+@@ -149,7 +186,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+ 	if( !token.operand() || token.operand()->latency() <= 1 )
+ 		return;
+ 
+-	const int readyCycle = issueCycle + static_cast<int>( token.operand()->latency() ) + 1;
++	int readyCycle = issueCycle + static_cast<int>( token.operand()->latency() ) + 1;
++
++	// An integer load lands sooner than latency+1 says. The table gives ILW a
++	// latency of 4, so this formula makes its result readable at issue+5, while
++	// SCE's vcl reads one at issue+3 - measured as the minimum ilw -> integer-op
++	// distance over the 25 microprograms of a real engine (85 samples), against
++	// openvcl's own minimum of 5 on the same corpus. Those two extra cycles are
++	// paid in nop words at every load-use pair. --sce-latencies calibrates it.
++	if( vuIntegerLoadReadyCycles() > 0 )
++	{
++		VuTokenResourceAccess access;
++		if( buildVuTokenResourceAccess( token, access )
++		    && access.memoryKind == VU_MEMORY_LOAD
++		    && access.memoryFlags == VU_MEMORY_FLAG_NONE )
++		{
++			const int calibrated = issueCycle + static_cast<int>( vuIntegerLoadReadyCycles() );
++			if( calibrated < readyCycle )
++				readyCycle = calibrated;
++		}
++	}
++
+ 	std::list<std::string> writes;
+ 	collectVuRegisterWriteKeys( token, writes );
+ 	for( std::list<std::string>::const_iterator i = writes.begin(); i != writes.end(); ++i )
 diff --git a/src/VuLatencyTracker.h b/src/VuLatencyTracker.h
 index 2c14ff6..f0502c8 100644
 --- a/src/VuLatencyTracker.h
@@ -507,10 +554,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..9528636 100644
+index c28ec6d..3159ad8 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,54 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,76 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -541,6 +588,8 @@ index c28ec6d..9528636 100644
 +{
 +	bool g_scheduleFlagReaders = false;
 +	bool g_fmacInterlock = false;
++	unsigned int g_flagVisibilityLatency = 4;
++	unsigned int g_integerLoadReadyCycles = 0;
 +}
 +
 +void setVuScheduleFlagReadersEnabled( bool enabled )
@@ -563,14 +612,34 @@ index c28ec6d..9528636 100644
 +	return g_fmacInterlock;
 +}
 +
++void setVuFlagVisibilityLatency( unsigned int cycles )
++{
++	g_flagVisibilityLatency = cycles > 0 ? cycles : 1;
++}
++
++unsigned int vuFlagVisibilityLatency()
++{
++	return g_flagVisibilityLatency;
++}
++
++void setVuIntegerLoadReadyCycles( unsigned int cycles )
++{
++	g_integerLoadReadyCycles = cycles;
++}
++
++unsigned int vuIntegerLoadReadyCycles()
++{
++	return g_integerLoadReadyCycles;
++}
++
  bool isVuLowerPipe( const Token& token )
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..77aeaf6 100644
+index 8188099..9d5a1ed 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,16 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,32 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -584,6 +653,22 @@ index 8188099..77aeaf6 100644
 +// emitted nop words. Same cycles, smaller program.
 +void setVuFmacInterlockEnabled( bool enabled );
 +bool vuFmacInterlockEnabled();
++
++// How many cycles after its producer the MAC/CLIP flags may be read. Default 4.
++// --sce-latencies sets 1, which is what SCE's vcl emits: over the 25
++// microprograms of a real engine its output contains five clipw -> fcand pairs
++// exactly one row apart, e.g.
++//     clipw.xyz VF15xyz,VF15 | ior   VI09,VI09,VI08
++//     addw.x    VF05,VF05,.. | fcand VI01,63
++// and 0x3FFFF/0x3F masks mean that fcand is testing the clipw right above it.
++void setVuFlagVisibilityLatency( unsigned int cycles );
++unsigned int vuFlagVisibilityLatency();
++
++// Cycles after which a memory load's destination may be read, or 0 to keep the
++// instruction table's latency+1. --sce-latencies sets 3 (see VuLatencyTracker).
++void setVuIntegerLoadReadyCycles( unsigned int cycles );
++unsigned int vuIntegerLoadReadyCycles();
++
  bool isVuLowerPipe( const Token& token );
  bool isVuLongLatencyProducer( const Token& token );
  bool isVuLatencyLoad( const Token& token );
