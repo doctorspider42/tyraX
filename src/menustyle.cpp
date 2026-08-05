@@ -184,6 +184,67 @@ const char* elemName(Elem e) {
     return "?";
 }
 
+namespace {
+struct MotionInfo {
+    const char* key;
+    const char* label;
+    const char* help;
+};
+// Index-aligned with Transition::Which. A static_assert keeps it that way.
+const MotionInfo kTransitions[] = {
+    {"open", "Open",
+     "The panel arrives: it can fade in and slide from an offset."},
+    {"close", "Close",
+     "And leaves the same way. The menu keeps drawing until this finishes -\n"
+     "only plain dismissals animate, never a scene switch."},
+    {"cursor", "Caret",
+     "How long the selection caret takes to reach the row you moved to."},
+    {"scroll", "List scroll",
+     "A list longer than its window settles into the new position instead of\n"
+     "jumping. The rows, the highlight and the values move together."},
+    {"value", "Value change",
+     "The row whose Toggle/Choice value just changed flashes for this long -\n"
+     "how a player sees that a press did something on a row that never moves."},
+};
+static_assert(sizeof(kTransitions) / sizeof(kTransitions[0]) ==
+                  (size_t)Transition::WhichCount,
+              "every Transition::Which needs a name here");
+
+// Index-aligned with Animation::Which.
+const MotionInfo kAnimations[] = {
+    {"selected", "Selected row",
+     "`pulse <period> <amount>` - the highlight breathes. The amount is how far\n"
+     "its alpha swings (0.2 is a gentle one)."},
+    {"marker", "Caret",
+     "`bob <period> <pixels>` - the caret drifts back and forth."},
+    {"panel", "Panel sheen",
+     "`sheen <period> <width> <colour>` - a soft band sweeps across the panel,\n"
+     "added rather than blended, and cropped to the panel's edges."},
+};
+static_assert(sizeof(kAnimations) / sizeof(kAnimations[0]) ==
+                  (size_t)Animation::WhichCount,
+              "every Animation::Which needs a name here");
+}  // namespace
+
+const char* transitionName(int w) {
+    return w >= 0 && w < Transition::WhichCount ? kTransitions[w].key : "";
+}
+const char* transitionLabel(int w) {
+    return w >= 0 && w < Transition::WhichCount ? kTransitions[w].label : "";
+}
+const char* transitionHelp(int w) {
+    return w >= 0 && w < Transition::WhichCount ? kTransitions[w].help : "";
+}
+const char* animationName(int w) {
+    return w >= 0 && w < Animation::WhichCount ? kAnimations[w].key : "";
+}
+const char* animationLabel(int w) {
+    return w >= 0 && w < Animation::WhichCount ? kAnimations[w].label : "";
+}
+const char* animationHelp(int w) {
+    return w >= 0 && w < Animation::WhichCount ? kAnimations[w].help : "";
+}
+
 const char* stateName(int state) {
     switch (state) {
         case StateSelected: return "selected";
@@ -903,15 +964,14 @@ void parseTransition(const std::string& name, const std::vector<RawDecl>& decls,
                      const std::string& body, Sheet& sheet, int line) {
     Transition t;
     const std::string n = lower(trim(name));
-    if (n == "open") t.which = Transition::Open;
-    else if (n == "close") t.which = Transition::Close;
-    else if (n == "cursor") t.which = Transition::Cursor;
-    else if (n == "scroll") t.which = Transition::Scroll;
-    else if (n == "value") t.which = Transition::Value;
-    else {
+    int which = -1;
+    for (int w = 0; w < Transition::WhichCount; ++w)
+        if (n == transitionName(w)) which = w;
+    if (which < 0) {
         sheet.diags.push_back(Diag{line, "unknown transition '" + name + "'"});
         return;
     }
+    t.which = which;
     (void)decls;
     // A transition block is a space/semicolon separated list of terms rather
     // than key: value pairs - `fade 200ms ease-out; translate-y 12px`.
@@ -967,13 +1027,16 @@ void parseAnimation(const std::string& name, const std::string& body, Sheet& she
                     int line) {
     Animation a;
     const std::string n = lower(trim(name));
-    if (n == "selected") a.which = Animation::Selected;
-    else if (n == "marker" || n == "caret") a.which = Animation::Marker;
-    else if (n == "panel") a.which = Animation::Panel;
-    else {
-        sheet.diags.push_back(Diag{line, "unknown animation target '" + name + "'"});
+    int which = -1;
+    for (int w = 0; w < Animation::WhichCount; ++w)
+        if (n == animationName(w)) which = w;
+    if (n == "caret") which = Animation::Marker;  // a friendlier spelling
+    if (which < 0) {
+        sheet.diags.push_back(
+            Diag{line, "unknown animation target '" + name + "'"});
         return;
     }
+    a.which = which;
     // Space/semicolon separated terms, like @transition: `pulse 1.6s 0.25`.
     std::string cur;
     std::vector<std::string> terms;
@@ -1336,10 +1399,9 @@ std::string write(const Sheet& sheet) {
         writeRules(out, sheet, m, "  ");
         out << "}\n";
     }
-    static const char* kWhich[] = {"open", "close", "cursor", "scroll", "value"};
     for (const Transition& t : sheet.transitions) {
         if (t.which < 0 || t.which >= Transition::WhichCount) continue;
-        out << "\n@transition " << kWhich[t.which] << " {\n  ";
+        out << "\n@transition " << transitionName(t.which) << " {\n  ";
         if (t.seconds > 0) out << fmtNum(t.seconds * 1000.0f) << "ms ";
         out << (t.ease == 0 ? "linear" : t.ease == 2 ? "ease-in-out" : "ease-out");
         if (t.fade) out << "; fade";
@@ -1348,12 +1410,11 @@ std::string write(const Sheet& sheet) {
         if (t.scale != 0) out << "; scale " << fmtNum(t.scale);
         out << ";\n}\n";
     }
-    static const char* kAnim[] = {"selected", "marker", "panel"};
     static const char* kKind[] = {"", "pulse", "bob", "sheen"};
     for (const Animation& a : sheet.animations) {
         if (a.which < 0 || a.which >= Animation::WhichCount) continue;
         if (a.kind <= 0 || a.kind > Animation::Sheen) continue;
-        out << "\n@animate " << kAnim[a.which] << " {\n  " << kKind[a.kind] << " "
+        out << "\n@animate " << animationName(a.which) << " {\n  " << kKind[a.kind] << " "
             << fmtNum(a.seconds) << "s " << fmtNum(a.amount);
         if (a.kind == Animation::Sheen) out << " " << fmtColor(a.color);
         out << ";\n}\n";

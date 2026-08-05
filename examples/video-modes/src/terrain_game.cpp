@@ -2615,6 +2615,18 @@ void TerrainGame::buildScene() {
       menuSheenSprite.additive = true;  // light passing over, never darkening
     }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    menuCursorSprites.clear();
+    menuCursorSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite c;
+      c.mode = SpriteMode::MODE_STRETCH;
+      c.size = Vec2(16.0F, 16.0F);
+      menuCursorSprites.push_back(c);
+      auto* t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(
+          m.markerTex[0] != '\0' ? m.markerTex : "hud/save-cursor.png"));
+      t->addLink(menuCursorSprites.back().id);
+    }
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
 
@@ -6316,15 +6328,18 @@ void TerrainGame::renderGameMenu() {
     } else {
       gameMenuCursorY = targetY;
     }
-    menuCursorSprite.color.a = alpha;
-    menuCursorSprite.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
+    Sprite& caret = drawMenu < (int)menuCursorSprites.size()
+                        ? menuCursorSprites[drawMenu]
+                        : menuCursorSprite;
+    caret.color.a = alpha;
+    caret.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
     const float bob =
         m.bobSec > 0.0F
             ? m.bobPx * sinf(gameMenuClock * 6.2831853F / m.bobSec)
             : 0.0F;
-    menuCursorSprite.position = Vec2(baseX + (m.markerX + bob) * uiSX,
-                                     baseY + gameMenuCursorY * uiSY);
-    engine->renderer.renderer2D.render(menuCursorSprite);
+    caret.position = Vec2(baseX + (m.markerX + bob) * uiSX,
+                          baseY + gameMenuCursorY * uiSY);
+    engine->renderer.renderer2D.render(caret);
   }
 
   // Toggle/Choice rows: the current option label (or bar), a cell of the baked

@@ -75,6 +75,10 @@ struct MenuData {
   const char* descTex;
   int descCellW, descCellH, descPitch, descX, descY;
   float markerX;    // selection caret x inside the panel
+  // The caret's own image ("" = the built-in hud/save-cursor.png,
+  // which is also the save menu's). A sheet points at its own with
+  // `marker { marker: url(res/hud/caret.png); }`.
+  const char* markerTex;
   int markerOn;     // 0 = `marker: none` - a style whose selected
                     // row paints a plate does not want a caret on
                     // top of it (docs/menu-styles.md)
@@ -126,8 +130,8 @@ constexpr MenuEntryData MENU_1_ENTRIES[1] = {
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/video.png", 256, 256, 254, 50, 26, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "menus/video-rows.png", 256, 26, 34, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 0, 0.18F, 1, 1, 0.0F, 10.0F, 0.0F, 0.11F, 1, 0.14F, 1, 1, 0.0F, 6.0F, 0.12F, 0.18F, 1.8F, 0.22F, 0.0F, 0.0F, 3.4F, 52.0F, 255, 255, 255, 46, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // video
-    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
+    {"menus/video.png", 256, 256, 254, 50, 26, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "menus/video-rows.png", 256, 26, 34, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 0, "", 0.18F, 1, 1, 0.0F, 10.0F, 0.0F, 0.11F, 1, 0.14F, 1, 1, 0.0F, 6.0F, 0.12F, 0.18F, 1.8F, 0.22F, 0.0F, 0.0F, 3.4F, 52.0F, 255, 255, 255, 46, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // video
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
 constexpr int TITLE_MENU = 0;

@@ -206,6 +206,27 @@ panel bakes - so give the panel's own background some transparency or the layer
 will not show. This is the mechanism to reach for when you want a living
 backdrop: a drifting starfield, a slow gradient wash, a flickering torch.
 
+### The selection caret
+
+The blue arrow is an ordinary asset, and there are four ways to change it:
+
+```css
+marker { marker: url(res/hud/caret.png) left; }  /* your own image, this sheet */
+marker { marker: none; }                          /* no caret at all */
+marker { translate-x: 40px; }                     /* move it (32 by default) */
+@animate marker { bob 0.9s 3px; }                 /* make it drift */
+```
+
+Or replace **`res/hud/save-cursor.png`** (16x16) in the project: the built-in
+sprites are written only when missing, so an edited one survives every build -
+but note that file is also the SAVE menu's cursor, so it changes both. A sheet's
+own `marker: url(...)` changes only the menus that use that sheet, and the
+preview draws whichever of the two applies.
+
+A style whose `row:selected` paints a full-width plate usually wants
+`marker: none` - the caret would just sit on top of the plate. The three
+built-in sheets that paint one already say so.
+
 ## Resolutions
 
 The framebuffer is not the same shape in every scan mode:

@@ -1136,6 +1136,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;

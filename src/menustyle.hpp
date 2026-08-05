@@ -165,6 +165,16 @@ const std::vector<PropSpec>& propSpecs();
 const PropSpec* propSpec(Prop p);
 const char* elemName(Elem e);
 const char* stateName(int state);
+// Names for the motion blocks, next to the enums they name. A second list of
+// these in the UI is exactly how the Style tab came to read past the end of a
+// 3-entry array after `scroll` and `value` were added - and a bad `const char*`
+// handed to a widget crashes rather than misprints.
+const char* transitionName(int which);   // the sheet's keyword ("open", ...)
+const char* transitionLabel(int which);  // what the Style tab calls it
+const char* transitionHelp(int which);
+const char* animationName(int which);
+const char* animationLabel(int which);
+const char* animationHelp(int which);
 
 // --- the sheet --------------------------------------------------------------
 

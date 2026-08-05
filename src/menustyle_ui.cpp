@@ -65,9 +65,9 @@ const ElemGroup kGroups[] = {
 const std::vector<menustyle::Prop>& propsFor(menustyle::Elem e) {
     using P = menustyle::Prop;
     static const std::vector<P> panel = {
-        P::Width,      P::Quant,   P::Background, P::BackgroundImage,
-        P::BorderWidth, P::Radius, P::Shadow,     P::Padding,
-        P::Gap,        P::Opacity};
+        P::Width,          P::Quant,       P::Background, P::BackgroundImage,
+        P::BackgroundAnim_, P::BorderWidth, P::Radius,     P::Shadow,
+        P::Padding,        P::Gap,         P::Opacity};
     static const std::vector<P> title = {
         P::Font,     P::FontSize,      P::TextColor, P::Align,
         P::LetterSpacing, P::TextTransform, P::TextShadow, P::TextOutline,
@@ -696,16 +696,20 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
     // --- motion --------------------------------------------------------------
     if (ImGui::CollapsingHeader("Motion")) {
         ImGui::TextDisabled(
-            "Sprite properties, not baked pixels: the panel slides and fades in,\n"
-            "the caret eases between rows. Free on the console.");
-        static const char* kWhich[] = {"Open", "Close", "Caret"};
+            "Sprite properties, not baked pixels: the panel slides and fades,\n"
+            "the caret eases, the highlight breathes. Free on the console.");
+
+        // Reactions. The labels come from menustyle - a second list here is how
+        // this section came to read past the end of a 3-entry array once two
+        // more transitions were added, and a bad const char* in a widget label
+        // crashes rather than misprints.
         for (int wi = 0; wi < menustyle::Transition::WhichCount; ++wi) {
             ImGui::PushID(wi);
             menustyle::Transition* t = nullptr;
             for (menustyle::Transition& ex : menuStyleStaged_.transitions)
                 if (ex.which == wi) t = &ex;
             bool on = t != nullptr;
-            if (ImGui::Checkbox(kWhich[wi], &on)) {
+            if (ImGui::Checkbox(menustyle::transitionLabel(wi), &on)) {
                 menuStylePush();
                 if (on) {
                     menustyle::Transition nt;
@@ -726,18 +730,21 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
                 ImGui::PopID();
                 continue;
             }
+            prefHelp(menustyle::transitionHelp(wi));
             if (t) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(scaled(90.0f));
                 ImGui::DragFloat("s", &t->seconds, 0.005f, 0.0f, 2.0f, "%.2f s");
-                const bool a = ImGui::IsItemDeactivatedAfterEdit();
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(110.0f));
-                bool b = ImGui::Combo("##ease", &t->ease,
-                                      "linear\0ease-out\0ease-in-out\0");
-                bool c = false, d = false;
-                if (wi != menustyle::Transition::Cursor) {
-                    c = ImGui::Checkbox("fade", &t->fade);
+                bool edited = ImGui::IsItemDeactivatedAfterEdit();
+                // Only the panel's own transitions have an ease and a slide;
+                // the caret, the list and the value flash are a duration.
+                if (wi == menustyle::Transition::Open ||
+                    wi == menustyle::Transition::Close) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(110.0f));
+                    edited |= ImGui::Combo("##ease", &t->ease,
+                                           "linear\0ease-out\0ease-in-out\0");
+                    edited |= ImGui::Checkbox("fade", &t->fade);
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(scaled(120.0f));
                     float dxy[2] = {t->translateX, t->translateY};
@@ -745,10 +752,90 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
                     if (ImGui::IsItemDeactivatedAfterEdit()) {
                         t->translateX = dxy[0];
                         t->translateY = dxy[1];
-                        d = true;
+                        edited = true;
                     }
+                } else if (wi == menustyle::Transition::Cursor ||
+                           wi == menustyle::Transition::Scroll) {
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(110.0f));
+                    edited |= ImGui::Combo("##ease", &t->ease,
+                                           "linear\0ease-out\0ease-in-out\0");
                 }
-                if (a || b || c || d) {
+                if (edited) {
+                    menuStylePush();
+                    menuStyleEdited();
+                }
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Loops - these never stop while the menu is open.");
+        static const char* kKindItems = "pulse\0bob\0sheen\0";
+        for (int ai = 0; ai < menustyle::Animation::WhichCount; ++ai) {
+            ImGui::PushID(100 + ai);
+            menustyle::Animation* a = nullptr;
+            for (menustyle::Animation& ex : menuStyleStaged_.animations)
+                if (ex.which == ai) a = &ex;
+            bool on = a != nullptr;
+            if (ImGui::Checkbox(menustyle::animationLabel(ai), &on)) {
+                menuStylePush();
+                if (on) {
+                    menustyle::Animation na;
+                    na.which = ai;
+                    // The natural loop for each target, so ticking the box
+                    // produces something that already looks right.
+                    na.kind = ai == menustyle::Animation::Selected
+                                  ? menustyle::Animation::Pulse
+                              : ai == menustyle::Animation::Marker
+                                  ? menustyle::Animation::Bob
+                                  : menustyle::Animation::Sheen;
+                    na.seconds = na.kind == menustyle::Animation::Sheen ? 3.2f : 1.6f;
+                    na.amount = na.kind == menustyle::Animation::Pulse   ? 0.22f
+                                : na.kind == menustyle::Animation::Bob   ? 3.0f
+                                                                         : 48.0f;
+                    menuStyleStaged_.animations.push_back(na);
+                } else {
+                    menuStyleStaged_.animations.erase(
+                        std::remove_if(menuStyleStaged_.animations.begin(),
+                                       menuStyleStaged_.animations.end(),
+                                       [&](const menustyle::Animation& x) {
+                                           return x.which == ai;
+                                       }),
+                        menuStyleStaged_.animations.end());
+                }
+                menuStyleEdited();
+                ImGui::PopID();
+                continue;
+            }
+            prefHelp(menustyle::animationHelp(ai));
+            if (a) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                int kind = a->kind - 1;  // the enum starts at None
+                bool edited = false;
+                if (ImGui::Combo("##kind", &kind, kKindItems)) {
+                    a->kind = kind + 1;
+                    edited = true;
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragFloat("every", &a->seconds, 0.01f, 0.1f, 10.0f, "%.2f s");
+                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragFloat("amount", &a->amount, 0.05f, 0.0f, 256.0f, "%.2f");
+                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                if (a->kind == menustyle::Animation::Sheen) {
+                    ImVec4 col = toImVec4(a->color);
+                    ImGui::SameLine();
+                    if (ImGui::ColorEdit4("##sheencol", &col.x,
+                                          ImGuiColorEditFlags_NoInputs |
+                                              ImGuiColorEditFlags_AlphaBar))
+                        a->color = fromImVec4(col);
+                    edited |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                if (edited) {
                     menuStylePush();
                     menuStyleEdited();
                 }
