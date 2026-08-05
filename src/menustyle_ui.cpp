@@ -937,6 +937,24 @@ void App::drawMenuCost(const GameMenu& m) {
                 L.spritesPerFrame, L.rowsVisible, (int)L.rows.size());
     if (L.stateCells > 0)
         ImGui::Text("%d state cell(s) baked", L.stateCells);
+    // A caret drawn ON a full-width highlight plate is the one styling mistake
+    // that looks deliberate in the editor and wrong on the TV, and it has now
+    // been hit twice (a sheet copied into a project before the built-ins said
+    // `marker: none`). Say it rather than fix it silently: some styles do want
+    // both.
+    {
+        bool plate = false;
+        for (const menulayout::Row& r : L.rows)
+            if (r.paints[menustyle::StateSelected] &&
+                r.style[menustyle::StateSelected].background.kind !=
+                    menustyle::Fill::None)
+                plate = true;
+        if (plate && L.marker.marker != "none")
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                "The selected row paints a plate and the caret draws on top of\n"
+                "it. `marker { marker: none; }` if that is not what you meant.");
+    }
     // Honest failure states rather than a silent cut (docs/menu-styles.md).
     if (L.clipped)
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),

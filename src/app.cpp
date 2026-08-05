@@ -10260,6 +10260,7 @@ void App::drawMenusWindow() {
         std::string tag;
         if (project_.menus[i].titleScreen) tag += "  [title]";
         if (project_.menus[i].pauseMenu) tag += "  [start]";
+        if (project_.menus[i].saveMenu) tag += "  [save]";
         if (ImGui::Selectable((project_.menus[i].name + tag).c_str(),
                               selectedMenu_ == i))
             selectedMenu_ = i;
@@ -10309,8 +10310,9 @@ void App::drawMenusWindow() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) {
         GameMenu copy = m;
-        copy.titleScreen = false;  // the boot/Start slots stay unique
+        copy.titleScreen = false;  // the boot/Start/save roles stay unique
         copy.pauseMenu = false;
+        copy.saveMenu = false;
         std::string base = copy.name;
         for (int n = 2;; ++n) {
             copy.name = base + "-" + std::to_string(n);
@@ -10323,6 +10325,13 @@ void App::drawMenusWindow() {
         changed = true;
     }
     ImGui::SameLine();
+    // The save menu is the save system's own screen: the generated game opens it
+    // by role, not by name, and no button here could bring it back once gone
+    // (project::ensureSaveMenu only re-seeds it when the project is next
+    // LOADED, so deleting it leaves the session running without one). It is not
+    // a menu you own, so it is not one you can delete - restyle it on the Style
+    // tab, and change what it DOES in Tools > Save Editor.
+    ImGui::BeginDisabled(m.saveMenu);
     if (ImGui::SmallButton("Delete")) {
         for (SceneData& sc : project_.scenes)
             for (SceneObject& o : sc.objects)
@@ -10335,9 +10344,20 @@ void App::drawMenusWindow() {
         project_.menus.erase(project_.menus.begin() + selectedMenu_);
         selectedMenu_ = -1;
         commitChange();
+        ImGui::EndDisabled();
         ImGui::EndChild();
         ImGui::End();
         return;
+    }
+    ImGui::EndDisabled();
+    if (m.saveMenu) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The save menu cannot be deleted - the game opens it by role and\n"
+                "nothing here could put it back. Restyle it like any other menu\n"
+                "(Style tab); what it DOES lives in Tools > Save Editor.");
     }
 
     // The preview sits above the tabs and stays on screen while either of

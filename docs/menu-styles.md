@@ -225,7 +225,13 @@ preview draws whichever of the two applies.
 
 A style whose `row:selected` paints a full-width plate usually wants
 `marker: none` - the caret would just sit on top of the plate. The three
-built-in sheets that paint one already say so.
+built-in sheets that paint one already say so, and the editor says it too: the
+cost readout warns when a sheet paints a plate and leaves the caret on.
+
+A sheet **installed into a project is a copy**, so it does not pick up later
+changes to the built-in it came from. If a Blade or Neon menu still draws a
+caret over its plate, that copy predates `marker: none` - add the line, or
+install a fresh copy under another name and switch to it.
 
 ## Resolutions
 
