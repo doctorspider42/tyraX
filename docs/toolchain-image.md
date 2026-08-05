@@ -1197,6 +1197,44 @@ so uploading two is enough to judge the clipper. SCE under that harness stages t
 24/72 as under the full set, which is what makes it a valid harness rather than a
 different experiment.
 
+### Bisecting `clip_c` by stage: what is cleared, and what is left
+
+Static comparison was exhausted, so the next instrument was the program itself. Each
+variant is a source change applied to **both** assemblers, booted under the two-program
+harness, and read through the VU1 packet tap. Because the change is identical on both
+sides, a variant where the two agree clears everything it exercises.
+
+| variant | what it does | SCE | openvcl |
+|---|---|---|---|
+| A | every triangle **skips** the clipping path (`ibeq vi00,vi00,fanStart`) | 23 tris / 69 verts | **23 / 69, identical to the digit** |
+| B | every triangle **enters** the plane loop (branch never taken) | 24 / 72 | 17 / 51 |
+| C | plane loop as a **pure copy** - both edge branches never taken | 23 / 69 | **23 / 69, identical** |
+| D | real tests, but the crossing vertex is stored as `cpos`, not the lerp | 29 / 87 | 21 / 63 |
+| E | `pd` **recomputed** in the loop instead of carried across the back edge | 24 / 72 | 17 / 51 |
+
+Read together:
+
+* **A clears the whole emit side** - the transform, the fan triangulation,
+  `EmitClipVertexC`, the GIF tag block, the vertex counting. Identical output.
+* **C clears the plane loop's bookkeeping** - `curPtr`/`dstPtr`, the `srcEnd = dstPtr`
+  swap, the loop bounds, the five-plane iteration. Identical output.
+* **D says the difference is in the tests, not the interpolation**: neutralising the
+  stored value moves both sides by about the same amount and the gap survives.
+* **E clears the carried `pd`** - taking it off the back edge changes nothing.
+
+So the defect is in the edge test path and nothing else: `pd`/`cd` against the plane, the
+`sjudge` assembly, the `clipw`, the two `fcand`s and the `vertMask` comparison. And
+inside that path the static reading is *identical* between the two assemblers -
+`sjudge` is built the same way, `clipw` takes its `w` from the component that holds it,
+both `fcand` masks reach their own consumer, `planeV`/`planeE`/`cvec` hold their own
+registers with no overlap, and the accumulation of `dot(cpos, planeV)` differs only in
+which register accumulates.
+
+What that leaves is a mechanism no static reading of one program can settle, so the next
+instrument has to report from inside: encode the two test results (or `pd`/`cd`
+themselves) into the emitted vertex colour, which the tap decodes per vertex, and compare
+the decisions edge by edge rather than the totals.
+
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
 wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.
