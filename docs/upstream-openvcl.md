@@ -104,7 +104,44 @@ For anyone picking it up: the engine-side workaround is to load per-batch values
 to the store that reads them, inside the loop (it costs nothing and lowers register
 pressure), and the static check above is what stands in for a fix.
 
-## 3. Four density flags, all off by default
+## 3. A loop-carried update lands in a register nobody reads
+
+This one *is* established, with a mechanism and a fix, and it is the most important of
+the three. A name written at the bottom of a loop and read at the top is one variable,
+but openvcl spawns a fresh `Alias` for every write, so it is two objects — and they get
+two registers. `stapip_clip_tc`'s edge loop, with names and final registers from a
+patched `--show-reg-alloc`:
+
+```
+VF15 <- ppos #112  ranges: [228-286]      what edgeCross reads
+VF16 <- pstq #113  ranges: [229-286]
+VF17 <- pcol #114  ranges: [230-286]
+VF22 <- ppos #126  ranges: [281-281]      what edgeAdvance writes
+VF18 <- pstq #127  ranges: [282-282]
+VF18 <- pcol #128  ranges: [283-283]
+```
+
+`move ppos, cpos` writes VF22 while every reader keeps reading VF15, so the update is
+lost and each iteration sees the previous iteration's value forever. And because nothing
+downstream reads those tail aliases, each gets a live range **one line long**; two
+one-line ranges do not intersect, so `pstq` and `pcol` legally share VF18 and the second
+write destroys the first.
+
+`RegisterAllocator::extendLoopDirectiveRange` already computes exactly the set this needs
+— the aliases whose first access inside the loop is a read. The fix ties every in-loop
+write of such a name to the alias its readers use, via the existing two-address chain
+(`Alias::setSameNamePredecessor`, the thing that makes `isubiu x, x, 1` write the register
+it read); the chain pre-pass then gives the whole chain one register. It changes no
+program size on this engine's 25 microprograms, and upstream's tests stay green.
+
+Worth sending alongside it: **`--show-reg-alloc` cannot currently answer the question
+that matters.** It prints ranges for anonymous aliases, before allocation runs, so
+"which two values share a register?" is unanswerable. Three small additions fix it — an
+`Alias` debug name recorded in `BranchState::updateDependency`, and a
+`=== Final assignment ===` block printing name → register after allocation. Every finding
+above came out of that dump.
+
+## 4. Four density flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **2040**, against

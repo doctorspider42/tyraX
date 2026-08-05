@@ -1,3 +1,70 @@
+diff --git a/src/Alias.h b/src/Alias.h
+index c573605..3e46e2b 100644
+--- a/src/Alias.h
++++ b/src/Alias.h
+@@ -15,6 +15,7 @@
+ 
+ #include <list>
+ #include <iostream>
++#include <string>
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+@@ -66,6 +67,12 @@ public:
+ 	void setSameNamePredecessor( Alias* predecessor );
+ 	Alias* sameNamePredecessor() const;
+ 
++	// Diagnostics only: the source-level name this alias was created for.
++	// An Alias is otherwise anonymous, which leaves --show-reg-alloc unable
++	// to say WHICH value ended up sharing a register with which.
++	void setDebugName( const std::string& name );
++	const std::string& debugName() const;
++
+ private:
+ 
+ 	Type m_type;
+@@ -73,6 +80,7 @@ private:
+ 	unsigned int m_id;
+ 	const Register* m_allocatedRegister;
+ 	Alias* m_sameNamePredecessor;
++	std::string m_debugName;
+ 	std::list<Range> m_ranges;
+ 
+ 	static unsigned int s_nextId;
+diff --git a/src/Alias.inl b/src/Alias.inl
+index 07eff5a..70803cc 100644
+--- a/src/Alias.inl
++++ b/src/Alias.inl
+@@ -12,6 +12,17 @@ inline Alias* Alias::sameNamePredecessor() const
+ 	return m_sameNamePredecessor;
+ }
+ 
++inline void Alias::setDebugName( const std::string& name )
++{
++	if( m_debugName.empty() )
++		m_debugName = name;
++}
++
++inline const std::string& Alias::debugName() const
++{
++	return m_debugName;
++}
++
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ inline void Alias::setAllocatedRegister( const Register* allocated )
+diff --git a/src/BranchState.cpp b/src/BranchState.cpp
+index 5bec71c..504039b 100644
+--- a/src/BranchState.cpp
++++ b/src/BranchState.cpp
+@@ -235,6 +235,7 @@ void BranchState::updateDependency( Token::Argument& argument, State& state, Ali
+ 		Alias* newAlias = state.dependency() && depend ? state.dependency()->alias() : NULL;
+ 		if( !newAlias )
+ 			newAlias = m_allocator.obtainAlias( type );
++		newAlias->setDebugName( name );
+ 
+ 		newDependency = new Dependency;
+ 		newDependency->setAlias( newAlias );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
 index 699abe7..354496c 100644
 --- a/src/CodeGenerator.cpp
@@ -517,7 +584,7 @@ index b8b1946..5b40efb 100644
  	{
  		if( !m_tokenizer.parse( *i ) )
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..7d34ac9 100644
+index cf6d79b..06b3dcf 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -528,7 +595,49 @@ index cf6d79b..7d34ac9 100644
  #include "BranchState.h"
  #include "Error.h"
  #include "VuTokenResourceAccess.h"
-@@ -905,21 +906,47 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -610,7 +611,9 @@ bool RegisterAllocator::processAliases()
+ 		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
+ 		{
+ 			Alias* alias = i->first;
+-			std::cerr << (alias->type() == Alias::FLOAT ? "FLOAT" : "INT") << ": ";
++			std::cerr << (alias->type() == Alias::FLOAT ? "FLOAT" : "INT") << " "
++			          << (alias->debugName().empty() ? "?" : alias->debugName())
++			          << " #" << alias->id() << ": ";
+ 			if( alias->allocatedRegister() )
+ 				std::cerr << "[prealloc: " << alias->allocatedRegister()->name() << "] ";
+ 			alias->printRanges( std::cerr );
+@@ -796,13 +799,29 @@ bool RegisterAllocator::processAliases()
+ 			if( m_showRegisterInfo )
+ 			{
+ 				std::cerr << "Failed to allocate " << (dest->type() == Alias::FLOAT ? "FLOAT" : "INTEGER")
+-				          << " register for alias" << std::endl;
++				          << " register for alias " << (dest->debugName().empty() ? "?" : dest->debugName())
++				          << " #" << dest->id() << std::endl;
+ 			}
+ 			return false;
+ 		}
+ 		//assert( dest->allocatedRegister() );
+ 	}
+ 
++	if( m_showRegisterInfo )
++	{
++		std::cerr << std::endl << "=== Final assignment ===" << std::endl;
++		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
++		{
++			Alias* alias = i->first;
++			std::cerr << alias->allocatedRegister()->name() << " <- "
++			          << (alias->debugName().empty() ? "?" : alias->debugName())
++			          << " #" << alias->id() << "  ";
++			alias->printRanges( std::cerr );
++			std::cerr << std::endl;
++		}
++		std::cerr << "====================" << std::endl << std::endl;
++	}
++
+ 	return true;
+ }
+ 
+@@ -905,21 +924,47 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -578,7 +687,7 @@ index cf6d79b..7d34ac9 100644
  
  	unsigned int availableFloats = 0;
  	for( unsigned int i = 0; i < 32; ++i )
-@@ -938,7 +965,12 @@ void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsi
+@@ -938,11 +983,85 @@ void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsi
  			overlappingAliases.insert( alias );
  	}
  
@@ -592,7 +701,80 @@ index cf6d79b..7d34ac9 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
-@@ -973,7 +1005,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+ 		(*a)->addRange( loopStart, loopEnd );
++
++	tieCarriedWritesToLiveInAliases( tokens, loopStart, loopEnd, liveInAliases );
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++void RegisterAllocator::tieCarriedWritesToLiveInAliases( std::list<Token>& tokens,
++                                                         unsigned int loopStart, unsigned int loopEnd,
++                                                         const std::set<Alias*>& liveInAliases )
++{
++	// A name read before it is written inside the body is carried across the back
++	// edge, and the readers at the top of the loop hold ONE alias for it. But a
++	// fresh Alias is spawned for every write, so the update at the bottom of the
++	// loop is a different alias - free to land in a different register. The write
++	// then goes nowhere the reader looks: the next iteration sees what the previous
++	// one saw, forever.
++	//
++	// Worse, those tail aliases get a live range one line long - the line of the
++	// write itself - because nothing downstream reads them. Two such ranges do not
++	// intersect, so the allocator may legally put two different carried names in one
++	// register, where the second write destroys the first.
++	//
++	// Both follow from the same omission, so both have one fix: tie every in-loop
++	// write of a carried name to the alias its readers use. openvcl already has the
++	// machinery - the two-address chain, which exists so `isubiu x, x, 1` writes the
++	// register it read - and the chain pre-pass then hands the whole chain a single
++	// register.
++	std::map<std::string, Alias*> carriedByName;
++	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
++	{
++		if( t->lineNumber() < loopStart || t->lineNumber() > loopEnd )
++			continue;
++		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin(); a != t->arguments().end(); ++a )
++		{
++			if( a->content() != Token::Argument::ALIAS || !a->dependency() || !a->dependency()->alias() )
++				continue;
++			if( a->alias().empty() )
++				continue;
++			Alias* alias = a->dependency()->alias();
++			if( liveInAliases.find( alias ) == liveInAliases.end() )
++				continue;
++			if( carriedByName.find( a->alias() ) == carriedByName.end() )
++				carriedByName[ a->alias() ] = alias;
++		}
++	}
++
++	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
++	{
++		if( t->lineNumber() < loopStart || t->lineNumber() > loopEnd )
++			continue;
++		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin(); a != t->arguments().end(); ++a )
++		{
++			if( !(a->flags() & Token::Argument::WRITE) )
++				continue;
++			if( a->content() != Token::Argument::ALIAS || !a->dependency() || !a->dependency()->alias() )
++				continue;
++			Alias* written = a->dependency()->alias();
++			std::map<std::string, Alias*>::iterator carried = carriedByName.find( a->alias() );
++			if( carried == carriedByName.end() )
++				continue;
++			if( written == carried->second )
++				continue;
++			// An existing chain already says where this write must live; a carried
++			// name cannot claim it too without contradicting the earlier link.
++			if( written->sameNamePredecessor() )
++				continue;
++			written->setSameNamePredecessor( carried->second );
++		}
++	}
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -973,7 +1092,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -608,7 +790,7 @@ index cf6d79b..7d34ac9 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1255,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1342,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -622,6 +804,27 @@ index cf6d79b..7d34ac9 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
+diff --git a/src/RegisterAllocator.h b/src/RegisterAllocator.h
+index 738fca5..32cd22f 100644
+--- a/src/RegisterAllocator.h
++++ b/src/RegisterAllocator.h
+@@ -24,6 +24,7 @@
+ #endif
+ 
+ #include <map>
++#include <set>
+ #include <vector>
+ #include <sstream>
+ 
+@@ -103,6 +104,8 @@ private:
+ 	void extendMultiQStageLiveRanges( std::list<Token>& tokens );
+ 	bool loopTargetHasLoopDirective( std::list<Token>::iterator target, std::list<Token>::iterator end ) const;
+ 	void extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd );
++	void tieCarriedWritesToLiveInAliases( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd,
++	                                      const std::set<Alias*>& liveInAliases );
+ 	void extendMultiQStageRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd );
+ 
+ 	bool updateDynamicTracker( const Token* src );
 diff --git a/src/Token.cpp b/src/Token.cpp
 index 586585b..606b02d 100644
 --- a/src/Token.cpp

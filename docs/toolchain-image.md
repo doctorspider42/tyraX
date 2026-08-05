@@ -863,10 +863,10 @@ move VF18, VF21        ; pst  = cst   <- clobbers pcol
 ```
 
 The `--loop-liveness-always` fix removed this collision from `clip_c` but not from
-`clip_tc`, so the extension is reaching some of these aliases and not others - most
-likely because the two-address chain pre-pass assigns a register before the extended
-ranges are consulted (instrumentation earlier showed the allocator's free-register
-search never runs on these programs at all). Note the pattern alone is not proof:
+`clip_tc`. The guess at the time - that the two-address chain pre-pass decides the
+register before the extended ranges are consulted - was wrong; what it actually is
+[has its own section below](#the-second-defect-a-carried-name-is-two-aliases-and-only-one-of-them-was-extended).
+Note the pattern alone is not proof:
 `clip_td` and `clip_tce` carry the same duplicate destination and render correctly,
 where the second copy overwrites something genuinely dead.
 
@@ -979,6 +979,136 @@ triangles), so at least one more defect is in there. Everything else stays put: 
 compile and assemble, 419/419 upstream tests, the resident set still 2040, the EE path
 still pixel-identical, and nine of the ten resident VU1-clipper programs still
 pixel-identical.
+
+### The second defect: a carried name is two aliases, and only one of them was extended
+
+Finding it needed `--show-reg-alloc` to say something it did not say. Upstream's dump
+prints live ranges for anonymous `Alias` objects - no name, no register, and it runs
+*before* allocation, so the one question that matters ("which two values share a
+register?") could not be asked. Three small additions fix that: `Alias` carries the
+source-level name it was created for, `BranchState::updateDependency` records it, and a
+`=== Final assignment ===` block reports name → register after allocation.
+
+With that, `clip_tc`'s edge loop reads:
+
+```
+VF15 <- ppos #112  ranges: [228-286]      <- what edgeCross reads
+VF16 <- pstq #113  ranges: [229-286]
+VF17 <- pcol #114  ranges: [230-286]
+VF22 <- ppos #126  ranges: [281-281]      <- what edgeAdvance writes
+VF18 <- pstq #127  ranges: [282-282]
+VF18 <- pcol #128  ranges: [283-283]
+```
+
+**openvcl spawns a fresh `Alias` for every write, so one source name is several
+aliases** - and the update at the bottom of the loop is a *different* alias from the one
+the readers at the top hold. It gets its own register: `move ppos, cpos` writes VF22
+while `edgeCross` keeps reading VF15. The write goes nowhere anyone looks, so every
+iteration lerps against the same stale vertex. That is the real defect, and it is
+present even where no collision is visible - which is why `clip_c` rendered wrong while
+the dead-write checker called it clean.
+
+The VF18 collision is a *consequence*. Nothing downstream reads those tail aliases, so
+each gets a live range **one line long** - the line of its own write. Two one-line
+ranges do not intersect, so the allocator may legally put two carried names in one
+register, and the second write destroys the first.
+
+One fix covers both, and it reuses machinery openvcl already has. The two-address chain
+exists so `isubiu x, x, 1` writes the register it read; `tieCarriedWritesToLiveInAliases`
+ties every in-loop write of a **carried** name (one whose first access inside the loop is
+a read) to the alias its readers use, and the chain pre-pass then hands the whole chain a
+single register:
+
+```
+VF15 <- ppos #126  ranges: [281-281]      after: the register edgeCross reads
+VF16 <- pstq #127  ranges: [282-282]
+VF17 <- pcol #128  ranges: [283-283]
+```
+
+It rides along with `--loop-liveness-always` (it runs wherever the live-range extension
+runs), and it costs nothing: `clip_c` 258 words and `clip_tc` 270 → 272, unchanged from
+before the fix, 25/25 compile and assemble, upstream's tests still green.
+
+Two static checks came out of this and are worth keeping, because each answers a
+different question about one dump:
+
+* `splitname.py` - **which names got more than one register.** Abutting short ranges are
+  normal (a value recomputed step by step); a carried name split in two is the bug above.
+* `overlap.py` - **which registers hold two names on one line.** The dual question, and
+  the stronger one. Ranges with holes are what allow it: `color2` is `[72-75], [77-206]`,
+  dead on line 76 - the line where a *different* colour is loaded - so any alias covering
+  76 may be handed VF14. Both clippers report 0 after the fix.
+
+### What this bought, and the one thing still wrong
+
+**Check what the project is actually running before believing a green frame.** The
+`vclab` working copy used for the probes above had `"clipping": "precise"` - the EE
+clipper - which generates `constexpr bool CLIP_VU1S[SCENE_COUNT] = {false}` and leaves
+the five `clip_*` programs off VU1 entirely. So its pixel-identical result under the
+whole openvcl set is a real result about the **EE** path and says nothing about the VU1
+clipper. Set `"clipping": "vu1"` in the `.tyra` (two scenes, in this project) and
+re-measure before drawing that conclusion. With it on:
+
+| `vclab`, VU1 clipper | pixels vs legacy |
+|---|---|
+| SCE `vcl` | reference |
+| everything from openvcl | **506784 of 514600 differ** |
+| all but `clip_c` from openvcl | **0** |
+
+So nine of the ten resident programs - `clip_tc` among them - are correct from the fixed
+openvcl, and `clip_c` alone is not. The resident set fits either way: **2040 against
+SCE's 2042**.
+
+The other two scenes agree, and four more probes pin it to that one program:
+
+| VU1 clipper | frame |
+|---|---|
+| `raytraced-mirror`, everything from openvcl | **blank** |
+| `raytraced-mirror`, all but `clip_c` and `clip_tc` from openvcl | matches legacy |
+| `raytraced-mirror`, all but `clip_tc` from openvcl | **blank** |
+| `raytraced-mirror`, **only** `clip_c` from openvcl, 24 programs from SCE | **blank** |
+| `blocks-terrain`, everything from openvcl | **blank** |
+
+`clip_c` alone, with no interaction. Note what the second row rules out: with the two
+clippers held back, the other 23 programs from the *fixed* openvcl render this scene
+correctly, so the carried-write fix broke nothing. Not a micro-memory overflow either:
+the
+mixed set measures exactly 2042 with `draw_finish` at 2042, the assert passes, the game
+logs 5520 frames and binds textures normally. Nothing is drawn anyway, and in this
+pipeline **every** triangle passes through the clip program's emit path, so a defect
+there takes the whole frame - sky included - which is what the picture shows.
+
+A measurement note that cost a wrong conclusion first: **count words with `nm` on the
+built object, not rows in the `.vsm`.** Row counts run 2-6 high per program (they pick up
+what sits outside `CodeStart`/`CodeEnd`), which put SCE's resident set at 2042 when the
+uploader actually sees 2040, and made a mixed build look like a 2-word overflow when it
+fits exactly:
+
+| resident 10-program set | `nm` words |
+|---|---|
+| SCE `vcl` | **2042** - the ceiling exactly, no headroom |
+| patched `openvcl` | **2040** |
+
+Three explanations were checked and eliminated, so the next attempt should not start
+there. **Register allocation is internally consistent**: `overlap.py` reports no
+register holding two names on one line, and no carried name split across registers.
+**The instruction multiset matches SCE** (`instrdiff2.py`, as it did before). And
+**every branch delay slot is legitimate**: `delayslot.py` compares all 20 branches
+against SCE's, and each of the six sites where openvcl fills a slot SCE left empty -
+or filled differently - holds an instruction the source itself placed *before* the
+branch (`srcEnd = srcBase + 6` above `ibeq triOr,vi00,fanStart`, the `emitNxt`/`fanPtr`
+rotations inside `fanEmitLoop`, the src/dst swap above `ibne ...,planeLoop`). Those are
+meant to run on both paths.
+
+An engine-side workaround for this class was tried and **rejected on measurement**:
+carry the previous clip vertex through `prevPtr` (which the program already keeps for the
+wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.
+It removes the collision by construction and needs no compiler change, but SCE's own
+output grows - `clip_c` 262 → 263 rows, which rounds up to an even upload and pushes the
+resident set 2042 → 2044. Moving the loads onto the crossing path in `edgeCross`, where a
+divide's latency looked like free cover, is worse still (264 / 278). **The tool bug is
+the tool's to fix**; a source change that breaks the assembler we still ship is not a
+fix.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops

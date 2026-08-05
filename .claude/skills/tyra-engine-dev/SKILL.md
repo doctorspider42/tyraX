@@ -687,8 +687,8 @@ banner both, so a previously built ELF still reports.
   a spelling choice, it breaks expansion the same silent way.
 - **`begin:` in every pipeline program is a LOOP** (`b begin` at the bottom, one
   iteration per batch), so anything loaded above it must stay live through the
-  whole body — and one of the two assemblers does not honour that. openvcl's
-  liveness ignores the back edge, reuses those registers per vertex, and every
+  whole body — and one of the two assemblers does not honour that. openvcl reuses
+  those registers per vertex, and every
   batch after the first stored garbage GIF tags: 50 FPS of missing terrain, no
   assertion. **Load per-batch values next to the store that reads them, inside the
   loop** — the nine `*_c` / `*_tc` / `*_tce` / `*_td` programs now do, and it cuts
@@ -697,6 +697,28 @@ banner both, so a previously built ELF still reports.
   written in the body) is described in `docs/toolchain-image.md`, "A miscompile this
   uncovered"; it also names the per-input-file `vcl` dispatch wrapper, which is how
   you attribute a bad frame to ONE microprogram instead of to a whole build.
+- **A project's clipping mode decides whether the `clip_*` programs run at all**, so
+  check it before concluding anything from a green frame. `"clipping": "vu1"` in the
+  `.tyra` generates `CLIP_VU1S[...] = {true}` in `inc/scene_data.hpp` and makes
+  `StaPipQBufferRenderer` upload the five `clip_*` programs; `"precise"` and `"fast"`
+  leave them off VU1 and use the EE clipper's `as_is_*` instead. A `vclab` copy sitting
+  on `"precise"` produced a pixel-identical openvcl frame that was read as "the VU1
+  clipper works" - it was the EE clipper, and with `"vu1"` set the same build differs in
+  506784 of 514600 pixels. Grep the generated header, not the intent:
+  ```bash
+  grep -n "CLIP_VU1S" <project>/inc/scene_data.hpp
+  ```
+- **Count VU words with `nm`, not by counting rows in the `.vsm`.** The uploader sizes
+  each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
+  rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
+  because they pick up what sits outside those symbols. On the resident ten that is a
+  ~7-word error: rows say SCE needs 2042 and openvcl 2040, `nm` says **2042 and 2040** but
+  for different programs, which is enough to call a build a 2-word overflow when it fits
+  exactly. Ask the built object:
+  ```bash
+  docker run --rm -v "tyra-engine-<hash>:/tyra:ro" tyrax-toolchain:local sh -c 'mips64r5900el-ps2-elf-nm /tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o | grep -i Code'
+  ```
+  The volume name is in the project's `docker-compose.yml`.
 - **A microprogram that does not fit can still be tested — pay for it with one that
   is smaller.** The ceiling is on the SET (2042 instructions), not on the program,
   so put the oversized candidate on openvcl together with the programs where openvcl
@@ -709,9 +731,10 @@ banner both, so a previously built ELF still reports.
   2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
   in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
   with it **runs, pixel-identical to Sony's output** - on the EE clipper, and on the
-  VU1 clipper for nine of the ten resident programs (the tenth, `stapip_clip_c`, is
-  miscompiled; that is the last blocker). Its VU1 set fits since 2026-08-05 (2040
-  against the 2042 ceiling) and costs no measurable frames. It schedules
+  VU1 clipper for nine of the ten resident programs. `stapip_clip_c` is the last
+  blocker: it blanks `blocks-terrain` and `raytraced-mirror` and costs `vclab`
+  506784 of 514600 pixels. Its VU1 set fits since 2026-08-05 (2040
+  against SCE's 2042) and costs no measurable frames. It schedules
   *differently* though, so **any VU1
   timing you measure belongs to one assembler, not to the engine**. Say which one
   in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`
