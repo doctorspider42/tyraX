@@ -946,6 +946,7 @@ class TerrainGame : public Tyra::Game {
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error

@@ -123,7 +123,14 @@ std::string scriptStub(const Project& p, const std::string& className,
 
 // How many save slots the generated save system exposes. The twin of the
 // emitted `SAVE_SLOTS` in saveSystemHeader - change both together.
+// The slot count a project ships, clamped to what the model allows. Was a
+// fixed 3 until the count became configurable; kSaveSlots survives only as
+// the default a fresh Project starts at.
 constexpr int kSaveSlots = 3;
+int saveSlotCount(const Project& p);
+// Rows the save menu shows at once, and how many pages that makes.
+int saveSlotsPerPage(const Project& p);
+int saveSlotPages(const Project& p);
 
 // What one memory card save slot holds and costs, mirroring the generated
 // SaveGameData layout byte for byte (the Save Editor's size estimate; the

@@ -138,6 +138,27 @@ Note this changes only the **menu**. *Commit Checkpoint* always writes the
 checkpoint buffer, and it writes it as it was captured — not the state at the
 moment you fire the node.
 
+## How many slots, and the save menu itself
+
+**Slots** (1–100) is how many the game offers; **Rows per page** is how many
+the menu shows at once. With more slots than rows the menu **pages**: the
+cursor walking off the bottom row turns to the next page, left/right jump a
+whole page, and a `2/5` counter sits above the rows. Rows per page is capped at
+8 — that is the panel bake's row limit.
+
+Every slot is its own file and costs a whole 1 KB cluster however small it is,
+so a hundred slots is about 100 KB of card. The size table below the setting
+does that sum for the count you picked.
+
+**The save menu is a normal menu.** It appears in *Tools > Menu Editor* like
+any other, so its title, colours, font, sizes, panel width, placement and
+images are all yours — a project made before this gets one seeded to look
+exactly like the panel that used to ship, so nothing changes until you touch
+it. Its **entry list is not used**: the rows *are* the save slots. The panel is
+baked with *Rows per page* blank rows and the game writes `SLOT n` into them at
+runtime, which is the only way a slot count in the dozens can work — a label
+baked per slot could never page.
+
 ## Which slot a commit goes to
 
 *Commit Checkpoint* has a **Writes to** mode:

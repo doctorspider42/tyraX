@@ -19,6 +19,10 @@
 namespace menubake {
 
 constexpr int kMaxEntries = 8;
+// The save menu's rows-per-page are laid out by this same bake, so the
+// project's cap cannot exceed it.
+static_assert(kMaxSaveSlotsPerPage <= kMaxEntries,
+              "save menu rows per page must fit the panel bake's row limit");
 constexpr int kMaxOptions = 8;  // options per Toggle/Choice entry
 
 // Geometry of a menu's panel. Flow images push the title and rows down, the

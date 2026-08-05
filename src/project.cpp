@@ -94,6 +94,11 @@ std::vector<int> Project::atlasFontIndices() const {
                 want(m.font);
                 break;
             }
+    // The save menu ALWAYS draws runtime text - its rows are "SLOT n" and the
+    // page counter, neither of which can be baked when the slot count is free.
+    // Without this its atlas would be missing and the rows would be blank.
+    for (const GameMenu& m : menus)
+        if (m.saveMenu) want(m.font);
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -1551,6 +1556,8 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << ",\n  \"saveMenuWritesCheckpoint\": "
          << (p.saveMenuWritesCheckpoint ? "true" : "false");
     json << ",\n  \"saveAutosaveSlot\": " << p.saveAutosaveSlot;
+    json << ",\n  \"saveSlotCount\": " << p.saveSlotCount;
+    json << ",\n  \"saveSlotsPerPage\": " << p.saveSlotsPerPage;
     json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
     json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
     json << ",\n  \"saveSpinnerImage\": \"" << jsonEscape(p.saveSpinnerImage)
@@ -1859,6 +1866,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
              << (m.titleScreen ? ", \"titleScreen\": true" : "")
              << (m.pauseGame ? "" : ", \"pause\": false")
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
+             << (m.saveMenu ? ", \"saveMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
              << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
@@ -2285,6 +2293,42 @@ void ensureTextIcons(Project& p) {
     }
 }
 
+int saveMenuIndex(const Project& p) {
+    for (size_t i = 0; i < p.menus.size(); ++i)
+        if (p.menus[i].saveMenu) return (int)i;
+    return -1;
+}
+
+void ensureSaveMenu(Project& p) {
+    // More than one is a data error, not a choice: keep the first.
+    bool seen = false;
+    for (GameMenu& m : p.menus) {
+        if (!m.saveMenu) continue;
+        if (seen) m.saveMenu = false;
+        seen = true;
+    }
+    if (seen) return;
+    // Seeded to match the panel that used to ship as res/hud/save-menu.png:
+    // same title, same blue, same 256-wide panel, so a project that predates
+    // this looks exactly as it did.
+    GameMenu m;
+    m.name = "save";
+    m.title = "SAVE GAME";
+    m.saveMenu = true;
+    m.pauseGame = true;
+    m.panelW = 256;
+    m.screenPos[0] = 0.5f;
+    m.screenPos[1] = 0.45f;
+    m.accent[0] = 0.47f;
+    m.accent[1] = 0.82f;
+    m.accent[2] = 1.0f;
+    m.titleSize = 18;
+    m.entrySize = 15;
+    // No entries: the rows ARE the save slots and are laid out from
+    // Project::saveSlotsPerPage at bake time.
+    p.menus.push_back(m);
+}
+
 void ensureInputActions(Project& p) {
     // The bindings TyraX hardcoded before the Input Map existed (the old
     // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
@@ -2496,6 +2540,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureSaveMenu(out);
     ensureTextIcons(out);
     // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
     // what to press rather than a generic "USE" - and follows a rebind. Only on
@@ -4091,10 +4136,23 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
     }
     if (const auto* v = root.find("saveMenuWritesCheckpoint"))
         out.saveMenuWritesCheckpoint = v->boolOr(false);
+    // Read the counts BEFORE the autosave slot - its valid range depends on
+    // them, and JSON key order is not something a reader may rely on.
+    if (const auto* v = root.find("saveSlotCount")) {
+        out.saveSlotCount = (int)v->numberOr(3.0);
+        if (out.saveSlotCount < 1) out.saveSlotCount = 1;
+        if (out.saveSlotCount > kMaxSaveSlots) out.saveSlotCount = kMaxSaveSlots;
+    }
+    if (const auto* v = root.find("saveSlotsPerPage")) {
+        out.saveSlotsPerPage = (int)v->numberOr(3.0);
+        if (out.saveSlotsPerPage < 1) out.saveSlotsPerPage = 1;
+        if (out.saveSlotsPerPage > kMaxSaveSlotsPerPage)
+            out.saveSlotsPerPage = kMaxSaveSlotsPerPage;
+    }
     if (const auto* v = root.find("saveAutosaveSlot")) {
         out.saveAutosaveSlot = (int)v->numberOr(-1.0);
         if (out.saveAutosaveSlot < -1 ||
-            out.saveAutosaveSlot >= templates::kSaveSlots)
+            out.saveAutosaveSlot >= out.saveSlotCount)
             out.saveAutosaveSlot = -1;
     }
     if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
@@ -4608,6 +4666,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                 m.pauseGame = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jm.find("pauseMenu"))
                 m.pauseMenu = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("saveMenu"))
+                m.saveMenu = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = jm.find("panelW")) {
                 const int w = (int)v->numberOr(256);
                 m.panelW = (w == 128 || w == 512) ? w : 256;
@@ -4993,6 +5053,9 @@ std::string load(Project& out, const std::string& projectDir) {
     // (or one whose "input" key was hand-trimmed) gets exactly the bindings
     // that used to be hardcoded, so it plays the same.
     ensureInputActions(out);
+    // Same backfill for the save menu: a project from before it was editable
+    // has no saveMenu entry and would otherwise bake no save panel at all.
+    ensureSaveMenu(out);
 
     loadHeights(out);
     ensureHeightmap(out);

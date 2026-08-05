@@ -149,6 +149,9 @@
   "saveIconMotion": "bounce",
   "saveIconMotionAmount": 1,
   "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
   "saveAsync": true,
   "saveSpinner": true,
   "saveSpinnerImage": "",
@@ -167,7 +170,10 @@
   "splashScreens": [],
   "credits": [],
   "sequences": [],
-  "menus": [],
+  "menus": [
+    { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [] }
+  ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,

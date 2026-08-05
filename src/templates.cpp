@@ -1,4 +1,4 @@
-#include "templates.hpp"
+﻿#include "templates.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1501,6 +1501,7 @@ class TerrainGame : public Tyra::Game {
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
@@ -2636,6 +2637,7 @@ class TerrainGame : public Tyra::Game {
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
@@ -5297,14 +5299,29 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
@@ -8192,10 +8209,21 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
@@ -8374,14 +8402,47 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
+    }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
     }
   }
   // The "do not remove the memory card" warning covers everything while a
@@ -25633,7 +25694,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     int slot = (int)n.num[0];
                     if (slot < 0) slot = 0;
-                    if (slot >= kSaveSlots) slot = kSaveSlots - 1;
+                    if (slot >= saveSlotCount(p)) slot = saveSlotCount(p) - 1;
                     c << pad << "ctx.commitCheckpoint = " << slot << ";\n";
                 }
             } else if (n.type == "SetVarInt") {
@@ -32522,10 +32583,21 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
     s.cardClusterBytes = cluster;
     s.cardFootprintBytes =
         (1 /* the save directory itself */
-         + kSaveSlots * clustersFor(s.payloadBytes) +
+         + saveSlotCount(p) * clustersFor(s.payloadBytes) +
          clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
         cluster;
     return s;
+}
+
+int saveSlotCount(const Project& p) {
+    return std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots));
+}
+int saveSlotsPerPage(const Project& p) {
+    return std::max(1, std::min(p.saveSlotsPerPage, kMaxSaveSlotsPerPage));
+}
+int saveSlotPages(const Project& p) {
+    const int per = saveSlotsPerPage(p);
+    return (saveSlotCount(p) + per - 1) / per;
 }
 
 // inc/save_system.gen.hpp - memory card save slots (fixed-size payload)
@@ -32547,7 +32619,8 @@ static std::string saveSystemHeader(const Project& p) {
            "// (libmc, card-root-relative path). When the BIOS mc modules cannot\n"
            "// be loaded or no formatted PS2 card responds, the slots fall back\n"
            "// to save<n>.sav next to the ELF (host: under PCSX2).\n"
-        << "constexpr int SAVE_SLOTS = " << kSaveSlots
+        << "constexpr int SAVE_SLOTS = "
+        << std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots))
         << ";\n"
            "constexpr const char* SAVE_MC_DIR = \""
         << saveGameDir(p)
@@ -32646,6 +32719,15 @@ static std::string saveSystemHeader(const Project& p) {
            "// one its \"next free slot\" mode never picks. -1 = none set, in\n"
            "// which case an autosave commit does nothing at all.\n"
         << "constexpr int SAVE_AUTOSAVE_SLOT = " << p.saveAutosaveSlot << ";\n"
+           "// The save menu is a GameMenu (Tools > Menu Editor), so its panel,\n"
+           "// font, colours and placement come from MENUS[SAVE_MENU_INDEX].\n"
+           "// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE\n"
+           "// blank rows and the game draws the labels, which is what lets a\n"
+           "// project have more slots than fit on one screen.\n"
+        << "constexpr int SAVE_MENU_INDEX = " << project::saveMenuIndex(p)
+        << ";\n"
+        << "constexpr int SAVE_SLOTS_PER_PAGE = " << saveSlotsPerPage(p) << ";\n"
+        << "constexpr int SAVE_PAGES = " << saveSlotPages(p) << ";\n"
            "// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:\n"
            "// the flow graph writes them and does not include this header.)\n"
            "\n}  // namespace "

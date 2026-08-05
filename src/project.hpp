@@ -1873,6 +1873,14 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
 }
 
 // One selectable row of a generated in-game menu.
+// Memory card save slots. The upper bound is a sanity limit, not a console
+// one - every slot is its own file and costs a whole 1 KB cluster, so a
+// hundred of them is ~100 KB of an 8 MB card (the Save Editor does that sum).
+// The per-page cap must stay <= menubake::kMaxEntries, which is what the panel
+// bake can lay out; a static_assert in menubake.cpp holds the two together.
+constexpr int kMaxSaveSlots = 100;
+constexpr int kMaxSaveSlotsPerPage = 8;
+
 struct MenuEntry {
     std::string label = "New entry";
     // What Cross does on this row. Close/scene/save-menu also dismiss the
@@ -1993,6 +2001,12 @@ struct GameMenu {
     // The Start button opens this menu in-game and closes it again (the
     // classic pause menu; one per project).
     bool pauseMenu = false;
+    // THIS is the memory card save menu (one per project). Its rows are the
+    // save slots, so `entries` is not authored and not read: the panel is
+    // baked with Project::saveSlotsPerPage blank rows and the game draws
+    // "SLOT n" into them at runtime, which is the only way a slot count in
+    // the dozens can work - a baked label per slot cannot page.
+    bool saveMenu = false;
     float accent[3] = {0.47f, 0.82f, 1.0f};  // border/title tint
     // Images composited into the baked panel. Flow slots (AboveTitle /
     // AboveEntries / BelowEntries) are blocks in the panel's vertical flow -
@@ -2017,7 +2031,8 @@ struct GameMenu {
 inline bool operator==(const GameMenu& a, const GameMenu& b) {
     return a.name == b.name && a.title == b.title &&
            a.titleScreen == b.titleScreen && a.pauseGame == b.pauseGame &&
-           a.pauseMenu == b.pauseMenu && a.accent[0] == b.accent[0] &&
+           a.pauseMenu == b.pauseMenu && a.saveMenu == b.saveMenu &&
+           a.accent[0] == b.accent[0] &&
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
@@ -2259,6 +2274,12 @@ struct Project {
     // rather than a guess. This is a DESIGNATION, not a lock: the in-game menu
     // can still save over it and load from it like any other slot.
     int saveAutosaveSlot = -1;
+    // How many memory card slots the game offers, and how many of them the
+    // save menu shows at once. With more slots than fit, the menu pages: the
+    // cursor walking off the bottom row turns to the next page. Rows per page
+    // is capped by menubake::kMaxEntries (the panel bake's row limit).
+    int saveSlotCount = 3;
+    int saveSlotsPerPage = 3;
     // Write to the card WITHOUT freezing the game behind the "do not remove
     // the memory card" overlay: the transfer is driven a step per frame and
     // the player keeps playing. Loads stay blocking (the world is being
@@ -2479,6 +2500,17 @@ void ensureProjectId(Project& p);
 // an action the user renamed/rebound/deleted stays as it is, and re-running is
 // a no-op. Called from create() and at the end of load().
 void ensureInputActions(Project& p);
+
+// Guarantees exactly one GameMenu::saveMenu, seeded to look like the built-in
+// save panel every project shipped before the menu was editable, so opening an
+// old project changes nothing on screen. Also clamps the extras to one - two
+// save menus would bake two panels and the game would pick arbitrarily.
+// Called from create() and at the end of load(); re-running is a no-op.
+void ensureSaveMenu(Project& p);
+
+// Index of the save menu in Project::menus, or -1. Cheap; call it rather than
+// caching, since the Menu Editor can reorder the list.
+int saveMenuIndex(const Project& p);
 
 // The built-in action name for a role (InputAction::Role), e.g. "jump" - what
 // ensureInputActions seeds and what the codegen role slots look for. Empty for

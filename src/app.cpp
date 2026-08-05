@@ -1,4 +1,4 @@
-#include "app.hpp"
+﻿#include "app.hpp"
 #include "app_internal.hpp"
 
 #include <algorithm>
@@ -8406,6 +8406,44 @@ void App::drawSaveEditorWindow() {
             ImGui::EndCombo();
         }
 
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderInt("Slots", &project_.saveSlotCount, 1, kMaxSaveSlots);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (project_.saveAutosaveSlot >= project_.saveSlotCount)
+                project_.saveAutosaveSlot = -1;  // it no longer exists
+            saveAll("Saved");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How many memory card slots the game offers. Each one is its\n"
+                "own file and costs a whole 1 KB cluster even when nearly\n"
+                "empty - the table below does that sum for the count you pick.");
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderInt("Rows per page", &project_.saveSlotsPerPage, 1,
+                         kMaxSaveSlotsPerPage);
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How many slots the save menu shows at once. With more slots\n"
+                "than this the menu PAGES: the cursor walking off the bottom\n"
+                "row turns to the next page, and left/right jump a whole page.\n"
+                "The panel is baked with this many rows, so it is also what\n"
+                "decides the menu's height.");
+        {
+            const int pages = templates::saveSlotPages(project_);
+            ImGui::PushStyleColor(
+                ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::TextWrapped("%d slot%s over %d page%s.",
+                               templates::saveSlotCount(project_),
+                               templates::saveSlotCount(project_) == 1 ? "" : "s",
+                               pages, pages == 1 ? "" : "s");
+            ImGui::PopStyleColor();
+        }
+
         // The slot Commit Checkpoint's "autosave" mode targets, and the one
         // its "next free slot" mode leaves alone.
         {
@@ -8421,7 +8459,7 @@ void App::drawSaveEditorWindow() {
                     project_.saveAutosaveSlot = -1;
                     saveAll("Saved");
                 }
-                for (int i = 0; i < templates::kSaveSlots; ++i) {
+                for (int i = 0; i < templates::saveSlotCount(project_); ++i) {
                     char label[32];
                     std::snprintf(label, sizeof(label), "Slot %d", i + 1);
                     if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) &&
@@ -8572,7 +8610,7 @@ void App::drawSaveEditorWindow() {
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
         row("All data (3 slots + icon, raw bytes)",
-            bytes(sz.payloadBytes * templates::kSaveSlots + sz.iconBytes));
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) + sz.iconBytes));
         // What the card actually loses, which is the number that matters and
         // is always bigger: files are allocated in whole 1 KB clusters and
         // the save directory costs one of its own.
@@ -8591,7 +8629,7 @@ void App::drawSaveEditorWindow() {
                 "however small it is - plus one for icon.sys, one or more for\n"
                 "list.icn, and one for the save's own directory. That rounding\n"
                 "is why this row and \"All data\" differ.",
-                sz.cardClusterBytes, templates::kSaveSlots);
+                sz.cardClusterBytes, templates::saveSlotCount(project_));
         ImGui::TableNextColumn();
         // The number to quote, so it gets the theme's one bright colour -
         // emphasis, not a warning (nothing here is wrong).

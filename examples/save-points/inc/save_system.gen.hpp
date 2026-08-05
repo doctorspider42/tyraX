@@ -98,6 +98,14 @@ constexpr float SAVE_SPINNER_SCALE = 1.0F;
 // one its "next free slot" mode never picks. -1 = none set, in
 // which case an autosave commit does nothing at all.
 constexpr int SAVE_AUTOSAVE_SLOT = -1;
+// The save menu is a GameMenu (Tools > Menu Editor), so its panel,
+// font, colours and placement come from MENUS[SAVE_MENU_INDEX].
+// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE
+// blank rows and the game draws the labels, which is what lets a
+// project have more slots than fit on one screen.
+constexpr int SAVE_MENU_INDEX = 0;
+constexpr int SAVE_SLOTS_PER_PAGE = 3;
+constexpr int SAVE_PAGES = 1;
 // (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:
 // the flow graph writes them and does not include this header.)
 

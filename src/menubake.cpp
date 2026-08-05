@@ -602,7 +602,24 @@ int flowBlockHeight(const GameMenu& menu, const std::vector<FittedImage>& fit,
 
 }  // namespace
 
-PanelLayout panelLayout(const GameMenu& menu, const Project& p) {
+GameMenu asBaked(const GameMenu& menu, const Project& p) {
+    if (!menu.saveMenu) return menu;
+    // The save menu's rows ARE the save slots, so it bakes with that many
+    // BLANK rows: the panel supplies the geometry and the game draws "SLOT n"
+    // into it at runtime (a baked label per slot could never page). Routing
+    // this through the bake means the panel, the editor's preview and the
+    // generated row metrics all count rows the same way.
+    GameMenu c = menu;
+    int rows = p.saveSlotsPerPage;
+    if (rows < 1) rows = 1;
+    if (rows > kMaxEntries) rows = kMaxEntries;
+    c.entries.assign((size_t)rows, MenuEntry{});
+    for (MenuEntry& e : c.entries) e.label.clear();
+    return c;
+}
+
+PanelLayout panelLayout(const GameMenu& menuIn, const Project& p) {
+    const GameMenu menu = asBaked(menuIn, p);
     PanelLayout l;
     l.panelW = (menu.panelW == 128 || menu.panelW == 512) ? menu.panelW : 256;
     int entries = (int)menu.entries.size();
@@ -692,8 +709,9 @@ static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
     }
 }
 
-bool bakePanelRGBA(const GameMenu& menu, const Project& p,
+bool bakePanelRGBA(const GameMenu& menuIn, const Project& p,
                    std::vector<unsigned char>& out, int& w, int& h) {
+    const GameMenu menu = asBaked(menuIn, p);
     Font* font = resolveFont(menu, p);
     if (!font) return false;
 
@@ -778,7 +796,12 @@ bool bakePanelRGBA(const GameMenu& menu, const Project& p,
     int below = l.row0Y + entries * l.rowH + 4;
     drawFlowSlot(MenuImage::BelowEntries, below);
 
-    drawText(canvas, *font, w * 0.5f, content - 18, "X OK    \xE2\x96\xB2 BACK",
+    // The save menu's two buttons do different things, so it gets its own
+    // hint line - "OK" would be a lie on a panel where Cross saves and Circle
+    // loads. (U+25B2 is the triangle glyph, as above.)
+    drawText(canvas, *font, w * 0.5f, content - 18,
+             menu.saveMenu ? "X SAVE   O LOAD   \xE2\x96\xB2 BACK"
+                           : "X OK    \xE2\x96\xB2 BACK",
              11.0f, kDim, true);
 
     // overlays: in front of everything, freeform top-left position
