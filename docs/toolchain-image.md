@@ -826,7 +826,56 @@ resident set fits at 2033, so the VU1 clipper can actually run:
 | `cull_d` + `cull_td` from openvcl | 0 | **0 of 514600 pixels differ** |
 | the same plus `clip_c` | 0 | **453644 differ** |
 
-The whole family was then measured the same way, one program at a time:
+### Coverage: what a second scene found
+
+Everything verified in an emulator up to this point ran only `stapip_*` on ONE
+untextured terrain scene. Two real examples, each built with openvcl everywhere except
+the programs under suspicion, changed the picture:
+
+| scene | openvcl everywhere except | result |
+|---|---|---|
+| `blocks-terrain` (blocks pipeline, vu1) | `clip_c` | **pixel-identical** |
+| `raytraced-mirror` (textures, VU0 raytracer, vu1) | `clip_c` | corrupt |
+| `raytraced-mirror` | `clip_c`, `clip_tc` | **clean** |
+
+So `mcpip_as_is`, `mcpip_cull`, `dynpip_*`, `billboard_*`, `vu0_rt_kernel`, every
+`cull_*` and `clip_d`/`clip_td`/`clip_tce` are all correct - and there is a **second**
+miscompiled program, `stapip_clip_tc`, which the first scene could not see because it
+has no textures.
+
+**Both broken programs are the colour-carrying clippers** (`_c` = colour, `_tc` =
+texture + colour), and both fail the same way. In `clip_tc`'s `edgeAdvance` SCE writes
+the previous-vertex state to four distinct registers:
+
+```
+max VF14,VF18,VF18     ; ppos = cpos
+max VF15,VF19,VF19     ; pcol = ccol
+move VF16,VF20         ; pst  = cst
+addx.x VF17,VF00,VF21x ; pd   = cd
+```
+
+openvcl gives `pcol` and `pst` the same one:
+
+```
+move VF22, VF18        ; ppos = cpos
+move VF18, VF20        ; pcol = ccol
+move VF18, VF21        ; pst  = cst   <- clobbers pcol
+```
+
+The `--loop-liveness-always` fix removed this collision from `clip_c` but not from
+`clip_tc`, so the extension is reaching some of these aliases and not others - most
+likely because the two-address chain pre-pass assigns a register before the extended
+ranges are consulted (instrumentation earlier showed the allocator's free-register
+search never runs on these programs at all). Note the pattern alone is not proof:
+`clip_td` and `clip_tce` carry the same duplicate destination and render correctly,
+where the second copy overwrites something genuinely dead.
+
+A note on method: **`raytraced-mirror` is not pixel-comparable across runs** (it
+animates, and the two builds settle at different frame rates), so its verdicts here are
+visual - a crate shredded into slivers and a pillar collapsed into a black wedge are
+not a phase difference. `blocks-terrain` is static and compares exactly.
+
+The clip family was then measured the same way, one program at a time:
 
 | from openvcl, VU1 clipper | asserts | framebuffer vs legacy |
 |---|---|---|

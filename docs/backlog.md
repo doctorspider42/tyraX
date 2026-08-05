@@ -288,7 +288,20 @@ the verification, and any fact worth reusing belongs in the relevant
     of padding - zero, because at the segment boundary the scheduler reports no
     hazard at all (17 calls, 0 with a delay). The rows come from `CodeGenerator`'s
     own padding path, which is where the next attempt belongs.
-    **The one blocker left: `stapip_clip_c` from openvcl is MISCOMPILED.** Measured
+    **TWO blockers, both colour-carrying clippers: `stapip_clip_c` and
+    `stapip_clip_tc`.** A second scene found the second one - `raytraced-mirror` (which
+    has textures, unlike the terrain scene everything had been verified on) is corrupt
+    with openvcl everywhere except clip_c, and clean once clip_tc is held back too. The
+    same scene clears mcpip_*, dynpip_*, billboard_*, vu0_rt_kernel, every cull_* and
+    clip_d/td/tce; `blocks-terrain` is pixel-identical with only clip_c held back.
+    Both failures are the same register collision in `edgeAdvance`: SCE writes ppos /
+    pcol / pst / pd to four distinct registers, openvcl gives two of them the same one.
+    --loop-liveness-always removed it from clip_c and not from clip_tc, so something
+    assigns a register before the extended ranges are consulted - the two-address chain
+    pre-pass is the suspect (the free-register search never runs on these programs).
+    Beware: raytraced-mirror ANIMATES, so pixel counts across runs are meaningless
+    there - judge it visually. blocks-terrain is static and compares exactly.
+    Earlier note on clip_c: Measured
     program by program in vu1 mode - `clip_d`, `clip_td`, `clip_tc`, `clip_tce`,
     `cull_d`, `cull_td` and "everything except clip_c" are ALL pixel-identical; only
     clip_c differs (453644 pixels). It also predates the tag-load move (the pre-fix
