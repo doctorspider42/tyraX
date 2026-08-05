@@ -38,6 +38,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "savebake.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -783,6 +784,7 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
@@ -867,8 +869,13 @@ private:
     // widget. A `bool changed` flag accumulated over a window body is the
     // usual trigger, but it is set by hand and the next widget added forgets
     // it - so a window that owns a section pairs it with a comparison of
-    // project::sectionJson() across the whole body, which cannot be forgotten
-    // (drawCreditsWindow / drawLoadingScreenWindow / drawUiEditorWindow).
+    // project::sectionJson() across the whole body, which cannot be forgotten.
+    // EVERY project-wide panel carries that guard now (Save Editor, Menus,
+    // Credits, Loading Screens, UI Editor, icons, Fonts, Input Map, Animation
+    // Editor, Grading, Ambience, Cutscene Director, Prefabs) - copy the
+    // nearest one rather than inventing a third answer. The only saveAll()
+    // sites left are the five save commands, the three asset imports and the
+    // Drone Generator's render.
     //
     // View state is NOT an edit: the render mode, the projection and the
     // active scene are read off the viewport by saveProject() and neither
@@ -1509,6 +1516,27 @@ private:
     // the baked panel (re-baked whenever the menu's content changes)
     bool showMenusEditor_ = false;
     int selectedMenu_ = -1;
+
+    // Save Editor (Tools > Save Editor): live preview of the memory card
+    // icon texture + baked-icon stats (rebuilt when any icon setting
+    // changes), and the cached clip list of the picked .glb icon model.
+    bool showSaveEditor_ = false;
+    // ONE GL texture per animation shape of the baked icon, cycled on a timer
+    // so the panel previews the motion the PS2 browser will play, not a still.
+    // Rebuilt (and the old textures deleted) whenever saveIconPreviewKey_ -
+    // every input the bake reads - changes.
+    std::vector<unsigned> saveIconPreviewTex_;
+    std::string saveIconPreviewKey_;
+    // The spinner sheet, uploaded whole; the preview picks a cell with UVs and
+    // cycles them, so swapping a sheet in the picker is a visible change
+    // rather than something you find out about after a build.
+    void drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin);
+    unsigned saveSpinnerPreviewTex_ = 0;
+    int saveSpinnerPreviewW_ = 0, saveSpinnerPreviewH_ = 0;
+    std::string saveSpinnerPreviewKey_;
+    savebake::IconInfo saveIconInfo_;
+    std::string saveIconClipsModel_;
+    std::vector<std::string> saveIconClips_;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)

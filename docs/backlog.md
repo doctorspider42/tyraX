@@ -22,22 +22,11 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
-- **Two leftovers from the `saveAll()` → `commitChange()` sweep** (the pass that
-  settled the editing model repo-wide; rule 1 in the `tyra-editor-dev` skill has
-  the convention).
-  - `drawMusicSection`'s per-track **PS2 build settings** (rate combo + mono
-    checkbox, `app.cpp`, "Music build settings saved - rebuild to apply") still
-    call `saveAll()` on every widget touch. It was deliberately left alone
-    because it reads as an explicit act rather than an incidental edit, but by
-    the convention's own test it is a widget, and nothing downstream needs the
-    bytes on disk - `projectForBuild` builds from the in-memory model. Decide
-    whether the status message is worth the exception, or convert it.
-  - **`project::kSectionCount` is 16 and `Section` has 17 entries**, so
-    `project::save`'s section loop never writes `Prefabs`: every save silently
-    drops the project's prefabs. Unrelated to the sweep, found while auditing
-    what save actually writes; the header already carries a KEEP-THIS-EQUAL
-    warning saying exactly how it drifts. Fixed on the VU-authoring branch -
-    make sure that fix lands, or land it separately.
+- **Save Editor: the checks only real hardware can make.** The feature is
+  complete and builds, but three things cannot be proven from the host: the card
+  failure feedback (a **full**, **absent** or **unformatted** card), and the icon
+  itself — the two-line title break and the animated icon's motion only show in
+  the **PS2 BIOS browser**. `docs/save-editor.md` says the same at the bottom.
 - **VU authoring: the user-facing half of the VU framework.** Model + codegen
   for a program someone composes from stages, per-mesh parameters, the VU panel,
   and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and

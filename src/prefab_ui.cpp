@@ -69,6 +69,21 @@ void App::drawPrefabsWindow() {
         return;
     }
 
+    // Every verb below is a model EDIT with a discrete trigger, not a save
+    // command - prefabs live in the .tyra and nothing here writes a file
+    // except the bake delete, which is the same shape as the Asset Browser's
+    // delete and also commits. So they mark (commitChange + a status line)
+    // instead of writing, like the rest of the editor; see app.hpp. The
+    // section comparison is the belt-and-braces half every project-wide panel
+    // carries: a verb added here that forgets to commit still cannot lose the
+    // edit.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Prefabs);
+    auto commitIfEdited = [&] {
+        if (project::sectionJson(project_, project::Section::Prefabs) != beforeSection)
+            commitChange();
+    };
+
     // --- capture -----------------------------------------------------------
     const int selCount = (int)selection_.size();
     ImGui::BeginDisabled(selCount == 0);
@@ -89,7 +104,8 @@ void App::drawPrefabsWindow() {
         } else {
             project_.prefabs.push_back(std::move(pf));
             prefabSelected_ = (int)project_.prefabs.size() - 1;
-            saveAll("Prefab created");
+            commitChange();
+            statusMessage_ = "Prefab created";
         }
     }
     ImGui::EndDisabled();
@@ -114,6 +130,7 @@ void App::drawPrefabsWindow() {
             "its light and its script, one room of a maze - select it all, and "
             "press the button above.");
         ImGui::End();
+        commitIfEdited();
         return;
     }
     if (prefabSelected_ >= (int)project_.prefabs.size()) prefabSelected_ = 0;
@@ -152,8 +169,10 @@ void App::drawPrefabsWindow() {
         // renamed prefab never silently stops spawning.
         if (!prefab::rename(project_, pf.name, nameBuf))
             statusMessage_ = "That prefab name is taken";
-        else
-            saveAll("Prefab renamed");
+        else {
+            commitChange();
+            statusMessage_ = "Prefab renamed";
+        }
     }
     // Notes: read as WRAPPED prose, edited in a multiline box on click.
     //
@@ -182,7 +201,8 @@ void App::drawPrefabsWindow() {
             prefabNotesEditing_ = false;
             if (pf.notes != prefabNotesBuf_) {
                 pf.notes = prefabNotesBuf_;
-                saveAll("Prefab notes");
+                commitChange();
+                statusMessage_ = "Prefab notes";
             }
         }
         ImGui::TextDisabled("Enter starts a new line; click away to save.");
@@ -241,7 +261,8 @@ void App::drawPrefabsWindow() {
             np.id = pf.id;
             np.notes = pf.notes;
             pf = std::move(np);
-            saveAll("Prefab replaced");
+            commitChange();
+            statusMessage_ = "Prefab replaced";
         }
     }
     ImGui::SameLine();
@@ -320,11 +341,13 @@ void App::drawPrefabsWindow() {
                 project_.prefabs.erase(project_.prefabs.begin() + prefabSelected_);
                 if (prefabSelected_ >= (int)project_.prefabs.size())
                     prefabSelected_ = (int)project_.prefabs.size() - 1;
-                saveAll("Prefab deleted");
+                commitChange();
+                statusMessage_ = "Prefab deleted";
                 ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();
                 ImGui::EndChild();
                 ImGui::End();
+                commitIfEdited();
                 return;
             }
             ImGui::SameLine();
@@ -423,7 +446,12 @@ void App::drawPrefabsWindow() {
                     viewport_.invalidateAssets();
                     if (prefabBakeFor_ == pf.id) prefabBakeFor_.clear();
                     prefabBakeDiskKey_.clear();
-                    saveAll(("Deleted " + deleted).c_str());
+                    // Same bookkeeping AND the same marking as
+                    // App::performAssetDelete, which commits rather than
+                    // writing - the per-asset maps cleared above live in
+                    // their own sections, outside this window's guard.
+                    commitChange();
+                    statusMessage_ = "Deleted " + deleted;
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -517,4 +545,5 @@ void App::drawPrefabsWindow() {
 
     ImGui::EndChild();
     ImGui::End();
+    commitIfEdited();
 }

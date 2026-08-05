@@ -207,6 +207,7 @@ add_executable(tyrax-editor
     src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
+    src/savebake.cpp
     src/scrollsim.cpp
     src/screenfx.cpp
     src/session.cpp

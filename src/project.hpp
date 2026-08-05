@@ -1874,6 +1874,14 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
 }
 
 // One selectable row of a generated in-game menu.
+// Memory card save slots. The upper bound is a sanity limit, not a console
+// one - every slot is its own file and costs a whole 1 KB cluster, so a
+// hundred of them is ~100 KB of an 8 MB card (the Save Editor does that sum).
+// The per-page cap must stay <= menubake::kMaxEntries, which is what the panel
+// bake can lay out; a static_assert in menubake.cpp holds the two together.
+constexpr int kMaxSaveSlots = 100;
+constexpr int kMaxSaveSlotsPerPage = 8;
+
 struct MenuEntry {
     std::string label = "New entry";
     // What Cross does on this row. Close/scene/save-menu also dismiss the
@@ -1994,6 +2002,12 @@ struct GameMenu {
     // The Start button opens this menu in-game and closes it again (the
     // classic pause menu; one per project).
     bool pauseMenu = false;
+    // THIS is the memory card save menu (one per project). Its rows are the
+    // save slots, so `entries` is not authored and not read: the panel is
+    // baked with Project::saveSlotsPerPage blank rows and the game draws
+    // "SLOT n" into them at runtime, which is the only way a slot count in
+    // the dozens can work - a baked label per slot cannot page.
+    bool saveMenu = false;
     float accent[3] = {0.47f, 0.82f, 1.0f};  // border/title tint
     // Images composited into the baked panel. Flow slots (AboveTitle /
     // AboveEntries / BelowEntries) are blocks in the panel's vertical flow -
@@ -2018,7 +2032,8 @@ struct GameMenu {
 inline bool operator==(const GameMenu& a, const GameMenu& b) {
     return a.name == b.name && a.title == b.title &&
            a.titleScreen == b.titleScreen && a.pauseGame == b.pauseGame &&
-           a.pauseMenu == b.pauseMenu && a.accent[0] == b.accent[0] &&
+           a.pauseMenu == b.pauseMenu && a.saveMenu == b.saveMenu &&
+           a.accent[0] == b.accent[0] &&
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
@@ -2227,10 +2242,71 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
-    // Custom values persisted in memory card saves (Project panel, Save data).
+    // Custom values persisted in memory card saves (Tools > Save Editor).
     std::vector<SaveValue> saveValues;
-    // Custom text values persisted in memory card saves (same panel).
+    // Custom text values persisted in memory card saves (same window).
     std::vector<SaveTextValue> saveTexts;
+    // Memory card save appearance (Tools > Save Editor): the PS2 browser
+    // shows this title + icon for the game's save directory. Baked into
+    // res/save/icon.sys + list.icn on every build (savebake). Title breaks
+    // to a second line at '|'; "" falls back to the project name. saveIcon
+    // is a project-relative image path ("res/...", any stb-readable format,
+    // resampled to the 128x128 icon texture); "" = built-in placeholder.
+    std::string saveTitle;
+    std::string saveIcon;
+    // 3D icon: a project model shown instead of the flat image quad -
+    // res/models .obj (static, gently swaying) or .glb (saveIconClip
+    // sampled into saveIconFrames morph shapes: a real animated icon).
+    // "" = the flat quad. See savebake::iconInfo.
+    std::string saveIconModel;
+    std::string saveIconClip;   // .glb clip name ("" = the first clip)
+    int saveIconFrames = 6;     // animation shapes, 1..kMaxIconShapes
+    // Idle motion baked into the shapes for a source that carries no
+    // animation of its own - the flat quad, an .obj, or a .glb with no clips
+    // (a .glb WITH a clip plays the clip and ignores this). A stable string
+    // key, not an index: see savebake::iconMotions(). "" reads as "sway",
+    // which is what every icon did before the setting existed.
+    std::string saveIconMotion;
+    float saveIconMotionAmount = 1.0f;  // amplitude scale, 0.25..2
+    // What the in-game save menu writes to a slot. false = a fresh snapshot of
+    // the player's current state (the default, and what a menu usually means);
+    // true = the last checkpoint, i.e. the same buffer Commit Checkpoint
+    // writes - the "you resume from the last shrine, not from here" model.
+    // With no checkpoint taken yet it falls back to a fresh snapshot, so the
+    // menu is never dead at the start of a game.
+    bool saveMenuWritesCheckpoint = false;
+    // The slot a Commit Checkpoint in "autosave" mode writes, and the one the
+    // "next free slot" mode never picks - so a rotating autosave cannot eat
+    // the game's own. -1 = no autosave slot, which makes that mode a no-op
+    // rather than a guess. This is a DESIGNATION, not a lock: the in-game menu
+    // can still save over it and load from it like any other slot.
+    int saveAutosaveSlot = -1;
+    // How many memory card slots the game offers, and how many of them the
+    // save menu shows at once. With more slots than fit, the menu pages: the
+    // cursor walking off the bottom row turns to the next page. Rows per page
+    // is capped by menubake::kMaxEntries (the panel bake's row limit).
+    int saveSlotCount = 3;
+    int saveSlotsPerPage = 3;
+    // Write to the card WITHOUT freezing the game behind the "do not remove
+    // the memory card" overlay: the transfer is driven a step per frame and
+    // the player keeps playing. Loads stay blocking (the world is being
+    // replaced, there is nothing to keep playing). See docs/save-editor.md
+    // for what this costs.
+    bool saveAsync = false;
+    // The little activity indicator an async write shows instead of the
+    // overlay. Corner: 0 = top-left, 1 = top-right, 2 = bottom-left,
+    // 3 = bottom-right. Margin is in 512x448 pixels.
+    bool saveSpinner = true;
+    // The sheet the spinner is drawn from: "" = the built-in one baked to
+    // res/hud/save-spinner.png, otherwise any project image laid out as a
+    // horizontal strip of saveSpinnerFrames equal cells. Validated by
+    // savebake::spinnerInfo, which falls back to the built-in rather than
+    // letting a bad sheet halt the game.
+    std::string saveSpinnerImage;
+    int saveSpinnerFrames = 8;
+    int saveSpinnerCorner = 3;
+    float saveSpinnerMargin = 20.0f;
+    float saveSpinnerScale = 1.0f;
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the
@@ -2432,6 +2508,17 @@ void ensureProjectId(Project& p);
 // a no-op. Called from create() and at the end of load().
 void ensureInputActions(Project& p);
 
+// Guarantees exactly one GameMenu::saveMenu, seeded to look like the built-in
+// save panel every project shipped before the menu was editable, so opening an
+// old project changes nothing on screen. Also clamps the extras to one - two
+// save menus would bake two panels and the game would pick arbitrarily.
+// Called from create() and at the end of load(); re-running is a no-op.
+void ensureSaveMenu(Project& p);
+
+// Index of the save menu in Project::menus, or -1. Cheap; call it rather than
+// caching, since the Menu Editor can reorder the list.
+int saveMenuIndex(const Project& p);
+
 // The built-in action name for a role (InputAction::Role), e.g. "jump" - what
 // ensureInputActions seeds and what the codegen role slots look for. Empty for
 // RoleNone / out-of-range values.
@@ -2480,12 +2567,21 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
 // branches keep adding sections (ModelLods, ModelUnits and Input all arrived
-// while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 16;
+// while this one was open), which is exactly how it drifts. It DID drift: with
+// 17 sections and a count of 16, `--resave` on examples/cube dropped the whole
+// "prefabs" section - no error, the prefabs were simply gone. The static_assert
+// below is the fix that outlives the comment: Section::Count is maintained by
+// the compiler, so the next section to arrive cannot repeat this.
+enum : int { kSectionCount = (int)Section::Count };
+static_assert(kSectionCount == 17,
+              "A section was added or removed - check that everything which "
+              "loops sections by index (save(), the collaboration shadow) "
+              "still means what it says, then update this number.");
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);

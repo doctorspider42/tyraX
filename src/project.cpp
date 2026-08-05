@@ -17,6 +17,7 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "savebake.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -93,6 +94,11 @@ std::vector<int> Project::atlasFontIndices() const {
                 want(m.font);
                 break;
             }
+    // The save menu ALWAYS draws runtime text - its rows are "SLOT n" and the
+    // page counter, neither of which can be baked when the slot count is free.
+    // Without this its atlas would be missing and the rows would be blank.
+    for (const GameMenu& m : menus)
+        if (m.saveMenu) want(m.font);
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -1538,6 +1544,28 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
              << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
              << jsonEscape(p.saveTexts[i].value) << "\" }";
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
+    // Memory-card appearance (Tools > Save Editor): browser title and the
+    // icon geometry/animation the icon bake reads.
+    json << ",\n  \"saveTitle\": \"" << jsonEscape(p.saveTitle) << "\"";
+    json << ",\n  \"saveIcon\": \"" << jsonEscape(p.saveIcon) << "\"";
+    json << ",\n  \"saveIconModel\": \"" << jsonEscape(p.saveIconModel) << "\"";
+    json << ",\n  \"saveIconClip\": \"" << jsonEscape(p.saveIconClip) << "\"";
+    json << ",\n  \"saveIconFrames\": " << p.saveIconFrames;
+    json << ",\n  \"saveIconMotion\": \"" << jsonEscape(p.saveIconMotion) << "\"";
+    json << ",\n  \"saveIconMotionAmount\": " << fmtFloat(p.saveIconMotionAmount);
+    json << ",\n  \"saveMenuWritesCheckpoint\": "
+         << (p.saveMenuWritesCheckpoint ? "true" : "false");
+    json << ",\n  \"saveAutosaveSlot\": " << p.saveAutosaveSlot;
+    json << ",\n  \"saveSlotCount\": " << p.saveSlotCount;
+    json << ",\n  \"saveSlotsPerPage\": " << p.saveSlotsPerPage;
+    json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
+    json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
+    json << ",\n  \"saveSpinnerImage\": \"" << jsonEscape(p.saveSpinnerImage)
+         << "\"";
+    json << ",\n  \"saveSpinnerFrames\": " << p.saveSpinnerFrames;
+    json << ",\n  \"saveSpinnerCorner\": " << p.saveSpinnerCorner;
+    json << ",\n  \"saveSpinnerMargin\": " << fmtFloat(p.saveSpinnerMargin);
+    json << ",\n  \"saveSpinnerScale\": " << fmtFloat(p.saveSpinnerScale);
 }
 
 static void writeGradingsSection(std::ostream& json, const Project& p) {
@@ -1838,6 +1866,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
              << (m.titleScreen ? ", \"titleScreen\": true" : "")
              << (m.pauseGame ? "" : ", \"pause\": false")
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
+             << (m.saveMenu ? ", \"saveMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
              << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
@@ -2101,6 +2130,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Count: break;  // not a section
     }
     return ss.str();
 }
@@ -2124,6 +2154,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Count: break;  // not a section
     }
     return "unknown";
 }
@@ -2266,6 +2297,42 @@ void ensureTextIcons(Project& p) {
         ic.path = "res/hud/" + menubake::iconFileName(name);
         p.textIcons.push_back(std::move(ic));
     }
+}
+
+int saveMenuIndex(const Project& p) {
+    for (size_t i = 0; i < p.menus.size(); ++i)
+        if (p.menus[i].saveMenu) return (int)i;
+    return -1;
+}
+
+void ensureSaveMenu(Project& p) {
+    // More than one is a data error, not a choice: keep the first.
+    bool seen = false;
+    for (GameMenu& m : p.menus) {
+        if (!m.saveMenu) continue;
+        if (seen) m.saveMenu = false;
+        seen = true;
+    }
+    if (seen) return;
+    // Seeded to match the panel that used to ship as res/hud/save-menu.png:
+    // same title, same blue, same 256-wide panel, so a project that predates
+    // this looks exactly as it did.
+    GameMenu m;
+    m.name = "save";
+    m.title = "SAVE GAME";
+    m.saveMenu = true;
+    m.pauseGame = true;
+    m.panelW = 256;
+    m.screenPos[0] = 0.5f;
+    m.screenPos[1] = 0.45f;
+    m.accent[0] = 0.47f;
+    m.accent[1] = 0.82f;
+    m.accent[2] = 1.0f;
+    m.titleSize = 18;
+    m.entrySize = 15;
+    // No entries: the rows ARE the save slots and are laid out from
+    // Project::saveSlotsPerPage at bake time.
+    p.menus.push_back(m);
 }
 
 void ensureInputActions(Project& p) {
@@ -2479,6 +2546,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureSaveMenu(out);
     ensureTextIcons(out);
     // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
     // what to press rather than a generic "USE" - and follows a rebind. Only on
@@ -4049,6 +4117,75 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
             if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
         }
     }
+
+    // Absent in projects saved before the Save Editor - all default to ""
+    // (project-name title, built-in flat icon).
+    if (const auto* t = root.find("saveTitle")) out.saveTitle = t->stringOr("");
+    if (const auto* ic = root.find("saveIcon")) out.saveIcon = ic->stringOr("");
+    if (const auto* m = root.find("saveIconModel"))
+        out.saveIconModel = m->stringOr("");
+    if (const auto* c = root.find("saveIconClip"))
+        out.saveIconClip = c->stringOr("");
+    if (const auto* f = root.find("saveIconFrames")) {
+        out.saveIconFrames = (int)f->numberOr(6.0);
+        if (out.saveIconFrames < 1) out.saveIconFrames = 1;
+        if (out.saveIconFrames > 8) out.saveIconFrames = 8;
+    }
+    // A project written before the motion setting has neither key; "" is the
+    // sway every icon used to do, so those keep looking exactly as they did.
+    if (const auto* m = root.find("saveIconMotion"))
+        out.saveIconMotion = m->stringOr("");
+    if (const auto* a = root.find("saveIconMotionAmount")) {
+        out.saveIconMotionAmount = (float)a->numberOr(1.0);
+        if (out.saveIconMotionAmount < 0.25f) out.saveIconMotionAmount = 0.25f;
+        if (out.saveIconMotionAmount > 2.0f) out.saveIconMotionAmount = 2.0f;
+    }
+    if (const auto* v = root.find("saveMenuWritesCheckpoint"))
+        out.saveMenuWritesCheckpoint = v->boolOr(false);
+    // Read the counts BEFORE the autosave slot - its valid range depends on
+    // them, and JSON key order is not something a reader may rely on.
+    if (const auto* v = root.find("saveSlotCount")) {
+        out.saveSlotCount = (int)v->numberOr(3.0);
+        if (out.saveSlotCount < 1) out.saveSlotCount = 1;
+        if (out.saveSlotCount > kMaxSaveSlots) out.saveSlotCount = kMaxSaveSlots;
+    }
+    if (const auto* v = root.find("saveSlotsPerPage")) {
+        out.saveSlotsPerPage = (int)v->numberOr(3.0);
+        if (out.saveSlotsPerPage < 1) out.saveSlotsPerPage = 1;
+        if (out.saveSlotsPerPage > kMaxSaveSlotsPerPage)
+            out.saveSlotsPerPage = kMaxSaveSlotsPerPage;
+    }
+    if (const auto* v = root.find("saveAutosaveSlot")) {
+        out.saveAutosaveSlot = (int)v->numberOr(-1.0);
+        if (out.saveAutosaveSlot < -1 ||
+            out.saveAutosaveSlot >= out.saveSlotCount)
+            out.saveAutosaveSlot = -1;
+    }
+    if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
+    if (const auto* v = root.find("saveSpinner"))
+        out.saveSpinner = v->boolOr(true);
+    if (const auto* v = root.find("saveSpinnerImage"))
+        out.saveSpinnerImage = v->stringOr("");
+    if (const auto* v = root.find("saveSpinnerFrames")) {
+        out.saveSpinnerFrames = (int)v->numberOr(8.0);
+        if (out.saveSpinnerFrames < 1) out.saveSpinnerFrames = 1;
+        if (out.saveSpinnerFrames > 64) out.saveSpinnerFrames = 64;
+    }
+    if (const auto* v = root.find("saveSpinnerCorner")) {
+        out.saveSpinnerCorner = (int)v->numberOr(3.0);
+        if (out.saveSpinnerCorner < 0 || out.saveSpinnerCorner > 3)
+            out.saveSpinnerCorner = 3;
+    }
+    if (const auto* v = root.find("saveSpinnerMargin")) {
+        out.saveSpinnerMargin = (float)v->numberOr(20.0);
+        if (out.saveSpinnerMargin < 0.0f) out.saveSpinnerMargin = 0.0f;
+        if (out.saveSpinnerMargin > 200.0f) out.saveSpinnerMargin = 200.0f;
+    }
+    if (const auto* v = root.find("saveSpinnerScale")) {
+        out.saveSpinnerScale = (float)v->numberOr(1.0);
+        if (out.saveSpinnerScale < 0.4f) out.saveSpinnerScale = 0.4f;
+        if (out.saveSpinnerScale > 3.0f) out.saveSpinnerScale = 3.0f;
+    }
 }
 
 static void readGradingsSection(const json::Value& root, Project& out) {
@@ -4535,6 +4672,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                 m.pauseGame = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jm.find("pauseMenu"))
                 m.pauseMenu = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("saveMenu"))
+                m.saveMenu = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = jm.find("panelW")) {
                 const int w = (int)v->numberOr(256);
                 m.panelW = (w == 128 || w == 512) ? w : 256;
@@ -4722,6 +4861,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Count: return false;  // not a section
     }
     return true;
 }
@@ -4939,6 +5079,9 @@ std::string load(Project& out, const std::string& projectDir) {
     // (or one whose "input" key was hand-trimmed) gets exactly the bindings
     // that used to be hardcoded, so it plays the same.
     ensureInputActions(out);
+    // Same backfill for the save menu: a project from before it was editable
+    // has no saveMenu entry and would otherwise bake no save panel at all.
+    ensureSaveMenu(out);
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -5611,6 +5754,18 @@ std::string refreshGenerated(const Project& p) {
                     "/credits/pages/\n";
                 grew = true;
             }
+            // And again for the memory card icon: res/save/ is icon.sys +
+            // list.icn, rebaked from the .tyra on every build. Without this a
+            // project made before the Save Editor starts tracking tens of KB
+            // of derived bytes that churn whenever the icon settings change.
+            if (text.find("/save/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked memory card icon - icon.sys + list.icn, "
+                    "regenerated on every\n# build from the Save Editor's "
+                    "settings (docs/save-editor.md).\n/save/\n";
+                grew = true;
+            }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
         }
@@ -5714,6 +5869,59 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+    // "Checking memory card" overlay: baked text sprite, written when missing
+    // so it stays user-replaceable like the save-menu sprites above.
+    {
+        const fs::path busy = fs::path(p.dir) / "res" / "hud" / "save-busy.png";
+        std::error_code ec;
+        if (!fs::exists(busy, ec)) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(savebake::busyText(), p, png))
+                return "Save overlay bake failed (no usable TTF font found)";
+            fs::create_directories(busy.parent_path(), ec);
+            std::ofstream f(busy, std::ios::binary);
+            if (!f) return "Cannot write save overlay: " + busy.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // The async write's spinner sheet, same write-when-missing rule so an
+    // author can drop in their own strip of savebake::kSpinnerFrames cells.
+    {
+        const fs::path spin = fs::path(p.dir) / "res" / "hud" / "save-spinner.png";
+        std::error_code ec;
+        if (!fs::exists(spin, ec)) {
+            std::vector<unsigned char> png;
+            if (!savebake::spinnerPNG(png)) return "Save spinner bake failed";
+            fs::create_directories(spin.parent_path(), ec);
+            std::ofstream f(spin, std::ios::binary);
+            if (!f) return "Cannot write save spinner: " + spin.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Memory card icon (icon.sys + list.icn): derived from project data
+    // (title, icon image), so always rebaked like the menu panels. The
+    // generated save system copies them onto the card next to the slots.
+    {
+        const fs::path saveDir = fs::path(p.dir) / "res" / "save";
+        std::error_code ec;
+        fs::create_directories(saveDir, ec);
+        const std::vector<unsigned char> sys = savebake::iconSys(p);
+        const std::vector<unsigned char> icn = savebake::iconIcn(p);
+        // Through writeFile, so an unchanged icon keeps its mtime. list.icn is
+        // the biggest thing this bake produces (tens of KB) and it is rebaked
+        // on EVERY build from unchanged project data - a raw rewrite made the
+        // Runner's rsync ship it to the container every time.
+        auto write = [&](const char* name,
+                         const std::vector<unsigned char>& bytes) {
+            return writeFile(saveDir / name,
+                             std::string(reinterpret_cast<const char*>(bytes.data()),
+                                         bytes.size()));
+        };
+        if (auto err = write("icon.sys", sys); !err.empty()) return err;
+        if (auto err = write("list.icn", icn); !err.empty()) return err;
     }
 
     // Lens flare sprites: procedural (no font), written whenever the project

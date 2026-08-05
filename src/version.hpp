@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 0
+#define TYRAX_VERSION_MINOR 1
 #define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
@@ -32,6 +32,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 
 // Current on-disk project format. Files with no "formatVersion" field (every
 // project saved before versioning existed) read as 0.
-inline constexpr int kFormatVersion = 1;
+// v2 (Save Editor): the memory card appearance (saveTitle / saveIcon* /
+// saveIconMotion*), the save behaviour (saveMenuWritesCheckpoint, saveAsync,
+// saveSpinner*, saveAutosaveSlot, saveSlotCount, saveSlotsPerPage) and
+// GameMenu::saveMenu. Purely additive with safe defaults, so no migration step
+// - an older file opens silently and project::ensureSaveMenu backfills the
+// save menu the same way ensureInputActions backfills the input map.
+inline constexpr int kFormatVersion = 2;
 
 }  // namespace version
