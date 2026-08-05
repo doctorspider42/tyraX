@@ -8131,6 +8131,13 @@ void App::drawSaveEditorWindow() {
         ImGui::End();
         return;
     }
+    // Same guarantee the Menu Editor gets: a widget that forgets to mark the
+    // edit cannot make it losable. These panels used to call saveAll(), which
+    // WROTE THE PROJECT on every slider release - against the editing model in
+    // app.hpp ("saving is on demand; there is no autosave") and the reason the
+    // save icon never lit for them: the edit was already on disk.
+    const std::string saveDataBefore =
+        project::sectionJson(project_, project::Section::SaveData);
 
     // --- Memory card appearance --------------------------------------------
     ImGui::SeparatorText("Memory card appearance");
@@ -8140,7 +8147,7 @@ void App::drawSaveEditorWindow() {
     if (ImGui::InputTextWithHint("Save title", project_.name.c_str(), titleBuf,
                                  sizeof(titleBuf)))
         project_.saveTitle = titleBuf;
-    if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
@@ -8160,7 +8167,7 @@ void App::drawSaveEditorWindow() {
                               project_.saveIconModel.empty()) &&
             !project_.saveIconModel.empty()) {
             project_.saveIconModel.clear();
-            saveAll("Saved");
+            commitChange();
         }
         std::error_code ec;
         const fs::path models = fs::path(project_.dir) / "res" / "models";
@@ -8175,7 +8182,7 @@ void App::drawSaveEditorWindow() {
                 "res/models/" + it->path().filename().generic_string();
             if (ImGui::Selectable(rel.c_str(), rel == project_.saveIconModel)) {
                 project_.saveIconModel = rel;
-                saveAll("Saved");
+                commitChange();
             }
         }
         ImGui::EndCombo();
@@ -8205,12 +8212,12 @@ void App::drawSaveEditorWindow() {
                                   project_.saveIconClip.empty()) &&
                 !project_.saveIconClip.empty()) {
                 project_.saveIconClip.clear();
-                saveAll("Saved");
+                commitChange();
             }
             for (const std::string& c : saveIconClips_)
                 if (ImGui::Selectable(c.c_str(), c == project_.saveIconClip)) {
                     project_.saveIconClip = c;
-                    saveAll("Saved");
+                    commitChange();
                 }
             ImGui::EndCombo();
         }
@@ -8222,7 +8229,7 @@ void App::drawSaveEditorWindow() {
     ImGui::SetNextItemWidth(scaled(120.0f));
     ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
                      savebake::kMaxIconShapes);
-    if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
@@ -8242,7 +8249,7 @@ void App::drawSaveEditorWindow() {
                 if (ImGui::Selectable(motions[i].label, (int)i == cur) &&
                     (int)i != cur) {
                     project_.saveIconMotion = motions[i].key;
-                    saveAll("Saved");
+                    commitChange();
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("%s", motions[i].desc);
@@ -8266,7 +8273,7 @@ void App::drawSaveEditorWindow() {
             ImGui::SetNextItemWidth(scaled(120.0f));
             ImGui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f,
                                2.0f, "%.2fx");
-            if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
         }
         ImGui::EndDisabled();
     }
@@ -8280,7 +8287,7 @@ void App::drawSaveEditorWindow() {
                               project_.saveIcon.empty()) &&
             !project_.saveIcon.empty()) {
             project_.saveIcon.clear();
-            saveAll("Saved");
+            commitChange();
         }
         std::error_code ec;
         const fs::path res = fs::path(project_.dir) / "res";
@@ -8295,7 +8302,7 @@ void App::drawSaveEditorWindow() {
                 "res/" + fs::relative(it->path(), res, ec).generic_string();
             if (ImGui::Selectable(rel.c_str(), rel == project_.saveIcon)) {
                 project_.saveIcon = rel;
-                saveAll("Saved");
+                commitChange();
             }
         }
         ImGui::EndCombo();
@@ -8386,7 +8393,7 @@ void App::drawSaveEditorWindow() {
                                   !project_.saveMenuWritesCheckpoint) &&
                 project_.saveMenuWritesCheckpoint) {
                 project_.saveMenuWritesCheckpoint = false;
-                saveAll("Saved");
+                commitChange();
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -8395,7 +8402,7 @@ void App::drawSaveEditorWindow() {
                                   project_.saveMenuWritesCheckpoint) &&
                 !project_.saveMenuWritesCheckpoint) {
                 project_.saveMenuWritesCheckpoint = true;
-                saveAll("Saved");
+                commitChange();
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -8411,7 +8418,7 @@ void App::drawSaveEditorWindow() {
         if (ImGui::IsItemDeactivatedAfterEdit()) {
             if (project_.saveAutosaveSlot >= project_.saveSlotCount)
                 project_.saveAutosaveSlot = -1;  // it no longer exists
-            saveAll("Saved");
+            commitChange();
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
@@ -8423,7 +8430,7 @@ void App::drawSaveEditorWindow() {
         ImGui::SetNextItemWidth(scaled(120.0f));
         ImGui::SliderInt("Rows per page", &project_.saveSlotsPerPage, 1,
                          kMaxSaveSlotsPerPage);
-        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
@@ -8457,7 +8464,7 @@ void App::drawSaveEditorWindow() {
                 if (ImGui::Selectable("(none)", project_.saveAutosaveSlot < 0) &&
                     project_.saveAutosaveSlot >= 0) {
                     project_.saveAutosaveSlot = -1;
-                    saveAll("Saved");
+                    commitChange();
                 }
                 for (int i = 0; i < templates::saveSlotCount(project_); ++i) {
                     char label[32];
@@ -8465,7 +8472,7 @@ void App::drawSaveEditorWindow() {
                     if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) &&
                         project_.saveAutosaveSlot != i) {
                         project_.saveAutosaveSlot = i;
-                        saveAll("Saved");
+                        commitChange();
                     }
                 }
                 ImGui::EndCombo();
@@ -8483,7 +8490,7 @@ void App::drawSaveEditorWindow() {
         }
 
         if (ImGui::Checkbox("Write in the background", &project_.saveAsync))
-            saveAll("Saved");
+            commitChange();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "The card transfer is stepped one call per frame while the\n"
@@ -8494,7 +8501,7 @@ void App::drawSaveEditorWindow() {
 
         ImGui::BeginDisabled(!project_.saveAsync);
         if (ImGui::Checkbox("Show a spinner while writing", &project_.saveSpinner))
-            saveAll("Saved");
+            commitChange();
         ImGui::BeginDisabled(!project_.saveSpinner);
         const char* kCorners[] = {"Top left", "Top right", "Bottom left",
                                   "Bottom right"};
@@ -8503,12 +8510,12 @@ void App::drawSaveEditorWindow() {
         ImGui::SetNextItemWidth(scaled(150.0f));
         if (ImGui::Combo("Corner", &corner, kCorners, 4)) {
             project_.saveSpinnerCorner = corner;
-            saveAll("Saved");
+            commitChange();
         }
         ImGui::SetNextItemWidth(scaled(120.0f));
         ImGui::SliderFloat("Margin", &project_.saveSpinnerMargin, 0.0f, 96.0f,
                            "%.0f px");
-        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
@@ -8519,7 +8526,7 @@ void App::drawSaveEditorWindow() {
         ImGui::SetNextItemWidth(scaled(120.0f));
         ImGui::SliderFloat("Size", &project_.saveSpinnerScale, 0.4f, 3.0f,
                            "%.2fx");
-        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
         ImGui::SameLine();
         ImGui::TextDisabled("%.0fx%.0f px", spin.cellW * project_.saveSpinnerScale,
                             spin.cellH * project_.saveSpinnerScale);
@@ -8532,7 +8539,7 @@ void App::drawSaveEditorWindow() {
                                   project_.saveSpinnerImage.empty()) &&
                 !project_.saveSpinnerImage.empty()) {
                 project_.saveSpinnerImage.clear();
-                saveAll("Saved");
+                commitChange();
             }
             std::error_code ec;
             const fs::path res = fs::path(project_.dir) / "res";
@@ -8548,7 +8555,7 @@ void App::drawSaveEditorWindow() {
                 if (ImGui::Selectable(rel.c_str(),
                                       rel == project_.saveSpinnerImage)) {
                     project_.saveSpinnerImage = rel;
-                    saveAll("Saved");
+                    commitChange();
                 }
             }
             ImGui::EndCombo();
@@ -8556,7 +8563,7 @@ void App::drawSaveEditorWindow() {
         if (!project_.saveSpinnerImage.empty()) {
             ImGui::SetNextItemWidth(scaled(120.0f));
             ImGui::SliderInt("Cells", &project_.saveSpinnerFrames, 1, 32);
-            if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
@@ -8672,6 +8679,9 @@ void App::drawSaveEditorWindow() {
     ImGui::SeparatorText("Save data");
     drawSaveDataSection();
     ImGui::End();
+    if (project::sectionJson(project_, project::Section::SaveData) !=
+        saveDataBefore)
+        commitChange();
 }
 
 // Custom values persisted in memory card save slots. Flow graph "Save"
@@ -8689,7 +8699,7 @@ void App::drawSaveDataSection() {
             if (!taken) break;
         }
         project_.saveValues.push_back(SaveValue{name, 0.0f});
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
@@ -8755,7 +8765,7 @@ void App::drawSaveDataSection() {
             if (!taken) break;
         }
         project_.saveTexts.push_back(SaveTextValue{name, ""});
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
@@ -10103,6 +10113,13 @@ void App::drawMenusWindow() {
     }
 
     bool changed = false;
+    // Belt and braces. `changed` is set by hand at each widget and was missed
+    // by most of them, which left menu edits with a dark save icon and NO
+    // prompt on exit - quietly losable, the exact failure commitChange's own
+    // comment warns about. Comparing the section's serialized form across the
+    // window body cannot be forgotten by a new widget, and it is what decides.
+    const std::string menusBefore =
+        project::sectionJson(project_, project::Section::Menus);
 
     // --- left: menu list -------------------------------------------------
     ImGui::BeginChild("##menu_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
@@ -10928,7 +10945,9 @@ void App::drawMenusWindow() {
     ImGui::End();
 
     // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
-    if (changed) commitChange();
+    if (changed ||
+        project::sectionJson(project_, project::Section::Menus) != menusBefore)
+        commitChange();
 }
 
 void App::drawScriptsSection() {
