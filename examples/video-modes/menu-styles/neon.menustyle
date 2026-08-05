@@ -1,0 +1,38 @@
+@style "Neon"
+
+:root {
+  --accent: #78d1ff;
+  --ink: #eaf6ff;
+  --dim: #7d90a8;
+}
+
+panel {
+  /* A styled menu ships a second texture (the row-state cells), so it
+     palettizes: 256 colours are plenty for text over a gradient and it
+     is 4x less VRAM (docs/gs-vram.md). */
+  quant: 8bit;
+  background: linear-gradient(180deg, rgba(6, 12, 26, 0.95), rgba(10, 20, 42, 0.8));
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px 0 0 0;
+  shadow: 0px 3px 10px rgba(0, 0, 0, 0.65);
+}
+title {
+  color: var(--accent);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0px 2px 0px rgba(0, 8, 24, 0.9);
+  rule-below: 1px solid rgba(120, 209, 255, 0.35);
+}
+row { color: var(--ink); padding: 3px 0 8px 44px; }
+row:selected {
+  color: #ffffff;
+  background: linear-gradient(0deg, rgba(120, 209, 255, 0.42), rgba(120, 209, 255, 0.05));
+  translate-x: 6px;
+}
+row:disabled { color: #4d5a6b; }
+value { color: var(--accent); }
+hint { color: var(--dim); letter-spacing: 1px; }
+
+@transition open { 180ms ease-out; fade; translate-y 10px; }
+@transition cursor { 110ms ease-out; }

@@ -7,6 +7,10 @@ Generated projects carry a bit of C++ that lives in plain text files:
 substitutions. The **TyraX VS Code extension** (`tools/vscode-tyrax`) turns those
 files from plain text into a first-class editing experience.
 
+A project can also carry [menu stylesheets](menu-styles.md) (`.menustyle`), which
+are a different shape - CSS-like blocks, no C++ - and get highlighting and
+snippets here too (see below).
+
 ## What it gives you
 
 - **Syntax highlighting** — the header (keys, values, `#` comments) plus **full
@@ -26,6 +30,21 @@ generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 (not a single file) for IntelliSense on `flow_nodes.hpp` and effect bodies. The
 `call = fn` logic still belongs in `flow_nodes.hpp` — the `.flownode` stays a
 thin manifest — but the extension now colours and checks that manifest too.
+
+## Menu stylesheets (`.menustyle`)
+
+Highlighting (selectors, `:selected` / `:disabled` states, `menu#name` scopes,
+`--variables`, `var()`, colours, gradients, `url()`, `{{icons}}`, `@style` and
+`@transition`) plus snippets for the shapes worth starting from: a whole sheet,
+a selected-row highlight, a scrolling list, a description pane, a value bar, a
+transition, a per-menu override.
+
+There is deliberately **no property table** in the extension. The authoritative
+list is `menustyle::propSpecs()` in `src/menustyle.cpp`, a copy here would drift
+the day someone adds a property, and the grammar does not need one: anything
+before a `:` inside a block highlights as a property. Validation lives where the
+list already is - the Menu Editor's *Stylesheet* tab reports every parse error
+with its line number, live, next to a preview of the baked result.
 
 ## VU1 microprograms (`.vclpp`, `.vcl`, `.vsm`)
 
@@ -99,7 +118,8 @@ code --install-extension tyrax-flownode-*.vsix
 `tools/vscode-tyrax` is a self-contained extension:
 
 - `package.json` — declares the two languages (`tyrax-flownode` → `.flownode`,
-  `tyrax-screenfx` → `.screenfx`), their grammars and snippets.
+  `tyrax-screenfx` → `.screenfx`, `tyrax-menustyle` → `.menustyle`), their
+  grammars and snippets.
 - `syntaxes/*.tmLanguage.json` — TextMate grammars. The body is a begin/end
   region that starts at `---` and runs to end-of-file, sets
   `contentName: meta.embedded.block.cpp` (so VS Code injects the C++ grammar),

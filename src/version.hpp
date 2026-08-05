@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 1
+#define TYRAX_VERSION_MINOR 2
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -38,6 +38,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // GameMenu::saveMenu. Purely additive with safe defaults, so no migration step
 // - an older file opens silently and project::ensureSaveMenu backfills the
 // save menu the same way ensureInputActions backfills the input map.
-inline constexpr int kFormatVersion = 2;
+// v3 (menu stylesheets, docs/menu-styles.md): GameMenu::style names the
+// menu-styles/*.menustyle file a panel is baked with, MenuEntry gains
+// styleClass / description / icon / enabledWhen and the `label` action, and
+// ProjectSettings::supportedModes declares which scan modes a game supports.
+// Purely additive with safe defaults - an empty `style` IS the old look, byte
+// for byte (checked by diffing the baked panels of every example against the
+// previous baker), so no migration step.
+inline constexpr int kFormatVersion = 3;
 
 }  // namespace version

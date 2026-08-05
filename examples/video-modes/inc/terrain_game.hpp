@@ -931,12 +931,21 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
@@ -956,12 +965,35 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -972,6 +1004,13 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -1095,6 +1134,13 @@ class TerrainGame : public Tyra::Game {
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;

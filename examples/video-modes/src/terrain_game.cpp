@@ -2449,6 +2449,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -2460,14 +2465,29 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
@@ -2478,6 +2498,27 @@ void TerrainGame::buildScene() {
     setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
                 (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
                 (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sw
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -2511,6 +2552,44 @@ void TerrainGame::buildScene() {
       auto* t = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd(m.values));
       t->addLink(menuValueSprites.back().id);
+    }
+    // The three styled-menu textures, all sub-rect sprites like the value
+    // strip: renderGameMenu moves offset/position to the cell it wants.
+    menuStateSprites.clear();
+    menuListSprites.clear();
+    menuDescSprites.clear();
+    menuStateSprites.reserve(MENU_COUNT);
+    menuListSprites.reserve(MENU_COUNT);
+    menuDescSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite st;
+      st.mode = SpriteMode::MODE_REPEAT;
+      st.size = Vec2((float)m.rowsCellW, (float)m.rowsCellH);
+      menuStateSprites.push_back(st);
+      if (m.rowsTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.rowsTex));
+        t->addLink(menuStateSprites.back().id);
+      }
+      Sprite ls;
+      ls.mode = SpriteMode::MODE_REPEAT;
+      ls.size = Vec2((float)m.panelW, (float)(m.rowsVisible * m.rowH));
+      menuListSprites.push_back(ls);
+      if (m.listTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.listTex));
+        t->addLink(menuListSprites.back().id);
+      }
+      Sprite ds;
+      ds.mode = SpriteMode::MODE_REPEAT;
+      ds.size = Vec2((float)m.descCellW, (float)m.descCellH);
+      menuDescSprites.push_back(ds);
+      if (m.descTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.descTex));
+        t->addLink(menuDescSprites.back().id);
+      }
     }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
@@ -2601,6 +2680,9 @@ void TerrainGame::buildScene() {
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuCursorRow = -1;
       // The pad reconfigures for ~3.5s after boot and reports garbage
       // clicks - one of those must not press a title entry.
       gameMenuGrace = 200;
@@ -5251,10 +5333,38 @@ bool TerrainGame::updateSaveMenu() {
     scriptCtx.loadCheckpoint = false;
     if (checkpointValid) applyState(checkpointData);
   }
-  if (scriptCtx.commitCheckpoint >= 0) {
-    const int slot = scriptCtx.commitCheckpoint;
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
     scriptCtx.commitCheckpoint = -1;
-    if (checkpointValid && slot < SAVE_SLOTS && cardOp < 0) beginCardOp(2, slot);
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
   }
 
   // A card op owns the pad. The blocking libmc transfer only runs once the
@@ -5306,10 +5416,21 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
@@ -5318,7 +5439,18 @@ bool TerrainGame::updateSaveMenu() {
   // beginCardOp so the "checking memory card" screen is up while the card is
   // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
   // warning has actually been drawn.
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) beginCardOp(0, saveMenuSlot);
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
     beginCardOp(1, saveMenuSlot);
   return true;
@@ -5333,6 +5465,27 @@ void TerrainGame::beginCardOp(int op, int slot) {
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
 }
 
 void TerrainGame::captureState(SaveGameData& d) {
@@ -5372,13 +5525,33 @@ void TerrainGame::captureState(SaveGameData& d) {
   }
 }
 
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
 void TerrainGame::doSave(int slot) {
   static SaveGameData d;  // the payload can be a few KB - keep it off the stack
-  captureState(d);
-  const bool ok = saveWrite(slot, d);
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -5436,14 +5609,47 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
+    }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
     }
   }
   // The "do not remove the memory card" warning covers everything while a
@@ -5452,6 +5658,15 @@ void TerrainGame::renderSaveMenu() {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveBusySprite);
     return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -5485,6 +5700,9 @@ bool TerrainGame::updateGameMenu() {
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
       gameMenuIndex = target;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
       menuRebindRow = -1;
@@ -5500,6 +5718,9 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuIndex < 0) {
       gameMenuIndex = PAUSE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;
       menuRebindRow = -1;
@@ -5552,10 +5773,14 @@ bool TerrainGame::updateGameMenu() {
     return pausing();
   }
 
-  if (inputClicked(engine->pad, IA_ROLE_MENU_UP) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
-  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+  // Headers, spacers and rows their `enabledWhen` value switched off are
+  // skipped - including on the frame the menu opened, so a menu whose first row
+  // is a section header still lands on something usable.
+  if (!menuRowEnabled(gameMenuIndex, gameMenuCursor))
+    menuMoveCursor(gameMenuIndex, 1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_UP)) menuMoveCursor(gameMenuIndex, -1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN)) menuMoveCursor(gameMenuIndex, 1);
+  menuFollowCursor(gameMenuIndex);
 
   // Toggle/Choice rows: the state is the bound save value (the option
   // index). Cross and dpad right cycle forward, dpad left backward.
@@ -5584,6 +5809,9 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuCursorRow = -1;
       menuRebindRow = -1;
     } else if (!m.titleScreen) {
       gameMenuIndex = -1;
@@ -5592,7 +5820,8 @@ bool TerrainGame::updateGameMenu() {
   }
 
   if (inputClicked(engine->pad, IA_ROLE_CONFIRM) && gameMenuCursor >= 0 &&
-      gameMenuCursor < m.entryCount) {
+      gameMenuCursor < m.entryCount &&
+      menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     switch (e.action) {
       case 0:  // close
@@ -5617,6 +5846,9 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
           gameMenuIndex = e.param;
           gameMenuCursor = 0;
+          gameMenuScroll = 0;
+          gameMenuOpenT = 0.0F;
+          gameMenuCursorRow = -1;
           menuRebindRow = -1;
         }
         break;
@@ -5811,26 +6043,185 @@ void TerrainGame::syncPlayerCountMenuValue() {
   }
 }
 
+// Menu progress easing, shared by the open transition and the caret. ease 0
+// linear, 1 ease-out (the default a sheet gets), 2 ease-in-out.
+static float menuEase(float t, int ease) {
+  if (t <= 0.0F) return 0.0F;
+  if (t >= 1.0F) return 1.0F;
+  if (ease == 0) return t;
+  if (ease == 2) return t < 0.5F ? 2.0F * t * t : 1.0F - 2.0F * (1.0F - t) * (1.0F - t);
+  const float inv = 1.0F - t;
+  return 1.0F - inv * inv;
+}
+
+// True when a row is currently usable: a label/spacer never is, and a row with
+// an `enabledWhen` save value is only usable while that value is non-zero.
+bool TerrainGame::menuRowEnabled(int menu, int row) const {
+  if (menu < 0 || menu >= MENU_COUNT) return false;
+  const MenuData& m = MENUS[menu];
+  if (row < 0 || row >= m.entryCount) return false;
+  const MenuEntryData& e = m.entries[row];
+  if (!e.selectable) return false;
+  if (e.enableVal >= 0 && e.enableVal < SAVE_VALUE_COUNT &&
+      saveValues[e.enableVal] == 0.0F)
+    return false;
+  return true;
+}
+
+// Moves the cursor `dir` rows, skipping headers, spacers and disabled rows, and
+// wrapping like the plain cursor always did. A menu with nothing selectable
+// leaves the cursor where it is rather than spinning.
+void TerrainGame::menuMoveCursor(int menu, int dir) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.entryCount <= 0) return;
+  for (int step = 0; step < m.entryCount; ++step) {
+    gameMenuCursor = (gameMenuCursor + dir + m.entryCount) % m.entryCount;
+    if (menuRowEnabled(menu, gameMenuCursor)) return;
+  }
+}
+
+// Keeps the cursor inside the visible window of a scrolling list.
+void TerrainGame::menuFollowCursor(int menu) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.listTex[0] == '\0' || m.rowsVisible <= 0) {
+    gameMenuScroll = 0;
+    return;
+  }
+  if (gameMenuCursor < gameMenuScroll) gameMenuScroll = gameMenuCursor;
+  if (gameMenuCursor >= gameMenuScroll + m.rowsVisible)
+    gameMenuScroll = gameMenuCursor - m.rowsVisible + 1;
+  const int maxScroll = m.entryCount - m.rowsVisible;
+  if (gameMenuScroll > maxScroll) gameMenuScroll = maxScroll;
+  if (gameMenuScroll < 0) gameMenuScroll = 0;
+}
+
 void TerrainGame::renderGameMenu() {
   if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
   if (saveMenuOpen) return;  // the save menu draws on top instead
   const MenuData& m = MENUS[gameMenuIndex];
   Sprite& panel = menuSprites[gameMenuIndex];
-  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
+
+  // --- resolution scale (docs/menu-styles.md "Resolutions") ----------------
+  // A menu is authored in the logical 512x448 space of the interlaced mode, but
+  // the framebuffer is 448x448 in 480p, 448x540 in 1080i and 512x512 in full
+  // PAL. Scaling by (width/512, height/448) is what keeps the panel the same
+  // PHYSICAL size on the TV: the GS display window maps whatever the buffer is
+  // across the same raster, so 448 columns cover exactly the width 512 do.
+  // That also means the two axes scale by different factors - hence
+  // Sprite::drawSize rather than Sprite::scale.
+  const auto& uiScr = engine->renderer.core.getSettings();
+  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiSY = uiScr.getHeight() / 448.0F;
+  auto sxi = [&](int v) { return (float)v * uiSX; };
+  auto syi = [&](int v) { return (float)v * uiSY; };
+
+  // --- the open transition -------------------------------------------------
+  // Sprite properties only: an offset added to every piece and one alpha. The
+  // baked pixels never move, which is why this costs nothing.
+  float prog = 1.0F;
+  if (m.openSec > 0.0F) {
+    gameMenuOpenT += g_frameDt;
+    prog = menuEase(gameMenuOpenT / m.openSec, m.openEase);
+  }
+  const float slide = 1.0F - prog;
+  const float ofsX = m.openDX * slide, ofsY = m.openDY * slide;
+  const unsigned char alpha =
+      (unsigned char)(m.openFade ? 128.0F * prog + 0.5F : 128.0F);
+  // The panel is centred on its normalized screen position, in the mode's own
+  // buffer, at its scaled size.
+  const float baseX =
+      m.screenX * uiScr.getWidth() - sxi(m.panelW) * 0.5F + ofsX * uiSX;
+  const float baseY =
+      m.screenY * uiScr.getHeight() - syi(m.contentH) * 0.5F + ofsY * uiSY;
+
+  if (m.pause) {
+    // Sized per frame: a runtime display-mode switch changes the buffer under
+    // it, and a dim overlay that misses the edge is very visible.
+    menuDimSprite.drawSize = Vec2(uiScr.getWidth(), uiScr.getHeight());
+    engine->renderer.renderer2D.render(menuDimSprite);
+  }
+  panel.color.a = alpha;
+  panel.drawSize = Vec2(sxi(m.panelW), syi(m.panelH));
+  panel.position = Vec2(baseX, baseY);
   engine->renderer.renderer2D.render(panel);
+
+  // --- the row strip of a scrolling list -----------------------------------
+  // One window into the strip texture; scrolling moves `offset`, so a 32-row
+  // menu costs exactly what an 8-row one does.
+  if (m.listTex[0] != '\0' && gameMenuIndex < (int)menuListSprites.size()) {
+    Sprite& ls = menuListSprites[gameMenuIndex];
+    ls.color.a = alpha;
+    ls.offset = Vec2(0.0F, (float)(gameMenuScroll * m.rowH));
+    ls.drawSize = Vec2(sxi(m.panelW), syi(m.rowsVisible * m.rowH));
+    ls.position = Vec2(baseX, baseY + syi(m.row0Y));
+    engine->renderer.renderer2D.render(ls);
+  }
+
+  // --- row states ----------------------------------------------------------
+  // Disabled rows first, then the selected one, all from ONE texture so the
+  // draws share a texture bind (a per-row texture switch would re-upload a
+  // CLUT every row - see docs/gs-vram.md).
+  if (m.rowsTex[0] != '\0' && gameMenuIndex < (int)menuStateSprites.size()) {
+    Sprite& ss = menuStateSprites[gameMenuIndex];
+    ss.color.a = alpha;
+    ss.drawSize = Vec2(sxi(m.rowsCellW), syi(m.rowsCellH));
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.disCell < 0 || menuRowEnabled(gameMenuIndex, i)) continue;
+      ss.offset = Vec2(0.0F, (float)(e.disCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + syi(m.row0Y + (i - first) * m.rowH));
+      engine->renderer.renderer2D.render(ss);
+    }
+    const MenuEntryData& sel = m.entries[gameMenuCursor >= 0 && gameMenuCursor < m.entryCount
+                                             ? gameMenuCursor
+                                             : 0];
+    if (sel.selCell >= 0 && menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
+      ss.offset = Vec2(0.0F, (float)(sel.selCell * m.rowsPitch));
+      ss.position =
+          Vec2(baseX, baseY + syi(m.row0Y + (gameMenuCursor - first) * m.rowH));
+      engine->renderer.renderer2D.render(ss);
+    }
+  }
+
+  // --- the selection caret -------------------------------------------------
+  // It eases toward its row when the sheet asks for it; with no cursor
+  // transition it snaps, which is what every menu did before.
   if (m.entryCount > 0) {
+    const float targetY =
+        (float)(m.row0Y + (gameMenuCursor - gameMenuScroll) * m.rowH) + 1.0F;
+    if (m.cursorSec > 0.0F) {
+      if (gameMenuCursorRow != gameMenuCursor) {
+        // Re-target: ease from wherever the caret actually is.
+        gameMenuCursorRow = gameMenuCursor;
+      }
+      const float k = menuEase(g_frameDt / m.cursorSec, m.cursorEase);
+      gameMenuCursorY += (targetY - gameMenuCursorY) * (k > 1.0F ? 1.0F : k);
+      if (gameMenuCursorY < -512.0F || gameMenuCursorY > 1024.0F)
+        gameMenuCursorY = targetY;  // first frame / a scene reload
+    } else {
+      gameMenuCursorY = targetY;
+    }
+    menuCursorSprite.color.a = alpha;
+    menuCursorSprite.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
     menuCursorSprite.position =
-        Vec2(panel.position.x + 32.0F,
-             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
+        Vec2(baseX + m.markerX * uiSX, baseY + gameMenuCursorY * uiSY);
     engine->renderer.renderer2D.render(menuCursorSprite);
   }
-  // Toggle/Choice rows: the current option label, a cell of the baked value
-  // strip drawn right-aligned on the row (cell right edge 24px from the
-  // panel's right border - the mirror of the 56px label margin).
+
+  // Toggle/Choice rows: the current option label (or bar), a cell of the baked
+  // value strip drawn right-aligned on the row.
   if (m.values[0] != '\0' &&
       gameMenuIndex < (int)menuValueSprites.size()) {
     Sprite& vs = menuValueSprites[gameMenuIndex];
-    for (int i = 0; i < m.entryCount; ++i) {
+    vs.color.a = alpha;
+    vs.drawSize = Vec2(sxi(m.valueCellW), syi(m.valueCellH));
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.cell < 0 || e.optionCount <= 0) continue;
       int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
@@ -5839,16 +6230,34 @@ void TerrainGame::renderGameMenu() {
       if (v < 0) v = 0;
       if (v >= e.optionCount) v = e.optionCount - 1;
       vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
-      vs.position = Vec2(panel.position.x + m.valueX,
-                         panel.position.y + m.row0Y + i * m.rowH);
+      vs.position = Vec2(baseX + sxi(m.valueX),
+                         baseY + syi(m.row0Y + (i - first) * m.rowH));
       engine->renderer.renderer2D.render(vs);
     }
   }
+
+  // --- the description pane ------------------------------------------------
+  // The selected row's cell, drawn into the box the panel already framed.
+  if (m.descTex[0] != '\0' && gameMenuIndex < (int)menuDescSprites.size() &&
+      gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    if (e.descCell >= 0) {
+      Sprite& ds = menuDescSprites[gameMenuIndex];
+      ds.color.a = alpha;
+      ds.drawSize = Vec2(sxi(m.descCellW), syi(m.descCellH));
+      ds.offset = Vec2(0.0F, (float)(e.descCell * m.descPitch));
+      ds.position = Vec2(baseX + sxi(m.descX), baseY + syi(m.descY));
+      engine->renderer.renderer2D.render(ds);
+    }
+  }
+
   // Rebind rows: the binding name can't be baked (it changes at runtime), so it
   // draws glyph by glyph from the menu font's atlas, right-aligned like the
   // baked option labels. While capturing, the row asks for a press instead.
   if (m.font >= 0 && m.font < FONT_COUNT) {
-    for (int i = 0; i < m.entryCount; ++i) {
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.action != 10) continue;
       const char* txt = "PRESS...";
@@ -5873,18 +6282,17 @@ void TerrainGame::renderGameMenu() {
       // half of a 128px panel, so shrink to fit rather than run over the row's
       // baked label (floor at 50% - below that it stops being readable at PS2
       // resolutions anyway).
-      float size = (float)m.rowH * 0.8F;
-      const float room = (float)m.panelW * 0.5F - 24.0F;
+      float size = (float)m.rowH * 0.8F * uiSY;
+      const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
       float w = fontTextWidth(m.font, txt, size);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
         w = fontTextWidth(m.font, txt, size);
       }
-      drawFontText(engine, m.font, txt,
-                   panel.position.x + (float)(m.panelW - 24) - w * 0.5F,
-                   panel.position.y + m.row0Y + i * m.rowH +
-                       (float)m.rowH * 0.5F,
+      drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
+                   baseY + syi(m.row0Y + (i - first) * m.rowH) +
+                       syi(m.rowH) * 0.5F,
                    size);
     }
   }

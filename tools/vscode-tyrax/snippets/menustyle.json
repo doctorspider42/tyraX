@@ -1,0 +1,80 @@
+{
+  "Stylesheet skeleton": {
+    "prefix": "sheet",
+    "body": [
+      "@style \"${1:My style}\"",
+      "",
+      ":root {",
+      "  --accent: ${2:#78d1ff};",
+      "  --ink: ${3:#eaf6ff};",
+      "}",
+      "",
+      "panel {",
+      "  background: rgba(8, 12, 24, 0.9);",
+      "  border: 1px solid var(--accent);",
+      "  border-radius: 8px;",
+      "  padding: 12px 0 0 0;",
+      "}",
+      "title { color: var(--accent); letter-spacing: 2px; text-transform: uppercase; }",
+      "row { color: var(--ink); }",
+      "row:selected { color: #ffffff; background: rgba(120, 209, 255, 0.35); translate-x: 6px; }",
+      "row:disabled { color: #55606f; }",
+      "hint { color: #7d90a8; }",
+      "$0"
+    ],
+    "description": "A whole menu stylesheet to start from (docs/menu-styles.md)"
+  },
+  "Selected-row highlight": {
+    "prefix": "selected",
+    "body": [
+      "row:selected {",
+      "  color: ${1:#ffffff};",
+      "  background: linear-gradient(${2:90}deg, ${3:rgba(120, 209, 255, 0.42)}, transparent);",
+      "  translate-x: ${4:6px};",
+      "}",
+      "$0"
+    ],
+    "description": "What the highlighted row adds (one baked cell per row)"
+  },
+  "Scrolling list": {
+    "prefix": "list",
+    "body": ["list { rows-visible: ${1:8}; }", "$0"],
+    "description": "Show N rows at a time and scroll the rest"
+  },
+  "Description pane": {
+    "prefix": "description",
+    "body": [
+      "description {",
+      "  height: ${1:44px};",
+      "  area: ${2|below,right|};",
+      "  wrap: yes;",
+      "  color: ${3:#b9c2cf};",
+      "}",
+      "$0"
+    ],
+    "description": "A pane showing the selected row's description"
+  },
+  "Value bar": {
+    "prefix": "bar",
+    "body": [
+      "value {",
+      "  display: bar;",
+      "  bar-size: ${1:90px} ${2:8px};",
+      "  bar-fill: ${3:#78d1ff};",
+      "  bar-track: rgba(255, 255, 255, 0.15);",
+      "}",
+      "$0"
+    ],
+    "description": "Draw Toggle/Choice rows as a slider instead of a label"
+  },
+  "Open transition": {
+    "prefix": "transition",
+    "body": ["@transition ${1|open,close,cursor|} { ${2:180}ms ease-out; fade; translate-y ${3:10px}; }", "$0"],
+    "description": "Sprite-level motion - free on the console"
+  },
+  "Per-menu override": {
+    "prefix": "menu",
+    "body": ["menu#${1:pause} {", "  ${2:panel { width: 256px; }}", "}", "$0"],
+    "description": "Rules that apply to one menu only"
+  }
+}

@@ -29,6 +29,14 @@ struct MenuEntryData {
   // (optionCount ints; -1 = the project-default boot mode).
   // Null = the option index itself.
   const int* optModes;
+  // --- styling (docs/menu-styles.md) ---------------------------
+  // Cells in the row-state atlas for this row, -1 = the sheet
+  // paints nothing for that state (the row then draws from the
+  // panel exactly as before).
+  int selCell, disCell;
+  int descCell;    // cell in the description atlas (-1 = none)
+  int enableVal;   // save value gating the row (-1 = always on)
+  int selectable;  // 0 = a label/spacer row the cursor skips
 };
 
 struct MenuData {
@@ -50,23 +58,53 @@ struct MenuData {
   // current binding as runtime text from this font's glyph atlas
   // (Project::atlasFontIndices bakes one for such menus).
   int font;
+  // --- styling (docs/menu-styles.md) ---------------------------
+  // Row-state atlas ("" = none): one cell per (row, state) the
+  // stylesheet paints, drawn OVER the baked normal row. A cell
+  // carries the panel's own background, so it covers it whatever
+  // the highlight's alpha.
+  const char* rowsTex;
+  int rowsCellW, rowsCellH, rowsPitch;
+  // Scrolling list ("" = the rows are baked into the panel):
+  // every row in its own texture, drawn as a rowsVisible-tall
+  // WINDOW of it - scrolling is an offset, not a rebake.
+  const char* listTex;
+  int listH, rowsVisible;
+  // Description pane ("" = none): the selected row's cell drawn
+  // at descX/descY inside the panel.
+  const char* descTex;
+  int descCellW, descCellH, descPitch, descX, descY;
+  float markerX;    // selection caret x inside the panel
+  // Motion. The panel slides/fades in over openSec (ease 0 linear,
+  // 1 ease-out, 2 ease-in-out) and the caret eases to its row over
+  // cursorSec. Sprite properties only - nothing is re-baked.
+  float openSec;
+  int openEase, openFade;
+  float openDX, openDY, openScale;
+  float cursorSec;
+  int cursorEase;
 };
 
-constexpr int MENU_COUNT = 1;
+constexpr int MENU_COUNT = 2;
 
 // menu "video"
 constexpr MenuEntryData MENU_0_ENTRIES[7] = {
-    {6, 0, 0.0F, 0, -1, 0, -1, nullptr},  // INTERLACED 480I
-    {6, 1, 0.0F, 0, -1, 0, -1, nullptr},  // PROGRESSIVE 480P
-    {6, 2, 0.0F, 0, -1, 0, -1, nullptr},  // HD 1080I
-    {6, 3, 0.0F, 0, -1, 0, -1, nullptr},  // 480I FIELD RENDER
-    {6, 4, 0.0F, 0, -1, 0, -1, nullptr},  // STANDARD 4:3
-    {6, 5, 0.0F, 0, -1, 0, -1, nullptr},  // WIDESCREEN 16:9
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // CLOSE
+    {6, 0, 0.0F, 0, -1, 0, -1, nullptr, 0, -1, -1, -1, 1},  // INTERLACED 480I
+    {6, 1, 0.0F, 0, -1, 0, -1, nullptr, 1, -1, -1, -1, 1},  // PROGRESSIVE 480P
+    {6, 2, 0.0F, 0, -1, 0, -1, nullptr, 2, -1, -1, -1, 1},  // HD 1080I
+    {6, 3, 0.0F, 0, -1, 0, -1, nullptr, 3, -1, -1, -1, 1},  // 480I FIELD RENDER
+    {6, 4, 0.0F, 0, -1, 0, -1, nullptr, 4, -1, -1, -1, 1},  // STANDARD 4:3
+    {6, 5, 0.0F, 0, -1, 0, -1, nullptr, 5, -1, -1, -1, 1},  // WIDESCREEN 16:9
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, 6, -1, -1, -1, 1},  // CLOSE
+};
+// menu "save"
+constexpr MenuEntryData MENU_1_ENTRIES[1] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/video.png", 256, 256, 234, 44, 24, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, -1},  // video
+    {"menus/video.png", 256, 256, 254, 50, 26, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "menus/video-rows.png", 256, 26, 34, "", 0, 7, "", 0, 0, 0, 0, 0, 32.0F, 0.18F, 1, 1, 0.0F, 10.0F, 0.0F, 0.11F, 1},  // video
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1},  // save
 };
 
 constexpr int TITLE_MENU = 0;

@@ -1,5 +1,7 @@
 #include "menubake.hpp"
 
+#include "menulayout.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -131,6 +133,140 @@ struct Canvas {
         for (int y = y0; y < y1; ++y)
             for (int x = x0; x < x1; ++x) blend(x, y, c, 255);
     }
+
+    // --- the box model's own primitives -------------------------------------
+    // Everything below is BAKED, so it costs texture bytes and nothing on the
+    // console. That is the whole reason a menu can afford to look like this.
+
+    // Coverage of a rounded rect at a pixel centre, antialiased over 1px.
+    static float roundRectCov(float px, float py, float x, float y, float w,
+                              float h, float r) {
+        if (w <= 0 || h <= 0) return 0.0f;
+        if (r > w * 0.5f) r = w * 0.5f;
+        if (r > h * 0.5f) r = h * 0.5f;
+        if (r < 0) r = 0;
+        const float cx = x + w * 0.5f, cy = y + h * 0.5f;
+        const float dx = std::fabs(px - cx) - (w * 0.5f - r);
+        const float dy = std::fabs(py - cy) - (h * 0.5f - r);
+        const float ax = dx > 0 ? dx : 0, ay = dy > 0 ? dy : 0;
+        const float outside = std::sqrt(ax * ax + ay * ay);
+        const float inside = dx > dy ? dx : dy;
+        const float d = (outside > 0 ? outside : inside) - r;
+        // d < -0.5 fully inside, d > 0.5 fully outside
+        const float t = 0.5f - d;
+        return t < 0 ? 0.0f : t > 1 ? 1.0f : t;
+    }
+
+    // Colour of a fill at a point (solid, or the gradient's interpolation).
+    static RGBA fillAt(const menustyle::Fill& f, float u, float v) {
+        auto conv = [](menustyle::Color c) {
+            return RGBA{c.r, c.g, c.b, c.a};
+        };
+        if (f.kind != menustyle::Fill::Gradient) return conv(f.a);
+        // CSS angles: 0deg = to top, 90deg = to right, 180deg = to bottom.
+        const float rad = f.angle * 3.14159265f / 180.0f;
+        const float dx = std::sin(rad), dy = -std::cos(rad);
+        // Project (u,v) in 0..1 onto the gradient axis, normalized so the whole
+        // box spans 0..1 whatever the angle.
+        const float t = 0.5f + ((u - 0.5f) * dx + (v - 0.5f) * dy) /
+                                   (std::fabs(dx) + std::fabs(dy) + 0.0001f);
+        const float k = t < 0 ? 0 : t > 1 ? 1 : t;
+        auto lerp = [&](unsigned char a, unsigned char b) {
+            return (unsigned char)(a + (b - a) * k + 0.5f);
+        };
+        return RGBA{lerp(f.a.r, f.b.r), lerp(f.a.g, f.b.g), lerp(f.a.b, f.b.b),
+                    lerp(f.a.a, f.b.a)};
+    }
+
+    void fillBox(int bx, int by, int bw, int bh, const menustyle::Fill& f,
+                 float radius, float opacity = 1.0f) {
+        if (f.kind == menustyle::Fill::None || bw <= 0 || bh <= 0) return;
+        for (int y = by; y < by + bh; ++y)
+            for (int x = bx; x < bx + bw; ++x) {
+                const float cov =
+                    roundRectCov(x + 0.5f, y + 0.5f, (float)bx, (float)by,
+                                 (float)bw, (float)bh, radius);
+                if (cov <= 0) continue;
+                RGBA c = fillAt(f, (x - bx + 0.5f) / bw, (y - by + 0.5f) / bh);
+                blend(x, y, c, (unsigned char)(cov * opacity * 255.0f + 0.5f));
+            }
+    }
+
+    // A border is the ring between the outer rounded rect and one inset by the
+    // width - one pass, so a rounded border keeps its corner.
+    void strokeBox(int bx, int by, int bw, int bh, float width, RGBA c,
+                   float radius, float opacity = 1.0f) {
+        if (width <= 0 || bw <= 0 || bh <= 0) return;
+        for (int y = by; y < by + bh; ++y)
+            for (int x = bx; x < bx + bw; ++x) {
+                const float outer =
+                    roundRectCov(x + 0.5f, y + 0.5f, (float)bx, (float)by,
+                                 (float)bw, (float)bh, radius);
+                if (outer <= 0) continue;
+                const float inner = roundRectCov(
+                    x + 0.5f, y + 0.5f, bx + width, by + width, bw - 2 * width,
+                    bh - 2 * width, radius - width);
+                const float cov = outer - inner;
+                if (cov <= 0.002f) continue;
+                blend(x, y, c, (unsigned char)(cov * opacity * 255.0f + 0.5f));
+            }
+    }
+
+    // A soft drop shadow: the box's rounded silhouette, box-blurred twice
+    // (which is close enough to a Gaussian at these radii) and composited
+    // UNDER whatever draws next. Baked, so the blur is free at runtime.
+    void shadowBox(int bx, int by, int bw, int bh, float radius, float blur,
+                   float dx, float dy, RGBA c) {
+        if (bw <= 0 || bh <= 0) return;
+        const int r = (int)(blur + 0.5f);
+        const int pad = r + 2;
+        const int mw = bw + pad * 2, mh = bh + pad * 2;
+        if (mw <= 0 || mh <= 0) return;
+        std::vector<float> mask((size_t)mw * mh, 0.0f);
+        for (int y = 0; y < mh; ++y)
+            for (int x = 0; x < mw; ++x)
+                mask[(size_t)y * mw + x] = roundRectCov(
+                    x + 0.5f, y + 0.5f, (float)pad, (float)pad, (float)bw,
+                    (float)bh, radius);
+        if (r > 0) {
+            std::vector<float> tmp(mask.size(), 0.0f);
+            for (int pass = 0; pass < 2; ++pass) {
+                // horizontal
+                for (int y = 0; y < mh; ++y)
+                    for (int x = 0; x < mw; ++x) {
+                        float sum = 0;
+                        int n = 0;
+                        for (int k = -r; k <= r; ++k) {
+                            const int sx = x + k;
+                            if (sx < 0 || sx >= mw) continue;
+                            sum += mask[(size_t)y * mw + sx];
+                            ++n;
+                        }
+                        tmp[(size_t)y * mw + x] = n ? sum / n : 0;
+                    }
+                // vertical
+                for (int y = 0; y < mh; ++y)
+                    for (int x = 0; x < mw; ++x) {
+                        float sum = 0;
+                        int n = 0;
+                        for (int k = -r; k <= r; ++k) {
+                            const int sy = y + k;
+                            if (sy < 0 || sy >= mh) continue;
+                            sum += tmp[(size_t)sy * mw + x];
+                            ++n;
+                        }
+                        mask[(size_t)y * mw + x] = n ? sum / n : 0;
+                    }
+            }
+        }
+        for (int y = 0; y < mh; ++y)
+            for (int x = 0; x < mw; ++x) {
+                const float a = mask[(size_t)y * mw + x];
+                if (a <= 0.004f) continue;
+                blend(bx - pad + x + (int)dx, by - pad + y + (int)dy, c,
+                      (unsigned char)(a * 255.0f + 0.5f));
+            }
+    }
 };
 
 // --- Inline text icons ------------------------------------------------------
@@ -219,12 +355,12 @@ std::vector<TextRun> textRuns(const Project* proj, const std::string& text) {
 }
 
 float textWidth(Font& f, const std::string& text, float pixelHeight,
-                const Project* proj = nullptr) {
+                const Project* proj = nullptr, float letterSpacing = 0.0f) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     float x = 0;
     for (const TextRun& run : textRuns(proj, text)) {
         if (!run.icon.empty()) {
-            x += iconAdvance(*proj, run.icon, pixelHeight);
+            x += iconAdvance(*proj, run.icon, pixelHeight) + letterSpacing;
             continue;
         }
         size_t i = 0;
@@ -234,7 +370,7 @@ float textWidth(Font& f, const std::string& text, float pixelHeight,
             int adv = 0, lsb = 0;
             stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
             if (prev) x += scale * stbtt_GetCodepointKernAdvance(&f.info, prev, cp);
-            x += scale * adv;
+            x += scale * adv + letterSpacing;
             prev = cp;
         }
     }
@@ -254,14 +390,14 @@ float textWidth(Font& f, const std::string& text, float pixelHeight,
 void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& text,
               float pixelHeight, RGBA color, bool centered,
               const Project* proj = nullptr, bool skipIcons = false,
-              bool skipActionIcons = false) {
+              bool skipActionIcons = false, float letterSpacing = 0.0f) {
     const float scale = stbtt_ScaleForPixelHeight(&f.info, pixelHeight);
     int ascent = 0, descent = 0, lineGap = 0;
     stbtt_GetFontVMetrics(&f.info, &ascent, &descent, &lineGap);
     const int baseline = yTop + (int)(ascent * scale + 0.5f);
     const int capH = (int)(ascent * scale + 0.5f);
 
-    if (centered) x -= textWidth(f, text, pixelHeight, proj) * 0.5f;
+    if (centered) x -= textWidth(f, text, pixelHeight, proj, letterSpacing) * 0.5f;
 
     float penX = x;
     for (const TextRun& run : textRuns(proj, text)) {
@@ -293,7 +429,7 @@ void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& tex
                                      q[3]);
                     }
             }
-            penX += adv;
+            penX += adv + letterSpacing;
             continue;
         }
         size_t i = 0;
@@ -317,10 +453,58 @@ void drawText(Canvas& canvas, Font& f, float x, int yTop, const std::string& tex
                                      bitmap[by * gw + bx]);
                 stbtt_FreeBitmap(bitmap, nullptr);
             }
-            penX += scale * adv;
+            penX += scale * adv + letterSpacing;
             prev = cp;
         }
     }
+}
+
+// --- styled text -------------------------------------------------------------
+// One entry point for "draw this string the way this element's resolved style
+// says": alignment inside a box, uppercase, letter spacing, a drop shadow and
+// an outline. Every text the panel carries goes through it, so a new text
+// property is implemented once.
+
+RGBA toRGBA(menustyle::Color c) { return RGBA{c.r, c.g, c.b, c.a}; }
+
+// ASCII-only on purpose: upper-casing UTF-8 needs a case table this baker has
+// no business carrying, and a Polish label upper-cased half-way would be worse
+// than one left alone (the docs say so).
+std::string upperAscii(const std::string& in) {
+    std::string out = in;
+    for (char& c : out)
+        if ((unsigned char)c < 0x80) c = (char)toupper((unsigned char)c);
+    return out;
+}
+
+void drawStyled(Canvas& canvas, Font& f, const menustyle::Computed& st, int boxX,
+                int boxW, int yTop, const std::string& textIn,
+                const Project* proj, RGBA color) {
+    if (textIn.empty()) return;
+    const std::string text = st.upper ? upperAscii(textIn) : textIn;
+    const float tw = textWidth(f, text, st.fontSize, proj, st.letterSpacing);
+    float x = (float)boxX;
+    if (st.align == 1) x = boxX + (boxW - tw) * 0.5f;
+    else if (st.align == 2) x = boxX + boxW - tw;
+    // The shadow and outline passes skip icons: those carry their own colours,
+    // so a dark copy underneath only leaks a fringe (the HUD text rule).
+    if (st.textShadow)
+        drawText(canvas, f, x + st.textShadowX, yTop + (int)st.textShadowY, text,
+                 st.fontSize, toRGBA(st.textShadowColor), false, proj, true, false,
+                 st.letterSpacing);
+    if (st.outlineW > 0) {
+        const int r = (int)(st.outlineW + 0.5f);
+        for (int dy = -r; dy <= r; ++dy)
+            for (int dx = -r; dx <= r; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                if (dx * dx + dy * dy > r * r + 1) continue;
+                drawText(canvas, f, x + dx, yTop + dy, text, st.fontSize,
+                         toRGBA(st.outlineColor), false, proj, true, false,
+                         st.letterSpacing);
+            }
+    }
+    drawText(canvas, f, x, yTop, text, st.fontSize, color, false, proj, false,
+             false, st.letterSpacing);
 }
 
 void pngWriteCallback(void* context, void* data, int size) {
@@ -553,133 +737,79 @@ bool bakeBuiltinIconPNG(const std::string& name, int px,
     return !png.empty();
 }
 
-namespace {
-
-// Fitted (drawn) size of every menu image, PNG headers only (stbi_info) -
-// the full decode happens at bake time. Index-aligned with menu.images;
-// {0,0} = missing/unreadable file.
-struct FittedImage {
-    int w = 0, h = 0;
-};
-
-std::vector<FittedImage> fitImages(const GameMenu& menu,
-                                   const std::string& projectDir) {
-    std::vector<FittedImage> out(menu.images.size());
-    if (projectDir.empty()) return out;
-    const int panelW = menu.panelW;
-    for (size_t i = 0; i < menu.images.size(); ++i) {
-        const MenuImage& mi = menu.images[i];
-        if (mi.path.empty()) continue;
-        int w = 0, h = 0, comp = 0;
-        const std::string full =
-            (std::filesystem::path(projectDir) / mi.path).string();
-        if (!stbi_info(full.c_str(), &w, &h, &comp) || w <= 0 || h <= 0) continue;
-        if (mi.slot == MenuImage::Background) {
-            out[i] = {panelW, 0};  // stretched over the content at bake time
-            continue;
-        }
-        // fit to the panel (downscale only), then the user scale on top,
-        // then hard caps so one image cannot blow past the texture limit
-        const float maxW = (float)(panelW - (mi.slot == MenuImage::Overlay ? 0 : 32));
-        float s = 1.0f;
-        if (w > maxW) s = maxW / w;
-        s *= (mi.scale > 0.05f ? mi.scale : 0.05f);
-        float fw = w * s, fh = h * s;
-        if (fw > panelW) { fh *= panelW / fw; fw = (float)panelW; }
-        if (fh > 320.0f) { fw *= 320.0f / fh; fh = 320.0f; }
-        out[i] = {(int)fw, (int)fh};
-    }
-    return out;
-}
-
-int flowBlockHeight(const GameMenu& menu, const std::vector<FittedImage>& fit,
-                    int slot) {
-    int h = 0;
-    for (size_t i = 0; i < menu.images.size(); ++i)
-        if (menu.images[i].slot == slot && fit[i].h > 0) h += fit[i].h + 8;
-    return h;
-}
-
-}  // namespace
-
-GameMenu asBaked(const GameMenu& menu, const Project& p) {
-    if (!menu.saveMenu) return menu;
-    // The save menu's rows ARE the save slots, so it bakes with that many
-    // BLANK rows: the panel supplies the geometry and the game draws "SLOT n"
-    // into it at runtime (a baked label per slot could never page). Routing
-    // this through the bake means the panel, the editor's preview and the
-    // generated row metrics all count rows the same way.
-    GameMenu c = menu;
-    int rows = p.saveSlotsPerPage;
-    if (rows < 1) rows = 1;
-    if (rows > kMaxEntries) rows = kMaxEntries;
-    c.entries.assign((size_t)rows, MenuEntry{});
-    for (MenuEntry& e : c.entries) e.label.clear();
-    return c;
-}
-
+// The geometry is menulayout's, and this stays as the thin wrapper the older
+// callers (templates.cpp, the Menu Editor) already use. PanelLayout is the
+// subset of menulayout::Layout the pre-stylesheet contract exposed.
 PanelLayout panelLayout(const GameMenu& menuIn, const Project& p) {
-    const GameMenu menu = asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
     PanelLayout l;
-    l.panelW = (menu.panelW == 128 || menu.panelW == 512) ? menu.panelW : 256;
-    int entries = (int)menu.entries.size();
-    if (entries < 0) entries = 0;
-    if (entries > kMaxEntries) entries = kMaxEntries;
-
-    const auto fit = fitImages(menu, p.dir);
-    const int aboveTitle = flowBlockHeight(menu, fit, MenuImage::AboveTitle);
-    const int aboveEntries = flowBlockHeight(menu, fit, MenuImage::AboveEntries);
-    const int belowEntries = flowBlockHeight(menu, fit, MenuImage::BelowEntries);
-
-    // text sizes drive the geometry: title block = text at +8 + separator,
-    // row pitch = entry size + breathing room (15px -> the classic 24)
-    l.rowH = menu.entrySize + 9;
-    const int titleBlock = menu.showTitle ? menu.titleSize + 26 : 10;
-    l.row0Y = aboveTitle + titleBlock + aboveEntries;
-    l.contentH = l.row0Y + entries * l.rowH + belowEntries + 22;  // hints + pad
-    if (l.contentH > 512) {
-        l.contentH = 512;  // PS2 texture cap - the bake clips, editor warns
-        l.clipped = true;
-    }
-    l.canvasH = 64;
-    while (l.canvasH < l.contentH) l.canvasH *= 2;
+    l.panelW = L.panelW;
+    l.canvasH = L.canvasH;
+    l.contentH = L.contentH;
+    l.row0Y = L.row0Y;
+    l.rowH = L.rowH;
+    l.clipped = L.clipped;
     return l;
 }
-
-namespace {
-std::string sanitizeName(const std::string& name, const char* fallback) {
-    std::string s;
-    for (char c : name) {
-        if (isalnum((unsigned char)c) || c == '-' || c == '_')
-            s += (char)tolower((unsigned char)c);
-        else
-            s += '-';
-    }
-    if (s.empty()) s = fallback;
-    return s;
-}
-}  // namespace
-
+// The res/menus names live in menulayout (one sanitize rule for every file a
+// menu ships); these two stay declared here because every caller already asks
+// menubake for them.
 std::string panelFileName(const std::string& menuName) {
-    return sanitizeName(menuName, "menu") + ".png";
+    return menulayout::panelFileName(menuName);
 }
 
 std::string valueStripFileName(const std::string& menuName) {
-    return sanitizeName(menuName, "menu") + "-values.png";
+    return menulayout::valueStripFileName(menuName);
 }
 
 std::string textFileName(const std::string& textName) {
-    return "text-" + sanitizeName(textName, "text") + ".png";
+    return "text-" + menulayout::sanitizeName(textName, "text") + ".png";
 }
 
 std::string iconFileName(const std::string& iconName) {
-    return "icon-" + sanitizeName(iconName, "icon") + ".png";
+    return "icon-" + menulayout::sanitizeName(iconName, "icon") + ".png";
 }
 
 void clearIconImageCache() { iconImgCache().clear(); }
 
 // Bilinear-sample `src` (sw x sh RGBA) into the canvas rect - used for the
 // custom menu image in both placements.
+// Bilinear-samples a SUB-RECT of `src` into a destination rect - the 9-slice
+// background image draws nine of these. drawImageScaled below is this with the
+// whole image as the source; keeping one sampler means a sliced frame and a
+// stretched one cannot disagree about filtering.
+static void drawImageScaledSub(Canvas& canvas, const unsigned char* src, int sw,
+                               int sh, int sx, int sy, int sw2, int sh2, int dx,
+                               int dy, int dw, int dh) {
+    if (dw <= 0 || dh <= 0 || sw2 <= 0 || sh2 <= 0) return;
+    for (int y = 0; y < dh; ++y) {
+        const float v = sy + (y + 0.5f) * sh2 / dh - 0.5f;
+        int y0 = (int)(v < 0 ? 0 : v);
+        if (y0 >= sh) y0 = sh - 1;
+        int y1 = y0 + 1 >= sh ? sh - 1 : y0 + 1;
+        const float fy = v - y0 < 0 ? 0 : v - y0;
+        for (int x = 0; x < dw; ++x) {
+            const float u = sx + (x + 0.5f) * sw2 / dw - 0.5f;
+            int x0 = (int)(u < 0 ? 0 : u);
+            if (x0 >= sw) x0 = sw - 1;
+            int x1 = x0 + 1 >= sw ? sw - 1 : x0 + 1;
+            const float fx = u - x0 < 0 ? 0 : u - x0;
+            float px[4];
+            for (int c = 0; c < 4; ++c) {
+                const float t0 = src[((size_t)y0 * sw + x0) * 4 + c] * (1 - fx) +
+                                 src[((size_t)y0 * sw + x1) * 4 + c] * fx;
+                const float t1 = src[((size_t)y1 * sw + x0) * 4 + c] * (1 - fx) +
+                                 src[((size_t)y1 * sw + x1) * 4 + c] * fx;
+                px[c] = t0 * (1 - fy) + t1 * fy;
+            }
+            canvas.blend(dx + x, dy + y,
+                         RGBA{(unsigned char)px[0], (unsigned char)px[1],
+                              (unsigned char)px[2], (unsigned char)px[3]},
+                         255);
+        }
+    }
+}
+
 static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
                             int sh, int dx, int dy, int dw, int dh) {
     if (dw <= 0 || dh <= 0) return;
@@ -709,112 +839,390 @@ static void drawImageScaled(Canvas& canvas, const unsigned char* src, int sw,
     }
 }
 
+namespace {
+
+// The panel's background layers as their own image (panelW x contentH RGBA):
+// shadow, fill or gradient, a 9-sliced background image, the legacy Background
+// slot with its wash, then the border.
+//
+// It is a separate function because the STATE ATLAS needs the same pixels: a
+// selected-row cell is drawn OVER the baked normal row, so it has to start from
+// the background at that row or the old label shows through a translucent
+// plate.
+void bakeBackdrop(const GameMenu& menu, const Project& p,
+                  const menulayout::Layout& L, std::vector<unsigned char>& out) {
+    const int w = L.panelW, h = L.contentH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+    const menustyle::Computed& st = L.panel;
+
+    if (st.shadow)
+        canvas.shadowBox(0, 0, w, h, st.radius, st.shadowBlur, st.shadowX,
+                         st.shadowY, toRGBA(st.shadowColor));
+
+    // The legacy Background image slot: stretched over the content with a dark
+    // wash for text contrast (what it has always done).
+    bool hasLegacyBackground = false;
+    for (const menulayout::ImagePlace& ip : L.images) {
+        if (ip.slot != MenuImage::Background) continue;
+        const MenuImage& mi = menu.images[(size_t)ip.image];
+        int sw = 0, sh = 0, comp = 0;
+        unsigned char* px = nullptr;
+        if (!mi.path.empty() && !p.dir.empty())
+            px = stbi_load(p.filePath(mi.path).c_str(), &sw, &sh, &comp, 4);
+        if (!px) continue;
+        drawImageScaled(canvas, px, sw, sh, ip.box.x, ip.box.y, ip.box.w, ip.box.h);
+        stbi_image_free(px);
+        hasLegacyBackground = true;
+    }
+    if (hasLegacyBackground) {
+        menustyle::Fill wash = st.background;
+        wash.kind = menustyle::Fill::Solid;
+        wash.a.a = 150;
+        wash.b = wash.a;
+        canvas.fillBox(0, 0, w, h, wash, st.radius, st.opacity);
+    } else {
+        canvas.fillBox(0, 0, w, h, st.background, st.radius, st.opacity);
+    }
+
+    // A styled background image (9-sliced, so a frame keeps its corners).
+    if (!st.backgroundImage.empty() && !p.dir.empty()) {
+        int sw = 0, sh = 0, comp = 0;
+        if (unsigned char* px =
+                stbi_load(p.filePath(st.backgroundImage).c_str(), &sw, &sh, &comp, 4)) {
+            const int inset = (int)st.slice;
+            if (inset > 0 && sw > inset * 2 && sh > inset * 2 && w > inset * 2 &&
+                h > inset * 2) {
+                // 3x3: corners 1:1, edges stretched along one axis, centre both.
+                const int sx[4] = {0, inset, sw - inset, sw};
+                const int sy[4] = {0, inset, sh - inset, sh};
+                const int dx[4] = {0, inset, w - inset, w};
+                const int dy[4] = {0, inset, h - inset, h};
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 3; ++c)
+                        drawImageScaledSub(canvas, px, sw, sh, sx[c], sy[r],
+                                           sx[c + 1] - sx[c], sy[r + 1] - sy[r],
+                                           dx[c], dy[r], dx[c + 1] - dx[c],
+                                           dy[r + 1] - dy[r]);
+            } else {
+                drawImageScaled(canvas, px, sw, sh, 0, 0, w, h);
+            }
+            stbi_image_free(px);
+        }
+    }
+
+    if (st.borderW > 0)
+        canvas.strokeBox(0, 0, w, h, st.borderW, toRGBA(st.borderColor), st.radius,
+                         st.opacity);
+}
+
+// Copies a rect out of the backdrop into a canvas. A COPY, not a blend: the
+// backdrop is already composited, and blending it a second time darkens every
+// translucent panel (measured: the classic #0a0e1c at alpha 225 came out
+// (7,10,21) instead of (8,12,24) - the first thing the pixel diff against the
+// old baker caught). Replacing is also what a state cell and the editor's
+// preview overlay both want, since each is putting the row's background back.
+void blitBackdrop(Canvas& dst, const std::vector<unsigned char>& backdrop, int bw,
+                  int bh, int srcX, int srcY, int dstX, int dstY, int cw, int ch) {
+    for (int y = 0; y < ch; ++y) {
+        const int sy = srcY + y;
+        const int dy = dstY + y;
+        if (sy < 0 || sy >= bh || dy < 0 || dy >= dst.h) continue;
+        for (int x = 0; x < cw; ++x) {
+            const int sx = srcX + x;
+            const int dx = dstX + x;
+            if (sx < 0 || sx >= bw || dx < 0 || dx >= dst.w) continue;
+            const unsigned char* q = &backdrop[((size_t)sy * bw + sx) * 4];
+            unsigned char* d = dst.px->data() + ((size_t)dy * dst.w + dx) * 4;
+            d[0] = q[0];
+            d[1] = q[1];
+            d[2] = q[2];
+            d[3] = q[3];
+        }
+    }
+}
+
+// One row's icon column, from the project's button-icon sheet.
+void drawRowIcon(Canvas& canvas, const Project& p, const std::string& iconName,
+                 const menulayout::Box& box) {
+    if (iconName.empty() || box.w <= 0) return;
+    const IconImg* img = iconImage(p, iconName);
+    if (!img || img->w <= 0) return;
+    for (int y = 0; y < box.h; ++y)
+        for (int x = 0; x < box.w; ++x) {
+            const int sx = (int)((x + 0.5f) * img->w / box.w);
+            const int sy = (int)((y + 0.5f) * img->h / box.h);
+            const unsigned char* q =
+                &img->px[((size_t)std::min(sy, img->h - 1) * img->w +
+                          std::min(sx, img->w - 1)) * 4];
+            canvas.blend(box.x + x, box.y + y, RGBA{q[0], q[1], q[2], 255}, q[3]);
+        }
+}
+
+// A row, drawn in one state: its plate (background/border), its icon and its
+// label. Shared by the panel bake (normal state) and the state atlas, which is
+// what stops a selected row being laid out differently from the normal one.
+void drawRow(Canvas& canvas, const Project& p, const GameMenu& menu,
+             const menulayout::Layout& L, const menulayout::Row& row, int state,
+             int atY) {
+    const menustyle::Computed& st = row.style[state];
+    const int h = L.rowH;
+    if (st.background.kind != menustyle::Fill::None)
+        canvas.fillBox((int)st.translateX, atY, L.panelW - (int)st.translateX, h,
+                       st.background, st.radius, st.opacity);
+    if (st.borderW > 0)
+        canvas.strokeBox((int)st.translateX, atY, L.panelW - (int)st.translateX, h,
+                         st.borderW, toRGBA(st.borderColor), st.radius, st.opacity);
+
+    const MenuEntry& en = menu.entries[(size_t)row.entry];
+    if (row.icon.w > 0) {
+        menulayout::Box ib = row.icon;
+        ib.y = atY + (h - ib.h) / 2;
+        ib.x += (int)st.translateX;
+        drawRowIcon(canvas, p, en.icon, ib);
+    }
+    Font* f = resolveFontNamed(p, st.font);
+    if (!f) return;
+    const int textX = (int)(st.padding.l + st.translateX);
+    const int textW = L.panelW - textX - (int)st.padding.r;
+    drawStyled(canvas, *f, st, textX, textW, atY + (int)st.padding.t, en.label, &p,
+               toRGBA(st.color));
+}
+
+}  // namespace
+
 bool bakePanelRGBA(const GameMenu& menuIn, const Project& p,
                    std::vector<unsigned char>& out, int& w, int& h) {
-    const GameMenu menu = asBaked(menuIn, p);
-    Font* font = resolveFont(menu, p);
-    if (!font) return false;
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    // Every element resolves its own typeface; with no sheet they all resolve to
+    // the menu's font, which is what the pre-stylesheet bake did.
+    Font* titleFont = resolveFontNamed(p, L.title.font);
+    if (!titleFont) return false;
 
-    const int entries = (int)menu.entries.size() > kMaxEntries
-                            ? kMaxEntries
-                            : (int)menu.entries.size();
-    const PanelLayout l = panelLayout(menu, p);
-    const auto fit = fitImages(menu, p.dir);
-    w = l.panelW;
-    h = l.canvasH;
-    const int content = l.contentH;
+    w = L.panelW;
+    h = L.canvasH;
     out.assign((size_t)w * h * 4, 0);
     Canvas canvas{&out, w, h};
 
-    auto clamp255 = [](float v) {
-        return (unsigned char)(v < 0 ? 0 : v > 1 ? 255 : v * 255.0f + 0.5f);
-    };
-    const RGBA accent{clamp255(menu.accent[0]), clamp255(menu.accent[1]),
-                      clamp255(menu.accent[2]), 255};
-    const RGBA separator{70, 90, 120, 255};
+    // --- background ---------------------------------------------------------
+    std::vector<unsigned char> backdrop;
+    bakeBackdrop(menu, p, L, backdrop);
+    blitBackdrop(canvas, backdrop, L.panelW, L.contentH, 0, 0, 0, 0, L.panelW,
+                 L.contentH);
 
-    // Decoded fresh per bake - bakes are rare. Index-aligned with images.
-    std::vector<unsigned char*> pixels(menu.images.size(), nullptr);
-    std::vector<int> srcW(menu.images.size(), 0), srcH(menu.images.size(), 0);
-    for (size_t i = 0; i < menu.images.size(); ++i) {
-        if (menu.images[i].path.empty() || p.dir.empty()) continue;
-        int comp = 0;
-        const std::string full = p.filePath(menu.images[i].path);
-        pixels[i] = stbi_load(full.c_str(), &srcW[i], &srcH[i], &comp, 4);
-    }
-
-    // Draws every image of a flow slot at the running y cursor (centered,
-    // nudged by its offset), advancing the cursor by each block.
-    auto drawFlowSlot = [&](int slot, int& y) {
-        for (size_t i = 0; i < menu.images.size(); ++i) {
-            const MenuImage& mi = menu.images[i];
-            if (mi.slot != slot || !pixels[i] || fit[i].h <= 0) continue;
-            drawImageScaled(canvas, pixels[i], srcW[i], srcH[i],
-                            (w - fit[i].w) / 2 + (int)mi.offset[0],
-                            y + (int)mi.offset[1], fit[i].w, fit[i].h);
-            y += fit[i].h + 8;
+    // --- flow images (above/between/below), in list order --------------------
+    auto drawSlot = [&](int slot) {
+        for (const menulayout::ImagePlace& ip : L.images) {
+            if (ip.slot != slot) continue;
+            const MenuImage& mi = menu.images[(size_t)ip.image];
+            if (mi.path.empty() || p.dir.empty() || ip.box.h <= 0) continue;
+            int sw = 0, sh = 0, comp = 0;
+            unsigned char* px =
+                stbi_load(p.filePath(mi.path).c_str(), &sw, &sh, &comp, 4);
+            if (!px) continue;
+            drawImageScaled(canvas, px, sw, sh, ip.box.x, ip.box.y, ip.box.w,
+                            ip.box.h);
+            stbi_image_free(px);
         }
     };
+    drawSlot(MenuImage::AboveTitle);
+    drawSlot(MenuImage::AboveEntries);
+    drawSlot(MenuImage::BelowEntries);
 
-    // background layer(s) under everything, dark wash for text contrast
-    bool hasBackground = false;
-    for (size_t i = 0; i < menu.images.size(); ++i) {
-        if (menu.images[i].slot != MenuImage::Background || !pixels[i]) continue;
-        drawImageScaled(canvas, pixels[i], srcW[i], srcH[i], 0, 0, w, content);
-        hasBackground = true;
-    }
-    if (hasBackground) {
-        RGBA wash = kBg;
-        wash.a = 150;
-        canvas.fillRect(0, 0, w, content, wash);
-    } else {
-        canvas.fillRect(0, 0, w, content, kBg);
-    }
-
-    canvas.fillRect(0, 0, w, 2, accent);  // border
-    canvas.fillRect(0, content - 2, w, content, accent);
-    canvas.fillRect(0, 0, 2, content, accent);
-    canvas.fillRect(w - 2, 0, w, content, accent);
-
-    int y = 8;
-    drawFlowSlot(MenuImage::AboveTitle, y);
+    // --- title + its rule ----------------------------------------------------
     if (menu.showTitle) {
-        drawText(canvas, *font, w * 0.5f, y, menu.title, (float)menu.titleSize,
-                 accent, true, &p);
-        canvas.fillRect(16, y + menu.titleSize + 5, w - 16, y + menu.titleSize + 6,
-                        separator);
-        y += menu.titleSize + 18;
-    } else {
-        y += 2;
-    }
-    drawFlowSlot(MenuImage::AboveEntries, y);
-
-    for (int i = 0; i < entries; ++i)
-        drawText(canvas, *font, 56, l.row0Y + i * l.rowH + 2, menu.entries[i].label,
-                 (float)menu.entrySize, kText, false, &p);
-
-    int below = l.row0Y + entries * l.rowH + 4;
-    drawFlowSlot(MenuImage::BelowEntries, below);
-
-    // The save menu's two buttons do different things, so it gets its own
-    // hint line - "OK" would be a lie on a panel where Cross saves and Circle
-    // loads. (U+25B2 is the triangle glyph, as above.)
-    drawText(canvas, *font, w * 0.5f, content - 18,
-             menu.saveMenu ? "X SAVE   O LOAD   \xE2\x96\xB2 BACK"
-                           : "X OK    \xE2\x96\xB2 BACK",
-             11.0f, kDim, true);
-
-    // overlays: in front of everything, freeform top-left position
-    for (size_t i = 0; i < menu.images.size(); ++i) {
-        const MenuImage& mi = menu.images[i];
-        if (mi.slot != MenuImage::Overlay || !pixels[i] || fit[i].h <= 0) continue;
-        drawImageScaled(canvas, pixels[i], srcW[i], srcH[i], (int)mi.offset[0],
-                        (int)mi.offset[1], fit[i].w, fit[i].h);
+        drawStyled(canvas, *titleFont, L.title, L.titleBox.x, L.titleBox.w,
+                   L.titleBox.y, menu.title, &p, toRGBA(L.title.color));
+        if (L.titleRule.h > 0 && L.titleRule.w > 0)
+            canvas.fillRect(L.titleRule.x, L.titleRule.y,
+                            L.titleRule.x + L.titleRule.w,
+                            L.titleRule.y + L.titleRule.h,
+                            toRGBA(L.title.ruleColor));
     }
 
-    for (unsigned char* p : pixels)
-        if (p) stbi_image_free(p);
+    // --- rows ----------------------------------------------------------------
+    // A scrolling list lives in its own windowed texture, so the panel leaves
+    // the row area empty and only the visible strip is drawn here.
+    if (!L.scrolls)
+        for (const menulayout::Row& row : L.rows)
+            drawRow(canvas, p, menu, L, row, menustyle::StateNormal, row.box.y);
+
+    // --- the button hint line -----------------------------------------------
+    if (L.hintBox.h > 0 && !L.hint.content.empty()) {
+        Font* hf = resolveFontNamed(p, L.hint.font);
+        if (hf)
+            drawStyled(canvas, *hf, L.hint, L.hintBox.x + (int)L.hint.margin.l,
+                       L.hintBox.w - (int)L.hint.margin.l - (int)L.hint.margin.r,
+                       L.hintBox.y + (int)L.hint.padding.t, L.hint.content, &p,
+                       toRGBA(L.hint.color));
+    }
+
+    // --- the description pane's own frame ------------------------------------
+    // The texts themselves are cells in their own atlas (one per row); what the
+    // panel carries is the box they are drawn into.
+    if (L.descBox.h > 0) {
+        if (L.desc.background.kind != menustyle::Fill::None)
+            canvas.fillBox(L.descBox.x, L.descBox.y, L.descBox.w, L.descBox.h,
+                           L.desc.background, L.desc.radius, L.desc.opacity);
+        if (L.desc.borderW > 0)
+            canvas.strokeBox(L.descBox.x, L.descBox.y, L.descBox.w, L.descBox.h,
+                             L.desc.borderW, toRGBA(L.desc.borderColor),
+                             L.desc.radius, L.desc.opacity);
+    }
+
+    drawSlot(MenuImage::Overlay);  // in front of everything, freeform position
     return true;
+}
+
+// --- the state atlas (<menu>-rows.png) ---------------------------------------
+// One cell per (row, state) the sheet actually paints, stacked vertically at a
+// fixed pitch. The game draws the selected row's cell over the panel; a cell
+// carries the panel's own background at that row, so it covers the normal row
+// completely whatever the plate's alpha.
+
+bool bakeStateAtlasRGBA(const GameMenu& menuIn, const Project& p,
+                        std::vector<unsigned char>& out, int& w, int& h) {
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    if (!L.hasStateAtlas()) return false;
+    w = L.stateCellW;
+    h = L.stateCanvasH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    std::vector<unsigned char> backdrop;
+    bakeBackdrop(menu, p, L, backdrop);
+
+    for (const menulayout::Row& row : L.rows)
+        for (int state = 0; state < menustyle::StateCount; ++state) {
+            const int cell = row.stateCell[state];
+            if (cell < 0) continue;
+            const int top = cell * L.statePitch;
+            blitBackdrop(canvas, backdrop, L.panelW, L.contentH, 0, row.box.y, 0,
+                         top, L.stateCellW, L.stateCellH);
+            drawRow(canvas, p, menu, L, row, state, top);
+        }
+    return true;
+}
+
+bool bakeStateAtlasPNG(const GameMenu& menu, const Project& p,
+                       std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeStateAtlasRGBA(menu, p, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
+}
+
+// --- the scrolling row strip (<menu>-list.png) --------------------------------
+// Every row stacked at the panel's pitch in its own texture. The game draws a
+// window of it (MODE_REPEAT + offset, the value-strip trick), so a 32-row menu
+// scrolls for the cost of an offset change and one extra texture.
+
+bool bakeListRGBA(const GameMenu& menuIn, const Project& p,
+                  std::vector<unsigned char>& out, int& w, int& h) {
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    if (!L.scrolls) return false;
+    w = L.panelW;
+    h = L.listCanvasH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+    for (const menulayout::Row& row : L.rows) {
+        const int top = row.entry * L.rowH;
+        if (top + L.rowH > h) break;  // Layout::listClipped already said so
+        drawRow(canvas, p, menu, L, row, menustyle::StateNormal, top);
+    }
+    return true;
+}
+
+bool bakeListPNG(const GameMenu& menu, const Project& p,
+                 std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeListRGBA(menu, p, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
+}
+
+// --- the description atlas (<menu>-desc.png) ---------------------------------
+// One cell per row that has a description, wrapped to the pane width. The game
+// draws the selected row's cell into the pane the panel already framed.
+
+bool bakeDescAtlasRGBA(const GameMenu& menuIn, const Project& p,
+                       std::vector<unsigned char>& out, int& w, int& h) {
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    if (!L.hasDescAtlas()) return false;
+    Font* f = resolveFontNamed(p, L.desc.font);
+    if (!f) return false;
+    w = L.descCellW;
+    h = L.descCanvasH;
+    out.assign((size_t)w * h * 4, 0);
+    Canvas canvas{&out, w, h};
+
+    const int textW =
+        L.descCellW - (int)L.desc.padding.l - (int)L.desc.padding.r;
+    for (const menulayout::Row& row : L.rows) {
+        if (row.descCell < 0) continue;
+        const std::string& text = menu.entries[(size_t)row.entry].description;
+        const int top = row.descCell * L.descPitch;
+        // Word wrap, measured with the same metrics the draw uses.
+        std::vector<std::string> lines;
+        if (L.desc.wrap) {
+            std::string line;
+            std::string word;
+            auto flushWord = [&]() {
+                if (word.empty()) return;
+                const std::string cand = line.empty() ? word : line + " " + word;
+                if (textWidth(*f, cand, L.desc.fontSize, &p, L.desc.letterSpacing) >
+                        textW &&
+                    !line.empty()) {
+                    lines.push_back(line);
+                    line = word;
+                } else {
+                    line = cand;
+                }
+                word.clear();
+            };
+            for (char c : text) {
+                if (c == ' ' || c == '\n') {
+                    flushWord();
+                    if (c == '\n') {
+                        lines.push_back(line);
+                        line.clear();
+                    }
+                    continue;
+                }
+                word += c;
+            }
+            flushWord();
+            if (!line.empty()) lines.push_back(line);
+        } else {
+            lines.push_back(text);
+        }
+        const int pitch = (int)(L.desc.fontSize * 1.25f);
+        for (size_t li = 0; li < lines.size(); ++li) {
+            const int y = top + (int)L.desc.padding.t + (int)(li * pitch);
+            if (y + (int)L.desc.fontSize > top + L.descCellH) break;  // cell full
+            drawStyled(canvas, *f, L.desc, (int)L.desc.padding.l, textW, y,
+                       lines[li], &p, toRGBA(L.desc.color));
+        }
+    }
+    return true;
+}
+
+bool bakeDescAtlasPNG(const GameMenu& menu, const Project& p,
+                      std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    int w = 0, h = 0;
+    if (!bakeDescAtlasRGBA(menu, p, rgba, w, h)) return false;
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, w, h, 4, rgba.data(),
+                                  w * 4) != 0;
 }
 
 bool bakePanelPNG(const GameMenu& menu, const Project& p,
@@ -853,25 +1261,25 @@ bool menuHasValueEntries(const GameMenu& menu) {
     return false;
 }
 
-ValueStripLayout valueStripLayout(const GameMenu& menu) {
+ValueStripLayout valueStripLayout(const GameMenu& menu, const Project& p) {
+    const menulayout::Layout L = menulayout::compute(menu, p);
     ValueStripLayout l;
     // Narrow panels get a narrow strip so the value cannot cover the label.
-    const int panelW = (menu.panelW == 128 || menu.panelW == 512) ? menu.panelW : 256;
-    l.cellW = panelW == 128 ? 64 : 128;
-    l.cellH = menu.entrySize + 9;  // = PanelLayout::rowH
-    l.pitch = l.cellH + 8;         // transparent gap - bilinear bleed guard
-    const int entries = (int)menu.entries.size() > kMaxEntries
-                            ? kMaxEntries
+    l.cellW = L.panelW <= 128 ? 64 : 128;
+    l.cellH = L.rowH;       // = PanelLayout::rowH, the row the cell sits on
+    l.pitch = l.cellH + 8;  // transparent gap - bilinear bleed guard
+    const int entries = (int)menu.entries.size() > menulayout::kMaxRows
+                            ? menulayout::kMaxRows
                             : (int)menu.entries.size();
     l.firstCell.assign((size_t)entries, -1);
     for (int i = 0; i < entries; ++i) {
-        const auto labels = entryOptionLabels(menu.entries[i]);
+        const auto labels = entryOptionLabels(menu.entries[(size_t)i]);
         if (labels.empty()) continue;
         if ((l.cells + (int)labels.size()) * l.pitch > 512) {
             l.clipped = true;  // cap: cells past 512px would assert on the PS2
             continue;
         }
-        l.firstCell[i] = l.cells;
+        l.firstCell[(size_t)i] = l.cells;
         l.cells += (int)labels.size();
     }
     l.canvasH = 64;
@@ -883,10 +1291,12 @@ ValueStripLayout valueStripLayout(const GameMenu& menu) {
 bool bakeValueStripRGBA(const GameMenu& menu, const Project& p,
                         std::vector<unsigned char>& out, int& w, int& h) {
     if (!menuHasValueEntries(menu)) return false;
-    Font* font = resolveFont(menu, p);
+    const menulayout::Layout L = menulayout::compute(menu, p);
+    const menustyle::Computed& st = L.value;
+    Font* font = resolveFontNamed(p, st.font);
     if (!font) return false;
 
-    const ValueStripLayout l = valueStripLayout(menu);
+    const ValueStripLayout l = valueStripLayout(menu, p);
     w = l.cellW;
     h = l.canvasH;
     out.assign((size_t)w * h * 4, 0);
@@ -894,16 +1304,35 @@ bool bakeValueStripRGBA(const GameMenu& menu, const Project& p,
 
     const int entries = (int)l.firstCell.size();
     for (int i = 0; i < entries; ++i) {
-        if (l.firstCell[i] < 0) continue;
-        const auto labels = entryOptionLabels(menu.entries[i]);
+        if (l.firstCell[(size_t)i] < 0) continue;
+        const auto labels = entryOptionLabels(menu.entries[(size_t)i]);
         for (int o = 0; o < (int)labels.size(); ++o) {
+            const int top = (l.firstCell[(size_t)i] + o) * l.pitch;
+            if (st.display == 1 && labels.size() > 1) {
+                // A slider instead of the option label: the track plus a fill
+                // proportional to this option's position in the list. Still one
+                // cell per option, so the runtime just picks a cell as before.
+                const int bw = (int)(st.barW > 0 ? st.barW : l.cellW - 8);
+                const int bh = (int)(st.barH > 0 ? st.barH : 8);
+                const int bx = l.cellW - 4 - bw;
+                const int by = top + (l.cellH - bh) / 2;
+                menustyle::Fill track;
+                track.kind = menustyle::Fill::Solid;
+                track.a = track.b = st.barTrack;
+                canvas.fillBox(bx, by, bw, bh, track, bh * 0.5f, st.opacity);
+                menustyle::Fill fill;
+                fill.kind = menustyle::Fill::Solid;
+                fill.a = fill.b = st.barFill;
+                const int filled =
+                    (int)(bw * (float)o / (float)(labels.size() - 1) + 0.5f);
+                if (filled > 0)
+                    canvas.fillBox(bx, by, filled, bh, fill, bh * 0.5f, st.opacity);
+                continue;
+            }
             // Right-aligned inside the cell (inset 4px), same y offset as the
-            // entry labels in the panel rows (drawText's yTop + 2).
-            const int top = (l.firstCell[i] + o) * l.pitch;
-            const float tw =
-                textWidth(*font, labels[o], (float)menu.entrySize, &p);
-            drawText(canvas, *font, (float)(l.cellW - 4) - tw, top + 2, labels[o],
-                     (float)menu.entrySize, kText, false, &p);
+            // entry labels in the panel rows.
+            drawStyled(canvas, *font, st, 4, l.cellW - 8, top + (int)st.padding.t,
+                       labels[(size_t)o], &p, toRGBA(st.color));
         }
     }
     return true;
@@ -919,29 +1348,120 @@ bool bakeValueStripPNG(const GameMenu& menu, const Project& p,
                                   w * 4) != 0;
 }
 
+namespace {
+
 void overlayValuePreview(const GameMenu& menu, const Project& p,
-                         const std::vector<int>& current,
+                         const std::vector<int>& current, int scroll,
                          std::vector<unsigned char>& rgba, int w, int h) {
-    Font* font = resolveFont(menu, p);
+    const menulayout::Layout L = menulayout::compute(menu, p);
+    const menustyle::Computed& st = L.value;
+    Font* font = resolveFontNamed(p, st.font);
     if (!font) return;
-    const PanelLayout pl = panelLayout(menu, p);
-    const ValueStripLayout vl = valueStripLayout(menu);
+    const ValueStripLayout vl = valueStripLayout(menu, p);
     Canvas canvas{&rgba, w, h};
     const int entries = (int)vl.firstCell.size();
     for (int i = 0; i < entries; ++i) {
-        if (vl.firstCell[i] < 0) continue;
-        const auto labels = entryOptionLabels(menu.entries[i]);
-        int cur = i < (int)current.size() ? current[i] : 0;
+        if (vl.firstCell[(size_t)i] < 0) continue;
+        const auto labels = entryOptionLabels(menu.entries[(size_t)i]);
+        int cur = i < (int)current.size() ? current[(size_t)i] : 0;
         if (cur < 0) cur = 0;
         if (cur >= (int)labels.size()) cur = (int)labels.size() - 1;
         // The game places the cell's right edge 24px from the panel's right
-        // border, text inset 4px -> right-aligned at panelW - 28.
-        const float tw =
-            textWidth(*font, labels[cur], (float)menu.entrySize, &p);
-        drawText(canvas, *font, (float)(pl.panelW - 28) - tw,
-                 pl.row0Y + i * pl.rowH + 2, labels[cur], (float)menu.entrySize,
-                 kText, false, &p);
+        // border; the cell's own contents are inset 4px inside that.
+        const int cellX = L.panelW - 24 - vl.cellW;
+        const int top = L.row0Y + (i - scroll) * L.rowH;
+        if (top < L.row0Y) continue;  // scrolled out above the window
+        if (st.display == 1 && labels.size() > 1) {
+            const int bw = (int)(st.barW > 0 ? st.barW : vl.cellW - 8);
+            const int bh = (int)(st.barH > 0 ? st.barH : 8);
+            const int bx = cellX + vl.cellW - 4 - bw;
+            const int by = top + (L.rowH - bh) / 2;
+            menustyle::Fill track;
+            track.kind = menustyle::Fill::Solid;
+            track.a = track.b = st.barTrack;
+            canvas.fillBox(bx, by, bw, bh, track, bh * 0.5f, st.opacity);
+            menustyle::Fill fill;
+            fill.kind = menustyle::Fill::Solid;
+            fill.a = fill.b = st.barFill;
+            const int filled =
+                (int)(bw * (float)cur / (float)(labels.size() - 1) + 0.5f);
+            if (filled > 0)
+                canvas.fillBox(bx, by, filled, bh, fill, bh * 0.5f, st.opacity);
+            continue;
+        }
+        drawStyled(canvas, *font, st, cellX + 4, vl.cellW - 8,
+                   top + (int)st.padding.t, labels[(size_t)cur], &p,
+                   toRGBA(st.color));
     }
+}
+
+void overlayStatePreview(const GameMenu& menuIn, const Project& p, int selectedRow,
+                         const std::vector<char>& disabled, int scroll,
+                         std::vector<unsigned char>& rgba, int w, int h) {
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    Canvas canvas{&rgba, w, h};
+
+    // Exactly what the game composites: the disabled rows' cells, then the
+    // selected row's, then the selected row's description. Drawing it through
+    // drawRow (the function the atlas bakes with) is what makes the preview a
+    // preview rather than a second opinion.
+    std::vector<unsigned char> backdrop;
+    bakeBackdrop(menu, p, L, backdrop);
+    auto stateOver = [&](const menulayout::Row& row, int state) {
+        if (row.stateCell[state] < 0) return;
+        const int y = L.row0Y + (row.entry - scroll) * L.rowH;
+        if (y < L.row0Y || y + L.rowH > L.row0Y + L.rowsVisible * L.rowH) return;
+        blitBackdrop(canvas, backdrop, L.panelW, L.contentH, 0, row.box.y, 0, y,
+                     L.panelW, L.rowH);
+        drawRow(canvas, p, menu, L, row, state, y);
+    };
+    for (const menulayout::Row& row : L.rows) {
+        const bool off = row.entry < (int)disabled.size() && disabled[(size_t)row.entry];
+        if (off) stateOver(row, menustyle::StateDisabled);
+    }
+    for (const menulayout::Row& row : L.rows) {
+        if (row.entry != selectedRow) continue;
+        const bool off = row.entry < (int)disabled.size() && disabled[(size_t)row.entry];
+        if (!off) stateOver(row, menustyle::StateSelected);
+    }
+
+    // The description pane shows the selected row's text.
+    if (L.descBox.h > 0 && selectedRow >= 0 && selectedRow < (int)L.rows.size()) {
+        std::vector<unsigned char> desc;
+        int dw = 0, dh = 0;
+        if (bakeDescAtlasRGBA(menuIn, p, desc, dw, dh)) {
+            const int cell = L.rows[(size_t)selectedRow].descCell;
+            if (cell >= 0)
+                blitBackdrop(canvas, desc, dw, dh, 0, cell * L.descPitch, L.descBox.x,
+                             L.descBox.y, L.descCellW, L.descCellH);
+        }
+    }
+}
+
+}  // namespace
+
+bool bakeMenuPreviewRGBA(const GameMenu& menuIn, const Project& p, int selectedRow,
+                         const std::vector<char>& disabled, int scroll,
+                         const std::vector<int>& optionValues,
+                         std::vector<unsigned char>& out, int& w, int& h) {
+    if (!bakePanelRGBA(menuIn, p, out, w, h)) return false;
+    const GameMenu menu = menulayout::asBaked(menuIn, p);
+    const menulayout::Layout L = menulayout::compute(menuIn, p);
+    Canvas canvas{&out, w, h};
+
+    // A scrolling menu leaves its rows out of the panel (they live in their own
+    // strip texture), so the preview draws the window the game would show.
+    if (L.scrolls)
+        for (int k = 0; k < L.rowsVisible; ++k) {
+            const int i = scroll + k;
+            if (i < 0 || i >= (int)L.rows.size()) continue;
+            drawRow(canvas, p, menu, L, L.rows[(size_t)i], menustyle::StateNormal,
+                    L.row0Y + k * L.rowH);
+        }
+    overlayValuePreview(menuIn, p, optionValues, scroll, out, w, h);
+    overlayStatePreview(menuIn, p, selectedRow, disabled, scroll, out, w, h);
+    return true;
 }
 
 // --- HUD texts ----------------------------------------------------------------
@@ -1321,7 +1841,7 @@ bool bakeMoonPNG(float phase, const std::string& sourcePath,
 }
 
 std::string atlasFileName(const std::string& fontName) {
-    return "atlas-" + sanitizeName(fontName, "font") + ".png";
+    return "atlas-" + menulayout::sanitizeName(fontName, "font") + ".png";
 }
 
 bool atlasLayout(const GameFont& font, const Project& p, AtlasLayout& out) {
@@ -1757,11 +2277,12 @@ CreditsLayout creditsPlace(const CreditsRoll& r,
 }  // namespace
 
 std::string creditsPageFileName(const std::string& rollName, int page) {
-    return sanitizeName(rollName, "credits") + "-" + std::to_string(page) + ".png";
+    return menulayout::sanitizeName(rollName, "credits") + "-" +
+           std::to_string(page) + ".png";
 }
 
 std::string creditsHintFileName(const std::string& rollName) {
-    return sanitizeName(rollName, "credits") + "-hint.png";
+    return menulayout::sanitizeName(rollName, "credits") + "-hint.png";
 }
 
 HudText creditsHintText(const CreditsRoll& r) {
