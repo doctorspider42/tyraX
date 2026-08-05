@@ -1230,10 +1230,22 @@ both `fcand` masks reach their own consumer, `planeV`/`planeE`/`cvec` hold their
 registers with no overlap, and the accumulation of `dot(cpos, planeV)` differs only in
 which register accumulates.
 
-What that leaves is a mechanism no static reading of one program can settle, so the next
-instrument has to report from inside: encode the two test results (or `pd`/`cd`
-themselves) into the emitted vertex colour, which the tap decodes per vertex, and compare
-the decisions edge by edge rather than the totals.
+A sixth variant sharpened that further, by accident. **F** encodes `pd`/`cd` into the
+emitted colour so the tap would report the test's input per vertex - three FMACs, in the
+store paths, after the tests and with no `clipw` among them. SCE stayed at 24/72.
+**openvcl moved from 17/51 to 11/33.**
+
+That is the most useful fact in this whole bisection: openvcl's clipper answers
+differently when instructions that cannot affect the tests are added below them, while
+SCE's answer does not move. A result that depends on unrelated scheduling is a value
+being read before it is settled, or read from somewhere nothing wrote. It also means the
+totals are a poor instrument - they move for reasons unrelated to the defect - so the
+next step has to read the decisions themselves.
+
+Variant F could not deliver them as written: `--dump-vucap` prints only the first few
+staged packets, and those belong to an earlier batch, so the instrumented colours never
+appeared. Either widen the decode, or parse `vucap.bin` directly for the packet the clip
+program staged.
 
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
