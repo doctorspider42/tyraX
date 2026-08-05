@@ -295,9 +295,17 @@ the verification, and any fact worth reusing belongs in the relevant
     source is broken too, differently), so the engine change is exonerated. Static
     routes are exhausted - no instruction is dropped (283 in both) and generalising
     the liveness checker to every backward branch drowns in induction-variable false
-    positives in BOTH assemblers - so the next step is the VU1 packet tap: capture the
-    staged GIF output for one batch under each assembler, find the first differing
-    quadword.
+    positives in BOTH assemblers.
+    **The packet tap made it a number** (`arm-vucap.py` drives it headlessly now): same
+    flush, same scene, DMA chain and VU1 memory BYTE-IDENTICAL between the two builds,
+    and openvcl stages **27 triangles / 81 GS vertices against Sony's 24 / 72** - the
+    clipper keeps three output vertices it should drop. A vertex-COUNT error, not a
+    transform one. Two hypotheses killed with evidence: the filled branch delay slot
+    (VI08 is never read after `triNext`, and upstream fills it with no flags at all)
+    and flag visibility of 1 cycle (`clip_d` has the identical clipw/fcand shape and
+    renders pixel-identically, so that cannot be it). What is left is the edge loop's
+    output accounting - edgeCross / edgeEmitCur / edgeAdvance and the outCount pointer
+    arithmetic.
     Earlier note on the same bug: Found by pairing it with `cull_d`/`cull_td`, where
     openvcl is SMALLER than SCE, so the VU1-clipper set fits at 2033 and can boot:
     those two alone render pixel-identically, adding `clip_c` breaks 453644 pixels.
