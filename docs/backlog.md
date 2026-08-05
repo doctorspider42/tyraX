@@ -192,22 +192,34 @@ the verification, and any fact worth reusing belongs in the relevant
     **The encouraging part:** openvcl emits the same work (4836 occupied pipe
     slots vs 4822) and a perfect packer's floor is **2989** - 25% *below* what
     Sony achieves. Nothing is missing but packing.
-    **Down to 5913 cycles (-12%)** as of 2026-08-05: the flag-WAW mask now comes
-    from the segment's last token (which is what it always meant), and
-    `--schedule-flag-readers` lets `fcand`-shaped instructions be scheduled instead
-    of ending the segment. 419/419 upstream tests stay green; the image's `vcl`
-    wrapper passes the flag.
+    **2026-08-05: 3072 -> 2177 words on the resident set, ceiling 2042 - 135 to
+    go.** Reading `vcl -h` was what unlocked it: SCE's own passes are listed there
+    and the experiments are one command each (`-L` loop codegen: no effect, `-d`
+    dumb codegen: 262 vs 257, `-C` no size reduction: **327 vs 257**). Its
+    advantage is the size-reduction pass, and what that removes is stall rows, not
+    instructions - because the VU interlocks the FMAC pipeline, which its own
+    output proves (41 VF dependencies at a 2-3 cycle gap in `stapip_clip_c`).
+    openvcl now has `--fmac-interlock` (do not pay interlocked waits in words; a
+    padding slot carries `emitCycleCount` beside `cycleCount`, so the cycle model
+    stays honest) and `--schedule-flag-readers` (flag readers no longer end the
+    scheduling segment), plus the pairing gate uses the same distinction. Both
+    off by default, both passed by the image's `vcl` wrapper, 419/419 upstream
+    tests green.
     The pass/fail number is sharper than the totals: what must fit is the
     resident VU1 set (5x `cull_*` + 5x `clip_*`) against a **2042**-instruction
     ceiling. Legacy uses **2035** - seven words spare - and openvcl **3072**, so
     the target is **-34% on ten specific programs**, not parity everywhere.
-    What is left is **latency hiding for serial FMAC chains**, and it is
-    concentrated: `vu0_rt_kernel` alone is +478 of the remaining +1931 cycles
-    (961 vs 483, with 418 stall cycles - and VU0 micro memory holds only 512
-    instructions, so that kernel cannot load at all under openvcl), then the five
-    `clip_*` programs at +108..+127 each. Either openvcl learns to schedule across
-    basic-block boundaries, or the raytracer's branchless mixing gets its
-    independent chains interleaved by hand (which would help legacy too).
+    What is left is the **stall rows the hardware really does need**: on
+    `stapip_clip_c` both tools emit exactly 283 operations, and openvcl spends 286
+    rows on them against SCE's 257 - 43 stall rows against 18, plus 4 pairings.
+    Two ways at it, and the first is safer: schedule so the hazard does not arise
+    (SCE has half as many hazard *sites*, 15 against 30), or calibrate the
+    non-interlocked latencies against what SCE actually emits (`scratchpad/calib.py`
+    in the session notes measures the minimum gaps per producer/consumer class from
+    its output - int -> branch bottoms out at 2, VI loads at 3 - but the producer
+    detection there is too coarse to set constants from yet).
+    Also still open, and a separate budget: `vu0_rt_kernel` at 961 cycles against
+    VU0's 512-instruction micro memory.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as
     well), `-C`, `-f`, `--bthres`. Full write-up in `docs/toolchain-image.md`.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV

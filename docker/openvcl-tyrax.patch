@@ -1,72 +1,105 @@
+diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
+index 699abe7..464ac41 100644
+--- a/src/CodeGenerator.cpp
++++ b/src/CodeGenerator.cpp
+@@ -2039,12 +2039,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+ 
+ 		case VU_SCHEDULED_PADDING_NOP:
+ 		{
+-			const unsigned int count = slot.cycleCount > 0 ? slot.cycleCount : 1;
+-			for( unsigned int i = 0; i < count; ++i )
+-			{
++			// emitCycleCount, not cycleCount: a wait on the interlocked FMAC
++			// pipeline costs cycles on the hardware either way, and writing nops
++			// for it only burns micro memory. See VuLatencyTracker's
++			// manualReadHazardDelay. m_currentCycle still advances by the full
++			// count so the cycle model stays truthful.
++			const unsigned int cycles = slot.cycleCount > 0 ? slot.cycleCount : 1;
++			const unsigned int words = slot.emitCycleCount < cycles ? slot.emitCycleCount : cycles;
++			for( unsigned int i = 0; i < words; ++i )
+ 				addNopLine();
+-				m_currentCycle++;
+-			}
++			m_currentCycle += cycles;
+ 			break;
+ 		}
+ 
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..7de55a1 100644
+index e6a6dea..7df8b06 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,7 @@ CommandLine::CommandLine()
+@@ -75,6 +75,8 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
 +	m_scheduleFlagReaders = false;
++	m_fmacInterlock = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +126,7 @@ CommandLine::CommandLine()
+@@ -125,6 +127,8 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
 +	m_options.push_back(Option('\0',"schedule-flag-readers",SCHEDULE_FLAG_READERS,false));
++	m_options.push_back(Option('\0',"fmac-interlock",FMAC_INTERLOCK,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +241,7 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +243,8 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
 +				case SCHEDULE_FLAG_READERS: m_scheduleFlagReaders = true; break;
++				case FMAC_INTERLOCK: m_fmacInterlock = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +333,7 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +336,8 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
 +	stream << "  --schedule-flag-readers            Let MAC/CLIP flag readers take part in scheduling." << std::endl;
++	stream << "  --fmac-interlock                   Trust the VU FMAC interlock; do not pad VF waits with nops." << std::endl;
  	stream << "  --disable-known-loop-optimizations  Kept for compatibility; generic compilation is the default." << std::endl;
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..4cad943 100644
+index f5e4b3d..7ef7863 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,7 @@ public:
+@@ -56,6 +56,8 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
 +	bool scheduleFlagReaders() const;
++	bool fmacInterlock() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +131,7 @@ private:
+@@ -130,6 +132,8 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
 +		SCHEDULE_FLAG_READERS,
++		FMAC_INTERLOCK,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +187,7 @@ private:
+@@ -185,6 +189,8 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
 +	bool m_scheduleFlagReaders;
++	bool m_fmacInterlock;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..43cc4e2 100644
+index 5500026..f3764ca 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,13 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,20 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -77,11 +110,18 @@ index 5500026..43cc4e2 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::fmacInterlock() const
++{
++	return m_fmacInterlock;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
  inline bool CommandLine::genericSoftwarePipelining() const
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..70aac0a 100644
+index b8b1946..5de9ecc 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -92,7 +132,7 @@ index b8b1946..70aac0a 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,13 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,14 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -102,6 +142,7 @@ index b8b1946..70aac0a 100644
 +	// allocation runs, and a diagnostic that does not describe the code we would
 +	// emit is worse than no diagnostic.
 +	setVuScheduleFlagReadersEnabled( m_cmdLine.scheduleFlagReaders() );
++	setVuFmacInterlockEnabled( m_cmdLine.fmacInterlock() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
@@ -165,11 +206,187 @@ index ba4e871..6403fbc 100644
  	};
  
  	enum
+diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
+index 71ee7cb..53cb5cc 100644
+--- a/src/VuLatencyTracker.cpp
++++ b/src/VuLatencyTracker.cpp
+@@ -51,6 +51,33 @@ void VuLatencyTracker::reset()
+ int VuLatencyTracker::readHazardDelay( const Token& token,
+                                        const Token* partner,
+                                        int currentCycle ) const
++{
++	return readHazardDelayImpl( token, partner, currentCycle, false );
++}
++
++int VuLatencyTracker::manualReadHazardDelay( const Token& token,
++                                             const Token* partner,
++                                             int currentCycle ) const
++{
++	return readHazardDelayImpl( token, partner, currentCycle, true );
++}
++
++namespace
++{
++	// Register keys are the allocated register names, "VF00".."VF31" /
++	// "VI00".."VI15" (see vuRegisterKey).
++	bool isFloatRegisterKey( const std::string& key )
++	{
++		return key.length() >= 2
++		    && (key[0] == 'V' || key[0] == 'v')
++		    && (key[1] == 'F' || key[1] == 'f');
++	}
++}
++
++int VuLatencyTracker::readHazardDelayImpl( const Token& token,
++                                           const Token* partner,
++                                           int currentCycle,
++                                           bool skipInterlockedRegisters ) const
+ {
+ 	std::list<std::string> reads;
+ 	collectVuRegisterReadKeys( token, reads );
+@@ -68,6 +95,11 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+ 	int needed = 0;
+ 	for( std::list<std::string>::const_iterator i = reads.begin(); i != reads.end(); ++i )
+ 	{
++		// The FMAC pipeline interlocks on VF registers: the hardware stalls by
++		// itself, so this wait must not be paid for in instruction words.
++		if( skipInterlockedRegisters && isFloatRegisterKey( *i ) )
++			continue;
++
+ 		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
+ 		if( ready == m_registerReadyCycle.end() )
+ 			continue;
+diff --git a/src/VuLatencyTracker.h b/src/VuLatencyTracker.h
+index 2c14ff6..f0502c8 100644
+--- a/src/VuLatencyTracker.h
++++ b/src/VuLatencyTracker.h
+@@ -22,12 +22,31 @@ public:
+ 
+ 	void reset();
+ 	int readHazardDelay( const Token& token, const Token* partner, int currentCycle ) const;
++
++	// The part of readHazardDelay() that the hardware will NOT resolve on its own,
++	// i.e. what has to be spent as emitted instruction words rather than left to
++	// the VU's own stall.
++	//
++	// The FMAC pipeline interlocks: an instruction whose source is still in flight
++	// simply stalls, so padding a VF-to-VF latency costs micro memory and buys
++	// nothing. Everything else here does need the words - the integer pipeline
++	// feeding a branch or another integer op, the MAC/CLIP flags (not interlocked)
++	// and Q/P. That split is exactly what SCE's vcl does: with its code-size
++	// reduction pass disabled (-C) stapip_clip_c grows from 257 to 327
++	// instructions, the extra 70 being nop/nop rows (88 vs 18), and the 18 it
++	// keeps sit in front of branches, fcand and Q readers.
++	int manualReadHazardDelay( const Token& token, const Token* partner, int currentCycle ) const;
+ 	void recordWrites( const Token& token, int issueCycle, bool forceMacFlagWrite = false );
+ 
+ 	int qReadyCycle() const;
+ 	int pReadyCycle() const;
+ 
+ private:
++	int readHazardDelayImpl( const Token& token,
++	                         const Token* partner,
++	                         int currentCycle,
++	                         bool skipInterlockedRegisters ) const;
++
+ 	int m_qReadyCycle;
+ 	int m_pReadyCycle;
+ 	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..43f1969 100644
+index 3260370..5c59cc5 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
-@@ -904,6 +904,7 @@ namespace
+@@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
+ 
+ namespace
+ {
++	// Defined further down, next to the padding it belongs with.
++	int pairingHazardDelay( const VuLatencyTracker& latencyTracker,
++	                        const Token& token,
++	                        const Token* partner,
++	                        int currentCycle );
++
+ 	bool containsKey( const std::list<std::string>& keys, const std::string& key )
+ 	{
+ 		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
+@@ -217,7 +223,7 @@ namespace
+ 		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
+ 		                                                     ignoredImplicitWawResources );
+ 		const int primaryDelay =
+-		    latencyTracker.readHazardDelay( *block.tokens[primary], NULL, static_cast<int>( currentCycle ) );
++		    pairingHazardDelay( latencyTracker, *block.tokens[primary], NULL, static_cast<int>( currentCycle ) );
+ 
+ 		for( unsigned int i = 0; i < block.tokens.size(); ++i )
+ 		{
+@@ -232,9 +238,10 @@ namespace
+ 			                                         tokenWritesMacForPair( *block.tokens[i],
+ 			                                                               ignoredImplicitWawResources ) ) )
+ 				continue;
+-			if( latencyTracker.readHazardDelay( *block.tokens[primary],
+-			                                    block.tokens[i],
+-			                                    static_cast<int>( currentCycle ) ) > primaryDelay )
++			if( pairingHazardDelay( latencyTracker,
++			                        *block.tokens[primary],
++			                        block.tokens[i],
++			                        static_cast<int>( currentCycle ) ) > primaryDelay )
+ 				continue;
+ 
+ 			const int score = readyCandidateScore( i,
+@@ -349,6 +356,22 @@ namespace
+ 		return 1;
+ 	}
+ 
++	// Whether a token may share an instruction word with another is decided by
++	// vuTokenPairResourcesAreIndependent - a write and a read of the same thing in
++	// ONE word is a genuine hazard no interlock can fix. The LATENCY question next
++	// to it is different: it asks whether an earlier producer is still in flight,
++	// and that is exactly what the FMAC interlock stalls for. Under
++	// --fmac-interlock, refusing to pair over it only costs instruction words.
++	int pairingHazardDelay( const VuLatencyTracker& latencyTracker,
++	                        const Token& token,
++	                        const Token* partner,
++	                        int currentCycle )
++	{
++		return vuFmacInterlockEnabled()
++		           ? latencyTracker.manualReadHazardDelay( token, partner, currentCycle )
++		           : latencyTracker.readHazardDelay( token, partner, currentCycle );
++	}
++
+ 	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
+ 	                                   const Token& token,
+ 	                                   const Token* partner,
+@@ -368,9 +391,27 @@ namespace
+ 				                                     static_cast<int>( currentCycle ) );
+ 			const unsigned int paddingCycleCount =
+ 				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
+-			slots.push_back( makePaddingIssueSlot( paddingKind,
+-			                                       currentCycle - blockStartCycle,
+-			                                       paddingCycleCount ) );
++			// How much of this wait has to become instruction words: the cycles
++			// spent on the interlocked FMAC pipeline do not, the hardware stalls
++			// for them by itself. The cycle model keeps the full count, so the
++			// schedule below is unchanged - only the emitted size shrinks.
++			const int manualDelay =
++				latencyTracker.manualReadHazardDelay( token,
++				                                      partner,
++				                                      static_cast<int>( currentCycle ) );
++			unsigned int emitCycleCount = paddingCycleCount;
++			if( vuFmacInterlockEnabled() && paddingKind == VU_SCHEDULED_PADDING_NOP )
++			{
++				const unsigned int manual =
++					manualDelay > 0 ? static_cast<unsigned int>( manualDelay ) : 0u;
++				emitCycleCount = manual < paddingCycleCount ? manual : paddingCycleCount;
++			}
++			VuScheduledIssueSlot paddingSlot =
++				makePaddingIssueSlot( paddingKind,
++				                      currentCycle - blockStartCycle,
++				                      paddingCycleCount );
++			paddingSlot.emitCycleCount = emitCycleCount;
++			slots.push_back( paddingSlot );
+ 			currentCycle += paddingCycleCount;
+ 			issueDelay = latencyTracker.readHazardDelay( token,
+ 			                                             partner,
+@@ -904,6 +945,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -177,7 +394,7 @@ index 3260370..43f1969 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +914,32 @@ namespace
+@@ -913,45 +955,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -245,7 +462,16 @@ index 3260370..43f1969 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -993,6 +981,9 @@ namespace
+@@ -964,7 +993,7 @@ namespace
+ 			if( !slots.empty() )
+ 			{
+ 				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
+-				if( latencyTracker.readHazardDelay( token, NULL, static_cast<int>( pairedCycle ) ) <= 0 )
++				if( pairingHazardDelay( latencyTracker, token, NULL, static_cast<int>( pairedCycle ) ) <= 0 )
+ 					pairedWithPreviousSlot =
+ 						tryPairTailWithPreviousSlot( slots,
+ 						                             token,
+@@ -993,6 +1022,9 @@ namespace
  			}
  		}
  
@@ -255,11 +481,36 @@ index 3260370..43f1969 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
+@@ -5682,6 +5714,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+ 	ignoredImplicitWawResources = VU_RESOURCE_NONE;
+ 	issueCycle = 0;
+ 	cycleCount = 1;
++	emitCycleCount = 1;
+ }
+ 
+ VuScheduledBasicBlock::VuScheduledBasicBlock()
+diff --git a/src/VuSchedulerAnalysis.h b/src/VuSchedulerAnalysis.h
+index e51b7f2..c43273f 100644
+--- a/src/VuSchedulerAnalysis.h
++++ b/src/VuSchedulerAnalysis.h
+@@ -121,6 +121,12 @@ struct VuScheduledIssueSlot
+ 	unsigned int ignoredImplicitWawResources;
+ 	unsigned int issueCycle;
+ 	unsigned int cycleCount;
++
++	// For a padding slot: how many of its cycles have to be spent as emitted
++	// instruction words. Cycles waiting on the interlocked FMAC pipeline do not -
++	// the hardware stalls on its own - so emitting them only burns micro memory.
++	// Equal to cycleCount for every non-padding slot and for waitq/waitp.
++	unsigned int emitCycleCount;
+ };
+ 
+ struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..e535196 100644
+index c28ec6d..9528636 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,43 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,54 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -289,6 +540,7 @@ index c28ec6d..e535196 100644
 +namespace
 +{
 +	bool g_scheduleFlagReaders = false;
++	bool g_fmacInterlock = false;
 +}
 +
 +void setVuScheduleFlagReadersEnabled( bool enabled )
@@ -301,14 +553,24 @@ index c28ec6d..e535196 100644
 +	return g_scheduleFlagReaders;
 +}
 +
++void setVuFmacInterlockEnabled( bool enabled )
++{
++	g_fmacInterlock = enabled;
++}
++
++bool vuFmacInterlockEnabled()
++{
++	return g_fmacInterlock;
++}
++
  bool isVuLowerPipe( const Token& token )
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..ae25e55 100644
+index 8188099..77aeaf6 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,11 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,16 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -317,6 +579,11 @@ index 8188099..ae25e55 100644
 +// flags take part in list scheduling instead of ending the scheduling segment.
 +void setVuScheduleFlagReadersEnabled( bool enabled );
 +bool vuScheduleFlagReadersEnabled();
++
++// --fmac-interlock: spend a VF-to-VF wait as a hardware stall rather than as
++// emitted nop words. Same cycles, smaller program.
++void setVuFmacInterlockEnabled( bool enabled );
++bool vuFmacInterlockEnabled();
  bool isVuLowerPipe( const Token& token );
  bool isVuLongLatencyProducer( const Token& token );
  bool isVuLatencyLoad( const Token& token );

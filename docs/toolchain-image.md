@@ -220,9 +220,10 @@ Over the engine's 25 microprograms, current sources:
 |---|---|---|
 | compile | 25 | **25** |
 | lose a `clipw` | 0 | **0** |
-| cycles emitted | 3982 | **5913** (was 6728) |
+| words emitted | 3982 | **4208** (was 6969) |
+| resident VU1 set, ceiling 2042 | 2035 | **2180** (was 3072) |
 | a game builds | yes | **yes** |
-| a game runs | yes | **no** |
+| a game runs | yes | **no — 138 words over** |
 
 The openvcl-built game boots and dies on its own assertion:
 
@@ -277,6 +278,54 @@ that is inside its current segment, so the cuts are where the 1860 stall cycles
 come from. `stapip_cull_c`'s vertex loop is a fair sample: 187 cycles for 118
 upper-pipe and 41 lower-pipe ops, of which 50 cycles are pure stalls.
 
+### Ask the tool you are replacing
+
+The single most productive hour of this work was reading `vcl -h`. SCE's binary
+lists its own passes, and they are all **on by default**:
+
+```
+-t<nseconds>  set timeout for optimiser to <nseconds>, default is 4
+-L            globally disable loop code generation
+-S            enabled staggered memory accesses in loop mode
+-C            disable code size reduction pass
+-P            disable unused instruction/operand pruning pass
+-d            enable only dumb code generation
+```
+
+Which turns the "what does Sony do that we don't" question into experiments you
+can just run, on the engine's own programs:
+
+| `stapip_clip_c` under SCE vcl | instructions |
+|---|---|
+| default | 257 |
+| `-L` (no loop code generation) | 257 — **no effect** |
+| `-P` (no pruning) | 257 — no effect |
+| `-d` (**dumb** code generation) | 262 — nearly as good as default |
+| `-C` (no code size reduction) | **327** |
+
+So its advantage is neither software pipelining nor a clever scheduler: it is the
+**code size reduction pass**, worth 70 instructions (21%) on that one program. And
+what that pass removes is not instructions - it is *stall rows*: `nop`/`nop` count
+goes 88 → 18 while the paired-row count stays at 43 → 44.
+
+### Why those stalls can go: the FMAC interlocks
+
+The VU stalls by itself when an instruction's source is still in the FMAC pipeline,
+so padding a VF-to-VF wait with `nop`s buys nothing and costs micro memory. That is
+not a reading of a manual, it is what SCE's shipped output does: `stapip_clip_c`
+contains **41 VF dependencies with a gap of only 2-3 cycles**, e.g.
+
+```
+mul.x    VF21,VF15,VF21     ...3 rows later...   mulx.xyz VF23,VF12,VF21
+lq       VF23,0(VI02)       ...3 rows later...   mulax    ACC,VF02,VF23x
+```
+
+If the hardware did not interlock, the tool that built PS2 games would be emitting
+garbage. What it *does* still pad for is everything the hardware does **not**
+interlock, and the 18 rows it keeps sit exactly there: in front of branches
+(`ibne`/`ibeq`/`ibltz`), flag reads (`fcand`), integer ops reading a just-written
+VI, and Q consumers.
+
 ### What was done about it: -12%, and the segment is where it lives
 
 Two changes, both in `docker/openvcl-tyrax.patch`, both with openvcl's 419 tests
@@ -294,6 +343,51 @@ still green:
   In a vertex pipeline that is one break per vertex, at the `fcand` after each
   `clipw`. Result: **6728 → 5913 cycles (-12%)**, 25/25 still compile, no `clipw`
   lost.
+- **`--fmac-interlock`** stops paying for interlocked VF waits in instruction
+  words. `VuLatencyTracker` gained `manualReadHazardDelay()` - the part of a wait
+  the hardware will *not* resolve on its own (integer pipeline, MAC/CLIP flags,
+  Q/P) - and a padding slot now carries `emitCycleCount` beside `cycleCount`, so
+  the cycle model stays honest while the emitter writes only the words that are
+  really needed. The same distinction then loosened the **pairing** gate, which had
+  been refusing to share an instruction word over a latency the hardware stalls
+  for anyway (same-word read/write hazards are checked separately and still are).
+
+Together, on emitted words - which is what micro memory actually holds:
+
+| | total words | resident 10-program set |
+|---|---|---|
+| openvcl before | 6969 | 3489 |
+| + `--fmac-interlock` | 4659 | 2385 |
+| + looser pairing | **4208** | **2177** |
+| SCE `vcl` | 3982 | 2035 (ceiling 2042) |
+
+`stapip_clip_c` is the clean way to see what is left: both tools emit **exactly 283
+operations**, and openvcl needs 286 rows for them against SCE's 257. The whole
+difference is 43 stall rows against 18, plus 4 pairings (40 against 44).
+
+Measured on the built objects rather than on emitted text - which is the check the
+engine's own comment asks for, and it agrees with the table above to within three
+words:
+
+```bash
+# per program: section bytes / 8 = instructions
+docker run --rm -v "tyra-engine-<hash>:/tyra" tyrax-toolchain:local sh -c '
+  for n in cull/stapip_cull_c ... clip/stapip_clip_tce; do
+    o=$(find /tyra/engine/obj -path "*${n}_vu1.o")
+    mips64r5900el-ps2-elf-size -A "$o" | awk "/^\.vutext|^\.text/{s+=\$2} END{print s/8}"
+  done'
+```
+
+| resident set, from the objects | instructions |
+|---|---|
+| openvcl | **2180** |
+| ceiling | 2042 |
+| **over by** | **138** |
+
+Per program the overshoot is almost entirely the five clip variants (+29, +21, +20,
++28, +30); the cull five are within +13 of SCE and two of them are already
+*smaller*. So a working openvcl-built game is 138 instructions away, and they are
+the stall rows above.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops
