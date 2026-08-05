@@ -22,6 +22,7 @@
 #include "procbake.hpp"
 #include "matbake.hpp"
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
+#include "menulayout.hpp"  // the Menu Preview's row geometry
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
 #include "isoexport.hpp"
 #include "elfsym.hpp"
@@ -1511,6 +1512,9 @@ private:
     // not become two previews: refresh owns the bake, controls the mode picker
     // and the simulated cursor, draw the image. The texture is shared - a
     // display mode changes presentation, not what is baked.
+    bool menuPreviewRowUsable(const GameMenu& m, const menulayout::Layout& L,
+                              int row) const;
+    void menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir);
     void menuPreviewRefresh(const GameMenu& m);
     void menuPreviewControls(const GameMenu& m, int& mode);
     void menuPreviewDraw(const GameMenu& m, int mode, float zoom);
@@ -1518,6 +1522,8 @@ private:
     void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
     void drawMenuStyleText(GameMenu& m, bool& projectChanged);
     void drawMenuCost(const GameMenu& m);
+    void drawMenuStyleDeleteModal();
+    std::string menuStyleDeleteKey_;  // the sheet the confirm is about
     void menuStyleSync(const GameMenu& m);
     void menuStylePush();
     void menuStyleEdited();

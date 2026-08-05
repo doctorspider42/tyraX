@@ -107,7 +107,10 @@ one. A state rule only ADDS to the normal one.
 
 Five sheets ship with the editor as starting points — **Classic**, **Neon**,
 **Blade**, **Parchment**, **Minimal**. *Install a copy…* writes one into the
-project, where it is yours.
+project, where it is yours; *Delete sheet…* removes one the project owns (with a
+confirm that names the menus using it — they fall back to Classic). A built-in
+is not a file and cannot be deleted, which is what keeps a fresh copy always
+available.
 
 ### Properties
 
@@ -225,8 +228,7 @@ preview draws whichever of the two applies.
 
 A style whose `row:selected` paints a full-width plate usually wants
 `marker: none` - the caret would just sit on top of the plate. The three
-built-in sheets that paint one already say so, and the editor says it too: the
-cost readout warns when a sheet paints a plate and leaves the caret on.
+built-in sheets that paint one already say so.
 
 A sheet **installed into a project is a copy**, so it does not pick up later
 changes to the built-in it came from. If a Blade or Neon menu still draws a

@@ -347,81 +347,88 @@ bool App::menuStyleProp(const GameMenu& m, menustyle::Elem elem,
     ImGui::SameLine();
 
     ImGui::BeginDisabled(!have);
-    menustyle::Value v = have ? have->value : menustyle::Value{};
-    bool edited = false;
+    // The widgets edit the declaration ITSELF, not a copy. A copy re-seeded from
+    // the model every frame cannot accumulate a drag: each frame started from
+    // the pre-drag value and the slider snapped back, which reads exactly like
+    // "something keeps overwriting it". The undo snapshot is taken once, when
+    // the interaction STARTS (IsItemActivated), so a drag is one step and the
+    // preview still follows every frame.
+    menustyle::Value scratch;
+    menustyle::Value& v = have ? have->value : scratch;
     const float wide = scaled(150.0f);
+    // Call right after a widget: snapshot on the frame the interaction begins,
+    // then republish if the widget reports a change.
+    auto touched = [&](bool changedNow) {
+        if (ImGui::IsItemActivated()) menuStylePush();
+        if (changedNow && have) {
+            menuStyleEdited();
+            changed = true;
+        }
+    };
     switch (spec->kind) {
         case menustyle::Kind::Length: {
-            ImGui::SetNextItemWidth(wide);
-            float f = v.n[0];
+            // `width: screen` is a keyword, not a number, so it gets a button
+            // rather than a drag that could not express it.
             const bool screenOk = prop == menustyle::Prop::Width;
-            if (screenOk && f < 0) {
-                if (ImGui::Button("screen (512 px)")) {
-                    f = 256;
-                    edited = true;
+            if (screenOk && v.n[0] < 0) {
+                if (ImGui::Button("screen (512 px wide)")) v.n[0] = 256;
+                touched(ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemClicked());
+            } else {
+                ImGui::SetNextItemWidth(wide);
+                const bool now =
+                    ImGui::DragFloat(spec->name, &v.n[0], 0.5f, 0.0f, 512.0f, "%.0f px");
+                touched(now);
+                if (screenOk) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("screen")) v.n[0] = -1;
+                    touched(ImGui::IsItemClicked());
                 }
-            } else if (ImGui::DragFloat(spec->name, &f, 0.5f, -1.0f, 512.0f, "%.0f px")) {
             }
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
-            if (screenOk) {
-                ImGui::SameLine();
-                if (ImGui::SmallButton("screen")) {
-                    f = -1;
-                    edited = true;
-                }
-            }
-            v.n[0] = f;
             break;
         }
         case menustyle::Kind::Color: {
             ImVec4 col = toImVec4(v.c);
-            if (ImGui::ColorEdit4(spec->name, &col.x,
-                                  ImGuiColorEditFlags_NoInputs |
-                                      ImGuiColorEditFlags_AlphaBar))
-                v.c = fromImVec4(col);
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            const bool now = ImGui::ColorEdit4(
+                spec->name, &col.x,
+                ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
+            if (now) v.c = fromImVec4(col);
+            touched(now);
             break;
         }
         case menustyle::Kind::Fill: {
-            int kind = v.fill.kind;
             ImGui::SetNextItemWidth(wide);
-            if (ImGui::Combo("##fillkind", &kind, "None\0Colour\0Gradient\0")) {
-                v.fill.kind = kind;
-                edited = true;
-            }
+            touched(ImGui::Combo("##fillkind", &v.fill.kind,
+                                 "None\0Colour\0Gradient\0"));
             if (v.fill.kind != menustyle::Fill::None) {
                 ImVec4 a = toImVec4(v.fill.a);
                 ImGui::SameLine();
-                if (ImGui::ColorEdit4("##fa", &a.x,
-                                      ImGuiColorEditFlags_NoInputs |
-                                          ImGuiColorEditFlags_AlphaBar))
-                    v.fill.a = fromImVec4(a);
-                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                const bool na = ImGui::ColorEdit4("##fa", &a.x,
+                                                  ImGuiColorEditFlags_NoInputs |
+                                                      ImGuiColorEditFlags_AlphaBar);
+                if (na) v.fill.a = fromImVec4(a);
+                touched(na);
             }
             if (v.fill.kind == menustyle::Fill::Gradient) {
                 ImVec4 b = toImVec4(v.fill.b);
                 ImGui::SameLine();
-                if (ImGui::ColorEdit4("##fb", &b.x,
-                                      ImGuiColorEditFlags_NoInputs |
-                                          ImGuiColorEditFlags_AlphaBar))
-                    v.fill.b = fromImVec4(b);
-                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                const bool nb = ImGui::ColorEdit4("##fb", &b.x,
+                                                  ImGuiColorEditFlags_NoInputs |
+                                                      ImGuiColorEditFlags_AlphaBar);
+                if (nb) v.fill.b = fromImVec4(b);
+                touched(nb);
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(scaled(90.0f));
-                ImGui::DragFloat("##angle", &v.fill.angle, 1.0f, 0.0f, 360.0f,
-                                 "%.0f deg");
-                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                touched(ImGui::DragFloat("##angle", &v.fill.angle, 1.0f, 0.0f, 360.0f,
+                                         "%.0f deg"));
             }
             break;
         }
         case menustyle::Kind::Edge: {
             ImGui::SetNextItemWidth(wide * 1.4f);
-            if (prop == menustyle::Prop::BarSize) {
-                ImGui::DragFloat2(spec->name, v.n, 0.5f, 0.0f, 512.0f, "%.0f");
-            } else {
-                ImGui::DragFloat4(spec->name, v.n, 0.5f, 0.0f, 256.0f, "%.0f");
-            }
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            if (prop == menustyle::Prop::BarSize)
+                touched(ImGui::DragFloat2(spec->name, v.n, 0.5f, 0.0f, 512.0f, "%.0f"));
+            else
+                touched(ImGui::DragFloat4(spec->name, v.n, 0.5f, 0.0f, 256.0f, "%.0f"));
             break;
         }
         case menustyle::Kind::Str: {
@@ -429,17 +436,18 @@ bool App::menuStyleProp(const GameMenu& m, menustyle::Elem elem,
                 std::string f = v.s;
                 if (fontCombo(f)) {
                     v.s = f;
-                    edited = true;
+                    touched(true);
                 }
             } else {
                 char buf[128];
                 std::snprintf(buf, sizeof(buf), "%s", v.s.c_str());
                 ImGui::SetNextItemWidth(wide * 1.6f);
-                if (ImGui::InputText(spec->name, buf, sizeof(buf))) v.s = buf;
-                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                const bool now = ImGui::InputText(spec->name, buf, sizeof(buf));
+                if (now) v.s = buf;
+                touched(now);
                 if (prop == menustyle::Prop::Content) {
                     ImGui::SameLine();
-                    if (textTokenPicker("hinttok", v.s)) edited = true;
+                    if (textTokenPicker("hinttok", v.s)) touched(true);
                 }
             }
             break;
@@ -453,61 +461,67 @@ bool App::menuStyleProp(const GameMenu& m, menustyle::Elem elem,
             items += '\0';
             items += '\0';
             ImGui::SetNextItemWidth(wide);
-            if (ImGui::Combo(spec->name, &v.i, items.c_str())) edited = true;
+            touched(ImGui::Combo(spec->name, &v.i, items.c_str()));
             break;
         }
         case menustyle::Kind::Border: {
             ImGui::SetNextItemWidth(scaled(80.0f));
-            ImGui::DragFloat("##bw", &v.n[0], 0.25f, 0.0f, 32.0f, "%.0f px");
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            touched(ImGui::DragFloat("##bw", &v.n[0], 0.25f, 0.0f, 32.0f, "%.0f px"));
             ImVec4 col = toImVec4(v.c);
             ImGui::SameLine();
-            if (ImGui::ColorEdit4(spec->name, &col.x,
-                                  ImGuiColorEditFlags_NoInputs |
-                                      ImGuiColorEditFlags_AlphaBar))
-                v.c = fromImVec4(col);
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            const bool now = ImGui::ColorEdit4(spec->name, &col.x,
+                                               ImGuiColorEditFlags_NoInputs |
+                                                   ImGuiColorEditFlags_AlphaBar);
+            if (now) v.c = fromImVec4(col);
+            touched(now);
             break;
         }
         case menustyle::Kind::Shadow: {
             ImGui::SetNextItemWidth(scaled(130.0f));
-            ImGui::DragFloat3("##sh", v.n, 0.25f, -32.0f, 32.0f, "%.0f");
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            touched(ImGui::DragFloat3("##sh", v.n, 0.25f, -32.0f, 32.0f, "%.0f"));
             ImVec4 col = toImVec4(v.c);
             ImGui::SameLine();
-            if (ImGui::ColorEdit4(spec->name, &col.x,
-                                  ImGuiColorEditFlags_NoInputs |
-                                      ImGuiColorEditFlags_AlphaBar))
-                v.c = fromImVec4(col);
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            const bool now = ImGui::ColorEdit4(spec->name, &col.x,
+                                               ImGuiColorEditFlags_NoInputs |
+                                                   ImGuiColorEditFlags_AlphaBar);
+            if (now) v.c = fromImVec4(col);
+            touched(now);
             break;
         }
         case menustyle::Kind::Bool: {
             bool b = v.i != 0;
-            if (ImGui::Checkbox(spec->name, &b)) {
-                v.i = b ? 1 : 0;
-                edited = true;
-            }
+            const bool now = ImGui::Checkbox(spec->name, &b);
+            if (now) v.i = b ? 1 : 0;
+            touched(now);
             break;
         }
         case menustyle::Kind::Url: {
             char buf[256];
             std::snprintf(buf, sizeof(buf), "%s", v.s.c_str());
             ImGui::SetNextItemWidth(wide * 1.4f);
-            if (ImGui::InputText(spec->name, buf, sizeof(buf))) v.s = buf;
-            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            const bool now = ImGui::InputText(spec->name, buf, sizeof(buf));
+            if (now) v.s = buf;
+            touched(now);
             ImGui::SameLine();
             if (ImGui::SmallButton("PNG...")) {
                 const std::string src = pickPngFile();
                 if (!src.empty()) {
-                    v.s = importMenuImage(src);
-                    edited = !v.s.empty();
+                    const std::string rel = importMenuImage(src);
+                    if (!rel.empty()) {
+                        menuStylePush();
+                        v.s = rel;
+                        if (have) {
+                            menuStyleEdited();
+                            changed = true;
+                        }
+                    }
                 }
             }
-            if (prop == menustyle::Prop::BackgroundImage) {
+            if (prop == menustyle::Prop::BackgroundImage ||
+                prop == menustyle::Prop::BackgroundAnim_) {
                 ImGui::SetNextItemWidth(scaled(90.0f));
-                ImGui::DragFloat("9-slice", &v.n[0], 0.5f, 0.0f, 64.0f, "%.0f px");
-                edited |= ImGui::IsItemDeactivatedAfterEdit();
+                touched(ImGui::DragFloat("9-slice", &v.n[0], 0.5f, 0.0f, 64.0f,
+                                         "%.0f px"));
             }
             break;
         }
@@ -515,12 +529,6 @@ bool App::menuStyleProp(const GameMenu& m, menustyle::Elem elem,
     ImGui::EndDisabled();
     prefHelp(spec->doc);
 
-    if (edited && have) {
-        menuStylePush();
-        have->value = v;
-        menuStyleEdited();
-        changed = true;
-    }
     ImGui::PopID();
     return changed;
 }
@@ -564,6 +572,21 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
              "every existing project keeps.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Install a copy...")) ImGui::OpenPopup("##installsheet");
+    // Deleting a sheet is deleting a FILE, so it only ever applies to the copies
+    // a project owns - a built-in has nothing on disk to remove and is where
+    // fresh copies come from.
+    ImGui::SameLine();
+    ImGui::BeginDisabled(m.style.empty() || menuStyleStaged_.builtin ||
+                         !menuStyleFileExists(menuStyleStaged_.key));
+    if (ImGui::SmallButton("Delete sheet...")) {
+        menuStyleDeleteKey_ = menuStyleStaged_.key;
+        ImGui::OpenPopup("Delete stylesheet?");
+    }
+    ImGui::EndDisabled();
+    prefHelp("Removes menu-styles/<name>.menustyle from the project. Built-in\n"
+             "sheets are not files and cannot be deleted - install a copy to get\n"
+             "one you own.");
+    drawMenuStyleDeleteModal();
     if (ImGui::BeginPopup("##installsheet")) {
         ImGui::TextDisabled("Copy a built-in sheet into the project:");
         for (size_t i = 0; i < menustyle::builtinSources().size(); ++i) {
@@ -849,6 +872,60 @@ void App::drawMenuStyleTab(GameMenu& m, bool& projectChanged) {
     drawMenuCost(m);
 }
 
+// The confirm. Deleting a sheet is not undoable through Ctrl+Z (a stylesheet is
+// a file, not project data - the Material Editor's .mtl files are the same), so
+// it says what it is about to do and which menus it affects BEFORE doing it.
+void App::drawMenuStyleDeleteModal() {
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Delete stylesheet?", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize))
+        return;
+    std::vector<std::string> users;
+    for (const GameMenu& gm : project_.menus)
+        if (gm.style == menuStyleDeleteKey_) users.push_back(gm.name);
+
+    ImGui::Text("Delete menu-styles/%s.menustyle?", menuStyleDeleteKey_.c_str());
+    ImGui::TextDisabled("The file is removed from the project. This is not undoable\n"
+                        "with Ctrl+Z - a stylesheet is a file, not project data.");
+    if (users.empty()) {
+        ImGui::TextDisabled("No menu uses it.");
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                           "%d menu(s) use it and fall back to Classic:",
+                           (int)users.size());
+        std::string list;
+        for (size_t i = 0; i < users.size() && i < 8; ++i)
+            list += (i ? ", " : "") + users[i];
+        if (users.size() > 8) list += ", ...";
+        ImGui::TextWrapped("%s", list.c_str());
+    }
+    ImGui::Separator();
+    if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
+        std::error_code ec;
+        std::filesystem::remove(std::filesystem::path(project_.dir) / "menu-styles" /
+                                    (menuStyleDeleteKey_ + ".menustyle"),
+                                ec);
+        // The menus that named it lose the reference rather than keeping a
+        // dangling key: find() would fall back to Classic anyway, but a project
+        // file naming a sheet that is gone is a lie waiting to confuse someone.
+        for (GameMenu& gm : project_.menus)
+            if (gm.style == menuStyleDeleteKey_) gm.style.clear();
+        menustyle::loadForProject(project_.dir);
+        menuStyleLoaded_ = false;
+        menuPreviewKey_.clear();
+        menuStyleDeleteKey_.clear();
+        commitChange();  // the menus' style field IS project data
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
+        menuStyleDeleteKey_.clear();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 // --- the raw stylesheet tab ---------------------------------------------------
 
 void App::drawMenuStyleText(GameMenu& m, bool& projectChanged) {
@@ -937,24 +1014,6 @@ void App::drawMenuCost(const GameMenu& m) {
                 L.spritesPerFrame, L.rowsVisible, (int)L.rows.size());
     if (L.stateCells > 0)
         ImGui::Text("%d state cell(s) baked", L.stateCells);
-    // A caret drawn ON a full-width highlight plate is the one styling mistake
-    // that looks deliberate in the editor and wrong on the TV, and it has now
-    // been hit twice (a sheet copied into a project before the built-ins said
-    // `marker: none`). Say it rather than fix it silently: some styles do want
-    // both.
-    {
-        bool plate = false;
-        for (const menulayout::Row& r : L.rows)
-            if (r.paints[menustyle::StateSelected] &&
-                r.style[menustyle::StateSelected].background.kind !=
-                    menustyle::Fill::None)
-                plate = true;
-        if (plate && L.marker.marker != "none")
-            ImGui::TextColored(
-                ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
-                "The selected row paints a plate and the caret draws on top of\n"
-                "it. `marker { marker: none; }` if that is not what you meant.");
-    }
     // Honest failure states rather than a silent cut (docs/menu-styles.md).
     if (L.clipped)
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
@@ -1064,6 +1123,34 @@ static float previewEase(float t, int ease) {
     return 1.0f - inv * inv;
 }
 
+// Which rows the simulated cursor may stop on - the same question
+// TerrainGame::menuRowEnabled answers on the console: a Label row is a header or
+// a spacer, and a row whose `enabledWhen` save value is 0 is unusable. The
+// preview stepping onto one anyway is how the caret came to sit on a row that
+// never highlights (the game would have skipped it).
+bool App::menuPreviewRowUsable(const GameMenu& m, const menulayout::Layout& L,
+                               int row) const {
+    if (row < 0 || row >= (int)m.entries.size()) return false;
+    const MenuEntry& e = m.entries[(size_t)row];
+    if (e.action == MenuEntry::Label) return false;
+    if (row < (int)L.rows.size() && !L.rows[(size_t)row].selectable) return false;
+    if (!e.enabledWhen.empty())
+        for (const SaveValue& sv : project_.saveValues)
+            if (sv.name == e.enabledWhen && sv.value == 0.0f) return false;
+    return true;
+}
+
+// The console's menuMoveCursor, in the editor: step until a usable row, and
+// leave the cursor alone when a menu has none.
+void App::menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir) {
+    const int rows = (int)m.entries.size();
+    if (rows <= 0) return;
+    for (int i = 0; i < rows; ++i) {
+        menuPreviewRow_ = (menuPreviewRow_ + dir + rows) % rows;
+        if (menuPreviewRowUsable(m, L, menuPreviewRow_)) return;
+    }
+}
+
 void App::menuPreviewControls(const GameMenu& m, int& mode) {
     // Mode 0 is the panel at its baked pixels; the rest are the project's
     // SUPPORTED resolutions (Preferences > Display), each showing the panel the
@@ -1095,12 +1182,16 @@ void App::menuPreviewControls(const GameMenu& m, int& mode) {
     // The simulated cursor: a styled menu's whole point is what the SELECTED
     // row looks like, so the preview has to be able to move it.
     const int rows = (int)m.entries.size();
+    const menulayout::Layout stepL = menulayout::compute(m, project_);
+    // Land on something usable to begin with - a menu whose first row is a
+    // section header opens with the cursor on the row below it, on the console
+    // and here.
+    if (!menuPreviewRowUsable(m, stepL, menuPreviewRow_))
+        menuPreviewStep(m, stepL, 1);
     ImGui::BeginDisabled(rows <= 0);
-    if (ImGui::ArrowButton("##prevup", ImGuiDir_Up) && rows > 0)
-        menuPreviewRow_ = (menuPreviewRow_ + rows - 1) % rows;
+    if (ImGui::ArrowButton("Row up", ImGuiDir_Up)) menuPreviewStep(m, stepL, -1);
     ImGui::SameLine(0.0f, 2.0f);
-    if (ImGui::ArrowButton("##prevdown", ImGuiDir_Down) && rows > 0)
-        menuPreviewRow_ = (menuPreviewRow_ + 1) % rows;
+    if (ImGui::ArrowButton("Row down", ImGuiDir_Down)) menuPreviewStep(m, stepL, 1);
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("row %d", rows > 0 ? menuPreviewRow_ + 1 : 0);
