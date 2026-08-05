@@ -322,10 +322,10 @@ index 1845035..d0f3c5b 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..2896245 100644
+index e6a6dea..80c75d7 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,12 @@ CommandLine::CommandLine()
+@@ -75,6 +75,13 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -334,11 +334,12 @@ index e6a6dea..2896245 100644
 +	m_sceLatencies = false;
 +	m_emitDelayFillers = false;
 +	m_branchInterlock = false;
++	m_loopLivenessAlways = false;
 +	m_branchBubbleOnDependency = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +131,12 @@ CommandLine::CommandLine()
+@@ -125,6 +132,13 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -347,11 +348,12 @@ index e6a6dea..2896245 100644
 +	m_options.push_back(Option(0,"sce-latencies",SCE_LATENCIES,false));
 +	m_options.push_back(Option(0,"emit-delay-fillers",EMIT_DELAY_FILLERS,false));
 +	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
++	m_options.push_back(Option(0,"loop-liveness-always",LOOP_LIVENESS_ALWAYS,false));
 +	m_options.push_back(Option(0,"branch-bubble-on-dependency",BRANCH_BUBBLE_ON_DEPENDENCY,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +251,12 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +253,13 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -360,11 +362,12 @@ index e6a6dea..2896245 100644
 +				case SCE_LATENCIES: m_sceLatencies = true; break;
 +				case EMIT_DELAY_FILLERS: m_emitDelayFillers = true; break;
 +				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
++				case LOOP_LIVENESS_ALWAYS: m_loopLivenessAlways = true; break;
 +				case BRANCH_BUBBLE_ON_DEPENDENCY: m_branchBubbleOnDependency = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +348,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +351,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -375,10 +378,10 @@ index e6a6dea..2896245 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..cfa528a 100644
+index f5e4b3d..85ff8ee 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,12 @@ public:
+@@ -56,6 +56,13 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -387,11 +390,12 @@ index f5e4b3d..cfa528a 100644
 +	bool sceLatencies() const;
 +	bool emitDelayFillers() const;
 +	bool branchInterlock() const;
++	bool loopLivenessAlways() const;
 +	bool branchBubbleOnDependency() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +136,12 @@ private:
+@@ -130,6 +137,13 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -400,11 +404,12 @@ index f5e4b3d..cfa528a 100644
 +		SCE_LATENCIES,
 +		EMIT_DELAY_FILLERS,
 +		BRANCH_INTERLOCK,
++		LOOP_LIVENESS_ALWAYS,
 +		BRANCH_BUBBLE_ON_DEPENDENCY,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +197,12 @@ private:
+@@ -185,6 +199,13 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -413,15 +418,16 @@ index f5e4b3d..cfa528a 100644
 +	bool m_sceLatencies;
 +	bool m_emitDelayFillers;
 +	bool m_branchInterlock;
++	bool m_loopLivenessAlways;
 +	bool m_branchBubbleOnDependency;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..71396d1 100644
+index 5500026..bfccd9b 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,48 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,55 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -460,6 +466,13 @@ index 5500026..71396d1 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::loopLivenessAlways() const
++{
++	return m_loopLivenessAlways;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::branchBubbleOnDependency() const
 +{
 +	return m_branchBubbleOnDependency;
@@ -471,7 +484,7 @@ index 5500026..71396d1 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..dd9e0ff 100644
+index b8b1946..5b40efb 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -482,7 +495,7 @@ index b8b1946..dd9e0ff 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,19 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,20 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -497,11 +510,118 @@ index b8b1946..dd9e0ff 100644
 +	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
++	setVuLoopLivenessAlwaysEnabled( m_cmdLine.loopLivenessAlways() );
 +	setVuBranchBubbleOnDependencyEnabled( m_cmdLine.branchBubbleOnDependency() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
+diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
+index cf6d79b..7d34ac9 100644
+--- a/src/RegisterAllocator.cpp
++++ b/src/RegisterAllocator.cpp
+@@ -10,6 +10,7 @@
+ 
+ 
+ #include "RegisterAllocator.h"
++#include "VuSchedulingRules.h"
+ #include "BranchState.h"
+ #include "Error.h"
+ #include "VuTokenResourceAccess.h"
+@@ -905,21 +906,47 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+ 
+ void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
+ {
++	// Which float aliases does this loop body touch, and is the FIRST touch a read?
++	// Only a read-first alias is live across the back edge - the next iteration
++	// depends on what the previous one left in it. An alias written before it is read
++	// inside the body is a temporary and its own range already covers it; stretching
++	// those over the whole loop is what runs the allocator out of registers.
+ 	std::set<Alias*> aliases;
++	std::set<Alias*> liveInAliases;
++	std::set<Alias*> touched;
+ 	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
+ 	{
+ 		if( t->lineNumber() < loopStart || t->lineNumber() > loopEnd )
+ 			continue;
+ 
++		std::set<Alias*> readHere;
++		std::set<Alias*> tokenAliases;
+ 		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin(); a != t->arguments().end(); ++a )
+ 		{
+ 			if( a->content() != Token::Argument::ALIAS || !a->dependency() || !a->dependency()->alias() )
+ 				continue;
+ 			Alias* alias = a->dependency()->alias();
+-			if( alias->type() == Alias::FLOAT )
+-				aliases.insert( alias );
++			if( alias->type() != Alias::FLOAT )
++				continue;
++			aliases.insert( alias );
++			tokenAliases.insert( alias );
++			if( !(a->flags() & Token::Argument::WRITE) )
++				readHere.insert( alias );
++		}
++
++		// One token can both read and write the same alias (`add a, a, b`), and that
++		// still reads what the previous iteration left, so the read wins.
++		for( std::set<Alias*>::iterator i = tokenAliases.begin(); i != tokenAliases.end(); ++i )
++		{
++			if( touched.find( *i ) != touched.end() )
++				continue;
++			touched.insert( *i );
++			if( readHere.find( *i ) != readHere.end() )
++				liveInAliases.insert( *i );
+ 		}
+ 	}
++	if( vuLoopLivenessAlwaysEnabled() )
++		aliases = liveInAliases;
+ 
+ 	unsigned int availableFloats = 0;
+ 	for( unsigned int i = 0; i < 32; ++i )
+@@ -938,7 +965,12 @@ void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsi
+ 			overlappingAliases.insert( alias );
+ 	}
+ 
+-	if( overlappingAliases.size() > availableFloats )
++	// Skipping the extension is not a licence to emit wrong code: a value live
++	// across the back edge whose range was not extended gets its register handed
++	// to another name. --loop-liveness-always keeps the extension and lets
++	// allocation fail loudly instead.
++	if( !vuLoopLivenessAlwaysEnabled()
++	    && overlappingAliases.size() > availableFloats )
+ 		return;
+ 
+ 	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
+@@ -973,7 +1005,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+ 		std::list<Token>::iterator target = label->second;
+ 		if( target->lineNumber() >= branch->lineNumber() )
+ 			continue;
+-		if( !loopTargetHasLoopDirective( target, tokens.end() ) )
++		// A back edge is a back edge whether or not the source marked it with a --loop
++		// directive: a value written at the bottom and read at the top is live across
++		// it either way. Requiring the directive means a plain `label: ... ibne label`
++		// loop - which is what hand-written VU code looks like - gets no extension at
++		// all, and the allocator then hands one register to two live names.
++		// See --loop-liveness-always.
++		if( !vuLoopLivenessAlwaysEnabled()
++		    && !loopTargetHasLoopDirective( target, tokens.end() ) )
+ 			continue;
+ 
+ 		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
+@@ -1216,7 +1255,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+ 			overlappingAliases.insert( alias );
+ 	}
+ 
+-	if( overlappingAliases.size() > availableFloats )
++	// Skipping the extension is not a licence to emit wrong code: a value live
++	// across the back edge whose range was not extended gets its register handed
++	// to another name. --loop-liveness-always keeps the extension and lets
++	// allocation fail loudly instead.
++	if( !vuLoopLivenessAlwaysEnabled()
++	    && overlappingAliases.size() > availableFloats )
+ 		return;
+ 
+ 	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
 diff --git a/src/Token.cpp b/src/Token.cpp
 index 586585b..606b02d 100644
 --- a/src/Token.cpp
@@ -943,10 +1063,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..2ad632f 100644
+index c28ec6d..03b5349 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,109 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,120 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -981,6 +1101,7 @@ index c28ec6d..2ad632f 100644
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
++	bool g_loopLivenessAlways = false;
 +	bool g_branchBubbleOnDependency = false;
 +}
 +
@@ -1044,6 +1165,16 @@ index c28ec6d..2ad632f 100644
 +	return g_branchBubbleOnDependency;
 +}
 +
++void setVuLoopLivenessAlwaysEnabled( bool enabled )
++{
++	g_loopLivenessAlways = enabled;
++}
++
++bool vuLoopLivenessAlwaysEnabled()
++{
++	return g_loopLivenessAlways;
++}
++
 +void setVuBranchInterlockEnabled( bool enabled )
 +{
 +	g_branchInterlock = enabled;
@@ -1058,10 +1189,10 @@ index c28ec6d..2ad632f 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..6b19113 100644
+index 8188099..0b0a352 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,59 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,65 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1114,6 +1245,12 @@ index 8188099..6b19113 100644
 +// is real.
 +void setVuBranchBubbleOnDependencyEnabled( bool enabled );
 +bool vuBranchBubbleOnDependencyEnabled();
++
++// --loop-liveness-always: never skip extending a live range across a loop's back
++// edge. The allocator's guard trades that correctness requirement for a compile
++// that succeeds, and the result is a value handed to two names at once.
++void setVuLoopLivenessAlwaysEnabled( bool enabled );
++bool vuLoopLivenessAlwaysEnabled();
 +
 +void setVuBranchInterlockEnabled( bool enabled );
 +bool vuBranchInterlockEnabled();

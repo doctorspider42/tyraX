@@ -876,9 +876,60 @@ Two hypotheses were then eliminated, both cleanly:
   **`clip_d` has the identical shape and renders pixel-identically.** If flag
   visibility were the bug, clip_d would be broken too.
 
-What is left to look at is the edge loop's output accounting - `edgeCross` /
-`edgeEmitCur` / `edgeAdvance` and the `outCount` pointer arithmetic - where the three
-extra vertices are actually appended.
+The edge loop's output accounting was next, and it produced the real find. In
+`edgeAdvance` openvcl emitted
+
+```
+move VF15, VF17      ; ppos = cpos
+move VF15, VF19      ; pcol = ccol   <- the SAME register
+```
+
+for the source's two distinct names, so `ppos` was destroyed and `pcol` never updated;
+SCE writes VF14 and VF15. **A dead write is never something a source asks for** - a
+check for "written, then overwritten before anything reads it" finds 0 of them in
+openvcl's output after the fix below and 6 benign ones in SCE's.
+
+### The root cause: a back edge only counts if the source said `--loop`
+
+`RegisterAllocator::extendLoopDirectiveLiveRanges` walks every branch, keeps the
+backward ones, and then:
+
+```cpp
+if( !loopTargetHasLoopDirective( target, tokens.end() ) )
+    continue;
+```
+
+**A live range is extended across a back edge only when the loop carries a `--loop`
+directive.** Hand-written VU code - `label:` … `ibne label`, which is what this engine
+and most real VU code looks like - gets no extension at all, so a value written at the
+bottom of a loop and read at the top is not live as far as the allocator knows, and its
+register goes to someone else. That is the whole loop-carried class, including the GIF
+tag clobber that was worked around engine-side earlier.
+
+`extendLoopDirectiveRange` has a second defect behind it: it extends **every** float
+alias appearing anywhere in the loop, and bails out entirely -
+
+```cpp
+if( overlappingAliases.size() > availableFloats )
+    return;                       // and nothing is extended
+```
+
+- when those outnumber the registers. Correctness traded for a compile that succeeds.
+Applied to every back edge, the blunt version runs the allocator out of registers on
+23 of 25 programs.
+
+`--loop-liveness-always` fixes both: it drops the directive requirement, and it extends
+only the aliases that are actually **live-in** (first access inside the loop is a read,
+so the next iteration depends on the previous one). Temporaries written before they are
+read keep their own ranges.
+
+Result: `clip_c`'s staged output goes from **27 triangles / 81 GS vertices to 24 / 72,
+matching SCE exactly** on the captured flush, and the frame moves from 453644 differing
+pixels to 368945 - **improved, not fixed**: the remaining flushes still differ (±6
+triangles), so at least one more defect is in there. Everything else stays put: 25/25
+compile and assemble, 419/419 upstream tests, the resident set still 2040, the EE path
+still pixel-identical, and nine of the ten resident VU1-clipper programs still
+pixel-identical.
 
 It is a flag, off by default, because it does change one thing: with a cheaper
 unpipelined estimate, the `--enable-known-loop-optimizations` path stops
