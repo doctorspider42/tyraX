@@ -55,6 +55,9 @@ struct SceneObjectData {
   float sndInterval; // sound emitters: retrigger period (s), 0 = loop
   int sndOnPlayer;   // sound emitters: 1 = centered on the player
                      // (plain stereo, full volume, no distance/pan)
+  int sndReverb;     // sound emitters: 1 = heard through the reverb
+                     // zone the player is in (REVERB_ZONES below);
+                     // 0 = always dry
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
   int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
@@ -197,14 +200,14 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[8] = {
-    {0, {-4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-left
-    {0, {4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-right
-    {0, {0.0F, 2.85F, -6.2F}, {0.0F, 0.0F, 0.0F}, {3.3F, 0.3F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-top
-    {0, {2.2F, 0.6F, -3.5F}, {0.0F, 25.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.85F, 0.3F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate
-    {1, {-2.2F, 0.75F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.25F, 0.45F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // ball
-    {2, {-3.6F, 1.25F, -4.6F}, {0.0F, 0.0F, 0.0F}, {0.8F, 2.5F, 0.8F}, {0.3F, 0.8F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // pillar
-    {15, {0.0F, 1.35F, -6.0F}, {0.0F, 0.0F, 0.0F}, {3.3F, 2.7F, 1.0F}, {0.62F, 0.78F, 0.88F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // mirror
-    {6, {0.0F, 0.0F, 1.5F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.75F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player
+    {0, {-4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-left
+    {0, {4.9F, 1.5F, -6.2F}, {0.0F, 0.0F, 0.0F}, {6.5F, 3.0F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-right
+    {0, {0.0F, 2.85F, -6.2F}, {0.0F, 0.0F, 0.0F}, {3.3F, 0.3F, 0.4F}, {0.55F, 0.52F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // wall-top
+    {0, {2.2F, 0.6F, -3.5F}, {0.0F, 25.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.85F, 0.3F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // crate
+    {1, {-2.2F, 0.75F, -3.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.25F, 0.45F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // ball
+    {2, {-3.6F, 1.25F, -4.6F}, {0.0F, 0.0F, 0.0F}, {0.8F, 2.5F, 0.8F}, {0.3F, 0.8F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // pillar
+    {15, {0.0F, 1.35F, -6.0F}, {0.0F, 0.0F, 0.0F}, {3.3F, 2.7F, 1.0F}, {0.62F, 0.78F, 0.88F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // mirror
+    {6, {0.0F, 0.0F, 1.5F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.75F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
@@ -276,6 +279,28 @@ constexpr MirrorData MIRRORS[1] = {
     {0, 6, 0.35F, 1, 0, 6, 0, 64, -1, 0, 0},  // mirror
 };
 constexpr int MIRROR_TARGETS[6] = {0, 1, 2, 3, 4, 5};
+
+// A room for the sound effects. While the player stands inside
+// the area, the SPU2's reverb unit runs `preset` at `amount`.
+// There is ONE such unit on the console, so zones never mix:
+// the highest `priority` inside wins, and the game ramps the
+// amount rather than cutting (see TerrainGame::updateReverb).
+struct ReverbZoneData {
+  int scene;     // scene index
+  int object;    // the area's index in its scene table
+  int preset;    // 0 off, 1 room, 2-4 studio, 5 hall,
+                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                 // (these ARE libsd's SD_EFFECT_MODE_*)
+  int amount;    // wet level, 0..100
+  int delay;     // 0..127, echo/delay presets only
+  int feedback;  // 0..127, echo/delay presets only
+  int priority;  // overlapping zones: the highest wins
+};
+constexpr int REVERB_ZONE_COUNT = 0;
+constexpr bool REVERB_HAS_NODE = false;
+constexpr ReverbZoneData REVERB_ZONES[1] = {
+    {0, -1, 0, 0, 0, 0, 0}
+};
 
 // Raytraced-mirror model proxies: decimated triangle lists
 // in MODEL LOCAL space, 15 floats per triangle (pos + uv
@@ -549,6 +574,10 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_GAINS[index], GRADING_LIFTS[index],
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
+
+// Commit Checkpoint slot modes decided at runtime (-1 = no request)
+constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+constexpr int SAVE_COMMIT_NEXT = -3;
 
 constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};

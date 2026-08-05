@@ -878,6 +878,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -932,12 +936,21 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
@@ -957,6 +970,22 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).

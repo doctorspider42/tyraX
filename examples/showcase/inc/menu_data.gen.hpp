@@ -52,7 +52,7 @@ struct MenuData {
   int font;
 };
 
-constexpr int MENU_COUNT = 2;
+constexpr int MENU_COUNT = 3;
 
 // menu "pause"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
@@ -67,10 +67,15 @@ constexpr MenuEntryData MENU_1_ENTRIES[5] = {
     {7, 4, 0.0F, 2, 6, 0, -1, nullptr},  // Particles
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // Close
 };
+// menu "save"
+constexpr MenuEntryData MENU_2_ENTRIES[1] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, -1},  // pause
-    {"menus/options.png", 256, 256, 176, 44, 22, 5, MENU_1_ENTRIES, 0, 0, 0.5F, 0.5F, "menus/options-values.png", 128, 22, 30, 104, -1},  // options
+    {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // pause
+    {"menus/options.png", 256, 256, 176, 44, 22, 5, MENU_1_ENTRIES, 0, 0, 0.5F, 0.5F, "menus/options-values.png", 128, 22, 30, 104, 0},  // options
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // save
 };
 
 constexpr int TITLE_MENU = -1;

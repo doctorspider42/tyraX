@@ -2157,6 +2157,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -4163,6 +4164,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
 
+// Reverb zone state (docs/reverb.md). The console has ONE reverb unit, so the
+// room the player is in is a global setting that has to CHANGE smoothly:
+// - `reverbAmtCur` is ramped toward the target, never jumped to it;
+// - a preset change waits for that ramp to reach zero first, because
+//   switching the algorithm zeroes up to 96 KB of SPU2 work area and doing it
+//   under a live tail is audible;
+// - the depth is quantized and only pushed when it really moves. These are
+//   IOP RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+// The per-voice send mask deliberately lives in AudioReverb alone (both this
+// file and the generated flow graphs write it), so there is no copy here.
+static int reverbPresetCur = 0;    // what the hardware currently runs
+static float reverbAmtCur = 0.0F;  // 0..1, the ramped wet level
+static int reverbDepthSent = -1;   // last quantized depth actually written
+
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
 // loads synchronously here (the switch hides behind the loading screen),
@@ -4537,6 +4552,16 @@ void TerrainGame::loadScene(int sceneIndex) {
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
   }
 
+  // Reverb: a scene switch is a cut, so drop the room instead of ramping it
+  // out of the old scene into the new one. The depth cache is invalidated
+  // (-1) rather than set, so the first updateReverb writes the hardware even
+  // if the new scene wants exactly what the old one had.
+  if (REVERB_ZONE_COUNT > 0) {
+    reverbAmtCur = 0.0F;
+    reverbDepthSent = -1;
+    engine->audio.reverb.setDepth(0, 0);
+  }
+
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
@@ -4634,8 +4659,102 @@ void TerrainGame::updateSoundEmitters() {
       --sndTimers[i];
       continue;
     }
+    // Reverb send for this channel. The send is one BIT per voice, so an
+    // emitter opting out just clears its channel's bit - and because two
+    // emitters can share a channel (16 + (i & 7)), the one that plays owns
+    // it. AudioReverb holds the mask and compares before touching the
+    // hardware, which is also why nothing here keeps a copy: Play Sound nodes
+    // write the same mask from the generated graphs, and a second cache would
+    // let the two clobber each other's bits.
+    engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
     sndTimers[i] = everyFrames(o.data.sndInterval);
+  }
+}
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
+void TerrainGame::updateReverb() {
+  // Compile-time: a project with no reverb zone and no Set Reverb node still
+  // has this function, but the whole body folds away to nothing.
+  if (REVERB_ZONE_COUNT == 0 && !REVERB_HAS_NODE) return;
+
+  int wantPreset = 0;   // nothing found = dry
+  int wantAmount = 0;   // 0..100
+  int wantDelay = 64, wantFeedback = 64;
+
+  if (scriptCtx.reverbPreset >= 0) {
+    // A Set Reverb node is in force: it overrides the geometry outright.
+    wantPreset = scriptCtx.reverbPreset;
+    wantAmount = scriptCtx.reverbAmount;
+    wantDelay = scriptCtx.reverbDelay;
+    wantFeedback = scriptCtx.reverbFeedback;
+  } else {
+    // The listener is player 1. With split-screen two players can stand in
+    // different rooms and there is still only one reverb - that is a real
+    // limit of the hardware, documented rather than papered over.
+    const float lx = scriptCtx.playerPosition.x;
+    const float ly = scriptCtx.playerPosition.y;
+    const float lz = scriptCtx.playerPosition.z;
+    int bestPrio = 0;
+    bool found = false;
+    for (int i = 0; i < REVERB_ZONE_COUNT; ++i) {
+      const ReverbZoneData& z = REVERB_ZONES[i];
+      if (z.scene != g_activeScene) continue;
+      if (z.object < 0 || z.object >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& a = runtimeObjects[z.object];
+      // An area on an unloaded streaming layer catches nobody, exactly like a
+      // layer zone or an In Area trigger.
+      if (!a.active) continue;
+      if (!pointInArea(a.data, lx, ly, lz)) continue;
+      // Ties go to the later zone, so a room authored on top of another wins
+      // without needing a priority typed in.
+      if (found && z.priority < bestPrio) continue;
+      bestPrio = z.priority;
+      found = true;
+      wantPreset = z.preset;
+      wantAmount = z.amount;
+      wantDelay = z.delay;
+      wantFeedback = z.feedback;
+    }
+  }
+
+  // A preset change cannot be crossfaded (one unit), so it is done at silence:
+  // ramp the amount to zero, swap, ramp back up. Two zones sharing a preset
+  // therefore blend smoothly into each other - which is the whole reason the
+  // Properties panel warns when they do not.
+  const bool swapping = wantPreset != reverbPresetCur;
+  const float goal = swapping ? 0.0F : (float)wantAmount * 0.01F;
+
+  // ~0.3 s for the full travel, frame-rate independent.
+  const float step = g_frameDt * (1.0F / 0.3F);
+  if (reverbAmtCur < goal) {
+    reverbAmtCur += step;
+    if (reverbAmtCur > goal) reverbAmtCur = goal;
+  } else if (reverbAmtCur > goal) {
+    reverbAmtCur -= step;
+    if (reverbAmtCur < goal) reverbAmtCur = goal;
+  }
+
+  if (swapping && reverbAmtCur <= 0.0F) {
+    reverbPresetCur = wantPreset;
+    engine->audio.reverb.setDelay((u8)wantDelay);
+    engine->audio.reverb.setFeedback((u8)wantFeedback);
+    engine->audio.reverb.setPreset((Tyra::AudioReverb::Preset)wantPreset);
+  }
+
+  // Quantize to 64 steps and only push a real change: this is a synchronous
+  // RPC to the IOP, sharing the SIF with the music stream.
+  int q = (int)(reverbAmtCur * 64.0F + 0.5F);
+  if (q < 0) q = 0;
+  if (q > 64) q = 64;
+  if (q != reverbDepthSent) {
+    reverbDepthSent = q;
+    const s16 depth = (s16)((q * 0x7FFF) / 64);
+    engine->audio.reverb.setDepth(depth, depth);
   }
 }
 

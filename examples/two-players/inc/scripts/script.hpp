@@ -175,6 +175,16 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Reverb override (Set Reverb flow node, docs/reverb.md). -1 = the reverb
+  // zones decide; 0..9 = force that preset everywhere, whatever area the
+  // player is standing in. Unlike the switches below this one is NOT consumed
+  // and reset - it stays in force until the node's "clear" pin puts it back to
+  // -1, because a room is a state and not an event.
+  int reverbPreset = -1;
+  int reverbAmount = 50;    // 0..100, used while reverbPreset >= 0
+  int reverbDelay = 64;     // 0..127, echo/delay presets only
+  int reverbFeedback = 64;  // 0..127, echo/delay presets only
+
   // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
   // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
   // away - gravity, collision and the camera keep running, so a locked player

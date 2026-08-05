@@ -52,12 +52,15 @@ struct MenuData {
   int font;
 };
 
-constexpr int MENU_COUNT = 0;
+constexpr int MENU_COUNT = 1;
 
-constexpr MenuEntryData MENU_0_ENTRIES[1] = {{0, -1, 0.0F, 0, -1, 0, -1, nullptr}};
+// menu "save"
+constexpr MenuEntryData MENU_0_ENTRIES[1] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // save
 };
 
 constexpr int TITLE_MENU = -1;

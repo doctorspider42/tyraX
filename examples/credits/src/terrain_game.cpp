@@ -2157,6 +2157,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -2523,6 +2524,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -2534,14 +2540,29 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
@@ -2552,6 +2573,27 @@ void TerrainGame::buildScene() {
     setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
                 (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
                 (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sw
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -4122,6 +4164,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
 
+// Reverb zone state (docs/reverb.md). The console has ONE reverb unit, so the
+// room the player is in is a global setting that has to CHANGE smoothly:
+// - `reverbAmtCur` is ramped toward the target, never jumped to it;
+// - a preset change waits for that ramp to reach zero first, because
+//   switching the algorithm zeroes up to 96 KB of SPU2 work area and doing it
+//   under a live tail is audible;
+// - the depth is quantized and only pushed when it really moves. These are
+//   IOP RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+// The per-voice send mask deliberately lives in AudioReverb alone (both this
+// file and the generated flow graphs write it), so there is no copy here.
+static int reverbPresetCur = 0;    // what the hardware currently runs
+static float reverbAmtCur = 0.0F;  // 0..1, the ramped wet level
+static int reverbDepthSent = -1;   // last quantized depth actually written
+
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
 // loads synchronously here (the switch hides behind the loading screen),
@@ -4496,6 +4552,16 @@ void TerrainGame::loadScene(int sceneIndex) {
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
   }
 
+  // Reverb: a scene switch is a cut, so drop the room instead of ramping it
+  // out of the old scene into the new one. The depth cache is invalidated
+  // (-1) rather than set, so the first updateReverb writes the hardware even
+  // if the new scene wants exactly what the old one had.
+  if (REVERB_ZONE_COUNT > 0) {
+    reverbAmtCur = 0.0F;
+    reverbDepthSent = -1;
+    engine->audio.reverb.setDepth(0, 0);
+  }
+
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
@@ -4593,8 +4659,102 @@ void TerrainGame::updateSoundEmitters() {
       --sndTimers[i];
       continue;
     }
+    // Reverb send for this channel. The send is one BIT per voice, so an
+    // emitter opting out just clears its channel's bit - and because two
+    // emitters can share a channel (16 + (i & 7)), the one that plays owns
+    // it. AudioReverb holds the mask and compares before touching the
+    // hardware, which is also why nothing here keeps a copy: Play Sound nodes
+    // write the same mask from the generated graphs, and a second cache would
+    // let the two clobber each other's bits.
+    engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
     sndTimers[i] = everyFrames(o.data.sndInterval);
+  }
+}
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
+void TerrainGame::updateReverb() {
+  // Compile-time: a project with no reverb zone and no Set Reverb node still
+  // has this function, but the whole body folds away to nothing.
+  if (REVERB_ZONE_COUNT == 0 && !REVERB_HAS_NODE) return;
+
+  int wantPreset = 0;   // nothing found = dry
+  int wantAmount = 0;   // 0..100
+  int wantDelay = 64, wantFeedback = 64;
+
+  if (scriptCtx.reverbPreset >= 0) {
+    // A Set Reverb node is in force: it overrides the geometry outright.
+    wantPreset = scriptCtx.reverbPreset;
+    wantAmount = scriptCtx.reverbAmount;
+    wantDelay = scriptCtx.reverbDelay;
+    wantFeedback = scriptCtx.reverbFeedback;
+  } else {
+    // The listener is player 1. With split-screen two players can stand in
+    // different rooms and there is still only one reverb - that is a real
+    // limit of the hardware, documented rather than papered over.
+    const float lx = scriptCtx.playerPosition.x;
+    const float ly = scriptCtx.playerPosition.y;
+    const float lz = scriptCtx.playerPosition.z;
+    int bestPrio = 0;
+    bool found = false;
+    for (int i = 0; i < REVERB_ZONE_COUNT; ++i) {
+      const ReverbZoneData& z = REVERB_ZONES[i];
+      if (z.scene != g_activeScene) continue;
+      if (z.object < 0 || z.object >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& a = runtimeObjects[z.object];
+      // An area on an unloaded streaming layer catches nobody, exactly like a
+      // layer zone or an In Area trigger.
+      if (!a.active) continue;
+      if (!pointInArea(a.data, lx, ly, lz)) continue;
+      // Ties go to the later zone, so a room authored on top of another wins
+      // without needing a priority typed in.
+      if (found && z.priority < bestPrio) continue;
+      bestPrio = z.priority;
+      found = true;
+      wantPreset = z.preset;
+      wantAmount = z.amount;
+      wantDelay = z.delay;
+      wantFeedback = z.feedback;
+    }
+  }
+
+  // A preset change cannot be crossfaded (one unit), so it is done at silence:
+  // ramp the amount to zero, swap, ramp back up. Two zones sharing a preset
+  // therefore blend smoothly into each other - which is the whole reason the
+  // Properties panel warns when they do not.
+  const bool swapping = wantPreset != reverbPresetCur;
+  const float goal = swapping ? 0.0F : (float)wantAmount * 0.01F;
+
+  // ~0.3 s for the full travel, frame-rate independent.
+  const float step = g_frameDt * (1.0F / 0.3F);
+  if (reverbAmtCur < goal) {
+    reverbAmtCur += step;
+    if (reverbAmtCur > goal) reverbAmtCur = goal;
+  } else if (reverbAmtCur > goal) {
+    reverbAmtCur -= step;
+    if (reverbAmtCur < goal) reverbAmtCur = goal;
+  }
+
+  if (swapping && reverbAmtCur <= 0.0F) {
+    reverbPresetCur = wantPreset;
+    engine->audio.reverb.setDelay((u8)wantDelay);
+    engine->audio.reverb.setFeedback((u8)wantFeedback);
+    engine->audio.reverb.setPreset((Tyra::AudioReverb::Preset)wantPreset);
+  }
+
+  // Quantize to 64 steps and only push a real change: this is a synchronous
+  // RPC to the IOP, sharing the SIF with the music stream.
+  int q = (int)(reverbAmtCur * 64.0F + 0.5F);
+  if (q < 0) q = 0;
+  if (q > 64) q = 64;
+  if (q != reverbDepthSent) {
+    reverbDepthSent = q;
+    const s16 depth = (s16)((q * 0x7FFF) / 64);
+    engine->audio.reverb.setDepth(depth, depth);
   }
 }
 
@@ -5325,10 +5485,38 @@ bool TerrainGame::updateSaveMenu() {
     scriptCtx.loadCheckpoint = false;
     if (checkpointValid) applyState(checkpointData);
   }
-  if (scriptCtx.commitCheckpoint >= 0) {
-    const int slot = scriptCtx.commitCheckpoint;
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
     scriptCtx.commitCheckpoint = -1;
-    if (checkpointValid && slot < SAVE_SLOTS && cardOp < 0) beginCardOp(2, slot);
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
   }
 
   // A card op owns the pad. The blocking libmc transfer only runs once the
@@ -5380,10 +5568,21 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
@@ -5392,7 +5591,18 @@ bool TerrainGame::updateSaveMenu() {
   // beginCardOp so the "checking memory card" screen is up while the card is
   // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
   // warning has actually been drawn.
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) beginCardOp(0, saveMenuSlot);
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
     beginCardOp(1, saveMenuSlot);
   return true;
@@ -5407,6 +5617,27 @@ void TerrainGame::beginCardOp(int op, int slot) {
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
+}
+
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
 }
 
 void TerrainGame::captureState(SaveGameData& d) {
@@ -5446,13 +5677,33 @@ void TerrainGame::captureState(SaveGameData& d) {
   }
 }
 
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
 void TerrainGame::doSave(int slot) {
   static SaveGameData d;  // the payload can be a few KB - keep it off the stack
-  captureState(d);
-  const bool ok = saveWrite(slot, d);
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -5510,14 +5761,47 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
+    }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
     }
   }
   // The "do not remove the memory card" warning covers everything while a
@@ -5526,6 +5810,15 @@ void TerrainGame::renderSaveMenu() {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveBusySprite);
     return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);

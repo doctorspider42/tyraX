@@ -52,7 +52,7 @@ struct MenuData {
   int font;
 };
 
-constexpr int MENU_COUNT = 1;
+constexpr int MENU_COUNT = 2;
 
 // menu "video"
 constexpr MenuEntryData MENU_0_ENTRIES[7] = {
@@ -64,9 +64,14 @@ constexpr MenuEntryData MENU_0_ENTRIES[7] = {
     {6, 5, 0.0F, 0, -1, 0, -1, nullptr},  // WIDESCREEN 16:9
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // CLOSE
 };
+// menu "save"
+constexpr MenuEntryData MENU_1_ENTRIES[1] = {
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},
+};
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/video.png", 256, 256, 234, 44, 24, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, -1},  // video
+    {"menus/video.png", 256, 256, 234, 44, 24, 7, MENU_0_ENTRIES, 1, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // video
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // save
 };
 
 constexpr int TITLE_MENU = 0;
