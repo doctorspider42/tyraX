@@ -1,5 +1,7 @@
 {
   "name": "save-points",
+  "formatVersion": 2,
+  "editorVersion": "1.1.0",
   "template": "fpp",
   "projectId": "fb29d4546f26238b",
   "settings": {
