@@ -792,6 +792,7 @@ void App::drawPropertiesWindow() {
         ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
         ImGui::BulletText("A mirror / portal / camera feed's target list");
         ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        ImGui::BulletText("A reverb room for the sound effects (below)");
         // What references it, so deleting/resizing one is not a guess.
         std::vector<std::string> users;
         for (const SceneObject& t : project_.objects())
@@ -822,6 +823,86 @@ void App::drawPropertiesWindow() {
             for (size_t i = 0; i < caught.size(); ++i)
                 list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
             ImGui::SetTooltip("%s", list.c_str());
+        }
+
+        ImGui::SeparatorText("Reverb zone");
+        if (ImGui::Checkbox("This area is a room for the sound effects",
+                            &o.reverbZone))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Sound effects played while the player stands inside this box\n"
+                "go through the SPU2's hardware reverb unit. Costs no EE time -\n"
+                "the sound chip does the mixing. Music stays dry.");
+        if (o.reverbZone) {
+            {
+                const std::vector<ReverbPresetInfo>& presets = reverbPresets();
+                if (o.reverbPreset < 0 || o.reverbPreset >= (int)presets.size())
+                    o.reverbPreset = 1;
+                if (ImGui::BeginCombo("Preset",
+                                      presets[o.reverbPreset].label)) {
+                    for (int i = 0; i < (int)presets.size(); ++i) {
+                        if (ImGui::Selectable(presets[i].label,
+                                              i == o.reverbPreset)) {
+                            o.reverbPreset = i;
+                            committed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", presets[i].desc);
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SliderFloat("Amount", &o.reverbAmount, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How wet the effects get, 0..1. This is the one value that\n"
+                    "moves smoothly - entering and leaving the box ramps it, so\n"
+                    "two overlapping zones sharing a preset cross-fade.");
+            if (reverbUsesEcho(o.reverbPreset)) {
+                ImGui::SliderInt("Delay", &o.reverbDelay, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time between repeats. Echo/Delay only.");
+                ImGui::SliderInt("Feedback", &o.reverbFeedback, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How much of each repeat feeds the next - how many times\n"
+                        "it echoes before dying. Echo/Delay only.");
+            } else {
+                ImGui::TextDisabled(
+                    "Delay and feedback apply to the Echo and Delay presets\n"
+                    "only - the room presets have their own fixed geometry.");
+            }
+            ImGui::DragInt("Priority", &o.reverbPriority, 0.1f, -100, 100);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Overlapping zones do not mix - the console has ONE reverb\n"
+                    "unit. The highest priority inside wins, so a closet placed\n"
+                    "inside a hall needs a higher number than the hall.");
+
+            // The console truth this feature is shaped around: one unit, so a
+            // preset change is a cut and only the amount can cross-fade. Say
+            // which of the two an author has built before they hear it.
+            int zones = 0;
+            bool otherPreset = false;
+            for (const SceneObject& t : project_.objects()) {
+                if (t.type != PrimitiveType::Area || !t.reverbZone) continue;
+                ++zones;
+                if (&t != &o && t.reverbPreset != o.reverbPreset)
+                    otherPreset = true;
+            }
+            ImGui::TextDisabled("%d reverb zone%s in this scene", zones,
+                                zones == 1 ? "" : "s");
+            if (otherPreset)
+                ImGui::TextColored(
+                    ImVec4(0.9f, 0.75f, 0.3f, 1.0f),
+                    "Another zone uses a different preset: crossing between\n"
+                    "them fades the reverb out, swaps and fades back in\n"
+                    "(~0.3 s). Give both the same preset for a seamless move.");
         }
     }
 
@@ -1363,6 +1444,16 @@ void App::drawPropertiesWindow() {
         }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reverb (rooms affect this sound)", &o.soundReverb))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "On: this emitter is heard through whatever reverb zone the\n"
+                "player is standing in (docs/reverb.md).\n"
+                "Off: it stays dry everywhere - a UI beep, a voice line, or a\n"
+                "sample that was recorded with its own room already on it.\n"
+                "The send is one bit per voice in hardware, so there is no\n"
+                "per-emitter wet amount - only the zone's own.");
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"

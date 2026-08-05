@@ -1433,6 +1433,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -2569,6 +2573,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -4914,6 +4922,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -6923,6 +6932,20 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
 
+// Reverb zone state (docs/reverb.md). The console has ONE reverb unit, so the
+// room the player is in is a global setting that has to CHANGE smoothly:
+// - `reverbAmtCur` is ramped toward the target, never jumped to it;
+// - a preset change waits for that ramp to reach zero first, because
+//   switching the algorithm zeroes up to 96 KB of SPU2 work area and doing it
+//   under a live tail is audible;
+// - the depth is quantized and only pushed when it really moves. These are
+//   IOP RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+// The per-voice send mask deliberately lives in AudioReverb alone (both this
+// file and the generated flow graphs write it), so there is no copy here.
+static int reverbPresetCur = 0;    // what the hardware currently runs
+static float reverbAmtCur = 0.0F;  // 0..1, the ramped wet level
+static int reverbDepthSent = -1;   // last quantized depth actually written
+
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
 // loads synchronously here (the switch hides behind the loading screen),
@@ -7297,6 +7320,16 @@ void TerrainGame::loadScene(int sceneIndex) {
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
   }
 
+  // Reverb: a scene switch is a cut, so drop the room instead of ramping it
+  // out of the old scene into the new one. The depth cache is invalidated
+  // (-1) rather than set, so the first updateReverb writes the hardware even
+  // if the new scene wants exactly what the old one had.
+  if (REVERB_ZONE_COUNT > 0) {
+    reverbAmtCur = 0.0F;
+    reverbDepthSent = -1;
+    engine->audio.reverb.setDepth(0, 0);
+  }
+
   // A loaded save targeting this scene: apply the stored object state now
   if (pendingObjScene == sceneIndex && !pendingObjState.empty())
     applySavedObjects();
@@ -7394,8 +7427,102 @@ void TerrainGame::updateSoundEmitters() {
       --sndTimers[i];
       continue;
     }
+    // Reverb send for this channel. The send is one BIT per voice, so an
+    // emitter opting out just clears its channel's bit - and because two
+    // emitters can share a channel (16 + (i & 7)), the one that plays owns
+    // it. AudioReverb holds the mask and compares before touching the
+    // hardware, which is also why nothing here keeps a copy: Play Sound nodes
+    // write the same mask from the generated graphs, and a second cache would
+    // let the two clobber each other's bits.
+    engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
     sndTimers[i] = everyFrames(o.data.sndInterval);
+  }
+}
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
+void TerrainGame::updateReverb() {
+  // Compile-time: a project with no reverb zone and no Set Reverb node still
+  // has this function, but the whole body folds away to nothing.
+  if (REVERB_ZONE_COUNT == 0 && !REVERB_HAS_NODE) return;
+
+  int wantPreset = 0;   // nothing found = dry
+  int wantAmount = 0;   // 0..100
+  int wantDelay = 64, wantFeedback = 64;
+
+  if (scriptCtx.reverbPreset >= 0) {
+    // A Set Reverb node is in force: it overrides the geometry outright.
+    wantPreset = scriptCtx.reverbPreset;
+    wantAmount = scriptCtx.reverbAmount;
+    wantDelay = scriptCtx.reverbDelay;
+    wantFeedback = scriptCtx.reverbFeedback;
+  } else {
+    // The listener is player 1. With split-screen two players can stand in
+    // different rooms and there is still only one reverb - that is a real
+    // limit of the hardware, documented rather than papered over.
+    const float lx = scriptCtx.playerPosition.x;
+    const float ly = scriptCtx.playerPosition.y;
+    const float lz = scriptCtx.playerPosition.z;
+    int bestPrio = 0;
+    bool found = false;
+    for (int i = 0; i < REVERB_ZONE_COUNT; ++i) {
+      const ReverbZoneData& z = REVERB_ZONES[i];
+      if (z.scene != g_activeScene) continue;
+      if (z.object < 0 || z.object >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& a = runtimeObjects[z.object];
+      // An area on an unloaded streaming layer catches nobody, exactly like a
+      // layer zone or an In Area trigger.
+      if (!a.active) continue;
+      if (!pointInArea(a.data, lx, ly, lz)) continue;
+      // Ties go to the later zone, so a room authored on top of another wins
+      // without needing a priority typed in.
+      if (found && z.priority < bestPrio) continue;
+      bestPrio = z.priority;
+      found = true;
+      wantPreset = z.preset;
+      wantAmount = z.amount;
+      wantDelay = z.delay;
+      wantFeedback = z.feedback;
+    }
+  }
+
+  // A preset change cannot be crossfaded (one unit), so it is done at silence:
+  // ramp the amount to zero, swap, ramp back up. Two zones sharing a preset
+  // therefore blend smoothly into each other - which is the whole reason the
+  // Properties panel warns when they do not.
+  const bool swapping = wantPreset != reverbPresetCur;
+  const float goal = swapping ? 0.0F : (float)wantAmount * 0.01F;
+
+  // ~0.3 s for the full travel, frame-rate independent.
+  const float step = g_frameDt * (1.0F / 0.3F);
+  if (reverbAmtCur < goal) {
+    reverbAmtCur += step;
+    if (reverbAmtCur > goal) reverbAmtCur = goal;
+  } else if (reverbAmtCur > goal) {
+    reverbAmtCur -= step;
+    if (reverbAmtCur < goal) reverbAmtCur = goal;
+  }
+
+  if (swapping && reverbAmtCur <= 0.0F) {
+    reverbPresetCur = wantPreset;
+    engine->audio.reverb.setDelay((u8)wantDelay);
+    engine->audio.reverb.setFeedback((u8)wantFeedback);
+    engine->audio.reverb.setPreset((Tyra::AudioReverb::Preset)wantPreset);
+  }
+
+  // Quantize to 64 steps and only push a real change: this is a synchronous
+  // RPC to the IOP, sharing the SIF with the music stream.
+  int q = (int)(reverbAmtCur * 64.0F + 0.5F);
+  if (q < 0) q = 0;
+  if (q > 64) q = 64;
+  if (q != reverbDepthSent) {
+    reverbDepthSent = q;
+    const s16 depth = (s16)((q * 0x7FFF) / 64);
+    engine->audio.reverb.setDepth(depth, depth);
   }
 }
 
@@ -16774,6 +16901,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -18024,6 +18152,16 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Reverb override (Set Reverb flow node, docs/reverb.md). -1 = the reverb
+  // zones decide; 0..9 = force that preset everywhere, whatever area the
+  // player is standing in. Unlike the switches below this one is NOT consumed
+  // and reset - it stays in force until the node's "clear" pin puts it back to
+  // -1, because a room is a state and not an event.
+  int reverbPreset = -1;
+  int reverbAmount = 50;    // 0..100, used while reverbPreset >= 0
+  int reverbDelay = 64;     // 0..127, echo/delay presets only
+  int reverbFeedback = 64;  // 0..127, echo/delay presets only
+
   // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
   // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
   // away - gravity, collision and the camera keep running, so a locked player
@@ -18871,6 +19009,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << (o.emitterDieOnGround ? 1 : 0) << ", " << soundIdx << ", "
         << (o.soundAuto ? 1 : 0) << ", " << floatLit(o.soundRange) << ", "
         << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0) << ", "
+        << (o.soundReverb ? 1 : 0) << ", "
         << floatLit(o.lightBright) << ", " << floatLit(o.lightRadius) << ", "
         << (o.lightDynamic ? 1 : 0) << ", " << floatLit(o.lightFlicker) << ", "
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
@@ -19816,6 +19955,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
            "  int sndOnPlayer;   // sound emitters: 1 = centered on the player\n"
            "                     // (plain stereo, full volume, no distance/pan)\n"
+           "  int sndReverb;     // sound emitters: 1 = heard through the reverb\n"
+           "                     // zone the player is in (REVERB_ZONES below);\n"
+           "                     // 0 = always dry\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,\n"
@@ -20687,6 +20829,64 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
             << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
+
+    // Reverb zones (docs/reverb.md): Area objects marked as a room for the
+    // SPU2's hardware reverb. A side table rather than SceneObjectData fields,
+    // because a scene has a handful of these and hundreds of objects.
+    // The BOX is not baked - `object` indexes the live scene table, so a flow
+    // node that moves the area drags its room along, exactly like a streaming
+    // zone or an In Area trigger.
+    {
+        std::ostringstream rows;
+        int zoneCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Area || !o.reverbZone) continue;
+                int amount = (int)(o.reverbAmount * 100.0f + 0.5f);
+                if (amount < 0) amount = 0;
+                if (amount > 100) amount = 100;
+                rows << (zoneCount ? ",\n" : "") << "    {" << si << ", "
+                     << (int)oi << ", " << o.reverbPreset << ", " << amount
+                     << ", " << o.reverbDelay << ", " << o.reverbFeedback
+                     << ", " << o.reverbPriority << "}";
+                ++zoneCount;
+            }
+        }
+        out << "// A room for the sound effects. While the player stands inside\n"
+               "// the area, the SPU2's reverb unit runs `preset` at `amount`.\n"
+               "// There is ONE such unit on the console, so zones never mix:\n"
+               "// the highest `priority` inside wins, and the game ramps the\n"
+               "// amount rather than cutting (see TerrainGame::updateReverb).\n"
+               "struct ReverbZoneData {\n"
+               "  int scene;     // scene index\n"
+               "  int object;    // the area's index in its scene table\n"
+               "  int preset;    // 0 off, 1 room, 2-4 studio, 5 hall,\n"
+               "                 // 6 space echo, 7 echo, 8 delay, 9 pipe\n"
+               "                 // (these ARE libsd's SD_EFFECT_MODE_*)\n"
+               "  int amount;    // wet level, 0..100\n"
+               "  int delay;     // 0..127, echo/delay presets only\n"
+               "  int feedback;  // 0..127, echo/delay presets only\n"
+               "  int priority;  // overlapping zones: the highest wins\n"
+               "};\n";
+        // A Set Reverb node can run the reverb in a project that has no zones
+        // at all, so the runtime cannot be gated on the zone count alone.
+        bool hasNode = false;
+        for (int si = 0; si < sceneCount && !hasNode; ++si)
+            for (const SceneObject& o : p.scenes[si].objects) {
+                for (const FlowNode& n : o.flowGraph.nodes)
+                    if (n.type == "SetReverb") { hasNode = true; break; }
+                if (hasNode) break;
+            }
+        out << "constexpr int REVERB_ZONE_COUNT = " << zoneCount << ";\n"
+            << "constexpr bool REVERB_HAS_NODE = " << (hasNode ? "true" : "false")
+            << ";\n"
+            << "constexpr ReverbZoneData REVERB_ZONES["
+            << (zoneCount ? zoneCount : 1) << "] = {\n"
+            << (zoneCount ? rows.str() : "    {0, -1, 0, 0, 0, 0, 0}")
+            << "\n};\n\n";
     }
 
     // Raytraced-mirror model proxies: MODEL targets of raytraced mirrors
@@ -25646,8 +25846,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                           << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
                     }
                     c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol
-                      << " * ctx.sfxVolume / 100, ch);\n"
-                      << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
+                      << " * ctx.sfxVolume / 100, ch);\n";
+                    // "Dry": take this channel out of the reverb bus, for a
+                    // sound that must be identical in a cave and outdoors.
+                    // The engine compares the mask, so a repeated trigger on
+                    // an already-correct channel costs no RPC.
+                    if ((int)n.num[2] != 0)
+                        c << pad
+                          << "  ctx.engine->audio.reverb.setChannelSend(ch, "
+                             "false);\n";
+                    else
+                        c << pad
+                          << "  ctx.engine->audio.reverb.setChannelSend(ch, "
+                             "true);\n";
+                    c << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
                       << pad << "}\n";
                 }
             } else if (n.type == "SetMusicVolume") {
@@ -26123,6 +26335,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << pad << "  if (v > 100) v = 100;\n"
                   << pad << "  ctx.sfxVolume = v;\n"
                   << pad << "}\n";
+            } else if (n.type == "SetReverb") {
+                // The node writes a REQUEST; TerrainGame::updateReverb owns the
+                // hardware, because the ramp and the preset swap have to be one
+                // decision per frame and a graph may fire several times.
+                // Unlike the other switches this one is not consumed - a room
+                // is a state, so it stays until the "clear" pin resets it.
+                if (pin == 1) {
+                    c << pad << "ctx.reverbPreset = -1;  // back to the zones\n";
+                } else {
+                    int delay = (int)n.num[1];
+                    if (delay < 0) delay = 0;
+                    if (delay > 127) delay = 127;
+                    int feedback = (int)n.num[2];
+                    if (feedback < 0) feedback = 0;
+                    if (feedback > 127) feedback = 127;
+                    c << pad << "{\n"
+                      << pad << "  int a = (int)(" << numOperand(n) << ");\n"
+                      << pad << "  if (a < 0) a = 0;\n"
+                      << pad << "  if (a > 100) a = 100;\n"
+                      << pad << "  ctx.reverbPreset = " << reverbPresetIndex(n.str)
+                      << ";\n"
+                      << pad << "  ctx.reverbAmount = a;\n"
+                      << pad << "  ctx.reverbDelay = " << delay << ";\n"
+                      << pad << "  ctx.reverbFeedback = " << feedback << ";\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetScale") {
                 const auto e = posExpr(n);  // a position link beats X/Y/Z
                 c << pad << obj << ".data.scale[0] = " << e[0] << ";\n"

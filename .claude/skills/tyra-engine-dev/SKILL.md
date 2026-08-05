@@ -684,6 +684,75 @@ banner both, so a previously built ELF still reports.
   correct pitch — that exact symptom happened).
 - Mono/low-rate streams need smaller chunk size + fill threshold or audsrv's
   ring buffer starves.
+- **The SPU2's hardware reverb is reachable, and only through a second RPC
+  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
+  exposes playback and nothing else, so the registers come from PS2SDK's
+  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
+  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself,
+  which is LGPL v2 per every file header), so this cost one `.irx-em`, one
+  loader call and `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd
+  directly on the IOP; the two are ordinary co-clients of one driver.
+- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
+  streaming ring installs.** So the reverb's RPC bind runs BEFORE
+  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
+  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
+  MUSIC goes silent with no error anywhere while the sfx keep working - which
+  points the investigation at completely the wrong subsystem.
+- **libsd's defaults send EVERYTHING to the effect bus**, music included:
+  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
+  the core input (the streamed song) into the reverb. So a per-voice send
+  normally REMOVES a voice, and keeping the music dry is an explicit write.
+  (Those bit meanings were confirmed against libsd's own block-transfer
+  handler, which clears bits 6/7 - the dry pair - when a stream ends.)
+- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
+  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
+  preset set with the core's effect bit still off leaves whatever was in SPU2
+  RAM circulating as noise. Enable, then set.
+- **Reverb RPCs cost what audsrv's do**: synchronous SIF calls sharing the bus
+  with the music stream, so the generated game quantizes the wet depth to 64
+  steps and sends only real changes - the discipline `updateSoundEmitters`
+  already follows for volume/pan. A per-frame RPC is measurable in frame rate.
+- Reverb presets occupy 8-96 KB of SPU2 RAM at the TOP of the 2 MB while audsrv
+  loads ADPCM samples from 0x5010 upward, so they collide only past ~1.9 MB of
+  effects. Changing preset zeroes that area, which is why the game only does it
+  at zero wet level and never per frame.
+- **audsrv uses core 1 only** - all 24 ADPCM voices and the music stream - and
+  leaves core 0 muted (`MVOLL/MVOLR = 0`). That is why there is exactly one
+  reverb bus today; a second one means putting voices on core 0, which is an
+  audsrv change, not an engine one.
+- **The SPU2's hardware reverb is reachable, and only through a second RPC
+  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
+  exposes playback and nothing else, so the registers come from PS2SDK's
+  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
+  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself -
+  see THIRD-PARTY-LICENSES.md), so this cost one `.irx-em`, one loader call and
+  `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd directly on the
+  IOP; the two are ordinary co-clients.
+- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
+  streaming ring installs.** So the reverb's RPC bind runs BEFORE
+  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
+  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
+  MUSIC goes silent with no error anywhere - the sfx keep working, which points
+  the investigation at completely the wrong subsystem.
+- **libsd's defaults send EVERYTHING to the effect bus**, music included:
+  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
+  the core input (the streamed song) into the reverb. So the per-voice send
+  normally REMOVES a voice, and keeping the music dry is an explicit write.
+  (The bit meanings were confirmed against libsd's own block-transfer handler,
+  which clears bits 6/7 - the dry pair - when a stream ends.)
+- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
+  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
+  preset set with the core's effect bit still off therefore leaves whatever was
+  in SPU2 RAM circulating as noise. Enable, then set.
+- **Reverb RPCs cost what audsrv's do.** They are synchronous SIF calls sharing
+  the bus with the music stream, so the generated game quantizes the wet depth
+  to 64 steps and only sends real changes - the same discipline
+  `updateSoundEmitters` already follows for volume/pan. A per-frame RPC is
+  measurable in the frame rate.
+- Reverb presets cost 8-96 KB of SPU2 RAM at the TOP of the 2 MB, while audsrv
+  loads ADPCM samples from 0x5010 upward - they collide only past ~1.9 MB of
+  effects. Changing preset zeroes that area, which is why the game does it at
+  zero wet level and never per frame.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser
