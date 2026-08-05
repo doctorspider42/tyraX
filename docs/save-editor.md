@@ -125,6 +125,43 @@ fixed-size payload a slot holds, so checkpoints cost a couple of kilobytes of RA
 that never grows, instead of a stack of snapshots nobody budgeted for on a 32 MB
 console.
 
+## What the save menu writes
+
+By default the in-game menu records **a live snapshot** — where the player is
+standing right now. *Save menu writes* can switch it to **the last checkpoint**
+instead, which is the "you resume from the shrine, not from here" model: the
+menu then writes exactly what *Commit Checkpoint* would. Before the first
+checkpoint of a run it falls back to a live snapshot, so the menu is never dead
+at the start of a game.
+
+Note this changes only the **menu**. *Commit Checkpoint* always writes the
+checkpoint buffer, and it writes it as it was captured — not the state at the
+moment you fire the node.
+
+## Writing in the background
+
+Every libmc call is asynchronous already; the blocking path just answers each
+one immediately. Tick **Write in the background** and a save is instead stepped
+one call per frame while the game keeps running — no pause, and no *checking
+memory card* overlay. That is what makes *Commit Checkpoint* usable at a
+chapter break without stopping the music.
+
+**Loading always blocks.** The world is being replaced, so there is nothing to
+keep playing while it happens.
+
+What you give up: the overlay exists to tell the player not to pull the card
+out. Without it, a card yanked mid-write corrupts the slot with no warning
+shown. That is the trade, and it is why this is off by default.
+
+The **spinner** is the replacement signal — a small activity ring in a corner
+you choose, with its own margin and size. It holds for a minimum time even when
+the write finishes instantly, because a one-frame flash reads as a glitch
+rather than as "your game was saved". It lives in `res/hud/save-spinner.png`, a
+strip of 8 cells of 32×32 written only when missing, so dropping your own strip
+in replaces the animation. **Both dimensions of a replacement must be powers of
+two** (the GS takes 8/16/32/…/512 and the engine asserts otherwise — the
+symptom is the game never leaving the TyraX splash).
+
 ## The "checking memory card" screen
 
 Every card access — saving, loading, committing a checkpoint — goes through one

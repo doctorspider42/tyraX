@@ -95,4 +95,21 @@ constexpr int kIconSysBytes = 964;
 // this one HudText so they can never disagree.
 HudText busyText();
 
+// The async write's activity indicator: kSpinnerFrames cells of
+// kSpinnerCell x kSpinnerCell laid out in ONE row, baked to
+// res/hud/save-spinner.png when missing (user-replaceable, like the save-menu
+// sprites). A sheet rather than a rotated quad because the 2D renderer has no
+// rotation - the game walks Sprite::offset across the cells, exactly the way
+// the font atlas is drawn. False only if the PNG encoder failed.
+//
+// BOTH SHEET DIMENSIONS MUST BE POWERS OF TWO. The GS takes 8/16/32/.../512
+// and the engine asserts on anything else, so an 8x24 layout (a 192x24 strip)
+// halts the game at boot with "Texture width/height should be
+// 8/16/32/64/128/256/512" - which presents as the TyraX splash never handing
+// over, not as a bad sprite. 8 cells x 32 = 256 wide by 32 tall: both legal.
+// A replacement PNG has to respect the same rule.
+constexpr int kSpinnerFrames = 8;
+constexpr int kSpinnerCell = 32;
+bool spinnerPNG(std::vector<unsigned char>& png);
+
 }  // namespace savebake

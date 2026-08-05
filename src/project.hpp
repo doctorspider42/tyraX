@@ -2246,6 +2246,26 @@ struct Project {
     // which is what every icon did before the setting existed.
     std::string saveIconMotion;
     float saveIconMotionAmount = 1.0f;  // amplitude scale, 0.25..2
+    // What the in-game save menu writes to a slot. false = a fresh snapshot of
+    // the player's current state (the default, and what a menu usually means);
+    // true = the last checkpoint, i.e. the same buffer Commit Checkpoint
+    // writes - the "you resume from the last shrine, not from here" model.
+    // With no checkpoint taken yet it falls back to a fresh snapshot, so the
+    // menu is never dead at the start of a game.
+    bool saveMenuWritesCheckpoint = false;
+    // Write to the card WITHOUT freezing the game behind the "do not remove
+    // the memory card" overlay: the transfer is driven a step per frame and
+    // the player keeps playing. Loads stay blocking (the world is being
+    // replaced, there is nothing to keep playing). See docs/save-editor.md
+    // for what this costs.
+    bool saveAsync = false;
+    // The little activity indicator an async write shows instead of the
+    // overlay. Corner: 0 = top-left, 1 = top-right, 2 = bottom-left,
+    // 3 = bottom-right. Margin is in 512x448 pixels.
+    bool saveSpinner = true;
+    int saveSpinnerCorner = 3;
+    float saveSpinnerMargin = 20.0f;
+    float saveSpinnerScale = 1.0f;
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the

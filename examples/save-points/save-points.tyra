@@ -148,6 +148,12 @@
   "saveIconFrames": 8,
   "saveIconMotion": "bounce",
   "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAsync": true,
+  "saveSpinner": true,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [

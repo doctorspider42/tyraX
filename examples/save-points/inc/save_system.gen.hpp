@@ -54,6 +54,14 @@ bool saveSlotUsed(int slot);
 bool saveWrite(int slot, const SaveGameData& data);
 bool saveRead(int slot, SaveGameData& out);
 
+// Asynchronous write: Begin copies the payload and starts the
+// libmc chain, Poll drives it one step per frame and returns true
+// the frame it is finished (*okOut = whether the slot was
+// written). Busy is the guard against starting a second one.
+bool saveWriteBegin(int slot, const SaveGameData& data);
+bool saveWritePoll(bool* okOut);
+bool saveWriteBusy();
+
 // Copies the editor-baked save icon (save/icon.sys + list.icn,
 // shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser
 // shows the game's title and icon. Runs once per boot when the
@@ -63,5 +71,22 @@ void saveEnsureIcons();
 // hud/save-busy.png sprite size ("checking memory card" warning)
 constexpr int SAVE_BUSY_W = 512;
 constexpr int SAVE_BUSY_H = 128;
+
+// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu
+// writes the last checkpoint instead of a live snapshot.
+// SAVE_ASYNC: writes are stepped one libmc call per frame while
+// the game keeps running, with the spinner instead of the
+// "checking memory card" overlay (loads stay blocking).
+constexpr bool SAVE_MENU_CHECKPOINT = false;
+constexpr bool SAVE_ASYNC = true;
+constexpr bool SAVE_SPINNER = true;
+constexpr int SAVE_SPINNER_FRAMES = 8;
+constexpr int SAVE_SPINNER_CELL = 32;
+// Frames each cell is held for - the sheet is walked at 50/HOLD
+// cells a second, which is a calm spin rather than a blur.
+constexpr int SAVE_SPINNER_HOLD = 4;
+constexpr int SAVE_SPINNER_CORNER = 3;  // 0 TL, 1 TR, 2 BL, 3 BR
+constexpr float SAVE_SPINNER_MARGIN = 20.0F;
+constexpr float SAVE_SPINNER_SCALE = 1.0F;
 
 }  // namespace Save_points

@@ -7,11 +7,60 @@
 #include <filesystem>
 
 #include <stb_image.h>  // implementation lives in app.cpp
+#include <stb_image_write.h>  // implementation lives in menubake.cpp
 
 #include "glbparser.hpp"
 #include "objparser.hpp"
 
 namespace savebake {
+
+namespace {
+void pngWrite(void* context, void* data, int size) {
+    auto* out = (std::vector<unsigned char>*)context;
+    out->insert(out->end(), (unsigned char*)data, (unsigned char*)data + size);
+}
+}  // namespace
+
+bool spinnerPNG(std::vector<unsigned char>& png) {
+    const int C = kSpinnerCell, N = kSpinnerFrames;
+    const int W = C * N;
+    std::vector<unsigned char> rgba((size_t)W * C * 4, 0);
+    const float mid = (float)C * 0.5f - 0.5f;
+    const float ring = (float)C * 0.33f;  // where the dots sit
+    const float dot = (float)C * 0.105f;  // dot radius
+    for (int f = 0; f < N; ++f)
+        for (int j = 0; j < N; ++j) {
+            // The head is the current frame's dot; the rest trail off behind
+            // it, which is what reads as rotation across a strip of stills.
+            const int back = (f - j + N) % N;
+            const float bright = 1.0f - (float)back / (float)N * 0.85f;
+            const float a = 6.2831853f * (float)j / (float)N - 1.5707963f;
+            const float cxp = mid + ring * cosf(a), cyp = mid + ring * sinf(a);
+            const int x0 = std::max(0, (int)(cxp - dot - 1.5f));
+            const int x1 = std::min(C - 1, (int)(cxp + dot + 1.5f));
+            const int y0 = std::max(0, (int)(cyp - dot - 1.5f));
+            const int y1 = std::min(C - 1, (int)(cyp + dot + 1.5f));
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x) {
+                    const float dx = (float)x - cxp, dy = (float)y - cyp;
+                    const float d = std::sqrt(dx * dx + dy * dy);
+                    // 1px of feather, so a 24px sprite does not look chewed
+                    float cov = dot - d + 0.5f;
+                    cov = std::min(1.0f, std::max(0.0f, cov));
+                    if (cov <= 0.0f) continue;
+                    const float v = cov * bright;
+                    unsigned char* px =
+                        &rgba[(((size_t)y * W) + (size_t)f * C + x) * 4];
+                    const unsigned char lum =
+                        (unsigned char)(255.0f * std::min(1.0f, v * 1.0f));
+                    if (lum <= px[3]) continue;  // dots never overlap, but be safe
+                    px[0] = px[1] = px[2] = 255;
+                    px[3] = lum;
+                }
+        }
+    png.clear();
+    return stbi_write_png_to_func(pngWrite, &png, W, C, 4, rgba.data(), W * 4) != 0;
+}
 
 std::string displayTitle(const Project& p) {
     return p.saveTitle.empty() ? p.name : p.saveTitle;

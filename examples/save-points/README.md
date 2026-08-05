@@ -25,8 +25,9 @@ deaths, and which checkpoint you are on.
 5. At the east end, the blue **save shrine** opens the real 3-slot card menu on
    USE — the one place in this level that writes to a memory card.
 6. The orange **pedestal** next to it is USE → *Commit Checkpoint* to slot 1:
-   it takes the RAM checkpoint you have been building and writes it to the card,
-   behind the *checking memory card* overlay.
+   it takes the RAM checkpoint you have been building and writes it to the card.
+   This project has **background writing** on, so the game does not stop for it
+   — you get a spinner in the bottom-right corner and keep walking.
 
 ## The point of it
 
@@ -43,8 +44,10 @@ checkpoint load does not roll it back. Crystals *is* a save value, so it does.
 Standing at the two counters after a death is the fastest way to see where the
 boundary of a save actually is.
 
-**Only two things here are slow.** The save shrine and the pedestal. Everything
-else — every flag, every death — is a memcpy.
+**Only two things here touch the card.** The save shrine and the pedestal.
+Everything else — every flag, every death — is a memcpy. And because this
+project writes in the background, even those two do not stop the game: the
+spinner in the corner is the whole interruption.
 
 ## How it is wired
 

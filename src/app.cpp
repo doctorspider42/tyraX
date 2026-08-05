@@ -8308,6 +8308,91 @@ void App::drawSaveEditorWindow() {
     ImGui::TextDisabled("Written to the card with the first save.");
     ImGui::EndGroup();
 
+    // --- How a save behaves --------------------------------------------------
+    ImGui::SeparatorText("Saving");
+    {
+        const char* srcLabel = project_.saveMenuWritesCheckpoint
+                                   ? "the last checkpoint"
+                                   : "a live snapshot";
+        if (ImGui::BeginCombo("Save menu writes", srcLabel)) {
+            if (ImGui::Selectable("a live snapshot",
+                                  !project_.saveMenuWritesCheckpoint) &&
+                project_.saveMenuWritesCheckpoint) {
+                project_.saveMenuWritesCheckpoint = false;
+                saveAll("Saved");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The slot records where the player is standing right now.");
+            if (ImGui::Selectable("the last checkpoint",
+                                  project_.saveMenuWritesCheckpoint) &&
+                !project_.saveMenuWritesCheckpoint) {
+                project_.saveMenuWritesCheckpoint = true;
+                saveAll("Saved");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The slot records the last Save Checkpoint instead - the\n"
+                    "\"you resume from the shrine, not from here\" model.\n"
+                    "Before the first checkpoint it writes a live snapshot, so\n"
+                    "the menu is never dead at the start of a game.");
+            ImGui::EndCombo();
+        }
+
+        if (ImGui::Checkbox("Write in the background", &project_.saveAsync))
+            saveAll("Saved");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The card transfer is stepped one call per frame while the\n"
+                "game keeps running: no pause, and no \"do not remove the\n"
+                "memory card\" overlay. Best for Commit Checkpoint, which is\n"
+                "meant to be unobtrusive. LOADING still blocks - the world is\n"
+                "being replaced, so there is nothing to keep playing.");
+
+        ImGui::BeginDisabled(!project_.saveAsync);
+        if (ImGui::Checkbox("Show a spinner while writing", &project_.saveSpinner))
+            saveAll("Saved");
+        ImGui::BeginDisabled(!project_.saveSpinner);
+        const char* kCorners[] = {"Top left", "Top right", "Bottom left",
+                                  "Bottom right"};
+        int corner = project_.saveSpinnerCorner;
+        if (corner < 0 || corner > 3) corner = 3;
+        ImGui::SetNextItemWidth(scaled(150.0f));
+        if (ImGui::Combo("Corner", &corner, kCorners, 4)) {
+            project_.saveSpinnerCorner = corner;
+            saveAll("Saved");
+        }
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderFloat("Margin", &project_.saveSpinnerMargin, 0.0f, 96.0f,
+                           "%.0f px");
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Distance from the screen edges, in the console's 512x448\n"
+                "pixels. Keep it clear of the TV-safe area if the game is\n"
+                "meant for a CRT (docs/safe-areas.md).");
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderFloat("Size", &project_.saveSpinnerScale, 0.4f, 3.0f,
+                           "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%.0f px", savebake::kSpinnerCell *
+                                           project_.saveSpinnerScale);
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped(
+            "The spinner is res/hud/save-spinner.png - a strip of %d cells of "
+            "%dx%d, written when missing, so replacing the file replaces the "
+            "animation.",
+            savebake::kSpinnerFrames, savebake::kSpinnerCell,
+            savebake::kSpinnerCell);
+        ImGui::PopStyleColor();
+    }
+
     // --- What lands in a save slot ------------------------------------------
     ImGui::SeparatorText("What a save slot stores");
     const templates::SaveSizeInfo sz = templates::saveSizeInfo(project_);

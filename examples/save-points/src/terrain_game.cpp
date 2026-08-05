@@ -2552,6 +2552,26 @@ void TerrainGame::buildScene() {
     setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
                 (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
                 (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL, (float)SAVE_SPINNER_CELL);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sz = (float)SAVE_SPINNER_CELL * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sz
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sz : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd("hud/save-spinner.png"))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -5328,7 +5348,35 @@ bool TerrainGame::updateSaveMenu() {
   if (scriptCtx.commitCheckpoint >= 0) {
     const int slot = scriptCtx.commitCheckpoint;
     scriptCtx.commitCheckpoint = -1;
-    if (checkpointValid && slot < SAVE_SLOTS && cardOp < 0) beginCardOp(2, slot);
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
   }
 
   // A card op owns the pad. The blocking libmc transfer only runs once the
@@ -5392,7 +5440,18 @@ bool TerrainGame::updateSaveMenu() {
   // beginCardOp so the "checking memory card" screen is up while the card is
   // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
   // warning has actually been drawn.
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) beginCardOp(0, saveMenuSlot);
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
     beginCardOp(1, saveMenuSlot);
   return true;
@@ -5446,13 +5505,33 @@ void TerrainGame::captureState(SaveGameData& d) {
   }
 }
 
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
 void TerrainGame::doSave(int slot) {
   static SaveGameData d;  // the payload can be a few KB - keep it off the stack
-  captureState(d);
-  const bool ok = saveWrite(slot, d);
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -5526,6 +5605,15 @@ void TerrainGame::renderSaveMenu() {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveBusySprite);
     return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);

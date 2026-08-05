@@ -957,6 +957,22 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).

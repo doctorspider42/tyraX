@@ -1548,6 +1548,13 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << ",\n  \"saveIconFrames\": " << p.saveIconFrames;
     json << ",\n  \"saveIconMotion\": \"" << jsonEscape(p.saveIconMotion) << "\"";
     json << ",\n  \"saveIconMotionAmount\": " << fmtFloat(p.saveIconMotionAmount);
+    json << ",\n  \"saveMenuWritesCheckpoint\": "
+         << (p.saveMenuWritesCheckpoint ? "true" : "false");
+    json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
+    json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
+    json << ",\n  \"saveSpinnerCorner\": " << p.saveSpinnerCorner;
+    json << ",\n  \"saveSpinnerMargin\": " << fmtFloat(p.saveSpinnerMargin);
+    json << ",\n  \"saveSpinnerScale\": " << fmtFloat(p.saveSpinnerScale);
 }
 
 static void writeGradingsSection(std::ostream& json, const Project& p) {
@@ -4078,6 +4085,26 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
         if (out.saveIconMotionAmount < 0.25f) out.saveIconMotionAmount = 0.25f;
         if (out.saveIconMotionAmount > 2.0f) out.saveIconMotionAmount = 2.0f;
     }
+    if (const auto* v = root.find("saveMenuWritesCheckpoint"))
+        out.saveMenuWritesCheckpoint = v->boolOr(false);
+    if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
+    if (const auto* v = root.find("saveSpinner"))
+        out.saveSpinner = v->boolOr(true);
+    if (const auto* v = root.find("saveSpinnerCorner")) {
+        out.saveSpinnerCorner = (int)v->numberOr(3.0);
+        if (out.saveSpinnerCorner < 0 || out.saveSpinnerCorner > 3)
+            out.saveSpinnerCorner = 3;
+    }
+    if (const auto* v = root.find("saveSpinnerMargin")) {
+        out.saveSpinnerMargin = (float)v->numberOr(20.0);
+        if (out.saveSpinnerMargin < 0.0f) out.saveSpinnerMargin = 0.0f;
+        if (out.saveSpinnerMargin > 200.0f) out.saveSpinnerMargin = 200.0f;
+    }
+    if (const auto* v = root.find("saveSpinnerScale")) {
+        out.saveSpinnerScale = (float)v->numberOr(1.0);
+        if (out.saveSpinnerScale < 0.4f) out.saveSpinnerScale = 0.4f;
+        if (out.saveSpinnerScale > 3.0f) out.saveSpinnerScale = 3.0f;
+    }
 }
 
 static void readGradingsSection(const json::Value& root, Project& out) {
@@ -5749,6 +5776,21 @@ std::string refreshGenerated(const Project& p) {
             fs::create_directories(busy.parent_path(), ec);
             std::ofstream f(busy, std::ios::binary);
             if (!f) return "Cannot write save overlay: " + busy.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // The async write's spinner sheet, same write-when-missing rule so an
+    // author can drop in their own strip of savebake::kSpinnerFrames cells.
+    {
+        const fs::path spin = fs::path(p.dir) / "res" / "hud" / "save-spinner.png";
+        std::error_code ec;
+        if (!fs::exists(spin, ec)) {
+            std::vector<unsigned char> png;
+            if (!savebake::spinnerPNG(png)) return "Save spinner bake failed";
+            fs::create_directories(spin.parent_path(), ec);
+            std::ofstream f(spin, std::ios::binary);
+            if (!f) return "Cannot write save spinner: " + spin.string();
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
         }

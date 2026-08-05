@@ -1512,6 +1512,22 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
@@ -2623,6 +2639,22 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
@@ -5262,6 +5294,26 @@ void TerrainGame::buildScene() {
     setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
                 (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
                 (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL, (float)SAVE_SPINNER_CELL);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sz = (float)SAVE_SPINNER_CELL * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sz
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sz : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd("hud/save-spinner.png"))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -8038,7 +8090,35 @@ bool TerrainGame::updateSaveMenu() {
   if (scriptCtx.commitCheckpoint >= 0) {
     const int slot = scriptCtx.commitCheckpoint;
     scriptCtx.commitCheckpoint = -1;
-    if (checkpointValid && slot < SAVE_SLOTS && cardOp < 0) beginCardOp(2, slot);
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
   }
 
   // A card op owns the pad. The blocking libmc transfer only runs once the
@@ -8102,7 +8182,18 @@ bool TerrainGame::updateSaveMenu() {
   // beginCardOp so the "checking memory card" screen is up while the card is
   // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
   // warning has actually been drawn.
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) beginCardOp(0, saveMenuSlot);
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
     beginCardOp(1, saveMenuSlot);
   return true;
@@ -8156,13 +8247,33 @@ void TerrainGame::captureState(SaveGameData& d) {
   }
 }
 
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
 void TerrainGame::doSave(int slot) {
   static SaveGameData d;  // the payload can be a few KB - keep it off the stack
-  captureState(d);
-  const bool ok = saveWrite(slot, d);
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -8236,6 +8347,15 @@ void TerrainGame::renderSaveMenu() {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveBusySprite);
     return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -32407,6 +32527,14 @@ static std::string saveSystemHeader(const Project& p) {
            "bool saveWrite(int slot, const SaveGameData& data);\n"
            "bool saveRead(int slot, SaveGameData& out);\n"
            "\n"
+           "// Asynchronous write: Begin copies the payload and starts the\n"
+           "// libmc chain, Poll drives it one step per frame and returns true\n"
+           "// the frame it is finished (*okOut = whether the slot was\n"
+           "// written). Busy is the guard against starting a second one.\n"
+           "bool saveWriteBegin(int slot, const SaveGameData& data);\n"
+           "bool saveWritePoll(bool* okOut);\n"
+           "bool saveWriteBusy();\n"
+           "\n"
            "// Copies the editor-baked save icon (save/icon.sys + list.icn,\n"
            "// shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser\n"
            "// shows the game's title and icon. Runs once per boot when the\n"
@@ -32416,6 +32544,31 @@ static std::string saveSystemHeader(const Project& p) {
            "// hud/save-busy.png sprite size (\"checking memory card\" warning)\n"
         << "constexpr int SAVE_BUSY_W = " << busyW << ";\n"
         << "constexpr int SAVE_BUSY_H = " << busyH << ";\n"
+           "\n"
+           "// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu\n"
+           "// writes the last checkpoint instead of a live snapshot.\n"
+           "// SAVE_ASYNC: writes are stepped one libmc call per frame while\n"
+           "// the game keeps running, with the spinner instead of the\n"
+           "// \"checking memory card\" overlay (loads stay blocking).\n"
+        << "constexpr bool SAVE_MENU_CHECKPOINT = "
+        << (p.saveMenuWritesCheckpoint ? "true" : "false") << ";\n"
+        << "constexpr bool SAVE_ASYNC = " << (p.saveAsync ? "true" : "false")
+        << ";\n"
+        << "constexpr bool SAVE_SPINNER = " << (p.saveSpinner ? "true" : "false")
+        << ";\n"
+        << "constexpr int SAVE_SPINNER_FRAMES = " << savebake::kSpinnerFrames
+        << ";\n"
+        << "constexpr int SAVE_SPINNER_CELL = " << savebake::kSpinnerCell
+        << ";\n"
+           "// Frames each cell is held for - the sheet is walked at 50/HOLD\n"
+           "// cells a second, which is a calm spin rather than a blur.\n"
+        << "constexpr int SAVE_SPINNER_HOLD = 4;\n"
+        << "constexpr int SAVE_SPINNER_CORNER = " << p.saveSpinnerCorner
+        << ";  // 0 TL, 1 TR, 2 BL, 3 BR\n"
+        << "constexpr float SAVE_SPINNER_MARGIN = "
+        << floatLit(p.saveSpinnerMargin) << ";\n"
+        << "constexpr float SAVE_SPINNER_SCALE = "
+        << floatLit(p.saveSpinnerScale) << ";\n"
            "\n}  // namespace "
         << ns << "\n";
     return out.str();
@@ -32614,6 +32767,80 @@ bool saveWrite(int slot, const SaveGameData& data) {
   const size_t written = fwrite(&data, 1, sizeof(data), f);
   fclose(f);
   return written == sizeof(data);
+}
+
+// --- Asynchronous write (docs/save-editor.md) --------------------------------
+// Every libmc call is asynchronous already - the blocking saveWrite above just
+// answers each one with mcSync(MC_WAIT). Here the same open/write/close chain
+// is driven ONE STEP PER FRAME with mcSync(MC_NOWAIT), whose contract is:
+// 0 = still executing, 1 = finished (result written out), -1 = nothing
+// registered. The game keeps running in between.
+//
+// The payload is copied into asyncData up front, so nothing the player does
+// during the transfer can change the bytes being written.
+static SaveGameData asyncData;
+static int asyncStage = 0;  // 0 idle, 1 open, 2 write, 3 close, 4 host one-shot
+static int asyncSlot = -1, asyncFd = -1;
+static bool asyncOk = false;
+
+bool saveWriteBusy() { return asyncStage != 0; }
+
+bool saveWriteBegin(int slot, const SaveGameData& data) {
+  if (asyncStage != 0) return false;  // one transfer at a time
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  asyncData = data;
+  asyncSlot = slot;
+  asyncOk = false;
+  asyncFd = -1;
+  if (!mcReady) {
+    // The host fallback is a plain fwrite next to the ELF - microseconds, and
+    // there is no libmc chain to step through. Finish it on the next poll so
+    // both paths look identical to the caller.
+    asyncStage = 4;
+    return true;
+  }
+  mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+  asyncStage = 1;
+  return true;
+}
+
+bool saveWritePoll(bool* okOut) {
+  if (asyncStage == 0) return true;
+  if (asyncStage == 4) {  // host fallback
+    asyncOk = saveWrite(asyncSlot, asyncData);
+    asyncStage = 0;
+    if (okOut) *okOut = asyncOk;
+    return true;
+  }
+  int cmd = 0, res = -1;
+  const int sync = mcSync(MC_NOWAIT, &cmd, &res);
+  if (sync == 0) return false;  // still executing - come back next frame
+  if (sync < 0) {               // nothing registered: the chain is broken
+    asyncStage = 0;
+    if (okOut) *okOut = false;
+    return true;
+  }
+  if (asyncStage == 1) {
+    asyncFd = res;
+    if (asyncFd < 0) {
+      asyncStage = 0;
+      if (okOut) *okOut = false;
+      return true;
+    }
+    mcWrite(asyncFd, &asyncData, sizeof(asyncData));
+    asyncStage = 2;
+    return false;
+  }
+  if (asyncStage == 2) {
+    asyncOk = res == (int)sizeof(asyncData);
+    mcClose(asyncFd);
+    asyncStage = 3;
+    return false;
+  }
+  // stage 3: the close landed, so the slot is on the card
+  asyncStage = 0;
+  if (okOut) *okOut = asyncOk;
+  return true;
 }
 
 bool saveRead(int slot, SaveGameData& out) {
