@@ -24,6 +24,29 @@ The **icon** is a real PS2 3D icon (`list.icn`), not a picture:
 | `res/models/*.obj` | The model's own triangles plus its `map_Kd` texture (Kd baked into vertex colours), with the same idle sway. |
 | `res/models/*.glb` | The chosen **clip**, sampled into up to 8 morph shapes — the icon actually plays your animation in the browser, like retail saves. |
 
+## Motion
+
+A memory card icon has no runtime transform: the browser blends between **morph
+shapes**, and that is all. So "animation" here means shipping several displaced
+copies of the model, which is why **Frames** (1–8) is both the smoothness knob
+and most of the file size.
+
+A `.glb` with a clip uses the clip. Everything else — the flat quad, an `.obj`,
+a `.glb` that carries no animation — takes one of the built-in **Motion**
+presets, with an **Amount** multiplier on the amplitude:
+
+| Motion | What it does |
+| --- | --- |
+| **Sway** (default) | A gentle turn left and right. What every icon did before this setting existed, so an older project keeps its look. |
+| **Bounce** | Hops and squashes as it lands — the classic PS2 save icon. The landing frame *is* the loop point, so it cannot stutter. |
+| **Spin** | A full turn per loop. Give it most of the 8 frames: with few shapes the browser lerps *through* the model rather than around it. |
+| **Pulse** | Breathes about its centre. The quietest, and the one that reads best on a flat image icon. |
+| **Tilt** | Rocks about its feet like a metronome. Wants a clear base — a floating shape looks like it is falling over. |
+| **None** | One shape, no motion. Also the smallest `list.icn` you can ship. |
+
+The Save Editor previews whichever you pick, animated, before anything reaches
+a card.
+
 Models are auto-fitted into icon space. Anything over **800 triangles** falls
 back to the quad (the browser gets sluggish past that) and the Save Editor says
 so.

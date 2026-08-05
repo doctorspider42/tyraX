@@ -8156,19 +8156,55 @@ void App::drawSaveEditorWindow() {
             ImGui::EndCombo();
         }
     }
-    if (!project_.saveIconModel.empty()) {
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
-                         savebake::kMaxIconShapes);
-        if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
-        ImGui::SameLine();
-        ImGui::TextDisabled("(?)");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Animation shapes baked into the icon. A .glb clip is\n"
-                "sampled into this many morph frames; an .obj model (and\n"
-                "the flat quad) gets a gentle idle sway. More frames =\n"
-                "smoother motion but a bigger icon file.");
+    // A .glb with a clip plays that clip, so the idle motion below would mean
+    // nothing for it. saveIconClips_ is already the cached clip list.
+    const bool clipDriven = modelExt == ".glb" && !saveIconClips_.empty();
+
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
+                     savebake::kMaxIconShapes);
+    if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Animation shapes baked into the icon. A .glb clip is sampled\n"
+            "into this many morph frames; everything else gets this many\n"
+            "steps of the Motion below. More frames = smoother motion but\n"
+            "a bigger icon file (each shape is another copy of every vertex).");
+
+    // Idle motion: what a source with no animation of its own does.
+    {
+        const std::vector<savebake::IconMotion>& motions = savebake::iconMotions();
+        const int cur = savebake::iconMotionIndex(project_.saveIconMotion);
+        ImGui::BeginDisabled(clipDriven);
+        if (ImGui::BeginCombo("Motion", motions[cur].label)) {
+            for (size_t i = 0; i < motions.size(); ++i) {
+                if (ImGui::Selectable(motions[i].label, (int)i == cur) &&
+                    (int)i != cur) {
+                    project_.saveIconMotion = motions[i].key;
+                    saveAll("Saved");
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", motions[i].desc);
+            }
+            ImGui::EndCombo();
+        }
+        if (savebake::iconMotionIndex(project_.saveIconMotion) != 5) {
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            ImGui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f,
+                               2.0f, "%.2fx");
+            if (ImGui::IsItemDeactivatedAfterEdit()) saveAll("Saved");
+        }
+        ImGui::EndDisabled();
+        // TextWrapped, not TextDisabled: these descriptions are a sentence or
+        // two and the panel is narrow, so an unwrapped one is simply cut off.
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("%s", clipDriven
+                                     ? "The .glb clip drives this icon's motion."
+                                     : motions[cur].desc);
+        ImGui::PopStyleColor();
     }
 
     // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
@@ -8211,7 +8247,9 @@ void App::drawSaveEditorWindow() {
     const std::string previewKey = project_.dir + "|" + project_.saveIcon +
                                    "|" + project_.saveIconModel + "|" +
                                    project_.saveIconClip + "|" +
-                                   std::to_string(project_.saveIconFrames);
+                                   std::to_string(project_.saveIconFrames) +
+                                   "|" + project_.saveIconMotion + "|" +
+                                   std::to_string(project_.saveIconMotionAmount);
     if (saveIconPreviewKey_ != previewKey || saveIconPreviewTex_.empty()) {
         saveIconInfo_ = savebake::iconInfo(project_);  // stats line, same bake
         const std::vector<std::vector<unsigned char>> frames =

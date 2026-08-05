@@ -66,7 +66,8 @@ float at head height and still collect.
 
 - a two-line browser title, `Save Points|crystal run` (the `|` is the break),
 - a **3D icon** from `res/models/crystal.obj` — 12 triangles, so nowhere near
-  the 800-triangle cap, and it sways in the PS2 browser,
+  the 800-triangle cap, set to **Bounce** over 8 frames so the crystal hops and
+  squashes on landing the way retail PS2 saves did,
 - one save value (`coins`) and one save text (`checkpoint`).
 
 The Save Editor's size table is worth reading with this project open: the slot

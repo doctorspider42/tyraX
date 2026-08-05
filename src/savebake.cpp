@@ -17,6 +17,41 @@ std::string displayTitle(const Project& p) {
     return p.saveTitle.empty() ? p.name : p.saveTitle;
 }
 
+// ORDER IS THE ENUM: applyMotion switches on the index, so entries may be
+// appended but never reordered - the key is what the .tyra stores, and a
+// project written by another editor must not change meaning here.
+const std::vector<IconMotion>& iconMotions() {
+    static const std::vector<IconMotion> motions = {
+        {"sway", "Sway",
+         "A gentle turn left and right. The original motion, and what an icon "
+         "with no setting still does."},
+        {"bounce", "Bounce",
+         "Hops, squashing as it lands - the classic PS2 save icon. The "
+         "landing frame IS the loop point, so it never stutters."},
+        {"spin", "Spin",
+         "A full turn per loop. Wants most of the 8 shapes: with few shapes "
+         "the browser lerps THROUGH the model between them rather than "
+         "around it."},
+        {"pulse", "Pulse",
+         "Breathes in and out about its centre. The quietest of these, and "
+         "the one that reads well on a flat image icon."},
+        {"tilt", "Tilt",
+         "Rocks about its feet like a metronome. Suits something with a "
+         "clear base; a floating shape looks like it is falling over."},
+        {"none", "None",
+         "No motion. The icon ships as a single shape, which is also the "
+         "smallest a list.icn can be."},
+    };
+    return motions;
+}
+
+int iconMotionIndex(const std::string& key) {
+    const std::vector<IconMotion>& m = iconMotions();
+    for (size_t i = 0; i < m.size(); ++i)
+        if (key == m[i].key) return (int)i;
+    return 0;  // "" and anything unknown: the pre-setting sway
+}
+
 HudText busyText() {
     HudText t;
     t.name = "save-busy";
@@ -276,29 +311,100 @@ void fitToIconSpace(IconGeo& g) {
     for (size_t i = 1; i < g.normal.size(); i += 3) g.normal[i] = -g.normal[i];
 }
 
-// Duplicates shape 0 into `shapes` sets, each yawed by a sine sway - the
-// idle motion for sources with no animation of their own (the flat quad
-// and .obj models). Small angles morph cleanly; the loop is seamless.
-void applySway(IconGeo& g, int shapes) {
+// Duplicates shape 0 into `shapes` displaced sets - the idle motion for
+// sources with no animation of their own (the flat quad, .obj models, and a
+// .glb that carries no clip). Every motion is a closed loop over k/shapes so
+// the last shape crossfades back into shape 0 with no jolt.
+//
+// Remember icon space is Y-DOWN (fitToIconSpace puts the feet at y=0 and up
+// at -y), so "jump" means SUBTRACTING from y.
+void applyMotion(IconGeo& g, int shapes, int motion, float amount) {
     if (shapes <= 1 || g.pos.empty()) return;
-    const std::vector<float> base(g.pos.begin(), g.pos.begin() + g.verts() * 3);
-    g.pos.resize((size_t)g.verts() * 3 * shapes);
+    if (motion == 5) return;  // "none": one shape, nothing to duplicate
+    const int nv = g.verts();
+    const std::vector<float> base(g.pos.begin(), g.pos.begin() + nv * 3);
+    g.pos.resize((size_t)nv * 3 * shapes);
     g.shapes = shapes;
+
+    // Model extent, for the amplitudes that should scale with the icon rather
+    // than with whatever units the source model happened to use.
+    float mnY = base[1], mxY = base[1];
+    for (int v = 0; v < nv; ++v) {
+        mnY = std::min(mnY, base[v * 3 + 1]);
+        mxY = std::max(mxY, base[v * 3 + 1]);
+    }
+    const float height = std::max(0.001f, mxY - mnY);
+    const float midY = (mnY + mxY) * 0.5f;
+    const float amp = std::max(0.0f, amount);
+
     for (int k = 0; k < shapes; ++k) {
-        const float a = 0.22f * sinf(6.2831853f * k / shapes);  // ~12.5 deg
-        const float c = cosf(a), sn = sinf(a);
-        float* out = &g.pos[(size_t)k * g.verts() * 3];
-        for (int v = 0; v < g.verts(); ++v) {
-            const float x = base[v * 3], y = base[v * 3 + 1], z = base[v * 3 + 2];
-            out[v * 3 + 0] = x * c + z * sn;
+        const float t = (float)k / (float)shapes;  // 0..1 around the loop
+        const float TAU = 6.2831853f;
+        float* out = &g.pos[(size_t)k * nv * 3];
+        for (int v = 0; v < nv; ++v) {
+            float x = base[v * 3], y = base[v * 3 + 1], z = base[v * 3 + 2];
+            switch (motion) {
+                case 1: {  // bounce: one hop per loop, squashing on landing
+                    // |sin| peaks mid-loop and touches down at both ends, so
+                    // the contact frame IS the loop point - no visible seam.
+                    const float h = std::fabs(sinf(3.14159265f * t));
+                    const float squash = 1.0f - 0.16f * amp * (1.0f - h);
+                    const float widen = 1.0f + 0.10f * amp * (1.0f - h);
+                    y = midY + (y - midY) * squash;
+                    y -= h * height * 0.30f * amp;  // up = -y
+                    x *= widen;
+                    z *= widen;
+                    break;
+                }
+                case 2: {  // spin: a full turn, distributed over the shapes
+                    const float a = TAU * t;
+                    const float c = cosf(a), sn = sinf(a);
+                    const float nx = x * c + z * sn;
+                    z = -x * sn + z * c;
+                    x = nx;
+                    break;
+                }
+                case 3: {  // pulse: breathe about the model's centre
+                    const float s = 1.0f + 0.12f * amp * sinf(TAU * t);
+                    x *= s;
+                    z *= s;
+                    y = midY + (y - midY) * s;
+                    break;
+                }
+                case 4: {  // tilt: rock about the feet, like a metronome
+                    const float a = 0.20f * amp * sinf(TAU * t);
+                    const float c = cosf(a), sn = sinf(a);
+                    const float ry = y - mnY;  // pivot at the feet
+                    const float nx = x * c - ry * sn;
+                    y = mnY + (x * sn + ry * c);
+                    x = nx;
+                    break;
+                }
+                default: {  // 0 - sway: the original ~12.5 deg yaw rock
+                    const float a = 0.22f * amp * sinf(TAU * t);
+                    const float c = cosf(a), sn = sinf(a);
+                    const float nx = x * c + z * sn;
+                    z = -x * sn + z * c;
+                    x = nx;
+                    break;
+                }
+            }
+            out[v * 3 + 0] = x;
             out[v * 3 + 1] = y;
-            out[v * 3 + 2] = -x * sn + z * c;
+            out[v * 3 + 2] = z;
         }
     }
 }
 
+// The motion a project asks for, and how many shapes it should get. "none"
+// collapses to a single shape, which is also the smallest list.icn possible.
+int motionShapes(int motion, int frames) {
+    if (motion == 5) return 1;
+    return std::max(1, std::min(frames, (int)kMaxIconShapes));
+}
+
 // The flat two-sided quad (the default icon and every fallback).
-IconGeo quadGeo(const Project& p) {
+IconGeo quadGeo(const Project& p, int frames) {
     IconGeo g;
     const float W = 1.8f, H = 3.6f;
     const float quad[4][3] = {
@@ -316,7 +422,8 @@ IconGeo quadGeo(const Project& p) {
         }
     g.texture = iconTextureRGBA(p);
     fitToIconSpace(g);
-    applySway(g, kQuadShapes);
+    const int m = iconMotionIndex(p.saveIconMotion);
+    applyMotion(g, motionShapes(m, frames), m, p.saveIconMotionAmount);
     return g;
 }
 
@@ -379,7 +486,8 @@ bool objGeo(const Project& p, const std::string& rel, int frames, IconGeo& g,
     if (texPath.empty() || !textureFromFile(texPath, g.texture))
         modelFallbackTexture(p, g.texture);
     fitToIconSpace(g);
-    applySway(g, frames);
+    const int mo = iconMotionIndex(p.saveIconMotion);
+    applyMotion(g, motionShapes(mo, frames), mo, p.saveIconMotionAmount);
     info.source = std::filesystem::path(rel).filename().string();
     return true;
 }
@@ -402,11 +510,19 @@ bool glbGeo(const Project& p, const std::string& rel, int frames, IconGeo& g,
                        " tris (icon cap " + std::to_string(kMaxIconTris) + ")";
         return false;
     }
-    const glbparser::Clip* clip = &baked.clips[0];
-    for (const glbparser::Clip& c : baked.clips)
-        if (!p.saveIconClip.empty() && c.name == p.saveIconClip) clip = &c;
-    const int shapes = std::max(1, std::min({frames, clip->frameCount,
-                                             (int)kMaxIconShapes}));
+    // A .glb is not required to animate. With no clip there is nothing to
+    // sample, so the model becomes a static source that takes the idle motion
+    // like an .obj - and, less visibly, clips[0] is no longer read off an
+    // empty vector.
+    const bool hasClip = !baked.clips.empty();
+    const glbparser::Clip* clip = hasClip ? &baked.clips[0] : nullptr;
+    if (hasClip)
+        for (const glbparser::Clip& c : baked.clips)
+            if (!p.saveIconClip.empty() && c.name == p.saveIconClip) clip = &c;
+    const int shapes =
+        hasClip ? std::max(1, std::min({frames, clip->frameCount,
+                                        (int)kMaxIconShapes}))
+                : 1;
     g.shapes = shapes;
 
     // Texture: the image referenced by the most vertices.
@@ -433,8 +549,9 @@ bool glbGeo(const Project& p, const std::string& rel, int frames, IconGeo& g,
     const int totalVerts = baked.totalVertexCount();
     g.pos.resize((size_t)shapes * totalVerts * 3);
     for (int k = 0; k < shapes; ++k) {
-        const int f = clip->firstFrame +
-                      (int)((long long)k * clip->frameCount / shapes);
+        const int f = hasClip ? clip->firstFrame +
+                                    (int)((long long)k * clip->frameCount / shapes)
+                              : 0;
         float* out = &g.pos[(size_t)k * totalVerts * 3];
         size_t o = 0;
         for (const glbparser::Part& part : baked.parts) {
@@ -455,7 +572,7 @@ bool glbGeo(const Project& p, const std::string& rel, int frames, IconGeo& g,
             (unsigned char)(part.baseColor[1] * 255.0f + 0.5f),
             (unsigned char)(part.baseColor[2] * 255.0f + 0.5f)};
         const size_t n = (size_t)part.vertexCount * 3;
-        const int f0 = clip->firstFrame;
+        const int f0 = hasClip ? clip->firstFrame : 0;
         for (size_t t = 0; t < (size_t)part.vertexCount / 3; ++t)
             for (int vi = 2; vi >= 0; --vi) {
                 const size_t v = t * 3 + vi;
@@ -473,8 +590,15 @@ bool glbGeo(const Project& p, const std::string& rel, int frames, IconGeo& g,
             }
     }
     fitToIconSpace(g);
-    info.source = std::filesystem::path(rel).filename().string() + " (" +
-                  clip->name + ")";
+    const std::string file = std::filesystem::path(rel).filename().string();
+    if (hasClip) {
+        info.source = file + " (" + clip->name + ")";
+    } else {
+        // No clip to play, so it animates like any other static source.
+        const int m = iconMotionIndex(p.saveIconMotion);
+        applyMotion(g, motionShapes(m, frames), m, p.saveIconMotionAmount);
+        info.source = file + " (no clip)";
+    }
     return true;
 }
 
@@ -494,7 +618,7 @@ IconGeo buildGeo(const Project& p, IconInfo& info) {
         // fall through to the quad; info.warning explains why
         info.source = "flat image (fallback)";
     }
-    return quadGeo(p);
+    return quadGeo(p, frames);
 }
 }  // namespace
 

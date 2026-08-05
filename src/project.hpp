@@ -2239,6 +2239,13 @@ struct Project {
     std::string saveIconModel;
     std::string saveIconClip;   // .glb clip name ("" = the first clip)
     int saveIconFrames = 6;     // animation shapes, 1..kMaxIconShapes
+    // Idle motion baked into the shapes for a source that carries no
+    // animation of its own - the flat quad, an .obj, or a .glb with no clips
+    // (a .glb WITH a clip plays the clip and ignores this). A stable string
+    // key, not an index: see savebake::iconMotions(). "" reads as "sway",
+    // which is what every icon did before the setting existed.
+    std::string saveIconMotion;
+    float saveIconMotionAmount = 1.0f;  // amplitude scale, 0.25..2
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the

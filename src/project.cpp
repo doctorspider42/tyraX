@@ -1546,6 +1546,8 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << ",\n  \"saveIconModel\": \"" << jsonEscape(p.saveIconModel) << "\"";
     json << ",\n  \"saveIconClip\": \"" << jsonEscape(p.saveIconClip) << "\"";
     json << ",\n  \"saveIconFrames\": " << p.saveIconFrames;
+    json << ",\n  \"saveIconMotion\": \"" << jsonEscape(p.saveIconMotion) << "\"";
+    json << ",\n  \"saveIconMotionAmount\": " << fmtFloat(p.saveIconMotionAmount);
 }
 
 static void writeGradingsSection(std::ostream& json, const Project& p) {
@@ -4066,6 +4068,15 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
         out.saveIconFrames = (int)f->numberOr(6.0);
         if (out.saveIconFrames < 1) out.saveIconFrames = 1;
         if (out.saveIconFrames > 8) out.saveIconFrames = 8;
+    }
+    // A project written before the motion setting has neither key; "" is the
+    // sway every icon used to do, so those keep looking exactly as they did.
+    if (const auto* m = root.find("saveIconMotion"))
+        out.saveIconMotion = m->stringOr("");
+    if (const auto* a = root.find("saveIconMotionAmount")) {
+        out.saveIconMotionAmount = (float)a->numberOr(1.0);
+        if (out.saveIconMotionAmount < 0.25f) out.saveIconMotionAmount = 0.25f;
+        if (out.saveIconMotionAmount > 2.0f) out.saveIconMotionAmount = 2.0f;
     }
 }
 

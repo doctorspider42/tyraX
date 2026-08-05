@@ -103,7 +103,7 @@ const int* saveInitCodes() { return initCodes; }
 // into the save directory so the PS2 browser shows the game's title and icon.
 // mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
 // slot payload. The buffer is sized by codegen to this build's baked icon.
-alignas(64) static unsigned char iconBuf[35328];
+alignas(64) static unsigned char iconBuf[35968];
 
 static bool mcCopyToCard(const char* hostRel, const char* cardName) {
   FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");

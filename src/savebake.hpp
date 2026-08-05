@@ -65,9 +65,27 @@ std::vector<unsigned char> iconIcn(const Project& p, IconInfo* info = nullptr);
 std::vector<std::vector<unsigned char>> iconPreviewFrames(const Project& p,
                                                           int size);
 
+// Idle motions for a source with no animation of its own (Project::
+// saveIconMotion). The browser plays the shapes as morph targets, so every
+// one of these is baked as displaced COPIES of shape 0 - there is no runtime
+// transform on a memory card icon, which is also why they must stay small
+// enough to morph cleanly (a big rotation between two shapes lerps THROUGH
+// the model rather than around it).
+struct IconMotion {
+    const char* key;    // what the .tyra stores - stable, never translated
+    const char* label;  // what the picker shows
+    const char* desc;   // one line of help
+};
+const std::vector<IconMotion>& iconMotions();
+
+// Index into iconMotions() for a stored key. An empty or unknown key gives 0
+// (sway), which is what every icon did before the setting existed - so an old
+// project and one written by a newer editor both degrade to the old look.
+int iconMotionIndex(const std::string& key);
+
 constexpr int kMaxIconTris = 800;  // beyond this the browser gets sluggish
 constexpr int kMaxIconShapes = 8;
-constexpr int kQuadShapes = 6;  // the flat icon's sway animation
+constexpr int kQuadShapes = 6;  // shapes the flat icon animates over
 
 constexpr int kIconSysBytes = 964;
 
