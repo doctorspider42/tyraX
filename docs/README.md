@@ -222,6 +222,10 @@ guides. What is queued is in [Backlog](backlog.md).
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more
   than NTSC.
+- [Project format versioning & migrations](format-versioning.md) - the
+  editor/format version split, what happens when you open an older or newer
+  project (silent open vs the migrate-with-backup prompt vs refusal), the
+  `--migrate` CLI, and the bump/migration rules for contributors.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

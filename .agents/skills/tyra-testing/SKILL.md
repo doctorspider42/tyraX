@@ -12,18 +12,25 @@ description: >
   Use this skill EVERY time you need to test a change, run the editor, build a
   game, boot PCSX2, take a screenshot, PRESS A BUTTON / move the player / drive
   the emulator or the editor without a human, create a scratch project, or decide
-  "how do I know this works?" — including before writing a PROGRESS.md entry or
+  "how do I know this works?" — including before writing a commit message or
   claiming a change is verified. There is no unit-test suite in this repo; this
   skill is the testing story.
 ---
 
 # Building, running and verifying
 
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
-PROGRESS.md about which layer you reached (the existing entries distinguish
-"verified in PCSX2" from "compiles, needs a pad test by a human").
+your commit message and PR body about which layer you reached — the established
+wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
+human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
+the honesty convention outlived the file.)
 
 ## Layer 0 — build the editor
 
@@ -88,7 +95,7 @@ warnings matter, the build is expected to be clean.
 **Only one platform's compiler runs at a time, so a cross-platform change is
 only half-checked until the other side builds too.** Anything touching
 `src/platform.*`, `wire.cpp`, the Runner, CMakeLists **or any of the paired
-build scripts** needs a build on both, or say so in PROGRESS.md. The pairs that
+build scripts** needs a build on both, or say so in the commit. The pairs that
 must move together — `deps.ps1`/`deps.sh`, `setup.ps1`/`setup.sh`,
 `build.ps1`/`build.sh`, the `if(WIN32)`/`else()` halves of CMakeLists, the
 `#ifdef _WIN32`/`#else` halves of `platform.cpp` — are listed in
@@ -137,8 +144,9 @@ probe is still absent after a fetch.
 
 ```
 TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
-TYRAX --build <projectDir> [--run]   # exit code 0 = success
+TYRAX --build <projectDir> [--run] [--rebuild]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
+TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
@@ -149,8 +157,39 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+VU1 microprogram work has its own layer, faster than everything below
+(`docs/vu-framework.md`):
+
+```
+TYRAX --vu-check [engineDir]         # exit 0 = every program parsed AND every
+                                     #   generated one matches its handwritten
+                                     #   twin bit for bit, in the host simulator
+TYRAX --vu-list <file.vclpp>         # expand + disassemble one microprogram
+TYRAX --vu-emit <outDir>             # generate .vclpp + the EE program classes
+TYRAX --vu-replay <projectDir>       # re-run a console VU1 capture on the host
+```
+
+`--vu-replay` is the only layer that checks the simulator against REAL hardware:
+it reconstructs the input from `bin/vucap.bin` and diffs its own output against
+the console's. `examples/vu-lab` is the fixture built for it. Two things to know
+before trying it on some other project: only the LAST mesh of a chain can be
+replayed (use the Debugger's flush picker to capture a flush carrying ONE mesh -
+a terrain flush with fourteen chunks is not resolvable), and **a project with no
+flow-graph node has no devkit layer at all** - `live_debug.gen.cpp` compiles to an
+empty TU and the capture button does nothing, which looks like a broken feature
+and is the zero-cost rule working.
+
+**Run `--vu-check` after ANY change under `vendor/tyra/.../*.vclpp` or to
+`src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
+parses all 25 shipped microprograms, executes the described ones against their
+handwritten originals on randomized input, and diffs every quadword of the GIF
+packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
+replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
+generated microcode has been built for hardware yet - but a program that fails
+here will not work on the console either.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
-  Dockerfile) **without Docker** — instant way to get a fixture. `fpp` seeds a
+  docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in
   third-person mode (both generate the SAME game sources — the mode is a
   per-object property); `empty` is an orbit-camera scene with no objects. The
@@ -213,7 +252,7 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   are machine-readable project I/O (apply validates node types + link pin
   rules and saves) — handy for scripted graph fixtures; `--ai-graph` runs the
   whole AI generation (docs/ai-tools.md). To e2e-test the AI pipeline without
-  a real backend, put a stub `Codex.cmd` on PATH that swallows stdin
+  a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
@@ -227,6 +266,27 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
   harness-testable (procgraph/procgen/procbake link without GUI, GL or
   templates.cpp - see PROGRESS 171 for the property list that caught three real
   bugs).
+- **Format versioning** (see `docs/format-versioning.md`): `--build`,
+  `--resave`, `--refresh-gen`, `--apply-graph` and `--ai-graph` refuse a project
+  whose `formatVersion` has pending REGISTERED migration steps (exit 1) —
+  `--migrate` is the explicit tool (backs up `.tyra` + `objects/` + heights +
+  splat + flow-nodes/screen-effects into `_backup/`, applies the steps, resaves
+  the same file set as `--resave`; degrades to a plain resave when current). To
+  test a version gate, hand-edit `"formatVersion"` in the manifest: a value
+  above `version::kFormatVersion` must be refused by every path, a lower one
+  opens silently unless a step is registered in `migrations.cpp`. With no step
+  registered the prompt/backup path is unreachable, so exercising it means
+  registering a temporary throwaway step. Two things a throwaway step is the only
+  way to reach, and both are worth re-checking whenever the persisted file set
+  grows: that the `_backup/` copy holds **every** file the post-migration save
+  rewrites (drop a sentinel `terrain-<scene>.splat` in first — the save deletes it
+  when the scene has no layers, so the backup is the only copy), and that a step
+  returning `false` leaves every file **md5-identical**. `migrations::validate()`
+  catches a mis-registered step (out of order, duplicate, out of range): `all()`
+  prints `BROKEN MIGRATION REGISTRY` on stderr at the first command that consults
+  it, and `run` aborts with disk untouched. **A step whose `kFormatVersion` bump
+  you forgot produces NO steps to run** — that stderr line is the only thing
+  between you and an afternoon of "my migration does nothing", so read it.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -308,8 +368,9 @@ TYRAX --build <projectDir> --run
 ```
 
 What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d --build` (container `<name>-compiler-1`) → engine sources checksum-synced
-into the shared volume, `libtyra` rebuilt if changed → project rsynced → `make`
+up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
+sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+(VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
@@ -317,6 +378,21 @@ ELF.
 Notes:
 - First-ever build downloads the `h4570/tyra` image and compiles the engine
   (minutes). Subsequent builds take seconds unless the engine changed.
+- **The whole pipeline is incremental, so measure a build by what it
+  RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
+  log is the number that means something: on `examples/showcase` (18 TUs, 6
+  cores) a build with nothing changed is **0 compiles / ~5 s**, one edited game
+  source is **1 / ~9 s**, a moved scene object is **13 / ~47 s** (the scene
+  table is in a header most TUs include), an engine `.cpp` is **~7 s**, an
+  engine `.vclpp` is **~2 min** (the microprograms), and `--rebuild` is
+  **~5 min** from nothing. A "no changes" build that still compiles things is a
+  regression with a specific cause — some step wrote a file the compiler reads
+  (see the `runner.cpp` row in tyra-editor-dev); find it by comparing mtimes in
+  the container against `/src/obj/*.d`.
+- **`--rebuild` is the escape hatch** and the control when you suspect the
+  incremental logic itself: it recreates the container and rebuilds the engine
+  and the game from source. `Clean` is the other hammer — it also wipes the
+  host's `bin/`.
 - PCSX2.ini is found portable-first (an `inis/` next to the executable), then
   per OS: the Documents known folder on Windows — **Documents may be
   OneDrive-redirected** (e.g. `...\OneDrive - <org>\Dokumenty\PCSX2\`), not
@@ -421,7 +497,7 @@ Notes:
   an ELF path over ~145 characters: emulog stops after `ELF Loading: ...`, the
   EE never reaches `is executing`, `bin/log.txt` is never written, and the
   window is black with no diagnostic. The editor warns, but a scratchpad path
-  under `/tmp/Codex-*/...` blows past the limit on its own - put e2e fixtures
+  under `/tmp/claude-*/...` blows past the limit on its own - put e2e fixtures
   in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
   produces nothing but `TLB Miss` spam, measure the path before debugging the
   game.
@@ -445,7 +521,7 @@ Notes:
   script — a GDI capture that works reliably:
 
   ```powershell
-  powershell -File .Codex/skills/tyra-testing/scripts/screenshot-window.ps1 `
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
       -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
   ```
 
@@ -461,7 +537,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .Codex\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -517,7 +593,7 @@ Notes:
   synthetic keyboard/mouse, no human in the loop:
 
   ```bash
-  python3 .Codex/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
   ```
 
   It talks straight to **mutter's own D-Bus APIs** (`org.gnome.Mutter.ScreenCast`
@@ -536,7 +612,7 @@ Notes:
   PipeWire every time (~0.6 s each) and drops pointer state in between:
 
   ```bash
-  python3 .Codex/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
   key ctrl+n
   sleep 0.6
   click --at 917,382
@@ -649,7 +725,15 @@ Notes:
   click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
   by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
   shows the rect with an empty label - set the value another way and read the
-  result off a `shot`.
+  result off a `shot`. **The same goes for any widget whose whole label is
+  hidden behind `##`** - a compact search field (`##assetsearch`,
+  `##objsearch`) or a bare combo (`##objtype`) dumps as `-` with a rect and
+  nothing to name, so a filter row like the Scene panel's is only reachable by
+  CLICKING ITS RECT: read the rect off `dump`, add the editor window's screen
+  offset (compare one `dump` rect against one full-screen `shot` to get it -
+  ~67,70 on this box) and drive it with `wayland-control.py click --at x,y` /
+  `type`. Everything else about the run stays the same, and the assertion is
+  the `shot` you crop afterwards.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per
@@ -704,11 +788,11 @@ Notes:
   `main.cpp.o`, `-no-pie`). That isolates the viewport image from the UI, is
   measurable (bounding boxes, bar widths, pixel ratios) rather than
   eyeballed, and works with no display permissions at all. What it cannot
-  cover — the surrounding UI and anything dragged by hand — say so in
-  PROGRESS.md and leave it for a human.
+  cover — the surrounding UI and anything dragged by hand — say so in the
+  commit and leave it for a human.
 
   **A screen effect that cannot be SEEN and one that is not happening look
-  identical** (PROGRESS 231). A Camera Shake at amplitude 0.05 measured **0
+  identical** (retired PROGRESS entry 231). A Camera Shake at amplitude 0.05 measured **0
   pixels differing** across four captures 250 ms apart — the ease-out cuts it to
   0.03, and a 3 cm camera translation is sub-pixel at 512x448 with nothing closer
   than 5.6 m. At amplitude 2.0 the horizon swept 215 px and 545k pixels differed.
@@ -867,8 +951,26 @@ Notes:
   tools. Anything wanted from them is a **ps2link patch**, which is the normal
   workflow here: the console always runs OUR ps2link (`tools/ps2link/` clones a
   pinned upstream, applies `tyrax.patch` and builds it in Docker via
-  `build.sh`/`build.ps1` — see docs/ps2link-setup.md), and hardware-only —
-  PCSX2 runs no ps2link.
+  `build.sh`/`build.ps1` — see docs/ps2link-setup.md).
+
+  **ps2link is no longer hardware-only: it runs in PCSX2.** A SECOND, portable
+  copy of the emulator (`-portable`, its own `inis/bios/logs`, so it cannot
+  disturb a parallel session or the editor's own launches) with **DEV9 bridged**
+  onto the LAN boots `ps2link.elf` and answers the real `ps2client` — same
+  subnet, same ports, `reset` and `execee` included. A wedge then costs
+  `Stop-Process` instead of a walk to the console, which is what makes a
+  Run → Stop → Run A/B a two-minute scripted test: measured 2026-07-31, r4 falls
+  through to the BIOS browser and drops off the LAN where r6 comes back and runs
+  the payload again. The full recipe, the four gotchas (`[DEV9/Eth]` is the ini
+  section, `EthDevice` is the bare adapter GUID, `host:` is served by PCSX2's
+  HostFs relative to the `-elf` directory and NOT by ps2client, ping proves
+  nothing in either direction) and the limits are in
+  **docs/ps2link-setup.md — "Testing a change without a console"**. The limit
+  that matters: **the emulator cannot produce an EE exception** — replayed the
+  r4 `BadAddr 8` crash there and the `printf` returned normally, because main
+  RAM starts at address 0, so a NULL dereference is an ordinary load. Faults,
+  `crash.txt` and the crash handler stay hardware tests; sequencing, restarts,
+  IOP reboots and the protocol do not.
 
   **ps2link is not entirely untestable any more.** `tools/ps2link/test/run.ps1`
   (`run.sh`) compiles the REAL patched `build/iop/net_fio.c` against stub
@@ -1018,6 +1120,21 @@ Notes:
   debug keys/state look wrong), suspect the wire STRIDE first, and check that
   `build/tyrax-editor.exe` was rebuilt before the `--build` that generated the
   game's parser - a stale editor binary generates a stale interpreter.
+- **The log panels' severity split** (docs/log-panels.md): `logview.cpp` is a
+  pure function of text - no ImGui, no `Project` - so which bucket a line lands
+  in is checkable from a 40-line harness (`g++ -std=c++20 -Isrc harness.cpp
+  src/logview.cpp`) fed a realistic build log, no editor needed. Assert TWO
+  things there, because both broke while it was written: that the counts are per
+  ENTRY (a gcc error plus its snippet is one error, not four), and that parsing
+  the log **one line at a time** through `parse(log, from, state, out)` +
+  `appendPartial` gives byte-identical results to one-shot parsing - the panels
+  classify incrementally while a build streams, and the carried continuation
+  state is what a chunk boundary breaks. The panel itself is then a `--ui-script`
+  job (`click 'Output/3 errors'`, `expect-unchecked 'Output/Select text'`), with
+  one catch: the **Debug** window is a dock TAB behind Output in every built-in
+  layout, and a docked tab is an unnamed item, so no script can select it -
+  verify it by temporarily pointing that layout's `pendingFocusWindow_` at
+  `"Debug"`, screenshotting, and reverting.
 - **The editor window sometimes renders WHITE on this machine** (title bar
   only, capture is blank) - a GL present quirk, not a code regression. The
   check that settles it costs 30 seconds: capture
@@ -1050,7 +1167,7 @@ Notes:
   still needs a human: mouse FEEL, analog ramps judged by eye, and the editor's
   own on-screen pad being CLICKED (the panel writes through the same
   `livepad::write` the CLI does, but a synthetic click into the editor is its own
-  problem) - say so in PROGRESS.md, that's the established convention.
+  problem) - say so in the commit message, that's the established convention.
 
 ### The unattended input test, end to end
 
@@ -1064,7 +1181,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".Codex\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
@@ -1078,7 +1195,7 @@ powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle3.png"   # RELEASE
 
 The cheap version of the same run is one `-Watch` (above) over the whole drive:
 it counts the pixels for you, per frame, and hands back one sheet instead of
-five images - the four bullets below still apply, they are just columns then.
+five images — the four bullets below still apply, they are just columns then.
 
 Then count changed pixels between the pairs with a few lines of PIL
 (`ImageChops.difference(...).get_flattened_data()`). Four things make this a real

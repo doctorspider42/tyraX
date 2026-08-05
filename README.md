@@ -196,7 +196,8 @@ Projects can also be created and built headlessly:
 ```bash
 tyrax-editor --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 tyrax-editor --build <projectDir> [--run] [--rebuild]   # --rebuild = from scratch
-tyrax-editor --resave <projectDir>        # load + save (runs format migrations)
+tyrax-editor --resave <projectDir>        # load + save in the current format
+tyrax-editor --migrate <projectDir>       # backup + apply format migrations
 tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
 tyrax-editor --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
 tyrax-editor --vu-check                   # run every VU1 microprogram in the host simulator
@@ -206,10 +207,15 @@ tyrax-editor <projectDir|project.tyra>    # open GUI with a project loaded
 
 (`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux.)
 
-`--resave` loads a project and writes it straight back out, running every
-on-disk format migration in the process (e.g. stamping stable object ids on
-older projects). Use it to batch-migrate existing projects to the current
-format without opening the GUI.
+`--resave` loads a project and writes it straight back out in the current
+on-disk format (e.g. stamping stable object ids and the format version on older
+projects). Use it to batch-migrate existing projects without opening the GUI.
+Projects that need real format *migrations* (data transforms) are refused by
+`--build`/`--resave`/`--refresh-gen`/`--apply-graph`/`--ai-graph`; run
+`--migrate` instead — it backs up the project files into `_backup/` first,
+applies the pending steps and resaves. Opening such a project in the GUI prompts
+for the same backup-and-migrate. See
+[docs/format-versioning.md](docs/format-versioning.md).
 
 `--new` takes the same defaults as the dialog: `100 100` terrain, the `empty`
 preset and `unitsPerMeter` = 1 when omitted, the **debug** profile with Live

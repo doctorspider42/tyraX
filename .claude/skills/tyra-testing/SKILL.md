@@ -146,6 +146,7 @@ probe is still absent after a fetch.
 TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 TYRAX --build <projectDir> [--run] [--rebuild]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
+TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
@@ -265,6 +266,27 @@ here will not work on the console either.
   harness-testable (procgraph/procgen/procbake link without GUI, GL or
   templates.cpp - see PROGRESS 171 for the property list that caught three real
   bugs).
+- **Format versioning** (see `docs/format-versioning.md`): `--build`,
+  `--resave`, `--refresh-gen`, `--apply-graph` and `--ai-graph` refuse a project
+  whose `formatVersion` has pending REGISTERED migration steps (exit 1) —
+  `--migrate` is the explicit tool (backs up `.tyra` + `objects/` + heights +
+  splat + flow-nodes/screen-effects into `_backup/`, applies the steps, resaves
+  the same file set as `--resave`; degrades to a plain resave when current). To
+  test a version gate, hand-edit `"formatVersion"` in the manifest: a value
+  above `version::kFormatVersion` must be refused by every path, a lower one
+  opens silently unless a step is registered in `migrations.cpp`. With no step
+  registered the prompt/backup path is unreachable, so exercising it means
+  registering a temporary throwaway step. Two things a throwaway step is the only
+  way to reach, and both are worth re-checking whenever the persisted file set
+  grows: that the `_backup/` copy holds **every** file the post-migration save
+  rewrites (drop a sentinel `terrain-<scene>.splat` in first — the save deletes it
+  when the scene has no layers, so the backup is the only copy), and that a step
+  returning `false` leaves every file **md5-identical**. `migrations::validate()`
+  catches a mis-registered step (out of order, duplicate, out of range): `all()`
+  prints `BROKEN MIGRATION REGISTRY` on stderr at the first command that consults
+  it, and `run` aborts with disk untouched. **A step whose `kFormatVersion` bump
+  you forgot produces NO steps to run** — that stderr line is the only thing
+  between you and an afternoon of "my migration does nothing", so read it.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars

@@ -5,8 +5,8 @@ description: >
   in the SAME commit. Use this skill whenever you add or change a feature, edit
   behavior, add/move/rename/delete files, change code generation or the project
   file format, or otherwise touch the codebase — before you consider the change
-  done. It lists exactly which docs must be checked (README, PROGRESS, the other
-  skills, example-project READMEs) and when each applies. If you changed code and
+  done. It lists exactly which docs must be checked (README, the other skills,
+  example-project READMEs) and when each applies. If you changed code and
   did not touch any doc, treat that as a smell and re-check against this list.
 ---
 
@@ -19,17 +19,34 @@ whatever the change affected.
 
 ## What to update, and when
 
-- **`PROGRESS.md`** — ALWAYS, for every finished change. Add a numbered entry
-  (continue the sequence) in the "Also done…" section describing **what** was
-  done and **how it was verified** (which test layer you reached — see
-  `tyra-testing`). Match the tone of the surrounding entries; they double as the
-  project's institutional memory, dead ends included. Don't rewrite old entries.
+- **The commit message and the PR description** — ALWAYS, for every finished
+  change. This is where `PROGRESS.md` used to go: it was retired at ~15 800
+  lines because it had become a second copy of the git log that every branch
+  conflicted in, and because completed-work entries had started leaking into its
+  own backlog section. Nothing was lost — the file is in git history (see
+  `docs/backlog.md` for the recipe).
+
+  What the old entries were *good* at is still required, just in its proper
+  place: say **what** changed, **why**, and **how it was verified** — which test
+  layer you actually reached (see `tyra-testing`), and what a human still owes.
+  Dead ends and measured numbers belong there too; that honesty was the valuable
+  half of the log. The difference is that a commit message is attached to the
+  diff it describes, so it cannot drift or collide with a parallel branch.
+
+  A fact worth *re-reading later* — a trap, a measurement, a "why it is this way"
+  — does not belong in a commit message alone. Put it in the relevant `docs/`
+  page or skill, where the next person will actually look for it.
+
+- **`docs/backlog.md`** — when the change finishes, adds or reshapes queued work.
+  Tick off what you completed and add what your change made newly necessary.
+  This is the forward-looking half of the retired log, and the only part of it
+  that is still a living file.
 
 - **`README.md`** — when the change adds/removes a user-visible feature, a new
   panel or menu, a new example project, or changes the repo structure. Keep the
   feature list, the "Example projects" section and the "Structure" list current.
 
-- **`.Codex/skills/*/SKILL.md`** — when the change alters something a skill
+- **`.agents/skills/*/SKILL.md`** — when the change alters something a skill
   describes:
   - `tyra-editor-dev` — the source map, the model → serialization → codegen → UI
     chain, the file-ownership rules, or the "a feature touches the whole chain"
@@ -40,6 +57,15 @@ whatever the change affected.
     steps, new asset-bake behavior).
   - `tyra-pr` — the PR workflow or a new conflict hot spot.
   - this skill (`tyra-docs`) — if the set of docs or the rule itself changes.
+
+  **`.agents/skills/` is the Codex twin of this directory and moves with it, in
+  the same commit** — the same rule as the platform pairs above. The Claude copy
+  is the source of truth; the twin is a plain regeneration of it with two
+  substitutions (the skills path itself, and `AGENTS.md` in place of the root
+  instruction file), so **never hand-edit only one side**. The twin was added as a
+  one-off snapshot with no sync since, and had drifted a full retired-`PROGRESS.md`
+  behind — plus it pointed at a `.Codex/` scripts path that exists in no
+  checkout — before anyone noticed. That is what this bullet exists to prevent.
 
 - **Example-project READMEs** (`examples/*/README.md`) and the projects
   themselves — when codegen, the `.tyra` format, or the terrain/asset pipeline
@@ -71,6 +97,13 @@ whatever the change affected.
   it must touch the other **in the same commit**. The inventory and the two
   traps are in `tyra-editor-dev` ("Platform parity").
 
+- **`src/version.hpp`** — not a doc, but part of the same per-change ritual:
+  bump the editor semver for every user-facing change (feature → MINOR, fix →
+  PATCH, breaking → MAJOR), and bump `kFormatVersion` whenever the change
+  alters what `project::save()` writes — plus a migration step in
+  `migrations.cpp` when existing files need transforming. See
+  `docs/format-versioning.md`.
+
 - **`AGENTS.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).
 
@@ -79,5 +112,6 @@ whatever the change affected.
 ## Rule of thumb
 
 If you touched code and this list produced **zero** doc edits, stop and re-read
-it — that is almost always a miss (a new field wants a PROGRESS entry, a moved
-file wants a README/skill fix, a codegen tweak wants an example regenerate).
+it — that is almost always a miss (a moved file wants a README/skill fix, a
+codegen tweak wants an example regenerate, a trap you just hit wants a line in
+the `docs/` page where the next person will hit it too).

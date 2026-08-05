@@ -26,6 +26,7 @@
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "migrations.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -33,6 +34,7 @@
 #include "stochtile.hpp"
 #include "scrollsim.hpp"
 #include "templates.hpp"
+#include "version.hpp"
 #include "wavconvert.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -474,8 +476,12 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHintString(GLFW_X11_CLASS_NAME, kAppId);
     glfwWindowHintString(GLFW_X11_INSTANCE_NAME, kAppId);
 
-    // Size is the restore-size when the user un-maximizes.
-    window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
+    // Size is the restore-size when the user un-maximizes. The title carries
+    // the editor version from the start: updateWindowTitle() short-circuits
+    // while nothing it watches has changed, so the welcome screen would
+    // otherwise keep a bare "TyraX" until the first project is opened.
+    const std::string initialTitle = std::string("TyraX ") + version::kEditorVersion;
+    window_ = glfwCreateWindow(1600, 900, initialTitle.c_str(), nullptr, nullptr);
     if (window_) platform::setDialogOwner(window_);
     if (!window_) {
         glfwTerminate();
@@ -592,6 +598,8 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
+        // openProjectAt is the single funnel for every local open path, and it
+        // owns the format-version gate + migration prompt.
         openProjectAt(dir);  // failure leaves the welcome screen up
     }
 
@@ -4546,7 +4554,7 @@ void App::updateWindowTitle() {
     titleShowsDirty_ = dirty_;
     titleShowsJoined_ = joined;
     titleName_ = project_.name;
-    std::string title = "TyraX";
+    std::string title = std::string("TyraX ") + version::kEditorVersion;
     if (hasProject_)
         title += " - " + project_.name + (joined ? " [joined]" : "") +
                  (dirty_ ? " *" : "");
@@ -4665,6 +4673,51 @@ std::string App::openProjectAt(const std::string& dir) {
     Project p;
     std::string err = project::load(p, dir);
     if (!err.empty()) return err;
+
+    // Format gate. load() already refused a file from a NEWER editor (the
+    // message names both versions), so every open path that funnels through
+    // here - the CLI argument, the Open dialog, the recent list - inherits it.
+    //
+    // An OLDER file is silent when only additive changes happened since: the
+    // tolerant reader already handled them and the version is re-stamped on the
+    // next save. A prompt + backup appear exactly when registered migration
+    // steps will transform the data, which is the irreversible part.
+    if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+        !steps.empty()) {
+        std::string msg = "This project uses an older format (v" +
+                          std::to_string(p.formatVersionOnDisk) +
+                          "; this editor writes v" +
+                          std::to_string(version::kFormatVersion) +
+                          ").\n\nOpening it will apply:\n";
+        for (const auto* m : steps)
+            msg += "  v" + std::to_string(m->from) + " -> v" +
+                   std::to_string(m->from + 1) + ": " + m->summary + "\n";
+        msg += "\nThis cannot be undone. A backup of the project files will be "
+               "created in _backup/ first.\n\nMigrate and open?";
+        if (!platform::confirmBox("Project Migration", msg))
+            return "Migration declined - \"" + p.name + "\" was not opened.";
+
+        std::string backupDir;
+        if (std::string e = migrations::backup(p, p.formatVersionOnDisk, backupDir);
+            !e.empty())
+            return "Backup failed - migration aborted, the project was not "
+                   "modified.\n\n" + e;
+        if (std::string e = migrations::run(p, p.formatVersionOnDisk); !e.empty())
+            return "This project cannot be migrated.\n\n" + e +
+                   "\n\nThe project on disk was not modified. The backup in " +
+                   backupDir + " is intact.";
+        p.formatVersionOnDisk = version::kFormatVersion;
+        // Persist the migrated format right away so disk, undo history and every
+        // later save share one baseline. Same file set as --resave/--migrate: a
+        // migration that wrote less than a resave would DROP what it skipped.
+        std::string e = project::save(p);
+        if (e.empty()) e = project::saveHeights(p);
+        if (e.empty()) e = project::saveSplat(p);
+        if (!e.empty())
+            return "Migration succeeded but saving failed:\n" + e +
+                   "\n\nThe backup in " + backupDir + " is intact.";
+    }
+
     project_ = p;
     hasProject_ = true;
     applyProjectToViewport();
@@ -5082,7 +5135,28 @@ void App::closeSession() {
 
 void App::openRemoteProject(const std::string& dir) {
     Project p;
-    const std::string err = project::load(p, dir);
+    std::string err = project::load(p, dir);
+
+    // The remote twin of openProjectAt's format gate, and the one place that
+    // must NOT offer to migrate. load() already refused a project from a NEWER
+    // editor; this catches the other direction - a host on an OLDER editor whose
+    // format needs registered steps. The join is refused instead:
+    //   - the project belongs to the HOST, and migrating is irreversible;
+    //   - a client migrates only its own materialized replica, so host and
+    //     client would then disagree about the format while diffModel keeps
+    //     syncing edits over fields one of them does not have.
+    // Same reasoning as the headless commands (see refuseUnmigrated in
+    // main.cpp): migrating is an explicit act, by the owner, at home.
+    if (err.empty()) {
+        if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+            !steps.empty())
+            err = "the host's project is in format v" +
+                  std::to_string(p.formatVersionOnDisk) + " and this editor writes v" +
+                  std::to_string(version::kFormatVersion) +
+                  ". The HOST has to migrate it first (open it locally, or run "
+                  "tyrax-editor --migrate <projectDir>) and host the session "
+                  "again - a participant must not rewrite someone else's project.";
+    }
     if (!err.empty()) {
         session_.close();
         sessionEndedText_ = "Failed to open the synced project: " + err;
