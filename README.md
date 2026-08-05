@@ -426,8 +426,10 @@ This project stands on the shoulders of the PS2 homebrew community:
   not redistributed at all — [`tools/ps2link`](tools/ps2link/README.md) holds
   only a patch, and its build clones ps2link from upstream itself.
 - **[PS2SDK](https://github.com/ps2dev/ps2sdk)** (ps2dev) — the SDK every
-  generated game links against; the custom `audsrv` build in
-  `vendor/tyra/audsrv-pan` derives from its audsrv module.
+  generated game links against. Its `audsrv` module is forked in-tree at
+  [`vendor/tyra/audsrv`](vendor/tyra/audsrv/README.md) (sources + the built
+  module); note that audsrv alone is **LGPL v2** where the rest of the SDK is
+  AFL 2.0 — see [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 - Editor dependencies fetched at a pinned commit by `setup.ps1` / `setup.sh`:
   [Dear ImGui](https://github.com/ocornut/imgui)
   (MIT), [GLFW](https://www.glfw.org/) (zlib/libpng),

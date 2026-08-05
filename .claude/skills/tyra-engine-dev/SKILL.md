@@ -692,6 +692,15 @@ banner both, so a previously built ELF still reports.
   which is LGPL v2 per every file header), so this cost one `.irx-em`, one
   loader call and `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd
   directly on the IOP; the two are ordinary co-clients of one driver.
+- **audsrv is a SOURCE fork, not a blob** (`vendor/tyra/audsrv/`): the IOP and
+  EE sources are in-tree at ps2sdk `e78a9cb2`, and `build.sh`/`build.ps1`
+  rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
+  build container. Change the sources and you must re-run that script and commit
+  `bin/` in the same commit - nothing in the game build compiles audsrv.
+  `./build.sh --check` diffs a fresh build against the committed artifacts;
+  `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
+  members, gcc's LTO section names carry a random per-compilation id), so the
+  member SIZES are what that check compares.
 - **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
   streaming ring installs.** So the reverb's RPC bind runs BEFORE
   `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own

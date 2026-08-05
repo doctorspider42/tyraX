@@ -27,17 +27,14 @@ the verification, and any fact worth reusing belongs in the relevant
   have: audsrv puts every voice AND the music on SPU2 core 1 and leaves core 0
   muted, so there is one reverb unit and zones cannot cross-fade between
   different presets. Core 0 is free - 24 more voices and a second reverb bus -
-  but reaching it is an audsrv change, and audsrv currently ships as three
-  prebuilt blobs (`vendor/tyra/audsrv-pan/`) plus a rebuild recipe. Two steps,
-  in order: (1) vendor the audsrv SOURCE in-tree with the panning patch applied,
-  which also closes a licensing gap - audsrv is **LGPL v2** per every one of its
-  file headers, not the AFL 2.0 the rest of PS2SDK carries and that
-  `THIRD-PARTY-LICENSES.md` currently claims for it, and LGPL wants the modified
-  library's source available where we ship only binaries today; (2) spread the
-  voices across both cores (which also means routing core 0's output into core
-  1's input) and teach `AudioReverb` + the generated game about two rooms at
-  once. The second step is the kind of routing change PCSX2 may forgive and a
-  real SPU2 may not, so it is gated on a hardware pass.
+  but reaching it is an audsrv change. Step one is **done**: audsrv is now a
+  source fork in-tree (`vendor/tyra/audsrv/`, with the licence corrected - it is
+  LGPL v2, not the AFL 2.0 the rest of PS2SDK carries). What remains is to
+  spread the voices across both cores - which also means routing core 0's output
+  into core 1's input, where audsrv currently mutes core 0 outright - and to
+  teach `AudioReverb` and the generated game about two rooms at once. That is
+  the kind of routing change PCSX2 may forgive and a real SPU2 may not, so it is
+  gated on a hardware pass.
 - **Reverb on real hardware.** Everything in docs/reverb.md was measured in
   PCSX2, which does emulate SPU2 reverb. Wanted: the same decay-tail
   measurement on a console, plus a check that the `sceSdInit`-before-audsrv

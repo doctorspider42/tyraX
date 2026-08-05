@@ -5,10 +5,10 @@ engine-patches/** text eol=lf
 # regardless of the checkout's core.autocrlf setting.
 vendor/tyra/** text=auto eol=lf
 
-# Prebuilt audsrv artifacts (custom IRX + EE lib with per-channel L/R panning,
-# see vendor/tyra/audsrv-pan/README.md) - never treat as text.
-vendor/tyra/audsrv-pan/*.irx binary
-vendor/tyra/audsrv-pan/*.a binary
+# Prebuilt audsrv artifacts (built from the vendored source next to them -
+# see vendor/tyra/audsrv/README.md) - never treat as text.
+vendor/tyra/audsrv/bin/*.irx binary
+vendor/tyra/audsrv/bin/*.a binary
 
 # The editor always writes LF, and generated projects are built in a Linux
 # Docker container. Pin them to LF so a checkout with core.autocrlf=true does
