@@ -307,6 +307,15 @@ the verification, and any fact worth reusing belongs in the relevant
     note compared cycles with instructions. Measured as instructions it is 469 under
     openvcl against SCE's 483, and VU0 micro memory holds 512: it fits, and openvcl's
     copy is the smaller one.
+    **The last +14 words over all 25 programs are PAIRING, and a peephole cannot get
+    them.** openvcl now emits fewer stall rows than SCE (161 vs 191) but more
+    single-slot rows (2840 vs 2760) - 995 paired rows against 1031. Retrying the pair
+    against rows already emitted (the row above, then four rows back with every crossed
+    row checked) gets 641 chances on dynpip_c and takes ZERO: 484 refusals are
+    "same pipe", and widening it fails because the adjacent singles are genuinely
+    dependent - which is why no partner was ready to begin with. It is an ORDERING
+    problem (rank the ready list with lookahead, or prefer a candidate that leaves a
+    pairable successor), not a missing merge. That code is not in the shipped patch.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as
     well), `-C`, `-f`, `--bthres`. Full write-up in `docs/toolchain-image.md`.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV

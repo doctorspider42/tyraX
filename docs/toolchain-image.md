@@ -580,6 +580,44 @@ and every hazard distance now matches SCE's measured minimum exactly:
 Over all 25 programs openvcl now emits 3996 words against SCE's 3982 - +0.35%, from
 +75% where this started.
 
+### The last +14 words are a scheduling-ORDER problem, and a peephole cannot reach them
+
+With the padding fixed, the remaining difference over all 25 programs inverted its
+cause. openvcl now emits **fewer** stall rows than SCE (161 against 191) and **more**
+single-slot rows (2840 against 2760): it packs 995 paired rows where SCE packs 1031.
+Each missing pair is one word, which is the whole +14.
+
+The profile says exactly which pairs are missing:
+
+| pair | SCE | openvcl |
+|---|---|---|
+| `ftoi` + `iadd` | 30 | 6 |
+| `ftoi` + `sq` | 37 | 14 |
+| `min` + `loi` | 22 | 3 |
+| `max` + `lq` | 18 | 7 |
+| `add` + `div` | 16 | 3 |
+
+with `ftoi` sitting alone in the upper pipe 92 times against SCE's 23, and `iadd`
+alone in the lower pipe 407 against 336 — adjacent rows that look like they should be
+one row.
+
+**They should not be, and that is the finding.** `chooseReadyPairPartner` only
+considers instructions that are dependency-ready at the instant the primary is chosen,
+so the obvious fix is to retry against rows already emitted. Implemented, gated,
+instrumented: on `dynpip_c` it gets 641 chances and takes **zero**. First against the
+row above only — 484 of the refusals are "same pipe", because the ready list is
+dominated by lower-pipe work and the scheduler emits runs of it. Then widened to search
+four rows back, with every crossed row checked by `vuTokenCanMoveBefore`: still zero,
+because the adjacent singles are **genuinely dependent on each other** — which is also
+why no partner was ready in the first place.
+
+So the missing pairs are not a missing merge step. They are the consequence of an
+ORDER that leaves dependent instructions adjacent, where SCE interleaves independent
+work between them. Closing it means changing how the ready list is ranked (lookahead,
+or a cost model that prefers a candidate leaving a pairable successor), not another
+peephole — the same conclusion the pre-branch stalls reached before their real cause
+turned out to be elsewhere. The dead-end code is not in the shipped patch.
+
 **Verified, not just counted:** 419/419 upstream tests, 25/25 outputs through
 `dvp-as`, the loop-carried liveness checker clean, and in PCSX2 with the VU1 clipper
 the full openvcl build **boots with 0 assertions** (it no longer overflows) while
