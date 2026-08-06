@@ -37,6 +37,7 @@
 #include "placement.hpp"
 #include "prefab.hpp"
 #include "project.hpp"
+#include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
@@ -660,6 +661,14 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+
+    // Tools > VU Programs (vu_ui.cpp, docs/vu-authoring.md).
+    void drawVuProgramsWindow();
+    void drawVuStageList(std::vector<VuStage>& stages, bool kernel);
+    void vuRebuildPreview();
+    int vuObjectsInClass(unsigned classBit) const;
+    void vuSimulate();
+
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
     // editor. One window drives every Scatter volume in the active scene -
     // graph editing, the live budget, per-instance overrides and the bake.
@@ -1281,6 +1290,17 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showVuPrograms_ = false;
+    // Rebuilt every frame the VU window is open (milliseconds), so the
+    // listing, the budget bar and the simulation are one answer rather than
+    // three that can drift.
+    std::vector<vugen::Built> vuPreview_;
+    std::vector<std::string> vuPreviewLabel_;
+    std::vector<std::string> vuPreviewErrors_;
+    int vuPreviewSel_ = 0;
+    float vuSimParams_[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+    float vuSimTime_ = 0.0f;
+    std::string vuSimOut_;
     int prefabSelected_ = 0;
     // The Notes field: a wrapped paragraph at rest, a multiline editor while it
     // is being typed in (ImGui's multiline InputText does not word-wrap, so the
@@ -2204,6 +2224,13 @@ private:
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
     int newScriptAttachTo_ = -1;
+    // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
+    // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
+    // to an object - it replaces a material class, not a behaviour.
+    // 0 = a game script on the EE, 1 = a VU1 program, 2 = a VU0 kernel. Three
+    // destinations (src/scripts, src/vu, src/vu0) and three stubs, so this
+    // stopped being a bool the moment the VU0 half became authorable.
+    int newScriptKind_ = 0;
 
     // Object script classes registered in src/scripts/*.cpp with
     // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache

@@ -185,6 +185,7 @@ add_executable(tyrax-editor
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
     src/procui.cpp
+    src/vu_ui.cpp
     src/props_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
@@ -203,6 +204,12 @@ add_executable(tyrax-editor
     src/vuasm.cpp
     src/vusim.cpp
     src/vugen.cpp
+    src/vushader.cpp
+    src/vushader_sample.cpp
+    src/vushader_snap_sample.cpp
+    src/vushader_wobble_sample.cpp
+    src/vushader_palette_sample.cpp
+    src/vukernel_sample.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp

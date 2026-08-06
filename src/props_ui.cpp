@@ -671,6 +671,116 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // The four numbers this mesh hands the project's own VU1 microprogram.
+    // Shown ONLY when the project has such a program: otherwise they are four
+    // sliders that do nothing, on every object, forever. Which stage reads
+    // which slot is a property of the program, so the labels come from the
+    // stage list rather than being named here.
+    if (isSolid && !project_.vu.programs.empty()) {
+        ImGui::SeparatorText("VU program");
+        // A program is installed over a material CLASS, so the only thing that
+        // decides whether it touches this object is which class the object is
+        // in. Labelling the four slots from every program in the project - as
+        // this did at first - is worse than saying nothing: an untextured box
+        // would show "Scroll UV Speed U" on its X slot, from a program that
+        // will never draw it.
+        const unsigned cls = project::vuClassOfObject(project_, o);
+        const VuProgram* mine = nullptr;
+        for (const VuProgram& pr : project_.vu.programs)
+            if (pr.enabled && (pr.classes & cls) != 0) { mine = &pr; break; }
+
+        ImGui::Text("Class: %s%s%s", project::vuClassName(cls),
+                    mine ? "   look: " : "", mine ? mine->name.c_str() : "");
+        prefHelp(
+            "Which VU1 microprogram draws this object, decided by what it\n"
+            "carries: a texture puts it in Textured, a material with a refl\n"
+            "map in Reflective, Dynamic lighting in one of the lit classes.\n"
+            "A program is installed over a CLASS, so it reaches this object\n"
+            "only if it was built on this one.");
+
+        if (!mine) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+            ImGui::TextWrapped(
+                "No look covers this class, so these numbers do nothing here.");
+            ImGui::PopStyleColor();
+            const bool set = o.vuParams[0] || o.vuParams[1] || o.vuParams[2] ||
+                             o.vuParams[3];
+            if (set)
+                ImGui::TextDisabled(
+                    "It carries values anyway - either tick %s on a look in\n"
+                    "Tools > VU Programs, or clear them.",
+                    project::vuClassName(cls));
+            ImGui::TextDisabled(
+                "Objects merged into one static batch share a bag, and\n"
+                "therefore share these numbers.");
+        } else {
+            std::string uses[4];
+            for (const VuStage& st : mine->stages) {
+                const vugen::StageDef* def = vugen::stageDef(st.kind);
+                if (!def || !st.enabled) continue;
+                for (int i = 0; i < def->paramCount; ++i)
+                    if (st.bind[i] >= 0 && st.bind[i] < 4) {
+                        std::string& u = uses[st.bind[i]];
+                        if (!u.empty()) u += ", ";
+                        u += std::string(def->title) + " " + def->params[i].name;
+                    }
+            }
+            static const char* kAxis[4] = {"X", "Y", "Z", "W"};
+            for (int i = 0; i < 4; ++i) {
+                ImGui::PushID(i);
+                const std::string label =
+                    uses[i].empty()
+                        ? std::string(kAxis[i]) + " (nothing reads this)"
+                        : uses[i] + "##vu" + kAxis[i];
+                ImGui::BeginDisabled(uses[i].empty());
+                ImGui::DragFloat(label.c_str(), &o.vuParams[i], 0.01f);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+            // An object is drawn by several bags and they are NOT all in the
+            // same material class: a baked lightmap pass carries the AO atlas,
+            // so it is a TEXTURED bag even on an untextured mesh. Displace the
+            // main bag and not that one and the lightmap stays behind as a
+            // translucent ghost of the undeformed shape - which is exactly what
+            // it looked like on the console before anyone worked out why.
+            // A baked lightmap on a mesh that moves is wrong anyway: it was
+            // baked for a shape the mesh no longer has.
+            std::vector<vugen::Stage> probe;
+            for (const VuStage& st : mine->stages) {
+                vugen::Stage g = vugen::makeStage(st.kind);
+                g.enabled = st.enabled;
+                for (int i = 0; i < 4; ++i) {
+                    g.params[i].value = st.params[i];
+                    g.params[i].meshSlot = st.bind[i];
+                }
+                probe.push_back(g);
+            }
+            const unsigned texCls = 1u << 3;
+            bool texCovered = false;
+            for (const VuProgram& pr : project_.vu.programs)
+                if (pr.enabled && (pr.classes & texCls) && &pr == mine)
+                    texCovered = true;
+            if (o.bakedLighting && vugen::stagesMoveGeometry(probe) &&
+                !texCovered && cls != texCls) {
+                ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+                ImGui::TextWrapped(
+                    "This look MOVES the geometry, and this object has a baked "
+                    "lightmap. That pass carries the AO atlas, so it is a "
+                    "Textured bag - a different class, drawn by a different "
+                    "program - and it will stay behind as a ghost of the "
+                    "undeformed shape. Turn Baked lighting off here (a lightmap "
+                    "baked for a shape the mesh no longer has is wrong anyway), "
+                    "or give the look the Textured class too.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::TextDisabled(
+                "All zero = this mesh renders exactly as it would with no\n"
+                "custom program at all. Objects merged into one static batch\n"
+                "share a bag, and therefore share these numbers.");
+        }
+    }
+
     // Rendering cut-off - the cheapest LOD. Only drawing stops beyond the
     // distance; collision, sounds and scripts keep running. For a mirror it
     // gates the glass AND every reflected copy - the whole illusion.

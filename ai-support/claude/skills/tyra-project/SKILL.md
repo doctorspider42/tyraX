@@ -36,6 +36,7 @@ build. Two kinds of files coexist here:
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
 | `menu-styles/*.menustyle` | Menu stylesheets: what a menu LOOKS like, CSS-shaped | Yes - a menu names one in its `"style"` key; the editor's Menu Editor > Style edits the same file with widgets |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
+| `src/vu/*.cpp`, `src/vu0/*.cpp` | Your own VU1 programs (`vu::Program`) and VU0 compute kernels (`vu::Kernel`), against `vugen/vushader.hpp`. **HOST C++**: compiled and RUN at build time inside the build container, leaving a microprogram in the ELF - not PS2 code, and excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
 | `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
