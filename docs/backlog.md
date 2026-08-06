@@ -22,6 +22,18 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Menu styling follow-ups.** The stylesheet, the layout engine, the Style tab
+  and the runtime compositor shipped (docs/menu-styles.md;
+  `.claude/plans/menu-styling.md` records the design). What was left out on
+  purpose and is worth doing next: the HUD, loading screens and the credits roll
+  still position themselves in the raw framebuffer instead of the logical
+  512x448 space menus now scale from, so they are the remaining half of "the UI
+  does not move when the display mode does" (the mechanism is there -
+  `Sprite::drawSize` plus the `project::displayModes` table). Also: a `close`
+  transition is parsed and generated but the runtime only plays `open` and
+  `cursor`; `description { area: right }` is laid out but untested on a wide
+  panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
+  softness at 1080i for a second texture's worth of VRAM.
 - **Save Editor: the checks only real hardware can make.** The feature is
   complete and builds, but three things cannot be proven from the host: the card
   failure feedback (a **full**, **absent** or **unformatted** card), and the icon

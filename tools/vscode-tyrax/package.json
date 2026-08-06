@@ -1,8 +1,8 @@
 {
   "name": "tyrax-flownode",
-  "displayName": "TyraX Flow Nodes & Screen Effects",
-  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode) and screen effects (.screenfx).",
-  "version": "0.3.0",
+  "displayName": "TyraX Flow Nodes, Screen Effects, Menu Styles & VU1",
+  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle) and VU1 microprograms (.vclpp).",
+  "version": "0.4.0",
   "publisher": "tyrax",
   "license": "MIT",
   "icon": "icon.png",
@@ -23,11 +23,18 @@
     "ps2",
     "playstation 2",
     "flowgraph",
-    "flownode"
+    "flownode",
+    "menustyle",
+    "screenfx",
+    "vclpp",
+    "vu1",
+    "menu",
+    "stylesheet"
   ],
   "activationEvents": [
     "onLanguage:tyrax-flownode",
     "onLanguage:tyrax-screenfx",
+    "onLanguage:tyrax-menustyle",
     "onLanguage:tyrax-vu"
   ],
   "main": "./extension.js",
@@ -52,6 +59,17 @@
         ],
         "extensions": [
           ".screenfx"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "tyrax-menustyle",
+        "aliases": [
+          "TyraX Menu Stylesheet",
+          "menustyle"
+        ],
+        "extensions": [
+          ".menustyle"
         ],
         "configuration": "./language-configuration.json"
       },
@@ -88,6 +106,11 @@
         }
       },
       {
+        "language": "tyrax-menustyle",
+        "scopeName": "source.tyrax-menustyle",
+        "path": "./syntaxes/menustyle.tmLanguage.json"
+      },
+      {
         "language": "tyrax-vu",
         "scopeName": "source.tyrax-vu",
         "path": "./syntaxes/vu.tmLanguage.json"
@@ -101,6 +124,10 @@
       {
         "language": "tyrax-screenfx",
         "path": "./snippets/screenfx.json"
+      },
+      {
+        "language": "tyrax-menustyle",
+        "path": "./snippets/menustyle.json"
       },
       {
         "language": "tyrax-vu",

@@ -326,6 +326,49 @@ asserts on the emitted strings. This works because `project.cpp`,
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
 
+**Menu stylesheets have two cheap gates, and both found real bugs** (see
+docs/menu-styles.md):
+
+- **A harness over `menustyle.cpp` + `menulayout.cpp` alone** - neither needs GL,
+  ImGui, `project.cpp` or a font, so it links in seconds:
+
+  ```bash
+  g++ -std=gnu++20 -I src -I vendor/stb -o h harness.cpp \
+      src/menustyle.cpp src/menulayout.cpp && ./h
+  ```
+
+  Assert the cascade (element < class < state, menu scope wins), that
+  `write(parse(t))` is STABLE (the Style tab saves through it, so an unstable
+  writer rewrites people's files behind their backs), that a broken declaration
+  does not eat the good one next to it, and the layout numbers. It caught a
+  `content: "{{cross}} OK"` truncated at the first `}` (which also swallowed the
+  next declaration) and a `row:disabled` cell baked for every row instead of only
+  the gateable ones - 71% of the texture heap for one 6-row menu instead of 13%.
+- **The pixel-identity gate for the Classic look.** A menu with no stylesheet
+  must bake byte-identically to the pre-stylesheet baker. Build the previous
+  editor in a worktree, `--refresh-gen` the same example copies with both, and
+  diff `res/menus/*.png`:
+
+  ```bash
+  git worktree add /tmp/base HEAD && (cd /tmp/base && ./build.sh --dev)
+  /tmp/base/build-dev/tyrax-editor --refresh-gen A/showcase
+  ./build-dev/tyrax-editor        --refresh-gen B/showcase
+  # compare A/*/res/menus/*.png with B/*/res/menus/*.png (PIL, 3 lines)
+  ```
+
+  It found a double-composited background (every translucent panel came out
+  (7,10,21) instead of (8,12,24)) and a save menu that lost its "X SAVE O LOAD"
+  hint line - neither visible without a diff.
+- **Checking that something SCROLLS: never use a pattern aligned with the
+  scroll.** A menu's animated background was measured as frozen through three
+  rebuilds - correlating two frames found a shift of exactly 0 - because the test
+  tile was diagonal stripes and the scroll vector ran along them. Vertical bars
+  plus a pure horizontal scroll showed 53 px in one second, matching the declared
+  speed. The emulator has a second trap in the same area: **PCSX2 unfocused does
+  not take injected keys**, so click into its window before driving it, and read
+  its status bar (FPS/VPS/Speed) to know the machine is actually running before
+  concluding anything about motion.
+
 **`App`'s own private methods are reachable from such a harness too**, which is
 the difference between testing a copy of the logic and testing the shipped
 function. Link every `build/CMakeFiles/tyrax-editor.dir/**/*.o` except
@@ -729,12 +772,21 @@ Notes:
   a broken feature when the code is fine. Compare the item's y against its
   window's rect (both are in the same `dump`) and **pair every state-changing
   click with `expect-checked` / `expect-unchecked`**, which turns a silent no-op
-  into a failed run. A **combo's dropdown** cannot be opened
-  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
-  shows the rect with an empty label - set the value another way and read the
-  result off a `shot`. **The same goes for any widget whose whole label is
+  into a failed run.
+
+  **Combos and tabs ARE nameable now** (they were not, and both were silent
+  gaps): `BeginCombo` never calls ImGui's item-info hook at all, and `TabItemEx`
+  calls it BEFORE the box exists, so every combo and every tab in the editor
+  dumped as `-`. `uiscript.cpp` closes both - a label reported ahead of its box is
+  held until the box arrives, and a target that matches nothing by label is
+  matched by RE-HASHING it the way ImGui would (`ImHashStr(label, 0,
+  window->ID)`), which is what finds a widget whose label ImGui never reported.
+  So `click 'Preview in'` and `click Style` work, and a combo's OPTION can be
+  clicked by its own text once the dropdown is open. Two limits remain: the hash
+  path needs the EXACT label (a hash has no prefixes) and only reaches widgets
+  submitted at a window's own scope. **A widget whose whole label is
   hidden behind `##`** - a compact search field (`##assetsearch`,
-  `##objsearch`) or a bare combo (`##objtype`) dumps as `-` with a rect and
+  `##objsearch`) - still has nothing to name and dumps as `-` with a rect and
   nothing to name, so a filter row like the Scene panel's is only reachable by
   CLICKING ITS RECT: read the rect off `dump`, add the editor window's screen
   offset (compare one `dump` rect against one full-screen `shot` to get it -

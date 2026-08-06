@@ -12,6 +12,15 @@ Open `video-modes.tyra` in the editor and Build & Run (F5), or headless:
 build\tyrax-editor.exe --build examples\video-modes --run
 ```
 
+It doubles as the test bed for **menus at every resolution**: the menu is
+styled with a [stylesheet](../../docs/menu-styles.md)
+(`menu-styles/neon.menustyle` — the built-in *Neon* sheet, installed into the
+project), and the project declares its **supported resolutions**, so the Menu
+Editor's *Preview in* list offers each of them and shows the panel at the size
+the game really draws it. Switch modes in-game and the panel keeps the same
+physical size and position on the TV — the framebuffer is 512x448 interlaced but
+448x540 in 1080i, and the runtime scales the menu by both factors.
+
 ## The VIDEO OPTIONS menu
 
 The menu opens **automatically at boot** (title screen) and any time later
@@ -26,6 +35,11 @@ select with **X**, back out with **Triangle**:
 | 480I FIELD RENDER | Switch to interlaced **field rendering** (a fresh half-height 512x224 image every field — 50/60 distinct pictures per second for ~half the fill/VRAM) |
 | STANDARD 4:3 / WIDESCREEN 16:9 | Aspect-ratio switch (applies instantly) |
 | CLOSE | Dismiss the menu |
+
+The highlighted row draws from a **baked state cell** (the gradient plate, the
+white label and the 6 px step-out come from `row:selected` in the sheet), and
+the caret eases onto it — both free on the console: one extra sprite for the
+selected row, a float for the caret.
 
 Picking a scan mode **closes the menu and arms an 8-second confirm window**:
 the game shows `KEEP VIDEO MODE? X = YES / BACK IN n` and reverts to the

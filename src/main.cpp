@@ -871,23 +871,24 @@ static int aiGraphFromCli(int argc, char** argv) {
     return 0;
 }
 
-// tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
+// tyrax-editor.exe --add-ai-support <projectDir> [claude] [codex] [copilot]
 // Installs the AI assistant skills into an existing project (same files the
 // "Add AI support" option writes at project creation).
 static int aiSupportFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --add-ai-support <projectDir> "
-                     "[claude] [copilot]\n");
+                     "[claude] [codex] [copilot]\n");
         return 2;
     }
-    bool claude = false, copilot = false;
+    bool claude = false, copilot = false, codex = false;
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "claude") == 0) claude = true;
+        if (std::strcmp(argv[i], "codex") == 0) codex = true;
         if (std::strcmp(argv[i], "copilot") == 0) copilot = true;
     }
-    if (!claude && !copilot) claude = true;  // default: Claude
-    const std::string status = aisupport::install(argv[2], claude, copilot);
+    if (!claude && !copilot && !codex) claude = true;  // default: Claude
+    const std::string status = aisupport::install(argv[2], claude, copilot, codex);
     std::printf("%s\n", status.c_str());
     return status.rfind("error:", 0) == 0 ? 1 : 0;
 }

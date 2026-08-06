@@ -13,6 +13,7 @@
 #include "aobake.hpp"    // model AO sidecars (<model>.aov)
 #include "gibake.hpp"    // the baked global-illumination cache
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
+#include "menulayout.hpp"  // per-menu texture list + its `quant`
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "stochtile.hpp"
@@ -266,6 +267,26 @@ std::string bake(const Project& p,
                 r.quant;
     }
 
+    // Menu textures (res/menus/*.png, baked by refreshGenerated): the panel and
+    // everything that goes with it follow the stylesheet's `quant`, for the same
+    // reason a credits page does. Menu art is flat colour and text, so 4-bit is
+    // nearly lossless - and it is the difference between a full-screen 512x512
+    // panel costing 93% of the GS texture heap and costing 12% (docs/gs-vram.md).
+    // Default (unset) leaves them full colour, which is what every existing
+    // project already ships.
+    std::map<std::string, std::string> menuQuant;
+    for (const GameMenu& m : p.menus) {
+        const menulayout::Layout ml = menulayout::compute(m, p);
+        const char* q = ml.panel.quant == 1   ? "4bit"
+                        : ml.panel.quant == 2 ? "8bit"
+                                              : "";
+        if (!*q) continue;
+        for (const menulayout::Texture& t : ml.textures)
+            menuQuant["menus/" + t.file] = q;
+        if (menubake::menuHasValueEntries(m))
+            menuQuant["menus/" + menulayout::valueStripFileName(m.name)] = q;
+    }
+
     // --- mirror res/ into .res-baked/ --------------------------------------
     // Editor-only assets never ship: paint brushes (res/brushes), the Material
     // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
@@ -393,6 +414,12 @@ std::string bake(const Project& p,
         }
         if (top == "credits" && lowerExt(e.path()) == ".png") {
             if (auto it = creditsQuant.find(relRes); it != creditsQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
+        if (top == "menus" && lowerExt(e.path()) == ".png") {
+            if (auto it = menuQuant.find(relRes); it != menuQuant.end()) {
                 quantizable = true;
                 q = it->second;
             }

@@ -16,6 +16,8 @@
 #include "history.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "menulayout.hpp"
+#include "menustyle.hpp"
 #include "objparser.hpp"
 #include "savebake.hpp"
 #include "templates.hpp"
@@ -104,6 +106,58 @@ std::vector<int> Project::atlasFontIndices() const {
 }
 
 namespace project {
+
+// --- display modes -----------------------------------------------------------
+// The host twin of Tyra::RendererSettings::updateGeometry (engine
+// inc/renderer/renderer_settings.hpp). Keep the two in step.
+const std::vector<DisplayModeInfo>& displayModes() {
+    static const std::vector<DisplayModeInfo> v = {
+        {"interlaced", "480i / 576i (interlaced)", 512, 448, false},
+        {"interlaced-field", "480i / 576i, field rendering", 512, 448, true},
+        {"progressive", "480p (progressive)", 448, 448, false},
+        {"1080i", "1080i (hi-def)", 448, 540, false},
+        {"pal576", "576i full PAL", 512, 512, false},
+    };
+    return v;
+}
+
+const DisplayModeInfo& displayModeInfo(const std::string& key) {
+    for (const DisplayModeInfo& d : displayModes())
+        if (key == d.key) return d;
+    return displayModes()[0];
+}
+
+std::string bootDisplayMode(const ProjectSettings& s) {
+    if (s.displayMode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
+        return "pal576";
+    return s.displayMode;
+}
+
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s) {
+    const std::string boot = bootDisplayMode(s);
+    std::vector<std::string> out{boot};
+    const std::vector<std::string> declared = supportedDisplayModes(s);
+    const bool any = !s.supportedModes.empty();
+    for (const DisplayModeInfo& d : displayModes()) {
+        if (d.key == boot) continue;
+        if (any) {
+            for (const std::string& k : declared)
+                if (k == d.key) out.push_back(d.key);
+        } else {
+            out.push_back(d.key);
+        }
+    }
+    return out;
+}
+
+std::vector<std::string> supportedDisplayModes(const ProjectSettings& s) {
+    std::vector<std::string> out;
+    for (const DisplayModeInfo& d : displayModes())
+        for (const std::string& k : s.supportedModes)
+            if (k == d.key) out.push_back(d.key);
+    if (out.empty()) out.push_back(bootDisplayMode(s));
+    return out;
+}
 
 static std::string writeFile(const fs::path& path, const std::string& content) {
     std::error_code ec;
@@ -1200,6 +1254,17 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
     json << "\"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
+         << (p.settings.supportedModes.empty()
+                 ? ""
+                 : "    \"supportedModes\": [" +
+                       [&] {
+                           std::string list;
+                           for (size_t i = 0; i < p.settings.supportedModes.size(); ++i)
+                               list += (i ? ", \"" : "\"") +
+                                       p.settings.supportedModes[i] + "\"";
+                           return list;
+                       }() +
+                       "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
@@ -1858,7 +1923,8 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video", "rebind", "credits"};
+                                         "apply-video", "rebind", "credits",
+                                         "label"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1870,6 +1936,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
              << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
+             << (m.style.empty() ? "" : ", \"style\": \"" + jsonEscape(m.style) + "\"")
              << (m.titleSize != 18 ? ", \"titleSize\": " + std::to_string(m.titleSize)
                                    : "")
              << (m.entrySize != 15 ? ", \"entrySize\": " + std::to_string(m.entrySize)
@@ -1901,7 +1968,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
             const int a =
-                (en.action >= 0 && en.action <= MenuEntry::PlayCredits) ? en.action : 0;
+                (en.action >= 0 && en.action <= MenuEntry::Label) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
@@ -1929,6 +1996,14 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                 "input-preset"};
             if (en.settingBind >= 1 && en.settingBind <= 8)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
+            if (!en.styleClass.empty())
+                json << ", \"class\": \"" << jsonEscape(en.styleClass) << "\"";
+            if (!en.description.empty())
+                json << ", \"desc\": \"" << jsonEscape(en.description) << "\"";
+            if (!en.icon.empty())
+                json << ", \"icon\": \"" << jsonEscape(en.icon) << "\"";
+            if (!en.enabledWhen.empty())
+                json << ", \"enabledWhen\": \"" << jsonEscape(en.enabledWhen) << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
@@ -2431,6 +2506,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     p.windowLayouts.push_back(
         {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
+    p.windowLayouts.push_back({"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
+                               {"menus", "menupreview", "fonts"}});
     p.activeLayout = 0;
 }
 
@@ -3591,6 +3668,15 @@ static void readSettingsSection(const json::Value& root, Project& out) {
                                  ? dm
                                  : "interlaced";
         }
+        if (const auto* v = s->find("supportedModes");
+            v && v->type == json::Value::Type::Array) {
+            st.supportedModes.clear();
+            for (const auto& jm : v->arr) {
+                const std::string k = jm.stringOr("");
+                for (const DisplayModeInfo& d : displayModes())
+                    if (k == d.key) st.supportedModes.push_back(k);
+            }
+        }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
@@ -4681,6 +4767,10 @@ static void readMenusSection(const json::Value& root, Project& out) {
             if (const auto* v = jm.find("showTitle"))
                 m.showTitle = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jm.find("font")) m.font = v->stringOr("");
+            // The stylesheet key. An unknown one resolves to Classic through the
+            // registry rather than failing the load, so a project that lost its
+            // menu-styles/ folder still opens and still bakes.
+            if (const auto* v = jm.find("style")) m.style = v->stringOr("");
             if (const auto* v = jm.find("titleSize"))
                 m.titleSize = (int)v->numberOr(18);
             if (m.titleSize < 10) m.titleSize = 10;
@@ -4748,6 +4838,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
                                     : a == "rebind"    ? MenuEntry::RebindKey
                                     : a == "credits"   ? MenuEntry::PlayCredits
+                                    : a == "label"     ? MenuEntry::Label
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -4785,6 +4876,13 @@ static void readMenusSection(const json::Value& root, Project& out) {
                             : b == "input-preset" ? MenuEntry::BindInputPreset
                                                  : MenuEntry::BindNone;
                     }
+                    if (const auto* v = je.find("class"))
+                        en.styleClass = v->stringOr("");
+                    if (const auto* v = je.find("desc"))
+                        en.description = v->stringOr("");
+                    if (const auto* v = je.find("icon")) en.icon = v->stringOr("");
+                    if (const auto* v = je.find("enabledWhen"))
+                        en.enabledWhen = v->stringOr("");
                     m.entries.push_back(std::move(en));
                 }
             }
@@ -4917,6 +5015,10 @@ std::string load(Project& out, const std::string& projectDir) {
     // screen-effects/*.screenfx file by key, and a placement whose file is
     // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
     screenfx::loadForProject(out.dir);
+    // Menu stylesheets, for the same reason: a menu names one by key and the
+    // bake resolves it through the registry, so the sheets have to be in place
+    // before the menus section is read.
+    menustyle::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
@@ -5161,6 +5263,10 @@ std::string load(Project& out, const std::string& projectDir) {
         if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
             out.windowLayouts.push_back(
                 {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::MenuDesigner))
+            out.windowLayouts.push_back(
+                {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
+                 {"menus", "menupreview", "fonts"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -6037,6 +6143,65 @@ std::string refreshGenerated(const Project& p) {
             if (!vf) return "Cannot write menu value strip: " + vpath.string();
             vf.write(reinterpret_cast<const char*>(strip.data()),
                      (std::streamsize)strip.size());
+        }
+
+        // The three textures a stylesheet can add (docs/menu-styles.md): the
+        // row-state atlas, the scrolling row strip and the description atlas.
+        // Each bake returns false when the menu does not need it, and that is
+        // also the signal to DELETE a stale file - a menu that stops scrolling
+        // must stop shipping a strip the game would still load into VRAM.
+        struct StyleTex {
+            bool (*bake)(const GameMenu&, const Project&,
+                         std::vector<unsigned char>&);
+            std::string (*name)(const std::string&);
+            const char* what;
+        };
+        static const StyleTex kStyleTex[] = {
+            {&menubake::bakeStateAtlasPNG, &menulayout::stateAtlasFileName,
+             "menu row states"},
+            {&menubake::bakeListPNG, &menulayout::listFileName, "menu row strip"},
+            {&menubake::bakeDescAtlasPNG, &menulayout::descAtlasFileName,
+             "menu descriptions"},
+            {&menubake::bakeBgAnimPNG, &menulayout::bgAnimFileName,
+             "menu background layer"},
+        };
+        for (const StyleTex& st : kStyleTex) {
+            const fs::path path =
+                fs::path(p.dir) / "res" / "menus" / st.name(m.name);
+            std::vector<unsigned char> png;
+            if (!st.bake(m, p, png)) {
+                std::error_code rec;
+                fs::remove(path, rec);
+                continue;
+            }
+            std::ofstream tf(path, std::ios::binary);
+            if (!tf)
+                return std::string("Cannot write ") + st.what + ": " + path.string();
+            tf.write(reinterpret_cast<const char*>(png.data()),
+                     (std::streamsize)png.size());
+        }
+    }
+
+    // The sheen band, shared by every menu whose sheet sweeps one. Procedural
+    // like the flare sprites, and written only while something uses it - a
+    // texture the game never draws still costs the disc and the loader.
+    {
+        bool wantSheen = false;
+        for (const GameMenu& m : p.menus)
+            wantSheen |= menustyle::animation(menulayout::sheetFor(m),
+                                              menustyle::Animation::Panel) != nullptr;
+        const fs::path path = fs::path(p.dir) / "res" / "menus" / "sheen.png";
+        std::error_code ec;
+        if (!wantSheen) {
+            fs::remove(path, ec);
+        } else {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeSheenPNG(png)) return "Menu sheen bake failed";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write menu sheen: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
         }
     }
 

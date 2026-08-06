@@ -7,6 +7,10 @@ Generated projects carry a bit of C++ that lives in plain text files:
 substitutions. The **TyraX VS Code extension** (`tools/vscode-tyrax`) turns those
 files from plain text into a first-class editing experience.
 
+A project can also carry [menu stylesheets](menu-styles.md) (`.menustyle`), which
+are a different shape - CSS-like blocks, no C++ - and get highlighting and
+snippets here too (see below).
+
 ## What it gives you
 
 - **Syntax highlighting** — the header (keys, values, `#` comments) plus **full
@@ -26,6 +30,21 @@ generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 (not a single file) for IntelliSense on `flow_nodes.hpp` and effect bodies. The
 `call = fn` logic still belongs in `flow_nodes.hpp` — the `.flownode` stays a
 thin manifest — but the extension now colours and checks that manifest too.
+
+## Menu stylesheets (`.menustyle`)
+
+Highlighting (selectors, `:selected` / `:disabled` states, `menu#name` scopes,
+`--variables`, `var()`, colours, gradients, `url()`, `{{icons}}`, `@style` and
+`@transition`) plus snippets for the shapes worth starting from: a whole sheet,
+a selected-row highlight, a scrolling list, a description pane, a value bar, a
+transition, a per-menu override.
+
+There is deliberately **no property table** in the extension. The authoritative
+list is `menustyle::propSpecs()` in `src/menustyle.cpp`, a copy here would drift
+the day someone adds a property, and the grammar does not need one: anything
+before a `:` inside a block highlights as a property. Validation lives where the
+list already is - the Menu Editor's *Stylesheet* tab reports every parse error
+with its line number, live, next to a preview of the baked result.
 
 ## VU1 microprograms (`.vclpp`, `.vcl`, `.vsm`)
 
@@ -99,7 +118,8 @@ code --install-extension tyrax-flownode-*.vsix
 `tools/vscode-tyrax` is a self-contained extension:
 
 - `package.json` — declares the two languages (`tyrax-flownode` → `.flownode`,
-  `tyrax-screenfx` → `.screenfx`), their grammars and snippets.
+  `tyrax-screenfx` → `.screenfx`, `tyrax-menustyle` → `.menustyle`), their
+  grammars and snippets.
 - `syntaxes/*.tmLanguage.json` — TextMate grammars. The body is a begin/end
   region that starts at `---` and runs to end-of-file, sets
   `contentName: meta.embedded.block.cpp` (so VS Code injects the C++ grammar),
@@ -114,9 +134,31 @@ code --install-extension tyrax-flownode-*.vsix
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
   `package.json` first so `code --install-extension --force` picks up the new
-  build): `cd tools/vscode-tyrax && npx @vscode/vsce package`, then delete the old
-  versioned `.vsix`. A stale `.vsix` is a real trap — the source looks updated
-  but users get the old build.
+  build). Either way works:
+
+  ```sh
+  cd tools/vscode-tyrax && npx @vscode/vsce package     # canonical, needs node
+  python3 tools/vscode-tyrax/package-vsix.py            # same archive, stdlib only
+  ```
+
+  The Python packager exists because this trap has already fired **twice**: the
+  VU language shipped in 0.3.0 sources against a committed 0.2.0 package, and
+  menu stylesheets did the same — in both cases the source looked updated while
+  every user got the old build, with no error anywhere. It derives its file list
+  from `package.json`'s own `grammars`/`snippets` entries (so a language added to
+  the manifest and forgotten in the script is impossible), deletes the previous
+  `.vsix` (the editor globs `*.vsix` and would otherwise pick whichever it found
+  first) and prints what went in. **Check the printed language list against what
+  you changed** before committing.
+
+  A grammar itself is worth a look before packaging, and it does not need VS
+  Code: applying its top-level patterns to a real sample file line by line shows
+  which rule claims which token and, more usefully, whether some rule never
+  fires at all (a dead pattern is the normal way a grammar "works" but colours
+  nothing). Keep such a checker in the scratchpad — a 50-line script over
+  `json` + `re` is enough, and remember to descend into a rule's nested
+  `patterns` only when it has no `match`/`begin` of its own, or `declaration`
+  and `variable-decl` read as dead when they are fine.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
 tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock
