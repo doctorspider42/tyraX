@@ -145,6 +145,24 @@ sources over its `iop/sound/audsrv` and `ee/rpc/audsrv`, and builds inside the
 ordinary ps2sdk module Makefiles: they include `$(PS2SDKSRC)/Defs.make` and the
 iop/ee `Rules`, so they only build inside a ps2sdk source tree.
 
+**The ps2sdk it fetches has a mirror**, tried when the upstream fetch fails -
+`doctorspider42/tyrax-vendor-ps2sdk`, the same arrangement and the same naming
+`deps.sh` uses for every vendored dependency. Worth being precise about what
+that protects, because the obvious fear is bigger than the real exposure:
+
+- audsrv's own SOURCES are in this directory, so an upstream that disappears
+  cannot take the module with it. That is the LGPL position above, and it is
+  also the supply-chain one.
+- games keep building either way - the toolchain and the installed SDK come
+  from the `h4570/tyra` image, not from this fetch.
+- what an upstream loss would actually cost is the ability to REBUILD audsrv
+  from source: these Makefiles need a ps2sdk source TREE around them. The
+  mirror is that tree.
+
+A plain GitHub fork serves arbitrary reachable SHAs, so the mirror needs no
+tyrax-specific tag - and if the pin is ever bumped, `gh repo sync` the mirror
+first, or it will not have the new commit.
+
 **Commit `bin/` in the same commit as any source change.** The artifacts are
 committed rather than built per game because `src/runner.cpp` overlays them into
 the build container on every build, and an IOP toolchain run per game build

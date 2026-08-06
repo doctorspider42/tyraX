@@ -31,6 +31,14 @@ set -euo pipefail
 # the image has. Do not bump it without rebuilding and re-testing a game.
 PS2SDK_COMMIT=e78a9cb2ea816a72a7466000c51558fd2b57f5a7
 PS2SDK_URL=https://github.com/ps2dev/ps2sdk.git
+# ...and our fork of it, tried when the upstream fetch fails - the same
+# arrangement (and the same naming) deps.sh uses for every vendored
+# dependency. This module's SOURCES are in this directory, so an upstream
+# that vanishes cannot take audsrv with it; what it would take is the SDK
+# TREE this builds against (makefiles, headers, the imports/exports
+# tooling). A plain GitHub fork serves arbitrary reachable SHAs, which is
+# why the mirror needs no tyrax-specific tag.
+PS2SDK_MIRROR=https://github.com/doctorspider42/tyrax-vendor-ps2sdk.git
 IMAGE=h4570/tyra
 
 # The container path the sources are built at. It is part of the output: the EE
@@ -63,7 +71,21 @@ if [ ! -d "$WORK/.git" ]; then
   echo "[audsrv] fetching ps2sdk @ ${PS2SDK_COMMIT:0:8}..."
   mkdir -p "$WORK"
   git -C "$WORK" init -q
-  git -C "$WORK" fetch -q --depth 1 "$PS2SDK_URL" "$PS2SDK_COMMIT"
+  fetched=0
+  for url in "$PS2SDK_URL" "$PS2SDK_MIRROR"; do
+    if git -C "$WORK" fetch -q --depth 1 "$url" "$PS2SDK_COMMIT" 2>/dev/null; then
+      fetched=1
+      break
+    fi
+    echo "  ...$url did not serve $PS2SDK_COMMIT, trying the next remote"
+  done
+  if [ "$fetched" -eq 0 ]; then
+    # Leave nothing half-initialised: an empty .git would make the next run
+    # skip the fetch entirely and fail much later, inside the container.
+    rm -rf "$WORK"
+    echo "[audsrv] could not fetch ps2sdk $PS2SDK_COMMIT from either remote" >&2
+    exit 1
+  fi
   git -C "$WORK" checkout -q FETCH_HEAD
 fi
 

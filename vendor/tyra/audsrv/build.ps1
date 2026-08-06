@@ -24,6 +24,14 @@ $ErrorActionPreference = 'Stop'
 # the image has. Do not bump it without rebuilding and re-testing a game.
 $Ps2sdkCommit = 'e78a9cb2ea816a72a7466000c51558fd2b57f5a7'
 $Ps2sdkUrl    = 'https://github.com/ps2dev/ps2sdk.git'
+# ...and our fork of it, tried when the upstream fetch fails - the same
+# arrangement (and the same naming) deps.ps1 uses for every vendored
+# dependency. This module's SOURCES are in this directory, so an upstream
+# that vanishes cannot take audsrv with it; what it would take is the SDK
+# TREE this builds against (makefiles, headers, the imports/exports
+# tooling). A plain GitHub fork serves arbitrary reachable SHAs, which is
+# why the mirror needs no tyrax-specific tag.
+$Ps2sdkMirror = 'https://github.com/doctorspider42/tyrax-vendor-ps2sdk.git'
 $Image        = 'h4570/tyra'
 
 # The container path the sources are built at. It is part of the output: the EE
@@ -47,8 +55,25 @@ if (-not (Test-Path (Join-Path $work '.git'))) {
     Write-Host "[audsrv] fetching ps2sdk @ $($Ps2sdkCommit.Substring(0,8))..."
     New-Item -ItemType Directory -Force -Path $work | Out-Null
     git -C $work init -q
-    git -C $work fetch -q --depth 1 $Ps2sdkUrl $Ps2sdkCommit
-    if ($LASTEXITCODE -ne 0) { throw 'ps2sdk fetch failed' }
+    $fetched = $false
+    foreach ($url in @($Ps2sdkUrl, $Ps2sdkMirror)) {
+        # A failed fetch prints to stderr, and Windows PowerShell turns native
+        # stderr into a TERMINATING error while $ErrorActionPreference is
+        # 'Stop' - so the fallback would never be reached (setup.ps1 carries
+        # the same note next to Invoke-Native). Judge git by its exit code.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { git -C $work fetch -q --depth 1 $url $Ps2sdkCommit 2>$null | Out-Null }
+        finally { $ErrorActionPreference = $prev }
+        if ($LASTEXITCODE -eq 0) { $fetched = $true; break }
+        Write-Host "  ...$url did not serve $Ps2sdkCommit, trying the next remote" -ForegroundColor Yellow
+    }
+    if (-not $fetched) {
+        # Leave nothing half-initialised: an empty .git would make the next run
+        # skip the fetch entirely and fail much later, inside the container.
+        Remove-Item -Recurse -Force (Join-Path $here '.work') -ErrorAction SilentlyContinue
+        throw "Could not fetch ps2sdk $Ps2sdkCommit from either remote"
+    }
     git -C $work checkout -q FETCH_HEAD
 }
 

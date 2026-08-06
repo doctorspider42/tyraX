@@ -772,6 +772,11 @@ banner both, so a previously built ELF still reports.
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
   members, gcc's LTO section names carry a random per-compilation id), so the
   member SIZES are what that check compares.
+  The ps2sdk that script fetches (a build TREE - these Makefiles include
+  `$(PS2SDKSRC)/Defs.make`) has a **mirror** fallback like every entry in
+  `deps.sh`: `doctorspider42/tyrax-vendor-ps2sdk`. Losing upstream costs the
+  ability to REBUILD the module, not the module (its sources are in-tree) and
+  not game builds (those use the SDK installed in the `h4570/tyra` image).
 - **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
   streaming ring installs.** So the reverb's RPC bind runs BEFORE
   `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
