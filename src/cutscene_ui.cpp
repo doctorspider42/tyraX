@@ -1021,6 +1021,17 @@ void App::drawCutsceneWindow() {
     }
 
     bool changed = false;
+    // Belt and braces (the Save/Menu Editor idiom): `changed` is set by hand at
+    // each widget, so the next one added to this very long window can forget
+    // it. The section comparison cannot be forgotten. Track/shot edits that
+    // move OBJECTS live in project_.scenes, which the undo snapshot covers.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Sequences);
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::Sequences) != beforeSection)
+            commitChange();
+    };
     auto uniqueSeqName = [&](std::string base) {
         std::string n = base;
         for (int k = 2;; ++k) {
@@ -1067,6 +1078,7 @@ void App::drawCutsceneWindow() {
                             "node (category \"Scene\"); Stop Sequence ends it.");
         ImGui::EndChild();
         ImGui::End();
+        commitIfEdited();
         return;
     }
     Sequence& s = project_.sequences[selectedSequence_];
@@ -2231,5 +2243,5 @@ void App::drawCutsceneWindow() {
     ImGui::EndChild();
     ImGui::End();
 
-    if (changed) commitChange();
+    commitIfEdited();
 }

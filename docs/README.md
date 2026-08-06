@@ -127,6 +127,11 @@ guides. What is queued is in [Backlog](backlog.md).
   included) stamped by hand, scattered by a graph or spawned at runtime: the
   local-frame model, why instances are not linked back, and the merge/spawn
   split that decides what an instance costs on this machine.
+- [Save Editor](save-editor.md) - memory card saves in one window: the browser
+  title and the real 3D icon (including animated ones from a `.glb` clip), the
+  slot size breakdown and why "card space used" is bigger than the byte sum
+  (1 KB clusters), the save values/texts, the RAM checkpoint nodes, and the
+  "checking memory card" screen.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
@@ -217,6 +222,10 @@ guides. What is queued is in [Backlog](backlog.md).
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more
   than NTSC.
+- [Project format versioning & migrations](format-versioning.md) - the
+  editor/format version split, what happens when you open an older or newer
+  project (silent open vs the migrate-with-backup prompt vs refusal), the
+  `--migrate` CLI, and the bump/migration rules for contributors.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and

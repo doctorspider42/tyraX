@@ -1,4 +1,4 @@
-#include "templates.hpp"
+﻿#include "templates.hpp"
 
 #include <algorithm>
 #include <array>
@@ -28,6 +28,8 @@
 #include "livepad.hpp"  // Remote Pad wire format - shared with the editor
 #include "livetime.hpp"  // time-machine wire format - shared with the editor
 #include "menubake.hpp"
+#include "menulayout.hpp"
+#include "menustyle.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
@@ -35,6 +37,7 @@
 #include "prefab.hpp"
 #include "procrt.hpp"
 #include "project.hpp"
+#include "savebake.hpp"
 #include "scrollsim.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
@@ -1525,27 +1528,75 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -1556,6 +1607,19 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -1675,10 +1739,29 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
@@ -2649,27 +2732,75 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -2680,6 +2811,19 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -2799,10 +2943,29 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
@@ -2846,8 +3009,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"
-#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
+#include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -5302,6 +5465,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -5313,19 +5481,60 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+    // "Checking memory card" warning (save_system.gen.hpp carries the baked
+    // sprite's size) - centered, drawn over a dim while a card op runs.
+    setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
+                (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
+                (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sw
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -5360,7 +5569,80 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.values));
       t->addLink(menuValueSprites.back().id);
     }
+    // The three styled-menu textures, all sub-rect sprites like the value
+    // strip: renderGameMenu moves offset/position to the cell it wants.
+    menuStateSprites.clear();
+    menuListSprites.clear();
+    menuDescSprites.clear();
+    menuBgSprites.clear();
+    menuBgSprites.reserve(MENU_COUNT);
+    menuStateSprites.reserve(MENU_COUNT);
+    menuListSprites.reserve(MENU_COUNT);
+    menuDescSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite st;
+      st.mode = SpriteMode::MODE_REPEAT;
+      st.size = Vec2((float)m.rowsCellW, (float)m.rowsCellH);
+      menuStateSprites.push_back(st);
+      if (m.rowsTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.rowsTex));
+        t->addLink(menuStateSprites.back().id);
+      }
+      Sprite ls;
+      ls.mode = SpriteMode::MODE_REPEAT;
+      ls.size = Vec2((float)m.panelW, (float)(m.rowsVisible * m.rowH));
+      menuListSprites.push_back(ls);
+      if (m.listTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.listTex));
+        t->addLink(menuListSprites.back().id);
+      }
+      Sprite bg;
+      bg.mode = SpriteMode::MODE_REPEAT;
+      bg.size = Vec2((float)m.panelW, (float)m.contentH);
+      menuBgSprites.push_back(bg);
+      if (m.bgTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.bgTex));
+        t->addLink(menuBgSprites.back().id);
+      }
+      Sprite ds;
+      ds.mode = SpriteMode::MODE_REPEAT;
+      ds.size = Vec2((float)m.descCellW, (float)m.descCellH);
+      menuDescSprites.push_back(ds);
+      if (m.descTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.descTex));
+        t->addLink(menuDescSprites.back().id);
+      }
+    }
+    // The sheen is shared and only exists when a sheet sweeps one; loading a
+    // texture nothing draws would pin GS VRAM for nothing.
+    menuSheenLoaded = false;
+    for (int i = 0; i < MENU_COUNT && !menuSheenLoaded; ++i)
+      menuSheenLoaded = MENUS[i].sheenSec > 0.0F;
+    if (menuSheenLoaded) {
+      setupSprite(menuSheenSprite, "menus/sheen.png", 64, 64, 0.0F, 0.0F);
+      // MODE_REPEAT so `offset`/`size` select a PART of the band - that is what
+      // lets it be cropped to the panel as it enters and leaves.
+      menuSheenSprite.mode = SpriteMode::MODE_REPEAT;
+      menuSheenSprite.additive = true;  // light passing over, never darkening
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    menuCursorSprites.clear();
+    menuCursorSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite c;
+      c.mode = SpriteMode::MODE_STRETCH;
+      c.size = Vec2(16.0F, 16.0F);
+      menuCursorSprites.push_back(c);
+      auto* t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(
+          m.markerTex[0] != '\0' ? m.markerTex : "hud/save-cursor.png"));
+      t->addLink(menuCursorSprites.back().id);
+    }
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
 
@@ -5449,6 +5731,11 @@ void TerrainGame::buildScene() {
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       // The pad reconfigures for ~3.5s after boot and reports garbage
       // clicks - one of those must not press a title entry.
       gameMenuGrace = 200;
@@ -8086,6 +8373,80 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
 bool TerrainGame::updateSaveMenu() {
   if (saveFeedbackFrames > 0) --saveFeedbackFrames;
 
+  // Checkpoint requests (flow graph). Save/Load touch only the single RAM
+  // buffer - instant, no card, no overlay. Commit turns into a card op.
+  scriptCtx.hasCheckpoint = checkpointValid;
+  if (scriptCtx.saveCheckpoint) {
+    scriptCtx.saveCheckpoint = false;
+    captureState(checkpointData);
+    checkpointValid = true;
+    scriptCtx.hasCheckpoint = true;
+  }
+  if (scriptCtx.loadCheckpoint) {
+    scriptCtx.loadCheckpoint = false;
+    if (checkpointValid) applyState(checkpointData);
+  }
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
+    scriptCtx.commitCheckpoint = -1;
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
+  }
+
+  // A card op owns the pad. The blocking libmc transfer only runs once the
+  // "do not remove the memory card" overlay has been on screen for a few
+  // frames; afterwards the warning holds up its minimum time.
+  if (cardOp >= 0) {
+    if (cardOpDelay > 0) {
+      --cardOpDelay;
+    } else {
+      const int op = cardOp;
+      cardOp = -1;
+      if (op == 0) {
+        doSave(cardOpSlot);
+      } else if (op == 1) {
+        doLoad(cardOpSlot);
+      } else {  // commit the RAM checkpoint to a slot
+        const bool ok = saveWrite(cardOpSlot, checkpointData);
+        if (ok) slotUsed[cardOpSlot] = true;
+        saveFeedback = ok ? 1 : 3;
+        saveFeedbackFrames = everyFrames(1.8F);
+      }
+    }
+    return true;
+  }
+  if (cardBusyFrames > 0) {
+    --cardBusyFrames;
+    return true;
+  }
+
   if (scriptCtx.openSaveMenu) {
     scriptCtx.openSaveMenu = false;
     if (!saveMenuOpen) {
@@ -8108,26 +8469,79 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
   }
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) doSave(saveMenuSlot);
+  // Buttons come from the remappable input map (main), the work goes through
+  // beginCardOp so the "checking memory card" screen is up while the card is
+  // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
+  // warning has actually been drawn.
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
-    doLoad(saveMenuSlot);
+    beginCardOp(1, saveMenuSlot);
   return true;
+}
+
+void TerrainGame::beginCardOp(int op, int slot) {
+  cardOp = op;
+  cardOpSlot = slot;
+  cardOpDelay = 3;  // present the warning before the blocking transfer
+  cardBusyFrames = everyFrames(1.5F);
 }
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
 }
 
-void TerrainGame::doSave(int slot) {
-  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
+}
+
+void TerrainGame::captureState(SaveGameData& d) {
   d = SaveGameData();
   d.magic = SAVE_MAGIC;
   d.version = SAVE_VERSION;
@@ -8162,10 +8576,35 @@ void TerrainGame::doSave(int slot) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
-  const bool ok = saveWrite(slot, d);
+}
+
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -8175,6 +8614,15 @@ void TerrainGame::doLoad(int slot) {
     saveFeedbackFrames = everyFrames(1.8F);
     return;
   }
+  applyState(d);
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+// Restores a payload captured by captureState - a card slot's or the RAM
+// checkpoint's. Mutates d only to NUL-terminate texts (corrupted cards).
+void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
@@ -8192,9 +8640,6 @@ void TerrainGame::doLoad(int slot) {
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
     applySavedObjects();
-  saveMenuOpen = false;
-  saveFeedback = 2;
-  saveFeedbackFrames = 90;
 }
 
 void TerrainGame::applySavedObjects() {
@@ -8217,15 +8662,64 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
     }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
+    }
+  }
+  // The "do not remove the memory card" warning covers everything while a
+  // card op is pending or holding; feedback sprites wait until it clears.
+  if (cardOp >= 0 || cardBusyFrames > 0) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveBusySprite);
+    return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -8259,6 +8753,11 @@ bool TerrainGame::updateGameMenu() {
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
       gameMenuIndex = target;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
       menuRebindRow = -1;
@@ -8274,6 +8773,11 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuIndex < 0) {
       gameMenuIndex = PAUSE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;
       menuRebindRow = -1;
@@ -8285,6 +8789,15 @@ bool TerrainGame::updateGameMenu() {
       gameMenuIndex = -1;
       return false;
     }
+  }
+
+  // A menu that is closing keeps drawing for the length of its close transition
+  // and takes no input. Only the plain dismissals animate: a scene switch or a
+  // hand-off to the save menu clears immediately, because a panel lingering over
+  // a loading scene is worse than no transition at all.
+  if (gameMenuClosing >= 0) {
+    gameMenuCloseT += g_frameDt;
+    if (gameMenuCloseT >= MENUS[gameMenuClosing].closeSec) gameMenuClosing = -1;
   }
 
   if (gameMenuIndex < 0) return false;
@@ -8326,10 +8839,14 @@ bool TerrainGame::updateGameMenu() {
     return pausing();
   }
 
-  if (inputClicked(engine->pad, IA_ROLE_MENU_UP) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
-  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+  // Headers, spacers and rows their `enabledWhen` value switched off are
+  // skipped - including on the frame the menu opened, so a menu whose first row
+  // is a section header still lands on something usable.
+  if (!menuRowEnabled(gameMenuIndex, gameMenuCursor))
+    menuMoveCursor(gameMenuIndex, 1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_UP)) menuMoveCursor(gameMenuIndex, -1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN)) menuMoveCursor(gameMenuIndex, 1);
+  menuFollowCursor(gameMenuIndex);
 
   // Toggle/Choice rows: the state is the bound save value (the option
   // index). Cross and dpad right cycle forward, dpad left backward.
@@ -8340,6 +8857,7 @@ bool TerrainGame::updateGameMenu() {
     if (v < 0) v = 0;
     if (v >= e.optionCount) v = e.optionCount - 1;
     saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+    gameMenuValueFlash = m.valueFlashSec;  // 0 when the sheet asks for none
   };
   if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
     const MenuEntryData& cur = m.entries[gameMenuCursor];
@@ -8358,18 +8876,32 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       menuRebindRow = -1;
     } else if (!m.titleScreen) {
+      if (m.closeSec > 0.0F) {
+        gameMenuClosing = gameMenuIndex;
+        gameMenuCloseT = 0.0F;
+      }
       gameMenuIndex = -1;
     }
     return pausing();
   }
 
   if (inputClicked(engine->pad, IA_ROLE_CONFIRM) && gameMenuCursor >= 0 &&
-      gameMenuCursor < m.entryCount) {
+      gameMenuCursor < m.entryCount &&
+      menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     switch (e.action) {
       case 0:  // close
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
         gameMenuIndex = -1;
         gameMenuStackDepth = 0;
         break;
@@ -8391,6 +8923,11 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
           gameMenuIndex = e.param;
           gameMenuCursor = 0;
+          gameMenuScroll = 0;
+          gameMenuOpenT = 0.0F;
+          gameMenuClock = 0.0F;
+          gameMenuScrollShown = 0.0F;
+          gameMenuCursorRow = -1;
           menuRebindRow = -1;
         }
         break;
@@ -8585,26 +9122,255 @@ void TerrainGame::syncPlayerCountMenuValue() {
   }
 }
 
-void TerrainGame::renderGameMenu() {
-  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
-  if (saveMenuOpen) return;  // the save menu draws on top instead
-  const MenuData& m = MENUS[gameMenuIndex];
-  Sprite& panel = menuSprites[gameMenuIndex];
-  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
-  engine->renderer.renderer2D.render(panel);
-  if (m.entryCount > 0) {
-    menuCursorSprite.position =
-        Vec2(panel.position.x + 32.0F,
-             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
-    engine->renderer.renderer2D.render(menuCursorSprite);
+// Menu progress easing, shared by the open transition and the caret. ease 0
+// linear, 1 ease-out (the default a sheet gets), 2 ease-in-out.
+static float menuEase(float t, int ease) {
+  if (t <= 0.0F) return 0.0F;
+  if (t >= 1.0F) return 1.0F;
+  if (ease == 0) return t;
+  if (ease == 2) return t < 0.5F ? 2.0F * t * t : 1.0F - 2.0F * (1.0F - t) * (1.0F - t);
+  const float inv = 1.0F - t;
+  return 1.0F - inv * inv;
+}
+
+// True when a row is currently usable: a label/spacer never is, and a row with
+// an `enabledWhen` save value is only usable while that value is non-zero.
+bool TerrainGame::menuRowEnabled(int menu, int row) const {
+  if (menu < 0 || menu >= MENU_COUNT) return false;
+  const MenuData& m = MENUS[menu];
+  if (row < 0 || row >= m.entryCount) return false;
+  const MenuEntryData& e = m.entries[row];
+  if (!e.selectable) return false;
+  if (e.enableVal >= 0 && e.enableVal < SAVE_VALUE_COUNT &&
+      saveValues[e.enableVal] == 0.0F)
+    return false;
+  return true;
+}
+
+// Moves the cursor `dir` rows, skipping headers, spacers and disabled rows, and
+// wrapping like the plain cursor always did. A menu with nothing selectable
+// leaves the cursor where it is rather than spinning.
+void TerrainGame::menuMoveCursor(int menu, int dir) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.entryCount <= 0) return;
+  for (int step = 0; step < m.entryCount; ++step) {
+    gameMenuCursor = (gameMenuCursor + dir + m.entryCount) % m.entryCount;
+    if (menuRowEnabled(menu, gameMenuCursor)) return;
   }
-  // Toggle/Choice rows: the current option label, a cell of the baked value
-  // strip drawn right-aligned on the row (cell right edge 24px from the
-  // panel's right border - the mirror of the 56px label margin).
+}
+
+// Keeps the cursor inside the visible window of a scrolling list.
+void TerrainGame::menuFollowCursor(int menu) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.listTex[0] == '\0' || m.rowsVisible <= 0) {
+    gameMenuScroll = 0;
+    return;
+  }
+  if (gameMenuCursor < gameMenuScroll) gameMenuScroll = gameMenuCursor;
+  if (gameMenuCursor >= gameMenuScroll + m.rowsVisible)
+    gameMenuScroll = gameMenuCursor - m.rowsVisible + 1;
+  const int maxScroll = m.entryCount - m.rowsVisible;
+  if (gameMenuScroll > maxScroll) gameMenuScroll = maxScroll;
+  if (gameMenuScroll < 0) gameMenuScroll = 0;
+}
+
+void TerrainGame::renderGameMenu() {
+  // A menu that is closing still draws: its transition is the whole reason the
+  // index was parked in gameMenuClosing instead of simply cleared.
+  const int drawMenu = gameMenuIndex >= 0 ? gameMenuIndex : gameMenuClosing;
+  if (drawMenu < 0 || drawMenu >= (int)menuSprites.size()) return;
+  if (saveMenuOpen) return;  // the save menu draws on top instead
+  const MenuData& m = MENUS[drawMenu];
+  Sprite& panel = menuSprites[drawMenu];
+  const bool closing = gameMenuIndex < 0;
+
+  // --- resolution scale (docs/menu-styles.md "Resolutions") ----------------
+  // A menu is authored in the logical 512x448 space of the interlaced mode, but
+  // the framebuffer is 448x448 in 480p, 448x540 in 1080i and 512x512 in full
+  // PAL. Scaling by (width/512, height/448) is what keeps the panel the same
+  // PHYSICAL size on the TV: the GS display window maps whatever the buffer is
+  // across the same raster, so 448 columns cover exactly the width 512 do.
+  // That also means the two axes scale by different factors - hence
+  // Sprite::drawSize rather than Sprite::scale.
+  const auto& uiScr = engine->renderer.core.getSettings();
+  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiSY = uiScr.getHeight() / 448.0F;
+  auto sxi = [&](int v) { return (float)v * uiSX; };
+  auto syi = [&](int v) { return (float)v * uiSY; };
+
+  // --- the open transition -------------------------------------------------
+  // Sprite properties only: an offset added to every piece and one alpha. The
+  // baked pixels never move, which is why this costs nothing.
+  gameMenuClock += g_frameDt;
+  float prog = 1.0F;
+  float ofsX = 0.0F, ofsY = 0.0F;
+  bool fade = false;
+  if (closing) {
+    prog = m.closeSec > 0.0F ? 1.0F - menuEase(gameMenuCloseT / m.closeSec, m.closeEase)
+                             : 0.0F;
+    ofsX = m.closeDX * (1.0F - prog);
+    ofsY = m.closeDY * (1.0F - prog);
+    fade = m.closeFade != 0;
+  } else if (m.openSec > 0.0F) {
+    gameMenuOpenT += g_frameDt;
+    prog = menuEase(gameMenuOpenT / m.openSec, m.openEase);
+    ofsX = m.openDX * (1.0F - prog);
+    ofsY = m.openDY * (1.0F - prog);
+    fade = m.openFade != 0;
+  }
+  const unsigned char alpha = (unsigned char)(fade ? 128.0F * prog + 0.5F : 128.0F);
+  // The panel is centred on its normalized screen position, in the mode's own
+  // buffer, at its scaled size.
+  const float baseX =
+      m.screenX * uiScr.getWidth() - sxi(m.panelW) * 0.5F + ofsX * uiSX;
+  const float baseY =
+      m.screenY * uiScr.getHeight() - syi(m.contentH) * 0.5F + ofsY * uiSY;
+
+  if (m.pause) {
+    // Sized per frame: a runtime display-mode switch changes the buffer under
+    // it, and a dim overlay that misses the edge is very visible.
+    menuDimSprite.drawSize = Vec2(uiScr.getWidth(), uiScr.getHeight());
+    engine->renderer.renderer2D.render(menuDimSprite);
+  }
+  // The moving background layer, under everything the panel bakes. Scroll walks
+  // the sampling window across the tiled copy; frames jump it between frames.
+  // Either way it is one sprite and one offset - no re-bake, no second texture
+  // per frame (docs/menu-styles.md "Motion").
+  if (m.bgTex[0] != '\0' && drawMenu < (int)menuBgSprites.size()) {
+    Sprite& bg = menuBgSprites[drawMenu];
+    bg.color.a = alpha;
+    bg.drawSize = Vec2(sxi(m.panelW), syi(m.contentH));
+    if (m.bgMode == 2 && m.bgFrames > 0) {
+      int f = (int)(gameMenuClock / (m.bgSeconds > 0.0F ? m.bgSeconds : 1.0F) *
+                    m.bgFrames);
+      f %= m.bgFrames;
+      if (f < 0) f += m.bgFrames;
+      bg.offset = Vec2(0.0F, (float)(f * m.bgFrameH));
+    } else {
+      auto wrap = [](float v, float span) {
+        if (span <= 0.0F) return 0.0F;
+        v = fmodf(v, span);
+        return v < 0.0F ? v + span : v;
+      };
+      bg.offset = Vec2(wrap(gameMenuClock * m.bgScrollX, (float)m.bgTileW),
+                       wrap(gameMenuClock * m.bgScrollY, (float)m.bgTileH));
+    }
+    bg.position = Vec2(baseX, baseY);
+    engine->renderer.renderer2D.render(bg);
+  }
+
+  panel.color.a = alpha;
+  panel.drawSize = Vec2(sxi(m.panelW), syi(m.panelH));
+  panel.position = Vec2(baseX, baseY);
+  engine->renderer.renderer2D.render(panel);
+
+  // A scrolling list settles into its new window instead of jumping. One float:
+  // every row-indexed piece below reads `shown` rather than the integer scroll,
+  // so the highlight, the values and the rows all move together (they must - a
+  // highlight that arrives before its row is worse than no easing).
+  if (m.scrollSec > 0.0F) {
+    const float k = menuEase(g_frameDt / m.scrollSec, 1);
+    gameMenuScrollShown += ((float)gameMenuScroll - gameMenuScrollShown) *
+                           (k > 1.0F ? 1.0F : k);
+    if (fabsf((float)gameMenuScroll - gameMenuScrollShown) < 0.01F)
+      gameMenuScrollShown = (float)gameMenuScroll;
+  } else {
+    gameMenuScrollShown = (float)gameMenuScroll;
+  }
+  const float shown = gameMenuScrollShown;
+
+  // --- the row strip of a scrolling list -----------------------------------
+  // One window into the strip texture; scrolling moves `offset`, so a 32-row
+  // menu costs exactly what an 8-row one does.
+  if (m.listTex[0] != '\0' && drawMenu < (int)menuListSprites.size()) {
+    Sprite& ls = menuListSprites[drawMenu];
+    ls.color.a = alpha;
+    ls.offset = Vec2(0.0F, shown * (float)m.rowH);
+    ls.drawSize = Vec2(sxi(m.panelW), syi(m.rowsVisible * m.rowH));
+    ls.position = Vec2(baseX, baseY + syi(m.row0Y));
+    engine->renderer.renderer2D.render(ls);
+  }
+
+  // --- row states ----------------------------------------------------------
+  // Disabled rows first, then the selected one, all from ONE texture so the
+  // draws share a texture bind (a per-row texture switch would re-upload a
+  // CLUT every row - see docs/gs-vram.md).
+  if (m.rowsTex[0] != '\0' && drawMenu < (int)menuStateSprites.size()) {
+    Sprite& ss = menuStateSprites[drawMenu];
+    ss.color.a = alpha;
+    ss.drawSize = Vec2(sxi(m.rowsCellW), syi(m.rowsCellH));
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.disCell < 0 || menuRowEnabled(gameMenuIndex, i)) continue;
+      ss.offset = Vec2(0.0F, (float)(e.disCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)i - shown) * (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+    }
+    const MenuEntryData& sel = m.entries[gameMenuCursor >= 0 && gameMenuCursor < m.entryCount
+                                             ? gameMenuCursor
+                                             : 0];
+    if (sel.selCell >= 0 && menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
+      ss.offset = Vec2(0.0F, (float)(sel.selCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)gameMenuCursor - shown) *
+                                        (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+      ss.color.a = alpha;  // the pulse is this row's alone
+    }
+  }
+
+  // --- the selection caret -------------------------------------------------
+  // It eases toward its row when the sheet asks for it; with no cursor
+  // transition it snaps, which is what every menu did before. A style whose
+  // selected row paints a full-width plate turns it off (`marker: none`) - the
+  // caret would only sit on top of the plate.
+  if (m.entryCount > 0 && m.markerOn) {
+    const float targetY =
+        (float)m.row0Y + ((float)gameMenuCursor - shown) * (float)m.rowH + 1.0F;
+    if (m.cursorSec > 0.0F) {
+      if (gameMenuCursorRow != gameMenuCursor) {
+        // Re-target: ease from wherever the caret actually is.
+        gameMenuCursorRow = gameMenuCursor;
+      }
+      const float k = menuEase(g_frameDt / m.cursorSec, m.cursorEase);
+      gameMenuCursorY += (targetY - gameMenuCursorY) * (k > 1.0F ? 1.0F : k);
+      if (gameMenuCursorY < -512.0F || gameMenuCursorY > 1024.0F)
+        gameMenuCursorY = targetY;  // first frame / a scene reload
+    } else {
+      gameMenuCursorY = targetY;
+    }
+    Sprite& caret = drawMenu < (int)menuCursorSprites.size()
+                        ? menuCursorSprites[drawMenu]
+                        : menuCursorSprite;
+    caret.color.a = alpha;
+    caret.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
+    const float bob =
+        m.bobSec > 0.0F
+            ? m.bobPx * sinf(gameMenuClock * 6.2831853F / m.bobSec)
+            : 0.0F;
+    caret.position = Vec2(baseX + (m.markerX + bob) * uiSX,
+                          baseY + gameMenuCursorY * uiSY);
+    engine->renderer.renderer2D.render(caret);
+  }
+
+  // Toggle/Choice rows: the current option label (or bar), a cell of the baked
+  // value strip drawn right-aligned on the row.
   if (m.values[0] != '\0' &&
-      gameMenuIndex < (int)menuValueSprites.size()) {
-    Sprite& vs = menuValueSprites[gameMenuIndex];
-    for (int i = 0; i < m.entryCount; ++i) {
+      drawMenu < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[drawMenu];
+    vs.color.a = alpha;
+    vs.drawSize = Vec2(sxi(m.valueCellW), syi(m.valueCellH));
+    // The row whose value just changed flashes brighter, which is how a player
+    // sees that a press did something on a row whose label never moves.
+    if (gameMenuValueFlash > 0.0F) gameMenuValueFlash -= g_frameDt;
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.cell < 0 || e.optionCount <= 0) continue;
       int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
@@ -8612,17 +9378,70 @@ void TerrainGame::renderGameMenu() {
                   : 0;
       if (v < 0) v = 0;
       if (v >= e.optionCount) v = e.optionCount - 1;
+      const bool flash = gameMenuValueFlash > 0.0F && i == gameMenuCursor;
+      vs.color.r = vs.color.g = vs.color.b = flash ? 255 : 128;
       vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
-      vs.position = Vec2(panel.position.x + m.valueX,
-                         panel.position.y + m.row0Y + i * m.rowH);
+      vs.position = Vec2(baseX + sxi(m.valueX),
+                         baseY + (float)m.row0Y * uiSY +
+                             ((float)i - shown) * (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(vs);
     }
   }
+
+  // --- the description pane ------------------------------------------------
+  // The selected row's cell, drawn into the box the panel already framed.
+  if (m.descTex[0] != '\0' && drawMenu < (int)menuDescSprites.size() &&
+      gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    if (e.descCell >= 0) {
+      Sprite& ds = menuDescSprites[drawMenu];
+      ds.color.a = alpha;
+      ds.drawSize = Vec2(sxi(m.descCellW), syi(m.descCellH));
+      ds.offset = Vec2(0.0F, (float)(e.descCell * m.descPitch));
+      ds.position = Vec2(baseX + sxi(m.descX), baseY + syi(m.descY));
+      engine->renderer.renderer2D.render(ds);
+    }
+  }
+
+  // The sheen: a soft band sweeping across the panel, additive so it only ever
+  // adds light. It crosses from off the left edge to off the right, then waits
+  // out the rest of the period - a sweep every few seconds reads as a highlight,
+  // a sweep that never stops reads as a strobe.
+  if (m.sheenSec > 0.0F && menuSheenLoaded) {
+    const float bandW = m.sheenPx > 0.0F ? m.sheenPx : 48.0F;
+    // The band travels from just off the left edge to just off the right, and
+    // is CROPPED to the panel on the way in and out. A 2D sprite is not clipped
+    // by anything, so without this the sweep is visible beside the menu before
+    // it arrives - which is exactly how it was reported. The crop is the same
+    // window-into-a-texture trick the value strip uses: move `offset` and
+    // shrink `size`, and the sprite samples only the part that belongs inside.
+    const float phase = fmodf(gameMenuClock, m.sheenSec) / m.sheenSec;
+    const float x0 = phase * ((float)m.panelW + bandW * 2.0F) - bandW;
+    const float vx0 = x0 < 0.0F ? 0.0F : x0;
+    const float vx1 = x0 + bandW > (float)m.panelW ? (float)m.panelW : x0 + bandW;
+    if (vx1 > vx0) {
+      const float u0 = (vx0 - x0) / bandW * 64.0F;
+      const float u1 = (vx1 - x0) / bandW * 64.0F;
+      menuSheenSprite.color.r = (unsigned char)m.sheenR;
+      menuSheenSprite.color.g = (unsigned char)m.sheenG;
+      menuSheenSprite.color.b = (unsigned char)m.sheenB;
+      menuSheenSprite.color.a =
+          (unsigned char)((float)m.sheenA * (alpha / 128.0F) * 0.5F);
+      menuSheenSprite.offset = Vec2(u0, 0.0F);
+      menuSheenSprite.size = Vec2(u1 - u0, 64.0F);
+      menuSheenSprite.drawSize = Vec2((vx1 - vx0) * uiSX, syi(m.contentH));
+      menuSheenSprite.position = Vec2(baseX + vx0 * uiSX, baseY);
+      engine->renderer.renderer2D.render(menuSheenSprite);
+    }
+  }
+
   // Rebind rows: the binding name can't be baked (it changes at runtime), so it
   // draws glyph by glyph from the menu font's atlas, right-aligned like the
   // baked option labels. While capturing, the row asks for a press instead.
   if (m.font >= 0 && m.font < FONT_COUNT) {
-    for (int i = 0; i < m.entryCount; ++i) {
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.action != 10) continue;
       const char* txt = "PRESS...";
@@ -8647,18 +9466,17 @@ void TerrainGame::renderGameMenu() {
       // half of a 128px panel, so shrink to fit rather than run over the row's
       // baked label (floor at 50% - below that it stops being readable at PS2
       // resolutions anyway).
-      float size = (float)m.rowH * 0.8F;
-      const float room = (float)m.panelW * 0.5F - 24.0F;
+      float size = (float)m.rowH * 0.8F * uiSY;
+      const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
       float w = fontTextWidth(m.font, txt, size);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
         w = fontTextWidth(m.font, txt, size);
       }
-      drawFontText(engine, m.font, txt,
-                   panel.position.x + (float)(m.panelW - 24) - w * 0.5F,
-                   panel.position.y + m.row0Y + i * m.rowH +
-                       (float)m.rowH * 0.5F,
+      drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
+                   baseY + syi(m.row0Y + (i - first) * m.rowH) +
+                       syi(m.rowH) * 0.5F,
                    size);
     }
   }
@@ -18103,6 +18921,17 @@ struct ScriptContext {
   char* saveTexts = nullptr;
   int saveTextCount = 0;
   bool openSaveMenu = false;
+  // Checkpoints: ONE in-RAM snapshot of the exact payload a card slot
+  // stores (a single static buffer, a few KB - never grows, no history).
+  // saveCheckpoint captures it, loadCheckpoint restores it (no-op when none
+  // was taken); both are instant RAM ops. commitCheckpoint >= 0 writes the
+  // snapshot to that card slot behind the "checking memory card" warning.
+  // hasCheckpoint mirrors whether the buffer holds one (Has Checkpoint
+  // node). The game applies and clears the requests each frame.
+  bool saveCheckpoint = false;
+  bool loadCheckpoint = false;
+  int commitCheckpoint = -1;
+  bool hasCheckpoint = false;
 
   // Game menus (menu_data.gen.hpp order). Write a menu index into openMenu
   // to open it (the game applies and clears it). menuEvent holds the index
@@ -18591,6 +19420,10 @@ bin/*.elf.sym
 .vscode/
 .res-baked/
 docker-compose.yml
+# Pre-migration snapshots of the project's own model files, written by a format
+# migration (docs/format-versioning.md). Local safety copies, not source: the
+# history that matters is already in git.
+_backup/
 # Devkit runtime files (docs/devkit.md): the editor <-> game channels, a
 # crash report and the game's log. Written next to the ELF while you work,
 # never shipped. bin/.gitignore already ignores the whole directory - this
@@ -18631,6 +19464,11 @@ static const char* TPL_RES_GITIGNORE =
 # checked in - a pulled project must render without missing files. Only
 # build-regenerated output is ignored.
 /menus/
+# Baked memory card icon (docs/save-editor.md): icon.sys + list.icn, derived
+# from the title/icon settings in the .tyra and rebaked on every build. The
+# "checking memory card" overlay in res/hud/ is NOT here - that one is written
+# only when missing, so it is user-replaceable like the other HUD sprites.
+/save/
 # Baked credits page strips (docs/credits.md). The roll ITSELF is in the
 # .tyra - these are its pixels, rewritten on every build. The images an
 # Image block points at live in res/credits/ and ARE checked in.
@@ -21597,9 +22435,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "      GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);\n"
            "}\n";
 
-    // Save system: custom values (Project panel, Save data) and the largest
+    // Save system: custom values (Tools > Save Editor) and the largest
     // scene object count - sizes the fixed save-slot payload at compile time.
     const size_t valueCount = p.saveValues.size();
+    // ScriptContext::commitCheckpoint carries a slot index, or one of these.
+    // They live HERE, in the header both sides include, because the flow graph
+    // writes them and TerrainGame resolves them - save_system.gen.hpp is not on
+    // flow_graph.gen.cpp's include list.
+    out << "\n// Commit Checkpoint slot modes decided at runtime (-1 = no "
+           "request)\n"
+           "constexpr int SAVE_COMMIT_AUTOSAVE = -2;\n"
+           "constexpr int SAVE_COMMIT_NEXT = -3;\n";
     out << "\nconstexpr int SAVE_VALUE_COUNT = " << valueCount << ";\n"
         << "inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? "
            "SAVE_VALUE_COUNT : 1] = {";
@@ -21643,9 +22489,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 << "\"";
     }
     out << "};\n";
+    // Only save-flagged objects ever land in a slot (captureState skips the
+    // rest), so the fixed payload is sized by their count, not the scene
+    // size - keeps slot files and the in-RAM checkpoint buffer small.
+    // Mirrored by templates::saveSizeInfo (the Save Editor's estimate).
     size_t maxObjects = 1;
-    for (const SceneData& sc : p.scenes)
-        if (sc.objects.size() > maxObjects) maxObjects = sc.objects.size();
+    for (const SceneData& sc : p.scenes) {
+        size_t flagged = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.saveState) ++flagged;
+        if (flagged > maxObjects) maxObjects = flagged;
+    }
     out << "constexpr int SAVE_OBJECT_MAX = " << maxObjects << ";\n";
 
     out << "\n}  // namespace " << ns << "\n";
@@ -24928,6 +25782,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                            ") <= " + floatLit(std::fabs(n.num[1])) + ")";
                 return "(" + e + " >= " + floatLit(n.num[0]) + ")";
             }
+            if (n.type == "HasCheckpoint") return "ctx.hasCheckpoint";
             if (n.type == "GetVarBool") {
                 const int vi = varIndex(boolVars, n.str);
                 if (vi < 0) return "false";
@@ -25681,6 +26536,29 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 }
             } else if (n.type == "OpenSaveMenu") {
                 c << pad << "ctx.openSaveMenu = true;\n";
+            } else if (n.type == "SaveCheckpoint") {
+                c << pad << "ctx.saveCheckpoint = true;\n";
+            } else if (n.type == "LoadCheckpoint") {
+                c << pad << "ctx.loadCheckpoint = true;\n";
+            } else if (n.type == "CommitCheckpoint") {
+                // The slot is a MODE, not always a number: "autosave" and
+                // "next" are decided while the game runs. "" is fixed, so a
+                // graph written before the mode existed emits what it always
+                // did. A -1 reaches the game as "do nothing" (no autosave slot
+                // is set), which beats silently writing slot 0.
+                // The graph can only write into ScriptContext, so the two
+                // runtime modes travel as sentinels and the game resolves
+                // them (SAVE_COMMIT_* in save_system.gen.hpp).
+                if (n.str == "autosave") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_AUTOSAVE;\n";
+                } else if (n.str == "next") {
+                    c << pad << "ctx.commitCheckpoint = SAVE_COMMIT_NEXT;\n";
+                } else {
+                    int slot = (int)n.num[0];
+                    if (slot < 0) slot = 0;
+                    if (slot >= saveSlotCount(p)) slot = saveSlotCount(p) - 1;
+                    c << pad << "ctx.commitCheckpoint = " << slot << ";\n";
+                }
             } else if (n.type == "SetVarInt") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) {
@@ -32323,6 +33201,14 @@ static std::string menuDataHeader(const Project& p) {
            "  // (optionCount ints; -1 = the project-default boot mode).\n"
            "  // Null = the option index itself.\n"
            "  const int* optModes;\n"
+           "  // --- styling (docs/menu-styles.md) ---------------------------\n"
+           "  // Cells in the row-state atlas for this row, -1 = the sheet\n"
+           "  // paints nothing for that state (the row then draws from the\n"
+           "  // panel exactly as before).\n"
+           "  int selCell, disCell;\n"
+           "  int descCell;    // cell in the description atlas (-1 = none)\n"
+           "  int enableVal;   // save value gating the row (-1 = always on)\n"
+           "  int selectable;  // 0 = a label/spacer row the cursor skips\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -32343,6 +33229,58 @@ static std::string menuDataHeader(const Project& p) {
            "  // current binding as runtime text from this font's glyph atlas\n"
            "  // (Project::atlasFontIndices bakes one for such menus).\n"
            "  int font;\n"
+           "  // --- styling (docs/menu-styles.md) ---------------------------\n"
+           "  // Row-state atlas (\"\" = none): one cell per (row, state) the\n"
+           "  // stylesheet paints, drawn OVER the baked normal row. A cell\n"
+           "  // carries the panel's own background, so it covers it whatever\n"
+           "  // the highlight's alpha.\n"
+           "  const char* rowsTex;\n"
+           "  int rowsCellW, rowsCellH, rowsPitch;\n"
+           "  // Scrolling list (\"\" = the rows are baked into the panel):\n"
+           "  // every row in its own texture, drawn as a rowsVisible-tall\n"
+           "  // WINDOW of it - scrolling is an offset, not a rebake.\n"
+           "  const char* listTex;\n"
+           "  int listH, rowsVisible;\n"
+           "  // Description pane (\"\" = none): the selected row's cell drawn\n"
+           "  // at descX/descY inside the panel.\n"
+           "  const char* descTex;\n"
+           "  int descCellW, descCellH, descPitch, descX, descY;\n"
+           "  float markerX;    // selection caret x inside the panel\n"
+           "  int markerOn;     // 0 = `marker: none` - a style whose selected\n"
+           "                    // row paints a plate does not want a caret on\n"
+           "                    // top of it (docs/menu-styles.md)\n"
+           "  // The caret's own image (\"\" = the built-in hud/save-cursor.png,\n"
+           "  // which is also the save menu's). A sheet points at its own with\n"
+           "  // `marker { marker: url(res/hud/caret.png); }`.\n"
+           "  const char* markerTex;\n"
+           "  // Motion. The panel slides/fades in over openSec (ease 0 linear,\n"
+           "  // 1 ease-out, 2 ease-in-out) and the caret eases to its row over\n"
+           "  // cursorSec. Sprite properties only - nothing is re-baked.\n"
+           "  float openSec;\n"
+           "  int openEase, openFade;\n"
+           "  float openDX, openDY, openScale;\n"
+           "  float cursorSec;\n"
+           "  int cursorEase;\n"
+           "  // The close transition, and the two easings that are not about\n"
+           "  // the panel: a scrolling list settling into its new window, and\n"
+           "  // the flash a Toggle/Choice value gives when it changes.\n"
+           "  float closeSec;\n"
+           "  int closeEase, closeFade;\n"
+           "  float closeDX, closeDY;\n"
+           "  float scrollSec, valueFlashSec;\n"
+           "  // Loops. All three are sprite properties - an alpha, an offset, a\n"
+           "  // position - so a menu that never stops moving costs what a still\n"
+           "  // one costs (docs/menu-styles.md \"Motion\").\n"
+           "  float pulseSec, pulseAmt;   // the selected row's cell breathes\n"
+           "  float bobSec, bobPx;        // the caret slides back and forth\n"
+           "  float sheenSec, sheenPx;    // a band sweeps across the panel\n"
+           "  int sheenR, sheenG, sheenB, sheenA;\n"
+           "  // The moving background layer (\"\" = none): mode 1 scrolls a\n"
+           "  // tiled texture by moving the sampling window, mode 2 steps\n"
+           "  // through a frame strip. Both are one sprite and one texture.\n"
+           "  const char* bgTex;\n"
+           "  int bgMode, bgTileW, bgTileH, bgFrameH, bgFrames;\n"
+           "  float bgScrollX, bgScrollY, bgSeconds;\n"
            "};\n\n"
         << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
 
@@ -32351,7 +33289,8 @@ static std::string menuDataHeader(const Project& p) {
         const int entries = (int)m.entries.size() > menubake::kMaxEntries
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
-        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m, p);
+        const menulayout::Layout ml = menulayout::compute(m, p);
         out << "// menu \"" << m.name << "\"\n";
         // Explicit option->mode tables for display-mode rows (see
         // MenuEntryData::optModes); rows without one keep the positional map.
@@ -32379,7 +33318,8 @@ static std::string menuDataHeader(const Project& p) {
         out << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},\n";
+            out << "    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, "
+                   "1},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -32420,6 +33360,20 @@ static std::string menuDataHeader(const Project& p) {
                     out << "MENU_" << mi << "_E" << e << "_MODES";
                 else
                     out << "nullptr";
+                // Styling: which baked cells this row owns, what gates it, and
+                // whether the cursor stops on it (docs/menu-styles.md). The
+                // layout engine assigned the cells - never recount them here.
+                const menulayout::Row* lr =
+                    e < (int)ml.rows.size() ? &ml.rows[(size_t)e] : nullptr;
+                const int selCell = lr ? lr->stateCell[menustyle::StateSelected] : -1;
+                const int disCell = lr ? lr->stateCell[menustyle::StateDisabled] : -1;
+                const int descCell = lr ? lr->descCell : -1;
+                const int enableVal =
+                    en.enabledWhen.empty() ? -1 : valueIndexOf(en.enabledWhen);
+                const bool selectable =
+                    en.action != MenuEntry::Label && (!lr || lr->selectable);
+                out << ", " << selCell << ", " << disCell << ", " << descCell
+                    << ", " << enableVal << ", " << (selectable ? 1 : 0);
                 out << "},  // " << en.label << "\n";
             }
         }
@@ -32427,7 +33381,7 @@ static std::string menuDataHeader(const Project& p) {
     }
     if (p.menus.empty())
         out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = "
-               "{{0, -1, 0.0F, 0, -1, 0, -1, nullptr}};\n";
+               "{{0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -32440,7 +33394,11 @@ static std::string menuDataHeader(const Project& p) {
     out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
     if (p.menus.empty()) {
         out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
-               "\"\", 0, 0, 0, 0, 0},\n";
+               "\"\", 0, 0, 0, 0, 0, \"\", 0, 0, 0, \"\", 0, 0, \"\", 0, 0, 0, 0, "
+               "0, 0.0F, 1, \"\", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, "
+               "0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "
+               "\"\", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -32451,7 +33409,7 @@ static std::string menuDataHeader(const Project& p) {
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
             const menubake::PanelLayout l = menubake::panelLayout(m, p);
-            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m, p);
             const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
@@ -32475,6 +33433,88 @@ static std::string menuDataHeader(const Project& p) {
                     if (af[k] == fi) fontSlot = (int)k;
             }
             out << ", " << fontSlot;
+
+            // --- styling (docs/menu-styles.md) --------------------------------
+            // Every number below comes from the layout engine; the runtime is a
+            // compositor over them and decides nothing about the look.
+            const menulayout::Layout ml = menulayout::compute(m, p);
+            if (ml.hasStateAtlas())
+                out << ", \"menus/" << menulayout::stateAtlasFileName(m.name)
+                    << "\", " << ml.stateCellW << ", " << ml.stateCellH << ", "
+                    << ml.statePitch;
+            else
+                out << ", \"\", 0, 0, 0";
+            if (ml.scrolls)
+                out << ", \"menus/" << menulayout::listFileName(m.name) << "\", "
+                    << ml.listCanvasH << ", " << ml.rowsVisible;
+            else
+                out << ", \"\", 0, " << ml.rowsVisible;
+            if (ml.hasDescAtlas())
+                out << ", \"menus/" << menulayout::descAtlasFileName(m.name)
+                    << "\", " << ml.descCellW << ", " << ml.descCellH << ", "
+                    << ml.descPitch << ", " << ml.descBox.x << ", " << ml.descBox.y;
+            else
+                out << ", \"\", 0, 0, 0, 0, 0";
+            out << ", " << floatLit(ml.marker.translateX) << ", "
+                << (ml.marker.marker == "none" ? 0 : 1) << ", ";
+            // A sheet's caret is an ordinary res/ asset, so it ships through
+            // texbake like any HUD image; "" falls back to the built-in.
+            if (ml.marker.marker.empty() || ml.marker.marker == "none")
+                out << "\"\"";
+            else
+                out << "\"" << resToBin(ml.marker.marker) << "\"";
+            const menustyle::Sheet& sheet = menulayout::sheetFor(m);
+            const menustyle::Transition* open =
+                menustyle::transition(sheet, menustyle::Transition::Open);
+            const menustyle::Transition* cursor =
+                menustyle::transition(sheet, menustyle::Transition::Cursor);
+            out << ", " << floatLit(open ? open->seconds : 0.0f) << ", "
+                << (open ? open->ease : 1) << ", "
+                << (open && open->fade ? 1 : 0) << ", "
+                << floatLit(open ? open->translateX : 0.0f) << ", "
+                << floatLit(open ? open->translateY : 0.0f) << ", "
+                << floatLit(open ? open->scale : 0.0f) << ", "
+                << floatLit(cursor ? cursor->seconds : 0.0f) << ", "
+                << (cursor ? cursor->ease : 1);
+            const menustyle::Transition* close =
+                menustyle::transition(sheet, menustyle::Transition::Close);
+            const menustyle::Transition* scrollT =
+                menustyle::transition(sheet, menustyle::Transition::Scroll);
+            const menustyle::Transition* valueT =
+                menustyle::transition(sheet, menustyle::Transition::Value);
+            out << ", " << floatLit(close ? close->seconds : 0.0f) << ", "
+                << (close ? close->ease : 1) << ", "
+                << (close && close->fade ? 1 : 0) << ", "
+                << floatLit(close ? close->translateX : 0.0f) << ", "
+                << floatLit(close ? close->translateY : 0.0f) << ", "
+                << floatLit(scrollT ? scrollT->seconds : 0.0f) << ", "
+                << floatLit(valueT ? valueT->seconds : 0.0f);
+            const menustyle::Animation* pulse =
+                menustyle::animation(sheet, menustyle::Animation::Selected);
+            const menustyle::Animation* bob =
+                menustyle::animation(sheet, menustyle::Animation::Marker);
+            const menustyle::Animation* sheen =
+                menustyle::animation(sheet, menustyle::Animation::Panel);
+            out << ", " << floatLit(pulse ? pulse->seconds : 0.0f) << ", "
+                << floatLit(pulse ? pulse->amount : 0.0f) << ", "
+                << floatLit(bob ? bob->seconds : 0.0f) << ", "
+                << floatLit(bob ? bob->amount : 0.0f) << ", "
+                << floatLit(sheen ? sheen->seconds : 0.0f) << ", "
+                << floatLit(sheen ? sheen->amount : 0.0f) << ", "
+                << (sheen ? (int)sheen->color.r : 255) << ", "
+                << (sheen ? (int)sheen->color.g : 255) << ", "
+                << (sheen ? (int)sheen->color.b : 255) << ", "
+                << (sheen ? (int)sheen->color.a : 0);
+            if (ml.hasBgAnim())
+                out << ", \"menus/" << menulayout::bgAnimFileName(m.name) << "\", "
+                    << ml.panel.bgAnim.mode << ", " << ml.bgAnimTileW << ", "
+                    << ml.bgAnimTileH << ", " << ml.bgAnimFrameH << ", "
+                    << ml.bgAnimFrames << ", "
+                    << floatLit(ml.panel.bgAnim.scrollX) << ", "
+                    << floatLit(ml.panel.bgAnim.scrollY) << ", "
+                    << floatLit(ml.panel.bgAnim.seconds);
+            else
+                out << ", \"\", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F";
             out << "},  // " << m.name << "\n";
         }
     }
@@ -32524,9 +33564,76 @@ static std::string saveGameDir(const Project& p) {
     return "/TYRA-" + id;
 }
 
+std::string saveDirName(const Project& p) { return saveGameDir(p); }
+
+// Mirrors the generated SaveGameData layout (saveSystemHeader below) so the
+// Save Editor's size estimate is exact: every field is 4-byte aligned, a
+// SaveObjectState is 32 bytes, and alignas(64) rounds the struct size up.
+SaveSizeInfo saveSizeInfo(const Project& p) {
+    SaveSizeInfo s;
+    s.values = (int)p.saveValues.size();
+    s.texts = (int)p.saveTexts.size();
+    size_t maxObjects = 1;
+    for (const SceneData& sc : p.scenes) {
+        size_t flagged = 0;
+        for (const SceneObject& o : sc.objects)
+            if (o.saveState) ++flagged;
+        if (flagged > maxObjects) maxObjects = flagged;
+    }
+    s.objectSlots = (int)maxObjects;
+    // magic + version + scene + playerPos[3] + playerYaw + the 3 counters
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4;
+    s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
+    s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
+    s.objectsBytes = 32 * s.objectSlots;
+    const int raw =
+        s.headerBytes + s.valuesBytes + s.textsBytes + s.objectsBytes;
+    s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
+    // list.icn size depends on the icon source (flat quad vs a project
+    // model's triangle/shape count) - ask the baker.
+    s.iconSysBytes = savebake::kIconSysBytes;
+    s.iconIcnBytes = savebake::iconInfo(p).bytes;
+    s.iconBytes = s.iconSysBytes + s.iconIcnBytes;
+    // Real card usage, not the byte sum. A PS2 card allocates in 1 KB
+    // clusters, a file never shares a cluster with another file, and the
+    // save's own directory costs one - so round every FILE up individually
+    // and add the directory. Reporting the raw sum as a "card footprint"
+    // understates a save this small by several times (each 128-byte slot
+    // still consumes a whole 1 KB cluster).
+    const int cluster = 1024;
+    auto clustersFor = [cluster](int bytes) {
+        return bytes <= 0 ? 1 : (bytes + cluster - 1) / cluster;
+    };
+    s.cardClusterBytes = cluster;
+    s.cardFootprintBytes =
+        (1 /* the save directory itself */
+         + saveSlotCount(p) * clustersFor(s.payloadBytes) +
+         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
+        cluster;
+    return s;
+}
+
+int saveSlotCount(const Project& p) {
+    return std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots));
+}
+int saveSlotsPerPage(const Project& p) {
+    return std::max(1, std::min(p.saveSlotsPerPage, kMaxSaveSlotsPerPage));
+}
+int saveSlotPages(const Project& p) {
+    const int per = saveSlotsPerPage(p);
+    return (saveSlotCount(p) + per - 1) / per;
+}
+
 // inc/save_system.gen.hpp - memory card save slots (fixed-size payload)
 static std::string saveSystemHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
+    // The "checking memory card" overlay is baked from this same HudText
+    // (refreshGenerated), so the sprite constants below match the PNG.
+    int busyW = 512, busyH = 64;  // fallback when no TTF font is around
+    menubake::textLayout(savebake::busyText(), p, busyW, busyH);
+    // One source of truth for the spinner sheet - the Save Editor previews
+    // and warns from this same call.
+    const savebake::SpinnerInfo spin = savebake::spinnerInfo(p);
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
            "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
@@ -32536,12 +33643,18 @@ static std::string saveSystemHeader(const Project& p) {
            "// (libmc, card-root-relative path). When the BIOS mc modules cannot\n"
            "// be loaded or no formatted PS2 card responds, the slots fall back\n"
            "// to save<n>.sav next to the ELF (host: under PCSX2).\n"
-           "constexpr int SAVE_SLOTS = 3;\n"
-        << "constexpr const char* SAVE_MC_DIR = \"" << saveGameDir(p)
+        << "constexpr int SAVE_SLOTS = "
+        << std::max(1, std::min(p.saveSlotCount, kMaxSaveSlots))
+        << ";\n"
+           "constexpr const char* SAVE_MC_DIR = \""
+        << saveGameDir(p)
         << "\";\n"
            "constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // \"TYSV\"\n"
            "// v2: SaveGameData gained the text-value block (SAVE_TEXT_*)\n"
-           "constexpr int SAVE_VERSION = 2;\n"
+           "// v3: the objects array is sized by the save-flagged object\n"
+           "// count (SAVE_OBJECT_MAX), not the scene size - older, larger\n"
+           "// slot files fail the size/version check and read as empty.\n"
+           "constexpr int SAVE_VERSION = 3;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -32578,6 +33691,69 @@ static std::string saveSystemHeader(const Project& p) {
            "bool saveSlotUsed(int slot);\n"
            "bool saveWrite(int slot, const SaveGameData& data);\n"
            "bool saveRead(int slot, SaveGameData& out);\n"
+           "\n"
+           "// Asynchronous write: Begin copies the payload and starts the\n"
+           "// libmc chain, Poll drives it one step per frame and returns true\n"
+           "// the frame it is finished (*okOut = whether the slot was\n"
+           "// written). Busy is the guard against starting a second one.\n"
+           "bool saveWriteBegin(int slot, const SaveGameData& data);\n"
+           "bool saveWritePoll(bool* okOut);\n"
+           "bool saveWriteBusy();\n"
+           "\n"
+           "// Copies the editor-baked save icon (save/icon.sys + list.icn,\n"
+           "// shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser\n"
+           "// shows the game's title and icon. Runs once per boot when the\n"
+           "// card is ready and has no icon yet; the host fallback skips it.\n"
+           "void saveEnsureIcons();\n"
+           "\n"
+           "// hud/save-busy.png sprite size (\"checking memory card\" warning)\n"
+        << "constexpr int SAVE_BUSY_W = " << busyW << ";\n"
+        << "constexpr int SAVE_BUSY_H = " << busyH << ";\n"
+           "\n"
+           "// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu\n"
+           "// writes the last checkpoint instead of a live snapshot.\n"
+           "// SAVE_ASYNC: writes are stepped one libmc call per frame while\n"
+           "// the game keeps running, with the spinner instead of the\n"
+           "// \"checking memory card\" overlay (loads stay blocking).\n"
+        << "constexpr bool SAVE_MENU_CHECKPOINT = "
+        << (p.saveMenuWritesCheckpoint ? "true" : "false") << ";\n"
+        << "constexpr bool SAVE_ASYNC = " << (p.saveAsync ? "true" : "false")
+        << ";\n"
+        << "constexpr bool SAVE_SPINNER = " << (p.saveSpinner ? "true" : "false")
+        << ";\n"
+        << "constexpr int SAVE_SPINNER_FRAMES = " << spin.frames << ";\n"
+        << "constexpr int SAVE_SPINNER_CELL_W = " << spin.cellW << ";\n"
+        << "constexpr int SAVE_SPINNER_CELL_H = " << spin.cellH << ";\n"
+           "// The sheet the game loads, cwd-relative (the Makefile copies\n"
+           "// res/ into bin/). A picked image that failed validation is not\n"
+           "// here - spinnerInfo falls back to the built-in.\n"
+        << "constexpr const char* SAVE_SPINNER_TEX = \""
+        << escapeCString(resToBin(spin.resPath)) << "\";\n"
+           "// Frames each cell is held for - the sheet is walked at 50/HOLD\n"
+           "// cells a second, which is a calm spin rather than a blur.\n"
+        << "constexpr int SAVE_SPINNER_HOLD = 4;\n"
+        << "constexpr int SAVE_SPINNER_CORNER = " << p.saveSpinnerCorner
+        << ";  // 0 TL, 1 TR, 2 BL, 3 BR\n"
+        << "constexpr float SAVE_SPINNER_MARGIN = "
+        << floatLit(p.saveSpinnerMargin) << ";\n"
+        << "constexpr float SAVE_SPINNER_SCALE = "
+        << floatLit(p.saveSpinnerScale) << ";\n"
+           "\n"
+           "// The slot Commit Checkpoint's \"autosave\" mode writes, and the\n"
+           "// one its \"next free slot\" mode never picks. -1 = none set, in\n"
+           "// which case an autosave commit does nothing at all.\n"
+        << "constexpr int SAVE_AUTOSAVE_SLOT = " << p.saveAutosaveSlot << ";\n"
+           "// The save menu is a GameMenu (Tools > Menu Editor), so its panel,\n"
+           "// font, colours and placement come from MENUS[SAVE_MENU_INDEX].\n"
+           "// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE\n"
+           "// blank rows and the game draws the labels, which is what lets a\n"
+           "// project have more slots than fit on one screen.\n"
+        << "constexpr int SAVE_MENU_INDEX = " << project::saveMenuIndex(p)
+        << ";\n"
+        << "constexpr int SAVE_SLOTS_PER_PAGE = " << saveSlotsPerPage(p) << ";\n"
+        << "constexpr int SAVE_PAGES = " << saveSlotPages(p) << ";\n"
+           "// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:\n"
+           "// the flow graph writes them and does not include this header.)\n"
            "\n}  // namespace "
         << ns << "\n";
     return out.str();
@@ -32681,6 +33857,7 @@ bool saveInit() {
       mcReady = fd >= 0;
     }
   }
+  if (mcReady) saveEnsureIcons();
   TYRA_LOG("Save system: ", mcReady ? "memory card ready"
                                     : "no memory card - using host files");
   return mcReady;
@@ -32689,6 +33866,60 @@ bool saveInit() {
 bool saveMcReady() { return mcReady; }
 
 const int* saveInitCodes() { return initCodes; }
+
+// --- Save icon (icon.sys + list.icn) ----------------------------------------
+// The editor bakes both into res/save/ (savebake.cpp) and the Makefile ships
+// them next to the ELF as save/icon.sys + save/list.icn; here they are copied
+// into the save directory so the PS2 browser shows the game's title and icon.
+// mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
+// slot payload. The buffer is sized by codegen to this build's baked icon.
+alignas(64) static unsigned char iconBuf[{{ICON_BUF_BYTES}}];
+
+static bool mcCopyToCard(const char* hostRel, const char* cardName) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  const long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (n <= 0 || n > (long)sizeof(iconBuf)) {
+    fclose(f);
+    return false;
+  }
+  const size_t got = fread(iconBuf, 1, (size_t)n, f);
+  fclose(f);
+  if ((long)got != n) return false;
+  std::string path = std::string(SAVE_MC_DIR) + "/" + cardName;
+  int fd = -1;
+  mcOpen(0, 0, path.c_str(), kMcWronly | kMcCreat);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd < 0) return false;
+  int wrote = -1, ret = 0;
+  mcWrite(fd, iconBuf, (int)n);
+  mcSync(MC_WAIT, nullptr, &wrote);
+  mcClose(fd);
+  mcSync(MC_WAIT, nullptr, &ret);
+  return wrote == (int)n;
+}
+
+void saveEnsureIcons() {
+  static bool tried = false;
+  if (!mcReady || tried) return;
+  tried = true;
+  // Already iconized by a previous boot - skip the ~33KB rewrite.
+  int fd = -100;
+  std::string probe = std::string(SAVE_MC_DIR) + "/icon.sys";
+  mcOpen(0, 0, probe.c_str(), kMcRdonly);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd >= 0) {
+    int r = 0;
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &r);
+    return;
+  }
+  const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+  const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+  TYRA_LOG("Save icons: ", sys && icn ? "written to the card" : "copy failed");
+}
 
 static std::string mcSlotName(int slot) {
   char buf[96];
@@ -32721,6 +33952,80 @@ bool saveWrite(int slot, const SaveGameData& data) {
   const size_t written = fwrite(&data, 1, sizeof(data), f);
   fclose(f);
   return written == sizeof(data);
+}
+
+// --- Asynchronous write (docs/save-editor.md) --------------------------------
+// Every libmc call is asynchronous already - the blocking saveWrite above just
+// answers each one with mcSync(MC_WAIT). Here the same open/write/close chain
+// is driven ONE STEP PER FRAME with mcSync(MC_NOWAIT), whose contract is:
+// 0 = still executing, 1 = finished (result written out), -1 = nothing
+// registered. The game keeps running in between.
+//
+// The payload is copied into asyncData up front, so nothing the player does
+// during the transfer can change the bytes being written.
+static SaveGameData asyncData;
+static int asyncStage = 0;  // 0 idle, 1 open, 2 write, 3 close, 4 host one-shot
+static int asyncSlot = -1, asyncFd = -1;
+static bool asyncOk = false;
+
+bool saveWriteBusy() { return asyncStage != 0; }
+
+bool saveWriteBegin(int slot, const SaveGameData& data) {
+  if (asyncStage != 0) return false;  // one transfer at a time
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  asyncData = data;
+  asyncSlot = slot;
+  asyncOk = false;
+  asyncFd = -1;
+  if (!mcReady) {
+    // The host fallback is a plain fwrite next to the ELF - microseconds, and
+    // there is no libmc chain to step through. Finish it on the next poll so
+    // both paths look identical to the caller.
+    asyncStage = 4;
+    return true;
+  }
+  mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+  asyncStage = 1;
+  return true;
+}
+
+bool saveWritePoll(bool* okOut) {
+  if (asyncStage == 0) return true;
+  if (asyncStage == 4) {  // host fallback
+    asyncOk = saveWrite(asyncSlot, asyncData);
+    asyncStage = 0;
+    if (okOut) *okOut = asyncOk;
+    return true;
+  }
+  int cmd = 0, res = -1;
+  const int sync = mcSync(MC_NOWAIT, &cmd, &res);
+  if (sync == 0) return false;  // still executing - come back next frame
+  if (sync < 0) {               // nothing registered: the chain is broken
+    asyncStage = 0;
+    if (okOut) *okOut = false;
+    return true;
+  }
+  if (asyncStage == 1) {
+    asyncFd = res;
+    if (asyncFd < 0) {
+      asyncStage = 0;
+      if (okOut) *okOut = false;
+      return true;
+    }
+    mcWrite(asyncFd, &asyncData, sizeof(asyncData));
+    asyncStage = 2;
+    return false;
+  }
+  if (asyncStage == 2) {
+    asyncOk = res == (int)sizeof(asyncData);
+    mcClose(asyncFd);
+    asyncStage = 3;
+    return false;
+  }
+  // stage 3: the close landed, so the slot is on the card
+  asyncStage = 0;
+  if (okOut) *okOut = asyncOk;
+  return true;
 }
 
 bool saveRead(int slot, SaveGameData& out) {
@@ -32757,7 +34062,11 @@ bool saveSlotUsed(int slot) {
 
 }  // namespace )"
         << ns << "\n";
-    return out.str();
+    // Size the icon copy buffer for THIS build's baked icon (a 3D model icon
+    // can be several hundred KB; the flat quad ~34 KB), 64-byte aligned.
+    const int icnBytes = savebake::iconInfo(p).bytes;
+    const int bufBytes = ((icnBytes > 964 ? icnBytes : 964) + 63) / 64 * 64;
+    return replaceAll(out.str(), "{{ICON_BUF_BYTES}}", std::to_string(bufBytes));
 }
 
 std::string vuScriptStub(const std::string& className) {

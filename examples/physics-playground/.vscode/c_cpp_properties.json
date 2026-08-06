@@ -5,7 +5,7 @@
       "includePath": [
         "${workspaceFolder}/inc",
         "${workspaceFolder}/src",
-        "F:/Projects/tyra-editor/.claude/worktrees/exciting-shaw-81dbda/vendor/tyra/engine/inc",
+        "F:/Projects/tyra-editor/vendor/tyra/engine/inc",
         "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/ee/include",
         "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/common/include"
       ],

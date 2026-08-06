@@ -651,6 +651,34 @@ void errorBox(const std::string& title, const std::string& message) {
 #endif
 }
 
+bool confirmBox(const std::string& title, const std::string& message) {
+#ifdef _WIN32
+    // Default button is No: the caller is about to do something irreversible,
+    // so a stray Enter must not be the one that agrees to it.
+    return MessageBoxA(g_dialogOwner, message.c_str(), title.c_str(),
+                       MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) == IDYES;
+#else
+    int code = -1;
+    // zenity/kdialog both exit 0 for yes and non-zero for no/closed.
+    if (commandExists("zenity")) {
+        capture("zenity --question --title=" + shQuote(title) + " --text=" +
+                    shQuote(message) + " >/dev/null 2>&1",
+                &code);
+        return code == 0;
+    }
+    if (commandExists("kdialog")) {
+        capture("kdialog --title " + shQuote(title) + " --yesno " +
+                    shQuote(message) + " >/dev/null 2>&1",
+                &code);
+        return code == 0;
+    }
+    // No dialog tool: answer No rather than assume consent (see the header).
+    std::fprintf(stderr, "[editor] %s: %s\n  -> no dialog available, answering No\n",
+                 title.c_str(), message.c_str());
+    return false;
+#endif
+}
+
 void revealInFileManager(const std::string& path) {
     if (path.empty()) return;
     std::error_code ec;

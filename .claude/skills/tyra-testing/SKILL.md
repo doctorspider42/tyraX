@@ -146,6 +146,7 @@ probe is still absent after a fetch.
 TYRAX --new <name> <parentDir> [width] [depth] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]
 TYRAX --build <projectDir> [--run] [--rebuild]   # exit code 0 = success
 TYRAX --resave <projectDir>          # load + save, no Docker
+TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
@@ -182,13 +183,7 @@ and is the zero-cost rule working.
 `src/vugen.cpp`.** It is the closest thing this repo has to a unit test: it
 parses all 25 shipped microprograms, executes the described ones against their
 handwritten originals on randomized input, and diffs every quadword of the GIF
-packet the GS would receive. It also builds and runs the editor's own sample
-VU1 scripts (`src/vushader_*_sample.cpp`) and sample VU0 kernel
-(`src/vukernel_sample.cpp`) - each twice, with and without its body, so one that
-reaches nothing is reported instead of scoring full marks. Those files are
-linked into the editor precisely so the authoring path has host coverage; a
-change to `vushader.hpp` or `vumain.cpp` is covered by them.
-Milliseconds, no Docker, no PCSX2. It does not
+packet the GS would receive. Milliseconds, no Docker, no PCSX2. It does not
 replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
@@ -271,6 +266,27 @@ here will not work on the console either.
   harness-testable (procgraph/procgen/procbake link without GUI, GL or
   templates.cpp - see PROGRESS 171 for the property list that caught three real
   bugs).
+- **Format versioning** (see `docs/format-versioning.md`): `--build`,
+  `--resave`, `--refresh-gen`, `--apply-graph` and `--ai-graph` refuse a project
+  whose `formatVersion` has pending REGISTERED migration steps (exit 1) —
+  `--migrate` is the explicit tool (backs up `.tyra` + `objects/` + heights +
+  splat + flow-nodes/screen-effects into `_backup/`, applies the steps, resaves
+  the same file set as `--resave`; degrades to a plain resave when current). To
+  test a version gate, hand-edit `"formatVersion"` in the manifest: a value
+  above `version::kFormatVersion` must be refused by every path, a lower one
+  opens silently unless a step is registered in `migrations.cpp`. With no step
+  registered the prompt/backup path is unreachable, so exercising it means
+  registering a temporary throwaway step. Two things a throwaway step is the only
+  way to reach, and both are worth re-checking whenever the persisted file set
+  grows: that the `_backup/` copy holds **every** file the post-migration save
+  rewrites (drop a sentinel `terrain-<scene>.splat` in first — the save deletes it
+  when the scene has no layers, so the backup is the only copy), and that a step
+  returning `false` leaves every file **md5-identical**. `migrations::validate()`
+  catches a mis-registered step (out of order, duplicate, out of range): `all()`
+  prints `BROKEN MIGRATION REGISTRY` on stderr at the first command that consults
+  it, and `run` aborts with disk untouched. **A step whose `kFormatVersion` bump
+  you forgot produces NO steps to run** — that stderr line is the only thing
+  between you and an afternoon of "my migration does nothing", so read it.
 - Create scratch projects in a **short** path outside the repo — the
   convention is `%TEMP%\tyra-editor-test\<name>`. Do NOT use the session
   scratchpad for anything that will boot in PCSX2: its path is ~180+ chars
@@ -309,6 +325,49 @@ asserts on the emitted strings. This works because `project.cpp`,
 `templates.cpp` and `json.cpp` have no ImGui/GLFW dependency — they link into a
 tiny host harness without the GUI. Fine pattern; keep such harnesses in the
 scratchpad, not the repo.
+
+**Menu stylesheets have two cheap gates, and both found real bugs** (see
+docs/menu-styles.md):
+
+- **A harness over `menustyle.cpp` + `menulayout.cpp` alone** - neither needs GL,
+  ImGui, `project.cpp` or a font, so it links in seconds:
+
+  ```bash
+  g++ -std=gnu++20 -I src -I vendor/stb -o h harness.cpp \
+      src/menustyle.cpp src/menulayout.cpp && ./h
+  ```
+
+  Assert the cascade (element < class < state, menu scope wins), that
+  `write(parse(t))` is STABLE (the Style tab saves through it, so an unstable
+  writer rewrites people's files behind their backs), that a broken declaration
+  does not eat the good one next to it, and the layout numbers. It caught a
+  `content: "{{cross}} OK"` truncated at the first `}` (which also swallowed the
+  next declaration) and a `row:disabled` cell baked for every row instead of only
+  the gateable ones - 71% of the texture heap for one 6-row menu instead of 13%.
+- **The pixel-identity gate for the Classic look.** A menu with no stylesheet
+  must bake byte-identically to the pre-stylesheet baker. Build the previous
+  editor in a worktree, `--refresh-gen` the same example copies with both, and
+  diff `res/menus/*.png`:
+
+  ```bash
+  git worktree add /tmp/base HEAD && (cd /tmp/base && ./build.sh --dev)
+  /tmp/base/build-dev/tyrax-editor --refresh-gen A/showcase
+  ./build-dev/tyrax-editor        --refresh-gen B/showcase
+  # compare A/*/res/menus/*.png with B/*/res/menus/*.png (PIL, 3 lines)
+  ```
+
+  It found a double-composited background (every translucent panel came out
+  (7,10,21) instead of (8,12,24)) and a save menu that lost its "X SAVE O LOAD"
+  hint line - neither visible without a diff.
+- **Checking that something SCROLLS: never use a pattern aligned with the
+  scroll.** A menu's animated background was measured as frozen through three
+  rebuilds - correlating two frames found a shift of exactly 0 - because the test
+  tile was diagonal stripes and the scroll vector ran along them. Vertical bars
+  plus a pure horizontal scroll showed 53 px in one second, matching the declared
+  speed. The emulator has a second trap in the same area: **PCSX2 unfocused does
+  not take injected keys**, so click into its window before driving it, and read
+  its status bar (FPS/VPS/Speed) to know the machine is actually running before
+  concluding anything about motion.
 
 **`App`'s own private methods are reachable from such a harness too**, which is
 the difference between testing a copy of the logic and testing the shipped
@@ -706,16 +765,34 @@ Notes:
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
   imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
-  click their `Cancel`; `dump` shows it. A **combo's dropdown** cannot be opened
-  by name either: `BeginCombo` never calls ImGui's item-info hook, so `dump`
-  shows the rect with an empty label - set the value another way and read the
-  result off a `shot`. **A TAB can** - it could not until recently, and the
-  reason is worth knowing if a widget ever turns up in `dump` with a rect and no
-  label: `TabItemEx` reports its LABEL before its RECT (the reverse of every
-  other widget), the registry dropped an info for an id it had not seen, and so
-  every tab in the editor was an unnamed rectangle and no tabbed panel could be
-  driven past its first tab. Unmatched info is now held until the rect arrives,
-  so `click "VU Programs/Generated"` resolves.
+  click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
+  click will land**: a window taller than the room it got still submits the items
+  past its bottom edge, so they are listed with rects OUTSIDE the window, and
+  `click` on one presses over nothing and still reports success - which reads as
+  a broken feature when the code is fine. Compare the item's y against its
+  window's rect (both are in the same `dump`) and **pair every state-changing
+  click with `expect-checked` / `expect-unchecked`**, which turns a silent no-op
+  into a failed run.
+
+  **Combos and tabs ARE nameable now** (they were not, and both were silent
+  gaps): `BeginCombo` never calls ImGui's item-info hook at all, and `TabItemEx`
+  calls it BEFORE the box exists, so every combo and every tab in the editor
+  dumped as `-`. `uiscript.cpp` closes both - a label reported ahead of its box is
+  held until the box arrives, and a target that matches nothing by label is
+  matched by RE-HASHING it the way ImGui would (`ImHashStr(label, 0,
+  window->ID)`), which is what finds a widget whose label ImGui never reported.
+  So `click 'Preview in'` and `click Style` work, and a combo's OPTION can be
+  clicked by its own text once the dropdown is open. Two limits remain: the hash
+  path needs the EXACT label (a hash has no prefixes) and only reaches widgets
+  submitted at a window's own scope. **A widget whose whole label is
+  hidden behind `##`** - a compact search field (`##assetsearch`,
+  `##objsearch`) - still has nothing to name and dumps as `-` with a rect and
+  nothing to name, so a filter row like the Scene panel's is only reachable by
+  CLICKING ITS RECT: read the rect off `dump`, add the editor window's screen
+  offset (compare one `dump` rect against one full-screen `shot` to get it -
+  ~67,70 on this box) and drive it with `wayland-control.py click --at x,y` /
+  `type`. Everything else about the run stays the same, and the assertion is
+  the `shot` you crop afterwards.
 
   **`wheel <target> <notches>`** is how a canvas ZOOM is driven (no widget
   exposes one): it holds the cursor on the target and injects one notch per

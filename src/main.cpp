@@ -28,6 +28,7 @@
 #include "vushader.hpp"
 #include "vusim.hpp"
 #include "app.hpp"
+#include "migrations.hpp"
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
@@ -303,6 +304,21 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// Shared gate for the headless commands: a project with pending format
+// migrations is refused instead of silently and irreversibly rewritten by a
+// script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
+// Purely additive format gaps pass (nothing to transform); files from a newer
+// editor never get here (project::load refuses them).
+static bool refuseUnmigrated(const Project& p) {
+    if (migrations::stepsFor(p.formatVersionOnDisk).empty()) return false;
+    std::fprintf(stderr,
+                 "error: project format v%d needs migration to v%d.\n"
+                 "Run: tyrax-editor --migrate <projectDir> (a backup is created "
+                 "automatically), or open the project in the editor.\n",
+                 p.formatVersionOnDisk, version::kFormatVersion);
+    return true;
+}
+
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -332,6 +348,7 @@ static int buildFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
 
@@ -369,11 +386,11 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but loading runs every format migration (e.g. stamping
-// stable object ids on pre-id projects), so this is the one-shot way to migrate
-// an existing project to the current on-disk format without opening the GUI -
-// handy for batch-migrating a team's projects before they switch to the
-// merge-friendly workflow.
+// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
+// stamping stable object ids on pre-id projects), so this refreshes a project
+// to the current on-disk format without opening the GUI. Projects with pending
+// REGISTERED migration steps (data transforms) are refused - that irreversible
+// path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr, "usage: tyrax-editor --resave <projectDir>\n");
@@ -384,6 +401,7 @@ static int resaveFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (std::string err = project::save(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -397,6 +415,63 @@ static int resaveFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("resaved: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// Headless helper: tyrax-editor.exe --migrate <projectDir>
+// The CLI twin of the editor's migration prompt: backs up the format-bearing
+// files into _backup/, applies the pending migration steps and rewrites the
+// project in the current format. Degrades to a plain resave when the project
+// only needs a version stamp. Disk is not touched when a step fails.
+// Writes the same set of files as --resave (manifest + heights + splat): a
+// migration that persisted less than a resave would DROP the data it skipped.
+static int migrateFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --migrate <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+    if (!steps.empty()) {
+        std::string backupDir;
+        if (std::string err = migrations::backup(p, p.formatVersionOnDisk, backupDir);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: backup failed, migration aborted (project not "
+                         "modified): %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("backup: %s\n", backupDir.c_str());
+        for (const auto* m : steps)
+            std::printf("migrating: v%d -> v%d: %s\n", m->from, m->from + 1,
+                        m->summary);
+        if (std::string err = migrations::run(p, p.formatVersionOnDisk);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: cannot migrate (project not modified): %s\n",
+                         err.c_str());
+            return 1;
+        }
+        p.formatVersionOnDisk = version::kFormatVersion;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveHeights(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveSplat(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("migrated: %s (format v%d)\n", p.dir.c_str(),
+                version::kFormatVersion);
     return 0;
 }
 
@@ -586,6 +661,7 @@ static int applyGraphFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;  // --apply-graph / --ai-graph rewrite the project
     if (!selectScene(p, sceneName)) return 1;
     const int idx = findObject(p, argv[3]);
     if (idx < 0) return 1;
@@ -632,6 +708,9 @@ static int refreshGenFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    // Gated like --build: bakeProcedural saves the project when a Scatter
+    // volume is stale, so this command can rewrite the manifest too.
+    if (refuseUnmigrated(p)) return 1;
     bakeProcedural(p);
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
@@ -741,6 +820,7 @@ static int aiGraphFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;  // --apply-graph / --ai-graph rewrite the project
     if (!selectScene(p, sceneName)) return 1;
     const int idx = findObject(p, argv[3]);
     if (idx < 0) return 1;
@@ -792,23 +872,24 @@ static int aiGraphFromCli(int argc, char** argv) {
     return 0;
 }
 
-// tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
+// tyrax-editor.exe --add-ai-support <projectDir> [claude] [codex] [copilot]
 // Installs the AI assistant skills into an existing project (same files the
 // "Add AI support" option writes at project creation).
 static int aiSupportFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --add-ai-support <projectDir> "
-                     "[claude] [copilot]\n");
+                     "[claude] [codex] [copilot]\n");
         return 2;
     }
-    bool claude = false, copilot = false;
+    bool claude = false, copilot = false, codex = false;
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "claude") == 0) claude = true;
+        if (std::strcmp(argv[i], "codex") == 0) codex = true;
         if (std::strcmp(argv[i], "copilot") == 0) copilot = true;
     }
-    if (!claude && !copilot) claude = true;  // default: Claude
-    const std::string status = aisupport::install(argv[2], claude, copilot);
+    if (!claude && !copilot && !codex) claude = true;  // default: Claude
+    const std::string status = aisupport::install(argv[2], claude, copilot, codex);
     std::printf("%s\n", status.c_str());
     return status.rfind("error:", 0) == 0 ? 1 : 0;
 }
@@ -2559,6 +2640,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--migrate") == 0) return migrateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
@@ -2599,6 +2681,8 @@ int main(int argc, char** argv) {
             "  --vu-replay <projectDir> [engineDir]    re-run a console VU1 "
             "capture on the host and diff it\n"
             "  --resave <projectDir>\n"
+            "  --migrate <projectDir>                  backup + apply pending "
+            "format migrations (docs/format-versioning.md)\n"
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"

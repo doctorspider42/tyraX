@@ -34,6 +34,7 @@ build. Two kinds of files coexist here:
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
+| `menu-styles/*.menustyle` | Menu stylesheets: what a menu LOOKS like, CSS-shaped | Yes - a menu names one in its `"style"` key; the editor's Menu Editor > Style edits the same file with widgets |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
 | `src/vu/*.cpp`, `src/vu0/*.cpp` | Your own VU1 programs (`vu::Program`) and VU0 compute kernels (`vu::Kernel`), against `vugen/vushader.hpp`. **HOST C++**: compiled and RUN at build time inside the build container, leaving a microprogram in the ELF - not PS2 code, and excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
@@ -107,6 +108,16 @@ to see exactly what the game will compile.
 - Object references (in graphs, sequences, menus) are **by name**; keep names
   unique and stable. Object *ids* (`objects/<id>.json` filenames) are internal
   merge keys - never reference or reuse them.
+- A menu's **look** is a stylesheet, not fields: `menu-styles/<key>.menustyle`
+  (CSS-shaped - `panel`, `title`, `row`, `row:selected`, `row.myclass`, `list`,
+  `value`, `description`, `hint`, plus `@transition`), named by the menu's
+  `"style"` key. An empty `"style"` is the built-in Classic look. The menu's own
+  `accent` / `titleSize` / `entrySize` / `panelW` / `font` are the BASE the sheet
+  overrides, so a sheet only has to say what differs. A row may also carry
+  `"class"`, `"icon"`, `"desc"` and `"enabledWhen"` (a save value that greys the
+  row out and makes the cursor skip it), and the `"label"` action is a
+  non-selectable header/spacer row. Everything static is baked into
+  `res/menus/*.png` at build; menus scale themselves to the display mode.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
   HUD images/texts, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input

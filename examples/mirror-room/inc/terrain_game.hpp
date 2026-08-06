@@ -513,7 +513,57 @@ class TerrainGame : public Tyra::Game {
   // set per frame, so following the camera costs nothing measurable.
   Tyra::M4x4 skyMat = Tyra::M4x4::Identity;
   float skyHorizonR = 0, skyHorizonG = 0, skyHorizonB = 0;
+  // The zenith the dome was last built with. Without this the runtime cycle
+  // could only move the horizon and a midnight sky kept a daylight zenith -
+  // the gradient is the half of a sky people actually read.
+  float skyTopR = -1, skyTopG = -1, skyTopB = -1;
   std::vector<Tyra::Sprite> hudSprites;
+
+  // Day/night cycle sky bodies (docs/day-night-cycle.md). Two textured quads on
+  // the dome radius in the baked SCENE_SUN_* / SCENE_MOON_* directions. Six
+  // vertices each, rebuilt per frame from the camera basis so they keep facing
+  // the viewer - the same shape the beam coronas use, and the same cost.
+  // DAYCYCLE_USED gates the textures; without a cycle nothing here is touched.
+  Tyra::Texture* sunDiscTex = nullptr;
+  Tyra::Texture* moonDiscTex = nullptr;
+  struct SkyBody {
+    std::vector<Tyra::Vec4> verts;  // 6
+    std::vector<Tyra::Vec4> sts;    // 6
+    Tyra::Color color{128.0F, 128.0F, 128.0F, 128.0F};
+    Tyra::M4x4 mat = Tyra::M4x4::Identity;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  SkyBody sunBody, moonBody;
+  // The night sky: one bag per magnitude tier (STAR_TIERS). Three submits for
+  // the whole field, and the brightness/twinkle ride the bags' additive FIX -
+  // so fading the stars in at dusk costs three bytes a frame, not a rebuild.
+  struct StarBag {
+    std::vector<Tyra::Vec4> verts;
+    std::vector<Tyra::Vec4> sts;
+    std::vector<Tyra::Color> colors;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+  };
+  StarBag starBags[STAR_TIERS];
+  Tyra::M4x4 starMat = Tyra::M4x4::Identity;
+  void buildStarField();
+  void renderStarField();
+
+  void setupSkyBodies();
+  // The runtime day/night cycle (docs/day-night-cycle.md). dayNightTick
+  // advances the clock and stages everything the frame needs; the zenith is
+  // staged rather than written straight into skyTop* so the dome rebuild stays
+  // in one place (the retint check in renderScene).
+  float dayNightTopR = -1, dayNightTopG = -1, dayNightTopB = -1;
+  void dayNightTick();
+  // Placed per VIEW: the discs are billboards on the dome, so a mirror, a
+  // portal or a camera feed needs them oriented for ITS eye, not the player's.
+  void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
   // Pins every pass that draws one vertex array to a single VU1 package size -
@@ -875,6 +925,8 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
@@ -890,6 +942,20 @@ class TerrainGame : public Tyra::Game {
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).

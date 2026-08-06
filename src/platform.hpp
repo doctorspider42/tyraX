@@ -177,6 +177,14 @@ private:
 // until dismissed; falls back to stderr when the platform has no dialog tool.
 void errorBox(const std::string& title, const std::string& message);
 
+// A modal yes/no question, for the few decisions that happen OUTSIDE the ImGui
+// frame loop - currently the project-format migration prompt, which must be
+// answered before the project is attached and any panel exists. Blocks until
+// dismissed. Returns true ONLY on an explicit yes: when the platform has no
+// dialog tool the answer is No, because the callers guard irreversible work and
+// an unattended run must never silently consent to it.
+bool confirmBox(const std::string& title, const std::string& message);
+
 // Show `path` in the system file manager, selecting the entry itself when it
 // is a file. Best-effort: silently does nothing when no file manager answers.
 void revealInFileManager(const std::string& path);

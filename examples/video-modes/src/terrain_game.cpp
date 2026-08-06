@@ -27,7 +27,8 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
+#include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -408,6 +409,10 @@ struct DynLightRt {
 };
 std::vector<DynLightRt> g_dynLights;
 float g_dynLightTime = 0.0F;
+// The starfield's own clock. It cannot borrow g_dynLightTime: that one only
+// advances while the scene HAS dynamic lights, so a night sky over an unlit
+// scene would freeze mid-shimmer.
+float g_starTime = 0.0F;
 
 void collectScenePointLights() {
   g_scenePointLights.clear();
@@ -1819,7 +1824,8 @@ void TerrainGame::init() {
   buildScene();
 
   // scriptCtx wiring + scripts' init() run from bootFirstScene() (loop boot),
-  // after the deferred scene load - scripts' onStart must see scene 0's objects.
+  // after the deferred scene load - scripts' onStart must see the START scene's
+  // objects.
 
   // HUD sprites (see hud_data.gen.hpp)
   const auto& screen = engine->renderer.core.getSettings();
@@ -1901,7 +1907,7 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = 0;
+        loadingTarget = START_SCENE;
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
@@ -1912,7 +1918,7 @@ void TerrainGame::loop() {
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, 0, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) bootFirstScene();
           return;
@@ -2236,6 +2242,9 @@ void TerrainGame::loop() {
     // P1's camera and bottom half from P2's (players[1].camPos, written by
     // its walker). A cutscene camera override takes the whole screen. HUD /
     // menus / post fx stay full-screen, drawn after splitView.end().
+    // The runtime day/night clock, once per FRAME and before any pass: a split
+    // frame renders the scene twice and both halves must see the same instant.
+    dayNightTick();
     const bool splitFrame = MULTIPLAYER_MODE == 2 && playerTwoActive &&
                             players[1].objIndex >= 0 &&
                             !scriptCtx.cameraOverride;
@@ -2391,6 +2400,8 @@ void TerrainGame::buildScene() {
   // Runtime copies of the scene objects - scripts and physics mutate these.
   skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
   buildSkyDome();
+  // NOT buildStarField() here: the star bags need beamCoronaTex, which the
+  // texture block further down has not loaded yet. It is built there instead.
 
   // Save system: BIOS mc modules, custom values, menu sprites (hud/save-*.png)
   saveValues.assign(SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1, 0.0F);
@@ -2438,6 +2449,11 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // Read which slots already hold a save. The menu refreshes this when it
+  // opens, but a Commit Checkpoint in "next free slot" mode can fire long
+  // before the player ever opens it - and against an all-false table it would
+  // pick slot 0 every time.
+  refreshSlotStates();
   {
     const auto& scr = engine->renderer.core.getSettings();
     auto setupSprite = [&](Sprite& s, const char* path, float w, float h,
@@ -2449,19 +2465,60 @@ void TerrainGame::buildScene() {
           engine->renderer.getTextureRepository().add(FileUtils::fromCwd(path));
       t->addLink(s.id);
     };
-    const float panelX = (scr.getWidth() - 256.0F) * 0.5F;
-    const float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
-    setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
-    // slot rows are baked into save-menu.png at y = 40 + slot * 24
-    setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16, panelX + 32.0F,
-                panelY + 41.0F);
-    setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
-                panelY + 42.0F);
+    // The save menu is a GameMenu now (Tools > Menu Editor), so its panel,
+    // size and placement come from MENUS[SAVE_MENU_INDEX] exactly like any
+    // other menu's - and its rows are blank space the runtime writes into.
+    float panelX = (scr.getWidth() - 256.0F) * 0.5F;
+    float panelY = (scr.getHeight() - 128.0F) * 0.5F - 24.0F;
+    if (SAVE_MENU_INDEX >= 0) {
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      panelX = sm.screenX * scr.getWidth() - (float)sm.panelW * 0.5F;
+      panelY = sm.screenY * scr.getHeight() - (float)sm.contentH * 0.5F;
+      setupSprite(saveMenuSprite, sm.panel, (float)sm.panelW,
+                  (float)sm.panelH, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + (float)sm.row0Y + 1.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16,
+                  panelX + (float)sm.panelW - 104.0F,
+                  panelY + (float)sm.row0Y + 2.0F);
+    } else {
+      setupSprite(saveMenuSprite, "hud/save-menu.png", 256, 128, panelX, panelY);
+      setupSprite(saveCursorSprite, "hud/save-cursor.png", 16, 16,
+                  panelX + 32.0F, panelY + 41.0F);
+      setupSprite(saveUsedSprite, "hud/save-used.png", 64, 16, panelX + 152.0F,
+                  panelY + 42.0F);
+    }
     const float fbX = (scr.getWidth() - 128.0F) * 0.5F;
     const float fbY = panelY + 136.0F;
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+    // "Checking memory card" warning (save_system.gen.hpp carries the baked
+    // sprite's size) - centered, drawn over a dim while a card op runs.
+    setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
+                (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
+                (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
+    // Async spinner: MODE_REPEAT samples [offset, offset+size] texels, so the
+    // sprite is ONE cell of the strip and renderSaveMenu walks offset across
+    // the frames - the debug glyph atlas trick. Drawn size is size * scale,
+    // which is what the corner placement below has to account for.
+    {
+      saveSpinnerSprite.mode = SpriteMode::MODE_REPEAT;
+      saveSpinnerSprite.size =
+          Vec2((float)SAVE_SPINNER_CELL_W, (float)SAVE_SPINNER_CELL_H);
+      saveSpinnerSprite.scale = SAVE_SPINNER_SCALE;
+      const float sw = (float)SAVE_SPINNER_CELL_W * SAVE_SPINNER_SCALE;
+      const float sh = (float)SAVE_SPINNER_CELL_H * SAVE_SPINNER_SCALE;
+      const float m = SAVE_SPINNER_MARGIN;
+      const float sx = (SAVE_SPINNER_CORNER == 1 || SAVE_SPINNER_CORNER == 3)
+                           ? scr.getWidth() - m - sw
+                           : m;
+      const float sy = (SAVE_SPINNER_CORNER >= 2) ? scr.getHeight() - m - sh : m;
+      saveSpinnerSprite.position = Vec2(sx, sy);
+      engine->renderer.getTextureRepository()
+          .add(FileUtils::fromCwd(SAVE_SPINNER_TEX))
+          ->addLink(saveSpinnerSprite.id);
+    }
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -2496,7 +2553,80 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.values));
       t->addLink(menuValueSprites.back().id);
     }
+    // The three styled-menu textures, all sub-rect sprites like the value
+    // strip: renderGameMenu moves offset/position to the cell it wants.
+    menuStateSprites.clear();
+    menuListSprites.clear();
+    menuDescSprites.clear();
+    menuBgSprites.clear();
+    menuBgSprites.reserve(MENU_COUNT);
+    menuStateSprites.reserve(MENU_COUNT);
+    menuListSprites.reserve(MENU_COUNT);
+    menuDescSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite st;
+      st.mode = SpriteMode::MODE_REPEAT;
+      st.size = Vec2((float)m.rowsCellW, (float)m.rowsCellH);
+      menuStateSprites.push_back(st);
+      if (m.rowsTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.rowsTex));
+        t->addLink(menuStateSprites.back().id);
+      }
+      Sprite ls;
+      ls.mode = SpriteMode::MODE_REPEAT;
+      ls.size = Vec2((float)m.panelW, (float)(m.rowsVisible * m.rowH));
+      menuListSprites.push_back(ls);
+      if (m.listTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.listTex));
+        t->addLink(menuListSprites.back().id);
+      }
+      Sprite bg;
+      bg.mode = SpriteMode::MODE_REPEAT;
+      bg.size = Vec2((float)m.panelW, (float)m.contentH);
+      menuBgSprites.push_back(bg);
+      if (m.bgTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.bgTex));
+        t->addLink(menuBgSprites.back().id);
+      }
+      Sprite ds;
+      ds.mode = SpriteMode::MODE_REPEAT;
+      ds.size = Vec2((float)m.descCellW, (float)m.descCellH);
+      menuDescSprites.push_back(ds);
+      if (m.descTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.descTex));
+        t->addLink(menuDescSprites.back().id);
+      }
+    }
+    // The sheen is shared and only exists when a sheet sweeps one; loading a
+    // texture nothing draws would pin GS VRAM for nothing.
+    menuSheenLoaded = false;
+    for (int i = 0; i < MENU_COUNT && !menuSheenLoaded; ++i)
+      menuSheenLoaded = MENUS[i].sheenSec > 0.0F;
+    if (menuSheenLoaded) {
+      setupSprite(menuSheenSprite, "menus/sheen.png", 64, 64, 0.0F, 0.0F);
+      // MODE_REPEAT so `offset`/`size` select a PART of the band - that is what
+      // lets it be cropped to the panel as it enters and leaves.
+      menuSheenSprite.mode = SpriteMode::MODE_REPEAT;
+      menuSheenSprite.additive = true;  // light passing over, never darkening
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    menuCursorSprites.clear();
+    menuCursorSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite c;
+      c.mode = SpriteMode::MODE_STRETCH;
+      c.size = Vec2(16.0F, 16.0F);
+      menuCursorSprites.push_back(c);
+      auto* t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(
+          m.markerTex[0] != '\0' ? m.markerTex : "hud/save-cursor.png"));
+      t->addLink(menuCursorSprites.back().id);
+    }
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
 
@@ -2539,14 +2669,30 @@ void TerrainGame::buildScene() {
       }
       flareTexturesLoaded = true;
     }
-    // Light-beam corona texture (Point Light > Beam; shape in RGB).
-    if (BEAMS_USED)
+    // Light-beam corona texture (Point Light > Beam; shape in RGB). The night
+    // sky's stars are drawn through the SAME sprite - one 64x64 for both, and a
+    // star without it is a hard square - so a starfield loads it too.
+    if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
+    // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
+    // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
+    // cycle-less project pays no VRAM for a sky it does not draw. Together they
+    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    if (DAYCYCLE_USED) {
+      sunDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/sun-disc.png"));
+      moonDiscTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/moon-disc.png"));
+      setupSkyBodies();
+    }
+    // The night sky, now that the corona sprite its stars are drawn through
+    // exists. A scene reload rebuilds it (see loadScene) - this is the boot one.
+    buildStarField();
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
@@ -2569,6 +2715,11 @@ void TerrainGame::buildScene() {
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       // The pad reconfigures for ~3.5s after boot and reports garbage
       // clicks - one of those must not press a title entry.
       gameMenuGrace = 200;
@@ -2584,7 +2735,7 @@ void TerrainGame::buildScene() {
 // sequence so the load runs at vsync pace (a visible loading-screen progress
 // bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(0);
+  loadScene(START_SCENE);
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -4182,7 +4333,23 @@ void TerrainGame::loadScene(int sceneIndex) {
   if (infoBag) {
     infoBag->fullClipChecks = CLIP_PRECISE;
     skyHorizonR = SKY_R, skyHorizonG = SKY_G, skyHorizonB = SKY_B;
+    skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+    // Park the runtime clock at the authored hour, so a scene's first frame is
+    // what the editor previewed rather than wherever the last scene's clock got
+    // to. Must happen BEFORE buildSkyDome, which bakes the zenith in.
+    daynight::reset(sceneIndex);
+    if (daynight::active(sceneIndex)) {
+      skyHorizonR = daynight::g_sky[0] * 255.0F;
+      skyHorizonG = daynight::g_sky[1] * 255.0F;
+      skyHorizonB = daynight::g_sky[2] * 255.0F;
+      skyTopR = daynight::g_top[0] * 255.0F;
+      skyTopG = daynight::g_top[1] * 255.0F;
+      skyTopB = daynight::g_top[2] * 255.0F;
+      dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
+      scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
+    }
     buildSkyDome();
+    buildStarField();
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
@@ -5190,6 +5357,80 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
 bool TerrainGame::updateSaveMenu() {
   if (saveFeedbackFrames > 0) --saveFeedbackFrames;
 
+  // Checkpoint requests (flow graph). Save/Load touch only the single RAM
+  // buffer - instant, no card, no overlay. Commit turns into a card op.
+  scriptCtx.hasCheckpoint = checkpointValid;
+  if (scriptCtx.saveCheckpoint) {
+    scriptCtx.saveCheckpoint = false;
+    captureState(checkpointData);
+    checkpointValid = true;
+    scriptCtx.hasCheckpoint = true;
+  }
+  if (scriptCtx.loadCheckpoint) {
+    scriptCtx.loadCheckpoint = false;
+    if (checkpointValid) applyState(checkpointData);
+  }
+  if (scriptCtx.commitCheckpoint != -1) {
+    const int slot = resolveCommitSlot(scriptCtx.commitCheckpoint);
+    scriptCtx.commitCheckpoint = -1;
+    if (checkpointValid && slot >= 0 && slot < SAVE_SLOTS) {
+      if (SAVE_ASYNC) {
+        // The whole point of an async commit: no overlay, no pause. The
+        // checkpoint buffer is already a finished payload, so this writes it
+        // verbatim (slotSource is not consulted - a commit is a commit).
+        if (!saveWriteBusy() && cardOp < 0) {
+          if (saveWriteBegin(slot, checkpointData)) {
+            asyncSaveSlot = slot;
+            spinnerHold = everyFrames(0.6F);
+          }
+        }
+      } else if (cardOp < 0) {
+        beginCardOp(2, slot);
+      }
+    }
+  }
+
+  // An async write runs ALONGSIDE the game: step it once per frame and fall
+  // through, so it owns neither the pad nor the screen - only the spinner.
+  if (SAVE_ASYNC && spinnerHold > 0) --spinnerHold;
+  if (SAVE_ASYNC && saveWriteBusy()) {
+    bool ok = false;
+    if (saveWritePoll(&ok)) {
+      if (ok && asyncSaveSlot >= 0 && asyncSaveSlot < SAVE_SLOTS)
+        slotUsed[asyncSaveSlot] = true;
+      asyncSaveSlot = -1;
+      saveFeedback = ok ? 1 : 3;
+      saveFeedbackFrames = everyFrames(1.8F);
+    }
+  }
+
+  // A card op owns the pad. The blocking libmc transfer only runs once the
+  // "do not remove the memory card" overlay has been on screen for a few
+  // frames; afterwards the warning holds up its minimum time.
+  if (cardOp >= 0) {
+    if (cardOpDelay > 0) {
+      --cardOpDelay;
+    } else {
+      const int op = cardOp;
+      cardOp = -1;
+      if (op == 0) {
+        doSave(cardOpSlot);
+      } else if (op == 1) {
+        doLoad(cardOpSlot);
+      } else {  // commit the RAM checkpoint to a slot
+        const bool ok = saveWrite(cardOpSlot, checkpointData);
+        if (ok) slotUsed[cardOpSlot] = true;
+        saveFeedback = ok ? 1 : 3;
+        saveFeedbackFrames = everyFrames(1.8F);
+      }
+    }
+    return true;
+  }
+  if (cardBusyFrames > 0) {
+    --cardBusyFrames;
+    return true;
+  }
+
   if (scriptCtx.openSaveMenu) {
     scriptCtx.openSaveMenu = false;
     if (!saveMenuOpen) {
@@ -5212,26 +5453,79 @@ bool TerrainGame::updateSaveMenu() {
   // Menu navigation through the Input Map's menu-* / confirm / back / alt
   // roles (Tools > Input Map), so a project that moves them - or a player who
   // rebinds one - navigates the save menu the same way as everything else.
+  // Slots wrap as one list; the PAGE simply follows the cursor, so walking
+  // off the bottom row turns the page instead of stopping.
   if (inputClicked(engine->pad, IA_ROLE_MENU_UP))
     saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - 1) % SAVE_SLOTS;
   if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN))
     saveMenuSlot = (saveMenuSlot + 1) % SAVE_SLOTS;
+  // Left/right jump a whole page - with dozens of slots, holding down is not
+  // a way to reach slot 90.
+  if (SAVE_PAGES > 1) {
+    if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS - SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+    if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT))
+      saveMenuSlot = (saveMenuSlot + SAVE_SLOTS_PER_PAGE) % SAVE_SLOTS;
+  }
+  saveMenuPage = saveMenuSlot / SAVE_SLOTS_PER_PAGE;
   if (inputClicked(engine->pad, IA_ROLE_BACK)) {
     saveMenuOpen = false;
     return true;
   }
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) doSave(saveMenuSlot);
+  // Buttons come from the remappable input map (main), the work goes through
+  // beginCardOp so the "checking memory card" screen is up while the card is
+  // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
+  // warning has actually been drawn.
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) {
+    if (SAVE_ASYNC) {
+      // Close the menu and hand the write to the background: the spinner is
+      // the only thing left on screen and the player is already moving again.
+      startAsyncSave(saveMenuSlot);
+      saveMenuOpen = false;
+    } else {
+      beginCardOp(0, saveMenuSlot);
+    }
+  }
+  // Loading stays blocking in both modes - the world is being replaced, so
+  // there is nothing to keep playing while it happens.
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
-    doLoad(saveMenuSlot);
+    beginCardOp(1, saveMenuSlot);
   return true;
+}
+
+void TerrainGame::beginCardOp(int op, int slot) {
+  cardOp = op;
+  cardOpSlot = slot;
+  cardOpDelay = 3;  // present the warning before the blocking transfer
+  cardBusyFrames = everyFrames(1.5F);
 }
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
 }
 
-void TerrainGame::doSave(int slot) {
-  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+int TerrainGame::nextSaveSlot() {
+  for (int i = 0; i < SAVE_SLOTS; ++i) {
+    if (i == SAVE_AUTOSAVE_SLOT) continue;  // the game's own slot, not a spare
+    if (!slotUsed[i]) return i;
+  }
+  // All full: cycle, so a run keeps saving instead of quietly stopping.
+  for (int n = 0; n < SAVE_SLOTS; ++n) {
+    const int i = (nextSaveRotate + n) % SAVE_SLOTS;
+    if (i == SAVE_AUTOSAVE_SLOT) continue;
+    nextSaveRotate = (i + 1) % SAVE_SLOTS;
+    return i;
+  }
+  return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
+}
+
+int TerrainGame::resolveCommitSlot(int request) {
+  if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
+  if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
+  return request;
+}
+
+void TerrainGame::captureState(SaveGameData& d) {
   d = SaveGameData();
   d.magic = SAVE_MAGIC;
   d.version = SAVE_VERSION;
@@ -5266,10 +5560,35 @@ void TerrainGame::doSave(int slot) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
-  const bool ok = saveWrite(slot, d);
+}
+
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
+const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
+  if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
+  captureState(scratch);
+  return scratch;
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  const bool ok = saveWrite(slot, slotSource(d));
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
+}
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
+void TerrainGame::startAsyncSave(int slot) {
+  static SaveGameData d;
+  if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
+  if (saveWriteBegin(slot, slotSource(d))) {
+    asyncSaveSlot = slot;
+    spinnerHold = everyFrames(0.6F);
+  }
 }
 
 void TerrainGame::doLoad(int slot) {
@@ -5279,6 +5598,15 @@ void TerrainGame::doLoad(int slot) {
     saveFeedbackFrames = everyFrames(1.8F);
     return;
   }
+  applyState(d);
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+// Restores a payload captured by captureState - a card slot's or the RAM
+// checkpoint's. Mutates d only to NUL-terminate texts (corrupted cards).
+void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
@@ -5296,9 +5624,6 @@ void TerrainGame::doLoad(int slot) {
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
     applySavedObjects();
-  saveMenuOpen = false;
-  saveFeedback = 2;
-  saveFeedbackFrames = 90;
 }
 
 void TerrainGame::applySavedObjects() {
@@ -5321,15 +5646,64 @@ void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
     engine->renderer.renderer2D.render(menuDimSprite);
     engine->renderer.renderer2D.render(saveMenuSprite);
-    // slot rows sit at y = 40 + slot * 24 inside the panel sprite
+    // Row geometry comes from the baked panel (MenuData), and the labels are
+    // drawn HERE rather than baked - which is the whole reason a project can
+    // have more slots than rows.
     const float baseY = saveMenuSprite.position.y;
-    saveCursorSprite.position.y = baseY + 41.0F + saveMenuSlot * 24.0F;
+    const float baseX = saveMenuSprite.position.x;
+    const int row0 = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].row0Y : 40;
+    const int rowH = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].rowH : 24;
+    const int panelW = SAVE_MENU_INDEX >= 0 ? MENUS[SAVE_MENU_INDEX].panelW : 256;
+    const int first = saveMenuPage * SAVE_SLOTS_PER_PAGE;
+    saveCursorSprite.position.y =
+        baseY + (float)row0 + 1.0F + (float)((saveMenuSlot - first) * rowH);
     engine->renderer.renderer2D.render(saveCursorSprite);
-    for (int i = 0; i < SAVE_SLOTS; ++i) {
-      if (!slotUsed[i]) continue;
-      saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
-      engine->renderer.renderer2D.render(saveUsedSprite);
+    for (int r = 0; r < SAVE_SLOTS_PER_PAGE; ++r) {
+      const int slot = first + r;
+      if (slot >= SAVE_SLOTS) break;
+      if (slotUsed[slot]) {
+        saveUsedSprite.position.y = baseY + (float)row0 + 2.0F + (float)(r * rowH);
+        engine->renderer.renderer2D.render(saveUsedSprite);
+      }
+      if (SAVE_MENU_INDEX >= 0) {
+        char label[24];
+        snprintf(label, sizeof(label), "SLOT %d", slot + 1);
+        const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+        const float sz = (float)(rowH > 12 ? rowH - 9 : 8);
+        // drawFontText CENTRES on the x it is given, so left-aligning at the
+        // baked labels' own x (56) means offsetting by half the width -
+        // otherwise the row starts under the cursor sprite.
+        const float lw = fontTextWidth(sm.font, label, sz);
+        drawFontText(engine, sm.font, label, baseX + 56.0F + lw * 0.5F,
+                     baseY + (float)row0 + (float)(r * rowH) +
+                         (float)rowH * 0.5F,
+                     sz);
+      }
     }
+    // Page indicator, only when there is more than one page to be on.
+    if (SAVE_PAGES > 1 && SAVE_MENU_INDEX >= 0) {
+      char pg[24];
+      snprintf(pg, sizeof(pg), "%d/%d", saveMenuPage + 1, SAVE_PAGES);
+      const MenuData& sm = MENUS[SAVE_MENU_INDEX];
+      drawFontText(engine, sm.font, pg, baseX + (float)panelW - 30.0F,
+                   baseY + (float)row0 - 16.0F, 11.0F);
+    }
+  }
+  // The "do not remove the memory card" warning covers everything while a
+  // card op is pending or holding; feedback sprites wait until it clears.
+  if (cardOp >= 0 || cardBusyFrames > 0) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveBusySprite);
+    return;
+  }
+  // The async write's own indicator: no dim, no overlay, just the spinner in
+  // its corner, one cell of the strip per few frames.
+  if (SAVE_ASYNC && SAVE_SPINNER && (saveWriteBusy() || spinnerHold > 0)) {
+    ++spinnerFrame;
+    const int cell = (spinnerFrame / SAVE_SPINNER_HOLD) % SAVE_SPINNER_FRAMES;
+    saveSpinnerSprite.offset =
+        Vec2((float)(cell * SAVE_SPINNER_CELL_W), 0.0F);
+    engine->renderer.renderer2D.render(saveSpinnerSprite);
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -5363,6 +5737,11 @@ bool TerrainGame::updateGameMenu() {
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
       gameMenuIndex = target;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
       menuRebindRow = -1;
@@ -5378,6 +5757,11 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuIndex < 0) {
       gameMenuIndex = PAUSE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;
       menuRebindRow = -1;
@@ -5389,6 +5773,15 @@ bool TerrainGame::updateGameMenu() {
       gameMenuIndex = -1;
       return false;
     }
+  }
+
+  // A menu that is closing keeps drawing for the length of its close transition
+  // and takes no input. Only the plain dismissals animate: a scene switch or a
+  // hand-off to the save menu clears immediately, because a panel lingering over
+  // a loading scene is worse than no transition at all.
+  if (gameMenuClosing >= 0) {
+    gameMenuCloseT += g_frameDt;
+    if (gameMenuCloseT >= MENUS[gameMenuClosing].closeSec) gameMenuClosing = -1;
   }
 
   if (gameMenuIndex < 0) return false;
@@ -5430,10 +5823,14 @@ bool TerrainGame::updateGameMenu() {
     return pausing();
   }
 
-  if (inputClicked(engine->pad, IA_ROLE_MENU_UP) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
-  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+  // Headers, spacers and rows their `enabledWhen` value switched off are
+  // skipped - including on the frame the menu opened, so a menu whose first row
+  // is a section header still lands on something usable.
+  if (!menuRowEnabled(gameMenuIndex, gameMenuCursor))
+    menuMoveCursor(gameMenuIndex, 1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_UP)) menuMoveCursor(gameMenuIndex, -1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN)) menuMoveCursor(gameMenuIndex, 1);
+  menuFollowCursor(gameMenuIndex);
 
   // Toggle/Choice rows: the state is the bound save value (the option
   // index). Cross and dpad right cycle forward, dpad left backward.
@@ -5444,6 +5841,7 @@ bool TerrainGame::updateGameMenu() {
     if (v < 0) v = 0;
     if (v >= e.optionCount) v = e.optionCount - 1;
     saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+    gameMenuValueFlash = m.valueFlashSec;  // 0 when the sheet asks for none
   };
   if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
     const MenuEntryData& cur = m.entries[gameMenuCursor];
@@ -5462,18 +5860,32 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       menuRebindRow = -1;
     } else if (!m.titleScreen) {
+      if (m.closeSec > 0.0F) {
+        gameMenuClosing = gameMenuIndex;
+        gameMenuCloseT = 0.0F;
+      }
       gameMenuIndex = -1;
     }
     return pausing();
   }
 
   if (inputClicked(engine->pad, IA_ROLE_CONFIRM) && gameMenuCursor >= 0 &&
-      gameMenuCursor < m.entryCount) {
+      gameMenuCursor < m.entryCount &&
+      menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     switch (e.action) {
       case 0:  // close
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
         gameMenuIndex = -1;
         gameMenuStackDepth = 0;
         break;
@@ -5495,6 +5907,11 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
           gameMenuIndex = e.param;
           gameMenuCursor = 0;
+          gameMenuScroll = 0;
+          gameMenuOpenT = 0.0F;
+          gameMenuClock = 0.0F;
+          gameMenuScrollShown = 0.0F;
+          gameMenuCursorRow = -1;
           menuRebindRow = -1;
         }
         break;
@@ -5689,26 +6106,255 @@ void TerrainGame::syncPlayerCountMenuValue() {
   }
 }
 
-void TerrainGame::renderGameMenu() {
-  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
-  if (saveMenuOpen) return;  // the save menu draws on top instead
-  const MenuData& m = MENUS[gameMenuIndex];
-  Sprite& panel = menuSprites[gameMenuIndex];
-  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
-  engine->renderer.renderer2D.render(panel);
-  if (m.entryCount > 0) {
-    menuCursorSprite.position =
-        Vec2(panel.position.x + 32.0F,
-             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
-    engine->renderer.renderer2D.render(menuCursorSprite);
+// Menu progress easing, shared by the open transition and the caret. ease 0
+// linear, 1 ease-out (the default a sheet gets), 2 ease-in-out.
+static float menuEase(float t, int ease) {
+  if (t <= 0.0F) return 0.0F;
+  if (t >= 1.0F) return 1.0F;
+  if (ease == 0) return t;
+  if (ease == 2) return t < 0.5F ? 2.0F * t * t : 1.0F - 2.0F * (1.0F - t) * (1.0F - t);
+  const float inv = 1.0F - t;
+  return 1.0F - inv * inv;
+}
+
+// True when a row is currently usable: a label/spacer never is, and a row with
+// an `enabledWhen` save value is only usable while that value is non-zero.
+bool TerrainGame::menuRowEnabled(int menu, int row) const {
+  if (menu < 0 || menu >= MENU_COUNT) return false;
+  const MenuData& m = MENUS[menu];
+  if (row < 0 || row >= m.entryCount) return false;
+  const MenuEntryData& e = m.entries[row];
+  if (!e.selectable) return false;
+  if (e.enableVal >= 0 && e.enableVal < SAVE_VALUE_COUNT &&
+      saveValues[e.enableVal] == 0.0F)
+    return false;
+  return true;
+}
+
+// Moves the cursor `dir` rows, skipping headers, spacers and disabled rows, and
+// wrapping like the plain cursor always did. A menu with nothing selectable
+// leaves the cursor where it is rather than spinning.
+void TerrainGame::menuMoveCursor(int menu, int dir) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.entryCount <= 0) return;
+  for (int step = 0; step < m.entryCount; ++step) {
+    gameMenuCursor = (gameMenuCursor + dir + m.entryCount) % m.entryCount;
+    if (menuRowEnabled(menu, gameMenuCursor)) return;
   }
-  // Toggle/Choice rows: the current option label, a cell of the baked value
-  // strip drawn right-aligned on the row (cell right edge 24px from the
-  // panel's right border - the mirror of the 56px label margin).
+}
+
+// Keeps the cursor inside the visible window of a scrolling list.
+void TerrainGame::menuFollowCursor(int menu) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.listTex[0] == '\0' || m.rowsVisible <= 0) {
+    gameMenuScroll = 0;
+    return;
+  }
+  if (gameMenuCursor < gameMenuScroll) gameMenuScroll = gameMenuCursor;
+  if (gameMenuCursor >= gameMenuScroll + m.rowsVisible)
+    gameMenuScroll = gameMenuCursor - m.rowsVisible + 1;
+  const int maxScroll = m.entryCount - m.rowsVisible;
+  if (gameMenuScroll > maxScroll) gameMenuScroll = maxScroll;
+  if (gameMenuScroll < 0) gameMenuScroll = 0;
+}
+
+void TerrainGame::renderGameMenu() {
+  // A menu that is closing still draws: its transition is the whole reason the
+  // index was parked in gameMenuClosing instead of simply cleared.
+  const int drawMenu = gameMenuIndex >= 0 ? gameMenuIndex : gameMenuClosing;
+  if (drawMenu < 0 || drawMenu >= (int)menuSprites.size()) return;
+  if (saveMenuOpen) return;  // the save menu draws on top instead
+  const MenuData& m = MENUS[drawMenu];
+  Sprite& panel = menuSprites[drawMenu];
+  const bool closing = gameMenuIndex < 0;
+
+  // --- resolution scale (docs/menu-styles.md "Resolutions") ----------------
+  // A menu is authored in the logical 512x448 space of the interlaced mode, but
+  // the framebuffer is 448x448 in 480p, 448x540 in 1080i and 512x512 in full
+  // PAL. Scaling by (width/512, height/448) is what keeps the panel the same
+  // PHYSICAL size on the TV: the GS display window maps whatever the buffer is
+  // across the same raster, so 448 columns cover exactly the width 512 do.
+  // That also means the two axes scale by different factors - hence
+  // Sprite::drawSize rather than Sprite::scale.
+  const auto& uiScr = engine->renderer.core.getSettings();
+  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiSY = uiScr.getHeight() / 448.0F;
+  auto sxi = [&](int v) { return (float)v * uiSX; };
+  auto syi = [&](int v) { return (float)v * uiSY; };
+
+  // --- the open transition -------------------------------------------------
+  // Sprite properties only: an offset added to every piece and one alpha. The
+  // baked pixels never move, which is why this costs nothing.
+  gameMenuClock += g_frameDt;
+  float prog = 1.0F;
+  float ofsX = 0.0F, ofsY = 0.0F;
+  bool fade = false;
+  if (closing) {
+    prog = m.closeSec > 0.0F ? 1.0F - menuEase(gameMenuCloseT / m.closeSec, m.closeEase)
+                             : 0.0F;
+    ofsX = m.closeDX * (1.0F - prog);
+    ofsY = m.closeDY * (1.0F - prog);
+    fade = m.closeFade != 0;
+  } else if (m.openSec > 0.0F) {
+    gameMenuOpenT += g_frameDt;
+    prog = menuEase(gameMenuOpenT / m.openSec, m.openEase);
+    ofsX = m.openDX * (1.0F - prog);
+    ofsY = m.openDY * (1.0F - prog);
+    fade = m.openFade != 0;
+  }
+  const unsigned char alpha = (unsigned char)(fade ? 128.0F * prog + 0.5F : 128.0F);
+  // The panel is centred on its normalized screen position, in the mode's own
+  // buffer, at its scaled size.
+  const float baseX =
+      m.screenX * uiScr.getWidth() - sxi(m.panelW) * 0.5F + ofsX * uiSX;
+  const float baseY =
+      m.screenY * uiScr.getHeight() - syi(m.contentH) * 0.5F + ofsY * uiSY;
+
+  if (m.pause) {
+    // Sized per frame: a runtime display-mode switch changes the buffer under
+    // it, and a dim overlay that misses the edge is very visible.
+    menuDimSprite.drawSize = Vec2(uiScr.getWidth(), uiScr.getHeight());
+    engine->renderer.renderer2D.render(menuDimSprite);
+  }
+  // The moving background layer, under everything the panel bakes. Scroll walks
+  // the sampling window across the tiled copy; frames jump it between frames.
+  // Either way it is one sprite and one offset - no re-bake, no second texture
+  // per frame (docs/menu-styles.md "Motion").
+  if (m.bgTex[0] != '\0' && drawMenu < (int)menuBgSprites.size()) {
+    Sprite& bg = menuBgSprites[drawMenu];
+    bg.color.a = alpha;
+    bg.drawSize = Vec2(sxi(m.panelW), syi(m.contentH));
+    if (m.bgMode == 2 && m.bgFrames > 0) {
+      int f = (int)(gameMenuClock / (m.bgSeconds > 0.0F ? m.bgSeconds : 1.0F) *
+                    m.bgFrames);
+      f %= m.bgFrames;
+      if (f < 0) f += m.bgFrames;
+      bg.offset = Vec2(0.0F, (float)(f * m.bgFrameH));
+    } else {
+      auto wrap = [](float v, float span) {
+        if (span <= 0.0F) return 0.0F;
+        v = fmodf(v, span);
+        return v < 0.0F ? v + span : v;
+      };
+      bg.offset = Vec2(wrap(gameMenuClock * m.bgScrollX, (float)m.bgTileW),
+                       wrap(gameMenuClock * m.bgScrollY, (float)m.bgTileH));
+    }
+    bg.position = Vec2(baseX, baseY);
+    engine->renderer.renderer2D.render(bg);
+  }
+
+  panel.color.a = alpha;
+  panel.drawSize = Vec2(sxi(m.panelW), syi(m.panelH));
+  panel.position = Vec2(baseX, baseY);
+  engine->renderer.renderer2D.render(panel);
+
+  // A scrolling list settles into its new window instead of jumping. One float:
+  // every row-indexed piece below reads `shown` rather than the integer scroll,
+  // so the highlight, the values and the rows all move together (they must - a
+  // highlight that arrives before its row is worse than no easing).
+  if (m.scrollSec > 0.0F) {
+    const float k = menuEase(g_frameDt / m.scrollSec, 1);
+    gameMenuScrollShown += ((float)gameMenuScroll - gameMenuScrollShown) *
+                           (k > 1.0F ? 1.0F : k);
+    if (fabsf((float)gameMenuScroll - gameMenuScrollShown) < 0.01F)
+      gameMenuScrollShown = (float)gameMenuScroll;
+  } else {
+    gameMenuScrollShown = (float)gameMenuScroll;
+  }
+  const float shown = gameMenuScrollShown;
+
+  // --- the row strip of a scrolling list -----------------------------------
+  // One window into the strip texture; scrolling moves `offset`, so a 32-row
+  // menu costs exactly what an 8-row one does.
+  if (m.listTex[0] != '\0' && drawMenu < (int)menuListSprites.size()) {
+    Sprite& ls = menuListSprites[drawMenu];
+    ls.color.a = alpha;
+    ls.offset = Vec2(0.0F, shown * (float)m.rowH);
+    ls.drawSize = Vec2(sxi(m.panelW), syi(m.rowsVisible * m.rowH));
+    ls.position = Vec2(baseX, baseY + syi(m.row0Y));
+    engine->renderer.renderer2D.render(ls);
+  }
+
+  // --- row states ----------------------------------------------------------
+  // Disabled rows first, then the selected one, all from ONE texture so the
+  // draws share a texture bind (a per-row texture switch would re-upload a
+  // CLUT every row - see docs/gs-vram.md).
+  if (m.rowsTex[0] != '\0' && drawMenu < (int)menuStateSprites.size()) {
+    Sprite& ss = menuStateSprites[drawMenu];
+    ss.color.a = alpha;
+    ss.drawSize = Vec2(sxi(m.rowsCellW), syi(m.rowsCellH));
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.disCell < 0 || menuRowEnabled(gameMenuIndex, i)) continue;
+      ss.offset = Vec2(0.0F, (float)(e.disCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)i - shown) * (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+    }
+    const MenuEntryData& sel = m.entries[gameMenuCursor >= 0 && gameMenuCursor < m.entryCount
+                                             ? gameMenuCursor
+                                             : 0];
+    if (sel.selCell >= 0 && menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
+      ss.offset = Vec2(0.0F, (float)(sel.selCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)gameMenuCursor - shown) *
+                                        (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+      ss.color.a = alpha;  // the pulse is this row's alone
+    }
+  }
+
+  // --- the selection caret -------------------------------------------------
+  // It eases toward its row when the sheet asks for it; with no cursor
+  // transition it snaps, which is what every menu did before. A style whose
+  // selected row paints a full-width plate turns it off (`marker: none`) - the
+  // caret would only sit on top of the plate.
+  if (m.entryCount > 0 && m.markerOn) {
+    const float targetY =
+        (float)m.row0Y + ((float)gameMenuCursor - shown) * (float)m.rowH + 1.0F;
+    if (m.cursorSec > 0.0F) {
+      if (gameMenuCursorRow != gameMenuCursor) {
+        // Re-target: ease from wherever the caret actually is.
+        gameMenuCursorRow = gameMenuCursor;
+      }
+      const float k = menuEase(g_frameDt / m.cursorSec, m.cursorEase);
+      gameMenuCursorY += (targetY - gameMenuCursorY) * (k > 1.0F ? 1.0F : k);
+      if (gameMenuCursorY < -512.0F || gameMenuCursorY > 1024.0F)
+        gameMenuCursorY = targetY;  // first frame / a scene reload
+    } else {
+      gameMenuCursorY = targetY;
+    }
+    Sprite& caret = drawMenu < (int)menuCursorSprites.size()
+                        ? menuCursorSprites[drawMenu]
+                        : menuCursorSprite;
+    caret.color.a = alpha;
+    caret.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
+    const float bob =
+        m.bobSec > 0.0F
+            ? m.bobPx * sinf(gameMenuClock * 6.2831853F / m.bobSec)
+            : 0.0F;
+    caret.position = Vec2(baseX + (m.markerX + bob) * uiSX,
+                          baseY + gameMenuCursorY * uiSY);
+    engine->renderer.renderer2D.render(caret);
+  }
+
+  // Toggle/Choice rows: the current option label (or bar), a cell of the baked
+  // value strip drawn right-aligned on the row.
   if (m.values[0] != '\0' &&
-      gameMenuIndex < (int)menuValueSprites.size()) {
-    Sprite& vs = menuValueSprites[gameMenuIndex];
-    for (int i = 0; i < m.entryCount; ++i) {
+      drawMenu < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[drawMenu];
+    vs.color.a = alpha;
+    vs.drawSize = Vec2(sxi(m.valueCellW), syi(m.valueCellH));
+    // The row whose value just changed flashes brighter, which is how a player
+    // sees that a press did something on a row whose label never moves.
+    if (gameMenuValueFlash > 0.0F) gameMenuValueFlash -= g_frameDt;
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.cell < 0 || e.optionCount <= 0) continue;
       int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
@@ -5716,17 +6362,70 @@ void TerrainGame::renderGameMenu() {
                   : 0;
       if (v < 0) v = 0;
       if (v >= e.optionCount) v = e.optionCount - 1;
+      const bool flash = gameMenuValueFlash > 0.0F && i == gameMenuCursor;
+      vs.color.r = vs.color.g = vs.color.b = flash ? 255 : 128;
       vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
-      vs.position = Vec2(panel.position.x + m.valueX,
-                         panel.position.y + m.row0Y + i * m.rowH);
+      vs.position = Vec2(baseX + sxi(m.valueX),
+                         baseY + (float)m.row0Y * uiSY +
+                             ((float)i - shown) * (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(vs);
     }
   }
+
+  // --- the description pane ------------------------------------------------
+  // The selected row's cell, drawn into the box the panel already framed.
+  if (m.descTex[0] != '\0' && drawMenu < (int)menuDescSprites.size() &&
+      gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    if (e.descCell >= 0) {
+      Sprite& ds = menuDescSprites[drawMenu];
+      ds.color.a = alpha;
+      ds.drawSize = Vec2(sxi(m.descCellW), syi(m.descCellH));
+      ds.offset = Vec2(0.0F, (float)(e.descCell * m.descPitch));
+      ds.position = Vec2(baseX + sxi(m.descX), baseY + syi(m.descY));
+      engine->renderer.renderer2D.render(ds);
+    }
+  }
+
+  // The sheen: a soft band sweeping across the panel, additive so it only ever
+  // adds light. It crosses from off the left edge to off the right, then waits
+  // out the rest of the period - a sweep every few seconds reads as a highlight,
+  // a sweep that never stops reads as a strobe.
+  if (m.sheenSec > 0.0F && menuSheenLoaded) {
+    const float bandW = m.sheenPx > 0.0F ? m.sheenPx : 48.0F;
+    // The band travels from just off the left edge to just off the right, and
+    // is CROPPED to the panel on the way in and out. A 2D sprite is not clipped
+    // by anything, so without this the sweep is visible beside the menu before
+    // it arrives - which is exactly how it was reported. The crop is the same
+    // window-into-a-texture trick the value strip uses: move `offset` and
+    // shrink `size`, and the sprite samples only the part that belongs inside.
+    const float phase = fmodf(gameMenuClock, m.sheenSec) / m.sheenSec;
+    const float x0 = phase * ((float)m.panelW + bandW * 2.0F) - bandW;
+    const float vx0 = x0 < 0.0F ? 0.0F : x0;
+    const float vx1 = x0 + bandW > (float)m.panelW ? (float)m.panelW : x0 + bandW;
+    if (vx1 > vx0) {
+      const float u0 = (vx0 - x0) / bandW * 64.0F;
+      const float u1 = (vx1 - x0) / bandW * 64.0F;
+      menuSheenSprite.color.r = (unsigned char)m.sheenR;
+      menuSheenSprite.color.g = (unsigned char)m.sheenG;
+      menuSheenSprite.color.b = (unsigned char)m.sheenB;
+      menuSheenSprite.color.a =
+          (unsigned char)((float)m.sheenA * (alpha / 128.0F) * 0.5F);
+      menuSheenSprite.offset = Vec2(u0, 0.0F);
+      menuSheenSprite.size = Vec2(u1 - u0, 64.0F);
+      menuSheenSprite.drawSize = Vec2((vx1 - vx0) * uiSX, syi(m.contentH));
+      menuSheenSprite.position = Vec2(baseX + vx0 * uiSX, baseY);
+      engine->renderer.renderer2D.render(menuSheenSprite);
+    }
+  }
+
   // Rebind rows: the binding name can't be baked (it changes at runtime), so it
   // draws glyph by glyph from the menu font's atlas, right-aligned like the
   // baked option labels. While capturing, the row asks for a press instead.
   if (m.font >= 0 && m.font < FONT_COUNT) {
-    for (int i = 0; i < m.entryCount; ++i) {
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.action != 10) continue;
       const char* txt = "PRESS...";
@@ -5751,18 +6450,17 @@ void TerrainGame::renderGameMenu() {
       // half of a 128px panel, so shrink to fit rather than run over the row's
       // baked label (floor at 50% - below that it stops being readable at PS2
       // resolutions anyway).
-      float size = (float)m.rowH * 0.8F;
-      const float room = (float)m.panelW * 0.5F - 24.0F;
+      float size = (float)m.rowH * 0.8F * uiSY;
+      const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
       float w = fontTextWidth(m.font, txt, size);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
         w = fontTextWidth(m.font, txt, size);
       }
-      drawFontText(engine, m.font, txt,
-                   panel.position.x + (float)(m.panelW - 24) - w * 0.5F,
-                   panel.position.y + m.row0Y + i * m.rowH +
-                       (float)m.rowH * 0.5F,
+      drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
+                   baseY + syi(m.row0Y + (i - first) * m.rowH) +
+                       syi(m.rowH) * 0.5F,
                    size);
     }
   }
@@ -5805,7 +6503,31 @@ void TerrainGame::updateSunFx() {
     return;
   }
 
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // A lens flare is the SUN, not "the light". Without a day/night cycle those
+  // are the same thing and SCENE_LIGHT_* is the sun vector. With one they are
+  // not: after sunset the resolved light is the MOON (clamped above the horizon
+  // so the bake stays sane), and pointing the flare at it put a blue glow with
+  // ghost rings in the night sky - the moon wearing the sun's lens flare. So a
+  // cycle scene aims at SCENE_SUN_* and switches the whole effect off while the
+  // sun is down (SCENE_SUN_R is 0 exactly then, the same flag the disc uses).
+  float sxd, syd, szd;
+  if (daynight::active(currentScene)) {
+    if (daynight::g_sunRad <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = daynight::g_sun[0], syd = daynight::g_sun[1], szd = daynight::g_sun[2];
+  } else if (DAYCYCLE_USED) {
+    if (SCENE_SUN_R <= 0.0F) {
+      postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
+      flareVis = 0.0F;
+      return;
+    }
+    sxd = SCENE_SUN_X, syd = SCENE_SUN_Y, szd = SCENE_SUN_Z;
+  } else {
+    sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  }
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl < 0.0001F) {
     postFx.setGodRaysSun(0.0F, 0.0F, 0.0F);
@@ -5914,6 +6636,365 @@ void TerrainGame::renderFlare() {
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
     engine->renderer.renderer2D.render(flareSprites[i]);
+}
+
+// The night sky (docs/day-night-cycle.md "Stars"). Builds one additive bag per
+// magnitude tier out of the generated STARS table - the same list
+// starfield::generate handed the editor, so the console's sky IS the preview's.
+//
+// Additive is the whole feature: the GS computes Cs*FIX + Cd, so a star ADDS
+// its colour to the sky behind it. That is what makes a bright star bright
+// (and gives the bloom pass something to flare) rather than a grey pixel, and
+// it is why the per-star colour lives in the Gouraud vertex colours.
+//
+// The quads are built once in WORLD space around the origin and the bag is
+// re-centred on the camera each frame like the sky dome; VU1 does the rest.
+void TerrainGame::buildStarField() {
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    starBags[t].verts.clear();
+    starBags[t].colors.clear();
+    starBags[t].bag.reset();
+  }
+  if (STAR_COUNT <= 0) return;
+
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Further out than the sun and moon discs (0.94), so a star can never
+  // z-fight its way in front of the moon.
+  const float dist = domeR * 0.96F;
+
+  for (int i = 0; i < STAR_COUNT; ++i) {
+    const StarData& sd = STARS[i];
+    int t = sd.tier;
+    if (t < 0) t = 0;
+    if (t >= STAR_TIERS) t = STAR_TIERS - 1;
+    StarBag& sb = starBags[t];
+    const float half = dist * sd.size;
+    const float cx = sd.x * dist, cy = sd.y * dist, cz = sd.z * dist;
+    // A star is a dot: two triangles in the plane perpendicular to its own
+    // direction. It is far enough away that not billboarding it costs nothing
+    // visible, and it keeps the bag STATIC - which is what makes the whole sky
+    // three submits and no per-frame vertex work.
+    float rx = -sd.z, ry = 0.0F, rz = sd.x;  // cross(up, dir)
+    const float rl = sqrtf(rx * rx + rz * rz);
+    if (rl < 1e-4F) { rx = 1.0F; ry = 0.0F; rz = 0.0F; }
+    else { rx /= rl; rz /= rl; }
+    const float ux = sd.y * rz - sd.z * ry;
+    const float uy = sd.z * rx - sd.x * rz;
+    const float uz = sd.x * ry - sd.y * rx;
+    const Vec4 c0(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
+                  cz + (-rz - uz) * half, 1.0F);
+    const Vec4 c1(cx + (rx - ux) * half, cy + (ry - uy) * half,
+                  cz + (rz - uz) * half, 1.0F);
+    const Vec4 c2(cx + (rx + ux) * half, cy + (ry + uy) * half,
+                  cz + (rz + uz) * half, 1.0F);
+    const Vec4 c3(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
+                  cz + (-rz + uz) * half, 1.0F);
+    // 128 is full strength in the engine's colour space for an untextured bag.
+    const Color col((float)sd.r * 0.5F, (float)sd.g * 0.5F, (float)sd.b * 0.5F,
+                    128.0F);
+    sb.verts.push_back(c0); sb.verts.push_back(c1); sb.verts.push_back(c2);
+    sb.verts.push_back(c0); sb.verts.push_back(c2); sb.verts.push_back(c3);
+    // Full-sprite STs: the star IS the soft dot. Without the texture a star
+    // draws as a hard little square, which is the "grey pixel" look the whole
+    // additive arrangement exists to avoid.
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    sb.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    for (int k = 0; k < 6; ++k) sb.colors.push_back(col);
+  }
+
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (sb.verts.empty()) continue;
+    sb.info = std::make_unique<StaPipInfoBag>();
+    sb.info->model = &starMat;  // re-centred on the camera every frame
+    sb.info->shadingType = TyraShadingGouraud;
+    // NOT the dome's precise/full-clip settings, and this is a measured
+    // decision: the dome is ~500 vertices of huge triangles that genuinely
+    // cross the screen edge, while the field is ~3000 vertices of tiny quads
+    // scattered all over it. Precise per-package classification plus the EE
+    // clipper on that many crossing packages cost ~6 FPS of a 32 FPS sky view
+    // in PCSX2 (26 -> 32 with the field off). A star is a few pixels: dropping
+    // one whose package straddles the border is invisible, and clipping it is
+    // not worth a millisecond.
+    // _None, not the dome's _Precise: the field is CENTRED ON THE CAMERA, so
+    // it surrounds the view by construction and per-package classification can
+    // only ever answer "keep" while costing a bbox test per package.
+    sb.info->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    sb.info->fullClipChecks = false;
+    sb.info->fogDisabled = true;    // past the fog end, like the dome
+    sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->additiveBlendFix = 128;
+    sb.colorBag = std::make_unique<StaPipColorBag>();
+    sb.colorBag->many = sb.colors.data();
+    sb.bag = std::make_unique<StaPipBag>();
+    sb.bag->info = sb.info.get();
+    sb.bag->color = sb.colorBag.get();
+    sb.bag->vertices = sb.verts.data();
+    sb.bag->count = static_cast<u32>(sb.verts.size());
+    if (beamCoronaTex) {
+      sb.texBag = std::make_unique<StaPipTextureBag>();
+      sb.texBag->texture = beamCoronaTex;
+      sb.texBag->coordinates = sb.sts.data();
+      sb.bag->texture = sb.texBag.get();
+    } else {
+      sb.bag->texture = nullptr;
+    }
+    sb.bag->lighting = nullptr;
+    sb.bag->bboxVersion = ++g_bboxStamp;
+  }
+}
+
+// Submits the field. The scene's star brightness and the twinkle both ride the
+// additive FIX, so this is three byte writes and three submits - no geometry
+// touched, whatever the time of day.
+void TerrainGame::renderStarField() {
+  const bool liveSky = daynight::active(currentScene);
+  const float starLevel = liveSky ? daynight::g_stars : SCENE_STARS_BRIGHT;
+  if (STAR_COUNT <= 0 || starLevel <= 0.004F) return;
+  if (!g_gameplayPaused) g_starTime += g_frameDt;
+  starMat.identity();
+  starMat.data[12] = cameraPosition.x;
+  starMat.data[13] = cameraPosition.y;
+  starMat.data[14] = cameraPosition.z;
+  for (int t = 0; t < STAR_TIERS; ++t) {
+    StarBag& sb = starBags[t];
+    if (!sb.bag) continue;
+    float k = starLevel;
+    if (SCENE_STARS_TWINKLE > 0.0F) {
+      // Per TIER, not per star: each tier shimmers at its own rate, which is
+      // enough to read as twinkling and costs three multiplies a frame.
+      const float phase =
+          g_starTime * (0.7F + 0.45F * (float)t) + (float)t * 2.1F;
+      k *= 1.0F - SCENE_STARS_TWINKLE * 0.35F * (0.5F - 0.5F * cosf(phase));
+    }
+    // ...and the same compensation, averaged over the channels because the FIX
+    // is a single scalar for the whole bag.
+    if (liveSky)
+      k *= (daynight::g_comp[0] + daynight::g_comp[1] + daynight::g_comp[2]) / 3.0F;
+    float fix = 128.0F * k;
+    sb.info->additiveBlendFix =
+        fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    stapip.core.render(sb.bag.get());
+  }
+}
+
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). One call a frame, and everything it moves is something the frame was
+// already going to compute: the sun and moon directions, the sky gradient, the
+// fog colour, the star brightness and a colour grade. The BAKED half - vertex
+// shading, the AO lightmap, GI - stays at the hour the scene was built at,
+// which is exactly what the grade is here to paper over.
+void TerrainGame::dayNightTick() {
+  if (!daynight::active(currentScene)) return;
+  daynight::tick(currentScene, g_frameDt);
+
+  // The horizon rides scriptCtx.skyColor, which the dome retint already
+  // watches (and which a Set Ambience node also writes - last writer in the
+  // frame wins, and a running clock is the more specific statement). The
+  // zenith is staged for the same check.
+  // g_comp cancels the full-screen grade on everything that is already
+  // hour-correct - see ambience::driftCompensation. Without it the night sky is
+  // graded a second time and comes out nearly black.
+  auto c255 = [](float v, float comp) {
+    const float x = v * 255.0F * comp;
+    return x > 255.0F ? 255.0F : x;
+  };
+  scriptCtx.skyColor = Color(c255(daynight::g_sky[0], daynight::g_comp[0]),
+                             c255(daynight::g_sky[1], daynight::g_comp[1]),
+                             c255(daynight::g_sky[2], daynight::g_comp[2]));
+  engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  dayNightTopR = c255(daynight::g_top[0], daynight::g_comp[0]);
+  dayNightTopG = c255(daynight::g_top[1], daynight::g_comp[1]);
+  dayNightTopB = c255(daynight::g_top[2], daynight::g_comp[2]);
+
+  if (FOG_ENABLED)
+    engine->renderer.core.setFog(Color(c255(daynight::g_fog[0], daynight::g_comp[0]),
+                                      c255(daynight::g_fog[1], daynight::g_comp[1]),
+                                      c255(daynight::g_fog[2], daynight::g_comp[2])),
+                                 FOG_START, FOG_END);
+
+  // The drift grade. setGrading is a handful of register writes, so this is
+  // cheaper than any of the geometry it stands in for - and it is identity while
+  // the clock sits on the baked hour, so a parked cycle changes nothing.
+  if (daynight::gradeOn(currentScene)) {
+    // setGrading is fixed point: gain 128 = 1x, lift is a signed 0..255-scale
+    // offset, mixAmt 128 = full replace. The float globals stay the twin of the
+    // host's ambience::driftGrade; the conversion lives only here.
+    auto u8 = [](float v) {
+      const int n = (int)(v + 0.5F);
+      return (unsigned char)(n < 0 ? 0 : (n > 255 ? 255 : n));
+    };
+    const unsigned char gain[3] = {u8(daynight::g_gain[0] * 128.0F),
+                                   u8(daynight::g_gain[1] * 128.0F),
+                                   u8(daynight::g_gain[2] * 128.0F)};
+    const short lift[3] = {(short)(daynight::g_lift[0] * 255.0F),
+                           (short)(daynight::g_lift[1] * 255.0F),
+                           (short)(daynight::g_lift[2] * 255.0F)};
+    const unsigned char mixColor[3] = {u8(daynight::g_mixColor[0] * 255.0F),
+                                       u8(daynight::g_mixColor[1] * 255.0F),
+                                       u8(daynight::g_mixColor[2] * 255.0F)};
+    float amt = daynight::g_mixAmount * 128.0F;
+    if (amt > 128.0F) amt = 128.0F;
+    engine->renderer.core.postFx.setGrading(gain, lift, mixColor,
+                                            (unsigned char)(amt + 0.5F));
+  }
+}
+
+// Day/night cycle sky bodies (docs/day-night-cycle.md): one-time setup of the
+// sun and moon quads. Six vertices each and a fixed full-sprite ST quad; the
+// positions are written every frame by renderSkyBodies.
+//
+// The two differ in how they blend, and it is not a style choice. The sun is
+// ADDITIVE (Cs*FIX + Cd), which is what makes it read as a light source and
+// what feeds the bloom pass a bright spot to flare - so its sprite carries its
+// shape in RGB, because an additive bag never reads texture alpha. The moon is
+// an ordinary alpha-blended quad: it is a lit ROCK, and adding it to the sky
+// would make a night sky glow through it.
+void TerrainGame::setupSkyBodies() {
+  if (!DAYCYCLE_USED) return;
+  auto init = [](SkyBody& b, Tyra::Texture* tex, bool additive) {
+    b.verts.assign(6, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    b.sts.clear();
+    // Two triangles over the whole sprite, matching the corner order below.
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(1.0F, 1.0F, 1.0F, 0.0F));
+    b.sts.push_back(Vec4(0.0F, 1.0F, 1.0F, 0.0F));
+    b.color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+    b.mat.identity();
+    b.info = std::make_unique<StaPipInfoBag>();
+    b.info->model = &b.mat;
+    b.info->shadingType = TyraShadingFlat;
+    b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // The discs ride the dome, past the fog end - hardware fog would paint
+    // them solid fog colour, exactly as it would the dome itself.
+    b.info->fogDisabled = true;
+    // Centred on the camera like the dome: a nearby torch must not tint the sun.
+    b.info->dynLightPick = false;
+    b.info->fullClipChecks = true;  // crosses the screen edge constantly
+    if (additive) b.info->additiveBlendFix = 128;
+    else b.info->blendingEnabled = true;
+    b.colorBag = std::make_unique<StaPipColorBag>();
+    b.colorBag->single = &b.color;
+    b.texBag = std::make_unique<StaPipTextureBag>();
+    b.texBag->texture = tex;
+    b.texBag->coordinates = b.sts.data();
+    b.bag = std::make_unique<StaPipBag>();
+    b.bag->info = b.info.get();
+    b.bag->color = b.colorBag.get();
+    b.bag->texture = b.texBag.get();
+    b.bag->vertices = b.verts.data();
+    b.bag->count = 6;
+  };
+  if (sunDiscTex) init(sunBody, sunDiscTex, true);
+  if (moonDiscTex) init(moonBody, moonDiscTex, false);
+}
+
+// Places and submits the two discs. Called right after the sky dome, so they
+// are behind everything and write no depth of their own.
+void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
+  if (!DAYCYCLE_USED) return;
+  // View basis: the quads are billboards, so their corners are rebuilt from
+  // this view's right/up every frame (six vertices - the beam-corona deal).
+  V3 fwd = {look.x - eye.x, look.y - eye.y, look.z - eye.z};
+  float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl < 1e-4F) return;
+  fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  V3 right = {fwd.z, 0.0F, -fwd.x};
+  float rl = sqrtf(right.x * right.x + right.z * right.z);
+  if (rl < 1e-4F) {
+    right = {1.0F, 0.0F, 0.0F};
+    rl = 1.0F;
+  }
+  right.x /= rl, right.y = 0.0F, right.z /= rl;
+  const V3 up = {right.y * fwd.z - right.z * fwd.y,
+                 right.z * fwd.x - right.x * fwd.z,
+                 right.x * fwd.y - right.y * fwd.x};
+
+  // The dome's own radius, so a body sits ON the sky rather than in front of
+  // the terrain. Mirrors buildSkyDome's clamp - keep the two in step.
+  const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+  float domeR = diag * 1.5F;
+  if (domeR < 60.0F) domeR = 60.0F;
+  if (domeR > 450.0F) domeR = 450.0F;
+  // Just inside the dome, or z-fighting decides per frame whether the sun is
+  // in front of the sky.
+  const float dist = domeR * 0.94F;
+
+  auto place = [&](SkyBody& b, float dx, float dy, float dz, float rFrac,
+                   float roll) {
+    if (!b.bag || rFrac <= 0.0F) return;
+    if (b.color.a <= 1.0F) return;  // fully transparent: nothing to draw
+    const float cx = eye.x + dx * dist;
+    const float cy = eye.y + dy * dist;
+    const float cz = eye.z + dz * dist;
+    const float half = dist * rFrac;
+    // Roll the billboard axes so the moon's lit limb faces the sun; the sun
+    // passes roll 0 and pays only a cosf/sinf of nothing.
+    const float cr = cosf(roll), sr = sinf(roll);
+    const V3 rx = {right.x * cr + up.x * sr, right.y * cr + up.y * sr,
+                   right.z * cr + up.z * sr};
+    const V3 uy = {up.x * cr - right.x * sr, up.y * cr - right.y * sr,
+                   up.z * cr - right.z * sr};
+    const Vec4 c0(cx + (-rx.x - uy.x) * half, cy + (-rx.y - uy.y) * half,
+                  cz + (-rx.z - uy.z) * half, 1.0F);
+    const Vec4 c1(cx + (rx.x - uy.x) * half, cy + (rx.y - uy.y) * half,
+                  cz + (rx.z - uy.z) * half, 1.0F);
+    const Vec4 c2(cx + (rx.x + uy.x) * half, cy + (rx.y + uy.y) * half,
+                  cz + (rx.z + uy.z) * half, 1.0F);
+    const Vec4 c3(cx + (-rx.x + uy.x) * half, cy + (-rx.y + uy.y) * half,
+                  cz + (-rx.z + uy.z) * half, 1.0F);
+    b.verts[0] = c0;
+    b.verts[1] = c1;
+    b.verts[2] = c2;
+    b.verts[3] = c0;
+    b.verts[4] = c2;
+    b.verts[5] = c3;
+    b.bag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.bag.get());
+  };
+
+  // The sun takes the scene's light colour, so a red sunset sun is red without
+  // a second authored colour anywhere.
+  // With a running clock every one of these comes from the live evaluation
+  // instead of the baked instant; without one they are the same constants they
+  // always were. Two branches, no duplicated placement code.
+  const bool live = daynight::active(currentScene);
+  // The discs are hour-correct already, so they carry the grade compensation
+  // (1..2x, which is exactly the headroom a 128-nominal colour bag has).
+  const float cr = live ? daynight::g_comp[0] : 1.0F;
+  const float cg = live ? daynight::g_comp[1] : 1.0F;
+  const float cb2 = live ? daynight::g_comp[2] : 1.0F;
+  const float lr = (live ? 1.0F : SCENE_LIGHT_COL_R) * cr;
+  const float lg = (live ? 1.0F : SCENE_LIGHT_COL_G) * cg;
+  const float lb = (live ? 1.0F : SCENE_LIGHT_COL_B) * cb2;
+  sunBody.color.set(128.0F * lr, 128.0F * lg, 128.0F * lb, 128.0F);
+  // The moon is an alpha-blended bag, so its VERTEX COLOUR ALPHA is its
+  // opacity - no second texture and no extra pass for the slider.
+  {
+    const float op = live ? DAYCYCLE_MOON_ALPHAS[currentScene] : SCENE_MOON_ALPHA;
+    moonBody.color.set(128.0F * cr, 128.0F * cg, 128.0F * cb2,
+                       128.0F * (op < 0.0F ? 0.0F : (op > 1.0F ? 1.0F : op)));
+  }
+  if (live) {
+    place(sunBody, daynight::g_sun[0], daynight::g_sun[1], daynight::g_sun[2],
+          daynight::g_sunRad, 0.0F);
+    place(moonBody, daynight::g_moon[0], daynight::g_moon[1], daynight::g_moon[2],
+          daynight::g_moonRad, daynight::g_moonRoll);
+  } else {
+    place(sunBody, SCENE_SUN_X, SCENE_SUN_Y, SCENE_SUN_Z, SCENE_SUN_R, 0.0F);
+    place(moonBody, SCENE_MOON_X, SCENE_MOON_Y, SCENE_MOON_Z, SCENE_MOON_R,
+          SCENE_MOON_ROLL);
+  }
 }
 
 // Visible light beams (Point Light > Beam): per-scene setup. One additive
@@ -6250,6 +7331,11 @@ void TerrainGame::updateAndRenderBlobShadows() {
     const float ground = terrainHeightAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
+    // NOT the day/night handover fade (daynight::g_shadowFade), which the
+    // projected silhouettes do take: this quad sits UNDER the caster and has no
+    // direction, so it has nothing to hide when the light swaps bodies - and
+    // fading it anyway left every object unmoored for the hour around twilight,
+    // on top of the low-sun window the silhouettes were already dark for.
     if (fade <= 0.02F) continue;
     if (fade > 1.0F) fade = 1.0F;
     float r = d.scale[0] > d.scale[2] ? d.scale[0] : d.scale[2];
@@ -6421,9 +7507,24 @@ void TerrainGame::renderProjShadows() {
   // is how much of the scene's shading it actually accounts for, so a black
   // sun (a night scene lit only by torches) scores 0 and any lit torch beats
   // it, while a daylight scene still throws the sun shadow it always did.
-  // Below ~15 degrees of elevation the ground projection runs away, so a low
-  // sun is simply not a candidate.
-  float sxd = SCENE_LIGHT_X, syd = SCENE_LIGHT_Y, szd = SCENE_LIGHT_Z;
+  // A low sun is a problem for the RECEIVER, not for the light: the patch is
+  // capped at 3.5x the caster radius (see the sizing below), so a shadow longer
+  // than that gets cropped square at its tip. This used to be a cliff - `syd <
+  // 0.25`, no shadow at all below ~14.5 degrees - and with an arc that peaks
+  // around 28 degrees (the day/night example, whose sun has to stay inside the
+  // frame) that cliff swallowed roughly four hours either side of the middle of
+  // the day: reported from the console as "shadows only turn up just before noon
+  // and just before midnight". So it is a RAMP instead, and the shadows it lets
+  // through are exactly the ones that are cropped, faded in proportion: gone at
+  // the light's 5-degree floor (ambience::kMinLightElevation, where the shadow
+  // would be 11x the caster's height), full from 16 degrees up. The most
+  // truncated shadow is the faintest, which is what makes the crop invisible.
+  // The live light when the clock runs - this is the line that makes a
+  // projected shadow actually sweep across the ground as the sun moves.
+  const bool liveLight = daynight::active(currentScene);
+  float sxd = liveLight ? daynight::g_light[0] : SCENE_LIGHT_X;
+  float syd = liveLight ? daynight::g_light[1] : SCENE_LIGHT_Y;
+  float szd = liveLight ? daynight::g_light[2] : SCENE_LIGHT_Z;
   const float sl = sqrtf(sxd * sxd + syd * syd + szd * szd);
   if (sl > 0.0001F)
     sxd /= sl, syd /= sl, szd /= sl;
@@ -6432,7 +7533,17 @@ void TerrainGame::renderProjShadows() {
   float sunCol = SCENE_LIGHT_COL_R;
   if (SCENE_LIGHT_COL_G > sunCol) sunCol = SCENE_LIGHT_COL_G;
   if (SCENE_LIGHT_COL_B > sunCol) sunCol = SCENE_LIGHT_COL_B;
-  const float sunScore = syd < 0.25F ? 0.0F : SCENE_DIFFUSE * sunCol;
+  // sin(5 deg) .. sin(16 deg). The bottom is the light's own elevation floor, so
+  // "the body is at or below the horizon" and "no sun shadow" stay the same
+  // statement they were.
+  float sunLow = (syd - 0.0871557F) / (0.2756374F - 0.0871557F);
+  if (sunLow < 0.0F) sunLow = 0.0F;
+  if (sunLow > 1.0F) sunLow = 1.0F;
+  sunLow = sunLow * sunLow * (3.0F - 2.0F * sunLow);  // smooth both ends
+  // Scoring the sun by the ramp too, not just fading it: a torch really does
+  // out-light a sun sitting on the horizon, and the candidate loop should agree
+  // with what the alpha is about to say.
+  const float sunScore = sunLow <= 0.0F ? 0.0F : SCENE_DIFFUSE * sunCol * sunLow;
 
   // Nearest visible casters win the slots; shadows fade out 35..50 units
   // from the camera so a slot handoff never pops.
@@ -6651,6 +7762,8 @@ void TerrainGame::renderProjShadows() {
     const float dist = sqrtf(c.d2);
     sfade[used] =
         (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
+    // ...and the low-sun ramp, for the slots the sun actually threw.
+    if (bestSun) sfade[used] *= sunLow;
     ++used;
   }
   if (used == 0) return;
@@ -6769,7 +7882,9 @@ void TerrainGame::renderProjShadows() {
         v += 6;
       }
     }
-    b.color.a = 55.0F * sfade[s];
+    // sfade = the distance fade; the day/night factor is the twilight handover
+    // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
+    b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
   }
@@ -7523,10 +8638,13 @@ void TerrainGame::buildSkyDome() {
   if (radius > 450.0F) radius = 450.0F;
 
   const int stacks = 6, slices = 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
   auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
-    return Color(skyHorizonR + (SKY_TOP_R - skyHorizonR) * t,
-                 skyHorizonG + (SKY_TOP_G - skyHorizonG) * t,
-                 skyHorizonB + (SKY_TOP_B - skyHorizonB) * t, 128.0F);
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
   auto domeVert = [&](int stack, int slice) {
     // Start slightly below the horizon so the seam is never visible
@@ -9741,10 +10859,13 @@ void TerrainGame::renderScene() {
   // Scripts changing ctx.skyColor retint the dome horizon
   if (skyDome.bag && (scriptCtx.skyColor.r != skyHorizonR ||
                       scriptCtx.skyColor.g != skyHorizonG ||
-                      scriptCtx.skyColor.b != skyHorizonB)) {
+                      scriptCtx.skyColor.b != skyHorizonB ||
+                      dayNightTopR != skyTopR || dayNightTopG != skyTopG ||
+                      dayNightTopB != skyTopB)) {
     skyHorizonR = scriptCtx.skyColor.r;
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
+    skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
     buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
@@ -9813,6 +10934,7 @@ void TerrainGame::renderScene() {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, envLook);
     skyDome.infoBag->zTestType = prevZTest;
     // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
@@ -9869,6 +10991,10 @@ void TerrainGame::renderScene() {
     skyMat.data[13] = cameraPosition.y;
     skyMat.data[14] = cameraPosition.z;
     stapip.core.render(skyDome.bag.get());
+    // Stars behind the discs: with the dome's depth arrangement the draw order
+    // is the depth order, and a star must never land in front of the moon.
+    renderStarField();
+    renderSkyBodies(cameraPosition, cameraLookAt);
   }
   // Terrain: stream the chunk ring around the view focus (budgeted, so the
   // build cost spreads over frames), then submit the built chunks - the
@@ -10579,6 +11705,7 @@ void TerrainGame::renderCameraFeed() {
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, look);
       skyDome.infoBag->zTestType = prevZTest;
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
@@ -10719,6 +11846,7 @@ void TerrainGame::renderObjectProbe(int index) {
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     stapip.core.render(skyDome.bag.get());
+    renderSkyBodies(probeEye, probeLook);
     skyDome.infoBag->zTestType = prevZTest;
   }
   for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
@@ -11054,6 +12182,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
       stapip.core.render(skyDome.bag.get());
+      renderSkyBodies(eye, at);
     }
     // resident chunks only - the streaming ring follows the MAIN camera, so
     // with terrain streaming on, keep the pair inside the streamed radius

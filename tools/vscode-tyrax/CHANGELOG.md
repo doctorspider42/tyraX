@@ -12,6 +12,20 @@
 
 ## 0.4.0
 
+- **`.menustyle` menu stylesheets** ([docs](../../docs/menu-styles.md)):
+  highlighting for selectors, the `:selected` / `:disabled` states, `menu#name`
+  scopes, `--variables` and `var()`, colours, gradients, `url()`, `{{icons}}`,
+  `@style` and `@transition`; snippets for a whole sheet, a selected-row
+  highlight, a scrolling list, a description pane, a value bar, a transition and
+  a per-menu override. The grammar deliberately lists no property NAMES - the
+  authoritative list is `menustyle::propSpecs()` in the editor and a copy here
+  would drift, so anything before a `:` inside a block highlights as a property.
+- **`.vclpp` / `.vcl` / `.vsm` VU1 microprograms** reach a packaged build for the
+  first time: the language went into the sources for 0.3.0 but that version was
+  never packaged, so users kept getting 0.2.0. Both languages were invisible in
+  practice until this release - see `package-vsix.py`, which exists so
+  repackaging no longer needs node.
+
 - **A project's own VU program (`src/vu/*.cpp`) gets language support**, which
   is the file a VU1 program is actually WRITTEN in. Until now the help lived on
   `.vclpp` - the generated OUTPUT, the one file nobody types. Scoped by PATH

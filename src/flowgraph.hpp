@@ -132,7 +132,34 @@ enum class FlowParamKind {
     PrefabName,  // name of a Project::prefabs entry (Tools > Prefabs)
     EventName,  // name of a graph event (free text; exists by being named)
     ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
+    // Which slot a Commit Checkpoint writes: "" / "fixed" = the Slot number
+    // below it, "autosave" = the project's autosave slot, "next" = the next
+    // free one. "" is fixed so a graph written before this existed is
+    // unchanged. A closed list, not a project lookup - see saveSlotModes().
+    SaveSlotMode,
 };
+
+// The SaveSlotMode choices. Order is cosmetic; the KEY is what a graph stores.
+struct SaveSlotModeInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<SaveSlotModeInfo>& saveSlotModes() {
+    static const std::vector<SaveSlotModeInfo> modes = {
+        {"fixed", "This slot",
+         "Always the Slot number below. What every Commit Checkpoint did "
+         "before there was a choice."},
+        {"autosave", "Autosave slot",
+         "The slot set aside for autosaves in Tools > Save Editor. With none "
+         "set this writes nothing at all, rather than guessing at a slot."},
+        {"next", "Next free slot",
+         "The first slot with nothing in it, so a run leaves a trail instead "
+         "of one save. When they are all full it cycles through them, oldest "
+         "of this session first. The autosave slot is never picked."},
+    };
+    return modes;
+}
 
 struct FlowNodeType {
     const char* key = "";
@@ -283,13 +310,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strTip = "The object to measure the distance FROM. Empty = the object "
                    "this graph belongs to.",
          .numCount = 1, .numLabels = {"Radius"},
-         .numTips = {"How close the player has to get, in world units. A sphere "
-                     "around the object's origin - it does not follow the "
-                     "object's shape."},
+         .numTips = {"How close the player has to get, in world units. Measured "
+                     "in the XZ plane only - a circle around the object's "
+                     "origin, not a sphere, so height does not matter and it "
+                     "does not follow the object's shape."},
          .idIn = true, .idOut = true,
-         .desc = "Fires EVERY FRAME the player is close enough to the target - "
-                 "a proximity state, not an entry event. Put a Do Once after it "
-                 "for a one-shot, or use In Area when the region has a shape."},
+         .desc = "Fires the frame the player comes INSIDE the radius - a rising "
+                 "edge, like In Area and On Player Seen. Walking out and back "
+                 "in fires it again; standing still inside does not. Add a Do "
+                 "Once for once-per-scene rather than once-per-entry, or use In "
+                 "Area when the region has a shape and needs to bound Y."},
         // Volume trigger: the Area object's box instead of Near Object's
         // radius (docs/areas.md). Read live, so a moving area drags its
         // trigger along.
@@ -1496,6 +1526,38 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // The same 3-slot menu a Save point object opens on USE.
         {.key = "OpenSaveMenu", .title = "Open Save Menu", .category = "Save",
          .desc = "Opens the in-game 3-slot save/load menu."},
+        // Checkpoints (docs/save-editor.md). Exactly ONE checkpoint exists at
+        // a time, deliberately: it costs a few KB of RAM that never grows,
+        // instead of a stack of snapshots nobody budgeted for.
+        {.key = "SaveCheckpoint", .title = "Save Checkpoint", .category = "Save",
+         .desc = "Snapshots the current save payload into a RAM buffer - "
+                 "instant, and nothing touches the memory card. Use it at the "
+                 "points a death should send the player back to. Overwrites "
+                 "any previous checkpoint."},
+        {.key = "LoadCheckpoint", .title = "Load Checkpoint", .category = "Save",
+         .desc = "Restores the save values and texts from the checkpoint "
+                 "buffer. Does nothing at all if no checkpoint has been taken "
+                 "yet, so it is safe to wire unconditionally - guard it with "
+                 "Has Checkpoint when the player should be told."},
+        {.key = "CommitCheckpoint", .title = "Commit Checkpoint",
+         .category = "Save", .strKind = FlowParamKind::SaveSlotMode,
+         .strTip = "Which slot to write. \"This slot\" uses the number below; "
+                   "the other two are decided at runtime.",
+         .numCount = 1, .numLabels = {"Slot"},
+         .numTips = {"Memory card slot 0-2, the same three the save menu "
+                     "shows. Out-of-range values are ignored. Only read when "
+                     "the mode above is \"This slot\"."},
+         .numIn = true,
+         .desc = "Writes the checkpoint buffer to a real memory card slot. "
+                 "This is the one checkpoint node that touches the card, so "
+                 "it is the one that can be slow - a chapter break, not a "
+                 "death. (Save Editor > Write in the background takes the "
+                 "pause out of it.)"},
+        {.key = "HasCheckpoint", .title = "Has Checkpoint", .category = "Save",
+         .pure = true, .boolOut = true,
+         .desc = "True once a checkpoint has been taken this session. A pure "
+                 "bool source: wire it into a gate or On Condition to offer "
+                 "\"continue\" only when there is something to continue from."},
         // Variables: named game-global values (one namespace per type),
         // zeroed at boot, kept across scene switches, NOT saved to the
         // memory card (use Save data for persistence).

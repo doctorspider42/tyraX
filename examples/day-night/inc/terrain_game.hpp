@@ -127,9 +127,11 @@ class TerrainGame : public Tyra::Game {
     // pass. World-space normals are captured at rebuild and ride in the ST
     // slot; the TCE VU1 programs compute the matcap ST from the per-mesh
     // camera basis (refreshed every frame in renderScene). The env bag shares
-    // this part's vertex array and bboxVersion and mirrors the base bag's
-    // shape (texture + many colors), so both passes share one frustum-bbox
-    // cache entry.
+    // this part's vertex array and bboxVersion. It does NOT necessarily share
+    // the base bag's program class - an UNTEXTURED base is the plain color
+    // program, which fits more verts per VU1 package than the textured env
+    // one - so the two are pinned to one package size (pinPackageSize) or
+    // they would split the array differently and disagree about depth.
     std::vector<Tyra::Vec4> envNormals;
     std::vector<Tyra::Color> envColors;  // all-white 128 = unmodulated texel
     std::unique_ptr<Tyra::StaPipBag> envBag;
@@ -565,6 +567,9 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  // Pins every pass that draws one vertex array to a single VU1 package size -
+  // see the implementation for why coplanar passes must classify identically.
+  void pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags);
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
   // Static mesh LOD: points one model part's bags at distance tier `lod`
@@ -921,6 +926,8 @@ class TerrainGame : public Tyra::Game {
   // open. updateSaveMenu() returns true while it owns the pad.
   bool updateSaveMenu();
   void renderSaveMenu();
+  void captureState(SaveGameData& d);  // fill d with the live game state
+  void applyState(SaveGameData& d);    // restore d (sanitizes texts in place)
   void doSave(int slot);
   void doLoad(int slot);
   void applySavedObjects();
@@ -936,6 +943,20 @@ class TerrainGame : public Tyra::Game {
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
   Tyra::Sprite saveMenuSprite, saveCursorSprite, saveUsedSprite;
   Tyra::Sprite saveFeedbackSprites[3];  // saved / loaded / error
+  // Checkpoint: ONE static snapshot of the save payload, in RAM only. The
+  // payload is fixed-size and bounded by the save-flagged object count, so
+  // this stays a few KB - no checkpoint history is kept by design. The
+  // Commit Checkpoint flow node writes it to a card slot on request.
+  SaveGameData checkpointData;
+  bool checkpointValid = false;
+  // Memory card busy overlay ("checking memory card, do not remove..."):
+  // every card op goes through beginCardOp so the warning is presented
+  // BEFORE the blocking libmc transfer runs, then holds a minimum time.
+  void beginCardOp(int op, int slot);  // 0 save, 1 load, 2 commit checkpoint
+  int cardOp = -1, cardOpSlot = 0;
+  int cardOpDelay = 0;     // frames until the blocking op runs
+  int cardBusyFrames = 0;  // minimum overlay hold left
+  Tyra::Sprite saveBusySprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).

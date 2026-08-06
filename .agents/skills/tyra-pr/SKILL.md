@@ -5,7 +5,7 @@ description: >
   skill EVERY time you are about to create a PR (gh pr create), push more
   commits to an existing PR, or the user says a PR has conflicts. Core rule:
   a PR is not "created" until you have VERIFIED it is conflict-free against
-  origin/main - main moves fast here (parallel Codex branches land daily)
+  origin/main - main moves fast here (parallel Claude branches land daily)
   and stale-base PRs are the norm, not the exception.
 ---
 
@@ -50,16 +50,29 @@ Report the mergeable state to the user as part of "PR is up".
 ## Conflict hot spots (this codebase specifically)
 
 - **`src/templates.cpp`** - almost every feature touches codegen. Watch for:
-  the emitted `SceneObjectData` struct + its object-row emission (parallel
-  branches append fields; after merging, the struct fields and the row
+  the emitted `SceneObjectData` and `MenuData` structs + their row emission
+  (parallel branches append fields; after merging, the struct fields and the row
   columns MUST line up 1:1 - count them), the game-cpp prolog includes, and
   the header templates (duplicated for orbit + fpp - fix both).
+
+  **Nothing on the host compiles those rows**, so a mismatch survives every
+  editor build, the harnesses and `--refresh-gen`; the PS2 toolchain is the first
+  thing that sees it (`invalid conversion from 'const char*' to 'int'`). It does
+  not take a merge to cause one either - two edits anchored on the same struct
+  line put a `const char*` between two ints while the emitter kept the old
+  order. Cheapest check, no Docker: read the struct and one emitted row out of
+  the generated header and compare them field by field (~15 lines of Python),
+  then let one `--build` confirm.
 - **`src/app.cpp`** - UI moves around (Properties window, panels); prefer
   re-applying your widget in main's new location over keeping the old block.
 - **`examples/script-demo/`** - generated files conflict textually but are
   NOT worth hand-merging: resolve any way, then regenerate the sample with a
   Docker build and commit the regenerated files.
-- **`PROGRESS.md`** - both sides prepend entries; keep both, yours on top.
+- **`PROGRESS.md`** - gone. It was retired at ~15 800 lines precisely because it
+  was this list's most reliable entry: every branch appended to the same spot,
+  so every PR conflicted there. If you are merging a branch old enough to still
+  edit it, resolve by deleting the file (`git rm PROGRESS.md`) and move anything
+  the entry said into your commit message and PR body.
 
 ## After resolving: verify before pushing
 
@@ -71,8 +84,11 @@ touched player/scene runtime templates, boot PCSX2 once.
 ## PR content conventions
 
 - PR title + body in **English** (AGENTS.md rule), body ends with the
-  Codex footer.
+  Claude Code footer.
 - Body summarizes per-feature verification (what was proven and how) and
-  names the remaining hands-on checks - same honesty bar as PROGRESS.md.
+  names the remaining hands-on checks. Since `PROGRESS.md` was retired, the
+  commit message and this body ARE the record - hold them to the honesty bar
+  its entries had: which test layer you actually reached, and what a human
+  still owes.
 - One feature = one commit on the branch; merge commits from origin/main
   are fine and expected.

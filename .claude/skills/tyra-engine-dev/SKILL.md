@@ -209,7 +209,14 @@ popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
 `docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
 Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
-otherwise), the **scene dynamic lights** registry
+otherwise), **`Sprite::drawSize`** (a per-axis destination size, 0 = the stock
+`size * scale`; it exists because the framebuffer is a different SHAPE per scan
+mode - 512x448 interlaced, 448x448 in 480p, 448x540 in 1080i, 512x512 in full
+PAL - so UI authored in one logical space must be drawn into a differently
+proportioned rect per mode. Neither existing field could express that: `scale`
+is one float, and in `MODE_REPEAT` `size` is the SOURCE rect, so changing it
+would sample different texels. Used by the generated menu compositor -
+docs/menu-styles.md "Resolutions"), the **scene dynamic lights** registry
 (`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
 `pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
 `StaPipCore::render` picks the strongest contributor - flashlight or point

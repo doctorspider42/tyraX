@@ -13,7 +13,10 @@ constexpr int SAVE_SLOTS = 3;
 constexpr const char* SAVE_MC_DIR = "/TYRA-SCRIPTDEMO";
 constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
 // v2: SaveGameData gained the text-value block (SAVE_TEXT_*)
-constexpr int SAVE_VERSION = 2;
+// v3: the objects array is sized by the save-flagged object
+// count (SAVE_OBJECT_MAX), not the scene size - older, larger
+// slot files fail the size/version check and read as empty.
+constexpr int SAVE_VERSION = 3;
 
 // Runtime state of one save-flagged object (SceneObjectData.saveState).
 struct SaveObjectState {
@@ -50,5 +53,15 @@ const int* saveInitCodes();
 bool saveSlotUsed(int slot);
 bool saveWrite(int slot, const SaveGameData& data);
 bool saveRead(int slot, SaveGameData& out);
+
+// Copies the editor-baked save icon (save/icon.sys + list.icn,
+// shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser
+// shows the game's title and icon. Runs once per boot when the
+// card is ready and has no icon yet; the host fallback skips it.
+void saveEnsureIcons();
+
+// hud/save-busy.png sprite size ("checking memory card" warning)
+constexpr int SAVE_BUSY_W = 512;
+constexpr int SAVE_BUSY_H = 128;
 
 }  // namespace Script_demo

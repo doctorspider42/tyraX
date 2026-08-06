@@ -9,6 +9,14 @@
 //   flownode  -> src/flownode.cpp + docs/custom-flow-nodes.md
 //   screenfx  -> src/screenfx.cpp + docs/custom-screen-effects.md
 //
+// Menu stylesheets (.menustyle, docs/menu-styles.md) are a fourth language and
+// deliberately have NO entry here: they are CSS-shaped blocks rather than a
+// `key = value` header, and their property list is menustyle::propSpecs() in
+// src/menustyle.cpp - a copy of it in this file would drift the day someone adds
+// a property. Their grammar is therefore generic (anything before a ':' inside a
+// block is a property) and validation lives where the list already is: the Menu
+// Editor's Stylesheet tab reports every parse error with its line number.
+//
 // VU1 microprograms (.vclpp/.vcl/.vsm) are a third language and live in
 // ./vu.js - kept separate because their catalogue is NOT a table here at all.
 // The macros and the VU1_* addresses are read from the engine tree at

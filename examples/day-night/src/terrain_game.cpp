@@ -27,8 +27,8 @@
 #include "terrain_heights.gen.hpp"
 #include "texture_data.gen.hpp"
 #include "decal_data.gen.hpp"  // baked projected-decal meshes (host-computed)
-#include "ao_data.gen.hpp"
-#include "daynight.gen.hpp"     // ambient-occlusion occluder tables (host-baked)
+#include "ao_data.gen.hpp"      // ambient-occlusion occluder tables (host-baked)
+#include "daynight.gen.hpp"     // day/night cycle keys (docs/day-night-cycle.md)
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
@@ -2547,6 +2547,11 @@ void TerrainGame::buildScene() {
     setupSprite(saveFeedbackSprites[0], "hud/save-saved.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[1], "hud/save-loaded.png", 128, 32, fbX, fbY);
     setupSprite(saveFeedbackSprites[2], "hud/save-error.png", 128, 32, fbX, fbY);
+    // "Checking memory card" warning (save_system.gen.hpp carries the baked
+    // sprite's size) - centered, drawn over a dim while a card op runs.
+    setupSprite(saveBusySprite, "hud/save-busy.png", SAVE_BUSY_W, SAVE_BUSY_H,
+                (scr.getWidth() - (float)SAVE_BUSY_W) * 0.5F,
+                (scr.getHeight() - (float)SAVE_BUSY_H) * 0.5F);
 
     // Game menus: one baked panel sprite each (menu_data.gen.hpp) + a
     // shared cursor. The panel center sits at the menu's normalized screen
@@ -5307,6 +5312,52 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
 bool TerrainGame::updateSaveMenu() {
   if (saveFeedbackFrames > 0) --saveFeedbackFrames;
 
+  // Checkpoint requests (flow graph). Save/Load touch only the single RAM
+  // buffer - instant, no card, no overlay. Commit turns into a card op.
+  scriptCtx.hasCheckpoint = checkpointValid;
+  if (scriptCtx.saveCheckpoint) {
+    scriptCtx.saveCheckpoint = false;
+    captureState(checkpointData);
+    checkpointValid = true;
+    scriptCtx.hasCheckpoint = true;
+  }
+  if (scriptCtx.loadCheckpoint) {
+    scriptCtx.loadCheckpoint = false;
+    if (checkpointValid) applyState(checkpointData);
+  }
+  if (scriptCtx.commitCheckpoint >= 0) {
+    const int slot = scriptCtx.commitCheckpoint;
+    scriptCtx.commitCheckpoint = -1;
+    if (checkpointValid && slot < SAVE_SLOTS && cardOp < 0) beginCardOp(2, slot);
+  }
+
+  // A card op owns the pad. The blocking libmc transfer only runs once the
+  // "do not remove the memory card" overlay has been on screen for a few
+  // frames; afterwards the warning holds up its minimum time.
+  if (cardOp >= 0) {
+    if (cardOpDelay > 0) {
+      --cardOpDelay;
+    } else {
+      const int op = cardOp;
+      cardOp = -1;
+      if (op == 0) {
+        doSave(cardOpSlot);
+      } else if (op == 1) {
+        doLoad(cardOpSlot);
+      } else {  // commit the RAM checkpoint to a slot
+        const bool ok = saveWrite(cardOpSlot, checkpointData);
+        if (ok) slotUsed[cardOpSlot] = true;
+        saveFeedback = ok ? 1 : 3;
+        saveFeedbackFrames = everyFrames(1.8F);
+      }
+    }
+    return true;
+  }
+  if (cardBusyFrames > 0) {
+    --cardBusyFrames;
+    return true;
+  }
+
   if (scriptCtx.openSaveMenu) {
     scriptCtx.openSaveMenu = false;
     if (!saveMenuOpen) {
@@ -5337,18 +5388,28 @@ bool TerrainGame::updateSaveMenu() {
     saveMenuOpen = false;
     return true;
   }
-  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) doSave(saveMenuSlot);
+  // Buttons come from the remappable input map (main), the work goes through
+  // beginCardOp so the "checking memory card" screen is up while the card is
+  // touched (the Save Editor batch) - doSave/doLoad are what it calls once the
+  // warning has actually been drawn.
+  if (inputClicked(engine->pad, IA_ROLE_CONFIRM)) beginCardOp(0, saveMenuSlot);
   if (inputClicked(engine->pad, IA_ROLE_ALT) && slotUsed[saveMenuSlot])
-    doLoad(saveMenuSlot);
+    beginCardOp(1, saveMenuSlot);
   return true;
+}
+
+void TerrainGame::beginCardOp(int op, int slot) {
+  cardOp = op;
+  cardOpSlot = slot;
+  cardOpDelay = 3;  // present the warning before the blocking transfer
+  cardBusyFrames = everyFrames(1.5F);
 }
 
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
 }
 
-void TerrainGame::doSave(int slot) {
-  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+void TerrainGame::captureState(SaveGameData& d) {
   d = SaveGameData();
   d.magic = SAVE_MAGIC;
   d.version = SAVE_VERSION;
@@ -5383,6 +5444,11 @@ void TerrainGame::doSave(int slot) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
+}
+
+void TerrainGame::doSave(int slot) {
+  static SaveGameData d;  // the payload can be a few KB - keep it off the stack
+  captureState(d);
   const bool ok = saveWrite(slot, d);
   if (ok) slotUsed[slot] = true;
   saveFeedback = ok ? 1 : 3;
@@ -5396,6 +5462,15 @@ void TerrainGame::doLoad(int slot) {
     saveFeedbackFrames = everyFrames(1.8F);
     return;
   }
+  applyState(d);
+  saveMenuOpen = false;
+  saveFeedback = 2;
+  saveFeedbackFrames = 90;
+}
+
+// Restores a payload captured by captureState - a card slot's or the RAM
+// checkpoint's. Mutates d only to NUL-terminate texts (corrupted cards).
+void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
@@ -5413,9 +5488,6 @@ void TerrainGame::doLoad(int slot) {
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
     applySavedObjects();
-  saveMenuOpen = false;
-  saveFeedback = 2;
-  saveFeedbackFrames = 90;
 }
 
 void TerrainGame::applySavedObjects() {
@@ -5447,6 +5519,13 @@ void TerrainGame::renderSaveMenu() {
       saveUsedSprite.position.y = baseY + 42.0F + i * 24.0F;
       engine->renderer.renderer2D.render(saveUsedSprite);
     }
+  }
+  // The "do not remove the memory card" warning covers everything while a
+  // card op is pending or holding; feedback sprites wait until it clears.
+  if (cardOp >= 0 || cardBusyFrames > 0) {
+    engine->renderer.renderer2D.render(menuDimSprite);
+    engine->renderer.renderer2D.render(saveBusySprite);
+    return;
   }
   if (saveFeedbackFrames > 0 && saveFeedback >= 1 && saveFeedback <= 3)
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
@@ -8124,6 +8203,41 @@ void TerrainGame::buildSkyDome() {
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+  u32 size = 0;
+  for (Tyra::StaPipBag* b : bags) {
+    if (!b || b->count == 0) continue;
+    b->packageSize = 0;  // ask for the DERIVED size, not the last pin
+    const u32 s = stapip.core.getMaxVertCountByBag(b);
+    if (s != 0 && (size == 0 || s < size)) size = s;
+  }
+  if (size == 0) return;
+  for (Tyra::StaPipBag* b : bags)
+    if (b && b->count != 0) b->packageSize = size;
+}
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -8635,6 +8749,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->color = part.colorBag.get();
       part.bag->lighting = nullptr;
     }
+
+    // Last, once every bag of this part has its final program shape (the
+    // dyn-lit swap above changes the base bag's): give the base pass and its
+    // coplanar companions ONE package size. LOD tiers only re-aim the
+    // pointers, never the program class, so this pin survives applyGeoLod.
+    pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
+                    part.emisBag.get()});
   }
   g_litNormals = nullptr;
   if (needsLitSeed) fillDynLitColors(index);
@@ -12984,6 +13105,20 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag->bboxVersion = ch.bag->bboxVersion;
   } else {
     ch.emisBag.reset();
+  }
+
+  // Every pass above draws ch.vertices, so they all have to split it the same
+  // way - an untextured terrain base under textured layer/lightmap passes is
+  // the exact split that makes baked shadows fight z-index with the ground.
+  {
+    std::vector<Tyra::StaPipBag*> pins;
+    pins.reserve(3 + ch.layerPasses.size());
+    pins.push_back(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses)
+      pins.push_back(lp.bag.get());
+    pins.push_back(ch.aoBag.get());
+    pins.push_back(ch.emisBag.get());
+    pinPackageSize(pins);
   }
 
   // World AABB of the built mesh - the split-band cull tests it per half.

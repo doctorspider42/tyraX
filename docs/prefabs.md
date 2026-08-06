@@ -179,7 +179,10 @@ use — a prefab is a piece of scene, and two writers for one struct drift.
 - **Eight identity-carrying members per instance.**
 - **Prefab members ignore streaming layers.** A prefab belongs to no scene, so
   it can be in no scene's layer; the field is kept but reads as "no layer".
-- **Delete is forever.** Prefabs live outside the undo history (the snapshot
-  holds scenes, like sequences and menus do), so *Delete* asks for confirmation
-  first and warns when graphs still spawn the prefab by name. Placed copies are
-  ordinary scene objects and stay.
+- **Ctrl+Z will not bring a deleted prefab back.** Prefabs live outside the undo
+  history (the snapshot holds scenes, like sequences and menus do), so *Delete*
+  asks for confirmation first and warns when graphs still spawn the prefab by
+  name. Placed copies are ordinary scene objects and stay. Editing prefabs is an
+  ordinary unsaved edit like everything else — the toolbar save icon lights and
+  the change reaches disk on Ctrl+S — so until you save, closing the project
+  without saving is the one way back.

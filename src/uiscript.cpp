@@ -27,14 +27,13 @@ namespace {
 
 std::vector<uiscript::Item> g_items;
 std::unordered_map<uint32_t, size_t> g_byId;
-/** ItemInfo that arrived BEFORE the matching ItemAdd, held until it does.
- *
- * Most widgets call ItemAdd (a box) and then ItemInfo (a label). TAB ITEMS call
- * them the other way round - ImGui's TabItemEx reports the label first so a
- * contextual popup keeps the right id - so the label used to be dropped on the
- * floor and every tab in the editor registered as an unnamed rectangle. That
- * made a tabbed panel undrivable by name, which is a whole class of window. */
-std::unordered_map<uint32_t, uiscript::Item> g_pendingInfo;
+// Labels that arrived BEFORE their bounding box. ImGui usually calls ItemAdd
+// first, but a TAB ITEM is the other way round (imgui_widgets.cpp: TabItemEx
+// reports its label up front, then adds the box further down), so a tab used to
+// end up in the map unnamed - and every tabbed panel in the editor was
+// unreachable from a script by name. Holding the label until the box shows up
+// fixes the whole class.
+std::unordered_map<uint32_t, std::pair<std::string, ImGuiItemStatusFlags>> g_pending;
 bool g_enabled = false;
 
 std::string lower(std::string s) {
@@ -76,8 +75,21 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
     it.y1 = bb.Max.y;
     if (ctx && ctx->CurrentWindow && ctx->CurrentWindow->Name) {
         it.window = ctx->CurrentWindow->Name;
+        it.windowId = (uint32_t)ctx->CurrentWindow->ID;
         // ImGui registers each window as an item under the window's own id.
         it.isWindow = ctx->CurrentWindow->ID == id;
+    }
+    // A label reported ahead of the box (tab items - see g_pending).
+    auto pend = g_pending.find(it.id);
+    if (pend != g_pending.end()) {
+        it.label = displayLabel(pend->second.first.c_str());
+        const ImGuiItemStatusFlags f = pend->second.second;
+        it.checkable = (f & ImGuiItemStatusFlags_Checkable) != 0;
+        it.checked = (f & ImGuiItemStatusFlags_Checked) != 0;
+        it.openable = (f & ImGuiItemStatusFlags_Openable) != 0;
+        it.opened = (f & ImGuiItemStatusFlags_Opened) != 0;
+        it.inputable = (f & ImGuiItemStatusFlags_Inputable) != 0;
+        g_pending.erase(pend);
     }
     auto found = g_byId.find(it.id);
     if (found != g_byId.end()) {
@@ -89,16 +101,6 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
         return;
     }
     g_byId.emplace(it.id, g_items.size());
-    auto pending = g_pendingInfo.find(it.id);
-    if (pending != g_pendingInfo.end()) {
-        it.label = pending->second.label;
-        it.checkable = pending->second.checkable;
-        it.checked = pending->second.checked;
-        it.openable = pending->second.openable;
-        it.opened = pending->second.opened;
-        it.inputable = pending->second.inputable;
-        g_pendingInfo.erase(pending);
-    }
     g_items.push_back(it);
 }
 
@@ -107,13 +109,12 @@ void ImGuiTestEngineHook_ItemInfo(ImGuiContext* ctx, ImGuiID id, const char* lab
     if (!g_enabled || id == 0) return;
     (void)ctx;
     auto found = g_byId.find((uint32_t)id);
-    // No box yet. Either the item is clipped away and never gets one, or this
-    // is a TAB, which reports its label before its rect - hold the label and
-    // let ItemAdd claim it. Costs one entry per unmatched info per frame.
-    uiscript::Item pending;
-    uiscript::Item& it =
-        found == g_byId.end() ? (g_pendingInfo[(uint32_t)id] = pending)
-                              : g_items[found->second];
+    if (found == g_byId.end()) {
+        // No box yet: remember it for the ItemAdd that follows (tab items).
+        if (label) g_pending[(uint32_t)id] = {label, flags};
+        return;
+    }
+    uiscript::Item& it = g_items[found->second];
     it.label = displayLabel(label);
     it.checkable = (flags & ImGuiItemStatusFlags_Checkable) != 0;
     it.checked = (flags & ImGuiItemStatusFlags_Checked) != 0;
@@ -144,7 +145,7 @@ void setEnabled(bool on) {
     if (!on) {
         g_items.clear();
         g_byId.clear();
-        g_pendingInfo.clear();
+        g_pending.clear();
     }
 }
 
@@ -153,7 +154,7 @@ bool enabled() { return g_enabled; }
 void beginFrame() {
     g_items.clear();
     g_byId.clear();
-    g_pendingInfo.clear();
+    g_pending.clear();
 }
 
 const std::vector<Item>& items() { return g_items; }
@@ -161,6 +162,24 @@ const std::vector<Item>& items() { return g_items; }
 const Item* find(const std::string& target, bool clickable) {
     const std::string t = trim(target);
     if (t.empty()) return nullptr;
+
+    // Widgets ImGui never reports a label for - every combo, because BeginCombo
+    // does not call the ItemInfo hook - can still be found by recomputing the id
+    // ImGui itself would have produced: the widget's id is the label hashed with
+    // its window's id as the seed. Only exact labels resolve this way (a hash
+    // has no prefixes), and only for widgets submitted at a window's own scope,
+    // which is where combos in this editor live.
+    auto byIdHash = [&](const std::string& wantWindow,
+                        const std::string& wantLabel) -> const Item* {
+        for (const Item& it : g_items) {
+            if (it.windowId == 0 || it.isWindow) continue;
+            if (!wantWindow.empty() && !startsWithCI(it.window, wantWindow))
+                continue;
+            if (it.id == (uint32_t)ImHashStr(wantLabel.c_str(), 0, it.windowId))
+                return &it;
+        }
+        return nullptr;
+    };
 
     // One "window/label" split attempt.
     auto trySplit = [&](const std::string& wantWindow,
@@ -197,6 +216,13 @@ const Item* find(const std::string& target, bool clickable) {
             return hit;
     // No window qualifier at all.
     if (const Item* hit = trySplit("", t)) return hit;
+
+    // Nothing carried that label: try the id hash (unnamed widgets - combos).
+    for (auto it = slashes.rbegin(); it != slashes.rend(); ++it)
+        if (const Item* hit = byIdHash(trim(t.substr(0, *it)),
+                                      trim(t.substr(*it + 1))))
+            return hit;
+    if (const Item* hit = byIdHash("", t)) return hit;
 
     // Last resort: the WINDOW itself (ImGui registers each window as an item),
     // so `expect "Remote Pad"` answers before anything inside it is known. Never

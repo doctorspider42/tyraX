@@ -3,6 +3,7 @@
 # TyraX on every build, so they are ignored.
 /hud/
 /menus/
+/save/
 
 # Baked animated-model output (.glb is the source; .tskl/.tanm + any extracted
 # textures are regenerated from it on every build).

@@ -138,14 +138,15 @@ hold, and clears when the editor exits. Neither window was ever focused.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
-- **A TAB is nameable, and used not to be.** Most widgets call ImGui's item-add
-  hook (which gives a rect) and then its item-info hook (which gives a label);
-  `TabItemEx` calls them the other way round, so the label arrived for an id the
-  registry had never seen and was dropped. Every tab in the editor registered as
-  an unnamed rectangle, and a tabbed panel could not be driven past its first
-  tab. Unmatched item-info is now HELD until the matching item-add claims it, so
-  `click "VU Programs/Generated"` works. If a widget ever turns up in `dump`
-  with a rect and no label, that ordering is the first thing to check.
+- **`dump` listing a rect is not a promise the click will land.** A window taller
+  than the room it was given still *submits* the items past its bottom edge, so
+  `dump` prints them with rects outside the window - and `click` on one hovers,
+  presses and releases over nothing, then reports **success**. It looks exactly
+  like a feature that does not work (that is how a save-marking change read as
+  broken in one panel out of five, while the code was fine). Compare a widget's
+  y against its window's rect - both are in the same `dump` - and **pair any
+  state-changing click with an assertion**: `expect-checked` / `expect-unchecked`
+  around it turns a silent no-op into a failed run.
 - **A combo's dropdown cannot be opened by name.** ImGui reports a label only for
   the widgets that call its item-info hook, and `BeginCombo` is not one of them —
   `dump` shows the combo's rect with no label. Pick the value another way (the
