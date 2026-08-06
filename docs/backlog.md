@@ -22,6 +22,35 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **AI Assistant follow-ups** (docs/ai-chat.md). The window, the tool table and
+  the docs-as-skills prompt shipped; what was deliberately left out, roughly in
+  the order it is worth adding:
+  - **No build/run tool.** The assistant cannot start a Docker build or PCSX2,
+    on purpose - an agentic loop that spends ten minutes and a container because
+    the model felt like it is not a good default. The shape it wants is an
+    explicit confirmation in the chat (a tool call the user has to press), which
+    is a UI pattern the editor does not have yet.
+  - **No asset import and no file writes.** Importing means a file dialog and a
+    dependency-closed copy (the Asset Browser's job); a tool that could write
+    `res/` would also have to answer "what may it overwrite".
+  - **Project-wide data is read-only to it.** Menus, sequences, credits, save
+    values, the HUD, presets and settings are all reachable in the model but have
+    no tools - `set_object`/`set_graph` cover the scene only. Each one wants the
+    same two-row treatment (a `tools()` row plus an executor branch), and the
+    `objectProps()` pattern generalizes.
+  - **Nothing verifies a graph it wrote beyond validation.** `--refresh-gen`
+    exists and would let the assistant see its own generated C++ (and the
+    `// unknown ...` comments a dangling reference produces); that is the cheapest
+    real feedback loop available and needs no Docker.
+  - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
+    (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
+    constants picked by eye, not measured against a long session.
+  - Full-text search over the docs and saved chat history both landed with the
+    window (`search_docs`, `--search-docs`, the History popup). What search still
+    lacks is any notion of a synonym: it matches exact substrings, so a question
+    in words the docs do not use ("lag" for frame time, "collision box" for
+    `collisionMode`) falls through to its loose tier. A small hand-written alias
+    table would be cheap and is probably worth more than anything cleverer.
 - **Menu styling follow-ups.** The stylesheet, the layout engine, the Style tab
   and the runtime compositor shipped (docs/menu-styles.md;
   `.claude/plans/menu-styling.md` records the design). What was left out on

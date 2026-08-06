@@ -12,6 +12,7 @@
 
 #include <imgui.h>  // ImGuiStyle baseStyle_ member (UI scaling)
 
+#include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
 #include "audiopreview.hpp"
 #include "camtake.hpp"
@@ -116,6 +117,12 @@ public:
      * Called by --ui-script before run(); run() then returns non-zero if any
      * step failed, so a scripted GUI run gates a shell script like any test. */
     void setUiScript(const std::vector<uiscript::Step>& steps);
+
+    /** The optional tool windows a layout can carry, which are also the keys
+     * the AI Assistant's open_window tool accepts (docs/ai-chat.md). Public and
+     * static because --chat-prompt prints the assistant's prompt without an
+     * editor; defined next to the array it reads (app.cpp). */
+    static std::vector<std::string> chatWindowKeys();
 
 private:
     void drawUI();
@@ -355,10 +362,25 @@ private:
     // model only takes the mesh-LOD distance. Returns true when a value
     // changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // Retargets every BY-NAME reference to `renamed` after its name changed
+    // from `from` (cutscene tracks and camera shots, mirror lists, scroller
+    // members, camera feeds, portal links, texture feeds, and - for an Area -
+    // catch areas, layer zones and In Area node params). Object references are
+    // names, not ids, so a rename that skips this leaves them pointing at a name
+    // nothing answers to. Two callers: the Properties name field and the AI
+    // Assistant's set_object. Does NOT commit.
+    void renameObjectRefs(SceneData& sc, const SceneObject& renamed,
+                          const std::string& from);
+
     // Creates a scene object for a model already in res/models (no copying).
     // `at` (optional) is where the object lands before the placement snap - the
     // Asset Browser's drag & drop into the viewport passes the cursor's hit.
-    void addModelObject(const std::string& relPath, const float* at = nullptr);
+    // `commit` false leaves the commit to the caller, for the same reason
+    // addObject above takes the flag: a caller that tweaks the fresh object
+    // afterwards (the AI Assistant's add_object naming it) must still produce
+    // ONE undo step.
+    void addModelObject(const std::string& relPath, const float* at = nullptr,
+                        bool commit = true);
     // Project-panel section listing res/models + res/textures with the
     // Import... buttons (the object pickers only offer what is listed here)
     void drawAssetsSection();
@@ -2267,6 +2289,84 @@ private:
     std::string aiGenError_;        // backend/parse failure shown in the modal
     std::string aiGenWarnings_;     // non-fatal parse notes (dropped links...)
     void drawAiGenerateModal();
+
+    // --- AI Assistant window (Tools > AI Assistant, docs/ai-chat.md) --------
+    // A chat with the same configured backend that ANSWERS questions about the
+    // editor (from the embedded docs/ pages) and CARRIES OUT operations in the
+    // project (the aichat tool table). Everything below is implemented in
+    // chat_ui.cpp; the prompt, the parser and the read-only tools live in
+    // aichat.cpp, which knows nothing about ImGui.
+    //
+    // The loop: aiChatSend appends the user's message and starts a request;
+    // aiChatTick (called every frame from drawUI) consumes the reply, runs the
+    // tool calls it carries and starts the NEXT request with their results, up
+    // to kChatMaxSteps rounds per user turn. The tick is the only place chat
+    // data meets project_ - so a request still in flight when a project is
+    // closed cannot write into the next one (every tool refuses without
+    // hasProject_).
+    static constexpr int kChatMaxSteps = 8;
+    // How many saved chats a project keeps. Old ones are dropped oldest-first
+    // when a new one is saved, and the drop is reported in the status line.
+    static constexpr int kChatHistoryKeep = 100;
+    bool showAiChat_ = false;
+    aichat::Conversation chat_;
+    aigen::Generator chatGen_;
+    bool chatInFlight_ = false;   // a started request's reply is unconsumed
+    int chatStep_ = 0;            // tool rounds spent in the current user turn
+    // Machine-global (editor.ini): whether the assistant may run the EDIT and
+    // COMMAND tools at all. On by default - every edit is one undo step and
+    // nothing reaches disk without a save - but "a chat that can only read" is
+    // a legitimate way to want to work.
+    bool chatAllowEdits_ = true;
+    char chatInputBuf_[4096] = "";
+    std::string chatError_;        // backend failure / cancellation
+    bool chatScrollPending_ = false;  // stick the transcript to the bottom
+    // History (docs/ai-chat.md): the conversation is written to its own file
+    // next to editor.ini after every turn, so closing the window, switching
+    // chats or restarting the editor does not lose it. chatFile_ is the file the
+    // CURRENT conversation owns - empty until its first save, then reused, so a
+    // chat does not multiply as it grows. The list is re-scanned when the popup
+    // opens, never per frame.
+    std::string chatFile_;
+    std::vector<aichat::ChatRecord> chatHistory_;
+    bool chatHistoryScanned_ = false;
+    // --- context accounting and compaction (docs/ai-chat.md) --------------
+    // What the session has actually cost, from the BACKEND's own numbers where
+    // it reports them (the Claude CLI and the OpenAI API do; the Copilot CLI
+    // does not, and then these stay at zero while the window shows the estimate
+    // instead - a made-up number presented as a measured one is worse than no
+    // number).
+    long long chatTokensIn_ = 0;
+    long long chatTokensOut_ = 0;
+    double chatCostUsd_ = 0.0;
+    bool chatUsageReal_ = false;   // any request reported real numbers
+    // Compaction: the conversation's older half is replaced by the model's own
+    // recap when the transcript outgrows its budget, so a long chat costs a
+    // bounded amount instead of growing until the oldest turns fall off the
+    // front. It is one extra backend request, so it happens on a send that is
+    // over budget (or when the user asks for it) - never speculatively.
+    bool chatCompactPending_ = false;   // the next start() compacts
+    bool chatCompactThenSend_ = false;  // ...and then answers the user
+    bool chatCompacting_ = false;       // the in-flight request is a compaction
+    size_t chatCompactCount_ = 0;       // messages being folded
+    std::string chatCompactNote_;       // what happened, for the window
+    void aiChatPersist();                        // save the current conversation
+    void aiChatOpen(const std::string& file);    // load a saved one
+    void drawAiChatHistory();                    // the History popup body
+    void drawAiChatWindow();
+    void aiChatTick();
+    void aiChatSend(const std::string& text);
+    void aiChatStart();
+    std::string aiChatSystemPrompt();  // what a request carries (also measured)
+    void aiChatReset();
+    // Runs one tool call against the editor, filling c.failed; returns the text
+    // the model gets back. Read tools are delegated to aichat::runReadTool.
+    std::string runChatTool(aichat::ToolCall& c);
+    // One set_object property onto an object. False = no branch for that key
+    // (reported as unhandled); err non-empty = the value was refused.
+    bool applyChatObjectProp(SceneData& sc, SceneObject& o,
+                             const std::string& key, const json::Value& v,
+                             std::string& err);
 
     // "Debug" window: tails a log from disk (reloaded, throttled). Source 0 is
     // the game's own log (bin/log.txt, written by TYRA_LOG); source 1 is the

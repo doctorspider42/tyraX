@@ -102,6 +102,23 @@ add_custom_command(
     DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
     COMMENT "Embedding ai-support/ skills")
 
+# --- Embedded documentation (docs/*.md -> generated header) ---
+# The in-editor AI assistant answers from the editor's own docs (docs/ai-chat.md):
+# it gets an index of every page in its system prompt and pulls one in with its
+# read_doc tool. Baked into the exe because an installed editor has no repo next
+# to it - and because docs/ is then the single source for humans and assistant
+# alike, so the standing docs-in-the-same-commit rule keeps both current.
+file(GLOB TYRAX_DOC_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/docs/*.md)
+set(DOCS_GEN ${CMAKE_BINARY_DIR}/generated/docs_gen.hpp)
+add_custom_command(
+    OUTPUT ${DOCS_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_SOURCE_DIR}/docs
+            -DOUT_FILE=${DOCS_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_docs.cmake
+    DEPENDS ${TYRAX_DOC_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_docs.cmake
+    COMMENT "Embedding docs/ pages")
+
 # --- Embedded app icon (resources/icon.png -> generated header) ---
 # Windows gets its icon from the GLFW_ICON resource in resources/app.rc above.
 # Every other platform needs the same image at RUNTIME - GLFW wants decoded
@@ -142,11 +159,12 @@ add_custom_command(
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
 add_custom_target(tyrax-generated
-    DEPENDS ${AI_SUPPORT_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN})
+    DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
     src/main.cpp
+    src/aichat.cpp
     src/aigen.cpp
     src/aisupport.cpp
     src/ambience.cpp
@@ -156,6 +174,7 @@ add_executable(tyrax-editor
     src/audiopreview.cpp
     src/assetbrowser.cpp
     src/camtake.cpp
+    src/chat_ui.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp

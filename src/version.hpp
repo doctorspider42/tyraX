@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_MINOR 3
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

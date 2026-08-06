@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "aichat.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "devsession.hpp"
@@ -480,16 +481,6 @@ static int migrateFromCli(int argc, char** argv) {
 // project can read and steer it without driving the GUI.
 // ---------------------------------------------------------------------------
 
-static std::string cliJsonEsc(const std::string& s) {
-    std::string out;
-    for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        if (c == '\n') { out += "\\n"; continue; }
-        out += c;
-    }
-    return out;
-}
-
 // Positional args after the fixed ones may name a scene; resolve it (default:
 // scene 0) and point `p.activeScene` at it so p.objects() works.
 static bool selectScene(Project& p, const char* sceneName) {
@@ -544,79 +535,56 @@ static int dumpFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    std::ostringstream o;
-    o << "{ \"name\": \"" << cliJsonEsc(p.name) << "\", \"template\": \""
-      << p.gameTemplate << "\", \"scenes\": [";
-    for (size_t si = 0; si < p.scenes.size(); ++si) {
-        const SceneData& sc = p.scenes[si];
-        o << (si ? ", " : "") << "{ \"name\": \"" << cliJsonEsc(sc.name)
-          << "\", \"terrain\": [" << sc.terrain.width << ", " << sc.terrain.depth
-          << "]";
-        // Only when the scene has no ground at all - an assistant reading this
-        // has to know nothing rests on the terrain here (docs/terrain.md).
-        if (!sc.terrain.enabled) o << ", \"terrainRemoved\": true";
-        o << ", \"layers\": [";
-        for (size_t i = 0; i < sc.layers.size(); ++i)
-            o << (i ? ", " : "") << "\"" << cliJsonEsc(sc.layers[i].name) << "\"";
-        o << "], \"objects\": [";
-        for (size_t i = 0; i < sc.objects.size(); ++i) {
-            const SceneObject& ob = sc.objects[i];
-            o << (i ? ", " : "") << "{ \"name\": \"" << cliJsonEsc(ob.name)
-              << "\", \"type\": \"" << primitiveTypeName(ob.type)
-              << "\", \"position\": [" << ob.position[0] << ", " << ob.position[1]
-              << ", " << ob.position[2] << "]";
-            if (ob.usable) o << ", \"usable\": true";
-            if (!ob.modelPath.empty())
-                o << ", \"model\": \"" << cliJsonEsc(ob.modelPath) << "\"";
-            if (!ob.layer.empty())
-                o << ", \"layer\": \"" << cliJsonEsc(ob.layer) << "\"";
-            if (!ob.flowGraph.empty())
-                o << ", \"flowGraphNodes\": " << ob.flowGraph.nodes.size();
-            if (!ob.scripts.empty()) {
-                o << ", \"scripts\": [";
-                for (size_t k = 0; k < ob.scripts.size(); ++k)
-                    o << (k ? ", " : "") << "\"" << cliJsonEsc(ob.scripts[k]) << "\"";
-                o << "]";
-            }
-            o << " }";
-        }
-        o << "] }";
-    }
-    auto strList = [&o](const char* key, const std::vector<std::string>& v) {
-        o << ", \"" << key << "\": [";
-        for (size_t i = 0; i < v.size(); ++i)
-            o << (i ? ", " : "") << "\"" << cliJsonEsc(v[i]) << "\"";
-        o << "]";
-    };
-    o << "]";
-    strList("music", p.music);
-    strList("sounds", p.sounds);
-    auto names = [&strList](const char* key, const auto& v, auto name) {
-        std::vector<std::string> out;
-        for (const auto& e : v) out.push_back(name(e));
-        strList(key, out);
-    };
-    names("saveValues", p.saveValues, [](const SaveValue& v) { return v.name; });
-    names("saveTexts", p.saveTexts, [](const SaveTextValue& v) { return v.name; });
-    names("menus", p.menus, [](const GameMenu& m) { return m.name; });
-    names("hudTexts", p.hudTexts, [](const HudText& t) { return t.name; });
-    names("gradings", p.gradings, [](const ColorGradingPreset& g) { return g.name; });
-    names("ambiencePresets", p.ambiencePresets,
-          [](const AmbiencePreset& a) { return a.name; });
-    names("sequences", p.sequences, [](const Sequence& s) { return s.name; });
-    names("credits", p.credits, [](const CreditsRoll& r) { return r.name; });
-    // Input actions / binding presets: what On Action and Set Input Preset
-    // reference (docs/input-bindings.md).
-    names("inputActions", p.input.actions,
-          [](const InputAction& a) { return a.name; });
-    names("inputPresets", p.input.presets,
-          [](const InputPreset& v) { return v.name; });
-    o << " }\n";
-    std::printf("%s", o.str().c_str());
+    // The same summary the editor's AI Assistant gets from its project_summary
+    // tool (src/aichat.cpp) - one answer to "describe this project to a model",
+    // so the CLI and the in-editor assistant cannot describe it differently.
+    std::printf("%s\n", aichat::projectSummaryJson(p).c_str());
     return 0;
 }
 
 // tyrax-editor.exe --dump-graph <projectDir> <objectName> [sceneName]
+// Full-text search over the documentation the editor carries (docs/ai-chat.md) -
+// the assistant's search_docs tool from a shell. Useful on its own ("which page
+// talks about VRAM residency?") and the way to check the tool without a backend.
+static int searchDocsFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --search-docs \"<query>\" [page]\n");
+        return 2;
+    }
+    const std::string hits =
+        aichat::searchDocs(argv[2], argc > 3 ? argv[3] : std::string());
+    if (hits.empty()) {
+        std::fprintf(stderr, "no documentation line matches \"%s\"\n", argv[2]);
+        return 1;
+    }
+    std::printf("%s", hits.c_str());
+    return 0;
+}
+
+// The in-editor assistant's system prompt (docs/ai-chat.md), for the same
+// reason --list-nodes prints the generator's: it is the only way to READ what
+// the assistant is told - the tool catalog, the documentation index derived from
+// docs/*.md, and the live project context - without a backend and without
+// clicking. A project argument is optional: with none it prints the
+// no-project-open variant, which is what the welcome screen's assistant sees.
+static int chatPromptFromCli(int argc, char** argv) {
+    Project p;
+    aichat::Context ctx;
+    if (argc > 2) {
+        if (std::string err = project::load(p, argv[2]); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        ctx.project = &p;
+    }
+    // The editor fills these from its own state; the CLI has none, so it prints
+    // the prompt for "a project open, nothing selected".
+    ctx.windows = App::chatWindowKeys();
+    std::printf("%s", aichat::systemPrompt(ctx).c_str());
+    return 0;
+}
+
 static int dumpGraphFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
@@ -1933,6 +1901,10 @@ int main(int argc, char** argv) {
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
         return aiSupportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--chat-prompt") == 0)
+        return chatPromptFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--search-docs") == 0)
+        return searchDocsFromCli(argc, argv);
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
@@ -1971,7 +1943,11 @@ int main(int argc, char** argv) {
             "  --ai-graph <projectDir> <object> <prompt|file> [scene]\n"
             "             [--backend claude|copilot|openai] [--model <m>]\n"
             "             [--thinking]\n"
-            "  --add-ai-support <projectDir> [claude] [copilot]\n");
+            "  --add-ai-support <projectDir> [claude] [copilot]\n"
+            "  --chat-prompt [projectDir]              print the AI "
+            "Assistant's system prompt (docs/ai-chat.md)\n"
+            "  --search-docs \"<query>\" [page]           full-text search over "
+            "the built-in documentation\n");
         return 0;
     }
 
