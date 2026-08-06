@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <kernel.h>
 #include <sifrpc.h>
+#include <sifcmd.h>  /* SifWriteBackDCache - see audsrv_load_adpcm (TyraX) */
 #include <tamtypes.h>
 #include <string.h>
 #include <iopheap.h>
@@ -443,6 +444,26 @@ int audsrv_load_adpcm(audsrv_adpcm_t *adpcm, void *buffer, int size)
 	sifdma.dest = iop_addr;
 	sifdma.size = size;
 	sifdma.attr = 0;
+
+	/* Modified by TyraX: write the sample back to MAIN MEMORY first.
+	 *
+	 * The EE's data cache is write-back and SifSetDma reads main memory, not
+	 * the cache - so a buffer the caller has just filled (fread() of a .adpcm
+	 * file, a decoder writing into malloc'd memory) is still partly sitting in
+	 * dirty cache lines, and the IOP DMAs whatever was in RAM before it.
+	 *
+	 * This is invisible in PCSX2, which emulates no EE cache: every load looks
+	 * perfect there. On a real console it hits whichever loads happen to be
+	 * still cached - typically NOT the first one, which is why "the first sound
+	 * works and the second is silent" was the symptom. A sample that arrives as
+	 * stale memory decodes to noise or, far more often, to nothing at all: the
+	 * voice keys on, plays garbage that is usually zeros, and the game looks
+	 * like it never asked for a sound. Sixteen bytes of that garbage are the
+	 * sample HEADER, so audsrv also reports a nonsense pitch for it - which is
+	 * how this was finally caught (the same file loaded twice, pitch 1881 the
+	 * first time and 0x41C00000 the second).
+	 */
+	SifWriteBackDCache(buffer, size);
 
 	/* send by dma */
 	while((id = SifSetDma(&sifdma, 1)) == 0);

@@ -8610,8 +8610,11 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x = nextX;
     P.z = nextZ;
 
-    P.velY -= GRAVITY * g_frameDt * g_frameDt;
-    P.y += P.velY;
+    // Gravity & jumping. velY is units/SECOND - see the note in the
+    // single-player walker below; a per-frame velocity makes the jump height
+    // depend on how long the frame the button was pressed on happened to be.
+    P.velY -= GRAVITY * g_frameDt;
+    P.y += P.velY * g_frameDt;
     const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
     if (P.y > maxY && maxY >= ground) {
       P.y = maxY;
@@ -8623,7 +8626,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.velY = 0.0F;
       grounded = true;
       if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
+        P.velY = PP_JUMP_SPEED(pi);
     }
 
     // Turn the avatar (shortest-arc lerp): toward its movement direction, or
@@ -8769,8 +8772,10 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   P.x = nextX;
   P.z = nextZ;
 
-  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  P.y += P.velY;
+  // Gravity & jumping. GRAVITY is units/s^2 and velY is units/SECOND - see
+  // the note in the single-player walker below.
+  P.velY -= GRAVITY * g_frameDt;
+  P.y += P.velY * g_frameDt;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
   const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
@@ -8782,7 +8787,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.y = ground;
     P.velY = 0.0F;
     if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
+      P.velY = PP_JUMP_SPEED(pi);  // units/s
   }
 
   const float eyeY = P.y + PP_EYE_HEIGHT(pi);
@@ -13058,8 +13063,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       // vertical motion BEFORE the position is overwritten. Like the
       // objects below, carry the ACTUAL motion this frame - the walker's
       // ground clamp can zero velY on the very crossing frame.
+      // (*pvelY is units/second; the measured step is a displacement, so it
+      // has to be divided by the frame length before the two can be compared.)
       float vy = *pvelY;
-      const float stepY = *py - prevY;
+      const float stepY = g_frameDt > 0.0001F ? (*py - prevY) / g_frameDt : 0.0F;
       if (fabsf(stepY) > fabsf(vy)) vy = stepY;
       float nx2, ny2, nz2;
       mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
@@ -14482,9 +14489,16 @@ void TerrainGame::updatePlayer() {
   playerX = nextX;
   playerZ = nextZ;
 
-  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
-  playerVelY -= GRAVITY * g_frameDt * g_frameDt;
-  playerY += playerVelY;
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s, and
+  // playerVelY is units/SECOND too - integrated with THIS frame's dt on the
+  // frame it is used, never carried across frames as a displacement. That
+  // distinction is the whole point: a velocity stored per FRAME is only valid
+  // for the frame length it was computed at, so a jump that started on a long
+  // frame (a devkit file poll over ps2link, a streamed layer, any hitch) flew
+  // several times too high and a hitch mid-flight yanked the player down. At a
+  // steady frame rate the two forms are identical arithmetic.
+  playerVelY -= GRAVITY * g_frameDt;
+  playerY += playerVelY * g_frameDt;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
   const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
@@ -14496,7 +14510,7 @@ void TerrainGame::updatePlayer() {
     playerY = ground;
     playerVelY = 0.0F;
     if (!g_playerLocked && inputClicked(engine->pad, IA_ROLE_JUMP))
-      playerVelY = JUMP_SPEED * g_frameDt;
+      playerVelY = JUMP_SPEED;
   }
 
   const float eyeY = playerY + EYE_HEIGHT;

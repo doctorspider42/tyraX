@@ -704,6 +704,30 @@ banner both, so a previously built ELF still reports.
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
   voices cannot be stopped — the editor round-robins SPU channels to avoid
   drop-outs. Channels 16–23 are reserved by generated games for sound emitters.
+- **An EE buffer handed to a SIF DMA must be written back to main memory
+  first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
+  it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
+  read with `fread()` reaches the IOP as *whatever was in that memory before* —
+  for whichever loads happen to still be cached, which in practice is never the
+  first one. **PCSX2 emulates no EE cache, so every load looks perfect there**;
+  on a console the second sound of a project was silent (the SPU2 dutifully
+  played the garbage, which is usually zeros) while the first worked. Fixed
+  2026-08-06 in the vendored fork. Two things to take from it: the same rule
+  applies to ANY EE→IOP transfer you add, and the tell is cheap — audsrv
+  reports the sample's header back, so a **nonsense `pitch` for a file whose
+  earlier load reported a sane one** identifies a corrupt upload in one log
+  line (1881 vs 0x41C00000 was the actual pair).
+- **`AudioAdpcm` logs why a sound did not play** (debug builds): once per
+  channel per reason - no sample, channel busy, audsrv error - plus a one-line
+  SPU2 dump (per-voice volume/ADSR/start address, the core's VMIX masks, MMIX,
+  master and reverb volume) at each channel's first successful play. That dump
+  is the instrument for "it plays but I hear nothing": diff a channel that
+  works against one that does not.
+- **`audsrv_ch_play_adpcm` reports "I do not know this sample" as a POSITIVE
+  `AUDSRV_ERR_ARGS` (5)**, which no sign test can tell from a channel number.
+  `tryPlay` now demands that an explicit channel comes back as itself; before
+  that, playing a freed/never-loaded sample looked like success and simply made
+  no sound.
 - WAV files: 8-bit PCM is unsigned (0x80 = silence) but audsrv mixes signed —
   convert (XOR 0x80) or it wraps at every zero crossing (loud crackle at
   correct pitch — that exact symptom happened).
