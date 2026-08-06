@@ -11810,6 +11810,29 @@ void App::drawOutputWindow() {
 // emulog.txt - boot progress, BIOS/ELF-load errors). The game log is the
 // primary channel; EE printf does not reliably reach emulog (see tyra-testing).
 // ---------------------------------------------------------------------------
+
+// "Run on PS2" games do NOT write bin/log.txt: the generated main.cpp turns
+// Tyra::Info::writeLogsToFile off under ps2link, because a host: write per log
+// line is a network round trip, and ps2link forwards the EE console instead.
+// That stream reaches the editor as "[ps2] ..." lines in the runner log, so the
+// Debug window's "Game log" falls back to it - same window, same severity
+// classification, whichever transport the game was launched on.
+static std::string ps2ConsoleLog(const std::string& runnerLog) {
+    static const std::string kTag = "[ps2] ";
+    std::string out;
+    for (size_t i = 0; i < runnerLog.size();) {
+        size_t e = runnerLog.find('\n', i);
+        if (e == std::string::npos) e = runnerLog.size();
+        const size_t tag = runnerLog.find(kTag, i);
+        if (tag != std::string::npos && tag < e) {
+            out.append(runnerLog, tag + kTag.size(), e - (tag + kTag.size()));
+            out += '\n';
+        }
+        i = e + 1;
+    }
+    return out;
+}
+
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
@@ -11827,7 +11850,11 @@ void App::drawDebugWindow() {
     // (per-frame file reads would be wasteful for a possibly large log).
     const double now = ImGui::GetTime();
     if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
-        logSetText(logDbg_, readTextFileTail(path, 1u << 20));  // last 1 MB
+        std::string text = readTextFileTail(path, 1u << 20);  // last 1 MB
+        // No log file? On a PS2 deploy there never is one - take the console
+        // stream the runner captured instead (see ps2ConsoleLog above).
+        if (debugLogSource_ == 0 && text.empty()) text = ps2ConsoleLog(runner_.log());
+        logSetText(logDbg_, std::move(text));
         debugNextReload_ = now + 0.5;
     }
     debugReloadNow_ = false;
