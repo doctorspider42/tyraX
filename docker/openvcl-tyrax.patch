@@ -1297,7 +1297,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..e855fd8 100644
+index 3260370..dcc8757 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -1313,7 +1313,7 @@ index 3260370..e855fd8 100644
  	bool containsKey( const std::list<std::string>& keys, const std::string& key )
  	{
  		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
-@@ -124,13 +130,42 @@ namespace
+@@ -124,13 +130,43 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -1321,25 +1321,26 @@ index 3260370..e855fd8 100644
 +	// only behaviour openvcl had before --pair-best-of-many; the alternatives exist
 +	// so that several complete schedules can be tried per segment and the shortest
 +	// kept, which is why a variant can never make the output longer.
++	//
++	// Only the knobs some shipped strategy actually varies live here. Three more were
++	// swept and never won a single segment - the pipe-alternation bonus, the
++	// latency-load bonus, and a reward for unblocking an opposite-pipe successor - and
++	// their values are back to being the constants they effectively were. See
++	// "--pair-best-of-many" in the engine's docs/toolchain-image.md before adding one
++	// of them back.
 +	struct VuReadySegmentStrategy
 +	{
 +		VuReadySegmentStrategy()
 +		{
 +			preferUnblockingWhenUnpaired = false;
 +			priorityWeight = 20;
-+			pipeAlternationBonus = 100;
-+			oppositePipeUnblockBonus = 0;
 +			longLatencyProducerBonus = 500;
-+			latencyLoadBonus = 300;
 +			partnerPrefersWorst = false;
 +		}
 +
 +		bool preferUnblockingWhenUnpaired;
 +		int priorityWeight;
-+		int pipeAlternationBonus;
-+		int oppositePipeUnblockBonus;
 +		int longLatencyProducerBonus;
-+		int latencyLoadBonus;
 +		// Fill the row with the least valuable legal partner rather than the best one,
 +		// leaving the valuable one to be a primary on a row of its own.
 +		bool partnerPrefersWorst;
@@ -1357,19 +1358,17 @@ index 3260370..e855fd8 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,19 +173,47 @@ namespace
+@@ -138,7 +174,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
 -			score -= 500;
 +			score -= strategy.longLatencyProducerBonus;
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
--			score -= 300;
-+			score -= strategy.latencyLoadBonus;
+ 			score -= 300;
  
- 		if( haveLastPipe && isVuLowerPipe( *block.tokens[candidate] ) != lastWasLower )
--			score -= 100;
-+			score -= strategy.pipeAlternationBonus;
+@@ -146,7 +182,7 @@ namespace
+ 			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
 -			score -= static_cast<int>( priority[candidate] * 20 );
@@ -1377,39 +1376,7 @@ index 3260370..e855fd8 100644
  
  		return score;
  	}
- 
-+	// Does scheduling `candidate` now hand the OTHER pipe something to issue? The
-+	// dominant reason a row goes out half empty in the env/matcap programs is
-+	// samePipe - every ready instruction wants the slot already taken (313 of 484
-+	// single-slot rows in stapip_clip_tce, against 201 of 502 in stapip_clip_c,
-+	// where notReady dominates instead). samePipe cannot be fixed by picking a
-+	// different partner at that cycle: there is none. It can only be fixed by
-+	// making opposite-pipe work ready earlier, which is what this rewards.
-+	bool unblocksOppositePipeSuccessor( unsigned int candidate,
-+	                                    const VuBasicBlock& block,
-+	                                    const std::vector<unsigned int>& incoming,
-+	                                    const std::vector<bool>& emitted,
-+	                                    const std::vector< std::vector<unsigned int> >& outgoing )
-+	{
-+		const bool candidateIsLower = isVuLowerPipe( *block.tokens[candidate] );
-+		for( std::vector<unsigned int>::const_iterator edge = outgoing[candidate].begin();
-+		     edge != outgoing[candidate].end();
-+		     ++edge )
-+		{
-+			if( *edge >= block.tokens.size() || emitted[*edge] )
-+				continue;
-+			if( incoming[*edge] != 1 )
-+				continue;      // candidate is not its last blocker
-+			if( isVuLowerPipe( *block.tokens[*edge] ) != candidateIsLower )
-+				return true;
-+		}
-+		return false;
-+	}
-+
- 	std::vector<unsigned int> buildDependencyPriorities( const VuBasicBlock& block,
- 	                                                    const std::vector< std::vector<unsigned int> >& outgoing )
- 	{
-@@ -208,7 +271,8 @@ namespace
+@@ -208,7 +244,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -1419,7 +1386,7 @@ index 3260370..e855fd8 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +281,7 @@ namespace
+@@ -217,7 +254,7 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -1428,7 +1395,7 @@ index 3260370..e855fd8 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +296,10 @@ namespace
+@@ -232,9 +269,10 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -1442,7 +1409,7 @@ index 3260370..e855fd8 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +308,10 @@ namespace
+@@ -243,8 +281,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -1455,7 +1422,7 @@ index 3260370..e855fd8 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +321,69 @@ namespace
+@@ -254,6 +294,69 @@ namespace
  		return best;
  	}
  
@@ -1525,7 +1492,7 @@ index 3260370..e855fd8 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +479,22 @@ namespace
+@@ -349,6 +452,22 @@ namespace
  		return 1;
  	}
  
@@ -1548,7 +1515,7 @@ index 3260370..e855fd8 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +514,28 @@ namespace
+@@ -368,9 +487,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -1580,7 +1547,7 @@ index 3260370..e855fd8 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +724,7 @@ namespace
+@@ -559,6 +697,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -1588,7 +1555,7 @@ index 3260370..e855fd8 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +771,8 @@ namespace
+@@ -605,7 +744,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -1598,7 +1565,7 @@ index 3260370..e855fd8 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +790,9 @@ namespace
+@@ -623,7 +763,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -1609,7 +1576,7 @@ index 3260370..e855fd8 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +850,7 @@ namespace
+@@ -681,6 +823,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -1617,32 +1584,17 @@ index 3260370..e855fd8 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -709,13 +879,17 @@ namespace
- 				if( emitted[i] || incoming[i] != 0 )
- 					continue;
- 
--				const int score = readyCandidateScore( i,
--				                                       haveLastPipe,
--				                                       lastWasLower,
--				                                       block,
--				                                       priority,
--				                                       latencyTracker,
+@@ -715,7 +858,8 @@ namespace
+ 				                                       block,
+ 				                                       priority,
+ 				                                       latencyTracker,
 -				                                       currentCycle );
-+				int score = readyCandidateScore( i,
-+				                                 haveLastPipe,
-+				                                 lastWasLower,
-+				                                 block,
-+				                                 priority,
-+				                                 latencyTracker,
-+				                                 currentCycle,
-+				                                 strategy );
-+				if( strategy.oppositePipeUnblockBonus != 0
-+				    && unblocksOppositePipeSuccessor( i, block, incoming, emitted, outgoing ) )
-+					score -= strategy.oppositePipeUnblockBonus;
++				                                       currentCycle,
++				                                       strategy );
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +918,58 @@ namespace
+@@ -744,7 +888,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -1702,7 +1654,7 @@ index 3260370..e855fd8 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1104,136 @@ namespace
+@@ -879,6 +1074,136 @@ namespace
  		return liveness;
  	}
  
@@ -1839,7 +1791,7 @@ index 3260370..e855fd8 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1241,64 @@ namespace
+@@ -886,12 +1211,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -1905,7 +1857,7 @@ index 3260370..e855fd8 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1311,7 @@ namespace
+@@ -904,6 +1281,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -1913,7 +1865,7 @@ index 3260370..e855fd8 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1321,32 @@ namespace
+@@ -913,45 +1291,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -1981,7 +1933,7 @@ index 3260370..e855fd8 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1359,7 @@ namespace
+@@ -964,7 +1329,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -1990,7 +1942,7 @@ index 3260370..e855fd8 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1388,9 @@ namespace
+@@ -993,6 +1358,9 @@ namespace
  			}
  		}
  
@@ -2000,7 +1952,7 @@ index 3260370..e855fd8 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6080,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6050,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
