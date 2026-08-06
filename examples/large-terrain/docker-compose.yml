@@ -1,7 +1,8 @@
-name: large-terrain
+name: large-terrain-174c31e5
 volumes:
   tyra-game-volume:
   tyra-engine:
+    external: true
     name: tyra-engine-101292b0
 services:
   compiler:

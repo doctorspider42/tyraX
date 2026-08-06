@@ -45,7 +45,12 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
    `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
    by every project built from the same checkout — parallel worktrees get their
-   own, or they would rsync diverging engines over each other forever.
+   own, or they would rsync diverging engines over each other forever. Because
+   it is shared it is declared **`external: true`** in the generated
+   `docker-compose.yml` and created by the Runner (`docker volume create`,
+   idempotent) rather than by compose: a volume compose creates is labelled with
+   whichever project got there first, and every other project then warns on
+   every `up` that it "already exists but was created for project X".
 3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
    it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
@@ -72,7 +77,12 @@ again from source.
 game, so an edit there moves both. TyraX changes in it: single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+`src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
+programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
+by the container's g++, and handing them to the PS2 compiler fails on the very
+first include. A new host-code directory has to be added to that `find`
+exclusion or its first file breaks every build that has one. Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 
@@ -347,11 +357,15 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
   registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
   is not authoritatively simulated).
-- The five `as_is` programs also have C++ descriptions that generate them; a
+- **All fifteen StaPip programs** (five `as_is` + five `cull` + the five
+  Sutherland-Hodgman `clip`) also have C++ descriptions that generate them; a
   generated program is proven **bit-identical** to the handwritten one by
-  simulating both on randomized input. If you change one of those five by hand,
-  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
-  the two have genuinely diverged and you should say which is right.
+  simulating both on randomized input, and each emits the same instruction COUNT
+  as its handwritten file. If you change one of those fifteen by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
+  two have genuinely diverged and you should say which is right. (Only the
+  `as_is` five are *adopted* so far: the files in `vendor/tyra` ARE the generated
+  ones. The `cull` and `clip` families are still the handwritten originals.)
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
@@ -555,7 +569,11 @@ banner both, so a previously built ELF still reports.
   (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
   headroom; measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
-  after ANY edit there.
+  after ANY edit there. **And the clip family now has a C++ description**
+  (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
+  has to be made in BOTH places or `--vu-check` fails — which is the point:
+  the ceiling above is exactly the kind of change that used to be applied to
+  `clip_c` and forgotten on `clip_tc`.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

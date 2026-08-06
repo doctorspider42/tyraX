@@ -35,6 +35,8 @@
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
+#include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -57,6 +59,9 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+// The clock the project's own VU1 stages AND scripts read, in seconds
+// (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
+float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
 // True while a pausing menu owns the frame (set at the top of loop()). Read by
@@ -1793,6 +1798,15 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -2236,6 +2250,20 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -9167,7 +9195,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      part.infoBag->fullClipChecks = true;
+      part.infoBag->fullClipChecks = true;  // refreshed below, per frame
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -9175,6 +9203,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->texture = nullptr;
       part.bag->lighting = nullptr;
     }
+    // OFF while a script displaces vertices AND the EE clipper is the one
+    // cutting. That clipper runs before any VU program sees the mesh, so a
+    // vertex moved afterwards is moved past a cut computed without it and the
+    // prop tears at the edge of the screen; the whole-mesh cull path is the
+    // way out, safe for a prop and NOT done for the terrain or the sky.
+    //
+    // Under VU1 CLIPPING there is nothing to compensate for: the clip program
+    // does its own MVP multiply, so the script displaces the vertex BEFORE the
+    // cut is computed and the clipper sees the final geometry. Set per frame
+    // rather than at bag creation because the mode is a run-time switch.
+    part.infoBag->fullClipChecks =
+        !vuscript::movesGeometry() || vuprog::vu1Clipping();
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
@@ -11214,6 +11254,8 @@ void TerrainGame::renderScene() {
     }
     stapip.core.render(part.envBag.get());
   };
+  // Once a frame, before anything is submitted: the clock every time-varying
+  // script reads. One quadword, and only when the project has a script at all.
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -11296,6 +11338,12 @@ void TerrainGame::renderScene() {
           break;
         }
     }
+    // The four numbers this mesh hands to the project's own microprogram.
+    // Staged per object rather than per bag because every bag of one object
+    // shares them; a static BATCH is one bag for many objects, so its members
+    // share whatever the batch was built with (docs/vu-authoring.md).
+    if (vuprog::ENABLED)
+      vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -11307,6 +11355,16 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    // Back to zero the moment this object's bags are out. The numbers are
+    // RENDERER STATE, not a property of the bag, so everything drawn after an
+    // object - the terrain, the sky dome, a static batch, the next object -
+    // would otherwise inherit them. Zero is the "wants nothing" case every
+    // stage renders bit-identically to the untouched program, so scoping them
+    // to one object is what makes the rest of the frame predictable.
+    if (vuprog::ENABLED) {
+      const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      vuprog::setParams(stapip.core, none);
+    }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -11344,6 +11402,11 @@ void TerrainGame::renderScene() {
         hlListD2[a] = hlListD2[b];
         hlListD2[b] = td;
       }
+  // After the scene, before the highlight: the ink line wants the objects'
+  // depth already in the buffer, and the highlight glow wants to sit on top of
+  // the line rather than under it.
+  renderOutlineShells();
+
   for (int a = 0; a < hlCount; ++a) {
     const int i = hlList[a];
     const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
@@ -13214,6 +13277,121 @@ void TerrainGame::renderHighlightHull(int index) {
 // its full-detail silhouette, invisible under the soft rim. Models have no
 // cheaper source, so their parts are concatenated as-is (one submit per
 // shell instead of one per part).
+// The shell pass a project's own VU program can ask for: every visible object
+// drawn once more from its low-detail proxy, as a flat-colour bag whose
+// per-vertex colours carry the outward direction. The PROGRAM grows it - this
+// only supplies the copy, the depth pushback and the width.
+//
+// Growing on VU1 rather than by scaling the matrix is the whole point: a scale
+// about the centre moves a far vertex further than a near one, so the line
+// fattens at the ends of anything long, while a step along the vertex normal
+// is the same length everywhere.
+void TerrainGame::renderOutlineShells() {
+  if (!vuscript::shellActive()) return;
+  const float wScreen = vuscript::shellWidth();
+  if (wScreen <= 0.0F) return;
+
+  if (!outlineBag) {
+    outlineInfoBag = std::make_unique<StaPipInfoBag>();
+    outlineInfoBag->model = &outlineMat;
+    outlineInfoBag->shadingType = TyraShadingFlat;
+    outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // Clip checks ON, like any other prop - which is only correct because the
+    // shell arrives ALREADY GROWN. Growing it on VU1 instead put the clipper
+    // ahead of the growth: a package at the edge of the screen was cut on the
+    // un-grown silhouette and then grown past the cut, and the line tore into
+    // blobs exactly where an object met the edge. Turning these off to dodge
+    // that only traded it for the raster wrap raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry; the only
+    // place that can be arranged is where the geometry is built.
+    outlineInfoBag->fullClipChecks = true;
+    // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
+    // relationships on the close-up clipped path - that is what commit
+    // 67e2893f found on the reflection pass, and an outline is close-up
+    // geometry by nature.
+    outlineInfoBag->zTestType = PipelineZTest_Standard;
+    outlineColorBag = std::make_unique<StaPipColorBag>();
+    outlineBag = std::make_unique<StaPipBag>();
+    outlineBag->info = outlineInfoBag.get();
+    outlineBag->color = outlineColorBag.get();
+    outlineBag->texture = nullptr;
+    outlineBag->lighting = nullptr;
+  }
+
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    // A STATICALLY BATCHED object owns no solo bag - its geometry lives only
+    // in the merged batch - so the proxy builder found nothing to copy and
+    // that object silently wore no outline at all. It is not obvious from the
+    // picture either: the batched props are the still ones, so it reads as
+    // "that box just does not get a line". Bake the solo geometry on first
+    // use, exactly like the projected-shadow pass does for the same reason.
+    // A DIRTY member is left alone - rebuildObjectGeometry would eat the flag
+    // renderStaticBatches keys its demotion on, and this pass runs after it.
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched && objectGeometry[i].parts.empty() && !o.dirty)
+      rebuildObjectGeometry(i);
+
+    ObjectGeometry& g = objectGeometry[i];
+    if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
+      g.hullProxyVerts.clear();  // built coarse before this program came on
+    if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
+    if (g.outlineVerts.empty()) continue;  // marker-only object
+
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    if (half < 0.01F) half = 0.01F;
+
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    // What buildHighlightProxy already walked each vertex by - needed here
+    // only to size the pushback. A fraction of the object rather than a screen
+    // width, because baked geometry cannot follow the camera, and because a
+    // line proportional to the thing it surrounds is what keeps small props
+    // from wearing tyres anyway.
+    const float grow = wScreen * half;
+
+    float behind = dist - half;
+    if (behind < 0.5F) behind = 0.5F;
+    // Scale about the eye: projected size unchanged, depth multiplied. Enough
+    // to clear the object's own front surface without reaching whatever sits
+    // right behind it.
+    const float k = 1.0F + (grow + 0.15F) / behind;
+    outlineMat.identity();
+    outlineMat.data[0] = k;
+    outlineMat.data[5] = k;
+    outlineMat.data[10] = k;
+    outlineMat.data[12] = (1.0F - k) * cameraPosition.x;
+    outlineMat.data[13] = (1.0F - k) * cameraPosition.y;
+    outlineMat.data[14] = (1.0F - k) * cameraPosition.z;
+
+    // x = 1 says "this mesh is a shell, paint it flat". Every other mesh this
+    // frame carries 0, so ONE program serves the shells and the ordinary
+    // objects without a branch - which is why x of the mesh parameters is
+    // RESERVED once a shell-pass program is active.
+    //
+    // The colour cannot simply be black vertices: the program rounds to band
+    // CENTRES, so black would come back at half a step and the ink line would
+    // be dark grey. It has to be zeroed after the quantise, on VU1.
+    stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
+    outlineColorBag->single = &outlineCol;
+    outlineBag->vertices = g.outlineVerts.data();
+    outlineBag->count = static_cast<u32>(g.outlineVerts.size());
+    outlineBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(outlineBag.get());
+  }
+  // Hand the parameters back, or the next flat-colour prop inherits the shell
+  // flag and paints itself black.
+  stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
+}
+
 void TerrainGame::buildHighlightProxy(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -13230,11 +13408,22 @@ void TerrainGame::buildHighlightProxy(int index) {
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;
+    // A SHELL PASS cannot use a coarser stand-in, and this is the difference
+    // between an outline and a handful of black plates. The proxy's vertices
+    // sit ON the object's surface but its faces are CHORDS, so they run below
+    // it - by the sagitta, which at detail 12 against a detail-24 sphere is
+    // far more than a line is wide. Push the proxy out by a constant and it
+    // emerges only near its vertices and stays buried across each face: caps
+    // at the poles, nothing at the equator. The highlight can afford the
+    // coarse version because a glow is forgiving about its own silhouette; a
+    // drawn line is exactly a silhouette, so it pays the full detail.
+    const bool shell = vuscript::shellActive();
     switch (o.data.type) {
       case 1:
       case 2:
       case 3:
-        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        low.primDetail = (shell || o.data.primDetail < 12) ? o.data.primDetail
+                                                           : 12;
         break;
       default:
         break;  // boxes, planes, decals: detail 1
@@ -13255,6 +13444,54 @@ void TerrainGame::buildHighlightProxy(int index) {
         break;  // marker-only types keep the proxy empty
     }
   }
+  // The outward direction a shell-pass program grows along, baked once and
+  // encoded around 128 so it rides in the colour slot. Radial from the proxy's
+  // own centroid: for a convex low-detail stand-in that IS the smoothed
+  // normal, and at a box corner it is exactly the average of the three faces
+  // meeting there - which is what stops a grown box from splitting open along
+  // its edges. Concave shapes are the honest limit of this, and the proxy is
+  // deliberately too coarse to be concave.
+  g.outlineVerts.clear();
+  if (!g.hullProxyVerts.empty() && vuscript::shellActive()) {
+    float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+    for (const Vec4& v : g.hullProxyVerts) {
+      cx += v.x;
+      cy += v.y;
+      cz += v.z;
+    }
+    const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
+    cx *= inv, cy *= inv, cz *= inv;
+    g.outlineVerts.reserve(g.hullProxyVerts.size());
+    // How far to walk each vertex: a fraction of the object's own size, so
+    // small props do not wear tyres and nothing has to follow the camera.
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    const float grow = vuscript::shellWidth() * 0.5F * (half > 0.02F ? half
+                                                                    : 0.02F);
+    // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
+    // and half the props in a scene are - it leans toward the long axis, so a
+    // constant step along it grows the squashed sides more than the stretched
+    // ones and the line comes out thick on one edge and thin on the other. The
+    // ellipsoid normal divides each axis by its own squared radius, which
+    // costs three multiplies here and nothing at all on VU1.
+    const float rx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float ry = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float rz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 1.0F;
+    const float ix = 1.0F / (rx * rx), iy = 1.0F / (ry * ry),
+                iz = 1.0F / (rz * rz);
+    for (const Vec4& v : g.hullProxyVerts) {
+      float dx = (v.x - cx) * ix, dy = (v.y - cy) * iy, dz = (v.z - cz) * iz;
+      const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (l > 0.0001F)
+        dx /= l, dy /= l, dz /= l;
+      else
+        dx = 0.0F, dy = 1.0F, dz = 0.0F;
+      g.outlineVerts.push_back(
+          Vec4(v.x + dx * grow, v.y + dy * grow, v.z + dz * grow, 1.0F));
+    }
+  }
+  g.hullProxyFine = vuscript::shellActive();
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 

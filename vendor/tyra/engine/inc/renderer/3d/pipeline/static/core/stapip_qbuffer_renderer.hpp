@@ -95,7 +95,39 @@ class StaPipQBufferRenderer {
    * game only learns about its own programs once its scene is up. */
   void setProgramOverride(const StaPipProgramName& name,
                           StaPipVU1Program* program);
+  /** TyraX addition: several overrides, ONE rebuild. Swapping a whole look at
+   * run time touches every material class, and doing that through the single
+   * setter above would drain the pipeline and re-upload the program cache once
+   * PER CLASS. A null entry restores the engine's own program for that slot.
+   *
+   * Microcode is a u32 range in EE memory and createProgramsCache assigns the
+   * micro-memory addresses when it builds the packet, so alternative programs
+   * cost EE RAM and nothing in VU1 micro memory - only the active set is ever
+   * uploaded. That is what makes swapping a look affordable at all. */
+  void setProgramOverrides(const StaPipProgramName* names,
+                           StaPipVU1Program* const* programs, u32 count);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
+
+  /** TyraX addition: the two quadwords a project's own microprogram reads
+   * (docs/vu-authoring.md) - four numbers the game sets per mesh, and the
+   * clock. They land at VU1_CUSTOM_PARAMS_ADDR / VU1_CUSTOM_TIME_ADDR, which
+   * are inside the DIRECTIONAL-LIGHTS colour block, so they are uploaded only
+   * for a bag with no lighting: a lit bag needs those addresses for its light
+   * colours and would be corrupted by them.
+   *
+   * Off by default. A project with no custom program must not pay two extra
+   * unpacked quadwords per mesh for a feature it does not use, so codegen turns
+   * this on once at startup and never otherwise. */
+  void setVuCustomEnabled(const bool& enabled) { vuCustomEnabled = enabled; }
+  void setVuParams(const float& x, const float& y, const float& z,
+                   const float& w) {
+    vuParams[0] = x, vuParams[1] = y, vuParams[2] = z, vuParams[3] = w;
+  }
+  /** Seconds, plus its sine and cosine - computed here so a program that only
+   * needs the whole mesh to pulse can skip its own 17-instruction series.
+   * WRAP the value: the microprogram's range reduction folds through a 2^23
+   * add and loses precision long before a float would. */
+  void setVuTime(const float& seconds);
 
   /**
    * Modified by TyraX: particle billboards. The resident program set has no
@@ -167,6 +199,10 @@ class StaPipQBufferRenderer {
   StaPipProgramsRepository repository;
   /** TyraX addition: see setResidentClasses. */
   u32 residentClasses = StaPipClassAll;
+  /** TyraX addition: see setVuCustomEnabled. */
+  bool vuCustomEnabled = false;
+  float vuParams[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+  float vuTime[4] = {0.0F, 0.0F, 1.0F, 1.0F};
   /** TyraX addition: the requested program's class is not resident - walk down
    * to one that is, rather than MSCAL-ing to an address nothing was uploaded
    * to. A dropped class then draws in a simpler style instead of tearing the

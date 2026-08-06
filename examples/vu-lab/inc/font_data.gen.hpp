@@ -136,10 +136,10 @@ struct DynTextData {
   float size;   // glyph height in pixels
 };
 
-constexpr int DYN_TEXT_COUNT = 0;
+constexpr int DYN_TEXT_COUNT = 1;
 constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
 inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1] = {
-    {0, 0, 0, 0},
+    {0, 0.5F, 0.08F, 16.0F},  // scene 0, object 5, node 9
 };
 
 }  // namespace Vu_lab

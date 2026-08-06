@@ -92,6 +92,13 @@ struct SceneObjectData {
   int batchStatic; // 1 = may merge into a combined static batch bag
                    // (build-time verdict: non-moving primitive with
                    // no physics/logic/graph refs/save-state/layer)
+  float vuParams[4]; // the four numbers this mesh hands to the
+                   // project's own VU1 microprogram, if it has one
+                   // (docs/vu-authoring.md). All zero = no effect,
+                   // which every stage is required to render
+                   // bit-identically to the untouched program.
+                   // Uploaded per BAG, so batched objects share one
+                   // set - one bag is one sendObjectData.
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -199,19 +206,20 @@ constexpr int SCENE_COUNT = 1;
 constexpr int START_SCENE = 0;
 
 // scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[6] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {0, {-4.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.85F, 0.18F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // flat-box
-    {1, {-1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.8F, 1.8F}, {0.95F, 0.78F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // flat-ball
-    {0, {1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // tex-box
-    {1, {4.5F, 1.1F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // chrome-ball
-    {0, {0.0F, 2.5F, 15.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.25F, 0.45F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // tall-pillar
+constexpr SceneObjectData SCENE_0_OBJECTS[7] = {
+    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
+    {0, {-4.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.85F, 0.18F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}},  // flat-box
+    {1, {-1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.8F, 1.8F}, {0.95F, 0.78F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 1.0F, 0.0F, 0.0F}},  // flat-ball
+    {0, {1.5F, 1.0F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 0, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0, {0.12F, 0.0F, 0.9F, 0.0F}},  // tex-box
+    {1, {4.5F, 1.1F, 8.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {1.0F, 1.0F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, 1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // chrome-ball
+    {0, {0.0F, 2.5F, 15.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 5.0F, 1.0F}, {0.25F, 0.45F, 0.85F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0, {0.0F, 1.0F, 0.0F, 0.0F}},  // tall-pillar
+    {1, {2.0F, 1.0F, 4.0F}, {0.0F, 0.0F, 0.0F}, {1.2F, 1.2F, 1.2F}, {0.35F, 0.7F, 0.95F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 1, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // lit-ball
 };
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {6};
+constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[6] = {0xc47970d74b2dc250ULL, 0xa4fede5c47620779ULL, 0x789b272e64c8d053ULL, 0xb1ac6c791407e2bdULL, 0x21995347c6583232ULL, 0x48c7ba9ec8a2a22bULL};
+constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0xc47970d74b2dc250ULL, 0xa4fede5c47620779ULL, 0x789b272e64c8d053ULL, 0xb1ac6c791407e2bdULL, 0x21995347c6583232ULL, 0x48c7ba9ec8a2a22bULL, 0xdfd73614969417f8ULL};
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -411,7 +419,7 @@ constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {false};
 constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
 constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
 constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
@@ -504,7 +512,7 @@ constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true};
 constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
 constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
 constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
-constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
+constexpr bool CLIP_VU1S[SCENE_COUNT] = {false};
 constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
 constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
 constexpr float SKY_BS[SCENE_COUNT] = {198.9F};

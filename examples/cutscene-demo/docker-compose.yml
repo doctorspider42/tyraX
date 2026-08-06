@@ -1,7 +1,8 @@
-name: cutscene-demo
+name: cutscene-demo-560b1a80
 volumes:
   tyra-game-volume:
   tyra-engine:
+    external: true
     name: tyra-engine-101292b0
 services:
   compiler:

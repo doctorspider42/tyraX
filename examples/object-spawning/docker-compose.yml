@@ -1,7 +1,8 @@
-name: object-spawning
+name: object-spawning-704ffb2d
 volumes:
   tyra-game-volume:
   tyra-engine:
+    external: true
     name: tyra-engine-101292b0
 services:
   compiler:

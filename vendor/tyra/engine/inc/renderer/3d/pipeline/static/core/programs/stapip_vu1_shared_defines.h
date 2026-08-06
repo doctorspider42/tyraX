@@ -41,6 +41,23 @@
 // (billboard bags never carry lighting); kept as a LITERAL for the same
 // vclpp one-level-#define reason.
 #define VU1_BILLBOARD_BASIS_ADDR 4
+// Modified by TyraX: two quadwords a project's OWN VU1 program reads
+// (docs/vu-authoring.md). They sit in the directional-lights colour block,
+// which is free in exactly the programs that can carry a custom stage list -
+// the colour ones - so the engine only uploads them for a bag with no
+// lighting. A lit bag fills 15..18 with light colours and must never see these.
+//   VU1_CUSTOM_PARAMS_ADDR  the mesh's four numbers (StaPipCore::setVuParams)
+//   VU1_CUSTOM_TIME_ADDR    (time, sin time, cos time, 1.0)
+// Kept as LITERALS for the same reason VU1_ENV_BASIS_ADDR is: vclpp expands
+// #defines only one level and an alias reaches dvp-as unresolved.
+// The mesh's four numbers (StaPipCore::setVuParams). All zero means "this mesh
+// wants nothing", which every stage is required to render bit-identically to
+// the untouched program.
+#define VU1_CUSTOM_PARAMS_ADDR 15
+// (time, sin time, cos time, 1.0) - StaPipCore::setVuTime. WRAP the seconds:
+// the generated sine's range reduction folds through a 2^23 add and loses the
+// fraction long before a float would.
+#define VU1_CUSTOM_TIME_ADDR 16
 #define VU1_STAPIP_LAST_ITEM_ADDR 21
 
 // Bias used to turn the constant near/far plane tests into clipw judgements

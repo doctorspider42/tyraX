@@ -21,8 +21,8 @@ build and debug — and how to drive the editor's
 
 | Provider | Files |
 |---|---|
-| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-menustyle`, `tyra-building` (each a `SKILL.md`) |
-| Codex | `AGENTS.md` + the same five guides under `.agents/skills/` |
+| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-menustyle`, `tyra-building`, `tyra-vu-programs`, `tyra-vu0-kernels` (each a `SKILL.md`) |
+| Codex | `AGENTS.md` + the same seven guides under `.agents/skills/` |
 | GitHub Copilot | `.github/copilot-instructions.md` (single condensed guide) |
 
 **Codex gets the same content, not a second copy of it.** The files are the
