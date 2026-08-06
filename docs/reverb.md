@@ -10,6 +10,10 @@ already serves streaming zones, catch lists and the *In Area* trigger. Select
 one, tick **This area is a room for the sound effects**, pick a preset and a
 strength.
 
+**There is a demo:** [`examples/reverb-rooms`](../examples/reverb-rooms) — four
+rooms, four acoustics, one knock, and a button that plays that same knock dry
+so you can hear the difference in place.
+
 ## What the hardware actually gives you
 
 Everything below follows from one fact: the SPU2 has **one reverb unit per
