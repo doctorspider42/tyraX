@@ -336,7 +336,28 @@ the verification, and any fact worth reusing belongs in the relevant
     "same pipe", and widening it fails because the adjacent singles are genuinely
     dependent - which is why no partner was ready to begin with. It is an ORDERING
     problem (rank the ready list with lookahead, or prefer a candidate that leaves a
-    pairable successor), not a missing merge. That code is not in the shipped patch.
+    pairable successor), not a missing merge.
+    **2026-08-06, the resident set is DONE: openvcl 2026 against SCE's 2028**, ceiling
+    2042 - smaller than Sony's, six of the ten programs matching or beating it, `vclab`
+    still 0 of 514600 pixels different. `--pair-best-of-many` replaces the guessing:
+    seven ready-list heuristics per segment, shortest kept, compared on emitted WORDS
+    (the old `--pair-best-of-two` compared issue-slot count, which undercounts
+    multi-cycle NOP padding). Picking the heuristics stopped being guesswork once
+    `--show-pair-misses` learned to name the starved pipe - the two env/matcap
+    programs that carried the whole deficit are `samePipe`-bound (313 of 484
+    single-slot rows on `clip_tce`) where `clip_c` is `notReady`-bound. What paid was
+    HOARDING the scarce pipe (spend the free slot on the cheapest legal partner, +3
+    words on `cull_tce`), not manufacturing more of it. Six dead ends measured and
+    listed in `docs/toolchain-image.md`; the biggest is that rewarding a candidate for
+    unblocking an opposite-pipe successor - the obvious answer to `samePipe`, at two
+    units of height and at ten - never once produced a shorter segment.
+    What is left is the ENV MACRO, not the assembler: `CalculateTyraEnvStq` in
+    `tyra_macros.i` is 16 instructions, three per triangle, and at least two of them
+    are recoverable (`add.z acc` + `madd.z t_stq, vf00, vf00[x]` just copy a constant
+    into `stq.z`, and the two dot-product reductions can share one destination
+    register so the bias-and-scale tail is `mul.xy` + `add.xy` instead of `add.xy acc`
+    + two `madd`). That would shrink `cull_tce` and `clip_tce` under BOTH assemblers,
+    so it is an engine win rather than a race win - report both numbers if you take it.
     Measured dead ends, do not repeat: `--LoopCS` (Sony's vcl ignores it here as
     well), `-C`, `-f`, `--bthres`. Full write-up in `docs/toolchain-image.md`.
   - **The GCC 11.3 -> 15.2 jump**, independent of the above: it needs PS2DEV

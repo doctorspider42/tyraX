@@ -730,9 +730,9 @@ banner both, so a previously built ELF still reports.
   each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
   rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
   because they pick up what sits outside those symbols. On the resident ten that is a
-  ~7-word error: rows say SCE needs 2042 and openvcl 2040, `nm` says **2042 and 2040** but
-  for different programs, which is enough to call a build a 2-word overflow when it fits
-  exactly. Ask the built object:
+  ~7-word error — enough to call a build an overflow when it fits, or the reverse. `nm`
+  currently says **SCE 2028, openvcl 2026** against a 2042 ceiling; row counting says
+  neither. Ask the built object:
   ```bash
   docker run --rm -v "tyra-engine-<hash>:/tyra:ro" tyrax-toolchain:local sh -c 'mips64r5900el-ps2-elf-nm /tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o | grep -i Code'
   ```
@@ -740,19 +740,20 @@ banner both, so a previously built ELF still reports.
 - **A microprogram that does not fit can still be tested — pay for it with one that
   is smaller.** The ceiling is on the SET (2042 instructions), not on the program,
   so put the oversized candidate on openvcl together with the programs where openvcl
-  beats SCE (`cull_d` -3, `cull_td` -6) and the set fits again. That is what let
-  `stapip_clip_c` be booted at all, and it is how its miscompile was found while the
-  VU1-clipper set as a whole is still 28 words over.
+  beats SCE (`cull_d` -4, `cull_td` -8) and the set fits again. That is what let
+  `stapip_clip_c` be booted at all, and it is how its miscompile was found back when the
+  VU1-clipper set as a whole was still 28 words over. The whole set fits on either
+  assembler now, so this trick is for a *new* oversized candidate, not for the ten.
 - **Two VU1 assemblers exist now, and which one built your microcode matters.**
   `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
   source, no license). The from-source `openvcl` compiles all 25 programs since
   2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
   in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
   with it **runs, pixel-identical to Sony's output** - on the EE clipper, and on the
-  VU1 clipper for nine of the ten resident programs. `stapip_clip_c` is the last
-  blocker: it blanks `blocks-terrain` and `raytraced-mirror` and costs `vclab`
-  506784 of 514600 pixels. Its VU1 set fits since 2026-08-05 (2040
-  against SCE's 2042) and costs no measurable frames. It schedules
+  VU1 clipper for all ten resident programs (`stapip_clip_c`, the last one to blank
+  `blocks-terrain` and `raytraced-mirror`, was fixed by the register-liveness work).
+  The resident ten fit with room to spare: **2026 against SCE's 2028**, ceiling 2042,
+  at no measurable frame cost. openvcl schedules
   *differently* though, so **any VU1
   timing you measure belongs to one assembler, not to the engine**. Say which one
   in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`

@@ -66,12 +66,16 @@ ARG VCL_IMPL=legacy
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
 # Each one is measured in docs/toolchain-image.md; none is on by default in the tool
-# itself, and with all six the rendered frame is pixel-identical to the one Sony's
-# vcl produces while the resident VU1 set is SMALLER (2040 against SCE's 2042). The
-# Runner rebuilds the microcode when this string changes, so a bisection does not
-# need --rebuild - but check the log says "VU assembler changed" before trusting a
-# picture.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two"
+# itself, and with all ten the rendered frame is pixel-identical to the one Sony's
+# vcl produces while the resident VU1-clipper set is SMALLER (2026 against SCE's
+# 2028, ceiling 2042). The Runner rebuilds the microcode when this string changes,
+# so a bisection does not need --rebuild - but check the log says "VU assembler
+# changed" before trusting a picture.
+#
+# --pair-best-of-many supersedes --pair-best-of-two (its strategy table has that
+# pair as its first two entries); both are passed so a bisection can drop the
+# newer one and land on the older behaviour rather than on no best-of at all.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc

@@ -1548,6 +1548,105 @@ Upstream's 419 stay green and the image's `vcl` wrapper passes it, like the othe
 The last two were blank frames before this work. openvcl now builds every microprogram this
 engine has, the resident set fits micro memory, and the frames are Sony's frames.
 
+### `--pair-best-of-many`: a table of heuristics instead of two, and words instead of slots
+
+`--pair-best-of-two` established the shape of the fix - do not pick a scope, schedule the
+segment both ways and keep the shorter - and left the obvious question open: why two. A
+third variant costs compile time and **cannot** lengthen the output, because a variant that
+loses is discarded. So the two became a table.
+
+**What to put in the table came from the instrument.** `--show-pair-misses` now also names
+the pipe that went hungry (`primary=` / `starved=`), and aggregated over the ten resident
+programs it says the deficit was never one phenomenon:
+
+| program | openvcl - SCE, before | single-slot rows | `samePipe` | `notReady` |
+|---|---|---|---|---|
+| `stapip_clip_tce` | +10 | 484 | **313** | 114 |
+| `stapip_cull_tce` | +6 | 367 | **267** | 82 |
+| `stapip_clip_c` | 0 | 502 | 201 | **244** |
+
+The two env/matcap programs, which between them carried the whole deficit, are
+`samePipe`-bound: at the cycle the row goes out half empty *every* ready instruction wants
+the slot already taken. No choice of partner fixes that - there is none. `stapip_clip_c`,
+which already matched SCE exactly, is `notReady`-bound instead. One fixed heuristic was
+being asked to serve two different shortages, and that is what a table fixes.
+
+**Five knobs, swept, then trimmed to the winners.** The ready list's score is source order
+plus a stall penalty, minus bonuses for long-latency producers, latency loads, pipe
+alternation and critical-path height. Each became a strategy parameter, plus one that did
+not exist before: fill the row's free slot with the **least** valuable legal partner rather
+than the best one, leaving the valuable one to be a primary on a row of its own. A 26-entry
+sweep over the ten programs found only four points that ever produced a shorter segment; a
+second sweep of the two remaining dimensions found two more. The shipped table is those
+seven, and nothing else:
+
+| # | strategy | segments won | words saved |
+|---|---|---|---|
+| 0 | plain - what openvcl always did | - | - |
+| 1 | the `--pair-best-of-two` re-pick | 7 | 7 |
+| 2 | critical-path height at 1.5x | 5 | 5 |
+| 3 | height at 3x, with the re-pick | 3 | 6 |
+| 4 | stop hoisting divides and rsqrts ahead of everything | 1 | 2 |
+| 5 | cheapest legal partner | 3 | 5 |
+| 6 | cheapest legal partner, with the re-pick | 1 | 1 |
+
+Trimming to the winners is **exact, not an approximation**: the minimum over a subset that
+still contains every segment's argmin is the same minimum. The full 26 and these seven emit
+the same words, in a fifth of the compile time.
+
+**The comparison itself was also wrong.** `--pair-best-of-two` compared
+`std::vector::size()`, which counts a multi-cycle NOP padding slot as one entry - the code
+generator writes `min(emitCycleCount, cycleCount)` words for it, and exactly one for every
+other slot, `waitq`/`waitp` included, because `emitUpperWithWait` folds the wait into the
+same row. The table is compared on emitted words instead.
+
+| resident VU1 set (ceiling **2042**) | SCE | openvcl before | openvcl now |
+|---|---|---|---|
+| `stapip_cull_c` | 176 | **174** | **174** |
+| `stapip_cull_d` | 146 | **142** | **142** |
+| `stapip_cull_td` | 156 | **148** | **148** |
+| `stapip_cull_tc` | 182 | 182 | **180** |
+| `stapip_cull_tce` | 168 | 174 | 172 |
+| `stapip_clip_c` | 258 | 258 | **256** |
+| `stapip_clip_d` | 206 | 210 | 210 |
+| `stapip_clip_td` | 220 | 224 | 222 |
+| `stapip_clip_tc` | 270 | 270 | **268** |
+| `stapip_clip_tce` | 246 | 256 | 254 |
+| **total** | 2028 | 2038 | **2026 - smaller than Sony's vcl** |
+
+Six of the ten now match SCE or beat it, and what is left of the deficit is the two clip
+programs the env macro feeds (`clip_tce` +8, `clip_d` +4, `clip_td` +2, `cull_tce` +4).
+Off by default for the same reason as `--pair-best-of-two`, and it supersedes that flag when
+both are given - its table's first two entries *are* that pair, so the minimum it takes is
+over a superset and can never be worse.
+
+**Verified:** `vclab` with `clipping: "vu1"` built by this openvcl renders **0 of 514600
+pixels** different from Sony's build, with 0 asserts; all 25 microprograms compile and pass
+`dvp-as`; upstream's 419 assertions stay green. Check the build log says the VU assembler
+changed before trusting the picture - the flag string is what the Runner hashes, so a stale
+microcode volume will otherwise hand you the previous build's frame.
+
+The cost is compile time: eight trial schedules per segment instead of three. The ten
+resident programs take roughly a minute each on this machine against a few seconds before,
+which is paid once per microcode rebuild and not per game build.
+
+**Dead ends, every one measured over the ten resident programs. Do not repeat these:**
+
+- **Rewarding a candidate for unblocking an opposite-pipe successor.** This is the direct
+  answer to a `samePipe` shortage and the reason the knob was built at all. At two units of
+  critical-path height and at ten, with and without the re-pick, it **never once produced a
+  shorter segment**. Making other-pipe work ready one cycle sooner does not help when the
+  shortage is longer than one cycle - and in these programs it is a long run of one pipe,
+  not a one-cycle dip. The instrument pointed at a real phenomenon and the obvious remedy
+  for it is still the wrong one; what actually paid on the same programs was hoarding the
+  scarce pipe (strategy 5) rather than trying to manufacture more of it.
+- **Breaking ties toward later source order** instead of earlier - the sign of the score's
+  source-order term. Never wins, alone or combined with any other knob.
+- **The pipe-alternation bonus** at 0, 300 and 900 against its default 100: never wins.
+- **The latency-load bonus** at 0 and 900 against its default 300: never wins.
+- **Critical-path height** at 6, 10, 40, 100, 200 and 400: never wins. Only 30 and 60 do,
+  which is why the table carries exactly those two and no sweep of that axis is left to do.
+
 ### Reading the batches instead of the totals
 
 Two things made that possible. `--dump-vucap --full` prints every staged packet and every
