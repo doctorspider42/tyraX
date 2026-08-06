@@ -42,6 +42,12 @@ struct Item {
     uint32_t id = 0;
     std::string label;   // "Cross", "Live Link", "Pad 1" - as authored
     std::string window;  // the ImGui window it was submitted in
+    // Id of that window, which is the SEED ImGui hashed the widget's label with.
+    // It is what lets a label be found even when ImGui never reported one - see
+    // the id-hash fallback in find(). Combos are the whole reason: BeginCombo
+    // does not call the test-engine's ItemInfo hook at all, so every combo in
+    // the editor was nameless (and therefore unscriptable) until this.
+    uint32_t windowId = 0;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     // The WINDOW itself, which ImGui registers as an item covering the whole
     // window. Findable on purpose (an existence check wants it) but never

@@ -91,7 +91,8 @@ static check (per register *component*: written before the loop, read in the bod
 before the body writes it, written in the body) reports 9 of 25 for openvcl and 0 of
 25 for `vcl`.
 
-**The mechanism is NOT established, and the obvious guess is wrong.** "Liveness
+**The obvious guess is wrong**, and it cost months before the real mechanism turned up
+below. "Liveness
 ignores the back edge" does not survive testing: narrowing the register pool with
 `.init_vf vf01-vf03` and writing a value that is live across `b begin` while the body
 needs the whole pool — with and without an inner loop — makes openvcl **refuse
@@ -100,9 +101,34 @@ anything. So the trigger is narrower than "any value live across a backward bran
 and a minimal reproducer is still missing. Both attempts are in this session's
 scratch as `loopcarry.vcl`.
 
-For anyone picking it up: the engine-side workaround is to load per-batch values next
-to the store that reads them, inside the loop (it costs nothing and lowers register
-pressure), and the static check above is what stands in for a fix.
+**Since resolved, and the guard is the mechanism.** `extendLoopDirectiveRange` extends
+live ranges over a loop body, but the extension is all-or-nothing and returns early when
+the set would not fit the register file — which is exactly a silent licence to emit wrong
+code, because a value carried across the back edge then keeps a range ending at its last
+use *inside* the body and its register is handed to another name. The register-allocator
+work for §3 below covers this too, gated behind `--loop-liveness-always`, which both
+narrows the extended set to the aliases actually carried (first access inside the body is
+a read) and drops the early return so allocation fails loudly instead.
+
+Isolated by ablation on five engine programs whose sources have exactly this shape — GIF
+tags loaded above `begin:`, stored once per batch:
+
+| invocation | result |
+|---|---|
+| no flags | `as_is_c`, `as_is_tc`, `as_is_tce` clobber VF01 and 3–4 more |
+| `--loop-liveness-always` alone | clean |
+| nine other flags without it | the same three clobber |
+
+So this is **still live in upstream's default configuration**, and the flag is what closes
+it. In an emulator, the same five programs then render 0 of 514600 pixels different from
+`vcl`'s build of them.
+
+Still open: a *minimal* reproducer. Four attempts failed to make the guard fire (a 4–12
+register pool needing all of it refuses cleanly instead; 42 float aliases against 32
+registers, and 20 integer aliases against 16, both keep the extension; forcing order via
+a read-back of the just-stored quadword likewise). The programs that do trip it all have
+an **inner** loop, so the range extension runs twice over nested ranges — the untried
+hypothesis.
 
 ## 3. A loop-carried update lands in a register nobody reads
 

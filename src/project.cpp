@@ -16,7 +16,10 @@
 #include "history.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "menulayout.hpp"
+#include "menustyle.hpp"
 #include "objparser.hpp"
+#include "savebake.hpp"
 #include "templates.hpp"
 
 namespace fs = std::filesystem;
@@ -93,11 +96,68 @@ std::vector<int> Project::atlasFontIndices() const {
                 want(m.font);
                 break;
             }
+    // The save menu ALWAYS draws runtime text - its rows are "SLOT n" and the
+    // page counter, neither of which can be baked when the slot count is free.
+    // Without this its atlas would be missing and the rows would be blank.
+    for (const GameMenu& m : menus)
+        if (m.saveMenu) want(m.font);
     std::sort(out.begin(), out.end());
     return out;
 }
 
 namespace project {
+
+// --- display modes -----------------------------------------------------------
+// The host twin of Tyra::RendererSettings::updateGeometry (engine
+// inc/renderer/renderer_settings.hpp). Keep the two in step.
+const std::vector<DisplayModeInfo>& displayModes() {
+    static const std::vector<DisplayModeInfo> v = {
+        {"interlaced", "480i / 576i (interlaced)", 512, 448, false},
+        {"interlaced-field", "480i / 576i, field rendering", 512, 448, true},
+        {"progressive", "480p (progressive)", 448, 448, false},
+        {"1080i", "1080i (hi-def)", 448, 540, false},
+        {"pal576", "576i full PAL", 512, 512, false},
+    };
+    return v;
+}
+
+const DisplayModeInfo& displayModeInfo(const std::string& key) {
+    for (const DisplayModeInfo& d : displayModes())
+        if (key == d.key) return d;
+    return displayModes()[0];
+}
+
+std::string bootDisplayMode(const ProjectSettings& s) {
+    if (s.displayMode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
+        return "pal576";
+    return s.displayMode;
+}
+
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s) {
+    const std::string boot = bootDisplayMode(s);
+    std::vector<std::string> out{boot};
+    const std::vector<std::string> declared = supportedDisplayModes(s);
+    const bool any = !s.supportedModes.empty();
+    for (const DisplayModeInfo& d : displayModes()) {
+        if (d.key == boot) continue;
+        if (any) {
+            for (const std::string& k : declared)
+                if (k == d.key) out.push_back(d.key);
+        } else {
+            out.push_back(d.key);
+        }
+    }
+    return out;
+}
+
+std::vector<std::string> supportedDisplayModes(const ProjectSettings& s) {
+    std::vector<std::string> out;
+    for (const DisplayModeInfo& d : displayModes())
+        for (const std::string& k : s.supportedModes)
+            if (k == d.key) out.push_back(d.key);
+    if (out.empty()) out.push_back(bootDisplayMode(s));
+    return out;
+}
 
 static std::string writeFile(const fs::path& path, const std::string& content) {
     std::error_code ec;
@@ -1194,6 +1254,17 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
     json << "\"settings\": {\n"
          << "    \"videoSystem\": \"" << p.settings.videoSystem << "\",\n"
          << "    \"displayMode\": \"" << p.settings.displayMode << "\",\n"
+         << (p.settings.supportedModes.empty()
+                 ? ""
+                 : "    \"supportedModes\": [" +
+                       [&] {
+                           std::string list;
+                           for (size_t i = 0; i < p.settings.supportedModes.size(); ++i)
+                               list += (i ? ", \"" : "\"") +
+                                       p.settings.supportedModes[i] + "\"";
+                           return list;
+                       }() +
+                       "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
@@ -1538,6 +1609,28 @@ static void writeSaveDataSection(std::ostream& json, const Project& p) {
              << jsonEscape(p.saveTexts[i].name) << "\", \"default\": \""
              << jsonEscape(p.saveTexts[i].value) << "\" }";
     json << (p.saveTexts.empty() ? "]" : "\n  ]");
+    // Memory-card appearance (Tools > Save Editor): browser title and the
+    // icon geometry/animation the icon bake reads.
+    json << ",\n  \"saveTitle\": \"" << jsonEscape(p.saveTitle) << "\"";
+    json << ",\n  \"saveIcon\": \"" << jsonEscape(p.saveIcon) << "\"";
+    json << ",\n  \"saveIconModel\": \"" << jsonEscape(p.saveIconModel) << "\"";
+    json << ",\n  \"saveIconClip\": \"" << jsonEscape(p.saveIconClip) << "\"";
+    json << ",\n  \"saveIconFrames\": " << p.saveIconFrames;
+    json << ",\n  \"saveIconMotion\": \"" << jsonEscape(p.saveIconMotion) << "\"";
+    json << ",\n  \"saveIconMotionAmount\": " << fmtFloat(p.saveIconMotionAmount);
+    json << ",\n  \"saveMenuWritesCheckpoint\": "
+         << (p.saveMenuWritesCheckpoint ? "true" : "false");
+    json << ",\n  \"saveAutosaveSlot\": " << p.saveAutosaveSlot;
+    json << ",\n  \"saveSlotCount\": " << p.saveSlotCount;
+    json << ",\n  \"saveSlotsPerPage\": " << p.saveSlotsPerPage;
+    json << ",\n  \"saveAsync\": " << (p.saveAsync ? "true" : "false");
+    json << ",\n  \"saveSpinner\": " << (p.saveSpinner ? "true" : "false");
+    json << ",\n  \"saveSpinnerImage\": \"" << jsonEscape(p.saveSpinnerImage)
+         << "\"";
+    json << ",\n  \"saveSpinnerFrames\": " << p.saveSpinnerFrames;
+    json << ",\n  \"saveSpinnerCorner\": " << p.saveSpinnerCorner;
+    json << ",\n  \"saveSpinnerMargin\": " << fmtFloat(p.saveSpinnerMargin);
+    json << ",\n  \"saveSpinnerScale\": " << fmtFloat(p.saveSpinnerScale);
 }
 
 static void writeGradingsSection(std::ostream& json, const Project& p) {
@@ -1830,7 +1923,8 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
     static const char* kMenuActions[] = {"close",     "scene",     "save-menu",
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
-                                         "apply-video", "rebind", "credits"};
+                                         "apply-video", "rebind", "credits",
+                                         "label"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -1838,9 +1932,11 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
              << (m.titleScreen ? ", \"titleScreen\": true" : "")
              << (m.pauseGame ? "" : ", \"pause\": false")
              << (m.pauseMenu ? ", \"pauseMenu\": true" : "")
+             << (m.saveMenu ? ", \"saveMenu\": true" : "")
              << (m.panelW != 256 ? ", \"panelW\": " + std::to_string(m.panelW) : "")
              << (m.showTitle ? "" : ", \"showTitle\": false")
              << (m.font.empty() ? "" : ", \"font\": \"" + jsonEscape(m.font) + "\"")
+             << (m.style.empty() ? "" : ", \"style\": \"" + jsonEscape(m.style) + "\"")
              << (m.titleSize != 18 ? ", \"titleSize\": " + std::to_string(m.titleSize)
                                    : "")
              << (m.entrySize != 15 ? ", \"entrySize\": " + std::to_string(m.entrySize)
@@ -1872,7 +1968,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
             const int a =
-                (en.action >= 0 && en.action <= MenuEntry::PlayCredits) ? en.action : 0;
+                (en.action >= 0 && en.action <= MenuEntry::Label) ? en.action : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
                  << en.label << "\", \"action\": \"" << kMenuActions[a] << "\""
                  << (en.param.empty() ? "" : ", \"param\": \"" + en.param + "\"")
@@ -1900,6 +1996,14 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                 "input-preset"};
             if (en.settingBind >= 1 && en.settingBind <= 8)
                 json << ", \"bind\": \"" << kMenuBinds[en.settingBind] << "\"";
+            if (!en.styleClass.empty())
+                json << ", \"class\": \"" << jsonEscape(en.styleClass) << "\"";
+            if (!en.description.empty())
+                json << ", \"desc\": \"" << jsonEscape(en.description) << "\"";
+            if (!en.icon.empty())
+                json << ", \"icon\": \"" << jsonEscape(en.icon) << "\"";
+            if (!en.enabledWhen.empty())
+                json << ", \"enabledWhen\": \"" << jsonEscape(en.enabledWhen) << "\"";
             json << " }";
         }
         json << (m.entries.empty() ? "]" : "\n      ]") << " }";
@@ -2101,6 +2205,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Count: break;  // not a section
     }
     return ss.str();
 }
@@ -2124,6 +2229,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Count: break;  // not a section
     }
     return "unknown";
 }
@@ -2139,6 +2245,12 @@ static std::string manifestJson(const Project& p) {
     std::ostringstream json;
     json << "{\n"
          << "  \"name\": \"" << jsonEscape(p.name) << "\",\n"
+         // The on-disk format contract (gates opening + migrations) and the
+         // editor that wrote the file (informational only). See version.hpp.
+         // These ride the collaboration wire too - manifestFiles() ships these
+         // same bytes - so a peer sees the same stamp the file carries.
+         << "  \"formatVersion\": " << version::kFormatVersion << ",\n"
+         << "  \"editorVersion\": \"" << version::kEditorVersion << "\",\n"
          << "  \"template\": \"" << p.gameTemplate << "\"";
     // Omitted while empty so a project never born through ensureProjectId
     // round-trips unchanged (and the golden byte layout predates the key).
@@ -2262,6 +2374,42 @@ void ensureTextIcons(Project& p) {
     }
 }
 
+int saveMenuIndex(const Project& p) {
+    for (size_t i = 0; i < p.menus.size(); ++i)
+        if (p.menus[i].saveMenu) return (int)i;
+    return -1;
+}
+
+void ensureSaveMenu(Project& p) {
+    // More than one is a data error, not a choice: keep the first.
+    bool seen = false;
+    for (GameMenu& m : p.menus) {
+        if (!m.saveMenu) continue;
+        if (seen) m.saveMenu = false;
+        seen = true;
+    }
+    if (seen) return;
+    // Seeded to match the panel that used to ship as res/hud/save-menu.png:
+    // same title, same blue, same 256-wide panel, so a project that predates
+    // this looks exactly as it did.
+    GameMenu m;
+    m.name = "save";
+    m.title = "SAVE GAME";
+    m.saveMenu = true;
+    m.pauseGame = true;
+    m.panelW = 256;
+    m.screenPos[0] = 0.5f;
+    m.screenPos[1] = 0.45f;
+    m.accent[0] = 0.47f;
+    m.accent[1] = 0.82f;
+    m.accent[2] = 1.0f;
+    m.titleSize = 18;
+    m.entrySize = 15;
+    // No entries: the rows ARE the save slots and are laid out from
+    // Project::saveSlotsPerPage at bake time.
+    p.menus.push_back(m);
+}
+
 void ensureInputActions(Project& p) {
     // The bindings TyraX hardcoded before the Input Map existed (the old
     // controls.hpp defaults - see docs/keyboard-mouse.md), plus the new sprint
@@ -2358,6 +2506,8 @@ void seedBuiltinLayouts(Project& p) {
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
     p.windowLayouts.push_back(
         {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
+    p.windowLayouts.push_back({"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
+                               {"menus", "menupreview", "fonts"}});
     p.activeLayout = 0;
 }
 
@@ -2473,6 +2623,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureSaveMenu(out);
     ensureTextIcons(out);
     // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
     // what to press rather than a generic "USE" - and follows a rebind. Only on
@@ -3517,6 +3668,15 @@ static void readSettingsSection(const json::Value& root, Project& out) {
                                  ? dm
                                  : "interlaced";
         }
+        if (const auto* v = s->find("supportedModes");
+            v && v->type == json::Value::Type::Array) {
+            st.supportedModes.clear();
+            for (const auto& jm : v->arr) {
+                const std::string k = jm.stringOr("");
+                for (const DisplayModeInfo& d : displayModes())
+                    if (k == d.key) st.supportedModes.push_back(k);
+            }
+        }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
@@ -4043,6 +4203,75 @@ static void readSaveDataSection(const json::Value& root, Project& out) {
             if (!v.name.empty()) out.saveTexts.push_back(std::move(v));
         }
     }
+
+    // Absent in projects saved before the Save Editor - all default to ""
+    // (project-name title, built-in flat icon).
+    if (const auto* t = root.find("saveTitle")) out.saveTitle = t->stringOr("");
+    if (const auto* ic = root.find("saveIcon")) out.saveIcon = ic->stringOr("");
+    if (const auto* m = root.find("saveIconModel"))
+        out.saveIconModel = m->stringOr("");
+    if (const auto* c = root.find("saveIconClip"))
+        out.saveIconClip = c->stringOr("");
+    if (const auto* f = root.find("saveIconFrames")) {
+        out.saveIconFrames = (int)f->numberOr(6.0);
+        if (out.saveIconFrames < 1) out.saveIconFrames = 1;
+        if (out.saveIconFrames > 8) out.saveIconFrames = 8;
+    }
+    // A project written before the motion setting has neither key; "" is the
+    // sway every icon used to do, so those keep looking exactly as they did.
+    if (const auto* m = root.find("saveIconMotion"))
+        out.saveIconMotion = m->stringOr("");
+    if (const auto* a = root.find("saveIconMotionAmount")) {
+        out.saveIconMotionAmount = (float)a->numberOr(1.0);
+        if (out.saveIconMotionAmount < 0.25f) out.saveIconMotionAmount = 0.25f;
+        if (out.saveIconMotionAmount > 2.0f) out.saveIconMotionAmount = 2.0f;
+    }
+    if (const auto* v = root.find("saveMenuWritesCheckpoint"))
+        out.saveMenuWritesCheckpoint = v->boolOr(false);
+    // Read the counts BEFORE the autosave slot - its valid range depends on
+    // them, and JSON key order is not something a reader may rely on.
+    if (const auto* v = root.find("saveSlotCount")) {
+        out.saveSlotCount = (int)v->numberOr(3.0);
+        if (out.saveSlotCount < 1) out.saveSlotCount = 1;
+        if (out.saveSlotCount > kMaxSaveSlots) out.saveSlotCount = kMaxSaveSlots;
+    }
+    if (const auto* v = root.find("saveSlotsPerPage")) {
+        out.saveSlotsPerPage = (int)v->numberOr(3.0);
+        if (out.saveSlotsPerPage < 1) out.saveSlotsPerPage = 1;
+        if (out.saveSlotsPerPage > kMaxSaveSlotsPerPage)
+            out.saveSlotsPerPage = kMaxSaveSlotsPerPage;
+    }
+    if (const auto* v = root.find("saveAutosaveSlot")) {
+        out.saveAutosaveSlot = (int)v->numberOr(-1.0);
+        if (out.saveAutosaveSlot < -1 ||
+            out.saveAutosaveSlot >= out.saveSlotCount)
+            out.saveAutosaveSlot = -1;
+    }
+    if (const auto* v = root.find("saveAsync")) out.saveAsync = v->boolOr(false);
+    if (const auto* v = root.find("saveSpinner"))
+        out.saveSpinner = v->boolOr(true);
+    if (const auto* v = root.find("saveSpinnerImage"))
+        out.saveSpinnerImage = v->stringOr("");
+    if (const auto* v = root.find("saveSpinnerFrames")) {
+        out.saveSpinnerFrames = (int)v->numberOr(8.0);
+        if (out.saveSpinnerFrames < 1) out.saveSpinnerFrames = 1;
+        if (out.saveSpinnerFrames > 64) out.saveSpinnerFrames = 64;
+    }
+    if (const auto* v = root.find("saveSpinnerCorner")) {
+        out.saveSpinnerCorner = (int)v->numberOr(3.0);
+        if (out.saveSpinnerCorner < 0 || out.saveSpinnerCorner > 3)
+            out.saveSpinnerCorner = 3;
+    }
+    if (const auto* v = root.find("saveSpinnerMargin")) {
+        out.saveSpinnerMargin = (float)v->numberOr(20.0);
+        if (out.saveSpinnerMargin < 0.0f) out.saveSpinnerMargin = 0.0f;
+        if (out.saveSpinnerMargin > 200.0f) out.saveSpinnerMargin = 200.0f;
+    }
+    if (const auto* v = root.find("saveSpinnerScale")) {
+        out.saveSpinnerScale = (float)v->numberOr(1.0);
+        if (out.saveSpinnerScale < 0.4f) out.saveSpinnerScale = 0.4f;
+        if (out.saveSpinnerScale > 3.0f) out.saveSpinnerScale = 3.0f;
+    }
 }
 
 static void readGradingsSection(const json::Value& root, Project& out) {
@@ -4529,6 +4758,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                 m.pauseGame = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jm.find("pauseMenu"))
                 m.pauseMenu = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = jm.find("saveMenu"))
+                m.saveMenu = v->type == json::Value::Type::Bool && v->boolean;
             if (const auto* v = jm.find("panelW")) {
                 const int w = (int)v->numberOr(256);
                 m.panelW = (w == 128 || w == 512) ? w : 256;
@@ -4536,6 +4767,10 @@ static void readMenusSection(const json::Value& root, Project& out) {
             if (const auto* v = jm.find("showTitle"))
                 m.showTitle = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = jm.find("font")) m.font = v->stringOr("");
+            // The stylesheet key. An unknown one resolves to Classic through the
+            // registry rather than failing the load, so a project that lost its
+            // menu-styles/ folder still opens and still bakes.
+            if (const auto* v = jm.find("style")) m.style = v->stringOr("");
             if (const auto* v = jm.find("titleSize"))
                 m.titleSize = (int)v->numberOr(18);
             if (m.titleSize < 10) m.titleSize = 10;
@@ -4603,6 +4838,7 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "apply-video" ? MenuEntry::ApplyVideo
                                     : a == "rebind"    ? MenuEntry::RebindKey
                                     : a == "credits"   ? MenuEntry::PlayCredits
+                                    : a == "label"     ? MenuEntry::Label
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");
@@ -4640,6 +4876,13 @@ static void readMenusSection(const json::Value& root, Project& out) {
                             : b == "input-preset" ? MenuEntry::BindInputPreset
                                                  : MenuEntry::BindNone;
                     }
+                    if (const auto* v = je.find("class"))
+                        en.styleClass = v->stringOr("");
+                    if (const auto* v = je.find("desc"))
+                        en.description = v->stringOr("");
+                    if (const auto* v = je.find("icon")) en.icon = v->stringOr("");
+                    if (const auto* v = je.find("enabledWhen"))
+                        en.enabledWhen = v->stringOr("");
                     m.entries.push_back(std::move(en));
                 }
             }
@@ -4716,6 +4959,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Count: return false;  // not a section
     }
     return true;
 }
@@ -4743,6 +4987,26 @@ std::string load(Project& out, const std::string& projectDir) {
 
     out = Project{};
     out.dir = fs::path(projectDir).string();
+
+    // Format gate, before anything else is read: a file written by a NEWER
+    // editor is refused outright - this editor would silently drop the fields
+    // it does not know and destroy them on the next save. Older files load
+    // normally; the caller checks migrations::stepsFor(formatVersionOnDisk)
+    // to decide whether an (irreversible) migration prompt is needed.
+    out.formatVersionOnDisk = 0;  // no field = saved before versioning existed
+    if (const auto* v = root.find("formatVersion"))
+        out.formatVersionOnDisk = (int)v->numberOr(0);
+    if (out.formatVersionOnDisk > version::kFormatVersion) {
+        std::string wrote;
+        if (const auto* v = root.find("editorVersion")) wrote = v->stringOr("");
+        return tyraPath.filename().string() + " was saved by a newer editor" +
+               (wrote.empty() ? "" : " (TyraX " + wrote + ")") +
+               ": project format v" + std::to_string(out.formatVersionOnDisk) +
+               ", this editor (TyraX " + version::kEditorVersion +
+               ") reads up to v" + std::to_string(version::kFormatVersion) +
+               ". Update TyraX to open this project.";
+    }
+
     // Register the project's custom flow nodes BEFORE the graphs are parsed:
     // readFlowGraph drops any node whose type is unknown (line ~156), so a
     // "custom:*" node only survives the load if its .flownode file is present.
@@ -4751,6 +5015,10 @@ std::string load(Project& out, const std::string& projectDir) {
     // screen-effects/*.screenfx file by key, and a placement whose file is
     // missing is dropped (so a moved .tyra cannot silently keep a dead effect).
     screenfx::loadForProject(out.dir);
+    // Menu stylesheets, for the same reason: a menu names one by key and the
+    // bake resolves it through the registry, so the sheets have to be in place
+    // before the menus section is read.
+    menustyle::loadForProject(out.dir);
     if (const auto* v = root.find("name")) out.name = v->stringOr("");
     if (out.name.empty())
         return tyraPath.filename().string() + " is malformed (no name)";
@@ -4913,6 +5181,9 @@ std::string load(Project& out, const std::string& projectDir) {
     // (or one whose "input" key was hand-trimmed) gets exactly the bindings
     // that used to be hardcoded, so it plays the same.
     ensureInputActions(out);
+    // Same backfill for the save menu: a project from before it was editable
+    // has no saveMenu entry and would otherwise bake no save panel at all.
+    ensureSaveMenu(out);
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -4992,6 +5263,10 @@ std::string load(Project& out, const std::string& projectDir) {
         if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
             out.windowLayouts.push_back(
                 {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
+        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::MenuDesigner))
+            out.windowLayouts.push_back(
+                {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
+                 {"menus", "menupreview", "fonts"}});
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -5585,6 +5860,18 @@ std::string refreshGenerated(const Project& p) {
                     "/credits/pages/\n";
                 grew = true;
             }
+            // And again for the memory card icon: res/save/ is icon.sys +
+            // list.icn, rebaked from the .tyra on every build. Without this a
+            // project made before the Save Editor starts tracking tens of KB
+            // of derived bytes that churn whenever the icon settings change.
+            if (text.find("/save/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Baked memory card icon - icon.sys + list.icn, "
+                    "regenerated on every\n# build from the Save Editor's "
+                    "settings (docs/save-editor.md).\n/save/\n";
+                grew = true;
+            }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
         }
@@ -5688,6 +5975,59 @@ std::string refreshGenerated(const Project& p) {
         fs::create_directories(png.parent_path(), ec);
         std::ofstream f(png, std::ios::binary);
         if (f) f.write(reinterpret_cast<const char*>(a.data), (std::streamsize)a.size);
+    }
+    // "Checking memory card" overlay: baked text sprite, written when missing
+    // so it stays user-replaceable like the save-menu sprites above.
+    {
+        const fs::path busy = fs::path(p.dir) / "res" / "hud" / "save-busy.png";
+        std::error_code ec;
+        if (!fs::exists(busy, ec)) {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(savebake::busyText(), p, png))
+                return "Save overlay bake failed (no usable TTF font found)";
+            fs::create_directories(busy.parent_path(), ec);
+            std::ofstream f(busy, std::ios::binary);
+            if (!f) return "Cannot write save overlay: " + busy.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // The async write's spinner sheet, same write-when-missing rule so an
+    // author can drop in their own strip of savebake::kSpinnerFrames cells.
+    {
+        const fs::path spin = fs::path(p.dir) / "res" / "hud" / "save-spinner.png";
+        std::error_code ec;
+        if (!fs::exists(spin, ec)) {
+            std::vector<unsigned char> png;
+            if (!savebake::spinnerPNG(png)) return "Save spinner bake failed";
+            fs::create_directories(spin.parent_path(), ec);
+            std::ofstream f(spin, std::ios::binary);
+            if (!f) return "Cannot write save spinner: " + spin.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
+        }
+    }
+    // Memory card icon (icon.sys + list.icn): derived from project data
+    // (title, icon image), so always rebaked like the menu panels. The
+    // generated save system copies them onto the card next to the slots.
+    {
+        const fs::path saveDir = fs::path(p.dir) / "res" / "save";
+        std::error_code ec;
+        fs::create_directories(saveDir, ec);
+        const std::vector<unsigned char> sys = savebake::iconSys(p);
+        const std::vector<unsigned char> icn = savebake::iconIcn(p);
+        // Through writeFile, so an unchanged icon keeps its mtime. list.icn is
+        // the biggest thing this bake produces (tens of KB) and it is rebaked
+        // on EVERY build from unchanged project data - a raw rewrite made the
+        // Runner's rsync ship it to the container every time.
+        auto write = [&](const char* name,
+                         const std::vector<unsigned char>& bytes) {
+            return writeFile(saveDir / name,
+                             std::string(reinterpret_cast<const char*>(bytes.data()),
+                                         bytes.size()));
+        };
+        if (auto err = write("icon.sys", sys); !err.empty()) return err;
+        if (auto err = write("list.icn", icn); !err.empty()) return err;
     }
 
     // Lens flare sprites: procedural (no font), written whenever the project
@@ -5803,6 +6143,65 @@ std::string refreshGenerated(const Project& p) {
             if (!vf) return "Cannot write menu value strip: " + vpath.string();
             vf.write(reinterpret_cast<const char*>(strip.data()),
                      (std::streamsize)strip.size());
+        }
+
+        // The three textures a stylesheet can add (docs/menu-styles.md): the
+        // row-state atlas, the scrolling row strip and the description atlas.
+        // Each bake returns false when the menu does not need it, and that is
+        // also the signal to DELETE a stale file - a menu that stops scrolling
+        // must stop shipping a strip the game would still load into VRAM.
+        struct StyleTex {
+            bool (*bake)(const GameMenu&, const Project&,
+                         std::vector<unsigned char>&);
+            std::string (*name)(const std::string&);
+            const char* what;
+        };
+        static const StyleTex kStyleTex[] = {
+            {&menubake::bakeStateAtlasPNG, &menulayout::stateAtlasFileName,
+             "menu row states"},
+            {&menubake::bakeListPNG, &menulayout::listFileName, "menu row strip"},
+            {&menubake::bakeDescAtlasPNG, &menulayout::descAtlasFileName,
+             "menu descriptions"},
+            {&menubake::bakeBgAnimPNG, &menulayout::bgAnimFileName,
+             "menu background layer"},
+        };
+        for (const StyleTex& st : kStyleTex) {
+            const fs::path path =
+                fs::path(p.dir) / "res" / "menus" / st.name(m.name);
+            std::vector<unsigned char> png;
+            if (!st.bake(m, p, png)) {
+                std::error_code rec;
+                fs::remove(path, rec);
+                continue;
+            }
+            std::ofstream tf(path, std::ios::binary);
+            if (!tf)
+                return std::string("Cannot write ") + st.what + ": " + path.string();
+            tf.write(reinterpret_cast<const char*>(png.data()),
+                     (std::streamsize)png.size());
+        }
+    }
+
+    // The sheen band, shared by every menu whose sheet sweeps one. Procedural
+    // like the flare sprites, and written only while something uses it - a
+    // texture the game never draws still costs the disc and the loader.
+    {
+        bool wantSheen = false;
+        for (const GameMenu& m : p.menus)
+            wantSheen |= menustyle::animation(menulayout::sheetFor(m),
+                                              menustyle::Animation::Panel) != nullptr;
+        const fs::path path = fs::path(p.dir) / "res" / "menus" / "sheen.png";
+        std::error_code ec;
+        if (!wantSheen) {
+            fs::remove(path, ec);
+        } else {
+            std::vector<unsigned char> png;
+            if (!menubake::bakeSheenPNG(png)) return "Menu sheen bake failed";
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write menu sheen: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()),
+                    (std::streamsize)png.size());
         }
     }
 

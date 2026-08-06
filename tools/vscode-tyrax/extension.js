@@ -8,9 +8,24 @@
 // Keep the SPEC tables in sync with the editor parsers:
 //   flownode  -> src/flownode.cpp + docs/custom-flow-nodes.md
 //   screenfx  -> src/screenfx.cpp + docs/custom-screen-effects.md
+//
+// Menu stylesheets (.menustyle, docs/menu-styles.md) are a fourth language and
+// deliberately have NO entry here: they are CSS-shaped blocks rather than a
+// `key = value` header, and their property list is menustyle::propSpecs() in
+// src/menustyle.cpp - a copy of it in this file would drift the day someone adds
+// a property. Their grammar is therefore generic (anything before a ':' inside a
+// block is a property) and validation lives where the list already is: the Menu
+// Editor's Stylesheet tab reports every parse error with its line number.
+//
+// VU1 microprograms (.vclpp/.vcl/.vsm) are a third language and live in
+// ./vu.js - kept separate because their catalogue is NOT a table here at all.
+// The macros and the VU1_* addresses are read from the engine tree at
+// activation, so they cannot drift the way a copied SPEC would; only the
+// instruction set, which is fixed silicon, is written down (docs/vu-framework.md).
 "use strict";
 
 const vscode = require("vscode");
+const vu = require("./vu");
 
 // ---- Per-language specification --------------------------------------------
 
@@ -324,7 +339,30 @@ function activate(context) {
   const collection = vscode.languages.createDiagnosticCollection("tyrax");
   context.subscriptions.push(collection);
 
-  const run = (doc) => { if (SPEC[doc.languageId]) refreshDiagnostics(doc, collection); };
+  // VU1 microprograms. The catalogue scan is async and best-effort: with no
+  // engine tree in the workspace the instruction help still works, only the
+  // macro and address completions are missing.
+  const vuSelector = [{ language: vu.LANG }];
+  vu.loadCatalogue().catch(() => {});
+  const vuWatcher = vscode.workspace.createFileSystemWatcher(
+    "**/renderer/3d/pipeline/**/*.{i,h}"
+  );
+  vuWatcher.onDidChange(() => vu.loadCatalogue().catch(() => {}));
+  vuWatcher.onDidCreate(() => vu.loadCatalogue().catch(() => {}));
+  context.subscriptions.push(
+    vuWatcher,
+    vscode.languages.registerHoverProvider(vuSelector, { provideHover: vu.provideHover }),
+    vscode.languages.registerCompletionItemProvider(
+      vuSelector,
+      { provideCompletionItems: vu.provideCompletions },
+      ".", "{", " ", "_"
+    )
+  );
+
+  const run = (doc) => {
+    if (doc.languageId === vu.LANG) return vu.refreshDiagnostics(doc, collection);
+    if (SPEC[doc.languageId]) refreshDiagnostics(doc, collection);
+  };
   vscode.workspace.textDocuments.forEach(run);
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(run),

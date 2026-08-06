@@ -3547,12 +3547,14 @@ void Viewport::orbit(float dx, float dy) {
     if (projection_ > Projection::Ortho) {
         // Dragging out of a locked axis view: seed the orbit angles from the
         // axis the camera was on so the image continues from where it is
-        // instead of snapping back to a stale yaw/pitch, and drop only the
-        // direction lock - the parallel projection stays.
+        // instead of snapping back to a stale yaw/pitch, then return to the
+        // projection the camera had before the axis view was picked
+        // (setProjection keeps it) - perspective unless the user had chosen
+        // the free parallel one themselves.
         const CamView c = camView(fbWidth_, fbHeight_);
         pitch_ = std::asin(std::max(-1.0f, std::min(1.0f, -c.fwd[1])));
         yaw_ = std::atan2(-c.fwd[2], -c.fwd[0]);
-        projection_ = Projection::Ortho;
+        projection_ = orbitBase_;
     }
     yaw_ += dx * 0.01f;
     pitch_ += dy * 0.01f;

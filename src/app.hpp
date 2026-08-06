@@ -22,6 +22,8 @@
 #include "procbake.hpp"
 #include "matbake.hpp"
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
+#include "menulayout.hpp"  // the Menu Preview's row geometry
+#include "menustyle.hpp"  // the staged stylesheet the Style tab edits
 #include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "vucap.hpp"
@@ -38,6 +40,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "savebake.hpp"
 #include "viewport.hpp"
 
 struct GLFWwindow;
@@ -287,7 +290,12 @@ private:
     void openScenePreferences();  // stage the active scene into scenePref* + open
     void openProjectDialog();
     void applyProjectToViewport();
-    void addObject(PrimitiveType type);
+    // Appends a default object of `type`, selects it and rests it on whatever
+    // is under it. `commit` false leaves the commit to the caller: the preset
+    // wrappers below tweak the fresh object AFTER this returns, and one insert
+    // must be ONE undo step - committing here as well would make the first
+    // undo roll back only the tweak.
+    void addObject(PrimitiveType type, bool commit = true);
     void addEmitter(int kind);  // Effects menu presets (fire/smoke/fog/sparks)
     void addSoundEmitter();
     void addPointLight();
@@ -778,6 +786,7 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
@@ -843,6 +852,38 @@ private:
     // logical action - it pushes an undo snapshot and marks the project dirty.
     // The project is written to disk only on demand (Save / Ctrl+S / the
     // toolbar button); there is no autosave.
+    //
+    // commitChange() is the ONE verb for a model edit, project-wide data
+    // included. The undo snapshot only carries project_.scenes, so for a
+    // project-wide collection - menus, credits, loading screens, the Input
+    // Map, save values, per-asset overrides - history_.push() returns false
+    // and NO undo step appears; the commit still marks the project dirty and
+    // advances modelEditSerial_, which is what the collaboration / Live Link
+    // diff watches. That is why committing per widget costs nothing and why a
+    // panel must not reach for saveAll() instead: writing on every slider
+    // release rewrites the whole project AND the history file, clears the
+    // dirty flag so the toolbar save icon never lights, skips the serial bump,
+    // and silently persists whatever else the user had pending.
+    //
+    // saveAll() is for an explicit save COMMAND (Ctrl+S, File > Save, the
+    // toolbar button, the discard modal) or for an action whose file-system
+    // side effect the model must match on disk (asset import). Not for a
+    // widget. A `bool changed` flag accumulated over a window body is the
+    // usual trigger, but it is set by hand and the next widget added forgets
+    // it - so a window that owns a section pairs it with a comparison of
+    // project::sectionJson() across the whole body, which cannot be forgotten.
+    // EVERY project-wide panel carries that guard now (Save Editor, Menus,
+    // Credits, Loading Screens, UI Editor, icons, Fonts, Input Map, Animation
+    // Editor, Grading, Ambience, Cutscene Director, Prefabs) - copy the
+    // nearest one rather than inventing a third answer. The only saveAll()
+    // sites left are the five save commands, the three asset imports and the
+    // Drone Generator's render.
+    //
+    // View state is NOT an edit: the render mode, the projection and the
+    // active scene are read off the viewport by saveProject() and neither
+    // dirty the project nor write to disk (see setViewProjection). Editor
+    // state that IS stored in the .tyra but has no undo meaning - window
+    // layouts, debugger breakpoints - marks dirty directly with setDirty().
     void commitChange();
     void saveAll(const char* status);
     void applySnapshot(const SceneSnapshot& s);
@@ -1120,6 +1161,11 @@ private:
     std::vector<int> selection_;
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
+    // Scene-objects list filters (view state, per session - a filter that
+    // outlived a restart would hide objects nobody remembers hiding).
+    // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
+    std::string sceneFilterName_;
+    int sceneFilterType_ = -1;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
@@ -1188,6 +1234,10 @@ private:
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
+    // "Graph of" picker: list only objects that already own nodes (the ones
+    // the list marks with a *). View state, per session - like the Scene
+    // panel's filters above.
+    bool flowOnlyWithNodes_ = false;
     // Set every frame by drawFlowGraphWindow(): the Flow Graph window (or one of
     // its children) has keyboard focus, so Ctrl+C/V copy nodes, not scene objects.
     bool flowGraphFocused_ = false;
@@ -1468,6 +1518,80 @@ private:
     // the baked panel (re-baked whenever the menu's content changes)
     bool showMenusEditor_ = false;
     int selectedMenu_ = -1;
+
+    // Save Editor (Tools > Save Editor): live preview of the memory card
+    // icon texture + baked-icon stats (rebuilt when any icon setting
+    // changes), and the cached clip list of the picked .glb icon model.
+    bool showSaveEditor_ = false;
+    // ONE GL texture per animation shape of the baked icon, cycled on a timer
+    // so the panel previews the motion the PS2 browser will play, not a still.
+    // Rebuilt (and the old textures deleted) whenever saveIconPreviewKey_ -
+    // every input the bake reads - changes.
+    std::vector<unsigned> saveIconPreviewTex_;
+    std::string saveIconPreviewKey_;
+    // The spinner sheet, uploaded whole; the preview picks a cell with UVs and
+    // cycles them, so swapping a sheet in the picker is a visible change
+    // rather than something you find out about after a build.
+    void drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin);
+    unsigned saveSpinnerPreviewTex_ = 0;
+    int saveSpinnerPreviewW_ = 0, saveSpinnerPreviewH_ = 0;
+    std::string saveSpinnerPreviewKey_;
+    savebake::IconInfo saveIconInfo_;
+    std::string saveIconClipsModel_;
+    std::vector<std::string> saveIconClips_;
+    // --- the Menu Editor's Style tab (docs/menu-styles.md, menustyle_ui.cpp) --
+    // The staged stylesheet is what the widgets edit and what the preview bakes
+    // from; the file on disk is only written by Save. Style edits get their OWN
+    // undo stack - a stylesheet is not project data, so commitChange() must not
+    // see them (the Material Editor made the same call).
+    void drawMenuPreview(const GameMenu& m);
+    // The preview in three parts, because it is drawn in two windows and must
+    // not become two previews: refresh owns the bake, controls the mode picker
+    // and the simulated cursor, draw the image. The texture is shared - a
+    // display mode changes presentation, not what is baked.
+    bool menuPreviewRowUsable(const GameMenu& m, const menulayout::Layout& L,
+                              int row) const;
+    void menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir);
+    void menuPreviewRefresh(const GameMenu& m);
+    void menuPreviewControls(const GameMenu& m, int& mode);
+    void menuPreviewDraw(const GameMenu& m, int mode, float zoom);
+    void drawMenuPreviewWindow();
+    void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
+    void drawMenuStyleText(GameMenu& m, bool& projectChanged);
+    void drawMenuCost(const GameMenu& m);
+    void drawMenuStyleDeleteModal();
+    std::string menuStyleDeleteKey_;  // the sheet the confirm is about
+    void menuStyleSync(const GameMenu& m);
+    void menuStylePush();
+    void menuStyleEdited();
+    menustyle::Rule& menuStyleRule(const std::string& menuScope,
+                                   menustyle::Elem elem, const std::string& cls,
+                                   int state);
+    bool menuStyleProp(const GameMenu& m, menustyle::Elem elem,
+                       const std::string& cls, int state, menustyle::Prop prop);
+    bool menuStyleFileExists(const std::string& key) const;
+    std::string importMenuImage(const std::string& srcPath);
+    menustyle::Sheet menuStyleStaged_;
+    std::string menuStyleKey_;
+    bool menuStyleLoaded_ = false;
+    bool menuStyleDirty_ = false;
+    std::vector<menustyle::Sheet> menuStyleUndo_;
+    size_t menuStyleUndoAt_ = 0;
+    std::string menuStyleText_;             // canonical text of the staged sheet
+    std::vector<char> menuStyleTextBuf_;    // the raw tab's edit buffer
+    bool menuStyleScoped_ = false;          // write into a menu#<name> block
+    std::string menuStyleClass_;            // which row class the widgets edit
+    int menuPreviewRow_ = 0;                // simulated cursor row
+    int menuPreviewScroll_ = 0;             // first visible row of a long list
+    bool showMenuPreview_ = false;          // the standalone Menu Preview window
+    // The preview PLAYS the sheet's motion, with the same formulas the runtime
+    // uses - a transition you cannot see while authoring it is a transition you
+    // tune by rebuilding the game.
+    bool menuPreviewPlay_ = true;
+    float menuPreviewClock_ = 0.0f;
+    float menuPreviewOpenT_ = 1e9f;  // large = the open transition has finished
+    int menuPreviewWinMode_ = 0;            // its own display mode
+    float menuPreviewZoom_ = 2.0f;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
@@ -2049,6 +2173,7 @@ private:
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;
     bool newAiCopilot_ = false;
+    bool newAiCodex_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created

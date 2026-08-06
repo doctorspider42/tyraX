@@ -2,8 +2,10 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -21,7 +23,11 @@
 #include "livepad.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
+#include "vuasm.hpp"
+#include "vugen.hpp"
+#include "vusim.hpp"
 #include "app.hpp"
+#include "migrations.hpp"
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
@@ -297,6 +303,21 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// Shared gate for the headless commands: a project with pending format
+// migrations is refused instead of silently and irreversibly rewritten by a
+// script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
+// Purely additive format gaps pass (nothing to transform); files from a newer
+// editor never get here (project::load refuses them).
+static bool refuseUnmigrated(const Project& p) {
+    if (migrations::stepsFor(p.formatVersionOnDisk).empty()) return false;
+    std::fprintf(stderr,
+                 "error: project format v%d needs migration to v%d.\n"
+                 "Run: tyrax-editor --migrate <projectDir> (a backup is created "
+                 "automatically), or open the project in the editor.\n",
+                 p.formatVersionOnDisk, version::kFormatVersion);
+    return true;
+}
+
 static int buildFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -326,6 +347,7 @@ static int buildFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
 
@@ -363,11 +385,11 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but loading runs every format migration (e.g. stamping
-// stable object ids on pre-id projects), so this is the one-shot way to migrate
-// an existing project to the current on-disk format without opening the GUI -
-// handy for batch-migrating a team's projects before they switch to the
-// merge-friendly workflow.
+// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
+// stamping stable object ids on pre-id projects), so this refreshes a project
+// to the current on-disk format without opening the GUI. Projects with pending
+// REGISTERED migration steps (data transforms) are refused - that irreversible
+// path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr, "usage: tyrax-editor --resave <projectDir>\n");
@@ -378,6 +400,7 @@ static int resaveFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;
     if (std::string err = project::save(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -391,6 +414,63 @@ static int resaveFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("resaved: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// Headless helper: tyrax-editor.exe --migrate <projectDir>
+// The CLI twin of the editor's migration prompt: backs up the format-bearing
+// files into _backup/, applies the pending migration steps and rewrites the
+// project in the current format. Degrades to a plain resave when the project
+// only needs a version stamp. Disk is not touched when a step fails.
+// Writes the same set of files as --resave (manifest + heights + splat): a
+// migration that persisted less than a resave would DROP the data it skipped.
+static int migrateFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --migrate <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+    if (!steps.empty()) {
+        std::string backupDir;
+        if (std::string err = migrations::backup(p, p.formatVersionOnDisk, backupDir);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: backup failed, migration aborted (project not "
+                         "modified): %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("backup: %s\n", backupDir.c_str());
+        for (const auto* m : steps)
+            std::printf("migrating: v%d -> v%d: %s\n", m->from, m->from + 1,
+                        m->summary);
+        if (std::string err = migrations::run(p, p.formatVersionOnDisk);
+            !err.empty()) {
+            std::fprintf(stderr,
+                         "error: cannot migrate (project not modified): %s\n",
+                         err.c_str());
+            return 1;
+        }
+        p.formatVersionOnDisk = version::kFormatVersion;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveHeights(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::saveSplat(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("migrated: %s (format v%d)\n", p.dir.c_str(),
+                version::kFormatVersion);
     return 0;
 }
 
@@ -580,6 +660,7 @@ static int applyGraphFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;  // --apply-graph / --ai-graph rewrite the project
     if (!selectScene(p, sceneName)) return 1;
     const int idx = findObject(p, argv[3]);
     if (idx < 0) return 1;
@@ -626,6 +707,9 @@ static int refreshGenFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    // Gated like --build: bakeProcedural saves the project when a Scatter
+    // volume is stale, so this command can rewrite the manifest too.
+    if (refuseUnmigrated(p)) return 1;
     bakeProcedural(p);
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
@@ -735,6 +819,7 @@ static int aiGraphFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    if (refuseUnmigrated(p)) return 1;  // --apply-graph / --ai-graph rewrite the project
     if (!selectScene(p, sceneName)) return 1;
     const int idx = findObject(p, argv[3]);
     if (idx < 0) return 1;
@@ -786,23 +871,24 @@ static int aiGraphFromCli(int argc, char** argv) {
     return 0;
 }
 
-// tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
+// tyrax-editor.exe --add-ai-support <projectDir> [claude] [codex] [copilot]
 // Installs the AI assistant skills into an existing project (same files the
 // "Add AI support" option writes at project creation).
 static int aiSupportFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --add-ai-support <projectDir> "
-                     "[claude] [copilot]\n");
+                     "[claude] [codex] [copilot]\n");
         return 2;
     }
-    bool claude = false, copilot = false;
+    bool claude = false, copilot = false, codex = false;
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "claude") == 0) claude = true;
+        if (std::strcmp(argv[i], "codex") == 0) codex = true;
         if (std::strcmp(argv[i], "copilot") == 0) copilot = true;
     }
-    if (!claude && !copilot) claude = true;  // default: Claude
-    const std::string status = aisupport::install(argv[2], claude, copilot);
+    if (!claude && !copilot && !codex) claude = true;  // default: Claude
+    const std::string status = aisupport::install(argv[2], claude, copilot, codex);
     std::printf("%s\n", status.c_str());
     return status.rfind("error:", 0) == 0 ? 1 : 0;
 }
@@ -1320,7 +1406,543 @@ static int dumpVuCapFromCli(int argc, char** argv) {
     return 0;
 }
 
+// The in-tree Tyra engine, whose .vclpp programs the VU framework reads as its
+// reference implementation. Same resolution templates.cpp uses for the build
+// container's bind mount; an explicit argument always wins.
+static std::string vuEngineDir(const char* override) {
+    namespace fs = std::filesystem;
+    if (override && *override) return override;
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        std::error_code ec;
+        const fs::path candidate =
+            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+        if (fs::exists(candidate / "Makefile", ec))
+            return fs::weakly_canonical(candidate, ec).string();
+    }
+    return "vendor/tyra/engine";
+}
+
+// Usage:
+//   tyrax-editor --vu-check [engineDir]
+//
+// The VU framework's self-test, and the reason it can claim anything (see
+// docs/vu-framework.md): parse EVERY handwritten .vclpp the engine ships, build
+// the described programs from their C++ descriptions, run both in the host VU1
+// simulator on identical randomized input, and diff what they staged for the GS
+// quadword by quadword. No Docker, no PCSX2, no console.
+static int vuCheckFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    const std::string engine = vuEngineDir(argc > 2 ? argv[2] : nullptr);
+    std::printf("engine: %s\n\n", engine.c_str());
+
+    std::error_code ec;
+    if (!fs::exists(fs::path(engine) / "src", ec)) {
+        std::fprintf(stderr,
+                     "error: no engine sources at %s\n"
+                     "       pass the path: --vu-check <engineDir>\n",
+                     engine.c_str());
+        return 1;
+    }
+
+    // 1. Every handwritten program must parse.
+    std::vector<std::string> files;
+    for (const auto& e : fs::recursive_directory_iterator(fs::path(engine) / "src", ec))
+        if (e.is_regular_file() && e.path().extension() == ".vclpp")
+            files.push_back(e.path().string());
+    std::sort(files.begin(), files.end());
+
+    int parsed = 0, parseFailed = 0;
+    std::printf("-- parsing the handwritten programs --\n");
+    for (const std::string& f : files) {
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program p;
+        std::string err;
+        if (vuasm::parseFile(f, opt, p, err)) {
+            ++parsed;
+            std::printf("  %-42s %4d instructions\n",
+                        fs::path(f).filename().string().c_str(), (int)p.code.size());
+            for (const std::string& n : p.notes)
+                std::printf("      note: %s\n", n.c_str());
+        } else {
+            ++parseFailed;
+            std::printf("  %-42s FAILED: %s\n",
+                        fs::path(f).filename().string().c_str(), err.c_str());
+        }
+    }
+    std::printf("  %d parsed, %d failed\n\n", parsed, parseFailed);
+
+    // 2. Every described program must be bit-identical to its handwritten twin.
+    int mismatches = 0;
+    std::vector<std::pair<std::string, const vuir::Program*>> set;
+    std::vector<vugen::Built> built;
+    built.reserve(vugen::allAsIsDescs().size());
+    std::printf("-- generated vs handwritten, in the simulator --\n");
+    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+        built.push_back(vugen::build(d));
+        const vugen::Built& b = built.back();
+        for (const std::string& n : b.notes) std::printf("  note: %s\n", n.c_str());
+        if (b.program.code.empty()) continue;
+
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program hand;
+        std::string err;
+        const std::string path =
+            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" / "static" /
+             "core" / "programs" / d.dir / (d.fileStem + ".vclpp"))
+                .string();
+        if (!vuasm::parseFile(path, opt, hand, err)) {
+            std::printf("  %-16s could not read the reference: %s\n",
+                        d.vclName.c_str(), err.c_str());
+            ++mismatches;
+            continue;
+        }
+        const vugen::Equivalence eq =
+            vugen::equivalence(hand, b.program, d, 60, 0x5eed1234u);
+        std::printf("  %-16s %-9s %d trials, up to %d vertices\n", d.vclName.c_str(),
+                    eq.identical ? "IDENTICAL" : "DIFFERENT", eq.trials, eq.vertices);
+        if (!eq.identical) {
+            ++mismatches;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+    }
+    std::printf("\n");
+
+    // 3. The emitted SOURCE must behave like the IR it came from.
+    //
+    // This is not paranoia, it is the check whose absence shipped a broken
+    // engine build: everything above compares the in-memory IR, and the file
+    // that actually reaches vclpp is produced by a separate text emitter. Parse
+    // the emitted text back and run the same equivalence over it, so a program
+    // is only "generated" once the bytes on disk are proven too.
+    int roundTripFails = 0;
+    std::printf("-- emitted source, parsed back and re-run --\n");
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Built& b = built[i];
+        if (b.program.code.empty() || b.vclpp.empty()) continue;
+        const vugen::Desc d = vugen::allAsIsDescs()[i];
+        vuasm::Options opt;  // the emitted source has no #includes by design
+        vuir::Program back;
+        std::string err;
+        if (!vuasm::parseText(b.vclpp, d.fileStem + ".vclpp", opt, back, err)) {
+            std::printf("  %-16s EMITTED SOURCE DOES NOT PARSE: %s\n",
+                        d.vclName.c_str(), err.c_str());
+            ++roundTripFails;
+            continue;
+        }
+        const vugen::Equivalence eq =
+            vugen::equivalence(b.program, back, d, 30, 0x51DE0FFEu);
+        std::printf("  %-16s %-9s %d instructions in, %d parsed back\n",
+                    d.vclName.c_str(), eq.identical ? "MATCHES" : "DIFFERENT",
+                    (int)b.program.code.size(), (int)back.code.size());
+        if (!eq.identical) {
+            ++roundTripFails;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+        for (const std::string& n : back.notes)
+            std::printf("      note: %s\n", n.c_str());
+    }
+    std::printf("\n");
+
+    // 4. The micro-memory budget for the generated set.
+    for (const vugen::Built& b : built)
+        if (!b.program.code.empty()) set.push_back({b.program.name, &b.program});
+    const vugen::Budget bud = vugen::budget(set);
+    std::printf("-- VU1 micro memory (%d slots, %d usable below the draw-finish "
+                "helper) --\n", vugen::kMicroMemSlots, bud.ceiling);
+    for (const vugen::BudgetEntry& e : bud.entries)
+        std::printf("  %-16s %4d instructions -> %4d..%4d slots\n", e.name.c_str(),
+                    e.emitted, e.slotsMin, e.slotsMax);
+    std::printf("  %-16s %4s %17d..%4d slots  %s\n", "TOTAL", "",
+                bud.totalMin, bud.totalMax,
+                bud.certainlyFits()      ? "fits"
+                : bud.certainlyOverflows() ? "OVERFLOWS"
+                                           : "depends on how VCL pairs them");
+    std::printf(
+        "  (a range, not a number: VCL packs an upper and a lower op into one\n"
+        "   64-bit slot when it can, so the exact size is only known after it "
+        "runs)\n\n");
+
+    const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0;
+    std::printf("%s\n", ok ? "PASS - every described program matches its "
+                             "handwritten twin bit for bit"
+                           : "FAIL");
+    return ok ? 0 : 1;
+}
+
+// Usage:
+//   tyrax-editor --vu-emit <outDir> [engineDir]
+//
+// Writes the generated .vclpp and the matching EE-side program class for every
+// described program. Deliberately NOT written straight into vendor/tyra: adopting
+// generated microcode is a change that has to be built in Docker and looked at on
+// hardware, so this stages it for a human to diff first.
+static int vuEmitFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --vu-emit <outDir> [engineDir]\n");
+        return 2;
+    }
+    const fs::path out = argv[2];
+    std::error_code ec;
+    fs::create_directories(out, ec);
+    int written = 0;
+    for (const vugen::Desc& d : vugen::allAsIsDescs()) {
+        const vugen::Built b = vugen::build(d);
+        for (const std::string& n : b.notes) std::printf("note: %s\n", n.c_str());
+        if (b.vclpp.empty()) continue;
+        const std::pair<std::string, const std::string*> files[] = {
+            {d.fileStem + ".vclpp", &b.vclpp},
+            {d.fileStem + "_program.cpp", &b.eeSource},
+            {d.fileStem + "_program.hpp", &b.eeHeader},
+        };
+        for (const auto& f : files) {
+            std::ofstream o((out / f.first).string(), std::ios::binary);
+            if (!o) {
+                std::fprintf(stderr, "error: cannot write %s\n", f.first.c_str());
+                return 1;
+            }
+            o << *f.second;
+            ++written;
+        }
+        std::printf("%-32s %4d instructions, %d tag quadwords, %d GS regs/vertex\n",
+                    d.fileStem.c_str(), (int)b.program.code.size(), b.tagQuads,
+                    b.regsPerVertex);
+    }
+    std::printf("\n%d files written to %s\n", written, out.string().c_str());
+    return 0;
+}
+
+// Usage:
+//   tyrax-editor --vu-list <file.vclpp> [engineDir]
+//
+// Expands and disassembles one microprogram - what the framework actually sees
+// after the vclpp layer, which is the first thing to look at when a program does
+// something you did not write.
+static int vuListFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --vu-list <file.vclpp> [engineDir]\n");
+        return 2;
+    }
+    vuasm::Options opt;
+    opt.includeRoot = vuEngineDir(argc > 3 ? argv[3] : nullptr);
+    vuir::Program p;
+    std::string err;
+    if (!vuasm::parseFile(argv[2], opt, p, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("; %s - %d instructions, %d VF names, %d VI names\n", p.name.c_str(),
+                (int)p.code.size(), (int)p.vfNames.size(), (int)p.viNames.size());
+    for (const std::string& n : p.notes) std::printf("; note: %s\n", n.c_str());
+    std::printf("%s", vusim::listing(p).c_str());
+    return 0;
+}
+
+// Usage:
+//   tyrax-editor --vu-replay <projectDir> [engineDir]
+//
+// Takes a VU1 capture off a real console (bin/vucap.bin - Debugger > VU, or
+// docs/devkit.md) and RE-RUNS it on the host, then diffs the result against what
+// the hardware actually produced. See docs/vu-framework.md.
+//
+// The capture happens to contain both halves of the experiment: the DMA chain
+// the EE built (the input) and a snapshot of all 1024 quadwords of VU1 data
+// memory taken once the microprogram went idle (the output). So the input can be
+// reconstructed, fed to the simulator, and the answer compared against the
+// console's own.
+//
+// Two things the capture does NOT record are found by SEARCH rather than
+// assumed, which turns out to be the more useful design: which microprogram ran
+// (the chain carries an MSCAL entry address, and an address is only meaningful
+// against a program layout the host does not have), and which half of the double
+// buffer it ran from. Every candidate is tried and the one that reproduces the
+// hardware output is reported - so the tool answers "which program drew this?"
+// with evidence instead of a label, and a run where NOTHING matches is itself
+// the finding.
+static int vuReplayFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --vu-replay <projectDir> [engineDir]\n");
+        return 2;
+    }
+    Project proj;
+    const std::string perr = project::load(proj, argv[2]);
+    if (!perr.empty()) {
+        std::fprintf(stderr, "error: %s\n", perr.c_str());
+        return 1;
+    }
+    const std::string capPath = (fs::path(proj.dir) / "bin" / "vucap.bin").string();
+    vucap::Capture cap;
+    if (!vucap::load(capPath, cap)) {
+        std::fprintf(stderr, "error: %s (%s)\n", cap.error.c_str(), capPath.c_str());
+        return 1;
+    }
+    std::printf("capture: frame %u, %d quadwords, %d mesh(es), flush %d of %d\n",
+                cap.frame, cap.qw, (int)cap.meshes.size(), cap.flushIndex,
+                cap.flushCount);
+    if (!cap.hasVuMem) {
+        std::fprintf(stderr,
+                     "error: this capture has no VU1 memory snapshot, so there is "
+                     "nothing to compare against.\n"
+                     "       Re-arm it from Debugger > VU (a v3 or newer capture).\n");
+        return 1;
+    }
+
+    // Every microprogram the engine ships is a candidate.
+    const std::string engine = vuEngineDir(argc > 3 ? argv[3] : nullptr);
+    std::error_code ec;
+    std::vector<std::string> files;
+    for (const auto& e : fs::recursive_directory_iterator(fs::path(engine) / "src", ec))
+        if (e.is_regular_file() && e.path().extension() == ".vclpp")
+            files.push_back(e.path().string());
+    std::sort(files.begin(), files.end());
+    if (files.empty()) {
+        std::fprintf(stderr, "error: no .vclpp programs under %s\n", engine.c_str());
+        return 1;
+    }
+
+    // The two halves of the StaPip double buffer (stapip_qbuffer_renderer.cpp:
+    // starting address VU1_STAPIP_LAST_ITEM_ADDR + 1, size split evenly below
+    // VU1_STAPIP_DBUFFER_END). The capture does not say which one this run used.
+    const int kStart = 22, kEnd = 944;
+    const int half = (kEnd - kStart) / 2;
+    const int topsCandidates[2] = {kStart, kStart + half};
+
+    // Reconstruct the input. The constants the object-data chain uploaded
+    // (matrices, tags, fog) are not in THIS chain - but they survive in the
+    // captured memory, because nothing in the run overwrites quadwords 0..21.
+    // So those are copied from the snapshot and the chain's unpacks are replayed
+    // on top of an OTHERWISE ZEROED memory.
+    //
+    // Zeroing the rest is the load-bearing part, and seeding from the whole
+    // snapshot instead was the first version's bug: the console's own output
+    // packet is still sitting in that memory, so the packet scan found it no
+    // matter what the simulated program did, and every one of the 25 candidates
+    // "reproduced" the capture. A comparison that cannot fail proves nothing.
+    // With the output area zeroed, a packet found afterwards was written by
+    // THIS run.
+    const int kConstQuads = 22;  // VU1_STAPIP_LAST_ITEM_ADDR + 1
+
+    // Only the LAST mesh of the chain can be replayed: its output is the one
+    // still in the snapshot, everything before it has been overwritten. Each
+    // mesh's upload starts with the 2-quadword buffer header at +TOPS offset 0,
+    // so the final group is everything from the last such unpack onward.
+    // (Grouping by `Unpack::program` is not enough - consecutive meshes often
+    // run the SAME microprogram, and their two buffer halves would be merged
+    // into one incoherent image.)
+    size_t groupStart = 0;
+    for (size_t i = 0; i < cap.unpacks.size(); ++i)
+        if (cap.unpacks[i].useTops && cap.unpacks[i].vuAddr == 0) groupStart = i;
+
+    // The clip programs read a six-plane table the EE uploads per mesh into the
+    // scratch above the double buffer (VU1_CLIP_PLANES_ADDR, stapip_vu1_shared
+    // _defines.h). It is not in this chain either, and zeroing it makes every
+    // clip program cut everything away - so it is carried over from the snapshot
+    // exactly like the low constants are.
+    const int kScratchFrom = 944;  // VU1_STAPIP_DBUFFER_END
+    auto stage = [&](int tops) {
+        std::vector<uint32_t> mem(vusim::kMemWords, 0u);
+        for (int i = 0; i < kConstQuads * 4 && i < (int)cap.vuMem.size(); ++i)
+            mem[i] = cap.vuMem[i];
+        for (int i = kScratchFrom * 4;
+             i < vusim::kMemWords && i < (int)cap.vuMem.size(); ++i)
+            mem[i] = cap.vuMem[i];
+        for (size_t k = groupStart; k < cap.unpacks.size(); ++k) {
+            const vucap::Unpack& u = cap.unpacks[k];
+            const int base = (u.useTops ? tops : 0) + (int)u.vuAddr;
+            for (size_t i = 0; i < u.words.size(); ++i) {
+                const size_t at = (size_t)base * 4 + i;
+                if (at < mem.size()) mem[at] = u.words[i];
+            }
+        }
+        return mem;
+    };
+
+    // Which quadwords the EE itself wrote. A "match" inside this range is the
+    // input echoing itself, not a program reproducing an output - the first
+    // version compared the biggest geometry packet in memory and that packet
+    // turned out to be the EE's own PRIM tag at buffer+1 followed by the vertex
+    // array, read as GS vertices. Every candidate matched it. Anything the
+    // comparison lands on has to be OUTSIDE what the chain uploaded.
+    auto unpackTouches = [&](int tops, int qw0, int qw1) {
+        for (const vucap::Unpack& u : cap.unpacks) {
+            const int base = (u.useTops ? tops : 0) + (int)u.vuAddr;
+            const int end = base + (int)(u.words.size() / 4);
+            if (qw0 < end && base < qw1) return true;
+        }
+        return false;
+    };
+    // The first geometry packet at or after `start` in a memory image.
+    auto packetAt = [](const std::vector<uint32_t>& mem, int start,
+                       vucap::GifPacket& out) {
+        std::vector<vucap::GifPacket> all;
+        vucap::scanGifPackets(mem, all);
+        for (const vucap::GifPacket& g : all)
+            if (g.vuAddr >= start && g.hasGeometry) {
+                out = g;
+                return true;
+            }
+        return false;
+    };
+
+    struct Hit {
+        std::string file, name;
+        int tops = 0, kick = 0, verts = 0, mismatched = 0;
+        std::string regs, prim;
+        std::vector<std::string> worst;  // the biggest per-vertex deltas
+    };
+    std::vector<Hit> exact, near;
+    int ran = 0, kicked = 0, echo = 0;
+
+    for (const std::string& f : files) {
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program prog;
+        std::string err;
+        if (!vuasm::parseFile(f, opt, prog, err)) continue;
+
+        for (int tops : topsCandidates) {
+            vusim::Config cfg;
+            cfg.top = tops;
+            const vusim::Result r = vusim::run(prog, stage(tops), cfg);
+            if (!r.ok || r.kicks.empty()) continue;
+            ++ran;
+
+            // Compare at the address THIS program says it kicked - that is where
+            // the GS would have read from, so it is where the console's memory
+            // must agree if the same program produced it.
+            const int kick = r.kicks.front();
+            vucap::GifPacket mine, theirs;
+            if (!packetAt(r.mem, kick, mine)) continue;
+            if (!packetAt(cap.vuMem, kick, theirs)) continue;
+            ++kicked;
+            if (mine.verts.size() != theirs.verts.size()) continue;
+            if (mine.verts.empty()) continue;
+            const int qw0 = mine.vuAddr;
+            const int qw1 = qw0 + 1 + mine.nloop * mine.nreg;
+            if (unpackTouches(tops, qw0, qw1)) {
+                ++echo;
+                continue;  // inside the EE's own upload: proves nothing
+            }
+
+            int bad = 0;
+            std::vector<std::pair<long long, std::string>> deltas;
+            for (size_t i = 0; i < mine.verts.size(); ++i) {
+                const vucap::GsVertex& a = theirs.verts[i];
+                const vucap::GsVertex& b = mine.verts[i];
+                // ST is compared as BITS, and it is what separates otherwise
+                // identical candidates: for a mesh entirely inside the frustum
+                // the cull and clip families stage the same positions, and only
+                // the texture coordinates say whether the matcap variant ran.
+                if (a.x != b.x || a.y != b.y || a.z != b.z || a.r != b.r ||
+                    a.g != b.g || a.b != b.b || a.a != b.a ||
+                    std::memcmp(&a.s, &b.s, 4) != 0 ||
+                    std::memcmp(&a.t, &b.t, 4) != 0) {
+                    ++bad;
+                    const long long dx = std::llabs((long long)a.x - b.x);
+                    const long long dy = std::llabs((long long)a.y - b.y);
+                    const long long dz =
+                        std::llabs((long long)a.z - (long long)b.z);
+                    char line[192];
+                    std::snprintf(line, sizeof line,
+                                  "v%-3d dx=%lld dy=%lld dz=%lld   hw "
+                                  "(%d,%d,%u) sim (%d,%d,%u)",
+                                  (int)i, dx, dy, dz, a.x, a.y, a.z, b.x, b.y,
+                                  b.z);
+                    deltas.push_back({dx + dy + dz, line});
+                }
+            }
+            std::sort(deltas.begin(), deltas.end(),
+                      [](const std::pair<long long, std::string>& p,
+                         const std::pair<long long, std::string>& q) {
+                          return p.first > q.first;
+                      });
+            Hit h{fs::path(f).filename().string(),
+                  prog.name,
+                  tops,
+                  kick,
+                  (int)mine.verts.size(),
+                  bad,
+                  mine.regs,
+                  mine.primName(),
+                  {}};
+            for (size_t k = 0; k < deltas.size() && k < 4; ++k)
+                h.worst.push_back(deltas[k].second);
+            (bad == 0 ? exact : near).push_back(h);
+        }
+    }
+    std::printf("%d candidate runs kicked a packet, %d had one to compare, "
+                "%d landed inside the EE's own upload and were discarded\n\n",
+                ran, kicked, echo);
+
+    if (!exact.empty()) {
+        std::printf("REPRODUCED - the host simulator produced the console's "
+                    "packet exactly:\n");
+        for (const Hit& h : exact)
+            std::printf("  %-32s (%s)\n      buffer half %d, kicked quadword %d, "
+                        "%s [%s], %d/%d vertices identical\n",
+                        h.file.c_str(), h.name.c_str(), h.tops, h.kick,
+                        h.prim.c_str(), h.regs.c_str(), h.verts, h.verts);
+        std::printf(
+            "\nEvery GS vertex matches bit for bit - screen X/Y in 12.4, the "
+            "24-bit Z\nand the clamped colours. The program above is what drew "
+            "this packet, and\nthe simulator agrees with the hardware on it.\n");
+        return 0;
+    }
+
+    std::printf("NOT REPRODUCED - no shipped microprogram replayed into the "
+                "console's packet.\n\n");
+    if (near.empty()) {
+        std::printf(
+            "No candidate produced a comparable packet outside the EE's own\n"
+            "upload. That usually means the reconstruction is wrong rather than\n"
+            "any program: this chain carries several meshes and only the LAST\n"
+            "one's output survives in the snapshot, and the per-mesh constants\n"
+            "come from an object-data chain this capture does not contain.\n");
+    } else {
+        std::printf("Closest candidates (same vertex count, differing values):\n");
+        std::sort(near.begin(), near.end(),
+                  [](const Hit& a, const Hit& b) { return a.mismatched < b.mismatched; });
+        for (size_t i = 0; i < near.size() && i < 6; ++i)
+            std::printf("  %-32s half %d, kick %d: %d of %d vertices differ\n",
+                        near[i].file.c_str(), near[i].tops, near[i].kick,
+                        near[i].mismatched, near[i].verts);
+        // HOW they differ decides what the near miss means, and printing the
+        // count alone is not enough to tell those apart: a handful of vertices
+        // off by one unit in the last place is arithmetic, every vertex off by
+        // hundreds is the wrong program or the wrong input.
+        if (!near[0].worst.empty()) {
+            std::printf("\nWorst vertices of the closest candidate (%s):\n",
+                        near[0].file.c_str());
+            for (const std::string& w : near[0].worst)
+                std::printf("  %s\n", w.c_str());
+        }
+        std::printf(
+            "\nA near miss is worth reading, not dismissing: identical vertex\n"
+            "counts with differing values means the right program ran and one\n"
+            "input differs - the per-mesh constants the object-data chain\n"
+            "uploaded are NOT in this capture, so a matrix or a fog parameter\n"
+            "read from the snapshot may belong to a later mesh.\n");
+    }
+    return 1;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
+        return vuCheckFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)
+        return vuEmitFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-list") == 0)
+        return vuListFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--vu-replay") == 0)
+        return vuReplayFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--debug-state") == 0)
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
@@ -1336,6 +1958,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--migrate") == 0) return migrateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
@@ -1367,7 +1990,17 @@ int main(int argc, char** argv) {
             "game's controller (docs/remote-pad.md)\n"
             "  --ui-script [projectDir] \"<script>\"     drive the EDITOR's own "
             "UI (docs/ui-scripting.md)\n"
+            "  --vu-check [engineDir]                  run every microprogram "
+            "in the host VU1 simulator\n"
+            "  --vu-emit <outDir> [engineDir]          generate .vclpp + the EE "
+            "program classes\n"
+            "  --vu-list <file.vclpp> [engineDir]      expand and disassemble "
+            "one microprogram\n"
+            "  --vu-replay <projectDir> [engineDir]    re-run a console VU1 "
+            "capture on the host and diff it\n"
             "  --resave <projectDir>\n"
+            "  --migrate <projectDir>                  backup + apply pending "
+            "format migrations (docs/format-versioning.md)\n"
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"

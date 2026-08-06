@@ -58,6 +58,15 @@ whatever the change affected.
   - `tyra-pr` — the PR workflow or a new conflict hot spot.
   - this skill (`tyra-docs`) — if the set of docs or the rule itself changes.
 
+  **`.agents/skills/` is the Codex twin of this directory and moves with it, in
+  the same commit** — the same rule as the platform pairs above. The Claude copy
+  is the source of truth; the twin is a plain regeneration of it with two
+  substitutions (the skills path itself, and `AGENTS.md` in place of the root
+  instruction file), so **never hand-edit only one side**. The twin was added as a
+  one-off snapshot with no sync since, and had drifted a full retired-`PROGRESS.md`
+  behind — plus it pointed at a `.Codex/` scripts path that exists in no
+  checkout — before anyone noticed. That is what this bullet exists to prevent.
+
 - **Example-project READMEs** (`examples/*/README.md`) and the projects
   themselves — when codegen, the `.tyra` format, or the terrain/asset pipeline
   changes, **regenerate the affected example projects** (their committed
@@ -87,6 +96,13 @@ whatever the change affected.
   halves of `src/platform.cpp`). If your change touched one member of a pair,
   it must touch the other **in the same commit**. The inventory and the two
   traps are in `tyra-editor-dev` ("Platform parity").
+
+- **`src/version.hpp`** — not a doc, but part of the same per-change ritual:
+  bump the editor semver for every user-facing change (feature → MINOR, fix →
+  PATCH, breaking → MAJOR), and bump `kFormatVersion` whenever the change
+  alters what `project::save()` writes — plus a migration step in
+  `migrations.cpp` when existing files need transforming. See
+  `docs/format-versioning.md`.
 
 - **`CLAUDE.md`** — only when a project-wide, always-on rule changes (it is the
   always-loaded instruction file; keep it tiny).

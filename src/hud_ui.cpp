@@ -384,6 +384,10 @@ void App::drawTextIconsModal() {
     if (!ImGui::BeginPopupModal("Button icons")) return;
 
     bool changed = false;
+    // Icons ride in the Hud section (project.cpp writeHudSection), so the same
+    // belt-and-braces comparison the UI Editor uses covers this popup too.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
     ImGui::TextWrapped(
         "Write {{name}} in any text to splice an icon in. {{action:jump}} draws "
         "whatever that action is bound to right now (Tools > Input Map), so a "
@@ -547,8 +551,9 @@ void App::drawTextIconsModal() {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
 
     // Not on the undo stack (like the rest of the UI Editor), but still unsaved
-    // work - dirty, not an immediate write.
-    if (changed) setDirty(true);
+    // work - marked, not an immediate write.
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::EndPopup();
 }
 
@@ -570,6 +575,10 @@ void App::drawFontManagerWindow() {
     if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
 
     bool changed = false;
+    // Belt and braces: fonts ride in the Hud section (writeHudSection), and a
+    // rename retargets references in the SCENES, which undo covers on its own.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
 
     ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
     for (size_t i = 0; i < project_.fonts.size(); ++i) {
@@ -740,7 +749,8 @@ void App::drawFontManagerWindow() {
                           "every unset font reference resolves to.");
     ImGui::EndGroup();
 
-    if (changed) commitChange();
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -813,6 +823,11 @@ void App::drawInputMapWindow() {
         im.activePreset = 0;
 
     bool changed = false;
+    // Belt and braces, as elsewhere: the window edits the Input section AND
+    // one Settings field (sprint speed), so both go into the comparison.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Input) +
+        project::sectionJson(project_, project::Section::Settings);
 
     // --- left: the action list -------------------------------------------
     ImGui::BeginChild("##inputactions", ImVec2(scaled(200.0f), 0),
@@ -1035,7 +1050,11 @@ void App::drawInputMapWindow() {
                           "unbinding the button.");
     ImGui::EndGroup();
 
-    if (changed) commitChange();
+    if (changed ||
+        project::sectionJson(project_, project::Section::Input) +
+                project::sectionJson(project_, project::Section::Settings) !=
+            beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -1671,6 +1690,10 @@ void App::drawUiEditorWindow() {
     }
 
     bool changed = false;
+    // Belt and braces (the Animation/Loading Screen idiom): a hand-set flag is
+    // forgettable by the next widget added here, a section comparison is not.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
     const int n = (int)project_.hud.size();
 
     // Render-order stack (bottom of the screen list = drawn first): hud indices
@@ -2381,9 +2404,12 @@ void App::drawUiEditorWindow() {
     ImGui::EndChild();
 
     // UI edits are not on the undo stack, but they ARE unsaved work: mark the
-    // project dirty like every other editor instead of writing to disk behind
-    // the user's back, so the save icon lights up and closing asks.
-    if (changed) setDirty(true);
+    // project instead of writing to disk behind the user's back, so the save
+    // icon lights up and closing asks. commitChange() rather than a bare
+    // setDirty() because that is the ONE verb for a model edit (app.hpp) -
+    // for project-wide data it pushes no undo step, so nothing is spammed.
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -2531,7 +2557,9 @@ void App::drawLoadingPreview(const LoadingScreenDef& ls, float fraction) {
 // a scene loads. Each has a background color, image + text elements (baked like
 // the HUD) and progress bars (continuous or quantized). Scenes pick one in
 // Scene > Preferences; one can be the project default. Like the other preset
-// collections these live outside undo, so edits save immediately (saveAll).
+// collections these live outside undo - commitChange() therefore pushes no
+// undo step here, it marks the project dirty and advances the session serial,
+// and the bytes reach disk on the next ordinary save (see app.hpp).
 // Boot splash screens: a collapsing section at the top of the Loading Screens
 // window. Images shown in order at startup (after the Tyra logo, before the
 // loading screen), each for its own duration. Self-contained (balanced
@@ -2657,7 +2685,9 @@ bool App::drawSplashSection() {
 // the source .glb/.fbx: every control edits an AnimClipEdit row, which the
 // build folds into the .tskl (animedit::applyClipEdits) and the viewport
 // preview applies to the placed objects. Project-wide data like the presets
-// and sequences - saved through saveAll, outside undo.
+// and sequences: outside undo, but marked with commitChange() like every other
+// edit (app.hpp) - history_.push carries no project-wide collection, so the
+// commit dirties and bumps the session serial without pushing an undo step.
 
 AnimClipEdit& App::animEditFor(const std::string& model,
                                const std::string& clip) {
@@ -2779,6 +2809,13 @@ void App::drawAnimEditorWindow() {
     };
 
     bool changed = false;
+    // Belt and braces: `changed` is set by hand at each widget, so a newly
+    // added one silently forgets it (that is how the Menu Editor came to leave
+    // the save icon dark). Comparing the section's serialized form across the
+    // whole body cannot be forgotten. Clip renames also retarget references in
+    // the SCENES, which the undo snapshot covers on its own.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::AnimEdits);
     // listAnimatedModelFiles returns names relative to res/models; every other
     // API here (glbInfo, the viewport cache, AnimClipEdit::model) speaks
     // project-relative paths, which is also what SceneObject::modelPath holds.
@@ -3083,7 +3120,9 @@ void App::drawAnimEditorWindow() {
 
     ImGui::EndChild();  // ae_right
 
-    if (changed) saveAll("Saved");
+    if (changed ||
+        project::sectionJson(project_, project::Section::AnimEdits) != beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -3100,6 +3139,21 @@ void App::drawLoadingScreenWindow() {
     bool changed = false;
     auto& screens = project_.loadingScreens;
     if (selectedLoadingScreen_ >= (int)screens.size()) selectedLoadingScreen_ = -1;
+
+    // Belt and braces, as in the Animation Editor: a hand-set `changed` flag is
+    // forgettable, a section comparison across the whole body is not. This
+    // window owns TWO sections - the screens and the boot splashes it hosts -
+    // and the delete path also clears scene references, which undo covers.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::LoadingScreens) +
+        project::sectionJson(project_, project::Section::Splash);
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::LoadingScreens) +
+                    project::sectionJson(project_, project::Section::Splash) !=
+                beforeSection)
+            commitChange();
+    };
 
     changed |= drawSplashSection();
 
@@ -3154,7 +3208,7 @@ void App::drawLoadingScreenWindow() {
             "\"Loading screen between scenes\".");
         ImGui::EndChild();
         ImGui::EndChild();  // ls_top
-        if (changed) saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -3200,7 +3254,7 @@ void App::drawLoadingScreenWindow() {
         selectedLoadingScreen_ = -1;
         ImGui::EndChild();       // ls_stack
         ImGui::EndChild();       // ls_top
-        saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -3365,6 +3419,6 @@ void App::drawLoadingScreenWindow() {
     ImGui::TextDisabled("(simulated load fraction)");
     drawLoadingPreview(ls, lsPreviewProgress_);
 
-    if (changed) saveAll("Saved");  // project-wide data, outside undo
+    commitIfEdited();  // project-wide data: marks dirty, pushes no undo step
     ImGui::End();
 }

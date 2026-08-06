@@ -22,6 +22,76 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Menu styling follow-ups.** The stylesheet, the layout engine, the Style tab
+  and the runtime compositor shipped (docs/menu-styles.md;
+  `.claude/plans/menu-styling.md` records the design). What was left out on
+  purpose and is worth doing next: the HUD, loading screens and the credits roll
+  still position themselves in the raw framebuffer instead of the logical
+  512x448 space menus now scale from, so they are the remaining half of "the UI
+  does not move when the display mode does" (the mechanism is there -
+  `Sprite::drawSize` plus the `project::displayModes` table). Also: a `close`
+  transition is parsed and generated but the runtime only plays `open` and
+  `cursor`; `description { area: right }` is laid out but untested on a wide
+  panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
+  softness at 1080i for a second texture's worth of VRAM.
+- **Save Editor: the checks only real hardware can make.** The feature is
+  complete and builds, but three things cannot be proven from the host: the card
+  failure feedback (a **full**, **absent** or **unformatted** card), and the icon
+  itself — the two-line title break and the animated icon's motion only show in
+  the **PS2 BIOS browser**. `docs/save-editor.md` says the same at the bottom.
+- **VU authoring: the user-facing half of the VU framework.** Model + codegen
+  for a program someone composes from stages, per-mesh parameters, the VU panel,
+  and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and
+  verified on hardware; see `.claude/plans/vu-authoring.md` for the plan, the
+  decisions already made and the traps.
+- **VU0 as a target.** Parser and VS Code already handle it; the simulator's
+  memory size is VU1's and the generator's skeleton is the VU1 pipeline. Same
+  plan file has the steps, smallest first.
+- **openvcl: a minimal reproducer for the loop-liveness bail-out.** The bug is
+  closed by `--loop-liveness-always` (measured: without it, three of the five
+  `as_is_*` programs clobber a register carried across the back edge), and the
+  guard that causes it is visible in `extendLoopDirectiveRange` - the range
+  extension is all-or-nothing and returns early when the set would not fit. But
+  four hand-built reproducers failed to make it fire: pool pressure refuses
+  cleanly instead, 42 float aliases against 32 registers and 20 integer aliases
+  against 16 both keep the extension, and forcing order via a read-back of the
+  just-stored quadword does too (all four in `scratchpad/mkrepro.py`). Every
+  program that DOES trip it has an inner loop, so the extension runs twice over
+  nested ranges - that is the untried hypothesis. Worth closing because upstream
+  cannot take a fix for a bug nobody can demonstrate in ten lines, and this
+  engine only escapes it by passing a non-default flag.
+- **VU framework: bit-exact replay on REAL hardware.** `--vu-replay` reproduces
+  a PCSX2 capture exactly (36/36 GS vertices) but not one taken over ps2link
+  from a physical PS2 - there the closest candidate is off by far more than
+  rounding, which points at the reconstruction (the per-mesh constants come
+  from a chain the capture does not contain) rather than at the VU's
+  arithmetic. Capturing the object-data chain is the prerequisite; until then
+  the simulator is validated against the emulator, not the console.
+- **VU framework: describe the `cull` family, then `clip`.** `cull` is `as_is`
+  plus an MVP transform and the ADC clip check - the builder already has
+  `transform`, and `clipw`/`fcand` are in the IR. `clip` is the hard one and
+  probably stays partly artisanal: Sutherland-Hodgman has real control flow and
+  scratch polygon buffers that an expression-level DSL will not express; the
+  honest shape is a declarative skeleton with hand-written instruction blocks
+  plugged into it.
+- **VU framework: per-project program specialization.** The editor knows at build
+  time which program variants a project can use - a project with no matcap
+  material does not need the two `tce` programs, which is ~400 instructions of
+  micro-memory headroom for free and no swap. Needs the union of what a project
+  *may* use (spawn-pool prefabs included) plus "generate everything" under Live
+  Link, or an object spawned at run time finds no program to draw with.
+- **Capture the object-data chain alongside the qbuffer chain.** `--vu-replay`
+  currently carries the per-mesh constants (matrices, tags, fog) over from the
+  memory snapshot, which is only sound while the snapshot belongs to the mesh
+  being replayed. Capturing the chain that uploads them would make the
+  reconstruction exact instead of merely usually-right, and it is the same step
+  `docs/devkit.md` already names for pairing input to output.
+- **Measure the cost of `ensureProgramSet` swaps.** The billboard program set is
+  swapped in and out per bag with a full DMA drain on both sides, so a scene that
+  interleaves billboard and ordinary bags pays for a swap at every transition.
+  Nothing measures it today; sorting bags by program set would bound it to two
+  swaps a frame.
+
 - **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
   *recommends* (does not require) attaching its short header comment to each
   source file. TyraX is Apache-2.0 (`LICENSE`) but no source file carries the

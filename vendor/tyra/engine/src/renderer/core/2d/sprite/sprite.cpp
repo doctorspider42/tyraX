@@ -19,6 +19,7 @@ Sprite::Sprite() {
   flipVertical = false;
   additive = false;  // Modified by TyraX (see sprite.hpp)
   size.set(32.0F, 32.0F);
+  drawSize.set(0.0F, 0.0F);  // Modified by TyraX (see sprite.hpp)
   position.set(100.0F, 100.0F);
   offset.set(0.0F, 0.0F);
   scale = 1.0F;

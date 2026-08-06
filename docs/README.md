@@ -127,6 +127,11 @@ guides. What is queued is in [Backlog](backlog.md).
   included) stamped by hand, scattered by a graph or spawned at runtime: the
   local-frame model, why instances are not linked back, and the merge/spawn
   split that decides what an instance costs on this machine.
+- [Save Editor](save-editor.md) - memory card saves in one window: the browser
+  title and the real 3D icon (including animated ones from a `.glb` clip), the
+  slot size breakdown and why "card space used" is bigger than the byte sum
+  (1 KB clusters), the save values/texts, the RAM checkpoint nodes, and the
+  "checking memory card" screen.
 - [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
   and validation for the `.flownode` and `.screenfx` text files: what it does,
   how the editor installs it automatically (and how to package a `.vsix` by
@@ -217,6 +222,10 @@ guides. What is queued is in [Backlog](backlog.md).
   framing something a television will not crop: the console's picture rectangle,
   action- and title-safe insets, and the one case where PAL really does show more
   than NTSC.
+- [Project format versioning & migrations](format-versioning.md) - the
+  editor/format version split, what happens when you open an older or newer
+  project (silent open vs the migrate-with-backup prompt vs refusal), the
+  `--migrate` CLI, and the bump/migration rules for contributors.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
   real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
   Cutscene Director camera track: the canonical take space, the mapping and
@@ -256,6 +265,10 @@ Developer design docs (internals, not user guides):
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)
   with the gotchas from the usable-highlight investigation.
+- [The VU framework](vu-framework.md) - describing a VU1 microprogram in
+  C++ and generating both sides of it, plus the host VU1 simulator that runs
+  a microprogram (handwritten or generated) with no PS2 in the loop:
+  `--vu-check`, `--vu-emit`, `--vu-list`, and the micro-memory budget.
 - [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
   real hardware (2026-07-11) and the design + milestones for moving StaPip
   clipping into a VU1 microprogram.

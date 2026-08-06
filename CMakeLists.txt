@@ -180,12 +180,20 @@ add_executable(tyrax-editor
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/vuir.cpp
+    src/vuasm.cpp
+    src/vusim.cpp
+    src/vugen.cpp
     src/matbake.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp
+    src/menulayout.cpp
+    src/menustyle.cpp
+    src/menustyle_ui.cpp
     src/meshlod.cpp
+    src/migrations.cpp
     src/pcsx2_config.cpp
     src/phonecam.cpp
     src/placement.cpp
@@ -202,6 +210,7 @@ add_executable(tyrax-editor
     src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
+    src/savebake.cpp
     src/scrollsim.cpp
     src/screenfx.cpp
     src/session.cpp

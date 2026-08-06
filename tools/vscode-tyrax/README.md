@@ -1,10 +1,16 @@
-# TyraX Flow Nodes & Screen Effects — VS Code extension
+# TyraX — VS Code extension
 
-Language support for the two text-file formats [TyraX](https://github.com/doctorspider42/tyra-editor)
-projects use for custom logic:
+Flow nodes (`.flownode`), screen effects (`.screenfx`), **menu stylesheets**
+(`.menustyle`) and **VU1 microprograms** (`.vclpp` / `.vcl` / `.vsm`). See
+`docs/vscode-extension.md`.
+
+Language support for the text-file formats [TyraX](https://github.com/doctorspider42/tyra-editor)
+projects carry:
 
 - **`.flownode`** — [custom flow-graph nodes](../../docs/custom-flow-nodes.md)
 - **`.screenfx`** — [custom screen effects](../../docs/custom-screen-effects.md)
+- **`.menustyle`** — [menu stylesheets](../../docs/menu-styles.md) (CSS-shaped,
+  so a different shape from the two above: no `---`, no C++ body)
 
 Both are a `key = value` header, a `---` separator, then a C++ body with
 `{placeholder}` substitutions. The extension gives each of them:

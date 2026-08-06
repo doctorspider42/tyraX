@@ -15,6 +15,9 @@ Detailed guides live in `.claude/skills/`:
   catalog, reading/writing graphs from the command line, AI generation.
 - **tyra-scripting** — custom C++ scripts, custom flow nodes (`.flownode`),
   custom screen effects (`.screenfx`), and the VS Code extension.
+- **tyra-menustyle** — the menu stylesheets (`menu-styles/*.menustyle`): what a
+  sheet can say about how a menu LOOKS, what each thing costs on the console,
+  and what is deliberately impossible.
 - **tyra-building** — building, running in PCSX2, reading logs, debugging
   crashes and `TYRA_ASSERT` dumps.
 

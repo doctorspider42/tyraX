@@ -799,16 +799,61 @@ the tag loads moved inside `begin:`, next to the store that is their only reader
 written once per batch either way - it cuts peak register pressure, and it makes
 the source robust under both assemblers rather than relying on one of them being
 clever. After it: 25 of 25 compile, the checker is clean for both assemblers, and
-the render is the pixel-identical one in the table above.
+the render is the pixel-identical one in the table above. (The `cull_*` and `clip_*`
+siblings still carry it. The five `as_is_*` do not, for the reason in the next section.)
 
-The tool bug is still a tool bug and still unfixed, but **the obvious explanation for
-it is wrong.** "openvcl's liveness ignores the back edge" does not survive testing:
-narrow the register pool with `.init_vf vf01-vf03`, keep a value live across `b begin`
-and make the body need the whole pool - with and without an inner loop - and openvcl
-**refuses cleanly** (`Register allocation ran out of registers`) rather than clobbering
-anything. So the trigger is narrower than that, a minimal reproducer is still missing,
-and the checker above is what stands in for a fix. Written up for upstream, with both
-failed reproducers, in [upstream-openvcl.md](upstream-openvcl.md).
+**The obvious explanation for it is wrong**, and that mattered for months. "openvcl's
+liveness ignores the back edge" does not survive testing: narrow the register pool with
+`.init_vf vf01-vf03`, keep a value live across `b begin` and make the body need the whole
+pool - with and without an inner loop - and openvcl **refuses cleanly** (`Register
+allocation ran out of registers`) rather than clobbering anything. So the trigger is
+narrower than that. Written up for upstream in
+[upstream-openvcl.md](upstream-openvcl.md).
+
+#### Fixed in the tool after all, and main proved it
+
+The engine-side move above was a workaround, and workarounds get reverted by people who
+do not know they are workarounds. `main` later rewrote all five `as_is_*` programs
+macro-free and put the GIF-tag loads back **above** `begin:` - the exact shape that
+miscompiled. Merging that in was therefore a test of whether the register-allocator work
+(loop live-range extension across the back edge for *both* register files, plus tying
+carried writes to the alias their readers use) had fixed the class or only hidden it.
+
+It fixed it, and the flag that does it is isolated:
+
+| openvcl invocation | loop-carry checker on main's five `as_is_*` |
+|---|---|
+| no flags | **`as_is_c`, `as_is_tc`, `as_is_tce` clobber** VF01 and 3-4 more |
+| `--loop-liveness-always` alone | clean |
+| all ten image flags | clean |
+| all ten **minus** `--loop-liveness-always` | the same three clobber again |
+
+So `--loop-liveness-always` is both necessary and sufficient here, and **upstream's
+default still miscompiles this shape** - worth saying plainly, because the flag is off by
+default and the engine only gets it from the image's `vcl` wrapper. End to end: main's
+sources, openvcl, `vu-lab` forced through the EE clipper (`CLIP_VU1S = {false}`, verified
+in the generated header rather than the intent field) render **0 of 514600 pixels**
+different from Sony's build, with the two assemblers demonstrably emitting different code
+for it (558 words against 562).
+
+What is still not pinned down is the exact trigger inside
+`extendLoopDirectiveRange`. The guard is visible in the source - the extension is
+all-or-nothing and returns early when the set would not fit, which is precisely a silent
+licence to emit wrong code - but four attempts at a minimal reproducer all failed to make
+it fire, and each rules something out:
+
+* a 4-to-12 register pool with the body needing all of it - **refuses cleanly**, so
+  pool pressure alone is the honest failure, not the bug;
+* 42 float aliases against 32 registers - range still extended, no bail;
+* 20 integer aliases against 16 registers - range still extended, no bail;
+* forcing order instead of pressure (read back the quadword the store just wrote, so
+  every temporary starts after the carried value's last read) - range still extended.
+
+`as_is_c` differs from all four in one structural way: it has an **inner** loop
+(`vertexLoop`), so `extendLoopDirectiveRange` runs twice over nested ranges. That is the
+next thing to try, and it is in [backlog.md](backlog.md) rather than blocking anything -
+the flag closes the bug either way, and `scratchpad/loopcarry.py` catches the shape if it
+ever comes back.
 
 ### And a second one, still open: `stapip_clip_c`
 
