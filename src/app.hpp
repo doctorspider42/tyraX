@@ -2382,6 +2382,18 @@ private:
     // it spends a Docker container and several minutes.
     bool chatAllowBuild_ = false;
     bool chatBuildWaiting_ = false;  // a tool started a build; the loop is parked
+    bool chatPadWaiting_ = false;    // ...or a pad script; same parking
+    // A `run` build is not finished when the build is: PCSX2 takes tens of
+    // seconds to boot, and a tool that came back the moment the ELF linked had
+    // the assistant pressing buttons at a black screen. So the turn keeps
+    // waiting until the game's own debug channel appears - that is the first
+    // moment anything in there is true.
+    bool chatBuildWasRun_ = false;
+    bool chatGameWaiting_ = false;
+    double chatGameDeadline_ = 0.0;
+    long long chatGameMark_ = 0;       // the liveness signal before the launch
+    long long chatGameSignal() const;  // newest mtime of the game's own files
+    size_t chatPadLogMark_ = 0;      // bin/log.txt size when the script started
     size_t chatCompactCount_ = 0;       // messages being folded
     std::string chatCompactNote_;       // what happened, for the window
     void aiChatPersist();                        // save the current conversation
@@ -2566,6 +2578,17 @@ private:
     // never be announced at all - "I clicked Cross and nothing happened".
     double padLatch_[livepad::kPads][16] = {};
     std::string padStatus_;
+    // A pad SCRIPT being played (docs/remote-pad.md's own language, parsed by
+    // the same livepad::parseScript the --pad CLI uses). While one runs the
+    // editor drives the pad whether or not the panel is open - that is what
+    // lets the AI Assistant walk the player into the thing it just built - and
+    // the chat parks until the script ends. The state is cleared when it does:
+    // a script that left a direction held would look exactly like a stuck pad.
+    std::vector<livepad::Step> padScript_;
+    size_t padScriptStep_ = 0;
+    double padScriptUntil_ = 0.0;
+    bool padScriptRunning_ = false;
+    void padScriptTick();  // advance it; called from remotePadTick
     void remotePadTick();
     void drawRemotePadWindow();
 

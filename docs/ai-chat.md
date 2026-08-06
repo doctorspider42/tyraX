@@ -67,6 +67,10 @@ over.
 | `add_scene` / `delete_scene` | add a scene and switch to it / delete one and everything in it |
 | `refresh_generated` | regenerate the game's C++ and report what came out |
 | `build_game` | build in Docker (and optionally run), **waiting** for the result |
+| `game_state` | is a game running, on what frame and scene, with which devkit layers |
+| `game_log` | the end of the running game's own log — where the Log node prints |
+| `graph_activity` | what the running game's graphs have actually done: fires, counts, watched variables, armed Delays |
+| `press_pad` | drive the running game's controller, **waiting** for the script and reporting what the game logged |
 | `select_object` | select an object (so you can see what it means) |
 | `set_scene` | switch the editor to another scene |
 | `open_window` | open a tool window |
@@ -96,6 +100,34 @@ whole thing back — and a write that would *shrink* any list in it is refused w
 the numbers ("menus 3 → 1") unless it passes `confirm_replace`. That guard is
 pure JSON: it knows nothing about what any section contains, so a section added
 to the editor tomorrow is covered by it today.
+
+### Watching a running game
+
+The devkit's channels are files under `bin/`, so the assistant can read them like
+anything else — `game_state` (is it up, what frame, what scene, which layers this
+project builds with), `game_log` (the tail of the game's own log, which is where
+the **Log Message** node prints) and `graph_activity` (the Live Debugger's view:
+which nodes have fired and how often, the last fires with how many frames ago
+they were, watched variables, and any `Delay` still counting down — the answer to
+"it fired but nothing happened").
+
+`press_pad` closes the loop the other way: it hands a
+[Remote Pad](remote-pad.md) script to the same channel the panel and `--pad` use,
+**waits** for it to play out, and reports what the game logged while it ran. So
+the whole cycle is available to it:
+
+> place a thing → build & run → wait for the game to be up → press the button →
+> read what the graph did
+
+with every step observed rather than assumed. A `build_game` with `run` does not
+come back when the ELF links: it keeps waiting until the game's debug channel
+appears, which is the first moment the scene is live and a button press means
+anything (the log's first lines are the engine initialising — a wait that ended
+there pressed buttons at a loading screen).
+
+All of this needs a **debug** build with the matching devkit preference on; a
+release game reports nothing at all, and the tools say so rather than pretending
+(that is the devkit's zero-cost promise, not a fault).
 
 ### Checking its own work
 

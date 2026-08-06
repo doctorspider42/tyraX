@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "aigen.hpp"
+#include "livedbg.hpp"
 #include "platform.hpp"
 #include "project.hpp"
 
@@ -346,6 +347,25 @@ const std::vector<Tool>& tools() {
          "and the rest (SECTIONS below lists them). This is how you see anything "
          "that is not a scene object, and set_section is how you change it.",
          {{"name", "string", true, "section name (see SECTIONS)"}}},
+        {"game_state", ToolKind::Read,
+         "What the editor can see of a RUNNING game: whether its debug channels "
+         "are alive and how fresh they are, the frame and scene it is on, and "
+         "which devkit layers this project builds with. Start here before "
+         "believing anything about a running game - a release build reports "
+         "nothing at all, by design.",
+         {}},
+        {"game_log", ToolKind::Read,
+         "The end of the running game's own log (bin/log.txt) - which is where "
+         "the Log Message flow node prints. If you wired one to check something, "
+         "this is where the answer is. DEBUG builds only.",
+         {{"lines", "number", false, "how many lines from the end (default 40)"}}},
+        {"graph_activity", ToolKind::Read,
+         "What the running game's flow graphs have actually DONE, from the Live "
+         "Debugger: how many times each node fired, the most recent fires with "
+         "how long ago they were, the value of every watched variable, and any "
+         "Delay still counting down. The answer to \"did my trigger run\" - and "
+         "to \"it fired but nothing happened\", which is usually a Delay.",
+         {}},
         {"add_object", ToolKind::Edit,
          "Add an object to the active scene. It lands where you put it, then rests on "
          "whatever surface is under it (the editor's placement snap), and becomes "
@@ -435,6 +455,18 @@ const std::vector<Tool>& tools() {
          "the build and you are given the result, with the compiler's own error "
          "output when it fails.",
          {{"run", "bool", false, "true = launch the emulator after a good build"}}},
+        {"press_pad", ToolKind::Command,
+         "Drive the running game's controller. The script is the Remote Pad "
+         "language - `press cross 0.2`, `hold up`, `release all`, `stick l 0 "
+         "-127`, `wait 1.5`, `neutral`, one per line or separated by ';'. The "
+         "chat WAITS for it to play out and then gives you what the game logged "
+         "while it ran, so you can walk the player into the thing you just built "
+         "and see what happened. Needs a debug build with Remote Pad on, and a "
+         "game actually running. START WITH A WAIT after a fresh launch - a game "
+         "that has just reported for the first time is still on its loading "
+         "screen, and buttons pressed at it go nowhere (`wait 5` is usually "
+         "enough).",
+         {{"script", "string", true, "the pad script"}}},
         {"select_object", ToolKind::Command,
          "Select an object in the editor (what the Properties panel shows) - the "
          "way to SHOW the user what you are talking about.",
@@ -1412,6 +1444,48 @@ void applyCompaction(Conversation& c, size_t count, const std::string& recap) {
 // Read tools
 // ---------------------------------------------------------------------------
 
+// The tail of a text file, at most `lines` lines and `maxBytes` bytes. The
+// running game's log grows without bound, and only its end is ever the answer.
+static std::string fileTail(const std::string& path, int lines,
+                            size_t maxBytes = 16000) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return "";
+    const std::streamoff size = f.tellg();
+    const std::streamoff from =
+        size > (std::streamoff)maxBytes ? size - (std::streamoff)maxBytes : 0;
+    f.seekg(from);
+    std::vector<std::string> all;
+    std::string line;
+    while (std::getline(f, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        all.push_back(line);
+    }
+    if (from > 0 && !all.empty()) all.erase(all.begin());  // a half line
+    std::string out;
+    const size_t first = all.size() > (size_t)lines ? all.size() - lines : 0;
+    for (size_t i = first; i < all.size(); ++i) out += all[i] + "\n";
+    return out;
+}
+
+static long long fileAgeSeconds(const std::string& path) {
+    std::error_code ec;
+    const auto t = fs::last_write_time(path, ec);
+    if (ec) return -1;
+    return std::chrono::duration_cast<std::chrono::seconds>(
+               fs::file_time_type::clock::now() - t)
+        .count();
+}
+
+// The object an instrumented node belongs to, by the id the symbol file carries
+// - names are what the assistant works in, ids are what the channel speaks.
+static std::string objectNameForId(const Project& p, int scene,
+                                   const std::string& id) {
+    if (scene < 0 || scene >= (int)p.scenes.size()) return "";
+    for (const SceneObject& o : p.scenes[scene].objects)
+        if (o.id == id) return o.name;
+    return "";
+}
+
 std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
     failed = false;
     auto fail = [&failed](const std::string& msg) {
@@ -1465,6 +1539,128 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
         }
         return project::sectionJson(p, (project::Section)si);
     }
+    if (c.name == "game_state") {
+        std::ostringstream o;
+        const std::string snap = p.filePath("bin/livedbg.bin");
+        const long long age = fileAgeSeconds(snap);
+        o << "Build profile: " << p.settings.buildProfile
+          << ". Devkit layers in this project: live link "
+          << (p.settings.liveLink ? "on" : "off") << ", live debug "
+          << (p.settings.liveDebug ? "on" : "off") << ", live logic "
+          << (p.settings.liveLogic ? "on" : "off") << ", remote pad "
+          << (p.settings.remotePad ? "on" : "off") << ".\n";
+        if (p.settings.buildProfile != "debug")
+            o << "This project builds in RELEASE, so a running game reports "
+                 "nothing at all - that is the devkit's zero-cost promise, not a "
+                 "fault. Ask the user to switch the build profile if they want "
+                 "any of this.\n";
+        if (age < 0) {
+            o << "No debug channel on disk (bin/livedbg.bin): nothing has run "
+                 "with the Live Debugger on since this project was built.\n";
+            return o.str();
+        }
+        o << "Debug channel last written " << chatAge(age) << ".";
+        if (age > 10)
+            o << " That is stale - the game is most likely not running any more.";
+        o << "\n";
+        livedbg::Snapshot snapshot;
+        if (!livedbg::readSnapshot(snap, snapshot)) {
+            o << "The channel could not be read (a torn write, or a version this "
+                 "editor does not know).\n";
+            return o.str();
+        }
+        o << "Frame " << snapshot.frame << ", scene " << snapshot.scene;
+        if (snapshot.scene >= 0 && snapshot.scene < (int)p.scenes.size())
+            o << " (\"" << p.scenes[snapshot.scene].name << "\")";
+        o << (snapshot.halted ? ", HALTED at a breakpoint" : ", running") << ".\n";
+        livedbg::Symbols syms;
+        if (livedbg::loadSymbols(p.filePath("src/gen/livedbg.sym"), syms) &&
+            syms.hash != snapshot.hash)
+            o << "The running game was built from DIFFERENT graphs than the "
+                 "project holds now - its reports are about the old ones until "
+                 "it is rebuilt.\n";
+        return o.str();
+    }
+
+    if (c.name == "game_log") {
+        const std::string path = p.filePath("bin/log.txt");
+        const long long age = fileAgeSeconds(path);
+        if (age < 0)
+            return fail(
+                "There is no bin/log.txt - the game has not run since this "
+                "project was built (and a release build writes none).");
+        const int lines = (int)argNum(c, "lines", 40);
+        const std::string tail = fileTail(path, lines < 1 ? 40 : lines);
+        return "bin/log.txt, last written " + chatAge(age) + ":\n" +
+               (tail.empty() ? "(empty)" : tail);
+    }
+
+    if (c.name == "graph_activity") {
+        livedbg::Symbols syms;
+        if (!livedbg::loadSymbols(p.filePath("src/gen/livedbg.sym"), syms))
+            return fail(
+                "No symbol table (src/gen/livedbg.sym) - this project has not "
+                "been built with the Live Debugger on, so nothing in it is "
+                "instrumented. game_state says which layers are on.");
+        livedbg::Snapshot snap;
+        if (!livedbg::readSnapshot(p.filePath("bin/livedbg.bin"), snap))
+            return fail(
+                "No readable debug channel (bin/livedbg.bin) - nothing is "
+                "running, or it ran without the debugger.");
+        // A node is named the way the user names it: object, node id, type.
+        auto label = [&p, &syms](int key) {
+            const livedbg::NodeSym* n = syms.find(key);
+            if (!n) return std::string("node key ") + std::to_string(key);
+            const std::string obj = objectNameForId(p, n->scene, n->objectId);
+            return "\"" + (obj.empty() ? n->objectId : obj) + "\" node " +
+                   std::to_string(n->nodeId) + " (" + n->type + ")";
+        };
+        std::ostringstream o;
+        o << "Frame " << snap.frame
+          << (snap.halted ? ", HALTED at a breakpoint" : "") << ".\n";
+        int fired = 0;
+        o << "Nodes that have fired:\n";
+        for (size_t k = 0; k < snap.hits.size(); ++k) {
+            if (!snap.hits[k]) continue;
+            ++fired;
+            if (fired <= 40)
+                o << "  " << label((int)k) << " x" << snap.hits[k] << "\n";
+        }
+        if (!fired) o << "  (none - not one instrumented node has run)\n";
+        else if (fired > 40) o << "  ... and " << (fired - 40) << " more\n";
+        if (!snap.events.empty()) {
+            o << "Most recent fires (newest last):\n";
+            const size_t from =
+                snap.events.size() > 12 ? snap.events.size() - 12 : 0;
+            for (size_t i = from; i < snap.events.size(); ++i)
+                o << "  frame " << snap.events[i].frame << " ("
+                  << (snap.frame > snap.events[i].frame
+                          ? snap.frame - snap.events[i].frame
+                          : 0)
+                  << " frames ago): " << label(snap.events[i].key) << "\n";
+        }
+        if (!snap.vars.empty() && !syms.vars.empty()) {
+            o << "Watched variables:\n";
+            for (size_t i = 0; i < syms.vars.size(); ++i) {
+                const size_t base = (size_t)syms.vars[i].index * 3;
+                if (base + 2 >= snap.vars.size()) continue;
+                o << "  " << syms.vars[i].name << " = ";
+                if (syms.vars[i].kind == 'p')
+                    o << snap.vars[base] << ", " << snap.vars[base + 1] << ", "
+                      << snap.vars[base + 2];
+                else if (syms.vars[i].kind == 'b')
+                    o << (snap.vars[base] != 0.0f ? "true" : "false");
+                else
+                    o << snap.vars[base];
+                o << "\n";
+            }
+        }
+        for (const auto& [key, frames] : snap.timers)
+            o << "Delay armed: " << label(key) << ", " << frames
+              << " frame(s) left\n";
+        return o.str();
+    }
+
     if (c.name == "project_summary") return projectSummaryJson(p);
     if (c.name == "describe_object") {
         const std::string name = argStr(c, "object");

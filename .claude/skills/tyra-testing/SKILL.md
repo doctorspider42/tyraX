@@ -1365,6 +1365,17 @@ backend will not reproduce on demand: a fenced envelope with prose around it, a
 unknown property, a wrong object name. All of those have honest paths and the
 transcript's tool rows say which fired.
 
+**Two traps specific to testing anything that RUNS the game from a chat.** A
+hermetic `XDG_CONFIG_HOME` isolates PCSX2 as well - its BIOS, memory cards and
+settings live under `$XDG_CONFIG_HOME/PCSX2`, so the emulator either fails to
+start or comes up unconfigured and the run looks like a broken feature. Symlink
+the real one into the scratch config (`ln -sfn ~/.config/PCSX2 $CFG/PCSX2`) and
+keep the editor isolated. And remember that **a build compiles the IN-MEMORY
+model**: an assistant that added an object and built it produced a correct ELF
+while the `.tyra` on disk still knew nothing about it, so the NEXT session's build
+regenerated an empty debug runtime and no channel ever appeared - which reads
+exactly like a broken devkit. A multi-session test has to save.
+
 **Four traps this cost.** Set `XDG_CONFIG_HOME` (or `LOCALAPPDATA`) to a scratch
 directory for any run that touches the chat: history files and `editor.ini` both
 live there, so a hermetic run neither pollutes the machine's config nor inherits

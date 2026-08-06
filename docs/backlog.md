@@ -38,11 +38,13 @@ the verification, and any fact worth reusing belongs in the relevant
   - Project-wide data, the feedback loop and building all landed: `get_section`/
     `set_section` (the project's own per-section JSON, so every collection is
     covered by two tools rather than one pair each), `refresh_generated`, and
-    `build_game` with the chat parking until the build settles. What is still
-    missing there is a way to see a RUNNING game - the devkit channels (Live
-    Link, the debugger, the time machine, `--pad`) are all file-based and an
-    assistant reading them would close the last loop: place a thing, build it,
-    drive the player into it, read what the graph did.
+    `build_game` with the chat parking until the build settles. The running game
+    followed: `game_state` / `game_log` / `graph_activity` read the devkit
+    channels and `press_pad` drives the controller, both parking the turn - so
+    the loop closes (place a thing, build it, drive the player into it, read what
+    the graph did). Still out: the time machine (rewinding is a stranger verb for
+    an assistant than reading), Live Link edits into a running game, and anything
+    visual - it can read what the game SAYS, never what it looks like.
   - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
     (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
     constants picked by eye, not measured against a long session.

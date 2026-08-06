@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
+#include <chrono>
+#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -230,6 +232,70 @@ void App::aiChatTick() {
             c.failed = !ok;
         }
         statusMessage_ = ok ? "AI: build succeeded" : "AI: build failed";
+        // A run build is not done until the GAME is: wait for its debug channel
+        // to appear, or say plainly that it never did.
+        if (ok && chatBuildWasRun_ && project_.settings.liveDebug &&
+            project_.settings.buildProfile == "debug") {
+            chatGameWaiting_ = true;
+            chatGameDeadline_ = ImGui::GetTime() + 300.0;
+            statusMessage_ = "AI: waiting for the game to boot";
+            aiChatPersist();
+            return;
+        }
+        aiChatPersist();
+        chatScrollPending_ = true;
+        aiChatStart();
+        return;
+    }
+
+    // Waiting for a launched game to say it is alive.
+    if (chatGameWaiting_) {
+        const bool alive = chatGameSignal() > chatGameMark_;
+        if (!alive && ImGui::GetTime() < chatGameDeadline_) return;
+        chatGameWaiting_ = false;
+        const std::string note =
+            alive ? " The game is up, in its scene and reporting - "
+                    "graph_activity and game_log have something to say now."
+                  : " The game never reported within five minutes: the emulator "
+                    "may not have started, or it is still booting. Check "
+                    "game_state before believing anything about it.";
+        if (!chat_.messages.empty() &&
+            chat_.messages.back().role == aichat::Message::Role::Tool &&
+            !chat_.messages.back().calls.empty())
+            chat_.messages.back().calls.back().result += note;
+        statusMessage_ = alive ? "AI: game is up" : "AI: game did not report";
+        aiChatPersist();
+        chatScrollPending_ = true;
+        aiChatStart();
+        return;
+    }
+    // A parked pad script: the turn waits for it to play out, then reports what
+    // the game logged while it did - that is the whole point of driving it.
+    if (chatPadWaiting_) {
+        if (padScriptRunning_) return;
+        chatPadWaiting_ = false;
+        std::string outcome = "The pad script finished.";
+        const std::string path = project_.filePath("bin/log.txt");
+        const size_t now = fileSizeOr0(path);
+        if (now > chatPadLogMark_) {
+            std::ifstream f(path, std::ios::binary);
+            f.seekg((std::streamoff)chatPadLogMark_);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            std::string added = ss.str();
+            if (added.size() > 6000) added = added.substr(added.size() - 6000);
+            outcome += " The game logged while it ran:\n" + added;
+        } else {
+            outcome +=
+                " The game logged NOTHING while it ran - either nothing you were "
+                "testing fired, or this build has no Log node on that path (or "
+                "no game is running at all: check game_state).";
+        }
+        if (!chat_.messages.empty() &&
+            chat_.messages.back().role == aichat::Message::Role::Tool &&
+            !chat_.messages.back().calls.empty())
+            chat_.messages.back().calls.back().result += "\n" + outcome;
+        statusMessage_ = "AI: pad script done";
         aiChatPersist();
         chatScrollPending_ = true;
         aiChatStart();
@@ -342,7 +408,7 @@ void App::aiChatTick() {
     ++chatStep_;
     // A build parks the turn: the branch at the top of this function resumes it
     // with the outcome, so the model answers knowing whether its work compiles.
-    if (chatBuildWaiting_) return;
+    if (chatBuildWaiting_ || chatPadWaiting_ || chatGameWaiting_) return;
     aiChatStart();  // hand the results back and let it continue
 }
 
@@ -450,6 +516,37 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
     if (key == "reflected") { o.reflected = boolean(o.reflected); return true; }
     if (key == "projShadow") { o.projShadow = boolean(o.projShadow); return true; }
     return false;
+}
+
+// The last time the running game's DEBUG CHANNEL was written - the moment the
+// editor can start believing anything about it.
+//
+// Deliberately not bin/log.txt, which was tried first: the log's first lines are
+// the engine initialising ("Audio initialized", "Pad is ready"), so a wait that
+// ended there handed control back while the game was still loading its scene,
+// and buttons pressed at a loading screen go nowhere. livedbg.bin appears when
+// the scene is live and the graphs are being watched, which is what "the game is
+// up" has to mean for anything the assistant does next.
+//
+// "Absent" is LLONG_MIN, NOT 0, and that is not fussiness: std::filesystem's
+// file_clock epoch is not the system clock's - on this libstdc++ it sits in the
+// FUTURE, so every real file time is a large NEGATIVE number. With 0 as the
+// absent sentinel, "nothing here yet" compared as newer than every file the game
+// could possibly write, and the wait for a launched game timed out every single
+// time while the game was demonstrably running.
+long long App::chatGameSignal() const {
+    long long newest = std::numeric_limits<long long>::min();
+    for (const char* rel : {"bin/livedbg.bin"}) {
+        std::error_code ec;
+        const auto t = std::filesystem::last_write_time(
+            std::filesystem::path(project_.filePath(rel)), ec);
+        if (ec) continue;
+        const long long secs = std::chrono::duration_cast<std::chrono::seconds>(
+                                   t.time_since_epoch())
+                                   .count();
+        if (secs > newest) newest = secs;
+    }
+    return newest;
 }
 
 std::string App::runChatTool(aichat::ToolCall& c) {
@@ -947,12 +1044,46 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         if (runner_.state() == Runner::State::Running)
             return fail("A build is already running - wait for it to finish.");
         const bool run = aichat::argBool(c, "run");
+        // The channel's age BEFORE the launch: what makes "the game reported"
+        // mean this run rather than a file left over from the last one.
+        chatGameMark_ = chatGameSignal();
         runner_.buildAndRun(projectForBuild(), run);
+        chatBuildWasRun_ = run;
         chatBuildWaiting_ = true;  // the loop parks until it settles
         statusMessage_ = "AI: building";
         return std::string("Build started") +
                (run ? " (the emulator will launch if it succeeds)." : ".") +
                " Waiting for it...";
+    }
+
+    if (c.name == "press_pad") {
+        if (project_.settings.buildProfile != "debug" ||
+            !project_.settings.remotePad)
+            return fail(
+                "Refused: driving the pad needs a DEBUG build with Remote Pad on "
+                "(Project > Preferences > Build). A release game carries no "
+                "channel to drive - that is the devkit's zero-cost promise.");
+        if (padScriptRunning_) return fail("A pad script is already playing.");
+        std::vector<livepad::Step> steps;
+        std::string err;
+        if (!livepad::parseScript(aichat::argStr(c, "script"), steps, err))
+            return fail("That pad script does not parse: " + err);
+        if (steps.empty()) return fail("That script does nothing.");
+        double seconds = 0.0;
+        for (const livepad::Step& st : steps) seconds += st.seconds;
+        // What the game logs DURING the script is the observation, so remember
+        // where its log ended before the first button goes down.
+        chatPadLogMark_ = fileSizeOr0(project_.filePath("bin/log.txt"));
+        padScript_ = std::move(steps);
+        padScriptStep_ = 0;
+        padScriptUntil_ = 0.0;
+        padScriptRunning_ = true;
+        chatPadWaiting_ = true;  // the loop parks until the script plays out
+        statusMessage_ = "AI: driving the pad";
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "%zu step(s), %.1f s", padScript_.size(),
+                      seconds);
+        return std::string("Driving the pad: ") + buf + ". Waiting...";
     }
 
     if (c.name == "save_project") {
