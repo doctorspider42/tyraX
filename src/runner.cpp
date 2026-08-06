@@ -4,6 +4,7 @@
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
 #include "platform.hpp"
+#include "templates.hpp"
 #include "texbake.hpp"
 #include "wavconvert.hpp"
 
@@ -196,8 +197,47 @@ int Runner::exec(const std::string& cmdline, const std::string& cwd) {
         execProc_ = std::move(proc);
     }
 
+    // vcl's OPTIMISER-TIMEOUT CHATTER, collapsed to one line.
+    //
+    // A vu-lab build prints about fifty of these:
+    //
+    //   WARN: time out..
+    //   WARN:  WARNING: failed to vuta via processing
+    //
+    // They are not errors and they are not even a cost. vcl gives an
+    // optimisation attempt a wall-clock budget (`-t`, four seconds by default)
+    // and abandons the attempt when it runs out - so the count is a property of
+    // how busy the machine is, not of the code: one program timed out 29 times
+    // inside a 44-file `-j24` build and twice when run alone, and the emitted
+    // .vsm was byte-identical both ways (same 281 slots, same 121 unpaired).
+    // Raising `-t` to 15 or 60 changed neither the count nor the output.
+    //
+    // So fifty lines of alarming-looking noise buried the diagnostics that DO
+    // matter. They are counted and summarised instead. Only this exact pair is
+    // swallowed: `no opt table`, `failed to convert all uta linear->raw` and
+    // everything else vcl says still goes straight through, because those are
+    // real failures (docs/vu-authoring.md, "Before the cliff: vcl gives up").
+    auto isVclTimeoutChatter = [](const std::string& l) {
+        if (l.find("time out..") != std::string::npos) return true;
+        const size_t at = l.find("WARNING: failed to ");
+        return at != std::string::npos &&
+               l.find(" via ", at) != std::string::npos;
+    };
+
     std::string line;
-    while (raw->readLine(line)) appendLine(line);
+    int vclTimeouts = 0;
+    while (raw->readLine(line)) {
+        if (isVclTimeoutChatter(line)) {
+            ++vclTimeouts;
+            continue;
+        }
+        appendLine(line);
+    }
+    if (vclTimeouts > 0)
+        appendLine("[editor] vcl abandoned " + std::to_string(vclTimeouts / 2) +
+                   " optimisation attempt(s) on a time limit - harmless, the "
+                   "emitted microcode is the same either way "
+                   "(docs/vu-authoring.md).");
     const int code = raw->wait();
     {
         std::lock_guard<std::mutex> lock(execProcMutex_);
@@ -704,6 +744,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // remove such a leftover so `compose up` cannot hit a name conflict.
         exec(platform::quiet("docker rm -f tyra-game-compiler"), p.dir);
 
+        // The shared engine volume, which compose no longer owns (it is
+        // `external` - see TPL_COMPOSE). Idempotent: creating one that exists
+        // succeeds and changes nothing, so this is simply "make sure it is
+        // there" on every build rather than a first-run special case.
+        exec(platform::quiet("docker volume create " +
+                             templates::engineVolumeName()),
+             p.dir);
+
         appendLine("[editor] Starting docker container (first run may download the Tyra image)...");
         // Plain `up -d`, not `up -d --build`: measured 0.32 s against 4.05 s,
         // and there is nothing to build any more (the compose file names the
@@ -851,10 +899,20 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             if (const fs::path cfg = platform::configDir(); !cfg.empty()) {
                 fs::path sdkCache = cfg / "ps2sdk";
                 std::error_code ec;
-                if (!fs::exists(sdkCache / "ee" / "include", ec)) {
+                // THREE trees, and `ports` is not optional even though it looks
+                // like it. The game compiles with -I.../ps2sdk/ports/include
+                // and `<tyra>` reaches libpng's `png.h`, which lives only
+                // there - so a cache without it makes cpptools give up on the
+                // whole translation unit ("#include errors detected. Squiggles
+                // are disabled for this translation unit") in exactly the file
+                // a script author is typing into. The `ports` test is what
+                // gates the export, so a machine that cached the first two
+                // before this existed re-exports rather than staying broken.
+                if (!fs::exists(sdkCache / "ports" / "include", ec)) {
                     appendLine("[editor] Exporting PS2SDK headers for IntelliSense...");
                     fs::create_directories(sdkCache / "ee", ec);
                     fs::create_directories(sdkCache / "common", ec);
+                    fs::create_directories(sdkCache / "ports", ec);
                     // Failure is non-fatal - IntelliSense just has fewer headers.
                     exec("docker compose cp compiler:/usr/local/ps2dev/ps2sdk/ee/include " +
                              platform::shellArg((sdkCache / "ee" / "include").string()),
@@ -862,6 +920,10 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                     exec("docker compose cp "
                          "compiler:/usr/local/ps2dev/ps2sdk/common/include " +
                              platform::shellArg((sdkCache / "common" / "include").string()),
+                         p.dir);
+                    exec("docker compose cp "
+                         "compiler:/usr/local/ps2dev/ps2sdk/ports/include " +
+                             platform::shellArg((sdkCache / "ports" / "include").string()),
                          p.dir);
                 }
             }
@@ -878,6 +940,97 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "rsync -a --delete --exclude=.git --exclude=.vscode "
                           "--exclude=obj --exclude=bin /host/ /src/"),
                       p.dir) == 0;
+        }
+
+        // The project's own VU sources - src/vu/*.cpp (VU1 programs) and
+        // src/vu0/*.cpp (VU0 kernels), docs/vu-authoring.md.
+        //
+        // These are HOST C++: they run at build time and write the microprogram
+        // the PS2 compiler then assembles. So they need a host compiler, and the
+        // ps2dev image ships none - only the ee/iop/dvp cross toolchains. It is
+        // installed once and stamped, exactly like the audsrv overlay above; a
+        // recreated container pays for it again, which is a minute, and the
+        // alternative is making every user of the editor install a C++ compiler
+        // for a feature most projects never touch.
+        //
+        // Ordering matters twice over: AFTER the rsync, because the sources have
+        // to be in the volume, and BEFORE make, because what this writes into
+        // src/gen is what make compiles.
+        if (ok && project::hasVuSources(p)) {
+            appendLine("[editor] Building the project's VU sources...");
+            ok = exec(dc + platform::shellArg(
+                          "set -e; "
+                          "if ! command -v g++ >/dev/null 2>&1; then "
+                          "  echo '[editor] Installing a host C++ compiler in "
+                          "the container (one time)...'; "
+                          "  apt-get update -qq >/dev/null && "
+                          "  DEBIAN_FRONTEND=noninteractive apt-get install -y "
+                          "-qq --no-install-recommends g++ >/dev/null; "
+                          "fi; "
+                          "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
+                          // TWO source directories, and either may be empty - a
+                          // project can have kernels and no programs or the
+                          // other way round. An unmatched glob stays a literal
+                          // word in /bin/sh, which g++ would then try to open,
+                          // so the list is collected instead of pasted in.
+                          // Unquoted on purpose: the container's shell splits
+                          // it back into arguments, which is the whole point.
+                          "VUSRC=$(ls /src/src/vu/*.cpp /src/src/vu0/*.cpp "
+                          "2>/dev/null); "
+                          // The stamp gates the COMPILE, never the run.
+                          //
+                          // Gating the run was a mistake that cost an evening:
+                          // the generated sources live under /src, the source
+                          // rsync deletes what the host does not have, and the
+                          // outputs the stamp vouched for were long gone - or
+                          // worse, present but generated from a source that had
+                          // since changed. A console spent an hour and a half
+                          // running a microprogram from before a fix because a
+                          // cache was sure it was current. So: the generator
+                          // ALWAYS runs (it takes a fraction of a second and
+                          // writes nothing when the content is unchanged, which
+                          // is what keeps vcl out of a no-op build), and only
+                          // the ~20 s of g++ is skipped.
+                          "md5sum /src/vugen/* $VUSRC "
+                          "> /tmp/vu.stamp 2>/dev/null; "
+                          "if ! cmp -s /tmp/vu.stamp /tmp/vu.stamp.built || "
+                          "! test -x /tmp/vugen; then "
+                          // -O0: this program runs once and writes a few files;
+                          // compiling it fast matters, running it does not.
+                          "  g++ -std=c++17 -O0 -w -I/src/vugen -o /tmp/vugen "
+                          "/src/vugen/*.cpp $VUSRC && "
+                          "  cp /tmp/vu.stamp /tmp/vu.stamp.built; "
+                          "fi; "
+                          "/tmp/vugen /src/src/gen /src/inc/scripts; "
+                          // EVERYTHING it generated goes back to the host, not
+                          // just the manifest. The source rsync deletes what the
+                          // host does not have, so container-only output is
+                          // wiped at the start of the NEXT build - and the
+                          // stamp would then happily skip regenerating it. That
+                          // is exactly how a build came out with the header
+                          // declaring vuscript::install and nothing defining
+                          // it. As a bonus the generated microprograms are
+                          // readable in the project, like every other generated
+                          // file.
+                          "mkdir -p /host/src/gen /host/inc/scripts && "
+                          // Guarded per file, because a project may have only
+                          // kernels or only programs and `cp` on an unmatched
+                          // glob is a hard failure under set -e.
+                          "for f in /src/src/gen/vu_script* "
+                          "/src/src/gen/vu_scripts.manifest "
+                          "/src/src/gen/vu0_script*; do "
+                          "if [ -e $f ]; then cp $f /host/src/gen/; fi; done; "
+                          "for f in /src/inc/scripts/vu_scripts.gen.hpp "
+                          "/src/inc/scripts/vu0_script* "
+                          "/src/inc/scripts/vu0_kernels.gen.hpp; do "
+                          "if [ -e $f ]; then cp $f /host/inc/scripts/; fi; "
+                          "done"),
+                      p.dir) == 0;
+            if (!ok)
+                appendLine(
+                    "[editor] A VU source failed to build. The errors above are "
+                    "ordinary C++ errors from your own file in src/vu/ or "
+                    "src/vu0/ - see docs/vu-authoring.md.");
         }
 
         if (ok) {

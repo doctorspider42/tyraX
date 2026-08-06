@@ -37,6 +37,7 @@ try {
     Diagnostic: class { constructor(r, m, s) { this.range = r; this.message = m; this.severity = s; } },
     DiagnosticSeverity: { Warning: 1 },
     Range: class { constructor(a, b, c, d) { this.a = a; this.b = b; this.c = c; this.d = d; } },
+    Uri: { file: (p) => ({ fsPath: p, path: p }) },
     workspace: { findFiles: async () => [], fs: { readFile: async () => Buffer.alloc(0) } },
   };
 }
@@ -141,6 +142,47 @@ const ENGINE_GLOBS = [
   "vendor/tyra/engine/inc/renderer/3d/pipeline/**/*_shared_defines.h",
 ];
 
+/** Where the engine's headers are when the workspace is NOT the editor repo.
+ *
+ * This matters because of where generated microprograms actually live: a
+ * project's own program is written to `src/gen/*.vclpp` inside a GENERATED GAME
+ * project, and that project has no `vendor/tyra` to glob. Opening it there used
+ * to give opcode hovers and nothing else - no `VU1_CUSTOM_PARAMS_ADDR`, no
+ * macros - which is precisely backwards, since the generated file is the one a
+ * user reads without already knowing the engine.
+ *
+ * The editor already writes an absolute path to the engine's `inc` into every
+ * project's `.vscode/c_cpp_properties.json` (for IntelliSense), so the pointer
+ * exists; this just follows it. No new file, nothing to keep in sync. */
+async function engineIncludeRoots() {
+  const roots = [];
+  let uris = [];
+  try {
+    uris = await vscode.workspace.findFiles(
+      ".vscode/c_cpp_properties.json", "**/node_modules/**", 8);
+  } catch (e) {
+    return roots;
+  }
+  for (const uri of uris) {
+    let text = "";
+    try {
+      text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+    } catch (e) {
+      continue;
+    }
+    // Deliberately a regex over the raw text rather than JSON.parse: the file is
+    // generated, but a user may have added a comment to it and VS Code's own
+    // reader tolerates those.
+    const re = /"([^"]*[\\/]vendor[\\/]tyra[\\/]engine[\\/]inc)"/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const root = m[1].replace(/\\\\/g, "/");
+      if (!roots.includes(root)) roots.push(root);
+    }
+  }
+  return roots;
+}
+
 async function loadCatalogue() {
   const next = { macros: {}, defines: {} };
   for (const glob of ENGINE_GLOBS) {
@@ -158,6 +200,28 @@ async function loadCatalogue() {
         continue;
       }
       collect(text, uri, next);
+    }
+  }
+  // Nothing in the workspace: this is a generated game project, so follow the
+  // engine path its IntelliSense config already names.
+  if (!Object.keys(next.defines).length && !Object.keys(next.macros).length) {
+    for (const root of await engineIncludeRoots()) {
+      for (const rel of [
+        "renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h",
+        "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h",
+        // The macro library sits under src/, one level up from inc/.
+        "../src/renderer/3d/pipeline/shared/tyra_macros.i",
+        "../src/renderer/3d/pipeline/shared/vcl_sml.i",
+      ]) {
+        const uri = vscode.Uri.file(root + "/" + rel);
+        let text = "";
+        try {
+          text = Buffer.from(await vscode.workspace.fs.readFile(uri)).toString("utf8");
+        } catch (e) {
+          continue;
+        }
+        collect(text, uri, next);
+      }
     }
   }
   catalogue = next;
@@ -365,6 +429,7 @@ module.exports = {
   REGISTERS,
   DIRECTIVES,
   collect,
+  engineIncludeRoots,
   loadCatalogue,
   provideHover,
   provideCompletions,

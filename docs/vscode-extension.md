@@ -28,6 +28,15 @@ snippets here too (see below).
 The C++ body itself resolves against the project's engine headers through the
 generated `.vscode/c_cpp_properties.json`, so open the **whole project folder**
 (not a single file) for IntelliSense on `flow_nodes.hpp` and effect bodies. The
+config lists the engine's `inc/`, the project's own `inc/` and `src/`,
+`vugen/` when the project has a VU script, and **all three** PS2SDK trees —
+`ee/include`, `common/include` and `ports/include` — exported out of the build
+container on the first build. All three matter: `<tyra>` reaches libpng's
+`png.h`, which lives only in `ports`, and **one** unresolved include makes
+cpptools disable squiggles for the whole file rather than for that header, so a
+missing tree costs every completion in the file. If you see *"#include errors
+detected. Squiggles are disabled for this translation unit"*, build once and
+reload the window — the export is what a fresh cache is missing. The
 `call = fn` logic still belongs in `flow_nodes.hpp` — the `.flownode` stays a
 thin manifest — but the extension now colours and checks that manifest too.
 
@@ -81,6 +90,95 @@ set is written down in `vu.js`, because that is fixed silicon. Open the whole
 repo (not a single file) for the scan to find anything; without it the
 instruction help still works and only the macro/address entries are missing.
 
+**In a generated game project the scan follows a different pointer.** That is
+where a project's OWN microprogram lives - `src/gen/vu_custom_*.vclpp`
+([docs/vu-authoring.md](vu-authoring.md)) - and such a project has no
+`vendor/tyra` to glob, so until 0.3.1 the file most likely to be read by
+someone who does not already know the engine was the one getting the least
+help. When the workspace globs find nothing, the extension reads the engine
+path out of the project's own `.vscode/c_cpp_properties.json`, which the editor
+already writes for IntelliSense. No new file, nothing to keep in sync.
+
+## VU scripts (`src/vu/*.cpp`)
+
+A project's own VU program written in C++ ([docs/vu-authoring.md](vu-authoring.md))
+is an **ordinary `.cpp` file**, so none of the `.vclpp` help above applies to it -
+what it wants is plain C++ IntelliSense over `vu::` and `vugen::`. The Scripts
+panel lists these under *VU programs* and clicking one opens the project in
+VS Code with that file focused.
+
+It resolves through the same generated `.vscode/c_cpp_properties.json`, which
+lists `${workspaceFolder}/vugen` - the copy of the framework the editor drops
+into the project whenever it has a script (and removes when the last one goes).
+That entry is what makes `#include "vushader.hpp"` resolve and
+`c.` / `vugen::` / `vuir::M` complete; without it that one file was the only
+one in the project with no IntelliSense at all. Open the **project folder**, not
+the file.
+
+On top of that C++ baseline the extension adds the part a header cannot carry,
+scoped to `**/src/vu/*.cpp` so ordinary game code is untouched:
+
+- **Diagnostics for rules that hold BETWEEN declarations** - each one learned
+  from a Docker build or a console run, and now reported where it is typed:
+
+  | Reported | Why it matters |
+  |---|---|
+  | a script writes **Q** (`divQ`, `rsqrtQ`, `persCorrect`, `envStq`) | Q carries the perspective divide and has a latency the assembler schedules around; the write gets moved into that window and vertices land wrong. Grey stipple on the console, **nothing** wrong on the host |
+  | `scratch(n)` with `n > 3` | there are four (`vu::Ctx::kScratchCount`); the call clamps, so the fifth silently aliases the fourth |
+  | `Slot::ObjectSpace` / `ClipSpace` without `movesGeometry()` | the EE clipper cuts the mesh before the program runs; every prop at the edge of the screen tears |
+  | `movesGeometry()` on `Slot::Ndc` | not needed there, and not free - the game starts submitting props unclipped for nothing |
+  | `movesGeometry()` with `classes()` narrower than `vu::kAll` | an object draws several passes over the same vertices in different classes; move one and not the other and the copies separate |
+  | writing the position at `Slot::Color` / `Texture` | by then it is a GS 12.4 integer, not a position |
+
+- **Hover that bridges C++ to the machine** - `b.mulInto` shows `mul` and what
+  it does, `b.sineApprox` its seventeen instructions, `MXYZ` which fields it
+  writes. The descriptions come from the same opcode catalogue the `.vclpp`
+  hover uses; only the *method → instruction* mapping is new.
+- **A `vuprogram` scaffold** with the five overrides in the order they matter.
+
+What it deliberately does **not** do is repeat the headers. `vu::Ctx` and
+`vugen::Vu` hover out of `vugen/vushader.hpp` through cpptools already, and a
+copy here would be a second source of truth for exactly the thing the VU
+framework exists to stop duplicating.
+
+### When `vugen::` completes nothing
+
+**First: is the C/C++ extension installed at all?** `ms-vscode.cpptools` is what
+reads `c_cpp_properties.json` and provides every C++ completion; the TyraX
+extension provides none of them and never did. Without it VS Code answers with
+**"No suggestions."** in any `.cpp`, which reads as a broken project rather than
+as a missing extension - and until this was fixed the editor wrote that careful
+configuration for an extension it never recommended. Generated projects now list
+it in `.vscode/extensions.json`, and existing ones have it MERGED in on the next
+build (the file is otherwise write-once, so anything you added stays). VS Code
+then offers it in the Extensions view under *Recommended*.
+
+```
+code --install-extension ms-vscode.cpptools
+```
+
+Once it is installed and `vugen::` still completes nothing, the next candidate
+is that **there is no C++ standard library on the include path**. `vugen.hpp`
+opens with `<cstdint>`, `<string>` and `<vector>`; the PS2SDK tree the config
+points at carries C headers and no libstdc++, so with no `compilerPath` there is
+nowhere to find them, the parse dies on line one, and the symptom is again an
+empty list rather than an error. The generated config now writes a
+`compilerPath` pointing at whatever host `g++` / `clang++` / `c++` is on PATH,
+with `intelliSenseMode` derived to match it - a mode that contradicts the
+compiler is its own warning. If `compilerPath` is missing from your file, put a
+host compiler on PATH and rebuild.
+
+To tell the remaining cases apart in ten seconds, Command Palette ▸ **C/C++: Log
+Diagnostics**. It prints the configuration actually in use and every include
+path it resolved:
+
+- Open the **project folder**, not the repository root - `${workspaceFolder}` is
+  what every path in that file is relative to, and the repo root has no
+  `.vscode/c_cpp_properties.json` at all.
+- After the editor regenerates the file, run **C/C++: Reset IntelliSense
+  Database**; cpptools caches an unresolved include and does not retry on its
+  own.
+
 ## Installing it
 
 You normally don't have to do anything: the first time you use **Open in
@@ -99,8 +197,11 @@ manifest cache, so an extension folder merely copied into `~/.vscode/extensions`
 is silently ignored. It therefore needs VS Code's **`code` CLI on PATH** (in
 VS Code: Command Palette ▸ *Shell Command: Install 'code' command in PATH*); if
 it isn't, the status bar says so instead of failing silently. Generated projects
-also get a `.vscode/extensions.json` recommending the extension (id
-`tyrax.tyrax-flownode`), so an already-installed copy is not re-prompted.
+also get a `.vscode/extensions.json` recommending **two** ids -
+`ms-vscode.cpptools` and `tyrax.tyrax-flownode` - so an already-installed copy
+is not re-prompted. The first one is not optional garnish: it is what reads the
+`c_cpp_properties.json` this editor writes, and without it every C++ completion
+in the project answers "No suggestions." (see above).
 
 ### Installing it by hand
 
@@ -130,6 +231,10 @@ code --install-extension tyrax-flownode-*.vsix
   keys, enum values, placeholders) **must stay in sync** with the editor
   parsers `src/flownode.cpp` and `src/screenfx.cpp`; when you add a header key or
   placeholder to one, update the other and the docs above.
+- `vuscript.js` — the `src/vu/*.cpp` support. Registered with a **path**
+  selector, not a language one, so it never touches ordinary game C++. The
+  rules it checks are the ones in `docs/vu-authoring.md`; when one changes
+  there, change it here.
 - `tyrax-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
@@ -159,6 +264,10 @@ code --install-extension tyrax-flownode-*.vsix
   `json` + `re` is enough, and remember to descend into a rule's nested
   `patterns` only when it has no `match`/`begin` of its own, or `declaration`
   and `variable-decl` read as dead when they are fine.
+
+  The editor installs the NEWEST `.vsix` in the folder rather than the first one
+  the directory iterator returns, so a forgotten old file is harmless — but still
+  delete it.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
 tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock

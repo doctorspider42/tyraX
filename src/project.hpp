@@ -642,7 +642,122 @@ struct SceneObject {
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
+
+    // The four numbers this mesh hands to the project's own VU1 microprogram
+    // (docs/vu-authoring.md). A custom program replaces a whole MATERIAL CLASS
+    // - VU1 micro memory has no room for one program per object - so the kind
+    // of effect is per class and its STRENGTH is per mesh, and these are that
+    // strength. All zero means "this mesh wants nothing", which every stage is
+    // required to render bit-identically to the untouched program.
+    //
+    // They are uploaded per bag, so BATCHED objects share them: the generated
+    // game merges non-moving primitives into combined bags, and one bag is one
+    // upload. Two props that need different numbers need to be different bags.
+    float vuParams[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
+
+// ---------------------------------------------------------------------------
+// The project's own VU programs (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+// One authored stage. `kind` is a key from vugen::stageDefs(); an unknown one
+// is DROPPED on load rather than guessed at, the flowLegacyNodes rule - a
+// project written by a newer editor must not silently compile to a different
+// microprogram here.
+struct VuStage {
+    std::string kind;
+    bool enabled = true;
+    float params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // -1 = the literal above, which means EVERY MESH of the claimed classes -
+    // and that is the common case, because a look is a whole-scene treatment.
+    // 0..3 names a field of the per-mesh quadword instead, for the rarer "this
+    // prop, that much" case. Any such binding restricts the look to the classes
+    // that carry no lighting: the quadword lives in the directional-lights
+    // colour block (see vuClassCanBind).
+    int bind[4] = {-1, -1, -1, -1};
+};
+
+inline bool operator==(const VuStage& a, const VuStage& b) {
+    for (int i = 0; i < 4; ++i)
+        if (a.params[i] != b.params[i] || a.bind[i] != b.bind[i]) return false;
+    return a.kind == b.kind && a.enabled == b.enabled;
+}
+inline bool operator!=(const VuStage& a, const VuStage& b) { return !(a == b); }
+
+// A LOOK: one stage list, installed over every material class it claims.
+//
+// It is a look and not "a program" because that is what the feature is for. A
+// VU program is how you give a whole scene a treatment - cell shading, an
+// underwater wobble - not how you wiggle one barrel; a barrel is an animation's
+// job. And a treatment has to reach every class the scene draws with, or it
+// stops halfway: cell shading that covers untextured props and not textured
+// ones is not cell shading.
+//
+// `classes` is a StaPipProgramClass bit mask. Codegen emits ONE microprogram
+// per claimed class, all from this one list - so authoring is done once. At
+// most one enabled look may claim a given class: setProgramOverride replaces a
+// slot, and two programs cannot occupy one.
+struct VuProgram {
+    std::string name = "look";
+    unsigned classes = 1u << 0;
+    bool enabled = true;
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuProgram& a, const VuProgram& b) {
+    return a.name == b.name && a.classes == b.classes &&
+           a.enabled == b.enabled && a.stages == b.stages;
+}
+inline bool operator!=(const VuProgram& a, const VuProgram& b) { return !(a == b); }
+
+// A VU0 compute kernel: the same stages, on the other vector unit, with no
+// rendering around them. Reaches the game as a driver class a user script
+// calls; nothing in the scene pipeline knows it exists.
+struct VuKernel {
+    bool enabled = false;
+    std::string name = "kernel";
+    int maxElements = 112;  // VU0 has 256 quadwords TOTAL - see buildKernel
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuKernel& a, const VuKernel& b) {
+    return a.enabled == b.enabled && a.name == b.name &&
+           a.maxElements == b.maxElements && a.stages == b.stages;
+}
+inline bool operator!=(const VuKernel& a, const VuKernel& b) { return !(a == b); }
+
+struct VuSettings {
+    // Several looks may claim the same material class. Only ONE is installed
+    // at a time, but they all reach the ELF - microcode is a byte range in EE
+    // memory and only the active set is uploaded to VU1, so an alternative
+    // look costs EE RAM and nothing in micro memory. That is what makes
+    // switching a whole look at run time affordable (vuprog::activate).
+    std::vector<VuProgram> programs;
+    // Which one is installed at boot. Out of range = the first enabled one.
+    int activeLook = 0;
+    VuKernel kernel;
+    // Which material classes keep a resident VU1 program
+    // (StaPipQBufferRenderer::StaPipProgramClass; 0x1F = all five). Dropping
+    // one buys ~380 instructions of micro memory for a program the user wrote.
+    unsigned residentClasses = 0x1F;
+    // Let the editor derive the mask from what the scenes actually draw,
+    // instead of trusting a hand-set one to stay right as the project grows.
+    bool residentAuto = true;
+    // Which C++ SCRIPTS (src/vu/*.cpp) start switched on, by script name. Only
+    // a DEFAULT: a script that overrides activeAtBoot() answers for itself and
+    // this is not consulted - which is why it is a plain list of choices with
+    // no "unset", and why an unlisted script starts on. The names come from the
+    // manifest the last build wrote, since the editor cannot compile a script
+    // to ask it anything.
+    std::vector<std::pair<std::string, bool>> scriptBoot;
+};
+
+inline bool operator==(const VuSettings& a, const VuSettings& b) {
+    return a.programs == b.programs && a.kernel == b.kernel &&
+           a.residentClasses == b.residentClasses &&
+           a.residentAuto == b.residentAuto && a.scriptBoot == b.scriptBoot;
+}
+inline bool operator!=(const VuSettings& a, const VuSettings& b) { return !(a == b); }
 
 // A reusable group of scene objects - their flow graphs included - stamped
 // into the world by hand, by a procedural graph, or by the Spawn Prefab flow
@@ -779,6 +894,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
+           a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource;
 }
 
@@ -2459,6 +2576,13 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // The project's own VU1 microprograms and its VU0 kernel
+    // (docs/vu-authoring.md). Project-wide like the preset collections above,
+    // persisted through save(), not part of undo/redo - a microprogram is a
+    // build artefact, and undoing one halfway through a scene edit would mean
+    // the running game and the editor disagree about what is installed.
+    VuSettings vu;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -2648,18 +2772,19 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
-// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
-// while this one was open), which is exactly how it drifts. It DID drift: with
-// 17 sections and a count of 16, `--resave` on examples/cube dropped the whole
-// "prefabs" section - no error, the prefabs were simply gone. The static_assert
-// below is the fix that outlives the comment: Section::Count is maintained by
-// the compiler, so the next section to arrive cannot repeat this.
+// branches keep adding sections (ModelLods, ModelUnits, Input and VuPrograms all
+// arrived while this one was open), which is exactly how it drifts. It DID drift:
+// with 17 sections and a count of 16, `--resave` on examples/cube dropped the
+// whole "prefabs" section - no error, the prefabs were simply gone. The
+// static_assert below is the fix that outlives the comment: Section::Count is
+// maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 17,
+static_assert(kSectionCount == 18,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -2839,6 +2964,46 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
 
 // Is the world point inside the area's box?
 bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
+
+// Which StaPip material classes the project's scenes and prefabs actually
+// draw, as a StaPipProgramClass bit mask (docs/vu-authoring.md). ONE answer,
+// used by the VU panel's budget bar and by codegen's setResidentClasses call -
+// a second implementation would let the editor promise room the build does not
+// make. Colour is always set: it is what everything else falls back to.
+unsigned vuNeededClasses(const Project& p);
+// Which single class ONE object draws with, as a StaPipProgramClass bit. The
+// host twin of the engine's `getDrawProgramTypeByBag`, and the answer to the
+// question the authoring UI kept failing to ask: a program is installed over a
+// CLASS, so "will this program touch this object" is exactly "is this the
+// object's class". Returns 0 for anything with no geometry.
+unsigned vuClassOfObject(const Project& p, const SceneObject& o);
+// Whether a class can carry a look with PER-MESH parameters. The four numbers
+// and the clock live in the directional-lights colour block, so a lit class
+// needs those addresses for its light colours - but a look made only of
+// literals never reads them, and may go anywhere. That distinction is what
+// lets a global treatment reach lit geometry at all.
+bool vuClassCanBind(unsigned classBit);
+// True when any stage of the look binds a parameter to a mesh slot.
+bool vuLookBindsPerMesh(const VuProgram& look);
+// True when any stage displaces the vertex - such a look cannot cover a package
+// the frustum cut (docs/vu-authoring.md, "One class is two programs").
+bool vuLookMovesGeometry(const VuProgram& look);
+// True when the project carries at least one hand-written VU1 program
+// (src/vu/*.cpp).
+bool hasVuScripts(const Project& p);
+// ... and the VU0 half: at least one hand-written kernel (src/vu0/*.cpp).
+bool hasVuKernels(const Project& p);
+// Either of the above. THIS is the one the build asks: both directories are
+// compiled and RUN inside the build container by the same generator, so one
+// file in either means the runner has an extra step to take and the framework
+// has to travel with the project (docs/vu-authoring.md).
+bool hasVuSources(const Project& p);
+// "Untextured (vertex colour)", "Textured", ... - one label for the panel, the
+// inspector and the diagnostics.
+const char* vuClassName(unsigned classBit);
+// What the build will actually install: the auto-detected set, or the mask the
+// project pinned by hand.
+unsigned vuResidentClasses(const Project& p);
 
 // Types an area may catch: everything the game draws as static geometry (the
 // same set the mirror/portal pickers offer). Markers have nothing to render or

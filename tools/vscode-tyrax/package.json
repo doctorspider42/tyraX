@@ -1,8 +1,8 @@
 {
   "name": "tyrax-flownode",
   "displayName": "TyraX Flow Nodes, Screen Effects, Menu Styles & VU1",
-  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle) and VU1 microprograms (.vclpp).",
-  "version": "0.4.0",
+  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle), VU1 microprograms (.vclpp) and a project's own VU programs (src/vu/*.cpp).",
+  "version": "0.4.1",
   "publisher": "tyrax",
   "license": "MIT",
   "icon": "icon.png",
@@ -35,7 +35,8 @@
     "onLanguage:tyrax-flownode",
     "onLanguage:tyrax-screenfx",
     "onLanguage:tyrax-menustyle",
-    "onLanguage:tyrax-vu"
+    "onLanguage:tyrax-vu",
+    "workspaceContains:src/vu/*.cpp"
   ],
   "main": "./extension.js",
   "contributes": {

@@ -15,16 +15,17 @@ struct AoOccData {
   int objIndex;
 };
 
-static const AoOccData S0_AO_OCC[5] = {
+static const AoOccData S0_AO_OCC[6] = {
     {{-4.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1},
     {{-1.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.9F, 0.9F, 0.9F}, 1, 2},
     {{1.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 3},
     {{4.5F, 1.1F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 1, 4},
     {{0.0F, 2.5F, 15.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.5F, 2.5F, 0.5F}, 0, 5},
+    {{2.0F, 1.0F, 4.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 1, 6},
 };
 
 static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
-static const int SCENE_AO_OCC_COUNTS[] = {5};
+static const int SCENE_AO_OCC_COUNTS[] = {6};
 
 struct EmisLightData {
   float pos[3];
@@ -43,9 +44,9 @@ static const int SCENE_EMIS_COUNTS[] = {0};
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect S0_AO_RECTS[14] = {{0.738281F, 0.503906F, 0.210938F, 0.148438F}, {0.246094F, 0.839844F, 0.273438F, 0.0625F}, {0.542969F, 0.839844F, 0.015625F, 0.0546875F}, {0.832031F, 0.0117188F, 0.125F, 0.335938F}, {0.167969F, 0.503906F, 0.0625F, 0.273438F}, {0.253906F, 0.503906F, 0.0625F, 0.273438F}, {0.425781F, 0.0117188F, 0.382812F, 0.390625F}, {0.511719F, 0.503906F, 0.203125F, 0.15625F}, {0.0117188F, 0.839844F, 0.210938F, 0.148438F}, {0.582031F, 0.839844F, 0.015625F, 0.0546875F}, {0.0117188F, 0.503906F, 0.132812F, 0.3125F}, {0.339844F, 0.503906F, 0.0625F, 0.265625F}, {0.425781F, 0.503906F, 0.0625F, 0.265625F}, {0.0117188F, 0.0117188F, 0.390625F, 0.46875F}};
-static const int S0_AO_FIRST[6] = {-1, 0, 6, 7, 13, -1};
-static const unsigned char S0_AO_LIT[6] = {0, 0, 0, 0, 0, 0};
+static const AoAtlasRect S0_AO_RECTS[7] = {{0.0234375F, 0.679688F, 0.265625F, 0.203125F}, {0.335938F, 0.679688F, 0.265625F, 0.1875F}, {0.648438F, 0.679688F, 0.015625F, 0.0625F}, {0.570312F, 0.0234375F, 0.15625F, 0.40625F}, {0.773438F, 0.0234375F, 0.078125F, 0.328125F}, {0.898438F, 0.0234375F, 0.078125F, 0.328125F}, {0.0234375F, 0.0234375F, 0.5F, 0.609375F}};
+static const int S0_AO_FIRST[7] = {-1, -1, -1, 0, 6, -1, -1};
+static const unsigned char S0_AO_LIT[7] = {0, 0, 0, 0, 0, 0, 0};
 static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
 static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};

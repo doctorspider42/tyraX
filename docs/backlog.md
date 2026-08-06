@@ -44,9 +44,13 @@ the verification, and any fact worth reusing belongs in the relevant
   and vu-lab rebuilt as an authoring demo. The whole enabling layer is done and
   verified on hardware; see `.claude/plans/vu-authoring.md` for the plan, the
   decisions already made and the traps.
-- **VU0 as a target.** Parser and VS Code already handle it; the simulator's
-  memory size is VU1's and the generator's skeleton is the VU1 pipeline. Same
-  plan file has the steps, smallest first.
+- **VU0 kernels: real-hardware pass.** Done and verified in PCSX2: a project
+  writes `src/vu0/*.cpp` against `vu::Kernel`, the container emits the
+  microprogram and its EE driver, and `examples/vu-lab`'s `Ranges` kernel agrees
+  with the EE's own `sqrtf` to 1e-6 units over 39 objects. What is still owed is
+  the same run on a physical PS2 (PCSX2's COP2 timing is not the console's), and
+  a measurement of what `run()` actually costs in EE time per batch size - the
+  docs say "32 elements is microseconds" from reasoning, not from a stopwatch.
 - **openvcl: a minimal reproducer for the loop-liveness bail-out.** The bug is
   closed by `--loop-liveness-always` (measured: without it, three of the five
   `as_is_*` programs clobber a register carried across the back edge), and the
@@ -74,6 +78,19 @@ the verification, and any fact worth reusing belongs in the relevant
   scratch polygon buffers that an expression-level DSL will not express; the
   honest shape is a declarative skeleton with hand-written instruction blocks
   plugged into it.
+- **Colour grading through the CLUT.** Every texture is already palettized
+  (4-bit, 16 entries), so the GS is already doing a per-pixel colour lookup for
+  free - re-map those entries through a grading curve and textured surfaces get
+  true per-pixel grading at no runtime cost. That is strictly more than today's
+  grading can do: `grading.hpp` compiles to the GS blender's gain/lift/mix, with
+  no gamma and saturation only approximated, and the GS has no dependent texture
+  read so a full-frame LUT is not available at all. Pairs with a
+  luminance-indexed LUT on VU1 for the untextured half (the builder can already
+  express the indexed load); the two together cover a scene without grading
+  anything twice. See `.claude/plans/clut-grading.md` for the shape and the
+  traps - the first unknown is whether the CLUT is cached in VRAM, which decides
+  whether a run-time re-grade is cheap.
+
 - **VU framework: per-project program specialization.** The editor knows at build
   time which program variants a project can use - a project with no matcap
   material does not need the two `tce` programs, which is ~400 instructions of
