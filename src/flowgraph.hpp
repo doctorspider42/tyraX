@@ -1516,16 +1516,21 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strTip = "The sound effect to play (imported in the Project panel > "
                    "Sounds). One-shot ADPCM - for looping background audio use "
                    "Play Music.",
-         .numCount = 3, .numLabels = {"Volume", "Channel", "Dry"},
+         .numCount = 4, .numLabels = {"Volume", "Channel", "Dry", "Priority"},
          .numTips = {"How loud, 0..100. Set Sound Volume scales this on top.",
                      "Which voice to use, or auto to rotate through them. "
                      "Auto cycles 0-15 and layers; 16-23 belong to the sound "
-                     "emitters. A PINNED channel is skipped while its previous "
-                     "sample is still playing - pinning keeps a sound from "
-                     "layering over itself, it does not cut the old one off.",
+                     "emitters. A PINNED channel CUTS OFF its own previous "
+                     "sample instead of layering - pin a footstep, a UI beep "
+                     "or a weapon so the new one replaces the old one.",
                      "1 = never send this sound through a reverb zone - a menu "
                      "beep or a voice line that must sound the same in a cave "
-                     "as outdoors. 0 (the default) = the room applies."},
+                     "as outdoors. 0 (the default) = the room applies.",
+                     "Who wins when all sixteen voices are busy: a sound cuts "
+                     "off the LOWEST priority strictly below its own, and is "
+                     "dropped when nothing playing is less important. 0 is "
+                     "ordinary; raise it for a gunshot or a line of dialogue, "
+                     "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.

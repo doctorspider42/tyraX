@@ -458,6 +458,17 @@ for the same reason — `sndChBus` beside `sndChVol`/`sndChPan` is that fix.
 `reverbPresets()` in flowgraph.hpp is the single preset table — read by the Area
 combo, the Set Reverb node and codegen — and its ORDER IS THE WIRE FORMAT: it is
 `Tyra::AudioReverb::Preset`, i.e. libsd's `SD_EFFECT_MODE_*`, so append only.
+**A second obligation, and the same shape: the voices are FINITE** (24 per bus,
+16 for Play Sound and 8 for the emitters — docs/sound.md). Who keeps one when
+they are all busy is decided in exactly two places, and a new play site must go
+through one of them rather than picking a channel itself: `pickSoundSlots` in
+the emitter loop (a per-frame ranking, priority then loudness, with a steal
+margin so near-equal ambiences do not trade a channel every frame and retrigger
+each other) and `flowPickSfxChannel` in the generated flow-graph TU (an ended
+voice, else the lowest priority strictly below, else the sound is DROPPED — and
+a drop must stay unlogged, it is the feature working). The runtime table there
+is per bus and resets when the room moves to the other core: the outgoing bus's
+voices belong to the room the player just left and must not be stolen from.
 **A type whose data drives OTHER baked objects** is the heaviest kind of new
 type. `Scroller` (19) is the reference: codegen APPENDS clone objects to the
 scene table (authored indices must never shift, or every flow graph / mirror /

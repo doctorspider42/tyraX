@@ -4274,6 +4274,107 @@ static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
 static int sndChBus[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
+// Which emitter currently owns each of the eight channels (a runtime object
+// index, -1 = free). The slots used to be a hash of the object index
+// (16 + (i & 7)), so the NINTH audible emitter silently muted one of the
+// first eight and which one it was came down to scene order - an emitter at
+// the player's feet could lose to one eight indices away and half a level
+// off. They are handed to the LOUDEST emitters instead; see pickSoundSlots.
+static int sndSlotOwner[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// How much louder a challenger has to be before it takes a slot off the
+// emitter holding it. Re-ranking on the raw value makes two emitters of
+// near-equal volume trade the slot every frame, and because a change of owner
+// retriggers, that is audible as stuttering. The volumes are already
+// quantized to steps of 5 (see updateSoundEmitters), so this is two steps: far
+// below what a listener can place, far above the jitter of walking.
+static const int kSndStealMargin = 10;
+
+// One emitter's claim on a channel this frame: the runtime object, the
+// volume/pan the loop worked out for it, and the author's priority.
+struct SoundWant {
+  int obj;
+  int vol;
+  int pan;
+  int prio;
+};
+
+// Is `a` a better claim on a channel than `b`? Priority first - that is what
+// the author set it for - and the volume only decides between equals. The
+// margin applies to the volume alone: a higher priority takes a channel
+// immediately, while two ambiences a step apart must not trade one every
+// frame (see kSndStealMargin).
+static bool sndBeats(const SoundWant& a, const SoundWant& b, int margin) {
+  if (a.prio != b.prio) return a.prio > b.prio;
+  return a.vol > b.vol + margin;
+}
+// Kept between frames so the per-frame pass allocates nothing.
+static std::vector<SoundWant> sndWants;
+
+static bool sndHoldsSlot(int obj) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] == obj) return true;
+  return false;
+}
+
+static const SoundWant* sndWantOf(const std::vector<SoundWant>& wants, int obj) {
+  for (int k = 0; k < (int)wants.size(); ++k)
+    if (wants[k].obj == obj) return &wants[k];
+  return 0;  // wants nothing this frame
+}
+
+// Hands the eight emitter channels to the loudest emitters that want one.
+// Three steps, each of them O(8 x emitters) of plain arithmetic:
+//   1. a holder that has gone quiet (out of range, hidden, deactivated)
+//      releases its channel;
+//   2. free channels go to the loudest emitters holding none;
+//   3. the loudest emitter still without one takes the quietest holder's
+//      channel, but only if it beats it by kSndStealMargin.
+// Step 3 is what makes the assignment stable: without the margin, two
+// emitters a step apart swap every frame and retrigger each other to bits.
+// A channel that changes hands has its volume/pan cache invalidated here, at
+// the assignment - the same thing a bus switch does, and for the same reason.
+static void pickSoundSlots(const std::vector<SoundWant>& wants) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] >= 0 && !sndWantOf(wants, sndSlotOwner[s]))
+      sndSlotOwner[s] = -1;
+
+  for (int s = 0; s < 8; ++s) {
+    if (sndSlotOwner[s] >= 0) continue;
+    const SoundWant* best = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!best || sndBeats(wants[k], *best, 0)) best = &wants[k];
+    }
+    if (!best) break;  // nobody is waiting
+    sndSlotOwner[s] = best->obj;
+    sndChVol[s] = -1;
+    sndChPan[s] = -999;
+  }
+
+  // Bounded by the channel count: every pass moves exactly one emitter in and
+  // one out, so eight is already more than can ever be useful.
+  for (int pass = 0; pass < 8; ++pass) {
+    const SoundWant* cand = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!cand || sndBeats(wants[k], *cand, 0)) cand = &wants[k];
+    }
+    if (!cand) break;
+    int worst = -1;
+    const SoundWant* worstWant = 0;
+    for (int s = 0; s < 8; ++s) {
+      const SoundWant* w = sndWantOf(wants, sndSlotOwner[s]);
+      if (!w) continue;
+      if (!worstWant || sndBeats(*worstWant, *w, 0)) { worstWant = w; worst = s; }
+    }
+    if (worst < 0 || !sndBeats(*cand, *worstWant, kSndStealMargin)) break;
+    sndSlotOwner[worst] = cand->obj;
+    sndChVol[worst] = -1;
+    sndChPan[worst] = -999;
+  }
+}
+
 // Reverb zone state (docs/reverb.md). The SPU2 has TWO reverb units, one per
 // core, and the audsrv fork puts ADPCM channels 0-23 on core 1 and 24-47 on
 // core 0 - so a bus is reachable only by the voices playing on its core. That
@@ -4676,6 +4777,8 @@ void TerrainGame::loadScene(int sceneIndex) {
     engine->audio.adpcm.setVolume(0, (s8)(ch + 24));
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
     sndChBus[ch - 16] = -1;  // ...and make the next write unconditional
+    // The owners are runtime object INDICES, which the new scene renumbers.
+    sndSlotOwner[ch - 16] = -1;
   }
 
   // Reverb: a scene switch is a cut, so drop both rooms instead of ramping one
@@ -4735,31 +4838,17 @@ void TerrainGame::updateSoundEmitters() {
   if (g_gameplayPaused) return;
   if (sndTimers.size() != runtimeObjects.size())
     sndTimers.assign(runtimeObjects.size(), 0);
+
+  // Pass 1: what every emitter WANTS this frame. Pure arithmetic - not one
+  // RPC - so ranking the whole scene costs the IOP nothing, and an emitter
+  // that is out of range, hidden or deactivated simply does not appear.
+  sndWants.clear();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
-    // Emitters own channels 16-23 OF THE ROOM'S BUS: +0 on core 1, +24 on
-    // core 0. A room change therefore moves an emitter to a different channel,
-    // and its next trigger is heard through the incoming room while whatever
-    // it has in flight finishes in the outgoing one.
-    const int chIdx = i & 7;
-    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + chIdx);
-    if (sndChBus[chIdx] != scriptCtx.reverbBusBase) {
-      // The cached volume/pan describe the channel on the bus we just left, so
-      // they say nothing about this one - force the writes below.
-      sndChVol[chIdx] = -1;
-      sndChPan[chIdx] = -999;
-      sndChBus[chIdx] = scriptCtx.reverbBusBase;
-    }
-    if (!o.active || !o.visible) {
-      if (sndChVol[chIdx] != 0) {
-        engine->audio.adpcm.setVolume(0, ch);
-        sndChVol[chIdx] = 0;
-      }
-      continue;
-    }
+    if (!o.active || !o.visible) continue;
     int vol = 100;
     int pan = 0;
     if (!o.data.sndOnPlayer) {
@@ -4794,30 +4883,74 @@ void TerrainGame::updateSoundEmitters() {
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
     // one emitter + music). Quantize and only send real changes; a static
-    // player near a static emitter then costs zero RPCs per frame.
+    // player near a static emitter then costs zero RPCs per frame. The
+    // quantization is also what the steal margin is measured in.
     vol = ((vol + 2) / 5) * 5;
     if (vol > 100) vol = 100;
+    if (vol <= 0) continue;  // inaudible: wants no channel at all
     pan = pan >= 0 ? ((pan + 5) / 10) * 10 : -(((-pan + 5) / 10) * 10);
-    if (vol != sndChVol[chIdx] || pan != sndChPan[chIdx]) {
-      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
-      sndChVol[chIdx] = vol;
-      sndChPan[chIdx] = pan;
+    SoundWant w;
+    w.obj = i;
+    w.vol = vol;
+    w.pan = pan;
+    w.prio = o.data.sndPriority;
+    sndWants.push_back(w);
+  }
+
+  // Pass 2: hand the eight channels to the loudest of them.
+  pickSoundSlots(sndWants);
+
+  // Pass 3: drive each channel. Emitters own channels 16-23 OF THE ROOM'S
+  // BUS: +0 on core 1, +24 on core 0 (docs/reverb.md). A room change moves an
+  // emitter to a different channel, and its next trigger is heard through the
+  // incoming room while whatever it has in flight finishes in the outgoing one.
+  for (int s = 0; s < 8; ++s) {
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + s);
+    if (sndChBus[s] != scriptCtx.reverbBusBase) {
+      // The cached volume/pan describe the channel on the bus we just left, so
+      // they say nothing about this one - force the writes below.
+      sndChVol[s] = -1;
+      sndChPan[s] = -999;
+      sndChBus[s] = scriptCtx.reverbBusBase;
     }
-    if (vol <= 0) continue;
-    if (sndTimers[i] > 0) {
-      --sndTimers[i];
+    const int owner = sndSlotOwner[s];
+    if (owner < 0) {
+      // Nobody wants this channel. Mute it once so a stale level cannot come
+      // back with the next emitter that lands here before its own write.
+      if (sndChVol[s] != 0) {
+        engine->audio.adpcm.setVolume(0, ch);
+        sndChVol[s] = 0;
+      }
       continue;
     }
+    // The want computed in pass 1 (the ranking already found it, so this is a
+    // lookup and not a recomputation).
+    const SoundWant* want = sndWantOf(sndWants, owner);
+    const int vol = want ? want->vol : 0;
+    const int pan = want ? want->pan : 0;
+    if (vol != sndChVol[s] || pan != sndChPan[s]) {
+      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+      sndChVol[s] = vol;
+      sndChPan[s] = pan;
+    }
+    // An emitter with no channel does not tick either: its interval starts
+    // counting when it is loud enough to be heard, so walking up to a 10 s
+    // emitter cannot make it fire instantly with a countdown it spent silent.
+    if (sndTimers[owner] > 0) {
+      --sndTimers[owner];
+      continue;
+    }
+    const RuntimeObject& o = runtimeObjects[owner];
     // Reverb send for this channel. The send is one BIT per voice, so an
-    // emitter opting out just clears its channel's bit - and because two
-    // emitters can share a channel (16 + (i & 7)), the one that plays owns
-    // it. AudioReverb holds the mask and compares before touching the
-    // hardware, which is also why nothing here keeps a copy: Play Sound nodes
-    // write the same mask from the generated graphs, and a second cache would
-    // let the two clobber each other's bits.
+    // emitter opting out just clears its channel's bit - and because a channel
+    // changes hands, the emitter that plays owns the setting. AudioReverb
+    // holds the mask and compares before touching the hardware, which is also
+    // why nothing here keeps a copy: Play Sound nodes write the same mask from
+    // the generated graphs, and a second cache would let the two clobber each
+    // other's bits.
     engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
-    sndTimers[i] = everyFrames(o.data.sndInterval);
+    sndTimers[owner] = everyFrames(o.data.sndInterval);
   }
 }
 

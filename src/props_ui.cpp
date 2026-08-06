@@ -1564,6 +1564,18 @@ void App::drawPropertiesWindow() {
                 "sample that was recorded with its own room already on it.\n"
                 "The send is one bit per voice in hardware, so there is no\n"
                 "per-emitter wet amount - only the zone's own.");
+        ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which emitters win when more of them are audible than the\n"
+                "sound chip has voices (docs/sound.md). Eight emitters can be\n"
+                "heard at once; a ninth has to lose a channel, and the one\n"
+                "that loses is the lowest priority - among equals, the\n"
+                "quietest.\n"
+                "0 is ordinary ambience. Raise it for the one sound a scene\n"
+                "cannot afford to drop (an alarm, a boss loop, a hint the\n"
+                "player is waiting on).");
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"

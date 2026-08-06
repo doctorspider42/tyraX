@@ -111,10 +111,15 @@ that was recorded with its own room already baked into it.
 room applies, 1 = never). It defaults to 0, so graphs written before this
 existed keep behaving as one would expect.
 
-Because the send is one bit per voice and the emitters share eight channels
-round-robin, the emitter that most recently triggered a channel owns that
-channel's setting. In practice this is invisible; it only matters if you mix
-reverb-on and reverb-off emitters that fire in lockstep.
+Because the send is one bit per voice and the emitters share eight channels,
+the emitter that most recently triggered a channel owns that channel's setting.
+In practice this is invisible; it only matters if you mix reverb-on and
+reverb-off emitters that fire in lockstep.
+
+**Which eight emitters those are is a ranking**, and there is a page about it:
+[sound.md](sound.md) — the channel budget of a whole game, how the emitters and
+the Play Sound nodes divide it, and what priority does when a scene asks for
+more sounds than the chip can carry.
 
 ## Driving it from a flow graph
 

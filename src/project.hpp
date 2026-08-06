@@ -470,6 +470,13 @@ struct SceneObject {
     // the zone's global depth. Off = this emitter stays dry wherever the
     // listener stands (a UI beep, a sound already recorded with its own room).
     bool soundReverb = true;
+    // Which emitters win when there are more audible ones than voices
+    // (docs/sound.md). The SPU2 gives the emitters EIGHT channels per reverb
+    // bus, so a ninth audible emitter has to lose one; higher priority wins,
+    // and among equals the loudest does. 0 is "ordinary ambience" - raise it
+    // for the one sound a scene cannot afford to drop (an alarm, a boss's
+    // loop, a hint the player is waiting on).
+    int soundPriority = 0;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -885,6 +892,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
+           a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&

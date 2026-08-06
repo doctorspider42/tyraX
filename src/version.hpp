@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 3
+#define TYRAX_VERSION_MINOR 4
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -51,6 +51,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // which reads as a dry game exactly as it was - so no migration step. (This
 // was authored as v3 on its own branch and renumbered on the merge: menu
 // stylesheets took that number first.)
-inline constexpr int kFormatVersion = 4;
+// v5 (sound priority, docs/sound.md): a sound emitter's "priority" - who
+// keeps one of the eight emitter voices when more emitters are audible than
+// there are channels. Purely additive and it defaults to 0, which is what
+// every emitter in an older file gets, so the ranking then falls back to
+// loudness alone - no migration step. (The Play Sound node's matching
+// Priority parameter is a flow-node param and rides the existing num array,
+// which needs no format bump of its own.)
+inline constexpr int kFormatVersion = 5;
 
 }  // namespace version

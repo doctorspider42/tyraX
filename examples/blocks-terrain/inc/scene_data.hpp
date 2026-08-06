@@ -58,6 +58,9 @@ struct SceneObjectData {
   int sndReverb;     // sound emitters: 1 = heard through the reverb
                      // zone the player is in (REVERB_ZONES below);
                      // 0 = always dry
+  int sndPriority;   // sound emitters: who keeps a channel when more
+                     // are audible than there are voices - higher
+                     // wins, equals go to the loudest (docs/sound.md)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
   int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
@@ -207,9 +210,9 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {6, {0.0F, 24.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
-    {18, {0.0F, 8.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {66.0F, 44.0F, 66.0F}, {0.4F, 0.7F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // world
-    {11, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.6F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // regenerator
+    {6, {0.0F, 24.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
+    {18, {0.0F, 8.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {66.0F, 44.0F, 66.0F}, {0.4F, 0.7F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // world
+    {11, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.6F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // regenerator
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};

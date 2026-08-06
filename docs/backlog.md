@@ -34,16 +34,18 @@ the verification, and any fact worth reusing belongs in the relevant
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
-- **Sound priority and voice stealing** - written up as a brief for a session
-  with a console attached: `.claude/plans/sound-priority.md`. Three steps, of
-  which the first is a plain bug fix: emitters hash the object index to one of
-  8 slots (`16 + (i & 7)`), so a ninth audible emitter is starved by SCENE
-  ORDER rather than by distance, and an emitter beside the player can be silent
-  because an object eight indices away holds its slot. Then a forced play in
-  the audsrv fork (which also makes Play Sound's pinned channel actually cut
-  off, as its tip once claimed), and priorities proper on the node and the
-  emitter. The open question is whether restarting a voice mid-sample clicks -
-  a hardware question, which is why the brief exists.
+- **Sound priority and voice stealing** - DONE (docs/sound.md), all three steps
+  of `.claude/plans/sound-priority.md`: emitters rank by priority then loudness
+  instead of hashing their scene index into one of 8 slots, the audsrv fork
+  gained a forced play (so a pinned Play Sound channel cuts off, as its tip
+  always claimed), and both the node and the emitter carry a Priority. What the
+  brief could not settle stays open, and it is a listening question rather than
+  a code one: **does a forced restart over a live voice click?** If it does, the
+  fixes in order are a volume drop plus a play on the next frame, or a KOFF and
+  the ADSR release - both a frame of latency, so they are not worth paying
+  until someone hears the problem. The other half of that question is whether a
+  click is masked in practice (a gunshot stealing footsteps hides a lot; two
+  quiet voice lines do not).
 - **Reverb: a third room, and the tail of the cross-fade.** The two reverb
   units are both in use now (docs/reverb.md): a room owns a bus and transitions
   cross-fade across them. Two things were left where the chip runs out. A THIRD

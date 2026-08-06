@@ -15,6 +15,44 @@
 #include <string>
 
 namespace Reverb_rooms {
+
+// Which channel a Play Sound gets, and who loses one when they are all busy
+// (docs/sound.md). The flow graphs share the sixteen channels of the CURRENT
+// room's reverb bus - 16-23 belong to the sound emitters - so the choice is
+// made here once for every graph in the game rather than per script.
+//
+// Order: a voice that has FINISHED is free and needs no victim; otherwise the
+// lowest priority STRICTLY below the incoming one is cut off; otherwise the
+// new sound is dropped. That last case is the design working, not a failure -
+// it is what "priority" means - so nothing logs it.
+//
+// The ENDX read is one IOP RPC and it happens per PLAY REQUEST, never per
+// frame. A play already costs two or three RPCs (volume, reverb send, the
+// play itself), and it is the only way to know what is still sounding.
+namespace {
+int sfxPrio[16] = {0};  // priority of what was last started on each channel
+int sfxPrioBus = -1;    // which bus those priorities describe
+
+inline void sfxSyncBus(int base) {
+  if (sfxPrioBus == base) return;
+  // The room moved to the other SPU2 core. Whatever is still finishing on the
+  // bus we left must not be stolen from - it belongs to the room the player
+  // just walked out of - and this bus's own table describes voices that have
+  // long since ended, so it starts empty.
+  for (int i = 0; i < 16; ++i) sfxPrio[i] = 0;
+  sfxPrioBus = base;
+}
+
+// A pinned channel is the author saying "this sound owns this voice", so it
+// always gets it - but its priority still goes in the table, or an auto play
+// would steal the voice out from under it.
+inline int flowPinSfxChannel(ScriptContext& ctx, int ch, int prio) {
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  if (ch >= 0 && ch < 16) sfxPrio[ch] = prio;
+  return base + ch;
+}
+}  // namespace
 class FlowGraphScript_0_0;
 FlowGraphScript_0_0* g_time_FlowGraphScript_0_0 = nullptr;
 
@@ -40,40 +78,40 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(0);
       livedbg::hit(1);
       {
-        const s8 ch = (s8)(ctx.reverbBusBase + 2);
+        const s8 ch = (s8)flowPinSfxChannel(ctx, 2, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
-        ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
       }
     }
     if (ctx.engine->pad.getClicked().Cross) {
       livedbg::hit(0);
       livedbg::hit(1);
       {
-        const s8 ch = (s8)(ctx.reverbBusBase + 2);
+        const s8 ch = (s8)flowPinSfxChannel(ctx, 2, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
-        ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
       }
     }
     if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
       livedbg::hit(2);
       livedbg::hit(3);
       {
-        const s8 ch = (s8)(ctx.reverbBusBase + 3);
+        const s8 ch = (s8)flowPinSfxChannel(ctx, 3, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
-        ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
       }
     }
     if (ctx.engine->pad.getClicked().Circle) {
       livedbg::hit(2);
       livedbg::hit(3);
       {
-        const s8 ch = (s8)(ctx.reverbBusBase + 3);
+        const s8 ch = (s8)flowPinSfxChannel(ctx, 3, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
-        ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
       }
     }
     if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
@@ -137,7 +175,6 @@ class FlowGraphScript_0_0 : public Script {
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  int sfxNextCh = 0;
   audsrv_adpcm_t* sfx0 = nullptr;
 };
 
