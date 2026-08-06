@@ -34,14 +34,16 @@ the verification, and any fact worth reusing belongs in the relevant
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
-- **Make a pinned sound channel actually retrigger.** Play Sound's *Channel*
-  parameter is documented as "pinned", and what that buys today is "this sound
-  cannot layer over itself" - a pinned channel whose previous sample is still
-  playing is SKIPPED (audsrv returns -AUDSRV_ERR_NO_MORE_CHANNELS). What a
-  rapid-fire gun actually wants is the old voice CUT and the new one started,
-  which is a KOFF before the KON in the fork's `audsrv_ch_play_adpcm`. Small
-  change, but the gap between key-off and key-on is exactly where a click comes
-  from, so it wants a real console rather than PCSX2.
+- **Sound priority and voice stealing** - written up as a brief for a session
+  with a console attached: `.claude/plans/sound-priority.md`. Three steps, of
+  which the first is a plain bug fix: emitters hash the object index to one of
+  8 slots (`16 + (i & 7)`), so a ninth audible emitter is starved by SCENE
+  ORDER rather than by distance, and an emitter beside the player can be silent
+  because an object eight indices away holds its slot. Then a forced play in
+  the audsrv fork (which also makes Play Sound's pinned channel actually cut
+  off, as its tip once claimed), and priorities proper on the node and the
+  emitter. The open question is whether restarting a voice mid-sample clicks -
+  a hardware question, which is why the brief exists.
 - **Reverb: a third room, and the tail of the cross-fade.** The two reverb
   units are both in use now (docs/reverb.md): a room owns a bus and transitions
   cross-fade across them. Two things were left where the chip runs out. A THIRD
