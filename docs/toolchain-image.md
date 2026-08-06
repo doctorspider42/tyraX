@@ -1287,12 +1287,42 @@ keeping straight because two of them are corrections:
   whichever position the bits occupy, and SCE puts those adjacent to their `clipw`.
   Padding them cost the five cull programs 22 instructions for nothing.
 
-**What is left is size, and only size.** The resident set is **2118 against the 2042
-ceiling**. The padding is nops because the scheduler measures this wait in cycles, where
+**What is left is size, and only size.** The resident set is **2074 against the 2042
+ceiling** - 32 words, down from 118 when the fix first landed. The padding is nops because the scheduler measures this wait in cycles, where
 an interlocked wait is free, so it has no reason to move work into the gap. Raising the
 scheduler's figure to 8 to make it spread things out was measured and is worse (2224) -
 nothing to fill with, so it just stalls longer. SCE fits while paying the same waits, so
 the words exist; reaching them needs a scheduler that counts this one in emitted rows.
+
+### Closing the size gap: six flag reads become two
+
+A positional flag read has to sit four emitted rows behind its CLIP, and the engine's
+`processing` block had six of them - so six places where those rows had to be paid for in
+nops. They all feed one OR, though, and the CLIP register is a **24-bit window of four
+6-bit entries, newest at bits 0..5**. Four tests can be pushed and read together:
+
+```
+clipw v1, s1, v2, s2   ->  fcand VI01, 0x3CA3CA    v1 0xF<<18 | s1 0xA<<12 |
+                                                   v2 0xF<<6  | s2 0xA
+clipw v3, s3           ->  fcand VI01, 0x3CA       v3 0xF<<6  | s3 0xA
+```
+
+Four fewer `fcand` and four fewer `ior` per program, and two padded sites instead of six.
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| before batching | 2042 | 2118 |
+| after | **2040** | **2074** |
+
+Both builds verified in PCSX2 after the change: SCE stays pixel-identical to its own
+reference (0 of 514600), and openvcl matches SCE exactly - 24/72 staged, 0 pixels.
+
+One thing that looked obvious and did nothing: moving the polygon-buffer stores up into
+the gap, so the wait would be filled with work instead of nops. Byte-identical output.
+The scheduler is not bound by source order within a block - it already had that freedom
+and did not use it, because it measures this wait in cycles where an interlocked wait is
+free. That is the remaining 32 words, and the lever for them is in the scheduler, not the
+source.
 
 ### Reading the batches instead of the totals
 

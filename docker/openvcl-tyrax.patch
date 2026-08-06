@@ -66,7 +66,7 @@ index 5bec71c..504039b 100644
  		newDependency = new Dependency;
  		newDependency->setAlias( newAlias );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..7033bbf 100644
+index 699abe7..1a2a05e 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -185,7 +185,7 @@ index 699abe7..7033bbf 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -1549,6 +1639,109 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+@@ -1549,6 +1639,114 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
  	}
  }
  
@@ -240,7 +240,12 @@ index 699abe7..7033bbf 100644
 +		if( text.empty() )
 +			continue;
 +		const unsigned long mask = std::strtoul( text.c_str(), NULL, 0 );
-+		return mask != 0 && mask < 0x3FFFFul;
++		// Only the whole-window masks are safe to read adjacent to their CLIP: they
++		// ask "is anything outside" and every entry answers the same way. A mask
++		// that names particular entries - one bit, or several entries OR-ed - is
++		// reading positions, and a position that has not arrived yet is a different
++		// vertex's answer.
++		return mask != 0 && mask != 0x3FFFFul && mask != 0xFFFFFFul;
 +	}
 +	return true;      // no mask to judge by: assume it matters
 +}
@@ -295,7 +300,7 @@ index 699abe7..7033bbf 100644
  void CodeGenerator::emitSingleToken( const Token& token )
  {
  	std::string instruction = generateInstruction(token);
-@@ -1592,6 +1785,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+@@ -1592,6 +1790,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
  		}
  	}
  
@@ -304,7 +309,7 @@ index 699abe7..7033bbf 100644
  	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
  	if( branchDelaySlots > 0 )
  	{
-@@ -1701,6 +1896,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+@@ -1701,6 +1901,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -312,7 +317,7 @@ index 699abe7..7033bbf 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -1724,6 +1920,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+@@ -1724,6 +1925,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -320,7 +325,7 @@ index 699abe7..7033bbf 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2236,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2241,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -342,7 +347,7 @@ index 699abe7..7033bbf 100644
  			break;
  		}
  
-@@ -2230,6 +2431,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2436,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -352,7 +357,7 @@ index 699abe7..7033bbf 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2441,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2446,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -397,7 +402,7 @@ index 699abe7..7033bbf 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2639,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2644,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -445,7 +450,7 @@ index 699abe7..7033bbf 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +2947,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +2952,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -464,7 +469,7 @@ index 699abe7..7033bbf 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +2968,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +2973,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
