@@ -981,11 +981,9 @@ void App::drawPropertiesWindow() {
                     ImGui::SetTooltip(
                         "How much of each repeat feeds the next - how many times\n"
                         "it echoes before dying. Echo/Delay only.");
-            } else {
-                ImGui::TextDisabled(
-                    "Delay and feedback apply to the Echo and Delay presets\n"
-                    "only - the room presets have their own fixed geometry.");
             }
+            // No "why is Delay missing" paragraph here: each preset's own
+            // entry in the combo says whether it reads them.
             ImGui::DragInt("Priority", &o.reverbPriority, 0.1f, -100, 100);
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             if (ImGui::IsItemHovered())
@@ -994,22 +992,27 @@ void App::drawPropertiesWindow() {
                     "unit. The highest priority inside wins, so a closet placed\n"
                     "inside a hall needs a higher number than the hall.");
 
-            // The console has TWO reverb units and the game cross-fades
-            // between them, so mixing presets is no longer a warning - but
-            // only two rooms can be live at once, which is worth saying where
-            // an author is stacking them.
+            // The count is the useful glance - how the transitions behave
+            // is a paragraph, and a paragraph belongs behind a (?).
             int zones = 0;
             for (const SceneObject& t : project_.objects())
                 if (t.type == PrimitiveType::Area && t.reverbZone) ++zones;
             ImGui::TextDisabled("%d reverb zone%s in this scene", zones,
                                 zones == 1 ? "" : "s");
             if (zones > 1)
-                ImGui::TextDisabled(
+                prefHelp(
                     "Crossing into another zone cross-fades, whatever presets\n"
-                    "the two use - the console has two reverb units and the\n"
-                    "game hands the incoming room the free one. Only TWO can\n"
-                    "be live at once, so a third room entered mid-fade waits\n"
-                    "for the first to finish leaving.");
+                    "the two use: the console has two reverb units and the\n"
+                    "game hands the incoming room the free one.\n"
+                    "\n"
+                    "Only TWO rooms can be live at once, so a third entered\n"
+                    "while a fade is still running waits for the first to\n"
+                    "finish leaving - it waits rather than glitching.\n"
+                    "\n"
+                    "A sound is heard in the room it STARTED in: a reverb unit\n"
+                    "is per sound-chip core, so a voice is committed the "
+                    "moment\nit plays. Carry a long sound out of a hall and "
+                    "its tail\ncomes with you.");
         }
     }
 
