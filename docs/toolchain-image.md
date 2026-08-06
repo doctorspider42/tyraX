@@ -1354,6 +1354,32 @@ emitter's backstop finds nothing to add, and `clip_c` measures the same 266 word
 on or off. It stays in as a backstop for programs that are not this engine's, but it is no
 longer paying for anything here. Which means the whole remaining 32 words are pairing.
 
+### And the pairing gap has a name: `move` belongs in the UPPER pipe
+
+Bounding the problem first: a VU row holds one upper and one lower instruction, so the
+fewest rows a given mix can occupy is `max(uppers, lowers)`. Over the five clip programs
+SCE sits 460 rows above its own bound and openvcl 485, so **neither is limited by the mix**
+- dependencies and latencies dominate, and there is no easy win in "pair harder".
+
+What differs is the mix itself:
+
+| five clip programs | SCE | openvcl |
+|---|---|---|
+| upper-pipe instructions | 606 | 591 |
+| lower-pipe instructions | **749** | **767** |
+| `move` (lower pipe) | 3 | **18** |
+| `max r,r,r` (a move promoted to the upper pipe) | **25** | **0** |
+
+The lower pipe is the bottleneck in every one of these programs, and SCE keeps it clear by
+emitting a move as `max dst,src,src` in the *upper* slot - 25 times. openvcl does it never,
+and pays 18 lower-pipe slots for moves that had somewhere else to be. That is where the
+lower count's +18 comes from, and it is the same order as the words still missing.
+
+openvcl already has the machinery (`isVuMoveAsUpperMaxCandidate`, `emitsAsUpperMove`); it
+is gated on MAC WAW being ignorable, because `max r,r,r` writes the MAC flags where `move`
+does not. These programs read the CLIP flags, not MAC, so the gate should open for most of
+them - and that is the next thing to try.
+
 ### Reading the batches instead of the totals
 
 Two things made that possible. `--dump-vucap --full` prints every staged packet and every
