@@ -1377,8 +1377,38 @@ lower count's +18 comes from, and it is the same order as the words still missin
 
 openvcl already has the machinery (`isVuMoveAsUpperMaxCandidate`, `emitsAsUpperMove`); it
 is gated on MAC WAW being ignorable, because `max r,r,r` writes the MAC flags where `move`
-does not. These programs read the CLIP flags, not MAC, so the gate should open for most of
-them - and that is the next thing to try.
+does not. These programs read the CLIP flags, not MAC, so the gate is not what closes it. The gate
+is open here - `vuIgnoredFlagWawResourcesForRemaining` finds no MAC reader anywhere in
+these programs - and the refusal is two lines further in, in the candidate test itself:
+
+```cpp
+unsigned int fields = token.fields();
+if( fields == 0 || (fields & Token::W) )
+    return false;
+```
+
+**Both halves reject every move this engine writes.** A move covering `w` is refused
+outright, and a bare `move dst, src` carries no suffix at all, so `fields()` is 0 - which
+means *all four*, not none - and that is refused too.
+
+Lifting both, and emitting the mask as `xyzw` when it is 0 (the naive fix produces `max.`
+with nothing after the dot, which `dvp-as` rejects - that is presumably why the refusal was
+there), is measured:
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| moves in the lower pipe | 3 | 18 → **0** |
+| set | 2040 | 2074 → **2060** |
+
+All ten still assemble. **Eighteen words from the ceiling.**
+
+It is not committed yet, because upstream pins the exclusion with an explicit test -
+`CHECK(!isVuMoveAsUpperMaxCandidate("move.xyzw vf04, vf05"))` in
+`test_vu_scheduling_rules.cpp` - and breaking that trades the safety net for the win. It
+belongs behind a flag, the way the other six density changes do: off by default, passed by
+the image's `vcl` wrapper, upstream's tests untouched. The justification for the flag
+existing is SCE's own output, which promotes full-width moves 25 times across these five
+programs.
 
 ### Reading the batches instead of the totals
 
