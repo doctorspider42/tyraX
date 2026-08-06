@@ -17,32 +17,27 @@ so you can hear the difference in place.
 ## What the hardware actually gives you
 
 Everything below follows from one fact: the SPU2 has **one reverb unit per
-core**, and the generated game currently puts the streamed music and every
-sound effect it plays on one of them. So:
+core**, and it has two cores. So:
 
 | | |
 |---|---|
-| **One room at a time** | Zones do not mix. The one the listener is inside wins; overlapping zones are decided by *Priority*. |
-| **Strength is continuous** | The wet level is an ordinary register. Crossing between two zones that share a preset is a smooth ramp. |
-| **The preset is not** | Changing the algorithm means zeroing its work area in sound RAM, which cannot be done under a live tail. The game ramps the strength to zero, swaps, and ramps back — about 0.3 s. |
+| **Two rooms at a time** | One per core. The listener's room owns a bus; crossing into another room hands it the free one and the two cross-fade. A *third* room entered mid-fade waits for the first to finish leaving. |
+| **Which room a sound is in is decided when it STARTS** | A bus is reachable only by the voices on its core, so a sound already playing finishes in the room it started in. That is not a compromise — it is what a real room does to a sound you carry out of it. |
+| **Zones themselves do not mix** | The listener is in exactly one room: the highest *Priority* zone containing them. The cross-fade is between the room you left and the room you entered, not between two rooms you are in. |
 | **The send is per voice, but only on/off** | Any single emitter can opt out of the reverb entirely, but there is no per-emitter "30% wet" — only the room's own strength. |
-| **Music stays dry** | Deliberately, and it takes an explicit register write to keep it that way: the sound driver's own defaults send everything into the reverb, music included. |
+| **Music stays dry** | Deliberately, and it takes an explicit register write to keep it that way: the sound driver's own defaults send everything into the reverb, music included. And the music is a core 1 input, so it could only ever reach one of the two units anyway. |
 
 Nothing here is a TyraX limitation to be lifted later by better code — it is the
-shape of the chip, with one exception that is now half-lifted.
+shape of the chip.
 
-**"One room at a time" is on its way out.** The SPU2 has two cores and therefore
-*two* reverb units; upstream audsrv used only one and left the other core muted.
-The [audsrv fork](../vendor/tyra/audsrv/README.md) now plays voices on both
-(channels 0-23 = core 1, 24-47 = core 0) and `Tyra::AudioReverb` drives both
-units as `BusA` / `BusB`. What is not written yet is the game side: choosing a
-bus per room, moving new sounds onto it and ramping the two depths past each
-other. Until that lands the generated game still drives bus A alone, so
-everything in the table above holds as written — a preset change still cuts.
-The design intended, recorded so it is not re-derived: a room owns a bus, new
-sounds go to the incoming room's bus while the ones already playing finish on
-the outgoing one, which is also what a real room does to a sound you carry out
-of it.
+Getting at the second unit did take work, and it is worth knowing where it
+lives: upstream audsrv used one core and left the other muted, so the
+[audsrv fork](../vendor/tyra/audsrv/README.md) plays voices on both (channels
+0-23 = core 1, 24-47 = core 0) and `Tyra::AudioReverb` drives the two units as
+`BusA` / `BusB`. The generated game keeps a **bus base** on its script context:
+every new sound — emitters and Play Sound alike, pinned channels included — is
+played at that offset, which is how a sound ends up in the room the listener is
+standing in.
 
 ## Presets
 
@@ -71,23 +66,29 @@ not one. The editor greys them out accordingly.
 ## Strength, and what a transition sounds like
 
 *Amount* is 0..1 and maps linearly onto the hardware's wet return level, 1.0
-being its maximum. It is the only value that moves smoothly, and the game ramps
-it over ~0.3 s whenever the target changes, so walking through a doorway is a
-fade rather than a step.
+being its maximum. The game ramps it over ~0.3 s whenever the target changes,
+so walking through a doorway is a fade rather than a step.
 
-That gives the authoring rule worth remembering:
+**Every transition cross-fades, whatever presets the two zones use.** Two zones
+sharing a preset ramp on the one bus; two zones with different presets hand the
+incoming room the *other* unit, load it there while it is still silent, and then
+ramp the two depths past each other. There is no dry gap in the middle and no
+authoring rule to remember — a cave mouth at `Hall 0.35` opening into a cave at
+`Hall 0.90` and a hall opening into a `Pipe` corridor both simply fade.
 
-- **Two zones with the SAME preset cross-fade.** A cave mouth that is
-  `Hall 0.3` opening into a cave that is `Hall 0.9` sounds like one continuous
-  space.
-- **Two zones with DIFFERENT presets cut.** The reverb fades out, the algorithm
-  is swapped, and it fades back in. Roughly 0.3 s of dry in the middle. The
-  Properties panel warns you when a scene contains both, because it is not
-  visible in the viewport and it is very audible in the game.
+Two things follow from there being exactly two units:
 
-Outside every zone the reverb is off. There is no scene-wide default: a level
-that should be reverberant everywhere gets one big box, which keeps the cost
-where an author can see it.
+- **A third room entered mid-fade waits.** The incoming room can only take a
+  bus that has gone silent, so sprinting through three differently-presetted
+  rooms in under half a second delays the third. It waits rather than glitching.
+- **A sound is in the room it STARTED in.** New sounds go to the incoming
+  room's bus; anything already ringing finishes on the outgoing one.
+
+Outside every zone the reverb is off — and so is a zone whose preset is *Off*,
+which is how you cut a dry pocket. Neither swaps buses: they just ramp the
+current room down, so stepping in and out of a doorway costs nothing. There is
+no scene-wide default either: a level that should be reverberant everywhere gets
+one big box, which keeps the cost where an author can see it.
 
 ## Priority
 
@@ -130,13 +131,13 @@ up or down over time.
 
 Per frame, with any zone in the scene: a handful of dot products to find the
 room the listener is in, and — only when a value actually changes — one
-synchronous RPC to the sound processor. A player standing still in a room costs
-zero of those. The mixing itself is done by the sound chip and never touches the
-EE.
+synchronous RPC to the sound processor per bus. A player standing still in a
+room costs zero of those, and a cross-fade costs two for as long as it runs.
+The mixing itself is done by the sound chip and never touches the EE.
 
-The strength is quantized to 64 steps before it is sent, for exactly this
-reason: the audio RPCs share one lock with the music stream, and an RPC per
-frame measurably costs frame rate.
+Each bus's strength is quantized to 64 steps before it is sent, for exactly
+this reason: the audio RPCs share one lock with the music stream, and an RPC
+per frame measurably costs frame rate.
 
 ## How it is wired (for the curious)
 

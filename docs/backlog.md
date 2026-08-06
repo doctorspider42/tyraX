@@ -34,24 +34,15 @@ the verification, and any fact worth reusing belongs in the relevant
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
-- **Reverb: the audsrv fork, and a second reverb bus.** The hardware reverb
-  ships (docs/reverb.md) with the limit the chip imposes on the arrangement we
-  have: audsrv puts every voice AND the music on SPU2 core 1 and leaves core 0
-  muted, so there is one reverb unit and zones cannot cross-fade between
-  different presets. Core 0 is free - 24 more voices and a second reverb bus -
-  but reaching it was an audsrv change. Two of the three steps are **done**:
-  audsrv is a source fork in-tree (`vendor/tyra/audsrv/`, licence corrected -
-  LGPL v2, not the AFL 2.0 the rest of PS2SDK carries), and it now plays voices
-  on BOTH cores (0-23 core 1, 24-47 core 0) with `Tyra::AudioReverb` driving
-  both units as BusA/BusB.
-  What remains is the GAME side: a room owns a bus, new sounds go to the
-  incoming room's bus while the ones already playing finish on the outgoing one
-  (which is what a real room does to a sound you carry out of it), and the two
-  depths ramp past each other. Concretely: the emitter channel base and the
-  Play Sound round-robin become bus-relative, `updateReverb` tracks two rooms
-  instead of one, and the Properties panel's "different presets cut" warning
-  can go. Worth doing on hardware rather than only in PCSX2 - the core-0
-  routing is exactly the kind of thing an emulator forgives.
+- **Reverb: a third room, and the tail of the cross-fade.** The two reverb
+  units are both in use now (docs/reverb.md): a room owns a bus and transitions
+  cross-fade across them. Two things were left where the chip runs out. A THIRD
+  room entered while a fade is still running waits for the first to finish
+  leaving (it waits rather than glitching, but it is a wait); and a sound is
+  committed to a bus when it starts, so a long sample carried between rooms
+  keeps the old room for its whole length rather than being re-routed. Both are
+  arguably correct behaviour, both are worth re-examining if a project trips
+  over them.
 - **Reverb on real hardware.** Everything in docs/reverb.md was measured in
   PCSX2, which does emulate SPU2 reverb. Wanted: the same decay-tail
   measurement on a console, plus a check that the `sceSdInit`-before-audsrv

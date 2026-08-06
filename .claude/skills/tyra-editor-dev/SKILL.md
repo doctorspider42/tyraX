@@ -440,15 +440,23 @@ reverb, authored as a room instead of as a number. It follows the same pattern
 — a `REVERB_ZONES` side table keyed by (scene, object) with the BOX left
 unbaked, so `TerrainGame::updateReverb` reads the live transform through
 `pointInArea` like every other consumer. What differs, and what to know before
-extending it: the console has **one** reverb unit for the whole game, so this
-is not a per-owner question but a single global decision made once per frame —
-zones do not mix (highest `priority` inside wins), only the wet AMOUNT can ramp,
-and a preset change has to happen at zero amount because switching the algorithm
-zeroes its work area in SPU2 RAM. That is also why the per-sound control is a
-BIT (`SceneObject::soundReverb`, the Play Sound node's `Dry` param) rather than
-an amount: the hardware has no per-voice wet level. `reverbPresets()` in
-flowgraph.hpp is the single preset table — read by the Area combo, the Set
-Reverb node and codegen — and its ORDER IS THE WIRE FORMAT: it is
+extending it: this is not a per-owner question but a single global decision made
+once per frame — the listener is in exactly one room (highest `priority` inside
+wins). The console has **two** reverb units, one per SPU2 core, and
+`updateReverb` cross-fades rooms across them: the incoming room takes the free
+unit while that unit is silent (switching the algorithm zeroes its work area in
+SPU2 RAM), then both depths ramp. The per-sound control is a BIT
+(`SceneObject::soundReverb`, the Play Sound node's `Dry` param) rather than an
+amount, because the hardware has no per-voice wet level.
+**The obligation that falls on ANY new code that plays a sound**: a unit is
+reachable only by voices on its own core, so a voice is committed to a room the
+moment it starts, and every play site must offset its channel by
+`ScriptContext::reverbBusBase` (0 = core 1, 24 = core 0). The emitter path and
+the Play Sound node do; a site that forgets is silently heard in the room the
+listener just left. Anything caching per-channel state needs the bus in its key
+for the same reason — `sndChBus` beside `sndChVol`/`sndChPan` is that fix.
+`reverbPresets()` in flowgraph.hpp is the single preset table — read by the Area
+combo, the Set Reverb node and codegen — and its ORDER IS THE WIRE FORMAT: it is
 `Tyra::AudioReverb::Preset`, i.e. libsd's `SD_EFFECT_MODE_*`, so append only.
 **A type whose data drives OTHER baked objects** is the heaviest kind of new
 type. `Scroller` (19) is the reference: codegen APPENDS clone objects to the

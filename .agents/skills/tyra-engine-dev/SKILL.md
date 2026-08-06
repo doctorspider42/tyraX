@@ -739,8 +739,13 @@ banner both, so a previously built ELF still reports.
   Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
   volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
   master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
-  `BusB` (core 0). The generated game still drives bus A alone - room
-  cross-fading is the remaining half, see docs/backlog.md.
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser

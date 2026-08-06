@@ -4162,25 +4162,42 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
-// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
-// synchronous and share one client lock with the music stream, so
-// updateSoundEmitters only issues an RPC when the quantized value changes.
+// Last volume/pan sent to each emitter channel. audsrv RPCs are synchronous
+// and share one client lock with the music stream, so updateSoundEmitters only
+// issues an RPC when the quantized value changes. `sndChBus` is which reverb
+// bus the cached pair was written for: an emitter moves to the incoming room's
+// bus (a different SPU2 core, so a different CHANNEL) and the cache has to
+// know it is describing a channel nobody is listening to any more.
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+static int sndChBus[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
-// Reverb zone state (docs/reverb.md). The console has ONE reverb unit, so the
-// room the player is in is a global setting that has to CHANGE smoothly:
-// - `reverbAmtCur` is ramped toward the target, never jumped to it;
-// - a preset change waits for that ramp to reach zero first, because
-//   switching the algorithm zeroes up to 96 KB of SPU2 work area and doing it
-//   under a live tail is audible;
-// - the depth is quantized and only pushed when it really moves. These are
-//   IOP RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+// Reverb zone state (docs/reverb.md). The SPU2 has TWO reverb units, one per
+// core, and the audsrv fork puts ADPCM channels 0-23 on core 1 and 24-47 on
+// core 0 - so a bus is reachable only by the voices playing on its core. That
+// is what makes a room CROSS-FADE possible, and it shapes everything here:
+//
+// - a room owns a bus. `reverbBus` is the one the room the listener is in
+//   currently runs on, and `REVERB_BUS_BASE` turns it into the channel offset
+//   every new sound is played at.
+// - a change of PRESET hands the room to the OTHER bus, loads it there while
+//   that bus is silent (switching the algorithm zeroes up to 96 KB of SPU2
+//   work area and doing it under a live tail is audible), and then the two
+//   depths ramp past each other.
+// - a change of AMOUNT alone does not swap anything - two zones sharing a
+//   preset just ramp on the one bus, exactly as before.
+// - sounds already playing stay on the outgoing bus and finish in the room
+//   they started in. That is not a compromise: it is what a real room does to
+//   a sound you carry out of it.
+// - depths are quantized and only pushed when they really move. These are IOP
+//   RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+//
 // The per-voice send mask deliberately lives in AudioReverb alone (both this
 // file and the generated flow graphs write it), so there is no copy here.
-static int reverbPresetCur = 0;    // what the hardware currently runs
-static float reverbAmtCur = 0.0F;  // 0..1, the ramped wet level
-static int reverbDepthSent = -1;   // last quantized depth actually written
+static int reverbBus = 0;                 // 0 = BusA (core 1), 1 = BusB
+static int reverbPresetCur[2] = {0, 0};   // preset loaded on each bus
+static float reverbAmt[2] = {0.0F, 0.0F}; // 0..1, the ramped wet level of each
+static int reverbDepthSent[2] = {-1, -1}; // last quantized depth written
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -4549,21 +4566,29 @@ void TerrainGame::loadScene(int sceneIndex) {
   buildParticles();
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
-  // ADPCM sample can't be stopped - it plays out, but silently).
+  // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
+  // sets, because a room can have moved the emitters onto either bus.
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) {
     engine->audio.adpcm.setVolume(0, (s8)ch);
+    engine->audio.adpcm.setVolume(0, (s8)(ch + 24));
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+    sndChBus[ch - 16] = -1;  // ...and make the next write unconditional
   }
 
-  // Reverb: a scene switch is a cut, so drop the room instead of ramping it
+  // Reverb: a scene switch is a cut, so drop both rooms instead of ramping one
   // out of the old scene into the new one. The depth cache is invalidated
   // (-1) rather than set, so the first updateReverb writes the hardware even
   // if the new scene wants exactly what the old one had.
-  if (REVERB_ZONE_COUNT > 0) {
-    reverbAmtCur = 0.0F;
-    reverbDepthSent = -1;
-    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, 0, 0);
+  if (REVERB_ZONE_COUNT > 0 || REVERB_HAS_NODE) {
+    for (int b = 0; b < 2; ++b) {
+      reverbAmt[b] = 0.0F;
+      reverbDepthSent[b] = -1;
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, 0, 0);
+    }
+    reverbBus = 0;
+    scriptCtx.reverbBusBase = 0;
   }
 
   // A loaded save targeting this scene: apply the stored object state now
@@ -4606,8 +4631,19 @@ void TerrainGame::updateSoundEmitters() {
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
-    const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
+    // Emitters own channels 16-23 OF THE ROOM'S BUS: +0 on core 1, +24 on
+    // core 0. A room change therefore moves an emitter to a different channel,
+    // and its next trigger is heard through the incoming room while whatever
+    // it has in flight finishes in the outgoing one.
     const int chIdx = i & 7;
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + chIdx);
+    if (sndChBus[chIdx] != scriptCtx.reverbBusBase) {
+      // The cached volume/pan describe the channel on the bus we just left, so
+      // they say nothing about this one - force the writes below.
+      sndChVol[chIdx] = -1;
+      sndChPan[chIdx] = -999;
+      sndChBus[chIdx] = scriptCtx.reverbBusBase;
+    }
     if (!o.active || !o.visible) {
       if (sndChVol[chIdx] != 0) {
         engine->audio.adpcm.setVolume(0, ch);
@@ -4726,44 +4762,58 @@ void TerrainGame::updateReverb() {
     }
   }
 
-  // A preset change cannot be crossfaded (one unit), so it is done at silence:
-  // ramp the amount to zero, swap, ramp back up. Two zones sharing a preset
-  // therefore blend smoothly into each other - which is the whole reason the
-  // Properties panel warns when they do not.
-  const bool swapping = wantPreset != reverbPresetCur;
-  const float goal = swapping ? 0.0F : (float)wantAmount * 0.01F;
+  // "Silence" covers both "no zone here" and an authored preset of Off: either
+  // way the answer is to ramp this bus down, NOT to hand the room to the other
+  // one. Skipping the swap there is what stops a player stepping in and out of
+  // a doorway from zeroing a work area every time.
+  const bool wantSilence = wantPreset == 0 || wantAmount <= 0;
 
-  // ~0.3 s for the full travel, frame-rate independent.
+  // A change of ALGORITHM goes to the other bus, which can only take it while
+  // it is silent - its work area is about to be zeroed. If the other bus is
+  // still fading out (a second room entered before the first finished leaving)
+  // this simply waits, and the ramp below keeps running meanwhile.
+  const int other = 1 - reverbBus;
+  if (!wantSilence && wantPreset != reverbPresetCur[reverbBus] &&
+      reverbAmt[other] <= 0.0F) {
+    const Tyra::AudioReverb::Bus b = other == 0 ? Tyra::AudioReverb::BusA
+                                                : Tyra::AudioReverb::BusB;
+    reverbPresetCur[other] = wantPreset;
+    engine->audio.reverb.setDelay(b, (u8)wantDelay);
+    engine->audio.reverb.setFeedback(b, (u8)wantFeedback);
+    engine->audio.reverb.setPreset(b, (Tyra::AudioReverb::Preset)wantPreset);
+    // From this frame on, new sounds play on the incoming room's core. The
+    // ones already in flight keep going on the outgoing bus and finish in the
+    // room they started in.
+    reverbBus = other;
+    scriptCtx.reverbBusBase = reverbBus * 24;
+  }
+
+  // The active bus goes to the room's amount, the other one to zero: that IS
+  // the cross-fade. ~0.3 s for the full travel, frame-rate independent.
   const float step = g_frameDt * (1.0F / 0.3F);
-  if (reverbAmtCur < goal) {
-    reverbAmtCur += step;
-    if (reverbAmtCur > goal) reverbAmtCur = goal;
-  } else if (reverbAmtCur > goal) {
-    reverbAmtCur -= step;
-    if (reverbAmtCur < goal) reverbAmtCur = goal;
-  }
+  for (int b = 0; b < 2; ++b) {
+    float goal = 0.0F;
+    if (b == reverbBus && !wantSilence) goal = (float)wantAmount * 0.01F;
+    if (reverbAmt[b] < goal) {
+      reverbAmt[b] += step;
+      if (reverbAmt[b] > goal) reverbAmt[b] = goal;
+    } else if (reverbAmt[b] > goal) {
+      reverbAmt[b] -= step;
+      if (reverbAmt[b] < goal) reverbAmt[b] = goal;
+    }
 
-  if (swapping && reverbAmtCur <= 0.0F) {
-    reverbPresetCur = wantPreset;
-    // Bus A is SPU2 core 1, where the sound emitters' channels (16-23) live.
-    // The SECOND bus exists (core 0, channels 24-47 - the audsrv fork) and is
-    // what a real room CROSS-FADE will use; this pass still runs one room at a
-    // time, so it drives A alone. See docs/reverb.md.
-    engine->audio.reverb.setDelay(Tyra::AudioReverb::BusA, (u8)wantDelay);
-    engine->audio.reverb.setFeedback(Tyra::AudioReverb::BusA, (u8)wantFeedback);
-    engine->audio.reverb.setPreset(Tyra::AudioReverb::BusA,
-                                   (Tyra::AudioReverb::Preset)wantPreset);
-  }
-
-  // Quantize to 64 steps and only push a real change: this is a synchronous
-  // RPC to the IOP, sharing the SIF with the music stream.
-  int q = (int)(reverbAmtCur * 64.0F + 0.5F);
-  if (q < 0) q = 0;
-  if (q > 64) q = 64;
-  if (q != reverbDepthSent) {
-    reverbDepthSent = q;
-    const s16 depth = (s16)((q * 0x7FFF) / 64);
-    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, depth, depth);
+    // Quantize to 64 steps and only push a real change: this is a synchronous
+    // RPC to the IOP, sharing the SIF with the music stream.
+    int q = (int)(reverbAmt[b] * 64.0F + 0.5F);
+    if (q < 0) q = 0;
+    if (q > 64) q = 64;
+    if (q != reverbDepthSent[b]) {
+      reverbDepthSent[b] = q;
+      const s16 depth = (s16)((q * 0x7FFF) / 64);
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, depth,
+          depth);
+    }
   }
 }
 

@@ -739,41 +739,13 @@ banner both, so a previously built ELF still reports.
   Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
   volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
   master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
-  `BusB` (core 0). The generated game still drives bus A alone - room
-  cross-fading is the remaining half, see docs/backlog.md.
-- **The SPU2's hardware reverb is reachable, and only through a second RPC
-  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
-  exposes playback and nothing else, so the registers come from PS2SDK's
-  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
-  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself -
-  see THIRD-PARTY-LICENSES.md), so this cost one `.irx-em`, one loader call and
-  `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd directly on the
-  IOP; the two are ordinary co-clients.
-- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
-  streaming ring installs.** So the reverb's RPC bind runs BEFORE
-  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
-  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
-  MUSIC goes silent with no error anywhere - the sfx keep working, which points
-  the investigation at completely the wrong subsystem.
-- **libsd's defaults send EVERYTHING to the effect bus**, music included:
-  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
-  the core input (the streamed song) into the reverb. So the per-voice send
-  normally REMOVES a voice, and keeping the music dry is an explicit write.
-  (The bit meanings were confirmed against libsd's own block-transfer handler,
-  which clears bits 6/7 - the dry pair - when a stream ends.)
-- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
-  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
-  preset set with the core's effect bit still off therefore leaves whatever was
-  in SPU2 RAM circulating as noise. Enable, then set.
-- **Reverb RPCs cost what audsrv's do.** They are synchronous SIF calls sharing
-  the bus with the music stream, so the generated game quantizes the wet depth
-  to 64 steps and only sends real changes - the same discipline
-  `updateSoundEmitters` already follows for volume/pan. A per-frame RPC is
-  measurable in the frame rate.
-- Reverb presets cost 8-96 KB of SPU2 RAM at the TOP of the 2 MB, while audsrv
-  loads ADPCM samples from 0x5010 upward - they collide only past ~1.9 MB of
-  effects. Changing preset zeroes that area, which is why the game does it at
-  zero wet level and never per frame.
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser
