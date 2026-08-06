@@ -40,7 +40,7 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(0);
       livedbg::hit(1);
       {
-        const s8 ch = 2;
+        const s8 ch = (s8)(ctx.reverbBusBase + 2);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
         ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
@@ -50,7 +50,7 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(0);
       livedbg::hit(1);
       {
-        const s8 ch = 2;
+        const s8 ch = (s8)(ctx.reverbBusBase + 2);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
         ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
@@ -60,7 +60,7 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(2);
       livedbg::hit(3);
       {
-        const s8 ch = 3;
+        const s8 ch = (s8)(ctx.reverbBusBase + 3);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
         ctx.engine->audio.adpcm.tryPlay(sfx0, ch);
@@ -70,7 +70,7 @@ class FlowGraphScript_0_0 : public Script {
       livedbg::hit(2);
       livedbg::hit(3);
       {
-        const s8 ch = 3;
+        const s8 ch = (s8)(ctx.reverbBusBase + 3);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
         ctx.engine->audio.adpcm.tryPlay(sfx0, ch);

@@ -28,6 +28,8 @@
 #include "livepad.hpp"  // Remote Pad wire format - shared with the editor
 #include "livetime.hpp"  // time-machine wire format - shared with the editor
 #include "menubake.hpp"
+#include "menulayout.hpp"
+#include "menustyle.hpp"
 #include "meshlod.hpp"
 #include "navmesh.hpp"
 #include "objparser.hpp"
@@ -1547,6 +1549,13 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -1557,6 +1566,19 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -1676,10 +1698,29 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
@@ -2687,6 +2728,13 @@ class TerrainGame : public Tyra::Game {
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -2697,6 +2745,19 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -2816,10 +2877,29 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;
@@ -5396,7 +5476,80 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd(m.values));
       t->addLink(menuValueSprites.back().id);
     }
+    // The three styled-menu textures, all sub-rect sprites like the value
+    // strip: renderGameMenu moves offset/position to the cell it wants.
+    menuStateSprites.clear();
+    menuListSprites.clear();
+    menuDescSprites.clear();
+    menuBgSprites.clear();
+    menuBgSprites.reserve(MENU_COUNT);
+    menuStateSprites.reserve(MENU_COUNT);
+    menuListSprites.reserve(MENU_COUNT);
+    menuDescSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite st;
+      st.mode = SpriteMode::MODE_REPEAT;
+      st.size = Vec2((float)m.rowsCellW, (float)m.rowsCellH);
+      menuStateSprites.push_back(st);
+      if (m.rowsTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.rowsTex));
+        t->addLink(menuStateSprites.back().id);
+      }
+      Sprite ls;
+      ls.mode = SpriteMode::MODE_REPEAT;
+      ls.size = Vec2((float)m.panelW, (float)(m.rowsVisible * m.rowH));
+      menuListSprites.push_back(ls);
+      if (m.listTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.listTex));
+        t->addLink(menuListSprites.back().id);
+      }
+      Sprite bg;
+      bg.mode = SpriteMode::MODE_REPEAT;
+      bg.size = Vec2((float)m.panelW, (float)m.contentH);
+      menuBgSprites.push_back(bg);
+      if (m.bgTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.bgTex));
+        t->addLink(menuBgSprites.back().id);
+      }
+      Sprite ds;
+      ds.mode = SpriteMode::MODE_REPEAT;
+      ds.size = Vec2((float)m.descCellW, (float)m.descCellH);
+      menuDescSprites.push_back(ds);
+      if (m.descTex[0] != '\0') {
+        auto* t = engine->renderer.getTextureRepository().add(
+            FileUtils::fromCwd(m.descTex));
+        t->addLink(menuDescSprites.back().id);
+      }
+    }
+    // The sheen is shared and only exists when a sheet sweeps one; loading a
+    // texture nothing draws would pin GS VRAM for nothing.
+    menuSheenLoaded = false;
+    for (int i = 0; i < MENU_COUNT && !menuSheenLoaded; ++i)
+      menuSheenLoaded = MENUS[i].sheenSec > 0.0F;
+    if (menuSheenLoaded) {
+      setupSprite(menuSheenSprite, "menus/sheen.png", 64, 64, 0.0F, 0.0F);
+      // MODE_REPEAT so `offset`/`size` select a PART of the band - that is what
+      // lets it be cropped to the panel as it enters and leaves.
+      menuSheenSprite.mode = SpriteMode::MODE_REPEAT;
+      menuSheenSprite.additive = true;  // light passing over, never darkening
+    }
     setupSprite(menuCursorSprite, "hud/save-cursor.png", 16, 16, 0.0F, 0.0F);
+    menuCursorSprites.clear();
+    menuCursorSprites.reserve(MENU_COUNT);
+    for (int i = 0; i < MENU_COUNT; ++i) {
+      const MenuData& m = MENUS[i];
+      Sprite c;
+      c.mode = SpriteMode::MODE_STRETCH;
+      c.size = Vec2(16.0F, 16.0F);
+      menuCursorSprites.push_back(c);
+      auto* t = engine->renderer.getTextureRepository().add(FileUtils::fromCwd(
+          m.markerTex[0] != '\0' ? m.markerTex : "hud/save-cursor.png"));
+      t->addLink(menuCursorSprites.back().id);
+    }
     setupSprite(menuDimSprite, "hud/menu-dim.png", scr.getWidth(),
                 scr.getHeight(), 0.0F, 0.0F);
 
@@ -5485,6 +5638,11 @@ void TerrainGame::buildScene() {
     if (TITLE_MENU >= 0) {
       gameMenuIndex = TITLE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       // The pad reconfigures for ~3.5s after boot and reports garbage
       // clicks - one of those must not press a title entry.
       gameMenuGrace = 200;
@@ -6926,25 +7084,42 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
-// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
-// synchronous and share one client lock with the music stream, so
-// updateSoundEmitters only issues an RPC when the quantized value changes.
+// Last volume/pan sent to each emitter channel. audsrv RPCs are synchronous
+// and share one client lock with the music stream, so updateSoundEmitters only
+// issues an RPC when the quantized value changes. `sndChBus` is which reverb
+// bus the cached pair was written for: an emitter moves to the incoming room's
+// bus (a different SPU2 core, so a different CHANNEL) and the cache has to
+// know it is describing a channel nobody is listening to any more.
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+static int sndChBus[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
-// Reverb zone state (docs/reverb.md). The console has ONE reverb unit, so the
-// room the player is in is a global setting that has to CHANGE smoothly:
-// - `reverbAmtCur` is ramped toward the target, never jumped to it;
-// - a preset change waits for that ramp to reach zero first, because
-//   switching the algorithm zeroes up to 96 KB of SPU2 work area and doing it
-//   under a live tail is audible;
-// - the depth is quantized and only pushed when it really moves. These are
-//   IOP RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+// Reverb zone state (docs/reverb.md). The SPU2 has TWO reverb units, one per
+// core, and the audsrv fork puts ADPCM channels 0-23 on core 1 and 24-47 on
+// core 0 - so a bus is reachable only by the voices playing on its core. That
+// is what makes a room CROSS-FADE possible, and it shapes everything here:
+//
+// - a room owns a bus. `reverbBus` is the one the room the listener is in
+//   currently runs on, and `REVERB_BUS_BASE` turns it into the channel offset
+//   every new sound is played at.
+// - a change of PRESET hands the room to the OTHER bus, loads it there while
+//   that bus is silent (switching the algorithm zeroes up to 96 KB of SPU2
+//   work area and doing it under a live tail is audible), and then the two
+//   depths ramp past each other.
+// - a change of AMOUNT alone does not swap anything - two zones sharing a
+//   preset just ramp on the one bus, exactly as before.
+// - sounds already playing stay on the outgoing bus and finish in the room
+//   they started in. That is not a compromise: it is what a real room does to
+//   a sound you carry out of it.
+// - depths are quantized and only pushed when they really move. These are IOP
+//   RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+//
 // The per-voice send mask deliberately lives in AudioReverb alone (both this
 // file and the generated flow graphs write it), so there is no copy here.
-static int reverbPresetCur = 0;    // what the hardware currently runs
-static float reverbAmtCur = 0.0F;  // 0..1, the ramped wet level
-static int reverbDepthSent = -1;   // last quantized depth actually written
+static int reverbBus = 0;                 // 0 = BusA (core 1), 1 = BusB
+static int reverbPresetCur[2] = {0, 0};   // preset loaded on each bus
+static float reverbAmt[2] = {0.0F, 0.0F}; // 0..1, the ramped wet level of each
+static int reverbDepthSent[2] = {-1, -1}; // last quantized depth written
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -7313,21 +7488,29 @@ void TerrainGame::loadScene(int sceneIndex) {
   buildParticles();
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
-  // ADPCM sample can't be stopped - it plays out, but silently).
+  // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
+  // sets, because a room can have moved the emitters onto either bus.
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) {
     engine->audio.adpcm.setVolume(0, (s8)ch);
+    engine->audio.adpcm.setVolume(0, (s8)(ch + 24));
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+    sndChBus[ch - 16] = -1;  // ...and make the next write unconditional
   }
 
-  // Reverb: a scene switch is a cut, so drop the room instead of ramping it
+  // Reverb: a scene switch is a cut, so drop both rooms instead of ramping one
   // out of the old scene into the new one. The depth cache is invalidated
   // (-1) rather than set, so the first updateReverb writes the hardware even
   // if the new scene wants exactly what the old one had.
-  if (REVERB_ZONE_COUNT > 0) {
-    reverbAmtCur = 0.0F;
-    reverbDepthSent = -1;
-    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, 0, 0);
+  if (REVERB_ZONE_COUNT > 0 || REVERB_HAS_NODE) {
+    for (int b = 0; b < 2; ++b) {
+      reverbAmt[b] = 0.0F;
+      reverbDepthSent[b] = -1;
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, 0, 0);
+    }
+    reverbBus = 0;
+    scriptCtx.reverbBusBase = 0;
   }
 
   // A loaded save targeting this scene: apply the stored object state now
@@ -7370,8 +7553,19 @@ void TerrainGame::updateSoundEmitters() {
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
-    const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
+    // Emitters own channels 16-23 OF THE ROOM'S BUS: +0 on core 1, +24 on
+    // core 0. A room change therefore moves an emitter to a different channel,
+    // and its next trigger is heard through the incoming room while whatever
+    // it has in flight finishes in the outgoing one.
     const int chIdx = i & 7;
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + chIdx);
+    if (sndChBus[chIdx] != scriptCtx.reverbBusBase) {
+      // The cached volume/pan describe the channel on the bus we just left, so
+      // they say nothing about this one - force the writes below.
+      sndChVol[chIdx] = -1;
+      sndChPan[chIdx] = -999;
+      sndChBus[chIdx] = scriptCtx.reverbBusBase;
+    }
     if (!o.active || !o.visible) {
       if (sndChVol[chIdx] != 0) {
         engine->audio.adpcm.setVolume(0, ch);
@@ -7490,44 +7684,58 @@ void TerrainGame::updateReverb() {
     }
   }
 
-  // A preset change cannot be crossfaded (one unit), so it is done at silence:
-  // ramp the amount to zero, swap, ramp back up. Two zones sharing a preset
-  // therefore blend smoothly into each other - which is the whole reason the
-  // Properties panel warns when they do not.
-  const bool swapping = wantPreset != reverbPresetCur;
-  const float goal = swapping ? 0.0F : (float)wantAmount * 0.01F;
+  // "Silence" covers both "no zone here" and an authored preset of Off: either
+  // way the answer is to ramp this bus down, NOT to hand the room to the other
+  // one. Skipping the swap there is what stops a player stepping in and out of
+  // a doorway from zeroing a work area every time.
+  const bool wantSilence = wantPreset == 0 || wantAmount <= 0;
 
-  // ~0.3 s for the full travel, frame-rate independent.
+  // A change of ALGORITHM goes to the other bus, which can only take it while
+  // it is silent - its work area is about to be zeroed. If the other bus is
+  // still fading out (a second room entered before the first finished leaving)
+  // this simply waits, and the ramp below keeps running meanwhile.
+  const int other = 1 - reverbBus;
+  if (!wantSilence && wantPreset != reverbPresetCur[reverbBus] &&
+      reverbAmt[other] <= 0.0F) {
+    const Tyra::AudioReverb::Bus b = other == 0 ? Tyra::AudioReverb::BusA
+                                                : Tyra::AudioReverb::BusB;
+    reverbPresetCur[other] = wantPreset;
+    engine->audio.reverb.setDelay(b, (u8)wantDelay);
+    engine->audio.reverb.setFeedback(b, (u8)wantFeedback);
+    engine->audio.reverb.setPreset(b, (Tyra::AudioReverb::Preset)wantPreset);
+    // From this frame on, new sounds play on the incoming room's core. The
+    // ones already in flight keep going on the outgoing bus and finish in the
+    // room they started in.
+    reverbBus = other;
+    scriptCtx.reverbBusBase = reverbBus * 24;
+  }
+
+  // The active bus goes to the room's amount, the other one to zero: that IS
+  // the cross-fade. ~0.3 s for the full travel, frame-rate independent.
   const float step = g_frameDt * (1.0F / 0.3F);
-  if (reverbAmtCur < goal) {
-    reverbAmtCur += step;
-    if (reverbAmtCur > goal) reverbAmtCur = goal;
-  } else if (reverbAmtCur > goal) {
-    reverbAmtCur -= step;
-    if (reverbAmtCur < goal) reverbAmtCur = goal;
-  }
+  for (int b = 0; b < 2; ++b) {
+    float goal = 0.0F;
+    if (b == reverbBus && !wantSilence) goal = (float)wantAmount * 0.01F;
+    if (reverbAmt[b] < goal) {
+      reverbAmt[b] += step;
+      if (reverbAmt[b] > goal) reverbAmt[b] = goal;
+    } else if (reverbAmt[b] > goal) {
+      reverbAmt[b] -= step;
+      if (reverbAmt[b] < goal) reverbAmt[b] = goal;
+    }
 
-  if (swapping && reverbAmtCur <= 0.0F) {
-    reverbPresetCur = wantPreset;
-    // Bus A is SPU2 core 1, where the sound emitters' channels (16-23) live.
-    // The SECOND bus exists (core 0, channels 24-47 - the audsrv fork) and is
-    // what a real room CROSS-FADE will use; this pass still runs one room at a
-    // time, so it drives A alone. See docs/reverb.md.
-    engine->audio.reverb.setDelay(Tyra::AudioReverb::BusA, (u8)wantDelay);
-    engine->audio.reverb.setFeedback(Tyra::AudioReverb::BusA, (u8)wantFeedback);
-    engine->audio.reverb.setPreset(Tyra::AudioReverb::BusA,
-                                   (Tyra::AudioReverb::Preset)wantPreset);
-  }
-
-  // Quantize to 64 steps and only push a real change: this is a synchronous
-  // RPC to the IOP, sharing the SIF with the music stream.
-  int q = (int)(reverbAmtCur * 64.0F + 0.5F);
-  if (q < 0) q = 0;
-  if (q > 64) q = 64;
-  if (q != reverbDepthSent) {
-    reverbDepthSent = q;
-    const s16 depth = (s16)((q * 0x7FFF) / 64);
-    engine->audio.reverb.setDepth(Tyra::AudioReverb::BusA, depth, depth);
+    // Quantize to 64 steps and only push a real change: this is a synchronous
+    // RPC to the IOP, sharing the SIF with the music stream.
+    int q = (int)(reverbAmt[b] * 64.0F + 0.5F);
+    if (q < 0) q = 0;
+    if (q > 64) q = 64;
+    if (q != reverbDepthSent[b]) {
+      reverbDepthSent[b] = q;
+      const s16 depth = (s16)((q * 0x7FFF) / 64);
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, depth,
+          depth);
+    }
   }
 }
 
@@ -8625,6 +8833,11 @@ bool TerrainGame::updateGameMenu() {
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
       gameMenuIndex = target;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
       menuRebindRow = -1;
@@ -8640,6 +8853,11 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuIndex < 0) {
       gameMenuIndex = PAUSE_MENU;
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       gameMenuStackDepth = 0;
       gameMenuGrace = 15;
       menuRebindRow = -1;
@@ -8651,6 +8869,15 @@ bool TerrainGame::updateGameMenu() {
       gameMenuIndex = -1;
       return false;
     }
+  }
+
+  // A menu that is closing keeps drawing for the length of its close transition
+  // and takes no input. Only the plain dismissals animate: a scene switch or a
+  // hand-off to the save menu clears immediately, because a panel lingering over
+  // a loading scene is worse than no transition at all.
+  if (gameMenuClosing >= 0) {
+    gameMenuCloseT += g_frameDt;
+    if (gameMenuCloseT >= MENUS[gameMenuClosing].closeSec) gameMenuClosing = -1;
   }
 
   if (gameMenuIndex < 0) return false;
@@ -8692,10 +8919,14 @@ bool TerrainGame::updateGameMenu() {
     return pausing();
   }
 
-  if (inputClicked(engine->pad, IA_ROLE_MENU_UP) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + m.entryCount - 1) % m.entryCount;
-  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN) && m.entryCount > 0)
-    gameMenuCursor = (gameMenuCursor + 1) % m.entryCount;
+  // Headers, spacers and rows their `enabledWhen` value switched off are
+  // skipped - including on the frame the menu opened, so a menu whose first row
+  // is a section header still lands on something usable.
+  if (!menuRowEnabled(gameMenuIndex, gameMenuCursor))
+    menuMoveCursor(gameMenuIndex, 1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_UP)) menuMoveCursor(gameMenuIndex, -1);
+  if (inputClicked(engine->pad, IA_ROLE_MENU_DOWN)) menuMoveCursor(gameMenuIndex, 1);
+  menuFollowCursor(gameMenuIndex);
 
   // Toggle/Choice rows: the state is the bound save value (the option
   // index). Cross and dpad right cycle forward, dpad left backward.
@@ -8706,6 +8937,7 @@ bool TerrainGame::updateGameMenu() {
     if (v < 0) v = 0;
     if (v >= e.optionCount) v = e.optionCount - 1;
     saveValues[e.param] = (float)((v + dir + e.optionCount) % e.optionCount);
+    gameMenuValueFlash = m.valueFlashSec;  // 0 when the sheet asks for none
   };
   if (gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
     const MenuEntryData& cur = m.entries[gameMenuCursor];
@@ -8724,18 +8956,32 @@ bool TerrainGame::updateGameMenu() {
     if (gameMenuStackDepth > 0) {
       gameMenuIndex = gameMenuStack[--gameMenuStackDepth];
       gameMenuCursor = 0;
+      gameMenuScroll = 0;
+      gameMenuOpenT = 0.0F;
+      gameMenuClock = 0.0F;
+      gameMenuScrollShown = 0.0F;
+      gameMenuCursorRow = -1;
       menuRebindRow = -1;
     } else if (!m.titleScreen) {
+      if (m.closeSec > 0.0F) {
+        gameMenuClosing = gameMenuIndex;
+        gameMenuCloseT = 0.0F;
+      }
       gameMenuIndex = -1;
     }
     return pausing();
   }
 
   if (inputClicked(engine->pad, IA_ROLE_CONFIRM) && gameMenuCursor >= 0 &&
-      gameMenuCursor < m.entryCount) {
+      gameMenuCursor < m.entryCount &&
+      menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
     const MenuEntryData& e = m.entries[gameMenuCursor];
     switch (e.action) {
       case 0:  // close
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
         gameMenuIndex = -1;
         gameMenuStackDepth = 0;
         break;
@@ -8757,6 +9003,11 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStack[gameMenuStackDepth++] = gameMenuIndex;
           gameMenuIndex = e.param;
           gameMenuCursor = 0;
+          gameMenuScroll = 0;
+          gameMenuOpenT = 0.0F;
+          gameMenuClock = 0.0F;
+          gameMenuScrollShown = 0.0F;
+          gameMenuCursorRow = -1;
           menuRebindRow = -1;
         }
         break;
@@ -8951,26 +9202,255 @@ void TerrainGame::syncPlayerCountMenuValue() {
   }
 }
 
-void TerrainGame::renderGameMenu() {
-  if (gameMenuIndex < 0 || gameMenuIndex >= (int)menuSprites.size()) return;
-  if (saveMenuOpen) return;  // the save menu draws on top instead
-  const MenuData& m = MENUS[gameMenuIndex];
-  Sprite& panel = menuSprites[gameMenuIndex];
-  if (m.pause) engine->renderer.renderer2D.render(menuDimSprite);
-  engine->renderer.renderer2D.render(panel);
-  if (m.entryCount > 0) {
-    menuCursorSprite.position =
-        Vec2(panel.position.x + 32.0F,
-             panel.position.y + m.row0Y + gameMenuCursor * m.rowH + 1.0F);
-    engine->renderer.renderer2D.render(menuCursorSprite);
+// Menu progress easing, shared by the open transition and the caret. ease 0
+// linear, 1 ease-out (the default a sheet gets), 2 ease-in-out.
+static float menuEase(float t, int ease) {
+  if (t <= 0.0F) return 0.0F;
+  if (t >= 1.0F) return 1.0F;
+  if (ease == 0) return t;
+  if (ease == 2) return t < 0.5F ? 2.0F * t * t : 1.0F - 2.0F * (1.0F - t) * (1.0F - t);
+  const float inv = 1.0F - t;
+  return 1.0F - inv * inv;
+}
+
+// True when a row is currently usable: a label/spacer never is, and a row with
+// an `enabledWhen` save value is only usable while that value is non-zero.
+bool TerrainGame::menuRowEnabled(int menu, int row) const {
+  if (menu < 0 || menu >= MENU_COUNT) return false;
+  const MenuData& m = MENUS[menu];
+  if (row < 0 || row >= m.entryCount) return false;
+  const MenuEntryData& e = m.entries[row];
+  if (!e.selectable) return false;
+  if (e.enableVal >= 0 && e.enableVal < SAVE_VALUE_COUNT &&
+      saveValues[e.enableVal] == 0.0F)
+    return false;
+  return true;
+}
+
+// Moves the cursor `dir` rows, skipping headers, spacers and disabled rows, and
+// wrapping like the plain cursor always did. A menu with nothing selectable
+// leaves the cursor where it is rather than spinning.
+void TerrainGame::menuMoveCursor(int menu, int dir) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.entryCount <= 0) return;
+  for (int step = 0; step < m.entryCount; ++step) {
+    gameMenuCursor = (gameMenuCursor + dir + m.entryCount) % m.entryCount;
+    if (menuRowEnabled(menu, gameMenuCursor)) return;
   }
-  // Toggle/Choice rows: the current option label, a cell of the baked value
-  // strip drawn right-aligned on the row (cell right edge 24px from the
-  // panel's right border - the mirror of the 56px label margin).
+}
+
+// Keeps the cursor inside the visible window of a scrolling list.
+void TerrainGame::menuFollowCursor(int menu) {
+  if (menu < 0 || menu >= MENU_COUNT) return;
+  const MenuData& m = MENUS[menu];
+  if (m.listTex[0] == '\0' || m.rowsVisible <= 0) {
+    gameMenuScroll = 0;
+    return;
+  }
+  if (gameMenuCursor < gameMenuScroll) gameMenuScroll = gameMenuCursor;
+  if (gameMenuCursor >= gameMenuScroll + m.rowsVisible)
+    gameMenuScroll = gameMenuCursor - m.rowsVisible + 1;
+  const int maxScroll = m.entryCount - m.rowsVisible;
+  if (gameMenuScroll > maxScroll) gameMenuScroll = maxScroll;
+  if (gameMenuScroll < 0) gameMenuScroll = 0;
+}
+
+void TerrainGame::renderGameMenu() {
+  // A menu that is closing still draws: its transition is the whole reason the
+  // index was parked in gameMenuClosing instead of simply cleared.
+  const int drawMenu = gameMenuIndex >= 0 ? gameMenuIndex : gameMenuClosing;
+  if (drawMenu < 0 || drawMenu >= (int)menuSprites.size()) return;
+  if (saveMenuOpen) return;  // the save menu draws on top instead
+  const MenuData& m = MENUS[drawMenu];
+  Sprite& panel = menuSprites[drawMenu];
+  const bool closing = gameMenuIndex < 0;
+
+  // --- resolution scale (docs/menu-styles.md "Resolutions") ----------------
+  // A menu is authored in the logical 512x448 space of the interlaced mode, but
+  // the framebuffer is 448x448 in 480p, 448x540 in 1080i and 512x512 in full
+  // PAL. Scaling by (width/512, height/448) is what keeps the panel the same
+  // PHYSICAL size on the TV: the GS display window maps whatever the buffer is
+  // across the same raster, so 448 columns cover exactly the width 512 do.
+  // That also means the two axes scale by different factors - hence
+  // Sprite::drawSize rather than Sprite::scale.
+  const auto& uiScr = engine->renderer.core.getSettings();
+  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiSY = uiScr.getHeight() / 448.0F;
+  auto sxi = [&](int v) { return (float)v * uiSX; };
+  auto syi = [&](int v) { return (float)v * uiSY; };
+
+  // --- the open transition -------------------------------------------------
+  // Sprite properties only: an offset added to every piece and one alpha. The
+  // baked pixels never move, which is why this costs nothing.
+  gameMenuClock += g_frameDt;
+  float prog = 1.0F;
+  float ofsX = 0.0F, ofsY = 0.0F;
+  bool fade = false;
+  if (closing) {
+    prog = m.closeSec > 0.0F ? 1.0F - menuEase(gameMenuCloseT / m.closeSec, m.closeEase)
+                             : 0.0F;
+    ofsX = m.closeDX * (1.0F - prog);
+    ofsY = m.closeDY * (1.0F - prog);
+    fade = m.closeFade != 0;
+  } else if (m.openSec > 0.0F) {
+    gameMenuOpenT += g_frameDt;
+    prog = menuEase(gameMenuOpenT / m.openSec, m.openEase);
+    ofsX = m.openDX * (1.0F - prog);
+    ofsY = m.openDY * (1.0F - prog);
+    fade = m.openFade != 0;
+  }
+  const unsigned char alpha = (unsigned char)(fade ? 128.0F * prog + 0.5F : 128.0F);
+  // The panel is centred on its normalized screen position, in the mode's own
+  // buffer, at its scaled size.
+  const float baseX =
+      m.screenX * uiScr.getWidth() - sxi(m.panelW) * 0.5F + ofsX * uiSX;
+  const float baseY =
+      m.screenY * uiScr.getHeight() - syi(m.contentH) * 0.5F + ofsY * uiSY;
+
+  if (m.pause) {
+    // Sized per frame: a runtime display-mode switch changes the buffer under
+    // it, and a dim overlay that misses the edge is very visible.
+    menuDimSprite.drawSize = Vec2(uiScr.getWidth(), uiScr.getHeight());
+    engine->renderer.renderer2D.render(menuDimSprite);
+  }
+  // The moving background layer, under everything the panel bakes. Scroll walks
+  // the sampling window across the tiled copy; frames jump it between frames.
+  // Either way it is one sprite and one offset - no re-bake, no second texture
+  // per frame (docs/menu-styles.md "Motion").
+  if (m.bgTex[0] != '\0' && drawMenu < (int)menuBgSprites.size()) {
+    Sprite& bg = menuBgSprites[drawMenu];
+    bg.color.a = alpha;
+    bg.drawSize = Vec2(sxi(m.panelW), syi(m.contentH));
+    if (m.bgMode == 2 && m.bgFrames > 0) {
+      int f = (int)(gameMenuClock / (m.bgSeconds > 0.0F ? m.bgSeconds : 1.0F) *
+                    m.bgFrames);
+      f %= m.bgFrames;
+      if (f < 0) f += m.bgFrames;
+      bg.offset = Vec2(0.0F, (float)(f * m.bgFrameH));
+    } else {
+      auto wrap = [](float v, float span) {
+        if (span <= 0.0F) return 0.0F;
+        v = fmodf(v, span);
+        return v < 0.0F ? v + span : v;
+      };
+      bg.offset = Vec2(wrap(gameMenuClock * m.bgScrollX, (float)m.bgTileW),
+                       wrap(gameMenuClock * m.bgScrollY, (float)m.bgTileH));
+    }
+    bg.position = Vec2(baseX, baseY);
+    engine->renderer.renderer2D.render(bg);
+  }
+
+  panel.color.a = alpha;
+  panel.drawSize = Vec2(sxi(m.panelW), syi(m.panelH));
+  panel.position = Vec2(baseX, baseY);
+  engine->renderer.renderer2D.render(panel);
+
+  // A scrolling list settles into its new window instead of jumping. One float:
+  // every row-indexed piece below reads `shown` rather than the integer scroll,
+  // so the highlight, the values and the rows all move together (they must - a
+  // highlight that arrives before its row is worse than no easing).
+  if (m.scrollSec > 0.0F) {
+    const float k = menuEase(g_frameDt / m.scrollSec, 1);
+    gameMenuScrollShown += ((float)gameMenuScroll - gameMenuScrollShown) *
+                           (k > 1.0F ? 1.0F : k);
+    if (fabsf((float)gameMenuScroll - gameMenuScrollShown) < 0.01F)
+      gameMenuScrollShown = (float)gameMenuScroll;
+  } else {
+    gameMenuScrollShown = (float)gameMenuScroll;
+  }
+  const float shown = gameMenuScrollShown;
+
+  // --- the row strip of a scrolling list -----------------------------------
+  // One window into the strip texture; scrolling moves `offset`, so a 32-row
+  // menu costs exactly what an 8-row one does.
+  if (m.listTex[0] != '\0' && drawMenu < (int)menuListSprites.size()) {
+    Sprite& ls = menuListSprites[drawMenu];
+    ls.color.a = alpha;
+    ls.offset = Vec2(0.0F, shown * (float)m.rowH);
+    ls.drawSize = Vec2(sxi(m.panelW), syi(m.rowsVisible * m.rowH));
+    ls.position = Vec2(baseX, baseY + syi(m.row0Y));
+    engine->renderer.renderer2D.render(ls);
+  }
+
+  // --- row states ----------------------------------------------------------
+  // Disabled rows first, then the selected one, all from ONE texture so the
+  // draws share a texture bind (a per-row texture switch would re-upload a
+  // CLUT every row - see docs/gs-vram.md).
+  if (m.rowsTex[0] != '\0' && drawMenu < (int)menuStateSprites.size()) {
+    Sprite& ss = menuStateSprites[drawMenu];
+    ss.color.a = alpha;
+    ss.drawSize = Vec2(sxi(m.rowsCellW), syi(m.rowsCellH));
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
+      const MenuEntryData& e = m.entries[i];
+      if (e.disCell < 0 || menuRowEnabled(gameMenuIndex, i)) continue;
+      ss.offset = Vec2(0.0F, (float)(e.disCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)i - shown) * (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+    }
+    const MenuEntryData& sel = m.entries[gameMenuCursor >= 0 && gameMenuCursor < m.entryCount
+                                             ? gameMenuCursor
+                                             : 0];
+    if (sel.selCell >= 0 && menuRowEnabled(gameMenuIndex, gameMenuCursor)) {
+      ss.offset = Vec2(0.0F, (float)(sel.selCell * m.rowsPitch));
+      ss.position = Vec2(baseX, baseY + (float)m.row0Y * uiSY +
+                                    ((float)gameMenuCursor - shown) *
+                                        (float)m.rowH * uiSY);
+      engine->renderer.renderer2D.render(ss);
+      ss.color.a = alpha;  // the pulse is this row's alone
+    }
+  }
+
+  // --- the selection caret -------------------------------------------------
+  // It eases toward its row when the sheet asks for it; with no cursor
+  // transition it snaps, which is what every menu did before. A style whose
+  // selected row paints a full-width plate turns it off (`marker: none`) - the
+  // caret would only sit on top of the plate.
+  if (m.entryCount > 0 && m.markerOn) {
+    const float targetY =
+        (float)m.row0Y + ((float)gameMenuCursor - shown) * (float)m.rowH + 1.0F;
+    if (m.cursorSec > 0.0F) {
+      if (gameMenuCursorRow != gameMenuCursor) {
+        // Re-target: ease from wherever the caret actually is.
+        gameMenuCursorRow = gameMenuCursor;
+      }
+      const float k = menuEase(g_frameDt / m.cursorSec, m.cursorEase);
+      gameMenuCursorY += (targetY - gameMenuCursorY) * (k > 1.0F ? 1.0F : k);
+      if (gameMenuCursorY < -512.0F || gameMenuCursorY > 1024.0F)
+        gameMenuCursorY = targetY;  // first frame / a scene reload
+    } else {
+      gameMenuCursorY = targetY;
+    }
+    Sprite& caret = drawMenu < (int)menuCursorSprites.size()
+                        ? menuCursorSprites[drawMenu]
+                        : menuCursorSprite;
+    caret.color.a = alpha;
+    caret.drawSize = Vec2(16.0F * uiSX, 16.0F * uiSY);
+    const float bob =
+        m.bobSec > 0.0F
+            ? m.bobPx * sinf(gameMenuClock * 6.2831853F / m.bobSec)
+            : 0.0F;
+    caret.position = Vec2(baseX + (m.markerX + bob) * uiSX,
+                          baseY + gameMenuCursorY * uiSY);
+    engine->renderer.renderer2D.render(caret);
+  }
+
+  // Toggle/Choice rows: the current option label (or bar), a cell of the baked
+  // value strip drawn right-aligned on the row.
   if (m.values[0] != '\0' &&
-      gameMenuIndex < (int)menuValueSprites.size()) {
-    Sprite& vs = menuValueSprites[gameMenuIndex];
-    for (int i = 0; i < m.entryCount; ++i) {
+      drawMenu < (int)menuValueSprites.size()) {
+    Sprite& vs = menuValueSprites[drawMenu];
+    vs.color.a = alpha;
+    vs.drawSize = Vec2(sxi(m.valueCellW), syi(m.valueCellH));
+    // The row whose value just changed flashes brighter, which is how a player
+    // sees that a press did something on a row whose label never moves.
+    if (gameMenuValueFlash > 0.0F) gameMenuValueFlash -= g_frameDt;
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.cell < 0 || e.optionCount <= 0) continue;
       int v = (e.param >= 0 && e.param < SAVE_VALUE_COUNT)
@@ -8978,17 +9458,70 @@ void TerrainGame::renderGameMenu() {
                   : 0;
       if (v < 0) v = 0;
       if (v >= e.optionCount) v = e.optionCount - 1;
+      const bool flash = gameMenuValueFlash > 0.0F && i == gameMenuCursor;
+      vs.color.r = vs.color.g = vs.color.b = flash ? 255 : 128;
       vs.offset = Vec2(0.0F, (float)((e.cell + v) * m.valuePitch));
-      vs.position = Vec2(panel.position.x + m.valueX,
-                         panel.position.y + m.row0Y + i * m.rowH);
+      vs.position = Vec2(baseX + sxi(m.valueX),
+                         baseY + (float)m.row0Y * uiSY +
+                             ((float)i - shown) * (float)m.rowH * uiSY);
       engine->renderer.renderer2D.render(vs);
     }
   }
+
+  // --- the description pane ------------------------------------------------
+  // The selected row's cell, drawn into the box the panel already framed.
+  if (m.descTex[0] != '\0' && drawMenu < (int)menuDescSprites.size() &&
+      gameMenuCursor >= 0 && gameMenuCursor < m.entryCount) {
+    const MenuEntryData& e = m.entries[gameMenuCursor];
+    if (e.descCell >= 0) {
+      Sprite& ds = menuDescSprites[drawMenu];
+      ds.color.a = alpha;
+      ds.drawSize = Vec2(sxi(m.descCellW), syi(m.descCellH));
+      ds.offset = Vec2(0.0F, (float)(e.descCell * m.descPitch));
+      ds.position = Vec2(baseX + sxi(m.descX), baseY + syi(m.descY));
+      engine->renderer.renderer2D.render(ds);
+    }
+  }
+
+  // The sheen: a soft band sweeping across the panel, additive so it only ever
+  // adds light. It crosses from off the left edge to off the right, then waits
+  // out the rest of the period - a sweep every few seconds reads as a highlight,
+  // a sweep that never stops reads as a strobe.
+  if (m.sheenSec > 0.0F && menuSheenLoaded) {
+    const float bandW = m.sheenPx > 0.0F ? m.sheenPx : 48.0F;
+    // The band travels from just off the left edge to just off the right, and
+    // is CROPPED to the panel on the way in and out. A 2D sprite is not clipped
+    // by anything, so without this the sweep is visible beside the menu before
+    // it arrives - which is exactly how it was reported. The crop is the same
+    // window-into-a-texture trick the value strip uses: move `offset` and
+    // shrink `size`, and the sprite samples only the part that belongs inside.
+    const float phase = fmodf(gameMenuClock, m.sheenSec) / m.sheenSec;
+    const float x0 = phase * ((float)m.panelW + bandW * 2.0F) - bandW;
+    const float vx0 = x0 < 0.0F ? 0.0F : x0;
+    const float vx1 = x0 + bandW > (float)m.panelW ? (float)m.panelW : x0 + bandW;
+    if (vx1 > vx0) {
+      const float u0 = (vx0 - x0) / bandW * 64.0F;
+      const float u1 = (vx1 - x0) / bandW * 64.0F;
+      menuSheenSprite.color.r = (unsigned char)m.sheenR;
+      menuSheenSprite.color.g = (unsigned char)m.sheenG;
+      menuSheenSprite.color.b = (unsigned char)m.sheenB;
+      menuSheenSprite.color.a =
+          (unsigned char)((float)m.sheenA * (alpha / 128.0F) * 0.5F);
+      menuSheenSprite.offset = Vec2(u0, 0.0F);
+      menuSheenSprite.size = Vec2(u1 - u0, 64.0F);
+      menuSheenSprite.drawSize = Vec2((vx1 - vx0) * uiSX, syi(m.contentH));
+      menuSheenSprite.position = Vec2(baseX + vx0 * uiSX, baseY);
+      engine->renderer.renderer2D.render(menuSheenSprite);
+    }
+  }
+
   // Rebind rows: the binding name can't be baked (it changes at runtime), so it
   // draws glyph by glyph from the menu font's atlas, right-aligned like the
   // baked option labels. While capturing, the row asks for a press instead.
   if (m.font >= 0 && m.font < FONT_COUNT) {
-    for (int i = 0; i < m.entryCount; ++i) {
+    const int first = gameMenuScroll;
+    const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
+    for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
       if (e.action != 10) continue;
       const char* txt = "PRESS...";
@@ -9013,18 +9546,17 @@ void TerrainGame::renderGameMenu() {
       // half of a 128px panel, so shrink to fit rather than run over the row's
       // baked label (floor at 50% - below that it stops being readable at PS2
       // resolutions anyway).
-      float size = (float)m.rowH * 0.8F;
-      const float room = (float)m.panelW * 0.5F - 24.0F;
+      float size = (float)m.rowH * 0.8F * uiSY;
+      const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
       float w = fontTextWidth(m.font, txt, size);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
         w = fontTextWidth(m.font, txt, size);
       }
-      drawFontText(engine, m.font, txt,
-                   panel.position.x + (float)(m.panelW - 24) - w * 0.5F,
-                   panel.position.y + m.row0Y + i * m.rowH +
-                       (float)m.rowH * 0.5F,
+      drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
+                   baseY + syi(m.row0Y + (i - first) * m.rowH) +
+                       syi(m.rowH) * 0.5F,
                    size);
     }
   }
@@ -18178,6 +18710,11 @@ struct ScriptContext {
   // -1, because a room is a state and not an event.
   int reverbPreset = -1;
   int reverbAmount = 50;    // 0..100, used while reverbPreset >= 0
+  // Channel offset of the bus the CURRENT room runs on: 0 for SPU2 core 1,
+  // 24 for core 0. Every new sound is played at this offset so it is heard
+  // through the room the listener is in; TerrainGame::updateReverb owns it,
+  // and the generated flow graphs read it (they are a different TU).
+  int reverbBusBase = 0;
   int reverbDelay = 64;     // 0..127, echo/delay presets only
   int reverbFeedback = 64;  // 0..127, echo/delay presets only
 
@@ -25861,11 +26398,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     if (vol > 100) vol = 100;
                     int ch = (int)n.num[1];
                     if (ch > 23) ch = 23;
+                    // Channels are relative to the bus the CURRENT room runs
+                    // on (docs/reverb.md): +0 on SPU2 core 1, +24 on core 0.
+                    // A pinned channel is pinned WITHIN the room, so a sound
+                    // the author put on channel 3 is still heard through
+                    // whatever room the listener is standing in.
                     c << pad << "{\n";
                     if (ch >= 0) {
-                        c << pad << "  const s8 ch = " << ch << ";\n";
+                        c << pad << "  const s8 ch = (s8)(ctx.reverbBusBase + "
+                          << ch << ");\n";
                     } else {
-                        c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
+                        c << pad << "  const s8 ch = (s8)(ctx.reverbBusBase + "
+                             "sfxNextCh);\n"
                           << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
                     }
                     c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol
@@ -32604,6 +33148,14 @@ static std::string menuDataHeader(const Project& p) {
            "  // (optionCount ints; -1 = the project-default boot mode).\n"
            "  // Null = the option index itself.\n"
            "  const int* optModes;\n"
+           "  // --- styling (docs/menu-styles.md) ---------------------------\n"
+           "  // Cells in the row-state atlas for this row, -1 = the sheet\n"
+           "  // paints nothing for that state (the row then draws from the\n"
+           "  // panel exactly as before).\n"
+           "  int selCell, disCell;\n"
+           "  int descCell;    // cell in the description atlas (-1 = none)\n"
+           "  int enableVal;   // save value gating the row (-1 = always on)\n"
+           "  int selectable;  // 0 = a label/spacer row the cursor skips\n"
            "};\n\n"
            "struct MenuData {\n"
            "  const char* panel;  // baked panel sprite, relative to the ELF\n"
@@ -32624,6 +33176,58 @@ static std::string menuDataHeader(const Project& p) {
            "  // current binding as runtime text from this font's glyph atlas\n"
            "  // (Project::atlasFontIndices bakes one for such menus).\n"
            "  int font;\n"
+           "  // --- styling (docs/menu-styles.md) ---------------------------\n"
+           "  // Row-state atlas (\"\" = none): one cell per (row, state) the\n"
+           "  // stylesheet paints, drawn OVER the baked normal row. A cell\n"
+           "  // carries the panel's own background, so it covers it whatever\n"
+           "  // the highlight's alpha.\n"
+           "  const char* rowsTex;\n"
+           "  int rowsCellW, rowsCellH, rowsPitch;\n"
+           "  // Scrolling list (\"\" = the rows are baked into the panel):\n"
+           "  // every row in its own texture, drawn as a rowsVisible-tall\n"
+           "  // WINDOW of it - scrolling is an offset, not a rebake.\n"
+           "  const char* listTex;\n"
+           "  int listH, rowsVisible;\n"
+           "  // Description pane (\"\" = none): the selected row's cell drawn\n"
+           "  // at descX/descY inside the panel.\n"
+           "  const char* descTex;\n"
+           "  int descCellW, descCellH, descPitch, descX, descY;\n"
+           "  float markerX;    // selection caret x inside the panel\n"
+           "  int markerOn;     // 0 = `marker: none` - a style whose selected\n"
+           "                    // row paints a plate does not want a caret on\n"
+           "                    // top of it (docs/menu-styles.md)\n"
+           "  // The caret's own image (\"\" = the built-in hud/save-cursor.png,\n"
+           "  // which is also the save menu's). A sheet points at its own with\n"
+           "  // `marker { marker: url(res/hud/caret.png); }`.\n"
+           "  const char* markerTex;\n"
+           "  // Motion. The panel slides/fades in over openSec (ease 0 linear,\n"
+           "  // 1 ease-out, 2 ease-in-out) and the caret eases to its row over\n"
+           "  // cursorSec. Sprite properties only - nothing is re-baked.\n"
+           "  float openSec;\n"
+           "  int openEase, openFade;\n"
+           "  float openDX, openDY, openScale;\n"
+           "  float cursorSec;\n"
+           "  int cursorEase;\n"
+           "  // The close transition, and the two easings that are not about\n"
+           "  // the panel: a scrolling list settling into its new window, and\n"
+           "  // the flash a Toggle/Choice value gives when it changes.\n"
+           "  float closeSec;\n"
+           "  int closeEase, closeFade;\n"
+           "  float closeDX, closeDY;\n"
+           "  float scrollSec, valueFlashSec;\n"
+           "  // Loops. All three are sprite properties - an alpha, an offset, a\n"
+           "  // position - so a menu that never stops moving costs what a still\n"
+           "  // one costs (docs/menu-styles.md \"Motion\").\n"
+           "  float pulseSec, pulseAmt;   // the selected row's cell breathes\n"
+           "  float bobSec, bobPx;        // the caret slides back and forth\n"
+           "  float sheenSec, sheenPx;    // a band sweeps across the panel\n"
+           "  int sheenR, sheenG, sheenB, sheenA;\n"
+           "  // The moving background layer (\"\" = none): mode 1 scrolls a\n"
+           "  // tiled texture by moving the sampling window, mode 2 steps\n"
+           "  // through a frame strip. Both are one sprite and one texture.\n"
+           "  const char* bgTex;\n"
+           "  int bgMode, bgTileW, bgTileH, bgFrameH, bgFrames;\n"
+           "  float bgScrollX, bgScrollY, bgSeconds;\n"
            "};\n\n"
         << "constexpr int MENU_COUNT = " << p.menus.size() << ";\n\n";
 
@@ -32632,7 +33236,8 @@ static std::string menuDataHeader(const Project& p) {
         const int entries = (int)m.entries.size() > menubake::kMaxEntries
                                 ? menubake::kMaxEntries
                                 : (int)m.entries.size();
-        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+        const menubake::ValueStripLayout vl = menubake::valueStripLayout(m, p);
+        const menulayout::Layout ml = menulayout::compute(m, p);
         out << "// menu \"" << m.name << "\"\n";
         // Explicit option->mode tables for display-mode rows (see
         // MenuEntryData::optModes); rows without one keep the positional map.
@@ -32660,7 +33265,8 @@ static std::string menuDataHeader(const Project& p) {
         out << "constexpr MenuEntryData MENU_" << mi << "_ENTRIES["
             << (entries > 0 ? entries : 1) << "] = {\n";
         if (entries == 0) {
-            out << "    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},\n";
+            out << "    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, "
+                   "1},\n";
         } else {
             for (int e = 0; e < entries; ++e) {
                 const MenuEntry& en = m.entries[e];
@@ -32701,6 +33307,20 @@ static std::string menuDataHeader(const Project& p) {
                     out << "MENU_" << mi << "_E" << e << "_MODES";
                 else
                     out << "nullptr";
+                // Styling: which baked cells this row owns, what gates it, and
+                // whether the cursor stops on it (docs/menu-styles.md). The
+                // layout engine assigned the cells - never recount them here.
+                const menulayout::Row* lr =
+                    e < (int)ml.rows.size() ? &ml.rows[(size_t)e] : nullptr;
+                const int selCell = lr ? lr->stateCell[menustyle::StateSelected] : -1;
+                const int disCell = lr ? lr->stateCell[menustyle::StateDisabled] : -1;
+                const int descCell = lr ? lr->descCell : -1;
+                const int enableVal =
+                    en.enabledWhen.empty() ? -1 : valueIndexOf(en.enabledWhen);
+                const bool selectable =
+                    en.action != MenuEntry::Label && (!lr || lr->selectable);
+                out << ", " << selCell << ", " << disCell << ", " << descCell
+                    << ", " << enableVal << ", " << (selectable ? 1 : 0);
                 out << "},  // " << en.label << "\n";
             }
         }
@@ -32708,7 +33328,7 @@ static std::string menuDataHeader(const Project& p) {
     }
     if (p.menus.empty())
         out << "constexpr MenuEntryData MENU_0_ENTRIES[1] = "
-               "{{0, -1, 0.0F, 0, -1, 0, -1, nullptr}};\n";
+               "{{0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1}};\n";
 
     int titleMenu = -1;
     for (size_t mi = 0; mi < p.menus.size(); ++mi)
@@ -32721,7 +33341,11 @@ static std::string menuDataHeader(const Project& p) {
     out << "\ninline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {\n";
     if (p.menus.empty()) {
         out << "    {\"\", 0, 0, 0, 0, 0, 0, MENU_0_ENTRIES, 0, 0, 0.5F, 0.45F, "
-               "\"\", 0, 0, 0, 0, 0},\n";
+               "\"\", 0, 0, 0, 0, 0, \"\", 0, 0, 0, \"\", 0, 0, \"\", 0, 0, 0, 0, "
+               "0, 0.0F, 1, \"\", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, "
+               "0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
+               "0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "
+               "\"\", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},\n";
         // (unreachable - MENU_COUNT is 0; the dummy keeps the array valid)
     } else {
         for (size_t mi = 0; mi < p.menus.size(); ++mi) {
@@ -32732,7 +33356,7 @@ static std::string menuDataHeader(const Project& p) {
             // Layout depends on the custom images (flow blocks push the
             // cursor rows down) - the baker is the single source of truth.
             const menubake::PanelLayout l = menubake::panelLayout(m, p);
-            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m);
+            const menubake::ValueStripLayout vl = menubake::valueStripLayout(m, p);
             const bool hasValues = menubake::menuHasValueEntries(m);
             out << "    {\"menus/" << menubake::panelFileName(m.name) << "\", "
                 << l.panelW << ", " << l.canvasH << ", " << l.contentH << ", "
@@ -32756,6 +33380,88 @@ static std::string menuDataHeader(const Project& p) {
                     if (af[k] == fi) fontSlot = (int)k;
             }
             out << ", " << fontSlot;
+
+            // --- styling (docs/menu-styles.md) --------------------------------
+            // Every number below comes from the layout engine; the runtime is a
+            // compositor over them and decides nothing about the look.
+            const menulayout::Layout ml = menulayout::compute(m, p);
+            if (ml.hasStateAtlas())
+                out << ", \"menus/" << menulayout::stateAtlasFileName(m.name)
+                    << "\", " << ml.stateCellW << ", " << ml.stateCellH << ", "
+                    << ml.statePitch;
+            else
+                out << ", \"\", 0, 0, 0";
+            if (ml.scrolls)
+                out << ", \"menus/" << menulayout::listFileName(m.name) << "\", "
+                    << ml.listCanvasH << ", " << ml.rowsVisible;
+            else
+                out << ", \"\", 0, " << ml.rowsVisible;
+            if (ml.hasDescAtlas())
+                out << ", \"menus/" << menulayout::descAtlasFileName(m.name)
+                    << "\", " << ml.descCellW << ", " << ml.descCellH << ", "
+                    << ml.descPitch << ", " << ml.descBox.x << ", " << ml.descBox.y;
+            else
+                out << ", \"\", 0, 0, 0, 0, 0";
+            out << ", " << floatLit(ml.marker.translateX) << ", "
+                << (ml.marker.marker == "none" ? 0 : 1) << ", ";
+            // A sheet's caret is an ordinary res/ asset, so it ships through
+            // texbake like any HUD image; "" falls back to the built-in.
+            if (ml.marker.marker.empty() || ml.marker.marker == "none")
+                out << "\"\"";
+            else
+                out << "\"" << resToBin(ml.marker.marker) << "\"";
+            const menustyle::Sheet& sheet = menulayout::sheetFor(m);
+            const menustyle::Transition* open =
+                menustyle::transition(sheet, menustyle::Transition::Open);
+            const menustyle::Transition* cursor =
+                menustyle::transition(sheet, menustyle::Transition::Cursor);
+            out << ", " << floatLit(open ? open->seconds : 0.0f) << ", "
+                << (open ? open->ease : 1) << ", "
+                << (open && open->fade ? 1 : 0) << ", "
+                << floatLit(open ? open->translateX : 0.0f) << ", "
+                << floatLit(open ? open->translateY : 0.0f) << ", "
+                << floatLit(open ? open->scale : 0.0f) << ", "
+                << floatLit(cursor ? cursor->seconds : 0.0f) << ", "
+                << (cursor ? cursor->ease : 1);
+            const menustyle::Transition* close =
+                menustyle::transition(sheet, menustyle::Transition::Close);
+            const menustyle::Transition* scrollT =
+                menustyle::transition(sheet, menustyle::Transition::Scroll);
+            const menustyle::Transition* valueT =
+                menustyle::transition(sheet, menustyle::Transition::Value);
+            out << ", " << floatLit(close ? close->seconds : 0.0f) << ", "
+                << (close ? close->ease : 1) << ", "
+                << (close && close->fade ? 1 : 0) << ", "
+                << floatLit(close ? close->translateX : 0.0f) << ", "
+                << floatLit(close ? close->translateY : 0.0f) << ", "
+                << floatLit(scrollT ? scrollT->seconds : 0.0f) << ", "
+                << floatLit(valueT ? valueT->seconds : 0.0f);
+            const menustyle::Animation* pulse =
+                menustyle::animation(sheet, menustyle::Animation::Selected);
+            const menustyle::Animation* bob =
+                menustyle::animation(sheet, menustyle::Animation::Marker);
+            const menustyle::Animation* sheen =
+                menustyle::animation(sheet, menustyle::Animation::Panel);
+            out << ", " << floatLit(pulse ? pulse->seconds : 0.0f) << ", "
+                << floatLit(pulse ? pulse->amount : 0.0f) << ", "
+                << floatLit(bob ? bob->seconds : 0.0f) << ", "
+                << floatLit(bob ? bob->amount : 0.0f) << ", "
+                << floatLit(sheen ? sheen->seconds : 0.0f) << ", "
+                << floatLit(sheen ? sheen->amount : 0.0f) << ", "
+                << (sheen ? (int)sheen->color.r : 255) << ", "
+                << (sheen ? (int)sheen->color.g : 255) << ", "
+                << (sheen ? (int)sheen->color.b : 255) << ", "
+                << (sheen ? (int)sheen->color.a : 0);
+            if (ml.hasBgAnim())
+                out << ", \"menus/" << menulayout::bgAnimFileName(m.name) << "\", "
+                    << ml.panel.bgAnim.mode << ", " << ml.bgAnimTileW << ", "
+                    << ml.bgAnimTileH << ", " << ml.bgAnimFrameH << ", "
+                    << ml.bgAnimFrames << ", "
+                    << floatLit(ml.panel.bgAnim.scrollX) << ", "
+                    << floatLit(ml.panel.bgAnim.scrollY) << ", "
+                    << floatLit(ml.panel.bgAnim.seconds);
+            else
+                out << ", \"\", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F";
             out << "},  // " << m.name << "\n";
         }
     }

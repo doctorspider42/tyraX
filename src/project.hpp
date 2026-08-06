@@ -838,6 +838,15 @@ struct ProjectSettings {
         "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
                        // "1080i" | "pal576"
 
+    // Which scan modes this game supports (mode keys as above). Empty = only
+    // `displayMode`, which is what every project meant before the field
+    // existed. It is a DECLARATION, not a runtime switch: it is what the Menu
+    // Editor's preview offers, what "+ Option block > Display mode" scaffolds
+    // its options from, and what the per-mode fit check in the Menu Editor
+    // measures against (docs/menu-styles.md "Resolutions"). Menus scale to
+    // whichever mode the player ends up in either way.
+    std::vector<std::string> supportedModes;
+
     // PAL handling of the region-following "interlaced" mode: false = the
     // letterboxed NTSC-size picture (stock), true = a PAL console (or a
     // forced-PAL videoSystem) boots the full-height 576i frame instead
@@ -1208,7 +1217,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.displayMode == b.displayMode &&
-           a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
+           a.palFullHeight == b.palFullHeight &&
+           a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
@@ -1773,7 +1783,8 @@ enum class LayoutRecipe {
     Director = 1,
     Material = 2,
     Debugger = 3,
-    Procedural = 4
+    Procedural = 4,
+    MenuDesigner = 5
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
@@ -1950,6 +1961,11 @@ struct MenuEntry {
         // menu first, so a title screen's CREDITS row hands the screen over and
         // the roll's own finish action decides what comes back.
         PlayCredits = 11,
+        // Draws its label and does nothing: a section header, or - with an
+        // empty label - a spacer. The cursor skips it (the FIRST row of a menu
+        // being a header is the common case, so skipping happens on open too).
+        // Style it with a class: `row.header { ... }`.
+        Label = 12,
     };
     int action = Close;
     std::string param;
@@ -1987,13 +2003,31 @@ struct MenuEntry {
     // field on purpose - the positional MenuEntry{...} initializers in app.cpp
     // predate it and must keep meaning what they say.
     std::string bindAction;
+
+    // --- styling (docs/menu-styles.md) --------------------------------------
+    // Style class: `row.danger { color: #f88 }` in the menu's stylesheet then
+    // styles this row alone. Free text, no registry - a class nothing defines
+    // simply styles like any other row.
+    std::string styleClass;
+    // Shown in the panel's description area while this row is selected (the
+    // area only exists when the sheet gives `description` a height).
+    std::string description;
+    // A Tools > UI Editor button icon name, drawn in the row's icon column
+    // (`row { icon-size: 18px }`). A {{token}} inside the LABEL still works and
+    // needs nothing here - this one is for an aligned column.
+    std::string icon;
+    // Save value that decides whether the row is usable: 0 = the row draws in
+    // its `:disabled` style and the cursor skips it. Empty = always enabled.
+    std::string enabledWhen;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
            a.bindAction == b.bindAction && a.amount == b.amount &&
            a.options == b.options && a.optionModes == b.optionModes &&
-           a.settingBind == b.settingBind;
+           a.settingBind == b.settingBind && a.styleClass == b.styleClass &&
+           a.description == b.description && a.icon == b.icon &&
+           a.enabledWhen == b.enabledWhen;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -2050,8 +2084,18 @@ struct GameMenu {
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
     // Which Project::fonts entry the panel is baked with ("" = the default
     // entry). Only the typeface is taken from it - the panel's colors come
-    // from `accent` and the bake itself.
+    // from `accent` and the stylesheet below.
     std::string font;
+    // The stylesheet this menu is baked with: a menu-styles/<key>.menustyle
+    // file or one of the built-ins (docs/menu-styles.md). Empty = the Classic
+    // look, which the sheet defaults reproduce exactly - so an existing project
+    // bakes byte-identically whether it names "classic" or nothing.
+    //
+    // The fields around it (accent, titleSize, entrySize, panelW, font) are the
+    // BASE of the cascade: a sheet that says nothing about a colour keeps
+    // taking it from here, and one that does wins. That is the whole
+    // compatibility story - there is no second source of truth, only an order.
+    std::string style;
     int titleSize = 18;  // px; entrySize also drives the row pitch (and the
     int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
@@ -2066,9 +2110,22 @@ inline bool operator==(const GameMenu& a, const GameMenu& b) {
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
            a.showTitle == b.showTitle && a.font == b.font &&
-           a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
-           a.entries == b.entries;
+           a.style == b.style && a.titleSize == b.titleSize &&
+           a.entrySize == b.entrySize && a.entries == b.entries;
 }
+
+// The display modes a project can pick, with the geometry each one implies.
+// ONE table: the editor's PS2 viewport, the Menu Editor's per-resolution
+// preview, the Preferences list and the menu fit check all read it, and it is
+// the host twin of Tyra::RendererSettings::updateGeometry - change one and the
+// other must follow (docs/menu-styles.md "Resolutions").
+struct DisplayModeInfo {
+    const char* key;    // ProjectSettings::displayMode value
+    const char* label;  // what the UI calls it
+    int bufW;           // logical framebuffer width
+    int logicalH;       // logical framebuffer height
+    bool halfHeight;    // true field rendering: the real buffer is half as tall
+};
 
 // A named value persisted on the memory card (project-wide, not per scene).
 // Flow graph Save nodes read/write these; every save slot stores a snapshot.
@@ -2487,6 +2544,30 @@ struct Project {
 };
 
 namespace project {
+
+// --- display modes -----------------------------------------------------------
+const std::vector<DisplayModeInfo>& displayModes();
+
+// The mode a project actually boots in: `displayMode`, except that a PAL
+// console with the PAL-picture preference promotes "interlaced" to "pal576"
+// (the generated main.cpp does the same before engine init).
+std::string bootDisplayMode(const ProjectSettings& s);
+
+// The modes a project supports, in table order: `supportedModes` when it names
+// any, otherwise just the boot mode.
+std::vector<std::string> supportedDisplayModes(const ProjectSettings& s);
+
+// The modes a PREVIEW should offer: the boot mode first, then the rest of the
+// declared set - and when nothing is declared, ALL of them rather than the boot
+// mode alone. The reason is that the boot mode is a GUESS whenever the region
+// is Auto: a new project has palFullHeight on, so it "boots" as 576i (512x512)
+// here while PCSX2 runs the same ELF as NTSC 480i (512x448), and a preview that
+// offers no way to look at the other one just quietly disagrees with the screen
+// (which is exactly how it was reported).
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
+
+// One entry of displayModes() by key; an unknown key resolves to "interlaced".
+const DisplayModeInfo& displayModeInfo(const std::string& key);
 
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it

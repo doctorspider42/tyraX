@@ -45,21 +45,23 @@ Two things happen without you pressing anything:
   with *Reverb* **off**. Stand in the chamber and compare it against your own
   CROSS: same sample, same spot, one wet and one dry.
 
-## The two transitions worth walking slowly
+## The transitions worth walking slowly
 
-This is where the hardware shows through, and it is the reason the example is
-laid out this way.
+**Grass → cave mouth → hall** uses the *same* preset (Hall) at two strengths —
+0.35 in the mouth, 0.90 in the hall — so it ramps on one reverb unit. Walk in
+slowly and the room grows around you.
 
-**Grass → cave mouth → hall is seamless.** Those two zones use the *same*
-preset (Hall) at different strengths — 0.35 in the mouth, 0.90 in the hall — and
-strength is the one thing the console can ramp. Walk in slowly and the room
-grows around you.
+**Hall → pipe corridor** changes the algorithm entirely, and it still fades:
+the PS2 has **two** reverb units, and the game hands the room you are entering
+the free one, loads its preset there while it is silent, and ramps the two past
+each other. No dry gap.
 
-**Hall → pipe corridor is a cut.** Different presets, and the PS2 has exactly
-**one** reverb unit: changing the algorithm means zeroing its work area, which
-cannot be done under a live tail. The game fades the reverb out, swaps, and
-fades back in over about 0.3 s. You can hear the gap. The editor warns you
-about this in the Area's Properties panel whenever a scene mixes presets.
+Two consequences you can hear if you look for them. A sound **finishes in the
+room it started in** — knock as you step out of the hall and the tail follows
+you, because a reverb unit is per SPU2 core and the voice is already on the
+other one. And only **two** rooms can be live at once, so sprinting through
+three differently-flavoured rooms inside half a second makes the third wait for
+the first to finish leaving; it waits rather than glitching.
 
 ## How it is wired
 
@@ -94,6 +96,7 @@ the signal reaches the noise floor:
 | the hall emitter, *Reverb* on | 700 ms |
 | CROSS outside, after TRIANGLE forced Space echo | **1550 ms** |
 | CROSS outside, after SQUARE cleared it | 200 ms |
+| CROSS in the hall **0.4 s after** TRIANGLE swapped the preset | **1550 ms** — no dry gap |
 
 So: the zone works, the *Dry* parameter works, the emitter checkbox works and
 the override node works — all against one unchanging sample.

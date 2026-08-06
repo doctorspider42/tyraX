@@ -199,7 +199,14 @@ popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
 `useTexture` binds without a PATH3 upload — see
 `docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
 Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
-otherwise), the **scene dynamic lights** registry
+otherwise), **`Sprite::drawSize`** (a per-axis destination size, 0 = the stock
+`size * scale`; it exists because the framebuffer is a different SHAPE per scan
+mode - 512x448 interlaced, 448x448 in 480p, 448x540 in 1080i, 512x512 in full
+PAL - so UI authored in one logical space must be drawn into a differently
+proportioned rect per mode. Neither existing field could express that: `scale`
+is one float, and in `MODE_REPEAT` `size` is the SOURCE rect, so changing it
+would sample different texels. Used by the generated menu compositor -
+docs/menu-styles.md "Resolutions"), the **scene dynamic lights** registry
 (`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
 `pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
 `StaPipCore::render` picks the strongest contributor - flashlight or point
@@ -756,8 +763,13 @@ banner both, so a previously built ELF still reports.
   Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
   volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
   master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
-  `BusB` (core 0). The generated game still drives bus A alone - room
-  cross-fading is the remaining half, see docs/backlog.md.
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser

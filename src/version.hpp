@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_MINOR 3
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -38,10 +38,19 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // GameMenu::saveMenu. Purely additive with safe defaults, so no migration step
 // - an older file opens silently and project::ensureSaveMenu backfills the
 // save menu the same way ensureInputActions backfills the input map.
-// v3 (SPU2 reverb): an Area's reverb zone (the "reverb" object on an Area:
-// preset / amount / delay / feedback / priority) and the sound emitter's
-// "reverb" send flag. Purely additive - an older file has no zones, which
-// reads as a dry game exactly as it was - so no migration step.
-inline constexpr int kFormatVersion = 3;
+// v3 (menu stylesheets, docs/menu-styles.md): GameMenu::style names the
+// menu-styles/*.menustyle file a panel is baked with, MenuEntry gains
+// styleClass / description / icon / enabledWhen and the `label` action, and
+// ProjectSettings::supportedModes declares which scan modes a game supports.
+// Purely additive with safe defaults - an empty `style` IS the old look, byte
+// for byte (checked by diffing the baked panels of every example against the
+// previous baker), so no migration step.
+// v4 (SPU2 reverb, docs/reverb.md): an Area's reverb zone (the "reverb" object
+// on an Area: preset / amount / delay / feedback / priority) and the sound
+// emitter's "reverb" send flag. Purely additive - an older file has no zones,
+// which reads as a dry game exactly as it was - so no migration step. (This
+// was authored as v3 on its own branch and renumbered on the merge: menu
+// stylesheets took that number first.)
+inline constexpr int kFormatVersion = 4;
 
 }  // namespace version

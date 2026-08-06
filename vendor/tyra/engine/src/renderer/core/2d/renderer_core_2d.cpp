@@ -105,8 +105,15 @@ void RendererCore2D::render(const Sprite& sprite,
   rect->v0.y = sprite.position.y;
   rect->v0.z = (u32)-1;
 
-  rect->v1.x = (sprite.size.x * sprite.scale) + sprite.position.x;
-  rect->v1.y = (sprite.size.y * sprite.scale) + sprite.position.y;
+  // Modified by TyraX: an explicit destination size when the sprite carries
+  // one, so a UI sprite can be stretched per axis without changing which
+  // texels it samples (see sprite.hpp).
+  rect->v1.x = (sprite.drawSize.x > 0.0F ? sprite.drawSize.x
+                                         : sprite.size.x * sprite.scale) +
+               sprite.position.x;
+  rect->v1.y = (sprite.drawSize.y > 0.0F ? sprite.drawSize.y
+                                         : sprite.size.y * sprite.scale) +
+               sprite.position.y;
   rect->v1.z = (u32)-1;
 
   // Modified by TyraX: true field rendering (InterlacedField) - sprites are

@@ -182,6 +182,11 @@ struct ScriptContext {
   // -1, because a room is a state and not an event.
   int reverbPreset = -1;
   int reverbAmount = 50;    // 0..100, used while reverbPreset >= 0
+  // Channel offset of the bus the CURRENT room runs on: 0 for SPU2 core 1,
+  // 24 for core 0. Every new sound is played at this offset so it is heard
+  // through the room the listener is in; TerrainGame::updateReverb owns it,
+  // and the generated flow graphs read it (they are a different TU).
+  int reverbBusBase = 0;
   int reverbDelay = 64;     // 0..127, echo/delay presets only
   int reverbFeedback = 64;  // 0..127, echo/delay presets only
 

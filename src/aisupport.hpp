@@ -3,10 +3,10 @@
 #include <string>
 
 // "AI support" for generated projects: installs assistant guidance files
-// (Claude Code skills + CLAUDE.md, and/or GitHub Copilot instructions) into a
-// project so an AI coding assistant opened inside it knows how the project is
-// structured, which files are editor-owned, and how to drive the editor's
-// headless CLI. The content lives in the editor repo under ai-support/ and is
+// (Claude Code skills + CLAUDE.md, Codex/agents skills + AGENTS.md, and/or
+// GitHub Copilot instructions) into a project so an AI coding assistant opened
+// inside it knows how the project is structured, which files are editor-owned,
+// and how to drive the editor's headless CLI. The content lives in the editor repo under ai-support/ and is
 // embedded into the exe at build time (cmake/embed_ai_support.cmake); the
 // {TYRAX_EXE} placeholder is replaced with this executable's path at install
 // time so the skills can point the assistant at the CLI.
@@ -16,7 +16,7 @@
 namespace aisupport {
 
 // True when the provider's files are present in the project.
-// provider: "claude" | "copilot".
+// provider: "claude" | "codex" | "copilot".
 bool installed(const std::string& projectDir, const std::string& provider);
 
 // Writes the selected providers' files. Each destination file is (re)written
@@ -24,6 +24,11 @@ bool installed(const std::string& projectDir, const std::string& provider);
 // top - a user who deleted the marker owns the file and is never clobbered
 // (the same ownership rule generated game sources use). Returns a short
 // human-readable status ("error: ..." on failure).
-std::string install(const std::string& projectDir, bool claude, bool copilot);
+// Codex reads the SAME content as Claude Code - the difference is where it
+// looks (AGENTS.md + .agents/skills instead of CLAUDE.md + .claude/skills), so
+// it is installed from the same embedded files rather than a second copy that
+// would drift. This mirrors what the editor's own repo does.
+std::string install(const std::string& projectDir, bool claude, bool copilot,
+                    bool codex = false);
 
 }  // namespace aisupport

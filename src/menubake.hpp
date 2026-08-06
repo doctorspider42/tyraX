@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "menulayout.hpp"
 #include "project.hpp"
 
 // Bakes a GameMenu's whole panel (title, entry labels, button hints, border,
@@ -18,7 +19,9 @@
 // generated game runtime (cursor row positions).
 namespace menubake {
 
-constexpr int kMaxEntries = 8;
+// Rows a menu can have. The cap lives in menulayout now (a scrolling list
+// lifted it from 8 to 32); this alias is what the existing call sites read.
+constexpr int kMaxEntries = menulayout::kMaxRows;
 // The save menu's rows-per-page are laid out by this same bake, so the
 // project's cap cannot exceed it.
 static_assert(kMaxSaveSlotsPerPage <= kMaxEntries,
@@ -84,7 +87,9 @@ struct ValueStripLayout {
     std::vector<int> firstCell;
 };
 
-ValueStripLayout valueStripLayout(const GameMenu& menu);
+// Takes the Project because the cell height IS the panel's row pitch, and that
+// comes out of the menu's stylesheet (menulayout::Layout::rowH).
+ValueStripLayout valueStripLayout(const GameMenu& menu, const Project& p);
 
 // Rasterizes the value strip (layout.cellW x layout.canvasH RGBA). Returns
 // false when the menu has no value entries or no usable font is found.
@@ -98,13 +103,56 @@ bool bakeValueStripPNG(const GameMenu& menu, const Project& p,
 // Menu name -> value strip file name ("<sanitized>-values.png").
 std::string valueStripFileName(const std::string& menuName);
 
-// Editor preview helper: draws the given option label of every value entry
-// onto an already-baked panel RGBA (right-aligned on its row), mirroring
-// where the game composites the strip cells. current is index-aligned with
-// menu.entries; out-of-range indices clamp.
-void overlayValuePreview(const GameMenu& menu, const Project& p,
-                         const std::vector<int>& current,
-                         std::vector<unsigned char>& rgba, int w, int h);
+// The editor's preview: ONE function that composites exactly what the console
+// composites - the panel, a scrolling list's visible window, the option labels
+// or bars, the disabled rows' cells, the selected row's cell and its
+// description. There is deliberately no second entry point: the Menu Editor
+// showing a menu a different way from the game is the failure this whole
+// arrangement exists to avoid (docs/menu-styles.md).
+//
+// selectedRow / scroll simulate the cursor; `disabled` is index-aligned with
+// menu.entries (non-zero = the row's enabledWhen value is off); optionValues
+// carries each Toggle/Choice row's current option index.
+bool bakeMenuPreviewRGBA(const GameMenu& menu, const Project& p, int selectedRow,
+                         const std::vector<char>& disabled, int scroll,
+                         const std::vector<int>& optionValues,
+                         std::vector<unsigned char>& out, int& w, int& h);
+
+// --- state / list / description textures -------------------------------------
+// The three textures a styled menu can add next to its panel. Each returns
+// false when the menu does not need it, which is also the signal to delete a
+// stale file: a menu that stops scrolling stops shipping its list strip.
+
+// One cell per (row, state) the sheet paints - drawn over the baked normal row.
+bool bakeStateAtlasRGBA(const GameMenu& menu, const Project& p,
+                        std::vector<unsigned char>& out, int& w, int& h);
+bool bakeStateAtlasPNG(const GameMenu& menu, const Project& p,
+                       std::vector<unsigned char>& png);
+
+// The animated background layer: a tiled scroll or a frame strip, baked to the
+// panel's own size (docs/menu-styles.md "Motion").
+bool bakeBgAnimRGBA(const GameMenu& menu, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h);
+bool bakeBgAnimPNG(const GameMenu& menu, const Project& p,
+                   std::vector<unsigned char>& png);
+
+// The sheen band swept across a panel - procedural, shared by every menu that
+// asks for one, drawn additively (shape in RGB, like the flare corona).
+constexpr int kSheenSize = 64;
+void bakeSheenRGBA(std::vector<unsigned char>& rgba);
+bool bakeSheenPNG(std::vector<unsigned char>& png);
+
+// Every row stacked, for a list the game shows a window of (scrolling menus).
+bool bakeListRGBA(const GameMenu& menu, const Project& p,
+                  std::vector<unsigned char>& out, int& w, int& h);
+bool bakeListPNG(const GameMenu& menu, const Project& p,
+                 std::vector<unsigned char>& png);
+
+// One cell per row that carries a description.
+bool bakeDescAtlasRGBA(const GameMenu& menu, const Project& p,
+                       std::vector<unsigned char>& out, int& w, int& h);
+bool bakeDescAtlasPNG(const GameMenu& menu, const Project& p,
+                      std::vector<unsigned char>& png);
 
 // --- HUD texts ---------------------------------------------------------------
 // On-screen texts (Tools > UI Editor > Texts) baked to res/hud PNG sprites -
