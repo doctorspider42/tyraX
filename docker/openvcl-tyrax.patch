@@ -66,7 +66,7 @@ index 5bec71c..504039b 100644
  		newDependency = new Dependency;
  		newDependency->setAlias( newAlias );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..d1608d1 100644
+index 699abe7..7033bbf 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -185,7 +185,7 @@ index 699abe7..d1608d1 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -1549,6 +1639,80 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+@@ -1549,6 +1639,109 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
  	}
  }
  
@@ -226,6 +226,25 @@ index 699abe7..d1608d1 100644
 +	return 0xFFFFu;
 +}
 +
++bool CodeGenerator::clipReadIsPositional( const Token& token ) const
++{
++	// A flag reader carries the mask it tests as an immediate. Full-window masks
++	// (all 24 bits, or the 18 that three vertices occupy) do not care which position
++	// the bits sit in; anything narrower does.
++	for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
++	     a != token.arguments().end(); ++a )
++	{
++		if( a->type() != Token::Argument::IMMEDIATE )
++			continue;
++		const std::string& text = a->immediate();
++		if( text.empty() )
++			continue;
++		const unsigned long mask = std::strtoul( text.c_str(), NULL, 0 );
++		return mask != 0 && mask < 0x3FFFFul;
++	}
++	return true;      // no mask to judge by: assume it matters
++}
++
 +void CodeGenerator::padForClipFlagWindow( const Token& a, const Token* b )
 +{
 +	const unsigned int latency = vuClipFlagVisibilityLatency();
@@ -243,7 +262,17 @@ index 699abe7..d1608d1 100644
 +		if( !buildVuTokenResourceAccess( *pair[k], access ) )
 +			continue;
 +		if( access.implicitReads & VU_RESOURCE_CLIP )
-+			readsClip = true;
++		{
++			// Only a POSITIONAL read has to wait. The window holds six bits per CLIP,
++			// so a mask that covers the whole thing ("is anything outside", 0x3FFFF
++			// for three vertices) gets the same answer whichever position the bits
++			// are in - and SCE reads those adjacent to their CLIP, five times over
++			// these programs, while never putting a positional read below three rows.
++			// Padding the full-window ones is pure loss: it costs this engine's five
++			// cull programs 22 instructions and changes nothing they compute.
++			if( clipReadIsPositional( *pair[k] ) )
++				readsClip = true;
++		}
 +		if( access.implicitWrites & VU_RESOURCE_CLIP )
 +			writesClip = true;
 +	}
@@ -266,7 +295,7 @@ index 699abe7..d1608d1 100644
  void CodeGenerator::emitSingleToken( const Token& token )
  {
  	std::string instruction = generateInstruction(token);
-@@ -1592,6 +1756,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+@@ -1592,6 +1785,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
  		}
  	}
  
@@ -275,7 +304,7 @@ index 699abe7..d1608d1 100644
  	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
  	if( branchDelaySlots > 0 )
  	{
-@@ -1701,6 +1867,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+@@ -1701,6 +1896,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -283,7 +312,7 @@ index 699abe7..d1608d1 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -1724,6 +1891,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+@@ -1724,6 +1920,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -291,7 +320,7 @@ index 699abe7..d1608d1 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2207,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2236,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -313,7 +342,7 @@ index 699abe7..d1608d1 100644
  			break;
  		}
  
-@@ -2230,6 +2402,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2431,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -323,7 +352,7 @@ index 699abe7..d1608d1 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2412,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2441,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -368,7 +397,7 @@ index 699abe7..d1608d1 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2610,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2639,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -416,7 +445,7 @@ index 699abe7..d1608d1 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +2918,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +2947,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -435,7 +464,7 @@ index 699abe7..d1608d1 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +2939,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +2968,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -454,10 +483,10 @@ index 699abe7..d1608d1 100644
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
-index 1845035..6ebfd03 100644
+index 1845035..31f577f 100644
 --- a/src/CodeGenerator.h
 +++ b/src/CodeGenerator.h
-@@ -68,11 +68,22 @@ private:
+@@ -68,11 +68,23 @@ private:
  	std::string accumulatorArg( const Token::Argument& arg, const Token& token );
  
  	void addNopLine();
@@ -471,6 +500,7 @@ index 1845035..6ebfd03 100644
  	bool branchNeedsPreBubble( const Token& token ) const;
  	void padForBranchPreBubble( const Token& token );
 +	void padForClipFlagWindow( const Token& a, const Token* b );
++	bool clipReadIsPositional( const Token& token ) const;
 +	unsigned int emittedRowsSinceClipWrite() const;
 +	bool slotCanBecomeBranchDelayFiller( const VuScheduledIssueSlot& slot,
 +	                                     const Token& branch ) const;
@@ -480,7 +510,7 @@ index 1845035..6ebfd03 100644
  	void emitSingleToken( const Token& token );
  	void emitBranchWithDelayFiller( const Token& branch, const Token& filler );
  	void emitPairedTokens( const Token& a, const Token& b );
-@@ -195,11 +206,15 @@ private:
+@@ -195,11 +207,15 @@ private:
  	bool m_knownLoopOptimizations;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
@@ -659,7 +689,7 @@ index 5500026..bfccd9b 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..967aa6f 100644
+index b8b1946..7761399 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -670,7 +700,7 @@ index b8b1946..967aa6f 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,21 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,22 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -683,6 +713,7 @@ index b8b1946..967aa6f 100644
 +	setVuFmacInterlockEnabled( m_cmdLine.fmacInterlock() );
 +	setVuFlagVisibilityLatency( m_cmdLine.sceLatencies() ? 1u : 4u );
 +	setVuClipFlagVisibilityLatency( 4u );
++	setVuClipFlagSchedulingLatency( 4u );
 +	setVuIntegerLoadReadyCycles( m_cmdLine.sceLatencies() ? 3u : 0u );
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
@@ -693,7 +724,7 @@ index b8b1946..967aa6f 100644
  	{
  		if( !m_tokenizer.parse( *i ) )
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..06b3dcf 100644
+index cf6d79b..9fe9d07 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -746,15 +777,22 @@ index cf6d79b..06b3dcf 100644
  	return true;
  }
  
-@@ -905,21 +924,47 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +924,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
-+	// Which float aliases does this loop body touch, and is the FIRST touch a read?
++	// Which aliases does this loop body touch, and is the FIRST touch a read?
 +	// Only a read-first alias is live across the back edge - the next iteration
 +	// depends on what the previous one left in it. An alias written before it is read
 +	// inside the body is a temporary and its own range already covers it; stretching
 +	// those over the whole loop is what runs the allocator out of registers.
++	//
++	// Integers are collected on the same terms as floats. Tying their carried writes is
++	// not enough on its own: an integer whose live range stops at its last use inside
++	// the body has its register handed to another name for the rest of the loop, so the
++	// next iteration reads whatever that name left. The range has to cover the back edge
++	// too - the file is only 16 registers, so this is where a program that is already
++	// tight will fail loudly instead of quietly computing the wrong thing.
  	std::set<Alias*> aliases;
 +	std::set<Alias*> liveInAliases;
 +	std::set<Alias*> touched;
@@ -772,8 +810,6 @@ index cf6d79b..06b3dcf 100644
  			Alias* alias = a->dependency()->alias();
 -			if( alias->type() == Alias::FLOAT )
 -				aliases.insert( alias );
-+			if( alias->type() != Alias::FLOAT )
-+				continue;
 +			aliases.insert( alias );
 +			tokenAliases.insert( alias );
 +			if( !(a->flags() & Token::Argument::WRITE) )
@@ -795,9 +831,34 @@ index cf6d79b..06b3dcf 100644
 +		aliases = liveInAliases;
  
  	unsigned int availableFloats = 0;
++	unsigned int availableInts = 0;
  	for( unsigned int i = 0; i < 32; ++i )
-@@ -938,11 +983,85 @@ void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsi
- 			overlappingAliases.insert( alias );
+ 	{
+ 		if( m_floats[i].available() )
+ 			++availableFloats;
+ 	}
++	for( unsigned int i = 0; i < 16; ++i )
++	{
++		if( m_integers[i].available() )
++			++availableInts;
++	}
+ 
+-	std::set<Alias*> overlappingAliases;
++	std::set<Alias*> overlappingFloats;
++	std::set<Alias*> overlappingInts;
+ 	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
+ 	{
+ 		Alias* alias = i->first;
+-		if( alias->type() != Alias::FLOAT )
++		if( aliases.find( alias ) == aliases.end()
++		    && !alias->hasRangeOverlapping( loopStart, loopEnd ) )
+ 			continue;
+-		if( aliases.find( alias ) != aliases.end() || alias->hasRangeOverlapping( loopStart, loopEnd ) )
+-			overlappingAliases.insert( alias );
++		if( alias->type() == Alias::FLOAT )
++			overlappingFloats.insert( alias );
++		else
++			overlappingInts.insert( alias );
  	}
  
 -	if( overlappingAliases.size() > availableFloats )
@@ -806,7 +867,8 @@ index cf6d79b..06b3dcf 100644
 +	// to another name. --loop-liveness-always keeps the extension and lets
 +	// allocation fail loudly instead.
 +	if( !vuLoopLivenessAlwaysEnabled()
-+	    && overlappingAliases.size() > availableFloats )
++	    && ( overlappingFloats.size() > availableFloats
++	         || overlappingInts.size() > availableInts ) )
  		return;
  
  	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
@@ -883,7 +945,7 @@ index cf6d79b..06b3dcf 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1092,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1108,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -899,7 +961,7 @@ index cf6d79b..06b3dcf 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1342,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1358,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -994,7 +1056,7 @@ index ba4e871..6403fbc 100644
  
  	enum
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..e05b60d 100644
+index 71ee7cb..e3b369b 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
 @@ -51,6 +51,44 @@ void VuLatencyTracker::reset()
@@ -1088,7 +1150,7 @@ index 71ee7cb..e05b60d 100644
  	{
 +		// Not flagLatency: the CLIP window is positional, so --sce-latencies must
 +		// not shorten this wait (see setVuClipFlagVisibilityLatency).
-+		const int clipLatency = static_cast<int>( vuClipFlagVisibilityLatency() );
++		const int clipLatency = static_cast<int>( vuClipFlagSchedulingLatency() );
  		const int gap = flagCycle - m_lastClipwCycle;
 -		if( 4 - gap > flagDelay )
 -			flagDelay = 4 - gap;
@@ -1378,10 +1440,10 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..be076a3 100644
+index c28ec6d..f553429 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,138 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,156 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -1414,6 +1476,7 @@ index c28ec6d..be076a3 100644
 +	bool g_fmacInterlock = false;
 +	unsigned int g_flagVisibilityLatency = 4;
 +	unsigned int g_clipFlagVisibilityLatency = 4;
++	unsigned int g_clipFlagSchedulingLatency = 4;
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
@@ -1466,6 +1529,23 @@ index c28ec6d..be076a3 100644
 +unsigned int vuClipFlagVisibilityLatency()
 +{
 +	return g_clipFlagVisibilityLatency;
++}
++
++// The scheduler and the emitter need different numbers for the same wait. The emitter
++// enforces the hardware minimum in EMITTED ROWS. The scheduler works in cycles, where
++// an interlocked wait is free, so giving it the bare minimum leaves it no reason to
++// move work into the gap - and every row the emitter then has to pad is a wasted
++// instruction. A larger scheduling figure asks it to spread the flag reader further
++// out, which it can only do by filling the space with work that was going to be
++// emitted anyway.
++void setVuClipFlagSchedulingLatency( unsigned int cycles )
++{
++	g_clipFlagSchedulingLatency = cycles > 0 ? cycles : 1;
++}
++
++unsigned int vuClipFlagSchedulingLatency()
++{
++	return g_clipFlagSchedulingLatency;
 +}
 +
 +void setVuIntegerLoadReadyCycles( unsigned int cycles )
@@ -1522,10 +1602,10 @@ index c28ec6d..be076a3 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..d1d7e55 100644
+index 8188099..d51368d 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,67 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,69 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1551,6 +1631,8 @@ index 8188099..d1d7e55 100644
 +unsigned int vuFlagVisibilityLatency();
 +void setVuClipFlagVisibilityLatency( unsigned int cycles );
 +unsigned int vuClipFlagVisibilityLatency();
++void setVuClipFlagSchedulingLatency( unsigned int cycles );
++unsigned int vuClipFlagSchedulingLatency();
 +
 +// Cycles after which a memory load's destination may be read, or 0 to keep the
 +// instruction table's latency+1. --sce-latencies sets 3 (see VuLatencyTracker).

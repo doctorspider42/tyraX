@@ -1247,6 +1247,53 @@ staged packets, and those belong to an earlier batch, so the instrumented colour
 appeared. Either widen the decode, or parse `vucap.bin` directly for the packet the clip
 program staged.
 
+### Found: carried INTEGERS were never getting their live ranges extended
+
+The loop-liveness work covered `Alias::FLOAT` only, and the defect that blocked this
+migration from the start was an integer one. An integer read at the top of a loop body and
+written lower down has its live range end at that last use; the register is handed to
+another name for the rest of the loop, and the next iteration reads whatever that name
+left behind. In `stapip_clip_c` the plane loop lost its bookkeeping that way, which is
+why **every triangle went through every clip plane** where SCE discards most of them at
+the first.
+
+The tell was a debug pointer that refused to advance - `iaddiu p, p, 1` at the bottom of
+a loop, both aliases correctly tied to VI01 by the existing two-address chain, and the
+range `[30-178]` stopping well short of the loop end at ~340, after which VI01 belonged to
+`sceFlag`, `fanPtr` and `emitCnt` in turn. The instrument found its own bug, and it was
+the program's bug too.
+
+`extendLoopDirectiveRange` now collects both register files, extends both, and counts the
+overlap guard per file (32 floats, 16 integers). The carried-write tie follows for free,
+since it works from the same live-in set.
+
+| VU1 clipper, same scene | SCE `vcl` | openvcl |
+|---|---|---|
+| staged triangles / GS vertices | 24 / 72 | **24 / 72** |
+| frame | reference | **0 of 514600 pixels differ** |
+| 25 programs compile + assemble | yes | yes |
+| upstream tests | - | 419/419 |
+
+Three things about the CLIP flag window were settled on the way here, and they are worth
+keeping straight because two of them are corrections:
+
+* **It is genuinely required.** Without it the same build stages 27/81. Both fixes are
+  needed; neither alone is enough.
+* **4 is the right figure, and it is upstream's own.** `test_flag_latency.cpp` asserts
+  `clipw followed by fcand has at least 4 cycles between`; 3 fails it. Probing 8 and 16
+  changed nothing, which is what finally cleared the flag window as the *cause* and sent
+  the search back to the register file.
+* **Only positional reads need it.** A full-window mask (`0x3FFFF`) reads the same answer
+  whichever position the bits occupy, and SCE puts those adjacent to their `clipw`.
+  Padding them cost the five cull programs 22 instructions for nothing.
+
+**What is left is size, and only size.** The resident set is **2118 against the 2042
+ceiling**. The padding is nops because the scheduler measures this wait in cycles, where
+an interlocked wait is free, so it has no reason to move work into the gap. Raising the
+scheduler's figure to 8 to make it spread things out was measured and is worse (2224) -
+nothing to fill with, so it just stalls longer. SCE fits while paying the same waits, so
+the words exist; reaching them needs a scheduler that counts this one in emitted rows.
+
 ### Reading the batches instead of the totals
 
 Two things made that possible. `--dump-vucap --full` prints every staged packet and every
