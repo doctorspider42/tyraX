@@ -139,6 +139,24 @@ const json::Value* argValue(const ToolCall& c, const char* key);
 // `out` untouched. Every vector argument and property goes through it.
 bool vec3(const json::Value& v, float out[3]);
 
+// Every project::Section's wire name, in enum order - what get_section and
+// set_section take, and what the prompt lists. Derived from the enum, so a
+// section added to the model is one the assistant can read and write the day it
+// exists.
+std::vector<std::string> sectionNames();
+
+// The Section whose name is `name`, or -1. (int rather than the enum so this
+// header does not have to include project.hpp.)
+int findSection(const std::string& name);
+
+// How many items each top-level ARRAY of `before` would lose in `after`, as
+// "menus 3 -> 1, prefabs 2 -> 0", or "" when nothing shrinks. A section blob is
+// total, not a patch, so a model that sends back only the entry it was thinking
+// about deletes the rest - this is what turns that into a refusal the model can
+// answer instead of a silent loss. Pure JSON: it needs to know nothing about
+// what any section contains.
+std::string shrinkReport(const std::string& before, const std::string& after);
+
 // Name lookups, shared by the read tools here and the edit tools in chat_ui.cpp
 // so a name resolves identically everywhere. Exact match first, then
 // case-insensitive; an empty scene name means the project's active scene.

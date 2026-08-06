@@ -30,18 +30,19 @@ the verification, and any fact worth reusing belongs in the relevant
     the model felt like it is not a good default. The shape it wants is an
     explicit confirmation in the chat (a tool call the user has to press), which
     is a UI pattern the editor does not have yet.
+  - **No terrain.** Sculpting and splat painting are heightmap-shaped, not
+    chat-shaped; a tool would have to invent a language for them.
   - **No asset import and no file writes.** Importing means a file dialog and a
     dependency-closed copy (the Asset Browser's job); a tool that could write
     `res/` would also have to answer "what may it overwrite".
-  - **Project-wide data is read-only to it.** Menus, sequences, credits, save
-    values, the HUD, presets and settings are all reachable in the model but have
-    no tools - `set_object`/`set_graph` cover the scene only. Each one wants the
-    same two-row treatment (a `tools()` row plus an executor branch), and the
-    `objectProps()` pattern generalizes.
-  - **Nothing verifies a graph it wrote beyond validation.** `--refresh-gen`
-    exists and would let the assistant see its own generated C++ (and the
-    `// unknown ...` comments a dangling reference produces); that is the cheapest
-    real feedback loop available and needs no Docker.
+  - Project-wide data, the feedback loop and building all landed: `get_section`/
+    `set_section` (the project's own per-section JSON, so every collection is
+    covered by two tools rather than one pair each), `refresh_generated`, and
+    `build_game` with the chat parking until the build settles. What is still
+    missing there is a way to see a RUNNING game - the devkit channels (Live
+    Link, the debugger, the time machine, `--pad`) are all file-based and an
+    assistant reading them would close the last loop: place a thing, build it,
+    drive the player into it, read what the graph did.
   - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
     (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
     constants picked by eye, not measured against a long session.

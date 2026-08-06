@@ -28,7 +28,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -204,6 +206,35 @@ void App::aiChatStart() {
 }
 
 void App::aiChatTick() {
+    // A parked build: the tool started it and the turn is waiting for the
+    // result rather than answering without it.
+    if (chatBuildWaiting_) {
+        if (runner_.state() == Runner::State::Running) return;
+        chatBuildWaiting_ = false;
+        const bool ok = runner_.state() == Runner::State::Success;
+        std::string outcome = ok ? "The build SUCCEEDED."
+                                 : "The build FAILED.";
+        if (!ok) {
+            // The compiler's own words, which is the whole point of waiting:
+            // the tail of the build log, where the first error and the make
+            // summary are.
+            const std::string& log = logOut_.text;
+            const size_t tail = log.size() > 4000 ? log.size() - 4000 : 0;
+            outcome += " The end of the build log:\n" + log.substr(tail);
+        }
+        if (!chat_.messages.empty() &&
+            chat_.messages.back().role == aichat::Message::Role::Tool &&
+            !chat_.messages.back().calls.empty()) {
+            aichat::ToolCall& c = chat_.messages.back().calls.back();
+            c.result += "\n" + outcome;
+            c.failed = !ok;
+        }
+        statusMessage_ = ok ? "AI: build succeeded" : "AI: build failed";
+        aiChatPersist();
+        chatScrollPending_ = true;
+        aiChatStart();
+        return;
+    }
     if (!chatInFlight_ || chatGen_.busy()) return;
     chatInFlight_ = false;
 
@@ -309,6 +340,9 @@ void App::aiChatTick() {
     chat_.messages.push_back(std::move(results));
     aiChatPersist();  // what the tools did survives a crash mid-loop
     ++chatStep_;
+    // A build parks the turn: the branch at the top of this function resumes it
+    // with the outcome, so the model answers knowing whether its work compiles.
+    if (chatBuildWaiting_) return;
     aiChatStart();  // hand the results back and let it continue
 }
 
@@ -522,38 +556,71 @@ std::string App::runChatTool(aichat::ToolCall& c) {
     }
 
     if (c.name == "set_object") {
-        const std::string target = aichat::argStr(c, "object");
-        const int oi = aichat::findObject(sc, target);
-        if (oi < 0) return fail(aichat::noSuchObject(sc, target));
+        // One object or many: the batch form is what makes "lower all the trees"
+        // a single call and a single undo step instead of twenty of each.
+        std::vector<std::string> targets;
+        if (const json::Value* list = aichat::argValue(c, "objects");
+            list && list->type == json::Value::Type::Array)
+            for (const json::Value& v : list->arr)
+                if (!v.stringOr("").empty()) targets.push_back(v.str);
+        if (const std::string one = aichat::argStr(c, "object"); !one.empty())
+            targets.push_back(one);
+        if (targets.empty())
+            return fail("Name the object in \"object\", or several in "
+                        "\"objects\".");
         const json::Value* props = aichat::argValue(c, "props");
         if (!props || props->type != json::Value::Type::Object || props->obj.empty())
             return fail(
                 "\"props\" must be a non-empty object of property: value pairs "
                 "(see OBJECT PROPERTIES).");
-        SceneObject& o = sc.objects[oi];
-        const std::string was = o.name;
-        std::vector<std::string> applied, problems;
-        for (const auto& [key, value] : props->obj) {
-            std::string err;
-            if (!applyChatObjectProp(sc, o, key, value, err))
-                problems.push_back("\"" + key +
-                                   "\" is not a settable property (see OBJECT "
-                                   "PROPERTIES)");
-            else if (!err.empty())
-                problems.push_back("\"" + key + "\": " + err);
-            else
-                applied.push_back(key);
+        std::vector<int> indices;
+        for (const std::string& t : targets) {
+            const int oi = aichat::findObject(sc, t);
+            if (oi < 0) return fail(aichat::noSuchObject(sc, t));
+            indices.push_back(oi);
         }
+        const std::string was = sc.objects[indices[0]].name;
+        std::vector<std::string> applied, problems;
+        for (const int oi : indices) {
+            SceneObject& o = sc.objects[oi];
+            const std::string before = o.name;
+            std::vector<std::string> mine;
+            for (const auto& [key, value] : props->obj) {
+                std::string err;
+                if (!applyChatObjectProp(sc, o, key, value, err))
+                    problems.push_back("\"" + key +
+                                       "\" is not a settable property (see OBJECT "
+                                       "PROPERTIES)");
+                else if (!err.empty())
+                    problems.push_back("\"" + key + "\" on \"" + before +
+                                       "\": " + err);
+                else
+                    mine.push_back(key);
+            }
+            if (before != o.name) renameObjectRefs(sc, o, before);
+            if (applied.empty()) applied = mine;
+        }
+        SceneObject& o = sc.objects[indices[0]];
         if (applied.empty()) {
             std::string msg = "Nothing was changed. ";
             for (const std::string& p : problems) msg += p + ". ";
             return fail(msg);
         }
-        // A rename retargets every by-name reference through the editor's own
-        // remap (the Properties name field calls the same function) - a
-        // reference is a NAME here, so skipping it would break cutscenes,
-        // mirrors and area lookups silently.
-        if (was != o.name) renameObjectRefs(sc, o, was);
+        if (indices.size() > 1) {
+            commitChange();
+            std::string msg = "Updated " + std::to_string(indices.size()) +
+                              " object(s): ";
+            for (size_t i = 0; i < applied.size(); ++i)
+                msg += (i ? ", " : "") + applied[i];
+            msg += ".";
+            for (const std::string& p : problems) msg += " Not applied: " + p + ".";
+            statusMessage_ = "AI: edited " + std::to_string(indices.size()) +
+                             " objects";
+            return msg;
+        }
+        // The rename remap already ran per object above (the Properties name
+        // field calls the same function) - a reference is a NAME here, so
+        // skipping it would break cutscenes, mirrors and area lookups silently.
         commitChange();
         std::string msg = "Updated \"" + was + "\": ";
         for (size_t i = 0; i < applied.size(); ++i)
@@ -619,6 +686,174 @@ std::string App::runChatTool(aichat::ToolCall& c) {
                (warnings.empty() ? "" : " " + warnings);
     }
 
+    if (c.name == "set_section") {
+        const std::string name = aichat::argStr(c, "name");
+        const int si2 = aichat::findSection(name);
+        if (si2 < 0) {
+            std::string s = "No section named \"" + name + "\". Sections: ";
+            for (const std::string& n : aichat::sectionNames()) s += n + " ";
+            return fail(s);
+        }
+        const json::Value* body = aichat::argValue(c, "json");
+        if (!body || body->type != json::Value::Type::Object)
+            return fail("\"json\" must be the section object itself.");
+        const project::Section sec = (project::Section)si2;
+        const std::string before = project::sectionJson(project_, sec);
+        const std::string after = json::write(*body);
+        // A section blob is TOTAL. A model that sends back only the entry it was
+        // thinking about deletes every other one - so a write that shrinks any
+        // list in it has to be meant, not implied.
+        if (const std::string lost = aichat::shrinkReport(before, after);
+            !lost.empty() && !aichat::argBool(c, "confirm_replace"))
+            return fail("Refused: that would remove entries (" + lost +
+                        "). A section is replaced whole, so send the complete "
+                        "section (get_section it first), or pass "
+                        "confirm_replace=true if the removal is what you mean.");
+        if (!project::applySectionJson(project_, sec, after))
+            return fail("That is not a valid \"" + name + "\" section object.");
+        commitChange();
+        statusMessage_ = "AI: section " + name;
+        return "Wrote the \"" + name + "\" section." +
+               (project::sectionJson(project_, sec) == before
+                    ? " (It is identical to what was there - nothing changed.)"
+                    : "");
+    }
+
+    if (c.name == "set_object_json") {
+        const std::string target = aichat::argStr(c, "object");
+        const int oi = aichat::findObject(sc, target);
+        if (oi < 0) return fail(aichat::noSuchObject(sc, target));
+        const json::Value* body = aichat::argValue(c, "json");
+        if (!body || body->type != json::Value::Type::Object)
+            return fail("\"json\" must be the object body itself, as "
+                        "describe_object returned it.");
+        SceneObject fresh;
+        if (!project::parseObject(json::write(*body), fresh))
+            return fail("That is not a valid object body.");
+        SceneObject& o = sc.objects[oi];
+        const std::string was = o.name;
+        // Identity is not the model's to change: an object IS its id (the merge
+        // and per-file storage key), and a fresh one here would orphan its file
+        // and every live-link record of it.
+        if (fresh.id != o.id) fresh.id = o.id;
+        if (fresh.name.empty()) fresh.name = was;
+        for (const SceneObject& other : sc.objects)
+            if (&other != &o && other.name == fresh.name)
+                return fail("Another object is already called \"" + fresh.name +
+                            "\".");
+        o = std::move(fresh);
+        if (was != o.name) renameObjectRefs(sc, o, was);
+        commitChange();
+        if (si == project_.activeScene) flowPositionsApplied_ = false;
+        statusMessage_ = "AI: replaced " + o.name;
+        return "Replaced the stored state of \"" + was + "\"" +
+               (was != o.name ? ", now called \"" + o.name + "\"" : "") + ".";
+    }
+
+    if (c.name == "duplicate_object") {
+        const int oi = aichat::findObject(sc, aichat::argStr(c, "object"));
+        if (oi < 0)
+            return fail(aichat::noSuchObject(sc, aichat::argStr(c, "object")));
+        SceneObject copy = sc.objects[oi];
+        // A copy is a NEW object: an empty id makes ensureObjectIds (in
+        // commitChange) issue one, which is what stops two objects sharing an
+        // identity - the same rule the editor's own paste follows.
+        copy.id.clear();
+        std::string name = aichat::argStr(c, "name");
+        if (name.empty()) {
+            name = copy.name + "-copy";
+            for (int n = 2;; ++n) {
+                bool taken = false;
+                for (const SceneObject& o : sc.objects) taken |= (o.name == name);
+                if (!taken) break;
+                name = copy.name + "-copy" + std::to_string(n);
+            }
+        } else {
+            for (const SceneObject& o : sc.objects)
+                if (o.name == name)
+                    return fail("An object called \"" + name +
+                                "\" already exists.");
+        }
+        copy.name = name;
+        float pos[3];
+        if (const json::Value* v = aichat::argValue(c, "position"))
+            if (aichat::vec3(*v, pos))
+                for (int i = 0; i < 3; ++i) copy.position[i] = pos[i];
+        sc.objects.push_back(std::move(copy));
+        if (si == project_.activeScene) {
+            selectOnly((int)sc.objects.size() - 1);
+            snapInsertedObject();
+        }
+        commitChange();
+        statusMessage_ = "AI: duplicated -> " + name;
+        return "Copied \"" + sc.objects[oi].name + "\" to \"" + name +
+               "\" (its flow graph came along).";
+    }
+
+    if (c.name == "add_scene") {
+        const std::string name = aichat::argStr(c, "name");
+        bool valid = !name.empty();
+        for (char ch : name)
+            if (!std::isalnum((unsigned char)ch) && ch != '_' && ch != '-')
+                valid = false;
+        for (const SceneData& s : project_.scenes)
+            if (s.name == name) valid = false;
+        if (!valid)
+            return fail("A scene name must be unique and made of letters, "
+                        "digits, '-' and '_'.");
+        SceneData fresh;
+        fresh.name = name;
+        fresh.terrain.width = (int)aichat::argNum(c, "width", 64);
+        fresh.terrain.depth = (int)aichat::argNum(c, "depth", 64);
+        fresh.terrain.enabled = aichat::argBool(c, "terrain", true);
+        project_.scenes.push_back(std::move(fresh));
+        // The same switch the New Scene modal does - the selection, the graph
+        // canvas and the viewport all belong to the scene being left.
+        project_.activeScene = (int)project_.scenes.size() - 1;
+        clearSelection();
+        cancelPastePlacement();
+        flowGraphObject_ = -1;
+        flowPositionsApplied_ = false;
+        applyProjectToViewport();
+        commitChange();
+        statusMessage_ = "AI: scene " + name;
+        return "Created scene \"" + name + "\" (" +
+               std::to_string(project_.scenes.back().terrain.width) + "x" +
+               std::to_string(project_.scenes.back().terrain.depth) +
+               ") and switched the editor to it.";
+    }
+
+    if (c.name == "delete_scene") {
+        if (!aichat::argBool(c, "confirm"))
+            return fail("Refused: pass confirm=true. Deleting a scene takes "
+                        "every object and flow graph in it.");
+        const std::string name = aichat::argStr(c, "name");
+        const int target = aichat::findScene(project_, name);
+        if (target < 0) return fail(aichat::noSuchScene(project_, name));
+        if (project_.scenes.size() <= 1)
+            return fail("Refused: a project needs at least one scene.");
+        const size_t objects = project_.scenes[target].objects.size();
+        project_.scenes.erase(project_.scenes.begin() + target);
+        // Scene indices are baked into generated tables, so delete is the only
+        // motion there is - and everything that INDEXES the list has to shift
+        // with it, exactly as the Project panel's own delete does.
+        if (project_.activeScene > target) --project_.activeScene;
+        else if (project_.activeScene == target) project_.activeScene = 0;
+        if (project_.startScene > target) --project_.startScene;
+        else if (project_.startScene == target) project_.startScene = 0;
+        clearSelection();
+        cancelPastePlacement();
+        flowGraphObject_ = -1;
+        flowPositionsApplied_ = false;
+        applyProjectToViewport();
+        commitChange();
+        statusMessage_ = "AI: deleted scene " + name;
+        return "Deleted scene \"" + name + "\" and the " +
+               std::to_string(objects) +
+               " object(s) in it. References to it by name (Switch Scene nodes, "
+               "the start scene) were NOT rewritten.";
+    }
+
     // --- COMMAND -----------------------------------------------------------
     if (c.name == "select_object") {
         const int oi = aichat::findObject(sc, aichat::argStr(c, "object"));
@@ -667,6 +902,57 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         if (key == "tree") treePreviewDirty_ = true;
         statusMessage_ = "AI: opened " + key;
         return "Opened the \"" + key + "\" window.";
+    }
+
+    if (c.name == "refresh_generated") {
+        // Exactly what a build does first, procedural bake included - a check
+        // that regenerated something DIFFERENT from what the build will compile
+        // would be worth nothing.
+        const std::string err = project::refreshGenerated(projectForBuild());
+        if (!err.empty()) return fail("Could not regenerate: " + err);
+        // The generated flow-graph TU is where a dangling reference lands: not
+        // an error anywhere, just a comment saying the node was skipped.
+        std::vector<std::string> unknowns;
+        {
+            std::ifstream f(project_.filePath("src/gen/flow_graph.gen.cpp"),
+                            std::ios::binary);
+            std::string line;
+            while (std::getline(f, line))
+                if (line.find("unknown") != std::string::npos) {
+                    while (!line.empty() && (line[0] == ' ' || line[0] == '\t'))
+                        line.erase(line.begin());
+                    unknowns.push_back(line);
+                    if (unknowns.size() >= 20) break;
+                }
+        }
+        statusMessage_ = "AI: regenerated sources";
+        if (unknowns.empty())
+            return "Regenerated the game sources. No unresolved references in "
+                   "the flow graphs.";
+        std::string msg = "Regenerated the game sources, but " +
+                          std::to_string(unknowns.size()) +
+                          " node(s) reference something that does not exist - "
+                          "they compile to nothing:\n";
+        for (const std::string& u : unknowns) msg += "  " + u + "\n";
+        return msg;
+    }
+
+    if (c.name == "build_game") {
+        if (!chatAllowBuild_)
+            return fail(
+                "Refused: the user has not switched on \"Allow build & run\" in "
+                "the AI Assistant window. Building takes minutes and a Docker "
+                "container, so it is off unless they ask for it. Say what you "
+                "would build and let them start it, or turn it on.");
+        if (runner_.state() == Runner::State::Running)
+            return fail("A build is already running - wait for it to finish.");
+        const bool run = aichat::argBool(c, "run");
+        runner_.buildAndRun(projectForBuild(), run);
+        chatBuildWaiting_ = true;  // the loop parks until it settles
+        statusMessage_ = "AI: building";
+        return std::string("Build started") +
+               (run ? " (the emulator will launch if it succeeds)." : ".") +
+               " Waiting for it...";
     }
 
     if (c.name == "save_project") {
@@ -775,6 +1061,18 @@ void App::drawAiChatWindow() {
             "graphs, switch scenes and open windows. Every change is ONE undo\n"
             "step (Ctrl+Z) and nothing is written to disk until you save.\n"
             "Off: it can only read the project and the documentation.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!chatAllowEdits_);
+    if (ImGui::Checkbox("build & run", &chatAllowBuild_)) saveGlobalConfig();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Let it build the game in Docker (and launch PCSX2) when it decides\n"
+            "that is what the request needs. The chat WAITS for the build and\n"
+            "the assistant is given the result - including the compiler's errors,\n"
+            "which is the only way it can check its own work properly.\n"
+            "Off by default: a build costs minutes and a container, and unlike\n"
+            "every other thing it does, that is not one Ctrl+Z away.");
     ImGui::Separator();
 
     // --- transcript

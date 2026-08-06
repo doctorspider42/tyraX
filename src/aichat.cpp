@@ -339,6 +339,13 @@ const std::vector<Tool>& tools() {
          {{"category", "string", false,
            "one add-menu category (see FLOW GRAPHS); omitted = all ~190 types, "
            "which is long - prefer a category"}}},
+        {"get_section", ToolKind::Read,
+         "One section of the project-wide model as the JSON the .tyra stores - "
+         "menus, sequences, credits, loading screens, save values, the HUD, "
+         "fonts, the input map, gradings, ambience presets, prefabs, settings "
+         "and the rest (SECTIONS below lists them). This is how you see anything "
+         "that is not a scene object, and set_section is how you change it.",
+         {{"name", "string", true, "section name (see SECTIONS)"}}},
         {"add_object", ToolKind::Edit,
          "Add an object to the active scene. It lands where you put it, then rests on "
          "whatever surface is under it (the editor's placement snap), and becomes "
@@ -349,9 +356,12 @@ const std::vector<Tool>& tools() {
           {"model", "string", false,
            "for type \"model\": the res/models/... asset path"}}},
         {"set_object", ToolKind::Edit,
-         "Change properties of one existing object. Only the properties you pass "
-         "are touched.",
-         {{"object", "string", true, "object name"},
+         "Change properties of one object, or of several at once. Only the "
+         "properties you pass are touched.",
+         {{"object", "string", false, "object name (or use \"objects\")"},
+          {"objects", "object", false,
+           "[\"a\", \"b\"] - apply the same properties to each; the whole batch "
+           "is ONE undo step"},
           {"props", "object", true, "{ property: value } - see OBJECT PROPERTIES"},
           {"scene", "string", false, "scene name; omitted = the active scene"}}},
         {"delete_object", ToolKind::Edit,
@@ -369,6 +379,62 @@ const std::vector<Tool>& tools() {
           {"graph", "object", true, "{ \"nodes\": [...], \"links\": [...] }"},
           {"append", "bool", false, "true = add to the existing graph"},
           {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"set_section", ToolKind::Edit,
+         "Write one section of the project-wide model. A section blob is TOTAL, "
+         "not a patch: what you send REPLACES it, and anything you leave out is "
+         "reset or deleted - so get_section it first, change what you mean to "
+         "change, and send the whole thing back. A write that would shrink any "
+         "list in it is refused unless you pass confirm_replace, and the refusal "
+         "says what would have gone.",
+         {{"name", "string", true, "section name (see SECTIONS)"},
+          {"json", "object", true,
+           "the complete section object, same shape get_section returned"},
+          {"confirm_replace", "bool", false,
+           "true = you MEAN to delete the entries that are missing"}}},
+        {"set_object_json", ToolKind::Edit,
+         "Replace one object's ENTIRE stored state with the JSON describe_object "
+         "returns. The way to reach a property set_object does not carry: "
+         "physics material, player and camera settings, emitter parameters, "
+         "mirror/portal target lists, scroller segments, per-object LODs. Same "
+         "rule as set_section - it is total, so start from describe_object. Keep "
+         "the \"id\" as it was; a changed one is a different object.",
+         {{"object", "string", true, "object name"},
+          {"json", "object", true, "the object body, as describe_object returned it"},
+          {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"duplicate_object", ToolKind::Edit,
+         "Copy an object in the active scene, flow graph and all. The copy gets "
+         "its own identity and a fresh name, and rests on the surface under it.",
+         {{"object", "string", true, "object to copy"},
+          {"name", "string", false, "name for the copy; omitted = <name>-copy"},
+          {"position", "object", false, "[x, y, z] for the copy; omitted = where "
+                                        "the original is"}}},
+        {"add_scene", ToolKind::Edit,
+         "Add a scene and switch the editor to it. Scenes are addressed by name "
+         "everywhere and never reordered, so pick the name carefully.",
+         {{"name", "string", true, "letters, digits, '-' and '_'; must be unique"},
+          {"width", "number", false, "terrain width in units (default 64)"},
+          {"depth", "number", false, "terrain depth in units (default 64)"},
+          {"terrain", "bool", false, "false = a scene with no ground at all"}}},
+        {"delete_scene", ToolKind::Edit,
+         "Delete a scene and everything in it. Refused for the last remaining "
+         "scene, and it does not rewrite references: flow nodes naming this "
+         "scene, and the start scene, are the user's to fix.",
+         {{"name", "string", true, "scene name"},
+          {"confirm", "bool", true,
+           "must be true - this deletes every object and graph in that scene"}}},
+        {"refresh_generated", ToolKind::Command,
+         "Regenerate the game's C++ from the project and report what came out. "
+         "No Docker, seconds - and it is the ONLY way you can check your own "
+         "work: a flow graph that names something which does not exist appears "
+         "here as an \"unknown\" comment in the generated code rather than as an "
+         "error anywhere else. Run it after writing graphs.",
+         {}},
+        {"build_game", ToolKind::Command,
+         "Build the game in Docker, optionally launching it in PCSX2 afterwards. "
+         "Minutes, and it needs the user to have allowed it. The chat WAITS for "
+         "the build and you are given the result, with the compiler's own error "
+         "output when it fails.",
+         {{"run", "bool", false, "true = launch the emulator after a good build"}}},
         {"select_object", ToolKind::Command,
          "Select an object in the editor (what the Properties panel shows) - the "
          "way to SHOW the user what you are talking about.",
@@ -626,6 +692,40 @@ std::string noSuchScene(const Project& p, const std::string& name) {
     return s;
 }
 
+std::vector<std::string> sectionNames() {
+    std::vector<std::string> names;
+    for (int i = 0; i < project::kSectionCount; ++i)
+        names.emplace_back(project::sectionName((project::Section)i));
+    return names;
+}
+
+int findSection(const std::string& name) {
+    for (int i = 0; i < project::kSectionCount; ++i)
+        if (name == project::sectionName((project::Section)i)) return i;
+    const std::string low = lowerCopy(name);
+    for (int i = 0; i < project::kSectionCount; ++i)
+        if (low == lowerCopy(project::sectionName((project::Section)i))) return i;
+    return -1;
+}
+
+std::string shrinkReport(const std::string& before, const std::string& after) {
+    json::Value a, b;
+    if (!json::parse(before, a) || !json::parse(after, b)) return "";
+    std::string report;
+    for (const auto& [key, val] : a.obj) {
+        if (val.type != json::Value::Type::Array) continue;
+        const json::Value* now = b.find(key);
+        const size_t had = val.arr.size();
+        const size_t has = now && now->type == json::Value::Type::Array
+                               ? now->arr.size()
+                               : 0;
+        if (has >= had) continue;
+        if (!report.empty()) report += ", ";
+        report += key + " " + std::to_string(had) + " -> " + std::to_string(has);
+    }
+    return report;
+}
+
 // ---------------------------------------------------------------------------
 // The project overview (--dump and the project_summary tool)
 // ---------------------------------------------------------------------------
@@ -776,8 +876,13 @@ std::string systemPrompt(const Context& ctx) {
          "the one exception is flow-graph variables, which exist by being named.\n"
          "- Coordinates are world units with Y up; rotations are degrees. A "
          "primitive is a 1x1x1 unit shape scaled by \"scale\".\n"
-         "- You cannot build or run the game, import assets, or write files. Say "
-         "so and point at the toolbar (Build / Run) or the Asset Browser.\n"
+         "- Check your own work where you can: after writing a flow graph, "
+         "refresh_generated regenerates the game's C++ in seconds and reports a "
+         "node that names something which does not exist. It is the only "
+         "feedback you get without a build.\n"
+         "- You cannot import assets or write files, and building needs the "
+         "user's permission. Point at the Asset Browser or the toolbar when "
+         "that is what is wanted.\n"
          "\n"
          "TOOLS\n";
     for (const Tool& t : tools()) {
@@ -823,6 +928,19 @@ std::string systemPrompt(const Context& ctx) {
         const std::vector<const char*> cats = flowNodeCategories();
         for (size_t i = 0; i < cats.size(); ++i)
             o << (i ? ", " : "") << cats[i];
+        o << ".\n";
+    }
+
+    o << "\nSECTIONS (get_section / set_section)\n"
+         "Everything in the project that is not a scene object lives in one of "
+         "these, and each is read and written as the JSON the project file "
+         "stores. They are TOTAL, not patches: get_section, change what you mean "
+         "to change, send the whole thing back. The shapes are not documented "
+         "here on purpose - read one and follow it.\n";
+    {
+        const std::vector<std::string> all = sectionNames();
+        for (size_t i = 0; i < all.size(); ++i)
+            o << (i ? ", " : "") << all[i];
         o << ".\n";
     }
 
@@ -1334,6 +1452,18 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
                    "British-ish English and use the editor's own terms), or pick "
                    "a page from the index and read_doc it.";
         return hits;
+    }
+    if (c.name == "get_section") {
+        const std::string name = argStr(c, "name");
+        const int si = findSection(name);
+        if (si < 0) {
+            std::string s = "No section named \"" + name + "\". Sections: ";
+            const std::vector<std::string> all = sectionNames();
+            for (size_t i = 0; i < all.size(); ++i)
+                s += std::string(i ? ", " : "") + all[i];
+            return fail(s);
+        }
+        return project::sectionJson(p, (project::Section)si);
     }
     if (c.name == "project_summary") return projectSummaryJson(p);
     if (c.name == "describe_object") {

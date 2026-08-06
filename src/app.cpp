@@ -158,6 +158,10 @@ struct EditorConfig {
     // A workflow preference like placementSnap - how a person wants to work,
     // not a property of any project.
     bool chatAllowEdits = true;
+    // ...and whether it may spend a Docker container and several minutes on a
+    // build. Off by default: everything else the assistant does is instant and
+    // one Ctrl+Z away, this is neither.
+    bool chatAllowBuild = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -250,6 +254,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
         else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
+        else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -319,7 +324,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "logMaskDebug=" << cfg.logMaskDebug << "\n"
       << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
       << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
-      << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n";
+      << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
+      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -569,6 +575,7 @@ int App::run(const std::string& initialProjectDir) {
         logOut_.selectText = cfg.logSelectOutput;
         logDbg_.selectText = cfg.logSelectDebug;
         chatAllowEdits_ = cfg.chatAllowEdits;
+        chatAllowBuild_ = cfg.chatAllowBuild;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -1030,7 +1037,8 @@ void App::saveGlobalConfig() {
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
-                      logDbg_.selectText, chatAllowEdits_, std::move(recent)});
+                      logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {

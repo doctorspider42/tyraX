@@ -56,10 +56,17 @@ over.
 | `describe_object` | one object's complete stored state |
 | `get_graph` | one object's flow graph |
 | `list_node_types` | the flow-node catalog, whole or by category |
+| `get_section` | one section of the project-wide model as JSON — menus, sequences, credits, loading screens, save values, HUD, fonts, input map, gradings, ambience, prefabs, settings… |
 | `add_object` | add an object (it rests on the surface under it, like a manual insert) |
-| `set_object` | change properties: transform, colour, model, material, layer, usable, physics, collision, LOD distance, shadow and lighting flags |
+| `set_object` | change properties of one object **or of several at once**: transform, colour, model, material, layer, usable, physics, collision, LOD distance, shadow and lighting flags |
+| `set_object_json` | replace an object's *entire* stored state — the way to reach anything the curated property list does not carry |
+| `duplicate_object` | copy an object, flow graph and all |
 | `delete_object` | delete an object |
 | `set_graph` | write or extend an object's flow graph |
+| `set_section` | write one section of the project-wide model |
+| `add_scene` / `delete_scene` | add a scene and switch to it / delete one and everything in it |
+| `refresh_generated` | regenerate the game's C++ and report what came out |
+| `build_game` | build in Docker (and optionally run), **waiting** for the result |
 | `select_object` | select an object (so you can see what it means) |
 | `set_scene` | switch the editor to another scene |
 | `open_window` | open a tool window |
@@ -70,9 +77,39 @@ back, and the assistant continues — up to 8 rounds per message, after which it
 has to answer with what it has. Every round is a fresh call to the backend, so a
 question that needs three lookups costs three requests.
 
-**What it cannot do**, and will tell you so: build or run the game, import
-assets, write files, edit generated sources, or touch anything outside the
-project model. Those stay with you (the toolbar, the Asset Browser).
+**What it cannot do**, and will tell you so: import assets, write files, edit
+generated sources by hand, sculpt or paint the terrain, or touch anything outside
+the project model. Those stay with you (the Asset Browser, the Terrain Editor).
+
+### Sections: everything that is not a scene object
+
+Menus, cutscenes, credits, loading screens, save values, the HUD, fonts, the
+input map, colour gradings, ambience presets, prefabs, project settings — each is
+one *section*, read and written as exactly the JSON the `.tyra` stores (the same
+unit a collaboration peer sends). Two tools cover all of them, so the assistant
+gained the whole project-wide model without a tool per collection.
+
+The rule is the one `set_graph` already follows: **a section is total, not a
+patch.** What it sends replaces the section; anything left out is reset or
+deleted. So it reads the section, changes what it means to change, and sends the
+whole thing back — and a write that would *shrink* any list in it is refused with
+the numbers ("menus 3 → 1") unless it passes `confirm_replace`. That guard is
+pure JSON: it knows nothing about what any section contains, so a section added
+to the editor tomorrow is covered by it today.
+
+### Checking its own work
+
+`refresh_generated` regenerates the game's C++ from the project — seconds, no
+Docker — and reports the thing that is otherwise invisible: a flow node naming an
+object, scene or asset that does not exist compiles to nothing and leaves a
+comment behind. The assistant is told to run it after writing graphs, and it
+reads back e.g. `// node 2 (SetObjectVisible): unknown object 'ghost-door'`.
+
+`build_game` goes further: it builds in Docker and **the chat waits for it**, so
+a failure comes back as the compiler's own output and the assistant can fix what
+it wrote. It is off unless you tick **build & run** next to *Allow project
+edits* — every other thing the assistant does is instant and one `Ctrl+Z` away;
+a build is neither.
 
 ## Edits, undo and saving
 

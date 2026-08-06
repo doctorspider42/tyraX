@@ -2375,6 +2375,13 @@ private:
     bool chatCompactPending_ = false;   // the next start() compacts
     bool chatCompactThenSend_ = false;  // ...and then answers the user
     bool chatCompacting_ = false;       // the in-flight request is a compaction
+    // build_game: the Runner takes minutes and runs on its own thread, so the
+    // chat PARKS instead of answering - the tool's result is filled in when the
+    // build settles and the loop resumes with it. That is what lets the
+    // assistant see its own compile errors. Gated by a machine setting because
+    // it spends a Docker container and several minutes.
+    bool chatAllowBuild_ = false;
+    bool chatBuildWaiting_ = false;  // a tool started a build; the loop is parked
     size_t chatCompactCount_ = 0;       // messages being folded
     std::string chatCompactNote_;       // what happened, for the window
     void aiChatPersist();                        // save the current conversation

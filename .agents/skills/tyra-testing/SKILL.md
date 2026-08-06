@@ -1350,6 +1350,15 @@ compact-then-continue loop runs deterministically. That is how the context meter
 and compaction were checked - 63.6k of context down to 5.8k, verified in the saved
 chat file (`role: ['summary', 'user', 'assistant']`) rather than by eye.
 
+The same trick reaches the tools that are expensive or destructive: a canned
+`build_game` proves the park-and-resume (the turn stops, the Runner runs for real,
+the outcome is appended to the tool result already in the transcript and the loop
+continues - measured end to end with one Docker build), and a canned `set_section`
+that sends an EMPTY list proves the shrink guard refuses it, then that
+`confirm_replace` gets through. Check the destructive ones against the SAVED
+project (`--dump`, the `objects/*.json`, the manifest) rather than the chat: the
+tool result says what it did, the file says what happened.
+
 Worth building canned replies that MISBEHAVE, because that is the half a real
 backend will not reproduce on demand: a fenced envelope with prose around it, a
 `name`/`arguments` spelling instead of `tool`/`args`, an invented node type, an
