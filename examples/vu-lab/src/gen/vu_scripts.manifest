@@ -1,0 +1,43 @@
+Cell shading	Untextured (vertex colour)	238	StaPipCullColor	1	main	boot	ok	panel
+Cell shading	Untextured (vertex colour)	132	StaPipAsIsColor	1	twin	boot	ok	panel
+Cell shading	Untextured (vertex colour)	315	StaPipClipColor	1	clip	boot	ok	panel
+Cell shading	Directional lights	214	StaPipCullDirLights	2	main	boot	ok	panel
+Cell shading	Directional lights	174	StaPipAsIsDirLights	2	twin	boot	ok	panel
+Cell shading	Directional lights	281	StaPipClipDirLights	2	clip	boot	ok	panel
+Cell shading	Textured + lights	228	StaPipCullTextureDirLights	4	main	boot	ok	panel
+Cell shading	Textured + lights	191	StaPipAsIsTextureDirLights	4	twin	boot	ok	panel
+Cell shading	Textured + lights	304	StaPipClipTextureDirLights	4	clip	boot	ok	panel
+Cell shading	Textured	252	StaPipCullTextureColor	8	main	boot	ok	panel
+Cell shading	Textured	149	StaPipAsIsTextureColor	8	twin	boot	ok	panel
+Cell shading	Textured	338	StaPipClipTextureColor	8	clip	boot	ok	panel
+Palette	Untextured (vertex colour)	248	StaPipCullColor	1	main	manual	ok	script
+Palette	Untextured (vertex colour)	142	StaPipAsIsColor	1	twin	manual	ok	script
+Palette	Untextured (vertex colour)	325	StaPipClipColor	1	clip	manual	ok	script
+Palette	Textured	262	StaPipCullTextureColor	8	main	manual	ok	script
+Palette	Textured	159	StaPipAsIsTextureColor	8	twin	manual	ok	script
+Palette	Textured	348	StaPipClipTextureColor	8	clip	manual	ok	script
+Vertex snap	Untextured (vertex colour)	229	StaPipCullColor	1	main	manual	ok	script
+Vertex snap	Untextured (vertex colour)	123	StaPipAsIsColor	1	twin	manual	ok	script
+Vertex snap	Untextured (vertex colour)	298	StaPipClipColor	1	clip	manual	ok	script
+Vertex snap	Directional lights	205	StaPipCullDirLights	2	main	manual	ok	script
+Vertex snap	Directional lights	165	StaPipAsIsDirLights	2	twin	manual	ok	script
+Vertex snap	Directional lights	264	StaPipClipDirLights	2	clip	manual	ok	script
+Vertex snap	Textured + lights	219	StaPipCullTextureDirLights	4	main	manual	ok	script
+Vertex snap	Textured + lights	182	StaPipAsIsTextureDirLights	4	twin	manual	ok	script
+Vertex snap	Textured + lights	287	StaPipClipTextureDirLights	4	clip	manual	ok	script
+Vertex snap	Textured	243	StaPipCullTextureColor	8	main	manual	ok	script
+Vertex snap	Textured	140	StaPipAsIsTextureColor	8	twin	manual	ok	script
+Vertex snap	Textured	321	StaPipClipTextureColor	8	clip	manual	ok	script
+Vertex snap	Reflective (matcap)	228	StaPipCullTextureEnv	16	main	manual	ok	script
+Vertex snap	Reflective (matcap)	191	StaPipAsIsTextureEnv	16	twin	manual	ok	script
+Vertex snap	Reflective (matcap)	300	StaPipClipTextureEnv	16	clip	manual	ok	script
+Wobble	Untextured (vertex colour)	305	StaPipCullColor	1	main	manual	ok	script
+Wobble	Untextured (vertex colour)	382	StaPipClipColor	1	clip	manual	ok	script
+Wobble	Directional lights	281	StaPipCullDirLights	2	main	manual	ok	script
+Wobble	Directional lights	348	StaPipClipDirLights	2	clip	manual	ok	script
+Wobble	Textured + lights	295	StaPipCullTextureDirLights	4	main	manual	ok	script
+Wobble	Textured + lights	371	StaPipClipTextureDirLights	4	clip	manual	ok	script
+Wobble	Textured	319	StaPipCullTextureColor	8	main	manual	ok	script
+Wobble	Textured	405	StaPipClipTextureColor	8	clip	manual	ok	script
+Wobble	Reflective (matcap)	304	StaPipCullTextureEnv	16	main	manual	ok	script
+Wobble	Reflective (matcap)	384	StaPipClipTextureEnv	16	clip	manual	ok	script

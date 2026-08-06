@@ -1,4 +1,5 @@
 #include "project.hpp"
+#include "vugen.hpp"  // vugen::classTitle - VU material-class labels
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,7 @@
 #include "menulayout.hpp"
 #include "menustyle.hpp"
 #include "objparser.hpp"
+#include "platform.hpp"
 #include "savebake.hpp"
 #include "templates.hpp"
 
@@ -810,6 +812,16 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.prefabSource.empty())
         json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
+    // The mesh's numbers for the project's own VU1 program. Omitted at the
+    // all-zero default, which is every object in a project that has no such
+    // program - and "wants nothing" for every object in one that does.
+    if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
+        o.vuParams[2] != 0.0f || o.vuParams[3] != 0.0f) {
+        json += ", \"vuParams\": [";
+        for (int i = 0; i < 4; ++i)
+            json += (i ? ", " : "") + fmtFloat(o.vuParams[i]);
+        json += "]";
+    }
     return json + " }";
 }
 
@@ -2183,6 +2195,157 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// The project's own VU programs (docs/vu-authoring.md). Conditional: a project
+// that never opened Tools > VU Programs emits nothing.
+static void writeVuStages(std::ostream& json, const std::vector<VuStage>& st) {
+    json << "[";
+    for (size_t i = 0; i < st.size(); ++i) {
+        const VuStage& s = st[i];
+        json << (i ? ", " : "") << "{ \"kind\": \"" << jsonEscape(s.kind) << "\"";
+        if (!s.enabled) json << ", \"off\": true";
+        json << ", \"p\": [";
+        for (int k = 0; k < 4; ++k)
+            json << (k ? ", " : "") << fmtFloat(s.params[k]);
+        json << "]";
+        // Only written when something is actually bound - the common case is
+        // four literals and four -1s would be noise in every diff.
+        bool any = false;
+        for (int k = 0; k < 4; ++k) any = any || s.bind[k] >= 0;
+        if (any) {
+            json << ", \"bind\": [";
+            for (int k = 0; k < 4; ++k) json << (k ? ", " : "") << s.bind[k];
+            json << "]";
+        }
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readVuStages(const json::Value& arr, std::vector<VuStage>& out) {
+    out.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr.arr) {
+        VuStage s;
+        if (const json::Value* v = e.find("kind")) s.kind = v->stringOr("");
+        if (s.kind.empty()) continue;
+        if (const json::Value* v = e.find("off")) s.enabled = !v->boolOr(false);
+        if (const json::Value* v = e.find("p"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
+                    s.params[k] = (float)v->arr[k].numberOr(0.0);
+        if (const json::Value* v = e.find("bind"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k) {
+                    const int b = (int)v->arr[k].numberOr(-1.0);
+                    s.bind[k] = (b >= 0 && b < 4) ? b : -1;
+                }
+        out.push_back(std::move(s));
+    }
+}
+
+static void writeVuSection(std::ostream& json, const Project& p) {
+    const VuSettings& v = p.vu;
+    const bool touched = !v.programs.empty() || !v.kernel.stages.empty() ||
+                         v.kernel.enabled || !v.residentAuto ||
+                         v.residentClasses != 0x1Fu || !v.scriptBoot.empty();
+    if (!touched) return;
+    json << "\"vu\": { \"activeLook\": " << v.activeLook
+         << ", \"residentClasses\": " << v.residentClasses
+         << ", \"residentAuto\": " << (v.residentAuto ? "true" : "false");
+    if (!v.scriptBoot.empty()) {
+        json << ", \"scriptBoot\": [";
+        for (size_t i = 0; i < v.scriptBoot.size(); ++i)
+            json << (i ? ", " : "") << "{ \"name\": \""
+                 << jsonEscape(v.scriptBoot[i].first) << "\", \"on\": "
+                 << (v.scriptBoot[i].second ? "true" : "false") << " }";
+        json << "]";
+    }
+    if (!v.programs.empty()) {
+        json << ", \"looks\": [";
+        for (size_t i = 0; i < v.programs.size(); ++i) {
+            const VuProgram& pr = v.programs[i];
+            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
+                 << jsonEscape(pr.name) << "\", \"classes\": " << pr.classes;
+            if (!pr.enabled) json << ", \"off\": true";
+            json << ", \"stages\": ";
+            writeVuStages(json, pr.stages);
+            json << " }";
+        }
+        json << "\n    ]";
+    }
+    if (v.kernel.enabled || !v.kernel.stages.empty()) {
+        json << ", \"kernel\": { \"name\": \"" << jsonEscape(v.kernel.name)
+             << "\", \"enabled\": " << (v.kernel.enabled ? "true" : "false")
+             << ", \"maxElements\": " << v.kernel.maxElements << ", \"stages\": ";
+        writeVuStages(json, v.kernel.stages);
+        json << " }";
+    }
+    json << " }";
+}
+
+static void readVuSection(const json::Value& root, Project& out) {
+    out.vu = VuSettings();
+    const json::Value* v = root.find("vu");
+    if (!v || v->type != json::Value::Type::Object) return;
+    if (const json::Value* x = v->find("residentClasses"))
+        out.vu.residentClasses = (unsigned)x->numberOr(0x1F) & 0x1Fu;
+    if (const json::Value* x = v->find("residentAuto"))
+        out.vu.residentAuto = x->boolOr(true);
+    if (const json::Value* sb = v->find("scriptBoot");
+        sb && sb->type == json::Value::Type::Array)
+        for (const json::Value& e : sb->arr) {
+            const json::Value* n = e.find("name");
+            if (!n) continue;
+            const json::Value* on = e.find("on");
+            out.vu.scriptBoot.push_back(
+                {n->stringOr(""), on ? on->boolOr(true) : true});
+        }
+    if (const json::Value* x = v->find("activeLook"))
+        out.vu.activeLook = (int)x->numberOr(0);
+    // "looks" is the current key. "programs" with a "base" string is the
+    // one-day-old shape from before a look could span classes, migrated here so
+    // a project written in between still opens.
+    const json::Value* arr = v->find("looks");
+    const bool legacy = arr == nullptr;
+    if (legacy) arr = v->find("programs");
+    if (arr && arr->type == json::Value::Type::Array)
+        for (const json::Value& e : arr->arr) {
+            VuProgram pr;
+            if (legacy) {
+                const json::Value* b = e.find("base");
+                const std::string base = b ? b->stringOr("") : "";
+                if (base.empty()) continue;
+                pr.name = base;
+                pr.classes = base == "cullTextureColor" ? (1u << 3)
+                             : base == "cullTextureEnv" ? (1u << 4)
+                                                        : (1u << 0);
+            } else {
+                if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
+                if (const json::Value* x = e.find("classes"))
+                    pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
+            }
+            if (const json::Value* x = e.find("off")) pr.enabled = !x->boolOr(false);
+            if (const json::Value* x = e.find("stages")) readVuStages(*x, pr.stages);
+            if (pr.classes == 0) continue;
+            out.vu.programs.push_back(std::move(pr));
+        }
+    if (const json::Value* k = v->find("kernel")) {
+        if (const json::Value* x = k->find("name")) out.vu.kernel.name = x->stringOr("kernel");
+        if (const json::Value* x = k->find("enabled"))
+            out.vu.kernel.enabled = x->boolOr(false);
+        if (const json::Value* x = k->find("maxElements"))
+            out.vu.kernel.maxElements = (int)x->numberOr(112.0);
+        if (const json::Value* x = k->find("stages"))
+            readVuStages(*x, out.vu.kernel.stages);
+    }
+    // A look with no class is dropped above, so the boot index can outlive the
+    // look it named. Codegen would fall back to look 0 anyway; clamping here
+    // means the panel and the .tyra agree about which one that is.
+    if (out.vu.activeLook < 0 ||
+        out.vu.activeLook >= (int)out.vu.programs.size())
+        out.vu.activeLook = 0;
+}
+
 // The wire form of one section: its manifest keys, no wrapping braces. Empty
 // for a conditional section with nothing to emit (TexQuality with no entries).
 static std::string sectionBody(const Project& p, Section s) {
@@ -2205,6 +2368,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::VuPrograms: writeVuSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -2229,6 +2393,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::VuPrograms: return "vu";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -3167,6 +3332,99 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
     return nullptr;
 }
 
+unsigned vuClassOfObject(const Project& p, const SceneObject& o) {
+    // Markers, areas, cameras and the rest draw nothing, so they belong to no
+    // class - and must not be offered VU parameters.
+    switch (o.type) {
+        case PrimitiveType::Box:
+        case PrimitiveType::Sphere:
+        case PrimitiveType::Cylinder:
+        case PrimitiveType::Cone:
+        case PrimitiveType::Plane:
+        case PrimitiveType::Model:
+            break;
+        default:
+            return 0;
+    }
+    const bool lit = o.dynamicLighting;
+    const bool textured = !o.materialPath.empty() || !o.modelPath.empty();
+    if (!o.materialPath.empty()) {
+        // A `refl` statement is what makes a material a matcap - the same line
+        // objparser and the engine's lean_obj_loader read. It wins over
+        // everything: the engine checks coordinatesAreNormals first.
+        std::ifstream in(p.filePath(o.materialPath), std::ios::binary);
+        if (in) {
+            std::string line;
+            while (std::getline(in, line)) {
+                size_t a = line.find_first_not_of(" 	");
+                if (a == std::string::npos) continue;
+                if (line.compare(a, 5, "refl ") == 0) return 1u << 4;
+            }
+        }
+    }
+    if (lit && textured) return 1u << 2;
+    if (lit) return 1u << 1;
+    if (textured) return 1u << 3;
+    return 1u << 0;
+}
+
+bool vuClassCanBind(unsigned classBit) {
+    // Colour, Textured and Reflective carry no lighting, so the
+    // directional-lights colour block - where the per-mesh quadword and the
+    // clock live - is free in them and ONLY in them. A look made of plain
+    // values never reads those addresses and may go anywhere, which is what
+    // lets a scene-wide treatment reach lit geometry at all.
+    return classBit == (1u << 0) || classBit == (1u << 3) ||
+           classBit == (1u << 4);
+}
+
+bool vuLookBindsPerMesh(const VuProgram& look) {
+    for (const VuStage& st : look.stages) {
+        if (!st.enabled) continue;
+        for (int i = 0; i < 4; ++i)
+            if (st.bind[i] >= 0) return true;
+    }
+    return false;
+}
+
+// True when any stage of the look displaces the vertex. Such a stage cannot run
+// on the as_is twin (those vertices are already transformed), so the look stops
+// at a package the frustum cut - the panel and the inspector both say so.
+bool vuLookMovesGeometry(const VuProgram& look) {
+    for (const VuStage& st : look.stages) {
+        if (!st.enabled) continue;
+        const vugen::StageDef* d = vugen::stageDef(st.kind);
+        if (d && (d->slot == vugen::Slot::ObjectSpace ||
+                  d->slot == vugen::Slot::ClipSpace ||
+                  d->slot == vugen::Slot::Ndc))
+            return true;
+    }
+    return false;
+}
+
+const char* vuClassName(unsigned classBit) {
+    // One list, in vugen - the generated file headers name the class too.
+    return vugen::classTitle(classBit);
+}
+
+unsigned vuNeededClasses(const Project& p) {
+    unsigned mask = 1u << 0;  // colour: the fallback floor, always resident
+    auto scan = [&](const SceneObject& o) { mask |= vuClassOfObject(p, o); };
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) scan(o);
+    // A prefab member can reach the world without being in any scene (stamped
+    // by a procedural volume, spawned by a flow node), and a class that is not
+    // resident when it appears draws in the wrong style.
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) scan(o);
+    return mask;
+}
+
+unsigned vuResidentClasses(const Project& p) {
+    return p.vu.residentAuto ? vuNeededClasses(p)
+                             : (p.vu.residentClasses | 1u);
+}
+
 bool areaContainsPoint(const SceneObject& area, float x, float y, float z) {
     return areaDistSq(area, x, y, z) <= 0.0f;
 }
@@ -3597,6 +3855,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
+        if (const auto* v = jo.find("vuParams"))
+            if (v->type == json::Value::Type::Array)
+                for (size_t k = 0; k < v->arr.size() && k < 4; ++k)
+                    o.vuParams[k] = (float)v->arr[k].numberOr(0.0);
         out.push_back(std::move(o));
     }
 }
@@ -4959,6 +5221,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::VuPrograms: readVuSection(root, p); break;
         case Section::Count: return false;  // not a section
     }
     return true;
@@ -5122,6 +5385,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAnimEditsSection(root, out);
 
     readPrefabsSection(root, out);
+    readVuSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -5452,6 +5716,12 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
+    // The four numbers this mesh hands the project's own VU1 microprogram.
+    // They are BAKED into SCENE_OBJECTS and the live-link record carries only
+    // transform + colour, so an edit of them cannot show without a rebuild -
+    // and without this the chip would claim LIVE while the effect did not
+    // change (docs/vu-authoring.md).
+    for (int i = 0; i < 4; ++i) fnvMixF(h, o.vuParams[i]);
     // Physics material: baked into SCENE_OBJECTS, never live-patched (the
     // snapshot record carries only transform + color), and copied wholesale
     // by a spawned clone. Only meaningful while `physics` is on - the runtime
@@ -5669,6 +5939,121 @@ std::string liveLinkSigFile(const Project& p) {
     return out.str();
 }
 
+// Generated VU files (docs/vu-authoring.md). They are named after the program
+// they carry, so refreshGenerated cannot list them by path the way it lists
+// everything else - and a leftover one is worse than a stale header, because
+// Makefile.base globs src/**.vclpp and would assemble AND LINK a microprogram
+// the project no longer has.
+static bool isVuGenerated(const std::string& rel) {
+    auto startsWith = [&](const char* pre) {
+        const size_t n = std::strlen(pre);
+        return rel.size() >= n && rel.compare(0, n, pre) == 0;
+    };
+    // NOT the container's, even though it shares the vu0_ prefix and the
+    // directory. src/vu0/*.cpp is compiled and RUN inside the build container -
+    // the host has no compiler to do it with - so a host-side sweep here would
+    // delete a kernel it cannot regenerate, and the next build would link a
+    // game against a driver whose microprogram had just been thrown away. The
+    // container keeps its own ledger for exactly this job (src/vumain.cpp), and
+    // the src/gen/vu_script* files of the VU1 half are left alone for the same
+    // reason. The prefixes have to differ because the PANEL's kernel is named
+    // by its author and defaults to "kernel".
+    if (startsWith("src\\gen\\vu0_script")) return false;
+    return startsWith("src\\gen\\vu_look") ||
+           startsWith("src\\gen\\vu_custom_") ||  // pre-look name, still swept
+           startsWith("src\\gen\\vu0_") ||
+           startsWith("inc\\vu0_");
+}
+
+// The framework a project's own VU script is compiled against, copied INTO the
+// project (docs/vu-authoring.md).
+//
+// It has to travel with the project rather than stay in the editor, for two
+// reasons that pull the same way: the build container only ever sees the
+// project directory, and VS Code needs the headers on disk to resolve
+// `#include "vushader.hpp"` in the file the user is typing into. It lands
+// OUTSIDE src/ on purpose - Makefile.base globs src/**/*.cpp for the PS2
+// compiler, and these are host sources that would fail there loudly.
+static const char* const kVuFrameworkFiles[] = {
+    "vuir.hpp",  "vuir.cpp",     "vusim.hpp",    "vusim.cpp",   "vugen.hpp",
+    "vugen.cpp", "vushader.hpp", "vushader.cpp", "vumain.cpp",
+};
+
+/** Where the editor's own sources are. Same shape as the engine lookup: next to
+ * the exe first (a built editor sits in build/ inside its repo), then the
+ * working directory (a run from the repo root). */
+static fs::path editorSourceDir() {
+    std::error_code ec;
+    const std::string exe = platform::exePath();
+    if (!exe.empty()) {
+        const fs::path c = fs::path(exe).parent_path() / ".." / "src";
+        if (fs::exists(c / "vushader.hpp", ec)) return fs::weakly_canonical(c, ec);
+    }
+    if (fs::exists(fs::path("src") / "vushader.hpp", ec)) return fs::path("src");
+    return {};
+}
+
+static bool anyCppIn(const fs::path& dir) {
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) return false;
+    for (const auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_regular_file(ec) && e.path().extension() == ".cpp") return true;
+    return false;
+}
+
+bool hasVuScripts(const Project& p) {
+    return anyCppIn(fs::path(p.dir) / "src" / "vu");
+}
+
+bool hasVuKernels(const Project& p) {
+    return anyCppIn(fs::path(p.dir) / "src" / "vu0");
+}
+
+bool hasVuSources(const Project& p) {
+    return hasVuScripts(p) || hasVuKernels(p);
+}
+
+/** Copy the framework in when the project has a script or a kernel, and take it
+ * away again when the last one is deleted - a stale copy would be compiled by
+ * the next build and quietly resurrect a program the project no longer
+ * describes. */
+static std::string syncVuFramework(const Project& p) {
+    std::error_code ec;
+    const fs::path dst = fs::path(p.dir) / "vugen";
+    if (!hasVuSources(p)) {
+        fs::remove_all(dst, ec);
+        return {};
+    }
+    const fs::path src = editorSourceDir();
+    if (src.empty())
+        return "the VU framework sources are missing next to the editor - "
+               "src/vu/*.cpp and src/vu0/*.cpp cannot be built";
+    fs::create_directories(dst, ec);
+    // THE MARKER GOES ON THE COPY, NOT ON THE SOURCE. These files are ordinary
+    // hand-written sources in the editor's own repo, so a "generated" line
+    // there would be a lie; in a project they are replaced on every sync, which
+    // is exactly the thing the marker warns about. Same wording as every other
+    // regenerated file, so CLAUDE.md's rule 1 and any grep for it cover these
+    // too - without it `vugen/` was the one set of files in a generated project
+    // that behaved like codegen output and said nothing.
+    static const char* kCopyMarker =
+        "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+        "// A copy of the editor's own VU framework source; change it there.\n";
+    for (const char* name : kVuFrameworkFiles) {
+        std::ifstream in(src / name, std::ios::binary);
+        if (!in) return std::string("cannot read the VU framework file ") + name;
+        std::ostringstream buf;
+        buf << in.rdbuf();
+        // Prepended, never appended to what is already there: the source has no
+        // marker, so the result carries exactly one however many times this
+        // runs.
+        if (auto err = writeFile(dst / name, kCopyMarker + buf.str());
+            !err.empty())
+            return err;
+    }
+    return {};
+}
+
 // User-owned scripts live in the project's C++ namespace, which is derived from
 // the project NAME - and renaming a project deliberately does not rewrite
 // user-owned files. So a rename (or copying a project directory and renaming it,
@@ -5722,7 +6107,14 @@ void clampStartScene(Project& p) {
 }
 
 std::string refreshGenerated(const Project& p) {
-    for (const auto& f : templates::generate(p)) {
+    if (auto err = syncVuFramework(p); !err.empty()) return err;
+    // ONCE. generate() is the whole codegen pass - every scene table, every
+    // microprogram, every bake-derived header - and it also PRINTS the
+    // diagnostics a build reports (a skipped procedural volume, a look that
+    // could not claim a class). Calling it twice doubled both the work and
+    // those lines, which is how this was noticed.
+    const std::vector<templates::File> generated = templates::generate(p);
+    for (const auto& f : generated) {
         const fs::path path = fs::path(p.dir) / templates::nativePath(f.relativePath);
 
         bool write = false;
@@ -5785,7 +6177,22 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\menu_data.gen.hpp" ||
             f.relativePath == "inc\\icon_data.gen.hpp" ||
             f.relativePath == "inc\\input_map.gen.hpp" ||
-            f.relativePath == "src\\gen\\input_map.gen.cpp") {
+            f.relativePath == "src\\gen\\input_map.gen.cpp" ||
+            f.relativePath == "inc\\scripts\\vu_programs.gen.hpp" ||
+            f.relativePath == "inc\\scripts\\vu_scripts.gen.hpp" ||
+            // Only ever IN `generated` while the project has no VU sources at
+            // all (templates::generate leaves both stubs out otherwise, so the
+            // container's real headers survive) - but when it is there it has
+            // to be rewritten, or deleting the last kernel leaves a header
+            // naming driver classes that no longer exist.
+            f.relativePath == "inc\\scripts\\vu0_kernels.gen.hpp" ||
+            f.relativePath == "src\\gen\\vu_programs.gen.cpp" ||
+            // The project's own microprograms and their EE classes are named
+            // after what they are, so they cannot be listed by hand - and a
+            // stale one still LINKS (Makefile.base globs src/**.vclpp), which
+            // is why the sweep below deletes the ones a rebuild did not
+            // produce (docs/vu-authoring.md).
+            isVuGenerated(f.relativePath)) {
             write = true;  // editor-owned, always in sync with project data
         } else if (f.relativePath == "src\\terrain_game.cpp" ||
                    f.relativePath == "inc\\terrain_game.hpp" ||
@@ -5808,8 +6215,28 @@ std::string refreshGenerated(const Project& p) {
                         firstLine.find("Generated by tyra-editor") != std::string::npos ||
                         templates::matchesLegacy(p, f.relativePath, content.str());
             }
-        } else if (f.relativePath == ".vscode\\extensions.json" ||
-                   f.relativePath == "THIRD-PARTY-NOTICES.txt") {
+        } else if (f.relativePath == ".vscode\\extensions.json") {
+            // Write-once like the notices below, EXCEPT that a recommendation
+            // the editor added later has to reach projects that already exist -
+            // which is every project with the problem. So an existing file is
+            // MERGED (see templates::vscodeExtensionsMerged): the ids the
+            // editor knows about are ensured present, anything the user added
+            // stays where it is, and an already-complete file is not rewritten.
+            std::error_code ec;
+            if (!fs::exists(path, ec)) {
+                write = true;
+            } else {
+                std::ifstream existing(path, std::ios::binary);
+                std::stringstream content;
+                content << existing.rdbuf();
+                const std::string merged =
+                    templates::vscodeExtensionsMerged(content.str());
+                if (!merged.empty()) {
+                    if (auto err = writeFile(path, merged); !err.empty()) return err;
+                }
+                write = false;
+            }
+        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt") {
             // Static content: write it once so existing projects pick it up on
             // the next build, but never clobber what the user may have added
             // (neither file has room for the ownership-marker line the ownable
@@ -5874,6 +6301,28 @@ std::string refreshGenerated(const Project& p) {
             }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
+        }
+    }
+
+    // Sweep VU files a rebuild did NOT produce: a program removed from the
+    // project leaves its .vclpp behind, and Makefile.base's glob would keep
+    // assembling and linking it - a microprogram nobody asked for, taking micro
+    // memory from the ones that are.
+    {
+        std::set<std::string> wanted;
+        for (const auto& f : generated)
+            if (isVuGenerated(f.relativePath)) wanted.insert(f.relativePath);
+        std::error_code ec;
+        for (const char* dir : {"src\\gen", "inc"}) {
+            const fs::path d = fs::path(p.dir) / templates::nativePath(dir);
+            if (!fs::exists(d, ec)) continue;
+            for (const auto& e : fs::directory_iterator(d, ec)) {
+                if (!e.is_regular_file()) continue;
+                const std::string rel =
+                    std::string(dir) + "\\" + e.path().filename().string();
+                if (isVuGenerated(rel) && wanted.find(rel) == wanted.end())
+                    fs::remove(e.path(), ec);
+            }
         }
     }
 

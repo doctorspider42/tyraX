@@ -199,7 +199,16 @@ std::string disassemble(const Program& p, const Instr& in) {
             return buf;
         }
         case Op::Loi: {
-            std::snprintf(buf, sizeof buf, "loi        %g", (double)in.fimm);
+            // %.9g, not %g. Nine significant decimal digits are what it takes
+            // to round-trip a float, and %g's six silently rewrote the two
+            // constants that matter: the sine's 1/2pi became 0.159155 and its
+            // 2^23 floor bias became 8.38861e+06 - a DIFFERENT number, 8388610,
+            // which makes the floor step land one integer out. Every earlier
+            // `loi` in this codebase happened to be 255 or 128, which %g prints
+            // exactly, so the bug arrived with the first constant that was not.
+            // Found by --vu-check's round-trip stage, which is the second time
+            // that stage has caught an emitter losing something the IR had.
+            std::snprintf(buf, sizeof buf, "loi        %.9g", (double)in.fimm);
             return buf;
         }
         case Op::Mtir: {
@@ -285,10 +294,21 @@ std::string disassemble(const Program& p, const Instr& in) {
         case Op::Abs:
         case Op::Ftoi0:
         case Op::Ftoi4:
-        case Op::Itof0:
-        case Op::Clipw: {
+        case Op::Itof0: {
             std::snprintf(buf, sizeof buf, "%-10s %s, %s", mnem.c_str(),
                           vfText(p, in.dst).c_str(), srcText(p, in).c_str());
+            return buf;
+        }
+        case Op::Clipw: {
+            // clipw has NO destination - it writes the clip-flag register - so
+            // its first printed operand is s1, not dst. Printing dst here wrote
+            // `clipw.xyz vf00, vertex1` into every emitted program, which parses
+            // back as "judge the origin", i.e. nothing is ever outside. The
+            // round-trip check could not see it because the cull family's own
+            // trials never place a vertex outside the frustum in the first
+            // place; the clip family's do, on purpose.
+            std::snprintf(buf, sizeof buf, "%-10s %s, %s", mnem.c_str(),
+                          vfText(p, in.s1).c_str(), srcText(p, in).c_str());
             return buf;
         }
         default: {  // the three-operand float ops

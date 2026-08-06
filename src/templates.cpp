@@ -41,6 +41,7 @@
 #include "scrollsim.hpp"
 #include "stochtile.hpp"
 #include "texatlas.hpp"
+#include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
@@ -350,10 +351,25 @@ include /tyra/Makefile.base
 // nothing in the build ever ran; `docker compose up --build` then cost ~4 s per
 // build re-resolving that image (vs 0.3 s for a plain `up`). A project made
 // before this keeps a stale Dockerfile on disk - unreferenced, safe to delete.
+// The engine volume is `external` ON PURPOSE, and it is the one line here that
+// is not obvious. It is SHARED between every project built from the same engine
+// checkout - that is what the hash in its name is for - so it does not belong
+// to any one compose project. Letting compose create it labels it with
+// whichever project got there first, and every other project then warns on
+// every single `up`:
+//
+//   volume "tyra-engine-dd02ee9b" already exists but was created for project
+//   "vu-lab" (expected "vu-lab-78d536de"). Use `external: true` to use an
+//   existing volume
+//
+// which is the toolchain telling us exactly this. `external` means compose
+// looks the volume up instead of owning it, so the label stops mattering; the
+// runner creates it with `docker volume create` (idempotent) before `up`.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
   tyra-engine:
+    external: true
     name: tyra-engine-{{ENGINE_HASH}}
 services:
   compiler:
@@ -810,6 +826,19 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -1294,6 +1323,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -1304,6 +1336,19 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
@@ -1985,6 +2030,19 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -2469,6 +2527,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -2479,6 +2540,19 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
@@ -2943,6 +3017,8 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
+#include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -2965,6 +3041,9 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+// The clock the project's own VU1 stages AND scripts read, in seconds
+// (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
+float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
 // True while a pausing menu owns the frame (set at the top of loop()). Read by
@@ -4704,6 +4783,15 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -5146,6 +5234,20 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -11907,7 +12009,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      part.infoBag->fullClipChecks = true;
+      part.infoBag->fullClipChecks = true;  // refreshed below, per frame
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -11915,6 +12017,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->texture = nullptr;
       part.bag->lighting = nullptr;
     }
+    // OFF while a script displaces vertices AND the EE clipper is the one
+    // cutting. That clipper runs before any VU program sees the mesh, so a
+    // vertex moved afterwards is moved past a cut computed without it and the
+    // prop tears at the edge of the screen; the whole-mesh cull path is the
+    // way out, safe for a prop and NOT done for the terrain or the sky.
+    //
+    // Under VU1 CLIPPING there is nothing to compensate for: the clip program
+    // does its own MVP multiply, so the script displaces the vertex BEFORE the
+    // cut is computed and the clipper sees the final geometry. Set per frame
+    // rather than at bag creation because the mode is a run-time switch.
+    part.infoBag->fullClipChecks =
+        !vuscript::movesGeometry() || vuprog::vu1Clipping();
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
@@ -13954,6 +14068,8 @@ void TerrainGame::renderScene() {
     }
     stapip.core.render(part.envBag.get());
   };
+  // Once a frame, before anything is submitted: the clock every time-varying
+  // script reads. One quadword, and only when the project has a script at all.
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -14036,6 +14152,12 @@ void TerrainGame::renderScene() {
           break;
         }
     }
+    // The four numbers this mesh hands to the project's own microprogram.
+    // Staged per object rather than per bag because every bag of one object
+    // shares them; a static BATCH is one bag for many objects, so its members
+    // share whatever the batch was built with (docs/vu-authoring.md).
+    if (vuprog::ENABLED)
+      vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -14047,6 +14169,16 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    // Back to zero the moment this object's bags are out. The numbers are
+    // RENDERER STATE, not a property of the bag, so everything drawn after an
+    // object - the terrain, the sky dome, a static batch, the next object -
+    // would otherwise inherit them. Zero is the "wants nothing" case every
+    // stage renders bit-identically to the untouched program, so scoping them
+    // to one object is what makes the rest of the frame predictable.
+    if (vuprog::ENABLED) {
+      const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      vuprog::setParams(stapip.core, none);
+    }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -14084,6 +14216,11 @@ void TerrainGame::renderScene() {
         hlListD2[a] = hlListD2[b];
         hlListD2[b] = td;
       }
+  // After the scene, before the highlight: the ink line wants the objects'
+  // depth already in the buffer, and the highlight glow wants to sit on top of
+  // the line rather than under it.
+  renderOutlineShells();
+
   for (int a = 0; a < hlCount; ++a) {
     const int i = hlList[a];
     const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
@@ -15954,6 +16091,121 @@ void TerrainGame::renderHighlightHull(int index) {
 // its full-detail silhouette, invisible under the soft rim. Models have no
 // cheaper source, so their parts are concatenated as-is (one submit per
 // shell instead of one per part).
+// The shell pass a project's own VU program can ask for: every visible object
+// drawn once more from its low-detail proxy, as a flat-colour bag whose
+// per-vertex colours carry the outward direction. The PROGRAM grows it - this
+// only supplies the copy, the depth pushback and the width.
+//
+// Growing on VU1 rather than by scaling the matrix is the whole point: a scale
+// about the centre moves a far vertex further than a near one, so the line
+// fattens at the ends of anything long, while a step along the vertex normal
+// is the same length everywhere.
+void TerrainGame::renderOutlineShells() {
+  if (!vuscript::shellActive()) return;
+  const float wScreen = vuscript::shellWidth();
+  if (wScreen <= 0.0F) return;
+
+  if (!outlineBag) {
+    outlineInfoBag = std::make_unique<StaPipInfoBag>();
+    outlineInfoBag->model = &outlineMat;
+    outlineInfoBag->shadingType = TyraShadingFlat;
+    outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // Clip checks ON, like any other prop - which is only correct because the
+    // shell arrives ALREADY GROWN. Growing it on VU1 instead put the clipper
+    // ahead of the growth: a package at the edge of the screen was cut on the
+    // un-grown silhouette and then grown past the cut, and the line tore into
+    // blobs exactly where an object met the edge. Turning these off to dodge
+    // that only traded it for the raster wrap raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry; the only
+    // place that can be arranged is where the geometry is built.
+    outlineInfoBag->fullClipChecks = true;
+    // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
+    // relationships on the close-up clipped path - that is what commit
+    // 67e2893f found on the reflection pass, and an outline is close-up
+    // geometry by nature.
+    outlineInfoBag->zTestType = PipelineZTest_Standard;
+    outlineColorBag = std::make_unique<StaPipColorBag>();
+    outlineBag = std::make_unique<StaPipBag>();
+    outlineBag->info = outlineInfoBag.get();
+    outlineBag->color = outlineColorBag.get();
+    outlineBag->texture = nullptr;
+    outlineBag->lighting = nullptr;
+  }
+
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    // A STATICALLY BATCHED object owns no solo bag - its geometry lives only
+    // in the merged batch - so the proxy builder found nothing to copy and
+    // that object silently wore no outline at all. It is not obvious from the
+    // picture either: the batched props are the still ones, so it reads as
+    // "that box just does not get a line". Bake the solo geometry on first
+    // use, exactly like the projected-shadow pass does for the same reason.
+    // A DIRTY member is left alone - rebuildObjectGeometry would eat the flag
+    // renderStaticBatches keys its demotion on, and this pass runs after it.
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched && objectGeometry[i].parts.empty() && !o.dirty)
+      rebuildObjectGeometry(i);
+
+    ObjectGeometry& g = objectGeometry[i];
+    if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
+      g.hullProxyVerts.clear();  // built coarse before this program came on
+    if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
+    if (g.outlineVerts.empty()) continue;  // marker-only object
+
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    if (half < 0.01F) half = 0.01F;
+
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    // What buildHighlightProxy already walked each vertex by - needed here
+    // only to size the pushback. A fraction of the object rather than a screen
+    // width, because baked geometry cannot follow the camera, and because a
+    // line proportional to the thing it surrounds is what keeps small props
+    // from wearing tyres anyway.
+    const float grow = wScreen * half;
+
+    float behind = dist - half;
+    if (behind < 0.5F) behind = 0.5F;
+    // Scale about the eye: projected size unchanged, depth multiplied. Enough
+    // to clear the object's own front surface without reaching whatever sits
+    // right behind it.
+    const float k = 1.0F + (grow + 0.15F) / behind;
+    outlineMat.identity();
+    outlineMat.data[0] = k;
+    outlineMat.data[5] = k;
+    outlineMat.data[10] = k;
+    outlineMat.data[12] = (1.0F - k) * cameraPosition.x;
+    outlineMat.data[13] = (1.0F - k) * cameraPosition.y;
+    outlineMat.data[14] = (1.0F - k) * cameraPosition.z;
+
+    // x = 1 says "this mesh is a shell, paint it flat". Every other mesh this
+    // frame carries 0, so ONE program serves the shells and the ordinary
+    // objects without a branch - which is why x of the mesh parameters is
+    // RESERVED once a shell-pass program is active.
+    //
+    // The colour cannot simply be black vertices: the program rounds to band
+    // CENTRES, so black would come back at half a step and the ink line would
+    // be dark grey. It has to be zeroed after the quantise, on VU1.
+    stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
+    outlineColorBag->single = &outlineCol;
+    outlineBag->vertices = g.outlineVerts.data();
+    outlineBag->count = static_cast<u32>(g.outlineVerts.size());
+    outlineBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(outlineBag.get());
+  }
+  // Hand the parameters back, or the next flat-colour prop inherits the shell
+  // flag and paints itself black.
+  stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
+}
+
 void TerrainGame::buildHighlightProxy(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -15970,11 +16222,22 @@ void TerrainGame::buildHighlightProxy(int index) {
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;
+    // A SHELL PASS cannot use a coarser stand-in, and this is the difference
+    // between an outline and a handful of black plates. The proxy's vertices
+    // sit ON the object's surface but its faces are CHORDS, so they run below
+    // it - by the sagitta, which at detail 12 against a detail-24 sphere is
+    // far more than a line is wide. Push the proxy out by a constant and it
+    // emerges only near its vertices and stays buried across each face: caps
+    // at the poles, nothing at the equator. The highlight can afford the
+    // coarse version because a glow is forgiving about its own silhouette; a
+    // drawn line is exactly a silhouette, so it pays the full detail.
+    const bool shell = vuscript::shellActive();
     switch (o.data.type) {
       case 1:
       case 2:
       case 3:
-        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        low.primDetail = (shell || o.data.primDetail < 12) ? o.data.primDetail
+                                                           : 12;
         break;
       default:
         break;  // boxes, planes, decals: detail 1
@@ -15995,6 +16258,54 @@ void TerrainGame::buildHighlightProxy(int index) {
         break;  // marker-only types keep the proxy empty
     }
   }
+  // The outward direction a shell-pass program grows along, baked once and
+  // encoded around 128 so it rides in the colour slot. Radial from the proxy's
+  // own centroid: for a convex low-detail stand-in that IS the smoothed
+  // normal, and at a box corner it is exactly the average of the three faces
+  // meeting there - which is what stops a grown box from splitting open along
+  // its edges. Concave shapes are the honest limit of this, and the proxy is
+  // deliberately too coarse to be concave.
+  g.outlineVerts.clear();
+  if (!g.hullProxyVerts.empty() && vuscript::shellActive()) {
+    float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+    for (const Vec4& v : g.hullProxyVerts) {
+      cx += v.x;
+      cy += v.y;
+      cz += v.z;
+    }
+    const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
+    cx *= inv, cy *= inv, cz *= inv;
+    g.outlineVerts.reserve(g.hullProxyVerts.size());
+    // How far to walk each vertex: a fraction of the object's own size, so
+    // small props do not wear tyres and nothing has to follow the camera.
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    const float grow = vuscript::shellWidth() * 0.5F * (half > 0.02F ? half
+                                                                    : 0.02F);
+    // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
+    // and half the props in a scene are - it leans toward the long axis, so a
+    // constant step along it grows the squashed sides more than the stretched
+    // ones and the line comes out thick on one edge and thin on the other. The
+    // ellipsoid normal divides each axis by its own squared radius, which
+    // costs three multiplies here and nothing at all on VU1.
+    const float rx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float ry = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float rz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 1.0F;
+    const float ix = 1.0F / (rx * rx), iy = 1.0F / (ry * ry),
+                iz = 1.0F / (rz * rz);
+    for (const Vec4& v : g.hullProxyVerts) {
+      float dx = (v.x - cx) * ix, dy = (v.y - cy) * iy, dz = (v.z - cz) * iz;
+      const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (l > 0.0001F)
+        dx /= l, dy /= l, dz /= l;
+      else
+        dx = 0.0F, dy = 1.0F, dz = 0.0F;
+      g.outlineVerts.push_back(
+          Vec4(v.x + dx * grow, v.y + dy * grow, v.z + dz * grow, 1.0F));
+    }
+  }
+  g.hullProxyFine = vuscript::shellActive();
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
@@ -16899,6 +17210,15 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -17408,6 +17728,20 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -19308,6 +19642,8 @@ static std::string engineSourceDir() {
 
 // Short stable hash of the engine source path for the compiled-engine volume
 // name (see TPL_COMPOSE). FNV-1a over the forward-slash path, hex-encoded.
+std::string engineVolumeName();  // defined right below, declared in templates.hpp
+
 static std::string engineSourceHash() {
     const std::string src = engineSourceDir();
     unsigned long long h = 1469598103934665603ULL;
@@ -19319,6 +19655,8 @@ static std::string engineSourceHash() {
     std::snprintf(buf, sizeof(buf), "%08x", (unsigned)(h ^ (h >> 32)));
     return buf;
 }
+
+std::string engineVolumeName() { return "tyra-engine-" + engineSourceHash(); }
 
 static std::string vec3Init(const float* v) {
     return "{" + floatLit(v[0]) + ", " + floatLit(v[1]) + ", " + floatLit(v[2]) + "}";
@@ -19364,7 +19702,9 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
         << floatLit(o.meshLodOverride) << ", " << floatLit(o.modelYawOffset)
         << ", " << clampPrimDetail(o.type, o.primDetail) << ", " << layerIdx
-        << ", " << batchStatic << "},  // " << o.name << "\n";
+        << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
+        << floatLit(o.vuParams[1]) << ", " << floatLit(o.vuParams[2]) << ", "
+        << floatLit(o.vuParams[3]) << "}},  // " << o.name << "\n";
 }
 
 // inc/prefab_data.gen.hpp - the prefab library (docs/prefabs.md).
@@ -20228,6 +20568,15 @@ static bool staticBatchEligible(const SceneObject& o,
     // bag would never draw.
     if (o.dynamicLighting) return false;
     if (!o.textureFeed.empty()) return false;  // live feed rebinds textures
+    // Per-mesh VU parameters are uploaded per BAG, and a static batch is one
+    // bag for many objects - so a batched member would get whatever numbers
+    // the batch happened to be built with. An object that asks for its own
+    // effect draws solo instead (docs/vu-authoring.md); that costs a submit,
+    // which is the honest trade and the one the author chose by typing a
+    // number. Objects that leave them at zero batch as before.
+    if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
+        o.vuParams[2] != 0.0f || o.vuParams[3] != 0.0f)
+        return false;
     if (o.drawDistance != 0.0f) return false;  // per-object distance cut-off
     if (!o.layer.empty()) return false;        // streamed in/out with a layer
     // Per-object logic: the graph can move self, attached scripts get a
@@ -20332,6 +20681,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
            "                   // (build-time verdict: non-moving primitive with\n"
            "                   // no physics/logic/graph refs/save-state/layer)\n"
+           "  float vuParams[4]; // the four numbers this mesh hands to the\n"
+           "                   // project's own VU1 microprogram, if it has one\n"
+           "                   // (docs/vu-authoring.md). All zero = no effect,\n"
+           "                   // which every stage is required to render\n"
+           "                   // bit-identically to the untouched program.\n"
+           "                   // Uploaded per BAG, so batched objects share one\n"
+           "                   // set - one bag is one sendObjectData.\n"
            "};\n"
            "\n"
            // Areas (type 17) live here, in the always-regenerated data header,
@@ -22496,11 +22852,31 @@ static std::string screenFxSource(const Project& p) {
 }
 
 static std::string fillTemplate(const Project& p, const char* tpl) {
-    // docker compose project name: lowercase, must start with letter/digit
+    // docker compose project name: lowercase, must start with letter/digit,
+    // and SUFFIXED WITH THE DIRECTORY.
+    //
+    // The name alone is not unique: a copy of a project - a scratch copy for
+    // testing, a second worktree, an example built from two checkouts - has the
+    // same `name` and a different `./:/host` mount. Compose then decides the
+    // service changed and RECREATES the container on every build, which throws
+    // away everything installed in it (the host compiler the VU scripts need is
+    // ~20 s to put back) and can kill a build that is running from the other
+    // copy. Seen exactly that: two builds of vu-lab from different directories
+    // recreating each other's container in a loop.
     std::string nameLower;
     for (char c : p.name) nameLower += (char)tolower((unsigned char)c);
     if (nameLower.empty() || !isalnum((unsigned char)nameLower[0]))
         nameLower = "tyra-" + nameLower;
+    {
+        unsigned long long h = 1469598103934665603ULL;
+        for (unsigned char c : p.dir) {
+            h ^= (unsigned char)tolower(c);
+            h *= 1099511628211ULL;
+        }
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "-%08x", (unsigned)(h ^ (h >> 32)));
+        nameLower += buf;
+    }
 
     std::string s = tpl;
     s = replaceAll(s, "{{NAME_LOWER}}", nameLower);
@@ -33693,6 +34069,104 @@ bool saveSlotUsed(int slot) {
     return replaceAll(out.str(), "{{ICON_BUF_BYTES}}", std::to_string(bufBytes));
 }
 
+std::string vuScriptStub(const std::string& className) {
+    std::string s;
+    s += "// A VU1 program, written in C++ (docs/vu-authoring.md).\n";
+    s += "//\n";
+    s += "// This file does NOT run on the PS2. It runs on the HOST, once, while\n";
+    s += "// the project builds - and what it leaves behind is a microprogram in\n";
+    s += "// the ELF. So a mistake here is an ordinary C++ error with this\n";
+    s += "// file's name and line, and the effect costs the console nothing but\n";
+    s += "// the instructions you actually emitted.\n";
+    s += "//\n";
+    s += "// A vu::Vec is one virtual VF register and every operator is one VU\n";
+    s += "// instruction. c.raw() drops to the builder itself when the value\n";
+    s += "// layer runs out - madd chains, masked writes, loi, the sine.\n";
+    s += "#include \"vushader.hpp\"\n\n";
+    s += "namespace {\n\n";
+    s += "struct " + className + " : vu::Program {\n";
+    s += "    const char* name() const override { return \"" + className + "\"; }\n\n";
+    s += "    // WHICH MATERIAL CLASSES this replaces. The engine keeps one\n";
+    s += "    // resident VU1 program per class, so a program takes over a class\n";
+    s += "    // rather than attaching to an object - claim the ones your scene\n";
+    s += "    // actually draws (Tools > VU Programs shows the counts).\n";
+    s += "    unsigned classes() const override {\n";
+    s += "        return vu::kColour | vu::kTextured;\n";
+    s += "    }\n\n";
+    s += "    // WHERE in the pipeline the body runs. Color is after lighting\n";
+    s += "    // and texturing and before the clamp; ObjectSpace is before the\n";
+    s += "    // MVP multiply, which is where you move geometry.\n";
+    s += "    vu::Slot slot() const override { return vu::Slot::Color; }\n\n";
+    s += "    // Once per VERTEX. The loop, the packet and the GIF tag are the\n";
+    s += "    // framework's; this is the part that is yours.\n";
+    s += "    void vertex(vu::Ctx& c) override {\n";
+    s += "        // Colour is 0..255 per channel, the GS scale. Constants go\n";
+    s += "        // through vu::splat so they land in the preamble - a loi in\n";
+    s += "        // the per-vertex body is something vcl schedules around.\n";
+    s += "        c.color = c.color * vu::splat(c, 0.75F);\n";
+    s += "    }\n";
+    s += "};\n\n";
+    s += "}  // namespace\n\n";
+    s += "VU_PROGRAM(" + className + ");\n";
+    return s;
+}
+
+std::string vuKernelStub(const std::string& className) {
+    std::string s;
+    s += "// A VU0 compute kernel, written in C++ (docs/vu-authoring.md).\n";
+    s += "//\n";
+    s += "// Like a VU1 program, this file runs on the HOST at build time and\n";
+    s += "// leaves a microprogram behind. Unlike one, it draws nothing: what\n";
+    s += "// the project gets back is a CLASS with a run() on it, and nothing\n";
+    s += "// calls it unless your game does.\n";
+    s += "//\n";
+    s += "//   #include \"scripts/vu0_kernels.gen.hpp\"\n";
+    s += "//   static Tyra::" + className + "Kernel k;\n";
+    s += "//   k.setParams(1.0F, 0.0F, 0.0F, 0.0F);\n";
+    s += "//   k.setTime(seconds);\n";
+    s += "//   k.run(in, out, count);      // Vec4 in, Vec4 out\n";
+    s += "//\n";
+    s += "// Four things about VU0 that are not true of VU1:\n";
+    s += "//\n";
+    s += "//   - It is a CALCULATOR. 512 micro slots against VU1's 2042, and\n";
+    s += "//     256 quadwords of data memory - about 112 elements each way.\n";
+    s += "//   - run() BLOCKS the EE and clobbers the register file the\n";
+    s += "//     engine's own Vec4/M4x4 math uses. 32 elements is\n";
+    s += "//     microseconds; a big batch is not free.\n";
+    s += "//   - It is SIMD over quadwords: the same operation on many\n";
+    s += "//     elements. A scalar loop with a dependency between steps does\n";
+    s += "//     not belong here.\n";
+    s += "//   - There is NO cross-element reduction. A sum is something the\n";
+    s += "//     EE does over the output array; VU0 computes the terms.\n";
+    s += "//\n";
+    s += "// And one thing that is pure gain: these instructions are VU0's own\n";
+    s += "// 512 slots. This costs NOTHING out of the VU1 drawing budget.\n";
+    s += "#include \"vushader.hpp\"\n\n";
+    s += "namespace {\n\n";
+    s += "struct " + className + " : vu::Kernel {\n";
+    s += "    const char* name() const override { return \"" + className +
+         "\"; }\n\n";
+    s += "    // Elements per run(). Both blocks have to fit VU0's 256\n";
+    s += "    // quadwords, which caps this at 124.\n";
+    s += "    int maxElements() const override { return 32; }\n\n";
+    s += "    // Once, before the element loop. Constants belong HERE: the\n";
+    s += "    // loop is a real branch, so anything built inside it is built\n";
+    s += "    // again for every element.\n";
+    s += "    void prepare(vu::Ctx& c) override { kHalf_ = vu::splat(c, 0.5F); }\n";
+    s += "    vu::Vec kHalf_;\n\n";
+    s += "    // Once per ELEMENT. c.position IS the element quadword, and\n";
+    s += "    // whatever it holds when this returns is what the EE reads back.\n";
+    s += "    // c.params is what setParams() sent, c.time is (t, sin t,\n";
+    s += "    // cos t, 1).\n";
+    s += "    void element(vu::Ctx& c) override {\n";
+    s += "        c.position = c.position * kHalf_;\n";
+    s += "    }\n";
+    s += "};\n\n";
+    s += "}  // namespace\n\n";
+    s += "VU_KERNEL(" + className + ");\n";
+    return s;
+}
+
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);
@@ -33705,7 +34179,7 @@ std::string scriptStub(const Project& p, const std::string& className,
 // Uses the editor's bundled Tyra engine headers and the PS2SDK headers
 // exported from the docker toolchain (see Runner). Machine-specific paths,
 // hence regenerated on every build.
-static std::string vscodeCppProperties() {
+static std::string vscodeCppProperties(const Project& p) {
     auto slashes = [](std::string s) {
         for (auto& c : s)
             if (c == '\\') c = '/';
@@ -33725,6 +34199,40 @@ static std::string vscodeCppProperties() {
     if (const std::filesystem::path cfg = platform::configDir(); !cfg.empty())
         sdk = slashes((cfg / "ps2sdk").string());
 
+    // A HOST C++ COMPILER, so the standard library resolves at all.
+    //
+    // The PS2SDK include tree carries C headers and no libstdc++ - there is no
+    // <vector>, <string> or <cstdint> anywhere in it - and with no compilerPath
+    // the C/C++ extension has nothing else to fall back on. A file that
+    // includes one of those then fails to parse at its first line, and that is
+    // EVERY VU script, because vugen.hpp opens with three of them. The symptom
+    // is not an error anyone reads: the completion list for `vugen::` comes
+    // back empty, which looks like "the editor does not know this namespace"
+    // rather than like "the header was never parsed".
+    //
+    // Best effort - with no compiler on PATH the key is simply left out, which
+    // is the state every generated project was in before.
+    std::string compiler;
+    for (const char* c : {"g++", "clang++", "c++"}) {
+        compiler = slashes(platform::commandPath(c));
+        if (!compiler.empty()) break;
+    }
+    // intelliSenseMode has to describe the compiler above, not the target: it
+    // is what the extension emulates while PARSING, and a mode that contradicts
+    // compilerPath is a warning and a coin toss over whose predefined macros
+    // win. The old value described neither - it was a stand-in for a MIPS EE
+    // toolchain the extension has no mode for - which was harmless only while
+    // there was no compiler for it to contradict.
+    const char* mode = "linux-gcc-x86";
+    if (!compiler.empty()) {
+        const bool clang = compiler.find("clang") != std::string::npos;
+#ifdef _WIN32
+        mode = clang ? "windows-clang-x64" : "windows-gcc-x64";
+#else
+        mode = clang ? "linux-clang-x64" : "linux-gcc-x64";
+#endif
+    }
+
     std::ostringstream out;
     out << "{\n"
            "  \"configurations\": [\n"
@@ -33733,15 +34241,36 @@ static std::string vscodeCppProperties() {
            "      \"includePath\": [\n"
            "        \"${workspaceFolder}/inc\",\n"
            "        \"${workspaceFolder}/src\"";
+    // A VU SCRIPT is not PS2 code and does not resolve like the rest of src/.
+    // src/vu/*.cpp and src/vu0/*.cpp include "vushader.hpp", which lives in the
+    // framework copy the editor drops beside them (project::syncVuFramework) -
+    // so without this entry the one file a script author actually types in
+    // showed a red squiggle on its first line and offered no completion at all
+    // for vu:: or vugen::, while every other file in the project had working
+    // IntelliSense. Emitted only when the folder is there: an includePath entry
+    // pointing at nothing is a warning of its own in the C/C++ extension.
+    if (project::hasVuSources(p))
+        out << ",\n        \"${workspaceFolder}/vugen\"";
     if (!engineInc.empty()) out << ",\n        \"" << engineInc << "\"";
     if (!sdk.empty())
+        // All three of the trees the game is actually compiled against. `ports`
+        // is the one that looks skippable and is not: `<tyra>` reaches libpng's
+        // `png.h`, which lives only there, and ONE unresolved include makes
+        // cpptools disable squiggles for the entire translation unit - so
+        // leaving it out costs every completion in the file, not one header's
+        // worth. (The Makefile has carried -I.../ports/include all along; this
+        // is the IntelliSense config catching up.)
         out << ",\n        \"" << sdk << "/ee/include\",\n        \"" << sdk
-            << "/common/include\"";
+            << "/common/include\",\n        \"" << sdk << "/ports/include\"";
     out << "\n      ],\n"
-           "      \"defines\": [\"_EE\"],\n"
-           "      \"cStandard\": \"c11\",\n"
+           "      \"defines\": [\"_EE\"],\n";
+    if (!compiler.empty())
+        out << "      \"compilerPath\": \"" << compiler << "\",\n";
+    out << "      \"cStandard\": \"c11\",\n"
            "      \"cppStandard\": \"c++20\",\n"
-           "      \"intelliSenseMode\": \"linux-gcc-x86\"\n"
+           "      \"intelliSenseMode\": \""
+        << mode
+        << "\"\n"
            "    }\n"
            "  ],\n"
            "  \"version\": 4\n"
@@ -33755,12 +34284,63 @@ static std::string vscodeCppProperties() {
 // c_cpp_properties.json it is written only when missing (refreshGenerated),
 // preserving any recommendations the user adds. The id matches the extension's
 // publisher.name so VS Code doesn't re-prompt once it is installed.
+/** src/gen/vu_scripts.boot - the panel's per-script "on at boot" checkbox, in
+ * the one form the generator can read.
+ *
+ * The generator runs in the build container and the editor cannot compile a
+ * script to ask it anything, so the choice has to travel as DATA. One
+ * `<0|1> <name>` per line; a script not listed is on, which is what the
+ * framework's own default says. It is only a default either way - a script that
+ * overrides activeAtBoot() answers for itself and never reads this. */
+static std::string vuScriptBootList(const Project& p) {
+    std::string s;
+    for (const auto& e : p.vu.scriptBoot)
+        s += (e.second ? "1 " : "0 ") + e.first + "\n";
+    return s;
+}
+
 static std::string vscodeExtensionsJson() {
+    // ms-vscode.cpptools IS THE POINT OF c_cpp_properties.json.
+    //
+    // Leaving it out was a hole with no symptom to follow: the editor wrote a
+    // careful IntelliSense configuration - engine headers, the PS2SDK, and now
+    // the VU framework - for an extension it never once told anyone to install.
+    // With no C++ language server VS Code answers every completion in a .cpp
+    // with "No suggestions.", which reads as a broken project rather than as a
+    // missing extension, and nothing anywhere says otherwise.
     return "{\n"
            "  \"recommendations\": [\n"
+           "    \"ms-vscode.cpptools\",\n"
            "    \"tyrax.tyrax-flownode\"\n"
            "  ]\n"
            "}\n";
+}
+
+/** The recommendation list to WRITE, given whatever is there already.
+ *
+ * `.vscode/extensions.json` is written only when missing so a project can add
+ * its own recommendations - which means the fix above would never reach a
+ * project that already exists, i.e. every project that has the problem. So
+ * this merges instead: the ids the editor knows about are ensured present and
+ * everything else is left exactly where it is. Returns "" when there is
+ * nothing to add, so an unchanged file is not rewritten. */
+std::string vscodeExtensionsMerged(const std::string& existing) {
+    if (existing.empty()) return vscodeExtensionsJson();
+    static const char* kOurs[] = {"ms-vscode.cpptools", "tyrax.tyrax-flownode"};
+    std::vector<std::string> missing;
+    for (const char* id : kOurs)
+        if (existing.find(id) == std::string::npos) missing.push_back(id);
+    if (missing.empty()) return "";
+    // Textual insertion after the opening bracket of "recommendations", so
+    // comments and formatting a person put in the file survive. A file we
+    // cannot find that array in is left alone rather than guessed at.
+    const size_t key = existing.find("\"recommendations\"");
+    if (key == std::string::npos) return "";
+    const size_t open = existing.find('[', key);
+    if (open == std::string::npos) return "";
+    std::string ins;
+    for (const std::string& id : missing) ins += "\n    \"" + id + "\",";
+    return existing.substr(0, open + 1) + ins + existing.substr(open + 1);
 }
 
 std::string bakedModelPath(const std::string& modelPath,
@@ -34150,6 +34730,560 @@ static std::string objectScriptsSource(const Project& p) {
     return out.str();
 }
 
+// ---------------------------------------------------------------------------
+// The project's own VU programs (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/** Model -> generator. One place, so the panel's preview and the build cannot
+ * disagree about what a stage list compiles to. */
+vugen::Stage vuStageOf(const VuStage& s) {
+    vugen::Stage out = vugen::makeStage(s.kind);
+    out.enabled = s.enabled;
+    for (int i = 0; i < 4; ++i) {
+        out.params[i].value = s.params[i];
+        out.params[i].meshSlot = s.bind[i];
+    }
+    return out;
+}
+
+std::vector<vugen::Stage> vuStagesOf(const std::vector<VuStage>& in) {
+    std::vector<vugen::Stage> out;
+    out.reserve(in.size());
+    for (const VuStage& s : in) out.push_back(vuStageOf(s));
+    return out;
+}
+
+/** The engine's StaPipProgramName for one material class. */
+const char* vuProgramEnum(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "StaPipCullDirLights";
+        case 1u << 2: return "StaPipCullTextureDirLights";
+        case 1u << 3: return "StaPipCullTextureColor";
+        case 1u << 4: return "StaPipCullTextureEnv";
+        default: return "StaPipCullColor";
+    }
+}
+
+// The other half of the class's resident pair. The engine draws a package that
+// crosses a frustum plane with this one, so a look that replaces only the cull
+// program leaves every prop at the edge of the screen with the stock shading -
+// which is what a "my effect only applies to some objects" report looks like.
+const char* vuAsIsProgramEnum(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "StaPipAsIsDirLights";
+        case 1u << 2: return "StaPipAsIsTextureDirLights";
+        case 1u << 3: return "StaPipAsIsTextureColor";
+        case 1u << 4: return "StaPipAsIsTextureEnv";
+        default: return "StaPipAsIsColor";
+    }
+}
+
+struct VuBuild {
+    std::vector<File> files;
+    bool anyProgram = false;
+    bool anyKernel = false;
+    std::string kernelClass;
+    std::string kernelHeader;
+    struct LookClass {
+        unsigned classBit = 0;
+        std::string className;    // the emitted EE program class
+        std::string programEnum;  // the engine slot it replaces
+        // The as_is twin of the same class - see vuAsIsProgramEnum. Empty when
+        // that half failed to build, which leaves the engine's own program in
+        // that slot rather than half a look.
+        std::string asIsClassName;
+        std::string asIsProgramEnum;
+    };
+    struct LookBuild {
+        std::string name;
+        int index = 0;  // index in Project::vu.programs
+        // A displacing look has to see every package of a mesh or none, or a
+        // mesh at the frame edge comes out torn in two - setVuUniformGeometry.
+        bool movesGeometry = false;
+        std::vector<LookClass> perClass;
+    };
+    // EVERY enabled look, not just the active one: they all reach the ELF so a
+    // run-time swap has something to swap to. Only the active set is uploaded
+    // to VU1, so the others cost EE RAM and no micro memory.
+    std::vector<LookBuild> looks;
+    int activeLook = 0;  // index into `looks`
+    std::vector<std::string> warnings;
+    unsigned residentMask = 0x1Fu;
+};
+
+VuBuild buildVuFiles(const Project& p) {
+    VuBuild out;
+    out.residentMask = project::vuResidentClasses(p);
+    // A look claims a set of classes and produces ONE microprogram per class -
+    // that is the whole of what "a look" means here. Two enabled looks cannot
+    // claim the same class: setProgramOverride replaces a slot, and a slot
+    // holds one program.
+    int lookIndex = -1;
+    for (const VuProgram& pr : p.vu.programs) {
+        ++lookIndex;
+        if (!pr.enabled) continue;
+        VuBuild::LookBuild lb;
+        lb.name = pr.name;
+        lb.index = lookIndex;
+        lb.movesGeometry = project::vuLookMovesGeometry(pr);
+        const bool binds = project::vuLookBindsPerMesh(pr);
+        // A stage list that folds away entirely is not a look: it would install
+        // a byte-for-byte copy of the engine's own microprogram over the
+        // engine's own slot, burning micro memory to change nothing.
+        bool anyLive = false;
+        for (const vugen::Stage& s : vuStagesOf(pr.stages))
+            if (!vugen::stageIsNoOp(s)) anyLive = true;
+        if (!anyLive) {
+            out.warnings.push_back("look \"" + pr.name +
+                                   "\" has no live stage (every strength is a "
+                                   "literal zero) - not generated");
+            continue;
+        }
+        for (unsigned cls : vugen::customClasses()) {
+            if ((pr.classes & cls) == 0) continue;
+            if ((out.residentMask & cls) == 0) {
+                out.warnings.push_back(
+                    "look \"" + pr.name + "\" claims " +
+                    project::vuClassName(cls) +
+                    ", which this project does not draw - skipped");
+                continue;
+            }
+            if (binds && !project::vuClassCanBind(cls)) {
+                out.warnings.push_back(
+                    "look \"" + pr.name + "\" binds a per-mesh parameter and "
+                    "claims " + project::vuClassName(cls) +
+                    ", whose light colours occupy those addresses - skipped");
+                continue;
+            }
+            vugen::Desc d = vugen::descForClass(cls, lookIndex);
+            d.stages = vuStagesOf(pr.stages);
+            const vugen::Built b = vugen::build(d);
+            for (const std::string& e : b.errors)
+                out.warnings.push_back(pr.name + " on " +
+                                       project::vuClassName(cls) + ": " + e);
+            if (!b.errors.empty()) continue;
+            out.files.push_back({"src\\gen\\" + d.fileStem + ".vclpp", b.vclpp});
+            out.files.push_back(
+                {"src\\gen\\" + d.fileStem + "_program.hpp", b.eeHeader});
+            out.files.push_back(
+                {"src\\gen\\" + d.fileStem + "_program.cpp", b.eeSource});
+            VuBuild::LookClass lc{cls, d.className, vuProgramEnum(cls), "", ""};
+            // The class's other resident program. A package that crosses a
+            // frustum plane is drawn by this one, so without it the look stops
+            // at the edge of the screen.
+            vugen::Desc ai = vugen::descForClass(cls, lookIndex, vugen::Half::AsIs);
+            // COLOUR AND TEXTURE STAGES ONLY. The as_is program has no MVP
+            // multiply: it is handed vertices the EE clipper already
+            // transformed, so a stage that displaces "the position" would be
+            // displacing a clip-space coordinate. On the console that reads as
+            // torn geometry with smeared texels on exactly the meshes the
+            // frustum cuts - which is what it did before this filter.
+            for (const vugen::Stage& st : vuStagesOf(pr.stages)) {
+                const vugen::StageDef* sd = vugen::stageDef(st.key);
+                if (!sd) continue;
+                if (sd->slot != vugen::Slot::Color &&
+                    sd->slot != vugen::Slot::Texture)
+                    continue;
+                ai.stages.push_back(st);
+            }
+            const vugen::Built ab =
+                ai.stages.empty() ? vugen::Built{} : vugen::build(ai);
+            if (ai.stages.empty())
+                out.warnings.push_back(
+                    "look \"" + pr.name +
+                    "\" only moves geometry, so a mesh the frustum cuts keeps "
+                    "the engine's own program - the effect stops at the edge "
+                    "of the screen (docs/vu-authoring.md)");
+            for (const std::string& e : ab.errors)
+                out.warnings.push_back(pr.name + " on " +
+                                       project::vuClassName(cls) +
+                                       " (edge-of-screen half): " + e);
+            if (ab.errors.empty() && !ai.stages.empty()) {
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + ".vclpp", ab.vclpp});
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + "_program.hpp", ab.eeHeader});
+                out.files.push_back(
+                    {"src\\gen\\" + ai.fileStem + "_program.cpp", ab.eeSource});
+                lc.asIsClassName = ai.className;
+                lc.asIsProgramEnum = vuAsIsProgramEnum(cls);
+            }
+            lb.perClass.push_back(lc);
+            out.anyProgram = true;
+        }
+        if (!lb.perClass.empty()) out.looks.push_back(lb);
+    }
+    // The look installed at boot. Out of range - or naming one that generated
+    // nothing - falls back to the first that did: a project with a look and no
+    // program installed reads as the whole feature being broken.
+    for (size_t i = 0; i < out.looks.size(); ++i)
+        if (out.looks[i].index == p.vu.activeLook) out.activeLook = (int)i;
+
+    if (p.vu.kernel.enabled && !p.vu.kernel.stages.empty()) {
+        vugen::KernelDesc k;
+        std::string stem =
+            "vu0_" + sanitizeNamespace(p.vu.kernel.name.empty() ? "kernel"
+                                                                : p.vu.kernel.name);
+        // File names stay lowercase - src/gen is read by humans diffing a
+        // generated tree, and a capitalised one sorts away from its siblings.
+        for (char& c : stem)
+            if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        k.fileStem = stem;
+        k.vclName = "TyraXKernel";
+        k.asmName = "TyraXKernel";
+        k.className = "TyraXVu0Kernel";
+        // The driver's header travels to inc/ (a user script includes it, and
+        // inc/ is the only directory on the game's include path), so the .cpp
+        // cannot derive the include name from the file stem.
+        k.headerName = stem + ".gen.hpp";
+        k.title = p.vu.kernel.name;
+        k.maxElements = p.vu.kernel.maxElements;
+        k.stages = vuStagesOf(p.vu.kernel.stages);
+        const vugen::BuiltKernel b = vugen::buildKernel(k);
+        for (const std::string& e : b.errors)
+            out.warnings.push_back("VU0 kernel: " + e);
+        if (b.errors.empty()) {
+            out.files.push_back({"src\\gen\\" + stem + ".vclpp", b.vclpp});
+            // The header goes in inc/ because a USER SCRIPT includes it, and
+            // inc/ is the only directory on the game's include path.
+            out.files.push_back({"inc\\" + stem + ".gen.hpp", b.eeHeader});
+            out.files.push_back({"src\\gen\\" + stem + ".gen.cpp", b.eeSource});
+            out.anyKernel = true;
+            out.kernelClass = k.className;
+            out.kernelHeader = stem + ".gen.hpp";
+        }
+    }
+    return out;
+}
+
+/** inc/scripts/vu_programs.gen.hpp - the on/off seam.
+ *
+ * ALWAYS emitted, and its predicate is a compile-time constant, so a project
+ * with no custom program folds every call site away rather than paying a branch
+ * - the same arrangement the devkit layers use (docs/devkit.md). */
+std::string vuProgramsHeader(const VuBuild& vb) {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    s += "//\n";
+    s += "// The project's own VU1 microprograms (docs/vu-authoring.md).\n";
+    s += "// vuprog::ENABLED is a compile-time constant: with no custom program\n";
+    s += "// every call below is an inline no-op and folds away entirely.\n";
+    s += "#pragma once\n\n";
+    s += "#include <tyra>\n\n";
+    s += "namespace vuprog {\n\n";
+    s += std::string("constexpr bool ENABLED = ") +
+         (vb.anyProgram ? "true" : "false") + ";\n\n";
+    // These take the pipeline CORE, not an Engine: the static pipeline is the
+    // GAME's own member (TerrainGame::stapip), not something hanging off the
+    // engine, and StaPipCore is where setProgramOverride lives.
+    s += std::string("constexpr int LOOK_COUNT = ") +
+         std::to_string(vb.looks.size()) + ";\n\n";
+    if (vb.anyProgram) {
+        for (size_t i = 0; i < vb.looks.size(); ++i)
+            s += "// look " + std::to_string(i) + ": " + vb.looks[i].name + "\n";
+        s += "\n";
+        s += "/** Installs the look that starts active and turns on the\n";
+        s += " * per-mesh parameter upload. Call once, AFTER setRenderer and\n";
+        s += " * setVU1Clipping - both rebuild the program cache, and an\n";
+        s += " * override installed first would be rebuilt away. */\n";
+        s += "void install(Tyra::StaPipCore& core);\n";
+        s += "/** Swap the whole look at run time. EVERY generated look is in\n";
+        s += " * the ELF; only the active one occupies VU1 micro memory, so\n";
+        s += " * this is one pipeline drain and one upload rather than a\n";
+        s += " * rebuild of anything. Fine on an event - a trigger, a button,\n";
+        s += " * a zone boundary - and NOT fine per frame. An index outside\n";
+        s += " * 0..LOOK_COUNT-1 restores the engine's own programs, which is\n";
+        s += " * how you turn every look off. */\n";
+        s += "void activate(int look);\n";
+        s += "/** The active look, or -1 for the engine's own programs. */\n";
+        s += "int active();\n";
+        s += "const char* lookName(int look);\n";
+        s += "/** True when the ACTIVE look displaces vertices. Such a stage\n";
+        s += " * cannot run on a package the frustum cut - those vertices are\n";
+        s += " * already transformed - so the caller turns the per-package\n";
+        s += " * clip checks off for the meshes it draws and the whole mesh\n";
+        s += " * takes the cull path. PROPS ONLY: the terrain and the sky are\n";
+        s += " * far too big to submit unclipped (docs/vu-authoring.md). */\n";
+        s += "bool movesGeometry();\n";
+        s += "/** The clock the time-varying stages read. WRAPPED - the\n";
+        s += " * microprogram's range reduction folds through a 2^23 add. */\n";
+        s += "void setTime(Tyra::StaPipCore& core, float seconds);\n";
+        s += "/** The four numbers for the mesh about to be submitted. */\n";
+        s += "void setParams(Tyra::StaPipCore& core, const float* p);\n";
+    } else {
+        // install() stays a REAL function even with no look to install: it is
+        // where the pipeline core is captured, and setVU1Clipping below needs
+        // it. Every generated game calls it, so this costs a pointer.
+        s += "void install(Tyra::StaPipCore& core);\n";
+        s += "inline void activate(int) {}\n";
+        s += "inline int active() { return -1; }\n";
+        s += "inline const char* lookName(int) { return \"\"; }\n";
+        s += "inline bool movesGeometry() { return false; }\n";
+        s += "inline void setTime(Tyra::StaPipCore&, float) {}\n";
+        s += "inline void setParams(Tyra::StaPipCore&, const float*) {}\n";
+    }
+    // The clipping mode is a MICRO-MEMORY lever, and the biggest one there is:
+    // the clip family is roughly twice the size of the as_is family it stands
+    // in for (measured over the four classes vu-lab draws: 1181 instructions
+    // against 543). The engine's own call rebuilds the resident cache exactly
+    // the way an override does, so it belongs with the other things a game can
+    // do to the VU while it runs - not only in Preferences.
+    s += "\n/** Swap the clipping mode at run time. VU1 clipping is precise and\n";
+    s += " * costs about twice the micro memory; the EE clipper hands those\n";
+    s += " * slots back and spends EE time instead. Rebuilds the resident\n";
+    s += " * program cache, so call it BETWEEN frames, never mid-draw. */\n";
+    s += "void setVU1Clipping(bool onVU1);\n";
+    s += "bool vu1Clipping();\n";
+    // The other half of the same lever, and the one that makes VU1 clipping
+    // affordable: a class the current moment does not draw hands its pair of
+    // programs back. Colour is always kept - it is the fallback every dropped
+    // class walks down to.
+    s += "\n/** Narrow or widen the resident material classes at run time.\n";
+    s += " * Bits: 1<<0 colour, 1<<1 lights, 1<<2 textured + lights, 1<<3\n";
+    s += " * textured, 1<<4 reflective. A dropped class does not crash - the\n";
+    s += " * engine walks the mesh down to a resident relative - but it draws\n";
+    s += " * in the wrong style, so drop only what the moment does not show.\n";
+    s += " * Rebuilds the resident program cache exactly like setVU1Clipping,\n";
+    s += " * so this belongs on an event and never in a per-frame update. */\n";
+    s += "void setResidentClasses(unsigned mask);\n";
+    s += "unsigned residentClasses();\n";
+    s += "\n}  // namespace vuprog\n";
+    return s;
+}
+
+/** inc/scripts/vu_scripts.gen.hpp - the STUB.
+ *
+ * The real header is written by the generator that the build container compiles
+ * the project's own src/vu/*.cpp into. That cannot happen on the host: there is
+ * no C++ compiler to assume there. So the editor writes a no-op version that
+ * makes vuscript::install() fold away, and the container overwrites it after
+ * the source rsync and before make - within one build, so nothing stale
+ * survives. */
+std::string vuScriptsStubHeader() {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    s += "//\n";
+    s += "// A project with no src/vu/*.cpp gets this: vuscript::install is an\n";
+    s += "// inline no-op and ENABLED is a compile-time false, so every call\n";
+    s += "// site folds away. When the project HAS a script, the build\n";
+    s += "// container replaces this file with the generated one\n";
+    s += "// (docs/vu-authoring.md).\n";
+    s += "#pragma once\n\n#include <tyra>\n\nnamespace vuscript {\n\n";
+    s += "constexpr bool ENABLED = false;\n";
+    // The WHOLE surface, not just install(): game code guarded by
+    // `vuscript::COUNT > 0` has to keep compiling when the last script is
+    // deleted, and the stub is exactly the state a project is in before its
+    // first build. Leaving these out made deleting a script break the build
+    // with "'COUNT' is not a member of 'vuscript'".
+    s += "constexpr int COUNT = 0;\n\n";
+    s += "inline void install(Tyra::StaPipCore&) {}\n";
+    s += "inline void activate(int) {}\n";
+    s += "inline void deactivate(int) {}\n";
+    s += "inline void deactivateAll() {}\n";
+    s += "inline void activateAll() {}\n";
+    s += "inline bool active(int) { return false; }\n";
+    s += "inline const char* name(int) { return \"\"; }\n";
+    s += "inline bool movesGeometry() { return false; }\n";
+    s += "inline bool shellActive() { return false; }\n";
+    s += "inline float shellWidth() { return 0.0F; }\n\n";
+    s += "}  // namespace vuscript\n";
+    return s;
+}
+
+/** inc/scripts/vu0_kernels.gen.hpp - the STUB, for the same reason.
+ *
+ * A kernel's driver class only exists once the container has compiled and run
+ * the project's src/vu0/*.cpp, so there is nothing the host can name here.
+ * What it CAN do is make the include legal and `vukernel::COUNT` a
+ * compile-time zero, which is what lets a script guard its use of a kernel the
+ * way it guards everything else. */
+std::string vuKernelsStubHeader() {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n";
+    s += "//\n";
+    s += "// A project with no src/vu0/*.cpp gets this: no driver classes, and\n";
+    s += "// ENABLED a compile-time false. When the project HAS a kernel, the\n";
+    s += "// build container replaces this file with one that includes every\n";
+    s += "// generated driver (docs/vu-authoring.md, \"VU0 kernels\").\n";
+    s += "#pragma once\n\nnamespace vukernel {\n\n";
+    s += "constexpr bool ENABLED = false;\n";
+    s += "constexpr int COUNT = 0;\n\n";
+    s += "inline const char* name(int) { return \"\"; }\n\n";
+    s += "}  // namespace vukernel\n";
+    return s;
+}
+
+/** src/gen/vu_programs.gen.cpp - an EMPTY translation unit when the project has
+ * no custom program, so nothing of this reaches such a build. */
+std::string vuProgramsSource(const Project& p, const VuBuild& vb) {
+    std::string s;
+    s += "// Generated by TyraX. Do not edit - regenerated on every build.\n\n";
+    if (!vb.anyProgram) {
+        // NOT an empty TU any more: install() is where the pipeline core is
+        // captured, and setVU1Clipping needs it whether or not the project
+        // wrote a look of its own.
+        s += "// This project has no VU program of its own - what is left here\n";
+        s += "// is the core the run-time clipping switch needs.\n";
+        s += "#include \"scripts/vu_programs.gen.hpp\"\n\n";
+        s += "namespace vuprog {\nnamespace {\n";
+        s += "Tyra::StaPipCore* g_core = nullptr;\n";
+        s += std::string("bool g_vu1Clip = ") +
+             (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
+        s += std::string("unsigned g_resident = ") +
+             std::to_string(project::vuResidentClasses(p)) + "u;\n";
+        s += "}  // namespace\n\n";
+        s += "void install(Tyra::StaPipCore& core) { g_core = &core; }\n\n";
+        s += "void setVU1Clipping(bool onVU1) {\n";
+        s += "  if (!g_core || g_vu1Clip == onVU1) return;\n";
+        s += "  g_vu1Clip = onVU1;\n";
+        s += "  g_core->setVU1Clipping(onVU1);\n}\n\n";
+        s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+        s += "void setResidentClasses(unsigned mask) {\n";
+        s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
+        s += "  g_resident = mask | 1u;\n";
+        s += "  g_core->setResidentClasses(g_resident);\n}\n\n";
+        s += "unsigned residentClasses() { return g_resident; }\n\n";
+        s += "}  // namespace vuprog\n";
+        return s;
+    }
+    s += "#include \"scripts/vu_programs.gen.hpp\"\n";
+    // The program headers sit next to this file; a quoted include searches the
+    // includer's own directory first, which is why src/gen needs no -I.
+    for (const File& f : vb.files) {
+        const std::string& rp = f.relativePath;
+        if (rp.size() > 12 && rp.compare(rp.size() - 12, 12, "_program.hpp") == 0) {
+            const size_t slash = rp.find_last_of('\\');
+            s += "#include \"" +
+                 rp.substr(slash == std::string::npos ? 0 : slash + 1) + "\"\n";
+        }
+    }
+    s += "\nnamespace vuprog {\n\n";
+    s += "namespace {\n";
+    for (const auto& lk : vb.looks)
+        for (const auto& e : lk.perClass) {
+            s += "Tyra::" + e.className + " g_" + e.className + ";\n";
+            if (!e.asIsClassName.empty())
+                s += "Tyra::" + e.asIsClassName + " g_" + e.asIsClassName +
+                     ";\n";
+        }
+    s += "Tyra::StaPipCore* g_core = nullptr;\n";
+    s += "int g_active = -1;\n";
+    // Seeded from the project setting, so vu1Clipping() answers correctly
+    // before anything has flipped it.
+    s += std::string("bool g_vu1Clip = ") +
+         (p.settings.clipping == "vu1" ? "true" : "false") + ";\n";
+    s += std::string("unsigned g_resident = ") +
+         std::to_string(project::vuResidentClasses(p)) + "u;\n";
+    s += "const char* const kNames[] = {";
+    for (size_t i = 0; i < vb.looks.size(); ++i)
+        s += (i ? ", " : "") + std::string("\"") + vb.looks[i].name + "\"";
+    s += vb.looks.empty() ? "\"\"};\n" : "};\n";
+    s += "}  // namespace\n\n";
+    s += "int active() { return g_active; }\n\n";
+    s += "const char* lookName(int look) {\n";
+    s += "  return (look >= 0 && look < LOOK_COUNT) ? kNames[look] : \"\";\n";
+    s += "}\n\n";
+    // Frustum classification is per PACKAGE, so a displacing look has to see
+    // all of a mesh or none of it - otherwise half a wobbling sphere stays put
+    // and the mesh visibly splits in two along the edge of the screen.
+    // The clipping mode, from the same stored core the overrides use.
+    s += "void setVU1Clipping(bool onVU1) {\n";
+    s += "  if (!g_core || g_vu1Clip == onVU1) return;\n";
+    s += "  g_vu1Clip = onVU1;\n";
+    s += "  g_core->setVU1Clipping(onVU1);\n";
+    // The cache it just rebuilt is the engine's own, so the look has to go
+    // back over it - otherwise flipping the clipping mode silently un-installs
+    // whatever was active.
+    s += "  activate(g_active);\n";
+    s += "}\n\n";
+    s += "bool vu1Clipping() { return g_vu1Clip; }\n\n";
+    s += "void setResidentClasses(unsigned mask) {\n";
+    s += "  if (!g_core || g_resident == (mask | 1u)) return;\n";
+    s += "  g_resident = mask | 1u;\n";
+    s += "  g_core->setResidentClasses(g_resident);\n";
+    s += "}\n\n";
+    s += "unsigned residentClasses() { return g_resident; }\n\n";
+    s += "bool movesGeometry() {\n";
+    s += "  static const bool kMoves[] = {";
+    for (size_t i = 0; i < vb.looks.size(); ++i)
+        s += (i ? ", " : "") +
+             std::string(vb.looks[i].movesGeometry ? "true" : "false");
+    s += vb.looks.empty() ? "false};\n" : "};\n";
+    s += "  return g_active >= 0 && g_active < LOOK_COUNT && "
+         "kMoves[g_active];\n";
+    s += "}\n\n";
+    // ONE call for the whole set. Per class it would be a pipeline drain and a
+    // program-cache upload EACH - five of them for a single swap.
+    s += "void activate(int look) {\n";
+    s += "  if (!g_core) return;  // install() has not run yet\n";
+    // TEN slots, not five: every material class is a PAIR of resident
+    // programs. The cull half draws a package wholly inside the frustum, the
+    // as_is half (or the VU1 clipper's twin, when that mode is on) draws one
+    // that crosses a plane - so a look that replaces only the cull half stops
+    // at the edge of the screen, on exactly the props a player walks up to.
+    s += "  static const Tyra::StaPipProgramName kSlots[] = {\n";
+    for (unsigned cls : vugen::customClasses())
+        s += std::string("      Tyra::") + vuProgramEnum(cls) + ",\n";
+    for (unsigned cls : vugen::customClasses())
+        s += std::string("      Tyra::") + vuAsIsProgramEnum(cls) + ",\n";
+    s += "  };\n";
+    s += "  Tyra::StaPipVU1Program* progs[10] = {nullptr, nullptr, nullptr, "
+         "nullptr, nullptr,\n";
+    s += "                                       nullptr, nullptr, nullptr, "
+         "nullptr, nullptr};\n";
+    s += "  switch (look) {\n";
+    for (size_t i = 0; i < vb.looks.size(); ++i) {
+        s += "    case " + std::to_string(i) + ":  // " + vb.looks[i].name + "\n";
+        for (const auto& e : vb.looks[i].perClass) {
+            int slot = 0;
+            for (unsigned cls : vugen::customClasses()) {
+                if (cls == e.classBit) break;
+                ++slot;
+            }
+            s += "      progs[" + std::to_string(slot) + "] = &g_" +
+                 e.className + ";\n";
+            if (!e.asIsClassName.empty())
+                s += "      progs[" + std::to_string(slot + 5) + "] = &g_" +
+                     e.asIsClassName + ";\n";
+        }
+        s += "      break;\n";
+    }
+    s += "    default: break;  // every slot null = the engine's own programs\n";
+    s += "  }\n";
+    s += "  g_core->setProgramOverrides(kSlots, progs, 10);\n";
+    s += "  g_active = (look >= 0 && look < LOOK_COUNT) ? look : -1;\n";
+    s += "}\n\n";
+    s += "void install(Tyra::StaPipCore& core) {\n";
+    // Drop the material classes the project never draws BEFORE installing
+    // anything. Each class is a cull program plus its clipped-or-as_is twin,
+    // and in VU1-clipping mode the ten of them sit close enough to the
+    // 2042-slot ceiling that a custom program of any size overflows it. That is
+    // not a theory: the engine's own assert fired on examples/vu-lab the first
+    // time this ran, and dropping the two lighting classes it does not use is
+    // what made room (docs/vu-authoring.md).
+    if (vb.residentMask != 0x1Fu)
+        s += "  core.setResidentClasses(" + std::to_string(vb.residentMask) +
+             ");  // only the classes this project draws\n";
+    s += "  g_core = &core;\n";
+    s += "  activate(" + std::to_string(vb.activeLook) + ");\n";
+    s += "  // Two extra quadwords per mesh, and only for a bag with no\n";
+    s += "  // lighting - they live in the directional-lights colour block.\n";
+    s += "  core.setVuCustomEnabled(true);\n";
+    s += "}\n\n";
+    s += "void setTime(Tyra::StaPipCore& core, float seconds) {\n";
+    s += "  core.setVuTime(seconds);\n";
+    s += "}\n\n";
+    s += "void setParams(Tyra::StaPipCore& core, const float* p) {\n";
+    s += "  core.setVuParams(p[0], p[1], p[2], p[3]);\n";
+    s += "}\n\n";
+    s += "}  // namespace vuprog\n";
+    return s;
+}
+
+}  // namespace
+
 std::vector<File> generate(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
@@ -34166,6 +35300,12 @@ std::vector<File> generate(const Project& p) {
     // theirs rather than being buried in a comment nobody reads.
     for (const std::string& w : procRt.warnings)
         std::printf("[procedural] %s\n", w.c_str());
+    // The project's own VU programs. Same reporting shape as the procedural
+    // volumes above: a program that could not be generated means an effect the
+    // author asked for will simply not be there, so it is printed, not buried.
+    const VuBuild vuBuild = buildVuFiles(p);
+    for (const std::string& w : vuBuild.warnings)
+        std::printf("[vu] %s\n", w.c_str());
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
@@ -34173,7 +35313,7 @@ std::vector<File> generate(const Project& p) {
         fill(fpp ? TPL_GAME_CPP_FPP_TAIL : TPL_GAME_CPP_ORBIT_TAIL) +
         fill(TPL_GAME_CPP_FOOTER);
 
-    return {
+    std::vector<File> files = {
         {"Makefile", fill(TPL_MAKEFILE)},
         {"docker-compose.yml", fill(TPL_COMPOSE)},
         {"src\\main.cpp", fill(TPL_MAIN_CPP)},
@@ -34230,7 +35370,8 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\object_scripts.gen.cpp", objectScriptsSource(p)},
         {"src\\scripts\\example_interaction.cpp",
          fill(fpp ? TPL_EXAMPLE_SCRIPT_FPP : TPL_EXAMPLE_SCRIPT_ORBIT)},
-        {".vscode\\c_cpp_properties.json", vscodeCppProperties()},
+        {".vscode\\c_cpp_properties.json", vscodeCppProperties(p)},
+        {"src\\gen\\vu_scripts.boot", vuScriptBootList(p)},
         {".vscode\\extensions.json", vscodeExtensionsJson()},
         {"run.ps1", fill(TPL_RUN_PS1)},
         {"windows-pcsx2.ps1", fill(TPL_PCSX2_PS1)},
@@ -34242,7 +35383,36 @@ std::vector<File> generate(const Project& p) {
         {"res\\.gitignore", TPL_RES_GITIGNORE},
         {"bin\\.gitignore", TPL_DIR_KEEP},
         {"obj\\.gitignore", TPL_DIR_KEEP},
+        // The on/off seam is ALWAYS emitted; the microprogram files below only
+        // exist when the project actually has a program.
+        {"inc\\scripts\\vu_programs.gen.hpp", vuProgramsHeader(vuBuild)},
+        {"src\\gen\\vu_programs.gen.cpp", vuProgramsSource(p, vuBuild)},
     };
+    // The STUB for the project's C++ VU scripts, and ONLY while there is no
+    // script. The real header is the container's - written next to the
+    // microprograms it declares, by the generator, which is the only place the
+    // user's C++ can be compiled and run. Emitting the stub over it is how a
+    // build ended up with a header declaring vuscript::install and nothing
+    // defining it.
+    // hasVuSources, NOT hasVuScripts: the gate is "will the container run at
+    // all", because when it runs it writes BOTH headers - the one for the
+    // scripts and the one for the kernels - whether or not the project has any
+    // of each. Gating them separately means a project with scripts and no
+    // kernels has the host writing a stub over the container's real header on
+    // every refresh and the container writing it back on every build, and the
+    // file flip-flops for no reason.
+    if (!project::hasVuSources(p)) {
+        files.push_back(
+            {"inc\\scripts\\vu_scripts.gen.hpp", vuScriptsStubHeader()});
+        // The VU0 half. A kernel header is only ever included by a script the
+        // user wrote, so this stub is not what keeps the game compiling - it is
+        // what makes `#include "scripts/vu0_kernels.gen.hpp"` a line you can
+        // write before the first build.
+        files.push_back(
+            {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
+    }
+    for (const File& f : vuBuild.files) files.push_back(f);
+    return files;
 }
 
 }  // namespace templates

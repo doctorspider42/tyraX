@@ -118,6 +118,10 @@ struct RoundTowardZero {
 Result run(const Program& p, const std::vector<uint32_t>& initialMem,
            const Config& cfg) {
     const RoundTowardZero vuRounding;
+    // The whole point of the target: a VU0 program addressed against 1024
+    // quadwords wraps somewhere the hardware would not.
+    const int kMemQuadsT = memQuads(cfg.target);
+    const int kMemWordsT = memWords(cfg.target);
     Result res;
     Machine m;
     m.vf.assign(p.vfNames.empty() ? 1 : p.vfNames.size(), {0, 0, 0, 0});
@@ -125,8 +129,8 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
     // vf00 is hardwired to (0,0,0,1) - a very large share of the arithmetic in
     // these programs leans on that w.
     m.vf[0] = {0, 0, 0, floatToBits(1.0f)};
-    m.mem.assign(kMemWords, 0u);
-    for (size_t i = 0; i < initialMem.size() && i < (size_t)kMemWords; ++i)
+    m.mem.assign(kMemWordsT, 0u);
+    for (size_t i = 0; i < initialMem.size() && i < (size_t)kMemWordsT; ++i)
         m.mem[i] = initialMem[i];
 
     auto warn = [&](int pc, int line, const std::string& text) {
@@ -160,7 +164,26 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
         m.qPending = true;
     };
 
-    int pc = 0;
+    // Micro memory is a quarter the size on VU0, and a kernel that cannot be
+    // uploaded is not a runtime failure anyone will see - it is a silent
+    // truncation at load. Only claim it when it is certain: VCL pairs an upper
+    // and a lower op into one slot at best, so ceil(n/2) is the floor.
+    {
+        int real = 0;
+        for (const Instr& in : p.code)
+            if (in.op != Op::Label && in.op != Op::Barrier &&
+                in.op != Op::Cont && in.op != Op::Nop)
+                ++real;
+        if ((real + 1) / 2 > microSlots(cfg.target))
+            warn(0, 0,
+                 std::string("the program cannot fit ") +
+                     targetName(cfg.target) + " micro memory: " +
+                     std::to_string(real) + " instructions need at least " +
+                     std::to_string((real + 1) / 2) + " of " +
+                     std::to_string(microSlots(cfg.target)) + " slots");
+    }
+
+    int pc = cfg.entry;
     const int n = (int)p.code.size();
     while (pc >= 0 && pc < n) {
         if (++res.steps > cfg.maxSteps) {
@@ -223,10 +246,12 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                                               ? in.base
                                               : 0]) +
                               in.imm;
-            if (a < 0 || a >= kMemQuads)
-                warn(pc, in.line, "quadword address " + std::to_string(a) +
-                                      " is outside VU1 data memory (wraps)");
-            return (size_t)(((a % kMemQuads) + kMemQuads) % kMemQuads) * 4;
+            if (a < 0 || a >= kMemQuadsT)
+                warn(pc, in.line,
+                     "quadword address " + std::to_string(a) + " is outside " +
+                         targetName(cfg.target) + " data memory (" +
+                         std::to_string(kMemQuadsT) + " quadwords - it wraps)");
+            return (size_t)(((a % kMemQuadsT) + kMemQuadsT) % kMemQuadsT) * 4;
         };
 
         int next = pc + 1;
@@ -517,12 +542,31 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
 
             case Op::Xtop:
             case Op::Xitop:
+                // VU0 is fed by VIF0, which the engine never double-buffers -
+                // a VU0 kernel addresses fixed data-memory locations because it
+                // has to. An xtop here yields whatever the harness set and is
+                // almost certainly a program written against the wrong unit.
+                if (cfg.target == Target::VU0)
+                    warn(pc, in.line,
+                         "xtop/xitop on VU0: there is no VIF1 double buffer "
+                         "here, so this yields the harness value rather than a "
+                         "buffer base");
                 if (in.dst >= 0 && (size_t)in.dst < m.vi.size())
                     m.vi[in.dst] = wrapVi(cfg.top);
                 xtopSeen = true;
                 break;
 
             case Op::Xgkick:
+                // VU0 has no path to the GIF at all (PATH1 belongs to VU1).
+                // Nothing is staged, so the run continues - but a kernel that
+                // tries this would draw nothing on hardware and say nothing
+                // about it.
+                if (cfg.target == Target::VU0) {
+                    warn(pc, in.line,
+                         "xgkick on VU0: VU0 has no GIF path (PATH1 is VU1's) "
+                         "- on hardware this draws nothing");
+                    break;
+                }
                 res.kicks.push_back(
                     wrapVi(m.vi[in.s1 >= 0 && (size_t)in.s1 < m.vi.size()
                                     ? in.s1
@@ -582,6 +626,26 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
     res.ok = true;
     res.mem = m.mem;
     return res;
+}
+
+std::vector<Result> runKernel(
+    const Program& p, const std::vector<uint32_t>& initialMem,
+    const std::vector<std::vector<KernelWrite>>& perCall, const Config& cfg) {
+    std::vector<Result> out;
+    // Data memory PERSISTS across vcallms - that is the whole difference
+    // between a kernel and a pipeline program, and staging it fresh per call
+    // would hide a kernel that reads something the previous call left behind.
+    std::vector<uint32_t> mem(memWords(cfg.target), 0u);
+    for (size_t i = 0; i < initialMem.size() && i < mem.size(); ++i)
+        mem[i] = initialMem[i];
+    for (const auto& writes : perCall) {
+        for (const KernelWrite& w : writes)
+            if (w.word >= 0 && (size_t)w.word < mem.size()) mem[w.word] = w.value;
+        out.push_back(run(p, mem, cfg));
+        mem = out.back().mem;
+        if (!out.back().ok) break;
+    }
+    return out;
 }
 
 std::string listing(const Program& p) {
