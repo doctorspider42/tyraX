@@ -1301,6 +1301,39 @@ The two-program harness leaves enough micro memory to build `clip_c` with no fla
 `--loop-liveness-always`, and it stages the same 17/51. The defect is in openvcl's base
 code generation.
 
+### The sharpest statement so far: openvcl clips triangles that need no clipping
+
+Counting plane-loop completions per batch needs two extra integer aliases, and - unlike
+every richer instrument tried here - it perturbs neither build: SCE still stages 72/24 and
+openvcl still 51/17 with the counter in place. So this one can be believed:
+
+| per batch (7 input triangles, 6 clip planes) | SCE | openvcl |
+|---|---|---|
+| plane-loop completions | **12** | **42** |
+| polygon vertices emitted while clipping | 42 | 126 |
+| of those, vertices kept vs intersections | 34 / 8 | 110 / 16 |
+
+42 is 7 x 6: **every triangle goes through every plane.** SCE's 12 is two triangles' worth
+- it sends the other five straight to the fan, because `ibeq triOr, vi00, fanStart` fires
+for them. The kept-to-crossing ratio is about the same on both sides (81% against 87%), so
+the per-edge decisions are not obviously wrong; there are simply three times as many edges
+to decide, because polygons that should never have entered the plane loop are in it.
+
+A per-triangle read of `triOr` itself is the obvious next step and it is where the
+instruments start lying: adding the two counters per triangle changed openvcl's staged
+output to 39/13, and storing `triOr` before its branch changed SCE's to 48/16. **An
+instrument that moves the thing it measures is not evidence** - which is itself the
+recurring signature here, since openvcl's clip_c answers differently every time unrelated
+instructions are added and SCE's never does.
+
+Worth recording from the perturbed runs anyway, as a lead rather than a result: SCE's
+`triOr` reads 1, 1, 0, 0, 0, 0, 0 across the seven triangles with `outCount` climbing
+3, 9, 12, 15, 18, 21, 24, while openvcl's reads 1, 0, 0, 0, 0, 0, 0 with `outCount` stuck
+at 0 for every triangle - which would mean the name is split across two registers under
+that instrumentation, the accumulating one being invisible from `processing`. In the
+unmodified program it is not split (`VI06` for both aliases), so this says more about how
+tight clip_c's integer file is than about the defect.
+
 An engine-side workaround for this class was tried and **rejected on measurement**:
 carry the previous clip vertex through `prevPtr` (which the program already keeps for the
 wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.
