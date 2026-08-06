@@ -682,6 +682,22 @@ banner both, so a previously built ELF still reports.
   the first `loadScene` runs from the loop (not `init()`) so its loading-screen
   progress is vsync-paced (see the editor's loading-screen feature).
 
+- **`Color`'s default constructor does not initialise anything** ("Initialize
+  Color without setting default values" - it is a vector type used in hot
+  paths), so any `Color` MEMBER is garbage until something assigns it. That is
+  fine for a value that is always written before it is read, and it was not:
+  `RendererCore::bgColor` is the clear colour, and `Engine::init` calls
+  `banner.show()` immediately after `renderer.init()` - the logo hold clears the
+  framebuffer with it, every frame, for two seconds, long before any game code
+  can call `setClearScreenColor`. The boot logo therefore came up on whatever
+  was in that memory: black on one build, BLUE on the next, with nothing in the
+  game changed to explain it (reported from the console exactly that way, and
+  any change to the binary or heap layout can move it). Initialised in the
+  constructor now. The general rule this leaves: anything read before the first
+  game frame - a clear colour, a mode, a flag - must be initialised where it is
+  DECLARED or in its owner's constructor, because "the game sets it at startup"
+  is not true of the engine's own boot screens.
+
 **Audio**
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
   ADPCM voice cannot be STOPPED - only started, or started over.
