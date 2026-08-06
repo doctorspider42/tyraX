@@ -1467,10 +1467,49 @@ repeated:
 (`--loop-liveness-always` is the correctness flag and costs nothing in size, which is worth
 knowing on its own.)
 
-So the six words are a genuine scheduling deficit in the `_tce` variants, not a flag and
-not dead source. The instrument that would settle it is a per-block report of why each
-half-empty row had no partner - dependency unmet, resource conflict, or latency - which
-does not exist yet.
+So the six words are a genuine scheduling deficit, not a flag and not dead source.
+
+### The instrument, and what it says
+
+`--show-pair-misses` re-derives the four reasons `chooseReadyPairPartner` can refuse a
+candidate and tallies them wherever it comes back empty. On `stapip_clip_c`, over the 170
+rows that went out with one slot used:
+
+| reason a partner was unavailable | rows |
+|---|---|
+| `notReady` - the partner exists but its dependencies are unmet at this cycle | **132** |
+| `samePipe` - every ready candidate needs the same slot | **71** |
+| no unemitted candidate at all | 19 |
+| `latency` | 2 |
+| `resource` | **0** |
+
+So resource conflicts are not a factor at all and latency barely is. Either the partner is
+blocked, or the whole ready set is one-sided - a primary `lq` with eight ready candidates,
+all of them lower pipe.
+
+That points somewhere new: **a row that is going out half empty is a free choice**, so it
+can be spent on the next row by preferring a candidate that unblocks an instruction of the
+other pipe. Implemented, and it is the first thing in this whole effort to move the clip
+programs to parity:
+
+| | SCE | openvcl before | with the re-pick |
+|---|---|---|---|
+| `clip_c` | 258 | 260 | **258** |
+| `clip_tc` | 270 | 272 | **270** |
+| `cull_c` | 176 | 174 | 178 |
+| `cull_tc` | 182 | 182 | 186 |
+| `cull_tce` | 168 | 174 | 176 |
+| set | 2028 | 2048 | 2052 |
+
+**The clips reach SCE exactly and the culls lose more than the clips win.** Two ways of
+restraining it were measured: requiring the replacement to score no worse by the ordinary
+metric makes it never fire (2048, unchanged - the same reason a tie-break never fires), and
+restricting it to the primary's own pipe changes nothing, because the candidates it picks
+were same-pipe already. So it is reverted, and what it leaves behind is the sharpest lead
+yet rather than a win: the mechanism is right and its scope is wrong. The clips' gains are
+in loop bodies, the culls' losses in straight-line batch code, so scoping the re-pick to
+loops is the next thing to try - with the instrument now in place to check it rather than
+guess.
 
 ### Reading the batches instead of the totals
 

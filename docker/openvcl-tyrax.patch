@@ -543,10 +543,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..e277b06 100644
+index e6a6dea..080c59f 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,14 @@ CommandLine::CommandLine()
+@@ -75,6 +75,15 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -557,11 +557,12 @@ index e6a6dea..e277b06 100644
 +	m_branchInterlock = false;
 +	m_loopLivenessAlways = false;
 +	m_upperMoveWithW = false;
++	m_showPairMisses = false;
 +	m_branchBubbleOnDependency = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +133,14 @@ CommandLine::CommandLine()
+@@ -125,6 +134,15 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -572,11 +573,12 @@ index e6a6dea..e277b06 100644
 +	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
 +	m_options.push_back(Option(0,"loop-liveness-always",LOOP_LIVENESS_ALWAYS,false));
 +	m_options.push_back(Option(0,"upper-move-with-w",UPPER_MOVE_WITH_W,false));
++	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
 +	m_options.push_back(Option(0,"branch-bubble-on-dependency",BRANCH_BUBBLE_ON_DEPENDENCY,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +255,14 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +257,15 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -587,11 +589,12 @@ index e6a6dea..e277b06 100644
 +				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
 +				case LOOP_LIVENESS_ALWAYS: m_loopLivenessAlways = true; break;
 +				case UPPER_MOVE_WITH_W: m_upperMoveWithW = true; break;
++				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
 +				case BRANCH_BUBBLE_ON_DEPENDENCY: m_branchBubbleOnDependency = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +354,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +357,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -602,10 +605,10 @@ index e6a6dea..e277b06 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..0ed9bc0 100644
+index f5e4b3d..50351c7 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,14 @@ public:
+@@ -56,6 +56,15 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -616,11 +619,12 @@ index f5e4b3d..0ed9bc0 100644
 +	bool branchInterlock() const;
 +	bool loopLivenessAlways() const;
 +	bool upperMoveWithW() const;
++	bool showPairMisses() const;
 +	bool branchBubbleOnDependency() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +138,14 @@ private:
+@@ -130,6 +139,15 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -631,11 +635,12 @@ index f5e4b3d..0ed9bc0 100644
 +		BRANCH_INTERLOCK,
 +		LOOP_LIVENESS_ALWAYS,
 +		UPPER_MOVE_WITH_W,
++		SHOW_PAIR_MISSES,
 +		BRANCH_BUBBLE_ON_DEPENDENCY,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +201,14 @@ private:
+@@ -185,6 +203,15 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -646,15 +651,16 @@ index f5e4b3d..0ed9bc0 100644
 +	bool m_branchInterlock;
 +	bool m_loopLivenessAlways;
 +	bool m_upperMoveWithW;
++	bool m_showPairMisses;
 +	bool m_branchBubbleOnDependency;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..036022c 100644
+index 5500026..dc1a4ee 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,62 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,69 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -707,6 +713,13 @@ index 5500026..036022c 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::showPairMisses() const
++{
++	return m_showPairMisses;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::branchBubbleOnDependency() const
 +{
 +	return m_branchBubbleOnDependency;
@@ -718,7 +731,7 @@ index 5500026..036022c 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..2d4ad8c 100644
+index b8b1946..fe9fea6 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -729,7 +742,7 @@ index b8b1946..2d4ad8c 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,23 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,24 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -748,6 +761,7 @@ index b8b1946..2d4ad8c 100644
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
 +	setVuLoopLivenessAlwaysEnabled( m_cmdLine.loopLivenessAlways() );
 +	setVuUpperMoveWithWEnabled( m_cmdLine.upperMoveWithW() );
++	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
 +	setVuBranchBubbleOnDependencyEnabled( m_cmdLine.branchBubbleOnDependency() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
@@ -1255,7 +1269,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..f688f10 100644
+index 3260370..20d4844 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -1294,7 +1308,72 @@ index 3260370..f688f10 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -349,6 +356,22 @@ namespace
+@@ -254,6 +261,64 @@ namespace
+ 		return best;
+ 	}
+ 
++	// Why did this primary find nobody to share its row with? chooseReadyPairPartner
++	// rejects for four reasons and returns one number, so the reasons are re-derived here
++	// and tallied. Six blind attempts at the remaining words all measured byte-identical
++	// output; this says which reason to attack.
++	void reportPairMiss( unsigned int primary,
++	                     const VuBasicBlock& block,
++	                     const std::vector<unsigned int>& incoming,
++	                     const std::vector<bool>& emitted,
++	                     const VuLatencyTracker& latencyTracker,
++	                     unsigned int ignoredImplicitWawResources,
++	                     unsigned int currentCycle )
++	{
++		unsigned int notReady = 0, samePipe = 0, resource = 0, latency = 0;
++		const bool primaryIsLower = tokenSchedulesAsLower( *block.tokens[primary],
++		                                                  ignoredImplicitWawResources );
++		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
++		                                                     ignoredImplicitWawResources );
++		const int primaryDelay =
++		    pairingHazardDelay( latencyTracker, *block.tokens[primary], NULL,
++		                        static_cast<int>( currentCycle ) );
++
++		for( unsigned int i = 0; i < block.tokens.size(); ++i )
++		{
++			if( i == primary || emitted[i] )
++				continue;
++			if( incoming[i] != 0 )
++			{
++				++notReady;
++				continue;
++			}
++			if( tokenSchedulesAsLower( *block.tokens[i],
++			                           ignoredImplicitWawResources ) == primaryIsLower )
++			{
++				++samePipe;
++				continue;
++			}
++			if( !vuTokenPairResourcesAreIndependent( *block.tokens[primary],
++			                                         *block.tokens[i],
++			                                         primaryWritesMac,
++			                                         tokenWritesMacForPair( *block.tokens[i],
++			                                                               ignoredImplicitWawResources ) ) )
++			{
++				++resource;
++				continue;
++			}
++			if( pairingHazardDelay( latencyTracker, *block.tokens[primary], block.tokens[i],
++			                        static_cast<int>( currentCycle ) ) > primaryDelay )
++				++latency;
++		}
++
++		std::cerr << "[pairmiss] blk" << block.firstTokenIndex << " "
++		          << lowerVuTokenName( *block.tokens[primary] )
++		          << " notReady=" << notReady
++		          << " samePipe=" << samePipe
++		          << " resource=" << resource
++		          << " latency=" << latency << std::endl;
++	}
++
+ 	void markReadyTokenScheduled( unsigned int token,
+ 	                              std::vector<unsigned int>& incoming,
+ 	                              const std::vector< std::vector<unsigned int> >& outgoing,
+@@ -349,6 +414,22 @@ namespace
  		return 1;
  	}
  
@@ -1317,7 +1396,7 @@ index 3260370..f688f10 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +391,28 @@ namespace
+@@ -368,9 +449,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -1349,7 +1428,18 @@ index 3260370..f688f10 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -904,6 +946,7 @@ namespace
+@@ -745,6 +845,10 @@ namespace
+ 			                                                     latencyTracker,
+ 			                                                     ignoredImplicitWawResources,
+ 			                                                     currentCycle );
++			if( partner >= block.tokens.size() && vuShowPairMissesEnabled() )
++				reportPairMiss( best, block, incoming, emitted, latencyTracker,
++				                ignoredImplicitWawResources, currentCycle );
++
+ 			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
+ 			const int bestDelay =
+ 				latencyTracker.readHazardDelay( *block.tokens[best],
+@@ -904,6 +1008,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -1357,7 +1447,7 @@ index 3260370..f688f10 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +956,32 @@ namespace
+@@ -913,45 +1018,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -1425,7 +1515,7 @@ index 3260370..f688f10 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +994,7 @@ namespace
+@@ -964,7 +1056,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -1434,7 +1524,7 @@ index 3260370..f688f10 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1023,9 @@ namespace
+@@ -993,6 +1085,9 @@ namespace
  			}
  		}
  
@@ -1444,7 +1534,7 @@ index 3260370..f688f10 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +5715,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +5777,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -1470,7 +1560,7 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..05188b4 100644
+index c28ec6d..8134d6e 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -404,7 +404,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
@@ -1482,7 +1572,7 @@ index c28ec6d..05188b4 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +547,172 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,184 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -1521,6 +1611,7 @@ index c28ec6d..05188b4 100644
 +	bool g_branchInterlock = false;
 +	bool g_loopLivenessAlways = false;
 +	bool g_upperMoveWithW = false;
++	bool g_showPairMisses = false;
 +	bool g_branchBubbleOnDependency = false;
 +}
 +
@@ -1643,6 +1734,17 @@ index c28ec6d..05188b4 100644
 +	return g_upperMoveWithW;
 +}
 +
++// Diagnostics only: report why a row went out with one slot used.
++void setVuShowPairMissesEnabled( bool enabled )
++{
++	g_showPairMisses = enabled;
++}
++
++bool vuShowPairMissesEnabled()
++{
++	return g_showPairMisses;
++}
++
 +void setVuBranchInterlockEnabled( bool enabled )
 +{
 +	g_branchInterlock = enabled;
@@ -1657,10 +1759,10 @@ index c28ec6d..05188b4 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..3c56c1f 100644
+index 8188099..4ef67d7 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,71 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,73 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1724,6 +1826,8 @@ index 8188099..3c56c1f 100644
 +void setVuLoopLivenessAlwaysEnabled( bool enabled );
 +void setVuUpperMoveWithWEnabled( bool enabled );
 +bool vuUpperMoveWithWEnabled();
++void setVuShowPairMissesEnabled( bool enabled );
++bool vuShowPairMissesEnabled();
 +bool vuLoopLivenessAlwaysEnabled();
 +
 +void setVuBranchInterlockEnabled( bool enabled );
