@@ -296,12 +296,25 @@ static int audsrv_adpcm_alloc_channel(void)
  * If all 48 channels are used, then -AUDSRV_ERR_NO_MORE_CHANNELS is returned.
  * When ch is set to a valid channel ID, -AUDSRV_ERR_NO_MORE_CHANNELS is returned if the channel is currently in use.
  * Trying to play a sample which is unavailable will result in -AUDSRV_ERR_ARGS
+ *
+ * TyraX: OR AUDSRV_ADPCM_FORCE into ch to play over a channel that is still
+ * busy. The refusal below is a software check in this file, not a hardware
+ * limit - KON on a playing voice restarts it - so this only lifts the check.
  */
 int audsrv_ch_play_adpcm(int ch, u32 id)
 {
 	int channel;
+	int force = 0;
 	u32 endx;
 	adpcm_list_t *a;
+
+	/* Only a real channel carries the flag: ch = -1 asks for any free voice,
+	 * and masking a negative number would turn it into a nonsense channel. */
+	if (ch > 0 && (ch & AUDSRV_ADPCM_FORCE))
+	{
+		force = 1;
+		ch &= ~AUDSRV_ADPCM_FORCE;
+	}
 
 	a = adpcm_loaded(id);
 	if (a == NULL)
@@ -313,11 +326,14 @@ int audsrv_ch_play_adpcm(int ch, u32 id)
 	/* sample was loaded */
 	if (ch >= 0 && ch < ADPCM_MAX_CHANNELS)
 	{
-		endx = sceSdGetSwitch(ADPCM_CH_CORE(ch) | SD_SWITCH_ENDX);
-		if (!(endx & (1 << ADPCM_CH_VOICE(ch))))
+		if (!force)
 		{
-			/* Channel in use. */
-			return -AUDSRV_ERR_NO_MORE_CHANNELS;
+			endx = sceSdGetSwitch(ADPCM_CH_CORE(ch) | SD_SWITCH_ENDX);
+			if (!(endx & (1 << ADPCM_CH_VOICE(ch))))
+			{
+				/* Channel in use. */
+				return -AUDSRV_ERR_NO_MORE_CHANNELS;
+			}
 		}
 
 		channel = ch;

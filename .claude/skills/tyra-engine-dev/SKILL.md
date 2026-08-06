@@ -701,18 +701,31 @@ banner both, so a previously built ELF still reports.
   progress is vsync-paced (see the editor's loading-screen feature).
 
 **Audio**
-- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
-  voices cannot be stopped — the editor round-robins SPU channels to avoid
-  drop-outs. **The channel budget of a generated game**, per bus (every new
-  sound goes to the CURRENT room's bus, so this is what is available at once):
-  0-15 for Play Sound's auto round-robin, 16-23 for the sound emitters
-  (`16 + (i & 7)`). The round-robin cycles 16, not 24 — it used to run the full
-  24 and walked into the emitters' slots, so one auto play in three stole an
-  emitter's channel or bounced off it as "busy". A pinned channel that is still
-  playing is SKIPPED, not cut off: audsrv answers -AUDSRV_ERR_NO_MORE_CHANNELS
-  and nothing keys the voice off first. Making pinning actually retrigger is a
-  KOFF-then-KON in the fork's `audsrv_ch_play_adpcm` and wants a hardware pass
-  (the release phase between the two is where a click would come from).
+- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
+  ADPCM voice cannot be STOPPED - only started, or started over.
+  **The channel budget of a generated game**, per bus (every new sound goes to
+  the CURRENT room's bus, so this is what is available at once): 0-15 for Play
+  Sound, 16-23 for the sound emitters. The auto cycle runs 16, not 24 — it used
+  to run the full 24 and walked into the emitters' slots, so one auto play in
+  three stole an emitter's channel or bounced off it as "busy". Who gets one
+  when they are all busy is **docs/sound.md** (priority, then loudness); the
+  engine's part of it is `forcePlay` and `endedMask` below.
+- **`AudioAdpcm::forcePlay` plays over a busy channel** - `AUDSRV_ADPCM_FORCE`,
+  a flag bit ORed into the channel number, which the fork masks off and uses to
+  skip its own ENDX busy check. The refusal was always a software check in
+  `audsrv_ch_play_adpcm`, not a hardware limit: KON on a sounding voice
+  restarts it. The bit rides in the channel because that number already travels
+  EE -> RPC -> IOP untouched, so this cost no new export and no signature
+  change (adding an IRX export means touching the import list of everything
+  that links it). **Whether a forced restart CLICKS is a hardware question and
+  is not settled** - it depends where in the waveform the victim was, and PCSX2
+  is not a witness worth trusting on the SPU2. If it turns out to click, the
+  fixes in order are: drop the victim's volume and play on the next frame, or
+  KOFF first and let the ADSR release run (both cost a frame of latency).
+- **`AudioAdpcm::endedMask(core)` is how to ask what is still playing** - the
+  SPU2's own ENDX register, one bit per voice, one IOP RPC. Ask it per PLAY
+  REQUEST, never per frame (a play already costs two or three RPCs; a per-frame
+  poll is what the emitter loop's whole quantization exists to avoid).
 - **An EE buffer handed to a SIF DMA must be written back to main memory
   first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
   it. The EE's data cache is write-back, the DMA reads RAM, so a sample just

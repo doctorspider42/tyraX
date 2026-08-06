@@ -15,9 +15,9 @@
 #include <kernel.h>
 #include <cstdlib>
 #include <audsrv.h>
-#ifndef NDEBUG
-#include <libsd.h>  // the voice-state dump below (debug builds only)
-#endif
+// libsd: endedMask() reads the SPU2's ENDX register in every build, and the
+// debug voice-state dump below reads the rest of them.
+#include <libsd.h>
 #include "thread/threading.hpp"
 
 namespace Tyra {
@@ -210,6 +210,36 @@ AdpcmResult AudioAdpcm::tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
     logAdpcmFailure(t_ch, "error from audsrv", res);
     return AdpcmResult::ADPCM_ERROR;
   }
+}
+
+// Added by TyraX - see the header. The flag rides in the channel number, so
+// this is the same RPC tryPlay makes with one bit set.
+AdpcmResult AudioAdpcm::forcePlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
+  if (!t_adpcm) {
+    logAdpcmFailure(t_ch, "no sample (it failed to load)", 0);
+    return AdpcmResult::ADPCM_ERROR;
+  }
+  if (t_ch < 0) return tryPlay(t_adpcm, t_ch);  // nothing to force
+
+  const int res =
+      audsrv_ch_play_adpcm((int)t_ch | AUDSRV_ADPCM_FORCE, t_adpcm);
+  if (res == (int)t_ch) {
+    logVoiceState(t_ch);  // once per channel, like tryPlay
+    return AdpcmResult::ADPCM_OK;
+  }
+  // A forced play has no "busy" answer left, so anything but the channel
+  // itself is a real error (an unknown sample, or an audsrv too old to know
+  // the flag - which answers with the ordinary busy refusal).
+  logAdpcmFailure(t_ch, "forced play refused", res);
+  return AdpcmResult::ADPCM_ERROR;
+}
+
+// Added by TyraX - see the header.
+u32 AudioAdpcm::endedMask(const int& t_core) {
+  // libsd encodes the core as the low bit of the register selector - the same
+  // (core | SD_...) shape AudioReverb uses; there is no SD_CORE_n constant in
+  // its public header (audsrv defines its own privately).
+  return sceSdGetSwitch((u16)((t_core ? 1 : 0) | SD_SWITCH_ENDX)) & 0x00FFFFFFu;
 }
 
 void AudioAdpcm::playWait(audsrv_adpcm_t* t_adpcm) { playWait(t_adpcm, -1); }

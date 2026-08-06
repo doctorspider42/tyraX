@@ -54,6 +54,31 @@ class AudioAdpcm {
   AdpcmResult tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch);
 
   /**
+   * Play on a channel EVEN IF it is still busy - the voice restarts.
+   *
+   * Added by TyraX. tryPlay() refuses a busy channel, which is right for a
+   * sound that must not cut itself off but wrong for the usual reason to pin a
+   * channel in the first place (a footstep, a UI beep, a weapon: the new one
+   * replaces the old one rather than being dropped). Keying a playing voice is
+   * something the SPU2 does happily; the refusal was audsrv's own check.
+   * @param t_ch Channel (0-47). A negative channel has nothing to force and
+   *             falls back to tryPlay's "any free voice".
+   */
+  AdpcmResult forcePlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch);
+
+  /**
+   * The 24 voices of one SPU2 core that have FINISHED their sample, as a bit
+   * per voice (bit N = that core's voice N is free).
+   *
+   * Added by TyraX: the only way to ask "is this channel still playing"
+   * without guessing, and the input to any priority/stealing scheme - a voice
+   * that has ended is free for the taking and needs no steal at all. One IOP
+   * RPC per call, so ask when the bank is contended, never per frame.
+   * @param t_core 1 = channels 0-23, 0 = channels 24-47.
+   */
+  u32 endedMask(const int& t_core);
+
+  /**
    * Play ADPCM sample, if channel is occupied, wait for it.
    * If not used properly, can hugely reduce performance.
    * @param t_adpcm ADPCM data, created by load();

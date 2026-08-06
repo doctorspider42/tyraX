@@ -65,6 +65,40 @@ drives the core 1 unit. Moving them back restored the 450-500 ms tails. Two
 independent confirmations that the bus/core mapping is real. Not yet confirmed
 on hardware.
 
+## TyraX change 2: playing over a busy channel
+
+`audsrv_ch_play_adpcm` refuses a channel whose previous sample has not
+finished (`-AUDSRV_ERR_NO_MORE_CHANNELS`). That is right for a caller asking
+for *any* free voice and wrong for one that has PINNED a channel: pinning is
+how a game says "this sound owns this voice", and the whole point of it is
+usually that a new footstep, beep or gunshot **replaces** the previous copy
+instead of being dropped. The refusal is a software check in `adpcm.c`, not a
+hardware limit - keying a voice that is already sounding restarts it.
+
+- `AUDSRV_ADPCM_FORCE` (0x40, in both `audsrv.h` headers) is ORed into the
+  channel number. `audsrv_ch_play_adpcm` masks it off and skips the ENDX check
+  when it is set.
+- **The flag rides in the channel number on purpose.** That number already
+  travels EE -> RPC -> IOP untouched (`call_rpc_2(AUDSRV_PLAY_ADPCM, ch, id)`,
+  dispatched as `audsrv_ch_play_adpcm(data[0], data[1])`), so this needed no
+  new export in `exports.tab`, no new RPC id and no signature change on either
+  side. An added IRX export means touching the import list of everything that
+  links the module.
+- Channels are 0-47, so bit 6 is free. It is only honoured for `ch > 0`:
+  channel -1 means "any free voice", and masking a negative number would turn
+  it into a nonsense channel.
+
+The engine side is `Tyra::AudioAdpcm::forcePlay` (plus `endedMask`, which reads
+the SPU2's ENDX register so a caller can tell a finished voice from a busy one
+without guessing). What uses them is documented in `docs/sound.md`.
+
+**Open on hardware: whether a forced restart clicks.** It depends where in the
+waveform the interrupted sample was, and PCSX2 does not model the SPU2 closely
+enough to answer it. If it does click, the fixes in order are dropping the
+victim's volume and playing on the next frame, or a KOFF plus the ADSR release
+- both cost a frame of latency, so neither is worth paying before someone
+actually hears the problem.
+
 ## Licence: this module is LGPL v2, not AFL
 
 Worth reading before you touch this, because it is **not** the licence the rest

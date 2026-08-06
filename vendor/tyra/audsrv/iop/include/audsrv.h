@@ -99,6 +99,18 @@ extern int audsrv_get_cd_type();
  * every previous build), 24-47 are core 0. See iop/src/adpcm.c. */
 #define AUDSRV_ADPCM_VOICES_PER_CORE 24
 #define AUDSRV_ADPCM_CHANNELS        (AUDSRV_ADPCM_VOICES_PER_CORE * 2)
+
+/* Added by TyraX: OR this into the channel number of audsrv_ch_play_adpcm()
+ * to play EVEN IF that channel is still busy. Without it a pinned channel
+ * whose previous sample has not finished refuses the new one, so a sound
+ * pinned to a channel cannot retrigger - which is the opposite of what
+ * pinning is usually for (a footstep or a UI beep must cut its own previous
+ * copy off rather than be dropped). The bit rides in the channel number
+ * because that number already travels EE -> RPC -> IOP untouched; a new
+ * export would mean touching the import list of everything that links audsrv.
+ * Channels are 0-47, so bit 6 is free. Ignored for channel -1 (any free one).
+ */
+#define AUDSRV_ADPCM_FORCE 0x40
 extern int audsrv_adpcm_init();
 extern int audsrv_adpcm_set_volume(int ch, int voll, int volr);
 extern void *audsrv_load_adpcm(u32 *buffer, int size, int id);

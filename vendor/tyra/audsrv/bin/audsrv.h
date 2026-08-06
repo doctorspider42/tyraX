@@ -224,6 +224,18 @@ extern int audsrv_on_fillbuf(int amount, audsrv_callback_t cb, void *arg);
 #define AUDSRV_ADPCM_CH_VOICE(ch) ((ch) < AUDSRV_ADPCM_VOICES_PER_CORE \
                                        ? (ch) : (ch) - AUDSRV_ADPCM_VOICES_PER_CORE)
 
+/* Added by TyraX: OR this into the channel number of audsrv_ch_play_adpcm()
+ * to play EVEN IF that channel is still busy. Without it a pinned channel
+ * whose previous sample has not finished refuses the new one, so a sound
+ * pinned to a channel cannot retrigger - which is the opposite of what
+ * pinning is usually for (a footstep or a UI beep must cut its own previous
+ * copy off rather than be dropped). The bit rides in the channel number
+ * because that number already travels EE -> RPC -> IOP untouched; a new
+ * export would mean touching the import list of everything that links audsrv.
+ * Channels are 0-47, so bit 6 is free. Ignored for channel -1 (any free one).
+ */
+#define AUDSRV_ADPCM_FORCE 0x40
+
 /** Initializes adpcm unit of audsrv
  * @returns zero on success, negative value on error
  *
