@@ -22,6 +22,8 @@
 #include "procbake.hpp"
 #include "matbake.hpp"
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
+#include "menulayout.hpp"  // the Menu Preview's row geometry
+#include "menustyle.hpp"  // the staged stylesheet the Style tab edits
 #include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "vucap.hpp"
@@ -1537,6 +1539,59 @@ private:
     savebake::IconInfo saveIconInfo_;
     std::string saveIconClipsModel_;
     std::vector<std::string> saveIconClips_;
+    // --- the Menu Editor's Style tab (docs/menu-styles.md, menustyle_ui.cpp) --
+    // The staged stylesheet is what the widgets edit and what the preview bakes
+    // from; the file on disk is only written by Save. Style edits get their OWN
+    // undo stack - a stylesheet is not project data, so commitChange() must not
+    // see them (the Material Editor made the same call).
+    void drawMenuPreview(const GameMenu& m);
+    // The preview in three parts, because it is drawn in two windows and must
+    // not become two previews: refresh owns the bake, controls the mode picker
+    // and the simulated cursor, draw the image. The texture is shared - a
+    // display mode changes presentation, not what is baked.
+    bool menuPreviewRowUsable(const GameMenu& m, const menulayout::Layout& L,
+                              int row) const;
+    void menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir);
+    void menuPreviewRefresh(const GameMenu& m);
+    void menuPreviewControls(const GameMenu& m, int& mode);
+    void menuPreviewDraw(const GameMenu& m, int mode, float zoom);
+    void drawMenuPreviewWindow();
+    void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
+    void drawMenuStyleText(GameMenu& m, bool& projectChanged);
+    void drawMenuCost(const GameMenu& m);
+    void drawMenuStyleDeleteModal();
+    std::string menuStyleDeleteKey_;  // the sheet the confirm is about
+    void menuStyleSync(const GameMenu& m);
+    void menuStylePush();
+    void menuStyleEdited();
+    menustyle::Rule& menuStyleRule(const std::string& menuScope,
+                                   menustyle::Elem elem, const std::string& cls,
+                                   int state);
+    bool menuStyleProp(const GameMenu& m, menustyle::Elem elem,
+                       const std::string& cls, int state, menustyle::Prop prop);
+    bool menuStyleFileExists(const std::string& key) const;
+    std::string importMenuImage(const std::string& srcPath);
+    menustyle::Sheet menuStyleStaged_;
+    std::string menuStyleKey_;
+    bool menuStyleLoaded_ = false;
+    bool menuStyleDirty_ = false;
+    std::vector<menustyle::Sheet> menuStyleUndo_;
+    size_t menuStyleUndoAt_ = 0;
+    std::string menuStyleText_;             // canonical text of the staged sheet
+    std::vector<char> menuStyleTextBuf_;    // the raw tab's edit buffer
+    bool menuStyleScoped_ = false;          // write into a menu#<name> block
+    std::string menuStyleClass_;            // which row class the widgets edit
+    int menuPreviewRow_ = 0;                // simulated cursor row
+    int menuPreviewScroll_ = 0;             // first visible row of a long list
+    bool showMenuPreview_ = false;          // the standalone Menu Preview window
+    // The preview PLAYS the sheet's motion, with the same formulas the runtime
+    // uses - a transition you cannot see while authoring it is a transition you
+    // tune by rebuilding the game.
+    bool menuPreviewPlay_ = true;
+    float menuPreviewClock_ = 0.0f;
+    float menuPreviewOpenT_ = 1e9f;  // large = the open transition has finished
+    int menuPreviewWinMode_ = 0;            // its own display mode
+    float menuPreviewZoom_ = 2.0f;
     unsigned menuPreviewTex_ = 0;
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
@@ -2118,6 +2173,7 @@ private:
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;
     bool newAiCopilot_ = false;
+    bool newAiCodex_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created

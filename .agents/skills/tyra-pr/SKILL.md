@@ -50,10 +50,19 @@ Report the mergeable state to the user as part of "PR is up".
 ## Conflict hot spots (this codebase specifically)
 
 - **`src/templates.cpp`** - almost every feature touches codegen. Watch for:
-  the emitted `SceneObjectData` struct + its object-row emission (parallel
-  branches append fields; after merging, the struct fields and the row
+  the emitted `SceneObjectData` and `MenuData` structs + their row emission
+  (parallel branches append fields; after merging, the struct fields and the row
   columns MUST line up 1:1 - count them), the game-cpp prolog includes, and
   the header templates (duplicated for orbit + fpp - fix both).
+
+  **Nothing on the host compiles those rows**, so a mismatch survives every
+  editor build, the harnesses and `--refresh-gen`; the PS2 toolchain is the first
+  thing that sees it (`invalid conversion from 'const char*' to 'int'`). It does
+  not take a merge to cause one either - two edits anchored on the same struct
+  line put a `const char*` between two ints while the emitter kept the old
+  order. Cheapest check, no Docker: read the struct and one emitted row out of
+  the generated header and compare them field by field (~15 lines of Python),
+  then let one `--build` confirm.
 - **`src/app.cpp`** - UI moves around (Properties window, panels); prefer
   re-applying your widget in main's new location over keeping the old block.
 - **`examples/script-demo/`** - generated files conflict textually but are

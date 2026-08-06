@@ -29,6 +29,14 @@ struct MenuEntryData {
   // (optionCount ints; -1 = the project-default boot mode).
   // Null = the option index itself.
   const int* optModes;
+  // --- styling (docs/menu-styles.md) ---------------------------
+  // Cells in the row-state atlas for this row, -1 = the sheet
+  // paints nothing for that state (the row then draws from the
+  // panel exactly as before).
+  int selCell, disCell;
+  int descCell;    // cell in the description atlas (-1 = none)
+  int enableVal;   // save value gating the row (-1 = always on)
+  int selectable;  // 0 = a label/spacer row the cursor skips
 };
 
 struct MenuData {
@@ -50,32 +58,84 @@ struct MenuData {
   // current binding as runtime text from this font's glyph atlas
   // (Project::atlasFontIndices bakes one for such menus).
   int font;
+  // --- styling (docs/menu-styles.md) ---------------------------
+  // Row-state atlas ("" = none): one cell per (row, state) the
+  // stylesheet paints, drawn OVER the baked normal row. A cell
+  // carries the panel's own background, so it covers it whatever
+  // the highlight's alpha.
+  const char* rowsTex;
+  int rowsCellW, rowsCellH, rowsPitch;
+  // Scrolling list ("" = the rows are baked into the panel):
+  // every row in its own texture, drawn as a rowsVisible-tall
+  // WINDOW of it - scrolling is an offset, not a rebake.
+  const char* listTex;
+  int listH, rowsVisible;
+  // Description pane ("" = none): the selected row's cell drawn
+  // at descX/descY inside the panel.
+  const char* descTex;
+  int descCellW, descCellH, descPitch, descX, descY;
+  float markerX;    // selection caret x inside the panel
+  int markerOn;     // 0 = `marker: none` - a style whose selected
+                    // row paints a plate does not want a caret on
+                    // top of it (docs/menu-styles.md)
+  // The caret's own image ("" = the built-in hud/save-cursor.png,
+  // which is also the save menu's). A sheet points at its own with
+  // `marker { marker: url(res/hud/caret.png); }`.
+  const char* markerTex;
+  // Motion. The panel slides/fades in over openSec (ease 0 linear,
+  // 1 ease-out, 2 ease-in-out) and the caret eases to its row over
+  // cursorSec. Sprite properties only - nothing is re-baked.
+  float openSec;
+  int openEase, openFade;
+  float openDX, openDY, openScale;
+  float cursorSec;
+  int cursorEase;
+  // The close transition, and the two easings that are not about
+  // the panel: a scrolling list settling into its new window, and
+  // the flash a Toggle/Choice value gives when it changes.
+  float closeSec;
+  int closeEase, closeFade;
+  float closeDX, closeDY;
+  float scrollSec, valueFlashSec;
+  // Loops. All three are sprite properties - an alpha, an offset, a
+  // position - so a menu that never stops moving costs what a still
+  // one costs (docs/menu-styles.md "Motion").
+  float pulseSec, pulseAmt;   // the selected row's cell breathes
+  float bobSec, bobPx;        // the caret slides back and forth
+  float sheenSec, sheenPx;    // a band sweeps across the panel
+  int sheenR, sheenG, sheenB, sheenA;
+  // The moving background layer ("" = none): mode 1 scrolls a
+  // tiled texture by moving the sampling window, mode 2 steps
+  // through a frame strip. Both are one sprite and one texture.
+  const char* bgTex;
+  int bgMode, bgTileW, bgTileH, bgFrameH, bgFrames;
+  float bgScrollX, bgScrollY, bgSeconds;
 };
 
 constexpr int MENU_COUNT = 3;
 
 // menu "pause"
 constexpr MenuEntryData MENU_0_ENTRIES[2] = {
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // Resume
-    {2, -1, 0.0F, 0, -1, 0, -1, nullptr},  // Save Game
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Resume
+    {2, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Save Game
 };
 // menu "options"
 constexpr MenuEntryData MENU_1_ENTRIES[5] = {
-    {7, 1, 0.0F, 2, 0, 0, -1, nullptr},  // Fog
-    {7, 2, 0.0F, 2, 2, 0, -1, nullptr},  // Grain
-    {7, 3, 0.0F, 2, 4, 0, -1, nullptr},  // Bloom
-    {7, 4, 0.0F, 2, 6, 0, -1, nullptr},  // Particles
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},  // Close
+    {7, 1, 0.0F, 2, 0, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Fog
+    {7, 2, 0.0F, 2, 2, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Grain
+    {7, 3, 0.0F, 2, 4, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Bloom
+    {7, 4, 0.0F, 2, 6, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Particles
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // Close
 };
 // menu "save"
 constexpr MenuEntryData MENU_2_ENTRIES[1] = {
-    {0, -1, 0.0F, 0, -1, 0, -1, nullptr},
+    {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 
 inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
-    {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // pause
-    {"menus/options.png", 256, 256, 176, 44, 22, 5, MENU_1_ENTRIES, 0, 0, 0.5F, 0.5F, "menus/options-values.png", 128, 22, 30, 104, 0},  // options
-    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0},  // save
+    {"menus/pause.png", 256, 128, 114, 44, 24, 2, MENU_0_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 2, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // pause
+    {"menus/options.png", 256, 256, 176, 44, 22, 5, MENU_1_ENTRIES, 0, 0, 0.5F, 0.5F, "menus/options-values.png", 128, 22, 30, 104, 0, "", 0, 0, 0, "", 0, 5, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // options
+    {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_2_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
 constexpr int TITLE_MENU = -1;

@@ -1,7 +1,7 @@
 # AI support in generated projects
 
 **What the option does:** it copies assistant guidance files into your game
-project so an AI coding assistant opened inside it (Claude Code, GitHub
+project so an AI coding assistant opened inside it (Claude Code, Codex, GitHub
 Copilot) immediately knows what a TyraX project is: which files are
 editor-owned vs yours (the ownership markers), where scene data and assets
 live, how flow graphs work, how to write custom scripts/nodes/effects, how to
@@ -10,18 +10,26 @@ build and debug — and how to drive the editor's
 
 ## Installing
 
-- **New Project** (`File > New Project`) — tick *Claude Code* and/or *GitHub
-  Copilot* under **AI support**.
+- **New Project** (`File > New Project`) — tick *Claude Code*, *Codex* and/or
+  *GitHub Copilot* under **AI support**.
 - **Later** — `Project > Preferences > AI support` (the buttons install or
   refresh immediately; this writes files, it is not a project setting), or
-  headlessly: `tyrax-editor --add-ai-support <projectDir> [claude] [copilot]`.
+  headlessly:
+  `tyrax-editor --add-ai-support <projectDir> [claude] [codex] [copilot]`.
 
 ## What gets installed
 
 | Provider | Files |
 |---|---|
-| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-building` (each a `SKILL.md`) |
+| Claude Code | `CLAUDE.md` (always-loaded rules) + `.claude/skills/tyra-project`, `tyra-flowgraph`, `tyra-scripting`, `tyra-menustyle`, `tyra-building` (each a `SKILL.md`) |
+| Codex | `AGENTS.md` + the same five guides under `.agents/skills/` |
 | GitHub Copilot | `.github/copilot-instructions.md` (single condensed guide) |
+
+**Codex gets the same content, not a second copy of it.** The files are the
+Claude ones written to where Codex looks, with their self-references rewritten
+(`.claude/skills` → `.agents/skills`, `CLAUDE.md` → `AGENTS.md`) — the same
+mirroring the editor's own repo does. A second set under `ai-support/` would
+drift the day someone edited one side.
 
 The `{TYRAX_EXE}` placeholder in the sources is replaced with the installing
 editor's executable path, so the skills can point the assistant at the CLI on
