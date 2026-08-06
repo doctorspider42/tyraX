@@ -1402,13 +1402,43 @@ there), is measured:
 
 All ten still assemble. **Eighteen words from the ceiling.**
 
-It is not committed yet, because upstream pins the exclusion with an explicit test -
+Upstream pins the exclusion with an explicit test -
 `CHECK(!isVuMoveAsUpperMaxCandidate("move.xyzw vf04, vf05"))` in
-`test_vu_scheduling_rules.cpp` - and breaking that trades the safety net for the win. It
-belongs behind a flag, the way the other six density changes do: off by default, passed by
-the image's `vcl` wrapper, upstream's tests untouched. The justification for the flag
-existing is SCE's own output, which promotes full-width moves 25 times across these five
-programs.
+`test_vu_scheduling_rules.cpp` - and breaking that would trade the safety net for the win,
+so this ships as **`--upper-move-with-w`**: off by default, upstream's suite untouched,
+passed by the image's `vcl` wrapper like the other six. What justifies the flag existing is
+SCE's own output, which promotes full-width moves 25 times across these five programs and
+renders pixel-identically doing it.
+
+### And four instructions per clipper that never needed to exist
+
+`sjudge.w` is the guard the `clipw` compares against, and the `move sjudge, cvec` above
+`begin:` already puts `cvec.w` there. Nothing writes `.w` afterwards - every other store
+into `sjudge` is `.x`, `.y` or `.xy` - yet `mul.w sjudge, vf00, cvec[w]` recomputed
+`1 * cvec.w` once per vertex and once per edge. Four dead instructions in each of the five
+clip programs, and both assemblers were faithfully emitting them.
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| before the flag and the dead code | 2040 | 2074 |
+| `--upper-move-with-w` | 2040 | 2060 |
+| dead `mul.w` removed | **2028** | **2048** |
+
+Verified after both: SCE stays pixel-identical to its own reference (0 of 514600) and
+openvcl matches SCE exactly - 24/72 staged, 0 pixels, ten of ten assembling, upstream's
+tests green with the flag off.
+
+**Six words from the ceiling.** SCE now has 14 words of headroom where it had none, and
+openvcl needs 6 more. What remains is scheduling and nothing else: over the five clip
+programs openvcl makes 121 pairs where SCE makes 146, and emits 99 rows with both slots
+empty where SCE emits 86. The pipe mix is no longer the difference - both use exactly 749
+lower-pipe slots now.
+
+One more source shrink was tried and reverted: collapsing `add.x sjudge, vf00, pd[x]` plus
+half of `sub.xy` into a single `sub.x sjudge, pd, cvec[w]`. It removes an instruction from
+the edge loop, which is a runtime win, but the scheduler absorbed it into a slot that was
+already free and neither assembler's word count moved. Unverified runtime gains do not
+land.
 
 ### Reading the batches instead of the totals
 

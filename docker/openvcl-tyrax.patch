@@ -66,7 +66,7 @@ index 5bec71c..504039b 100644
  		newDependency = new Dependency;
  		newDependency->setAlias( newAlias );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..1a2a05e 100644
+index 699abe7..7dbcbbc 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -487,6 +487,17 @@ index 699abe7..1a2a05e 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
+@@ -9833,6 +10135,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+ 		if(token.fields() & (1<<t))
+ 			fields += fieldnames[t];
+ 	}
++	// No suffix on the source means all four, so name them: emitting the empty mask
++	// verbatim produces `max.` with nothing after the dot, which dvp-as rejects.
++	if( fields.empty() )
++		fields = fieldnames;
+ 
+ 	std::list<Token::Argument>::const_iterator dst = token.arguments().begin();
+ 	std::list<Token::Argument>::const_iterator src = dst;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
 index 1845035..31f577f 100644
 --- a/src/CodeGenerator.h
@@ -532,10 +543,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..80c75d7 100644
+index e6a6dea..e277b06 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,13 @@ CommandLine::CommandLine()
+@@ -75,6 +75,14 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -545,11 +556,12 @@ index e6a6dea..80c75d7 100644
 +	m_emitDelayFillers = false;
 +	m_branchInterlock = false;
 +	m_loopLivenessAlways = false;
++	m_upperMoveWithW = false;
 +	m_branchBubbleOnDependency = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +132,13 @@ CommandLine::CommandLine()
+@@ -125,6 +133,14 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -559,11 +571,12 @@ index e6a6dea..80c75d7 100644
 +	m_options.push_back(Option(0,"emit-delay-fillers",EMIT_DELAY_FILLERS,false));
 +	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
 +	m_options.push_back(Option(0,"loop-liveness-always",LOOP_LIVENESS_ALWAYS,false));
++	m_options.push_back(Option(0,"upper-move-with-w",UPPER_MOVE_WITH_W,false));
 +	m_options.push_back(Option(0,"branch-bubble-on-dependency",BRANCH_BUBBLE_ON_DEPENDENCY,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +253,13 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +255,14 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -573,11 +586,12 @@ index e6a6dea..80c75d7 100644
 +				case EMIT_DELAY_FILLERS: m_emitDelayFillers = true; break;
 +				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
 +				case LOOP_LIVENESS_ALWAYS: m_loopLivenessAlways = true; break;
++				case UPPER_MOVE_WITH_W: m_upperMoveWithW = true; break;
 +				case BRANCH_BUBBLE_ON_DEPENDENCY: m_branchBubbleOnDependency = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +351,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +354,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -588,10 +602,10 @@ index e6a6dea..80c75d7 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..85ff8ee 100644
+index f5e4b3d..0ed9bc0 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,13 @@ public:
+@@ -56,6 +56,14 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -601,11 +615,12 @@ index f5e4b3d..85ff8ee 100644
 +	bool emitDelayFillers() const;
 +	bool branchInterlock() const;
 +	bool loopLivenessAlways() const;
++	bool upperMoveWithW() const;
 +	bool branchBubbleOnDependency() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +137,13 @@ private:
+@@ -130,6 +138,14 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -615,11 +630,12 @@ index f5e4b3d..85ff8ee 100644
 +		EMIT_DELAY_FILLERS,
 +		BRANCH_INTERLOCK,
 +		LOOP_LIVENESS_ALWAYS,
++		UPPER_MOVE_WITH_W,
 +		BRANCH_BUBBLE_ON_DEPENDENCY,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +199,13 @@ private:
+@@ -185,6 +201,14 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -629,15 +645,16 @@ index f5e4b3d..85ff8ee 100644
 +	bool m_emitDelayFillers;
 +	bool m_branchInterlock;
 +	bool m_loopLivenessAlways;
++	bool m_upperMoveWithW;
 +	bool m_branchBubbleOnDependency;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..bfccd9b 100644
+index 5500026..036022c 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,55 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,62 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -683,6 +700,13 @@ index 5500026..bfccd9b 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::upperMoveWithW() const
++{
++	return m_upperMoveWithW;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::branchBubbleOnDependency() const
 +{
 +	return m_branchBubbleOnDependency;
@@ -694,7 +718,7 @@ index 5500026..bfccd9b 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..7761399 100644
+index b8b1946..2d4ad8c 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -705,7 +729,7 @@ index b8b1946..7761399 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,22 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,23 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -723,6 +747,7 @@ index b8b1946..7761399 100644
 +	setVuEmitDelayFillersEnabled( m_cmdLine.emitDelayFillers() );
 +	setVuBranchInterlockEnabled( m_cmdLine.branchInterlock() );
 +	setVuLoopLivenessAlwaysEnabled( m_cmdLine.loopLivenessAlways() );
++	setVuUpperMoveWithWEnabled( m_cmdLine.upperMoveWithW() );
 +	setVuBranchBubbleOnDependencyEnabled( m_cmdLine.branchBubbleOnDependency() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
@@ -1445,10 +1470,19 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..f553429 100644
+index c28ec6d..05188b4 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -547,12 +547,156 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -404,7 +404,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
+ 		return false;
+ 
+ 	unsigned int fields = token.fields();
+-	if( fields == 0 || (fields & Token::W) )
++	if( !vuUpperMoveWithWEnabled() && ( fields == 0 || (fields & Token::W) ) )
+ 		return false;
+ 
+ 	const std::list<Token::Argument>& args = token.arguments();
+@@ -547,12 +547,172 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -1486,6 +1520,7 @@ index c28ec6d..f553429 100644
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
 +	bool g_loopLivenessAlways = false;
++	bool g_upperMoveWithW = false;
 +	bool g_branchBubbleOnDependency = false;
 +}
 +
@@ -1593,6 +1628,21 @@ index c28ec6d..f553429 100644
 +	return g_loopLivenessAlways;
 +}
 +
++// A move covering w, and a move with no field suffix at all (fields() == 0, which means
++// all four), may be emitted as `max dst,src,src` in the UPPER pipe. MAX of a value with
++// itself is that value on every component, and SCE's own output does this 25 times across
++// the engine's five clip programs. Off by default: upstream refuses these deliberately and
++// has a test that says so.
++void setVuUpperMoveWithWEnabled( bool enabled )
++{
++	g_upperMoveWithW = enabled;
++}
++
++bool vuUpperMoveWithWEnabled()
++{
++	return g_upperMoveWithW;
++}
++
 +void setVuBranchInterlockEnabled( bool enabled )
 +{
 +	g_branchInterlock = enabled;
@@ -1607,10 +1657,10 @@ index c28ec6d..f553429 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..d51368d 100644
+index 8188099..3c56c1f 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,69 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,71 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1672,6 +1722,8 @@ index 8188099..d51368d 100644
 +// edge. The allocator's guard trades that correctness requirement for a compile
 +// that succeeds, and the result is a value handed to two names at once.
 +void setVuLoopLivenessAlwaysEnabled( bool enabled );
++void setVuUpperMoveWithWEnabled( bool enabled );
++bool vuUpperMoveWithWEnabled();
 +bool vuLoopLivenessAlwaysEnabled();
 +
 +void setVuBranchInterlockEnabled( bool enabled );

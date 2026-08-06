@@ -71,7 +71,7 @@ ARG VCL_IMPL=legacy
 # Runner rebuilds the microcode when this string changes, so a bisection does not
 # need --rebuild - but check the log says "VU assembler changed" before trusting a
 # picture.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always"
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
