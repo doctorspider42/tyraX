@@ -1321,8 +1321,21 @@ One thing that looked obvious and did nothing: moving the polygon-buffer stores 
 the gap, so the wait would be filled with work instead of nops. Byte-identical output.
 The scheduler is not bound by source order within a block - it already had that freedom
 and did not use it, because it measures this wait in cycles where an interlocked wait is
-free. That is the remaining 32 words, and the lever for them is in the scheduler, not the
-source.
+free.
+
+And counting what the remaining words actually are reframes the last mile. Across the five
+clip programs openvcl is 43 rows over SCE, split:
+
+| | SCE | openvcl |
+|---|---|---|
+| rows with both slots empty (`nop`/`nop`) | 86 | 104 |
+| rows with exactly one slot used | 891 | 938 |
+
+So **18 rows are padding and 25 are pairing** - instructions openvcl emits alone where SCE
+puts two in a row. That is the same pairing deficit measured at the start of this work
+(995 paired rows against 1031), and it is now the larger half of what stands between this
+assembler and the ceiling. The lever is the ready-list's choice of partner, not the CLIP
+wait.
 
 ### Reading the batches instead of the totals
 
