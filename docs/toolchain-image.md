@@ -1440,6 +1440,38 @@ the edge loop, which is a runtime win, but the scheduler absorbed it into a slot
 already free and neither assembler's word count moved. Unverified runtime gains do not
 land.
 
+Two more attempts at the six, both measuring nothing, both recorded so they are not
+repeated:
+
+* **A priority term for unblocking the other pipe.** `buildDependencyPriorities` is pure
+  critical-path height, and an instruction whose successor is of the opposite pipe is the
+  one that makes a *pair* possible next cycle - so give it a point of height. Tests green,
+  output byte-identical. Heights here differ by more than one, so a single point flips
+  nothing, exactly as the earlier tie-break flipped nothing.
+* **A flag hurting the two worst programs.** `clip_tce` is +12 over SCE and `cull_tce` +6,
+  so each of the eight flags was removed in turn and both programs remeasured. Every one of
+  them helps or is neutral; nothing to reclaim by dropping any:
+
+| dropped flag | `clip_tce` | `cull_tce` |
+|---|---|---|
+| none | **258** | **174** |
+| `--fmac-interlock` | 362 | 248 |
+| `--schedule-flag-readers` | 266 | 186 |
+| `--branch-bubble-on-dependency` | 264 | 178 |
+| `--emit-delay-fillers` | 262 | 176 |
+| `--branch-interlock` | 262 | 174 |
+| `--sce-latencies` | 260 | 176 |
+| `--upper-move-with-w` | 260 | 174 |
+| `--loop-liveness-always` | 258 | 174 |
+
+(`--loop-liveness-always` is the correctness flag and costs nothing in size, which is worth
+knowing on its own.)
+
+So the six words are a genuine scheduling deficit in the `_tce` variants, not a flag and
+not dead source. The instrument that would settle it is a per-block report of why each
+half-empty row had no partner - dependency unmet, resource conflict, or latency - which
+does not exist yet.
+
 ### Reading the batches instead of the totals
 
 Two things made that possible. `--dump-vucap --full` prints every staged packet and every
