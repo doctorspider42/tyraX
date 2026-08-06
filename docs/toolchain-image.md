@@ -1348,6 +1348,12 @@ but is not ready yet - its dependencies are unmet at that cycle. Closing them me
 choosing an order that makes partners ready, which is a different and much larger change
 than weighting the choice of primary.
 
+And the 18 padding rows are already gone as a cost. With the six tests batched into two,
+the scheduler keeps all three flag reads four rows behind their CLIP **by itself** - the
+emitter's backstop finds nothing to add, and `clip_c` measures the same 266 words with it
+on or off. It stays in as a backstop for programs that are not this engine's, but it is no
+longer paying for anything here. Which means the whole remaining 32 words are pairing.
+
 ### Reading the batches instead of the totals
 
 Two things made that possible. `--dump-vucap --full` prints every staged packet and every
