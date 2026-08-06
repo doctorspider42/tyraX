@@ -1505,11 +1505,48 @@ programs to parity:
 restraining it were measured: requiring the replacement to score no worse by the ordinary
 metric makes it never fire (2048, unchanged - the same reason a tie-break never fires), and
 restricting it to the primary's own pipe changes nothing, because the candidates it picks
-were same-pipe already. So it is reverted, and what it leaves behind is the sharpest lead
-yet rather than a win: the mechanism is right and its scope is wrong. The clips' gains are
-in loop bodies, the culls' losses in straight-line batch code, so scoping the re-pick to
-loops is the next thing to try - with the instrument now in place to check it rather than
-guess.
+were same-pipe already. The mechanism is right and its scope is wrong - and the answer turned out to be **not to
+pick a scope at all.**
+
+### `--pair-best-of-two`: schedule it both ways and keep the shorter
+
+Every hand-picked scope failed. Requiring the replacement to score no worse never fires.
+Restricting it to the primary's own pipe changes nothing, because the candidates were
+same-pipe already. "Only in loop bodies" needs a signal the scheduler does not have, and
+plumbing one through three layers to encode a guess is the wrong shape of fix.
+
+So the segment is scheduled **twice** - with the re-pick and without - on copies of the
+latency tracker and cycle counter, and whichever came out shorter is re-run for real. Three
+passes over a segment instead of one, in an assembler that finishes all 25 programs in
+seconds.
+
+| resident VU1 set (ceiling **2042**) | SCE | openvcl |
+|---|---|---|
+| `stapip_cull_c` | 176 | **174** |
+| `stapip_cull_d` | 146 | **142** |
+| `stapip_cull_td` | 156 | **148** |
+| `stapip_cull_tc` | 182 | **182** |
+| `stapip_cull_tce` | 168 | 174 |
+| `stapip_clip_c` | 258 | **258** |
+| `stapip_clip_d` | 206 | 210 |
+| `stapip_clip_td` | 220 | 224 |
+| `stapip_clip_tc` | 270 | **270** |
+| `stapip_clip_tce` | 246 | 256 |
+| **total** | **2028** | **2038 — it fits, with four words spare** |
+
+Off by default: it reorders a cyclic prefix that `test_software_pipeline.cpp` pins down.
+Upstream's 419 stay green and the image's `vcl` wrapper passes it, like the other eight.
+
+**Verified with the whole ten-program VU1-clipper set built by openvcl and no harness:**
+
+| scene, `clipping: "vu1"` | result |
+|---|---|
+| `vclab` | **0 of 514600 pixels** differ from Sony's build |
+| `blocks-terrain` | **0** |
+| `raytraced-mirror` | renders correctly (animates, so the verdict is visual) |
+
+The last two were blank frames before this work. openvcl now builds every microprogram this
+engine has, the resident set fits micro memory, and the frames are Sony's frames.
 
 ### Reading the batches instead of the totals
 

@@ -543,10 +543,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..080c59f 100644
+index e6a6dea..b31d042 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,15 @@ CommandLine::CommandLine()
+@@ -75,6 +75,16 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -558,11 +558,12 @@ index e6a6dea..080c59f 100644
 +	m_loopLivenessAlways = false;
 +	m_upperMoveWithW = false;
 +	m_showPairMisses = false;
++	m_pairBestOfTwo = false;
 +	m_branchBubbleOnDependency = false;
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +134,15 @@ CommandLine::CommandLine()
+@@ -125,6 +135,16 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -574,11 +575,12 @@ index e6a6dea..080c59f 100644
 +	m_options.push_back(Option(0,"loop-liveness-always",LOOP_LIVENESS_ALWAYS,false));
 +	m_options.push_back(Option(0,"upper-move-with-w",UPPER_MOVE_WITH_W,false));
 +	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
++	m_options.push_back(Option(0,"pair-best-of-two",PAIR_BEST_OF_TWO,false));
 +	m_options.push_back(Option(0,"branch-bubble-on-dependency",BRANCH_BUBBLE_ON_DEPENDENCY,false));
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +257,15 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +259,16 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -590,11 +592,12 @@ index e6a6dea..080c59f 100644
 +				case LOOP_LIVENESS_ALWAYS: m_loopLivenessAlways = true; break;
 +				case UPPER_MOVE_WITH_W: m_upperMoveWithW = true; break;
 +				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
++				case PAIR_BEST_OF_TWO: m_pairBestOfTwo = true; break;
 +				case BRANCH_BUBBLE_ON_DEPENDENCY: m_branchBubbleOnDependency = true; break;
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +357,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +360,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -605,10 +608,10 @@ index e6a6dea..080c59f 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..50351c7 100644
+index f5e4b3d..beacc3b 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,15 @@ public:
+@@ -56,6 +56,16 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -620,11 +623,12 @@ index f5e4b3d..50351c7 100644
 +	bool loopLivenessAlways() const;
 +	bool upperMoveWithW() const;
 +	bool showPairMisses() const;
++	bool pairBestOfTwo() const;
 +	bool branchBubbleOnDependency() const;
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +139,15 @@ private:
+@@ -130,6 +140,16 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -636,11 +640,12 @@ index f5e4b3d..50351c7 100644
 +		LOOP_LIVENESS_ALWAYS,
 +		UPPER_MOVE_WITH_W,
 +		SHOW_PAIR_MISSES,
++		PAIR_BEST_OF_TWO,
 +		BRANCH_BUBBLE_ON_DEPENDENCY,
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +203,15 @@ private:
+@@ -185,6 +205,16 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -652,15 +657,16 @@ index f5e4b3d..50351c7 100644
 +	bool m_loopLivenessAlways;
 +	bool m_upperMoveWithW;
 +	bool m_showPairMisses;
++	bool m_pairBestOfTwo;
 +	bool m_branchBubbleOnDependency;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..dc1a4ee 100644
+index 5500026..82ceafa 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,69 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,76 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -720,6 +726,13 @@ index 5500026..dc1a4ee 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::pairBestOfTwo() const
++{
++	return m_pairBestOfTwo;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::branchBubbleOnDependency() const
 +{
 +	return m_branchBubbleOnDependency;
@@ -731,7 +744,7 @@ index 5500026..dc1a4ee 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..fe9fea6 100644
+index b8b1946..9ad0e5c 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -742,7 +755,7 @@ index b8b1946..fe9fea6 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,24 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,25 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -762,6 +775,7 @@ index b8b1946..fe9fea6 100644
 +	setVuLoopLivenessAlwaysEnabled( m_cmdLine.loopLivenessAlways() );
 +	setVuUpperMoveWithWEnabled( m_cmdLine.upperMoveWithW() );
 +	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
++	setVuPairBestOfTwoEnabled( m_cmdLine.pairBestOfTwo() );
 +	setVuBranchBubbleOnDependencyEnabled( m_cmdLine.branchBubbleOnDependency() );
 +
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
@@ -1269,7 +1283,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..20d4844 100644
+index 3260370..97cc465 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -1428,7 +1442,17 @@ index 3260370..20d4844 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -745,6 +845,10 @@ namespace
+@@ -623,7 +723,8 @@ namespace
+ 	                                                                  unsigned int ignoredImplicitWawResources,
+ 	                                                                  VuLatencyTracker& latencyTracker,
+ 	                                                                  unsigned int blockStartCycle,
+-	                                                                  unsigned int& currentCycle )
++	                                                                  unsigned int& currentCycle,
++	                                                                  bool preferUnblockingWhenUnpaired = false )
+ 	{
+ 		std::vector<VuScheduledIssueSlot> slots;
+ 		if( segment.size() < 2 )
+@@ -745,6 +846,56 @@ namespace
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
  			                                                     currentCycle );
@@ -1436,10 +1460,106 @@ index 3260370..20d4844 100644
 +				reportPairMiss( best, block, incoming, emitted, latencyTracker,
 +				                ignoredImplicitWawResources, currentCycle );
 +
++			// This row is going out half empty whatever fills it, so which instruction
++			// fills it is free - and can be spent on the NEXT row: prefer one that
++			// unblocks an instruction of the other pipe, since that is what makes the
++			// following row a pair. --show-pair-misses is what pointed here: `notReady`
++			// is the dominant reason a partner was unavailable (132 of 170 rows in
++			// stapip_clip_c) and resource conflicts are 0.
++			//
++			// Whether it pays depends on the segment, so the caller tries both and keeps
++			// the shorter schedule rather than anyone guessing a scope.
++			if( preferUnblockingWhenUnpaired && partner >= block.tokens.size() )
++			{
++				unsigned int rechosen = best;
++				int rechosenScore = 0;
++				bool have = false;
++				for( unsigned int i = 0; i < block.tokens.size(); ++i )
++				{
++					if( emitted[i] || incoming[i] != 0 )
++						continue;
++					if( isVuLowerPipe( *block.tokens[i] ) != isVuLowerPipe( *block.tokens[best] ) )
++						continue;
++					bool unblocks = false;
++					for( std::vector<unsigned int>::const_iterator edge = outgoing[i].begin();
++					     !unblocks && edge != outgoing[i].end(); ++edge )
++					{
++						if( *edge >= block.tokens.size() || emitted[*edge] )
++							continue;
++						if( incoming[*edge] != 1 )
++							continue;      // not its last blocker
++						if( isVuLowerPipe( *block.tokens[i] ) != isVuLowerPipe( *block.tokens[*edge] ) )
++							unblocks = true;
++					}
++					if( !unblocks )
++						continue;
++					const int score = readyCandidateScore( i, haveLastPipe, lastWasLower,
++					                                       block, priority, latencyTracker,
++					                                       currentCycle );
++					if( !have || score < rechosenScore )
++					{
++						have = true;
++						rechosen = i;
++						rechosenScore = score;
++					}
++				}
++				best = rechosen;
++			}
++
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -904,6 +1008,7 @@ namespace
+@@ -886,12 +1037,48 @@ namespace
+ 	                                       unsigned int blockStartCycle,
+ 	                                       unsigned int& currentCycle )
+ 	{
++		if( !vuPairBestOfTwoEnabled() )
++		{
++			std::vector<VuScheduledIssueSlot> only =
++				scheduleReadySegmentIssueSlots( segment,
++				                                ignoredImplicitWawResources,
++				                                latencyTracker,
++				                                blockStartCycle,
++				                                currentCycle );
++			slots.insert( slots.end(), only.begin(), only.end() );
++			return;
++		}
++
++		// Two trial schedules on copies, then the winner for real. Fewer issue slots is
++		// fewer emitted rows, and the two strategies differ only in what fills a row that
++		// was going out half empty either way.
++		VuLatencyTracker plainTracker = latencyTracker;
++		unsigned int plainCycle = currentCycle;
++		const std::vector<VuScheduledIssueSlot> plain =
++			scheduleReadySegmentIssueSlots( segment,
++			                                ignoredImplicitWawResources,
++			                                plainTracker,
++			                                blockStartCycle,
++			                                plainCycle,
++			                                false );
++
++		VuLatencyTracker unblockTracker = latencyTracker;
++		unsigned int unblockCycle = currentCycle;
++		const std::vector<VuScheduledIssueSlot> unblocking =
++			scheduleReadySegmentIssueSlots( segment,
++			                                ignoredImplicitWawResources,
++			                                unblockTracker,
++			                                blockStartCycle,
++			                                unblockCycle,
++			                                true );
++
+ 		std::vector<VuScheduledIssueSlot> segmentSlots =
+ 			scheduleReadySegmentIssueSlots( segment,
+ 			                                ignoredImplicitWawResources,
+ 			                                latencyTracker,
+ 			                                blockStartCycle,
+-			                                currentCycle );
++			                                currentCycle,
++			                                unblocking.size() < plain.size() );
+ 		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
+ 	}
+ 
+@@ -904,6 +1091,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -1447,7 +1567,7 @@ index 3260370..20d4844 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1018,32 @@ namespace
+@@ -913,45 +1101,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -1515,7 +1635,7 @@ index 3260370..20d4844 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1056,7 @@ namespace
+@@ -964,7 +1139,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -1524,7 +1644,7 @@ index 3260370..20d4844 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1085,9 @@ namespace
+@@ -993,6 +1168,9 @@ namespace
  			}
  		}
  
@@ -1534,7 +1654,7 @@ index 3260370..20d4844 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +5777,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +5860,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -1560,7 +1680,7 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..8134d6e 100644
+index c28ec6d..9d009b0 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -404,7 +404,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
@@ -1572,7 +1692,7 @@ index c28ec6d..8134d6e 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +547,184 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,198 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -1612,6 +1732,7 @@ index c28ec6d..8134d6e 100644
 +	bool g_loopLivenessAlways = false;
 +	bool g_upperMoveWithW = false;
 +	bool g_showPairMisses = false;
++	bool g_pairBestOfTwo = false;
 +	bool g_branchBubbleOnDependency = false;
 +}
 +
@@ -1745,6 +1866,19 @@ index c28ec6d..8134d6e 100644
 +	return g_showPairMisses;
 +}
 +
++// Schedule a segment both ways - with and without the unpaired-row re-pick - and keep the
++// shorter result. Off by default: it reorders a cyclic prefix that a software-pipelining
++// test pins down, and nobody outside this engine asked for the trade.
++void setVuPairBestOfTwoEnabled( bool enabled )
++{
++	g_pairBestOfTwo = enabled;
++}
++
++bool vuPairBestOfTwoEnabled()
++{
++	return g_pairBestOfTwo;
++}
++
 +void setVuBranchInterlockEnabled( bool enabled )
 +{
 +	g_branchInterlock = enabled;
@@ -1759,10 +1893,10 @@ index c28ec6d..8134d6e 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..4ef67d7 100644
+index 8188099..2adc77a 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,73 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,75 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -1828,6 +1962,8 @@ index 8188099..4ef67d7 100644
 +bool vuUpperMoveWithWEnabled();
 +void setVuShowPairMissesEnabled( bool enabled );
 +bool vuShowPairMissesEnabled();
++void setVuPairBestOfTwoEnabled( bool enabled );
++bool vuPairBestOfTwoEnabled();
 +bool vuLoopLivenessAlwaysEnabled();
 +
 +void setVuBranchInterlockEnabled( bool enabled );
