@@ -36,6 +36,13 @@ builds in Docker (PS2DEV toolchain) and runs in PCSX2.
 - **Custom screen effects**: `screen-effects/*.screenfx`.
 - **Menu stylesheets**: `menu-styles/*.menustyle` - CSS-shaped, what a menu
   looks like; a menu names one in its `"style"` key ("" = the Classic look).
+  Selectors are `panel`/`title`/`list`/`row`/`value`/`description`/`hint`/
+  `marker`, with `row:selected` / `row:disabled` states, `row.myclass` classes
+  and `menu#name` scopes; `@transition` and `@animate` add motion. Everything
+  static is baked at build time, so gradients, frames, shadows and outlines cost
+  the console nothing while each painted row STATE costs one baked cell - the
+  Menu Editor prints the VRAM. A baked gradient cannot move: use
+  `background-anim` (a scrolling tile or a frame strip) for that.
 
 ## Flow graphs (game logic)
 

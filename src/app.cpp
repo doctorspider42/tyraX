@@ -12393,11 +12393,15 @@ void App::drawNewProjectModal() {
         ImGui::SeparatorText("AI support");
         ImGui::Checkbox("Claude Code", &newAiClaude_);
         ImGui::SameLine();
+        ImGui::Checkbox("Codex", &newAiCodex_);
+        ImGui::SameLine();
         ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
         prefHelp(
             "Copies assistant guides into the project (.claude/skills/ +\n"
-            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
-            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "CLAUDE.md for Claude Code, .agents/skills/ + AGENTS.md for Codex,\n"
+            ".github/copilot-instructions.md for Copilot): how the project is\n"
+            "structured, flow graphs, custom scripts, the menu stylesheets and\n"
+            "the editor's CLI -\n"
             "so an AI assistant opened in the project knows what it is doing.\n"
             "Can also be added later in Project > Preferences.");
 
@@ -12442,9 +12446,9 @@ void App::drawNewProjectModal() {
             std::string err =
                 project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
             if (err.empty()) {
-                if (newAiClaude_ || newAiCopilot_)
-                    statusMessage_ =
-                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
+                if (newAiClaude_ || newAiCopilot_ || newAiCodex_)
+                    statusMessage_ = aisupport::install(
+                        p.dir, newAiClaude_, newAiCopilot_, newAiCodex_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -13531,23 +13535,30 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("AI support");
     {
         const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCodex = aisupport::installed(project_.dir, "codex");
         const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
         if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
                                      : "Add Claude Code support"))
             statusMessage_ = aisupport::install(project_.dir, true, false);
         ImGui::SameLine();
+        if (ImGui::Button(haveCodex ? "Refresh Codex files" : "Add Codex support"))
+            statusMessage_ = aisupport::install(project_.dir, false, false, true);
+        ImGui::SameLine();
         if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
                                       : "Add Copilot support"))
             statusMessage_ = aisupport::install(project_.dir, false, true);
         prefHelp(
-            "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
-            "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
-            "project structure, flow-graph format, custom scripting and the\n"
-            "editor's headless CLI. Installing again refreshes the files unless\n"
-            "you took ownership (deleted their marker line). Applied immediately\n"
-            "- these are files on disk, not project settings.");
-        if (haveClaude || haveCopilot)
-            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+            "Copies assistant guides into the project: .claude/skills/ + CLAUDE.md\n"
+            "for Claude Code, .agents/skills/ + AGENTS.md for Codex (the same\n"
+            "guides, where Codex looks for them), .github/copilot-instructions.md\n"
+            "for Copilot. They cover the project structure, the flow-graph format,\n"
+            "custom scripting, the MENU STYLESHEETS and the editor's headless CLI.\n"
+            "Installing again refreshes the files unless you took ownership\n"
+            "(deleted their marker line). Applied immediately - these are files on\n"
+            "disk, not project settings.");
+        if (haveClaude || haveCodex || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s%s", haveClaude ? " Claude Code" : "",
+                                haveCodex ? " Codex" : "",
                                 haveCopilot ? " Copilot" : "");
     }
 

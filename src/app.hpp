@@ -2173,6 +2173,7 @@ private:
     // into the fresh project. Also available later in Project Preferences.
     bool newAiClaude_ = false;
     bool newAiCopilot_ = false;
+    bool newAiCodex_ = false;
     std::string newProjectError_;
 
     // "New script" modal state. newScriptAttachTo_ >= 0 = attach the created
