@@ -26791,9 +26791,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                         c << pad << "  const s8 ch = (s8)(ctx.reverbBusBase + "
                           << ch << ");\n";
                     } else {
+                        // 0..15 only: 16-23 of every bus belong to the
+                        // sound emitters (16 + (i & 7) in
+                        // updateSoundEmitters). The cycle used to run to 24
+                        // and walked straight into them, so one auto play in
+                        // three landed on an emitter's channel - stealing it,
+                        // or bouncing off it as "busy".
                         c << pad << "  const s8 ch = (s8)(ctx.reverbBusBase + "
                              "sfxNextCh);\n"
-                          << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
+                          << pad << "  sfxNextCh = (sfxNextCh + 1) % 16;\n";
                     }
                     c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol
                       << " * ctx.sfxVolume / 100, ch);\n";

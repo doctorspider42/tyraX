@@ -1518,9 +1518,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                    "Play Music.",
          .numCount = 3, .numLabels = {"Volume", "Channel", "Dry"},
          .numTips = {"How loud, 0..100. Set Sound Volume scales this on top.",
-                     "Which of the SPU's 24 voices to use, or auto to rotate "
-                     "through them. Pinning a channel is how you make a new "
-                     "trigger CUT OFF the previous one instead of layering.",
+                     "Which voice to use, or auto to rotate through them. "
+                     "Auto cycles 0-15 and layers; 16-23 belong to the sound "
+                     "emitters. A PINNED channel is skipped while its previous "
+                     "sample is still playing - pinning keeps a sound from "
+                     "layering over itself, it does not cut the old one off.",
                      "1 = never send this sound through a reverb zone - a menu "
                      "beep or a voice line that must sound the same in a cave "
                      "as outdoors. 0 (the default) = the room applies."},

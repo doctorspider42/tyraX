@@ -4726,6 +4726,13 @@ void TerrainGame::loadScene(int sceneIndex) {
 // "on the player" wherever they are (dialogs, narration). Hide Object mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
+  // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
+  // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so
+  // the world goes quiet within one sample instead of clicking off, and
+  // nothing new starts while the game is frozen. updateParticles takes the
+  // same early return two functions down; a halted game that keeps ticking
+  // its emitters was the odd one out.
+  if (g_gameplayPaused) return;
   if (sndTimers.size() != runtimeObjects.size())
     sndTimers.assign(runtimeObjects.size(), 0);
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
