@@ -2242,6 +2242,80 @@ corrections to the positional CLIP window are in the history above - and it is e
 resident clip programs the size gate protects. Forty-three words out of 9264 do not justify
 reopening it without hardware to check against.
 
+> **Half of it came out anyway, and it was never the shift window.** The section above is
+> still the right description of the *remaining* rows, and `vuTokenPairResourcesAreIndependent`
+> is untouched, so the "a `clip` sharing a row with a CLIP reader: SCE 12, openvcl 0" row
+> still holds and is now the binding constraint. But 22 of the 43 words were openvcl
+> disagreeing with **itself** - see the next section. The verdict on the shift-window
+> redesign stands; the number it was weighed against is now 22, not 43.
+
+### 22 of those words were openvcl contradicting itself
+
+Asking where the 43 rows *sit* rather than how many there are turned the whole question
+over. Every one is in a **per-triangle** loop; not one is in the per-edge loop of the
+Sutherland-Hodgman test, and in that loop - the only genuinely hot one - **both assemblers
+pad identically**, 48 rows each on the generated corpus. There is nothing to win where
+winning would matter. Weighted by loop nesting, the 43 static words are worth *negative*
+cycles: openvcl pays about 4.7 cycles per triangle for clip padding and takes back 8-9 in
+the fan emitter it schedules better. The resident set was already both smaller and faster
+than SCE's before any of this.
+
+What the same measurement did find is a contradiction inside openvcl.
+`CodeGenerator::clipReadIsPositional` exempts **full-window** masks - `0x3FFFF`, `0xFFFFFF`,
+the ones asking "is anything outside", which get the same answer from any window position -
+while `VuLatencyTracker` held *every* clip reader four cycles behind its `clip` under a bare
+`if( readsClip )`. The scheduler was the conservative one, so the emitter's exemption could
+never pay: the reader had already been pushed away before the emitter looked. SCE agrees
+with our emitter, not our scheduler - in `mcpip_cull_vu1` it puts
+`clipw.xyz VF14xyz,VF14w | fcand VI01,262143` in one row.
+
+| flag | effect |
+|---|---|
+| `--exempt-full-clip-masks` | the mask test lifted into `VuSchedulingRules` so the scheduler asks it too, instead of padding every reader regardless of mask |
+| `--clip-exemption-best-of` | schedule the whole program both ways and keep the fewer words, ties to "off" |
+
+The second exists because the first is not free. Freeing a reader reshuffles the list
+schedule downstream, and there `stapip_cull_d` and `stapip_cull_td` each came out a row
+worse while `stapip_cull_tce` came out a row better - two words on the resident set, 1988 →
+1990. **Scheduling noise, not the exemption**, which is why best-of removes it rather than
+any change to the rule.
+
+Best-of is deliberately **per program, not per segment**, and that is the load-bearing
+decision: freeing a reader can never lengthen the segment it sits in, so a per-segment
+best-of would take the exemption nearly everywhere and score itself a guaranteed win while
+the rows it costs land in a *later* segment. Only a whole-program word count sees that, and
+a whole-program count is what the size gate measures anyway.
+
+| | SCE | 17 flags | + exemption | **+ best-of** |
+|---|---|---|---|---|
+| generated 45 | 9264 | 9308 (+44) | 9286 (+22) | **9286 (+22)** |
+| engine 25 | 3982 | 3992 | 3982 | **3976 (6 under SCE)** |
+| resident 10 | 2028 | 1988 | 1990 | **1986** |
+
+The safety property is measured, not argued, over all 234 clip readers in the 70 programs:
+**no positional reader moves at all** - not one ends up closer to its `clip` than the stock
+scheduler put it - while 29 of the 78 full-window readers move adjacent to theirs. Loop-
+weighted, the resident set is 48 cycles *faster* than the 17-flag build rather than 48
+slower, `mcpip_cull_vu1`'s gap to SCE goes from +21.8% to +7.7% per block, and all 70
+programs together come to -816 cycles.
+
+The cost is compile time: 26 of the 70 programs hold a full-window reader and are scheduled
+twice, the other 44 are skipped by a token-list predicate because with no such reader the
+second schedule is provably the first. **+7%, about 8.5 s on a full microcode rebuild.**
+
+Two things settled on the way and worth not re-deriving. A variant giving full-window
+readers a 1-cycle floor instead of no constraint emits **identical** output, so none of this
+is about same-cycle issue. And a comment in the patch claimed SCE never puts a positional
+read closer than three rows to its `clip`: **false**, 89 of them are closer, including four
+`fcand VI01,63` at 1, 0, 3 and 2 rows in `stapip_billboard_c_vu1`. SCE can do that because
+it pairs a reader with the `clip` several rows back rather than the nearest one - it models
+the shift window. The comment is corrected; nothing changed behaviour on the strength of it.
+
+Still open and deliberately not taken: `stapip_billboard_c/t_vu1` is +11.7% per batch and
+its readers are positional (mask 63), so only lowering `vuClipFlagSchedulingLatency()` below
+4 would help - and nobody can prove the hardware number. PCSX2's VU core would accept any
+latency, so a green e2e there is evidence of nothing.
+
 Dead ends worth not repeating:
 
 * **Copy coalescing "on `move`" is the wrong target.** The 45 programs contain **57**
@@ -2382,7 +2456,9 @@ toolchain's artifacts straight back over the ones the image built.
 |---|---|---|
 | engine programs | 25/25 | **25/25** |
 | generated programs | 45/45 | **45/45** |
-| resident VU1 set | 1988 words | **1988** |
+| resident VU1 set | 1986 words | **1986** (SCE 2028, ceiling 2042) |
+| engine corpus, all 25 | 3976 words | **3976** (SCE 3982 - openvcl is 6 under) |
+| generated corpus, all 45 | 9286 words | **9286** (SCE 9264 - +22, 0.24%) |
 | microcode, all 70 | - | **byte-identical to the inherited build** |
 | `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
 | VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |

@@ -154,7 +154,7 @@ index 5bec71c..739b634 100644
  		if( state.dependency() )
  			newDependency->depend( state.dependency() );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..7dbcbbc 100644
+index 699abe7..5cc059e 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -273,7 +273,7 @@ index 699abe7..7dbcbbc 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -1549,6 +1639,114 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+@@ -1549,6 +1639,111 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
  	}
  }
  
@@ -316,26 +316,11 @@ index 699abe7..7dbcbbc 100644
 +
 +bool CodeGenerator::clipReadIsPositional( const Token& token ) const
 +{
-+	// A flag reader carries the mask it tests as an immediate. Full-window masks
-+	// (all 24 bits, or the 18 that three vertices occupy) do not care which position
-+	// the bits sit in; anything narrower does.
-+	for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
-+	     a != token.arguments().end(); ++a )
-+	{
-+		if( a->type() != Token::Argument::IMMEDIATE )
-+			continue;
-+		const std::string& text = a->immediate();
-+		if( text.empty() )
-+			continue;
-+		const unsigned long mask = std::strtoul( text.c_str(), NULL, 0 );
-+		// Only the whole-window masks are safe to read adjacent to their CLIP: they
-+		// ask "is anything outside" and every entry answers the same way. A mask
-+		// that names particular entries - one bit, or several entries OR-ed - is
-+		// reading positions, and a position that has not arrived yet is a different
-+		// vertex's answer.
-+		return mask != 0 && mask != 0x3FFFFul && mask != 0xFFFFFFul;
-+	}
-+	return true;      // no mask to judge by: assume it matters
++	// The mask test itself is vuClipReadIsFullWindow(), in VuSchedulingRules, because
++	// the scheduler needs the same answer - see --exempt-full-clip-masks. It used to
++	// live here alone, and the scheduler disagreeing with it is exactly the bug that
++	// moved it.
++	return !vuClipReadIsFullWindow( token );
 +}
 +
 +void CodeGenerator::padForClipFlagWindow( const Token& a, const Token* b )
@@ -359,10 +344,22 @@ index 699abe7..7dbcbbc 100644
 +			// Only a POSITIONAL read has to wait. The window holds six bits per CLIP,
 +			// so a mask that covers the whole thing ("is anything outside", 0x3FFFF
 +			// for three vertices) gets the same answer whichever position the bits
-+			// are in - and SCE reads those adjacent to their CLIP, five times over
-+			// these programs, while never putting a positional read below three rows.
-+			// Padding the full-window ones is pure loss: it costs this engine's five
-+			// cull programs 22 instructions and changes nothing they compute.
++			// are in, and SCE reads those adjacent to their CLIP. Padding them is
++			// pure loss: it costs this engine's five cull programs 22 instructions
++			// and changes nothing they compute.
++			//
++			// What this does NOT claim is that SCE keeps its distance for positional
++			// reads. Measured over 70 programs, SCE puts 89 positional readers closer
++			// than three rows to the nearest preceding CLIP: five in each of the
++			// sixteen `_cl` programs (masks 15 and 10), three in each of the two
++			// billboards (mask 63, one of them in the row directly below), and one in
++			// each of three stapip_clip_* . SCE can, because it pairs a reader with the CLIP
++			// four rows back rather than the nearest one: it models the register as
++			// the 24-bit shift window it is, and keeps two or three CLIPs in flight.
++			// We do not model that, so the distance from the nearest one is the only
++			// safe reading of the window we have, and for a positional mask we keep
++			// it. An earlier version of this comment asserted SCE never went below
++			// three rows; it was not measured, and it is false.
 +			if( clipReadIsPositional( *pair[k] ) )
 +				readsClip = true;
 +		}
@@ -388,7 +385,7 @@ index 699abe7..7dbcbbc 100644
  void CodeGenerator::emitSingleToken( const Token& token )
  {
  	std::string instruction = generateInstruction(token);
-@@ -1592,6 +1790,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+@@ -1592,6 +1787,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
  		}
  	}
  
@@ -397,7 +394,7 @@ index 699abe7..7dbcbbc 100644
  	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
  	if( branchDelaySlots > 0 )
  	{
-@@ -1701,6 +1901,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+@@ -1701,6 +1898,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -405,7 +402,7 @@ index 699abe7..7dbcbbc 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -1724,6 +1925,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+@@ -1724,6 +1922,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -413,7 +410,7 @@ index 699abe7..7dbcbbc 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2241,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2238,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -435,7 +432,75 @@ index 699abe7..7dbcbbc 100644
  			break;
  		}
  
-@@ -2230,6 +2436,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2053,9 +2256,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+ 	}
+ }
+ 
++// Puts the build-wide --exempt-full-clip-masks setting back when the emission of one
++// program is over, so a source file holding two programs does not inherit the arm the
++// first one happened to win with.
++namespace
++{
++	struct VuClipExemptionScope
++	{
++		explicit VuClipExemptionScope( bool restore ) : m_restore( restore ) {}
++		~VuClipExemptionScope() { setVuExemptFullClipMasksEnabled( m_restore ); }
++
++	private:
++		bool m_restore;
++	};
++}
++
++// --clip-exemption-best-of. Both arms are legal schedules of the same token list -
++// the exemption only ever removes a constraint the emitter does not impose either -
++// so the choice between them is pure size, and it is made here, once per program,
++// against the word count the whole program will emit.
++//
++// Not against the segment's: freeing a reader cannot lengthen the segment it sits in,
++// so a per-segment comparison would take the exemption almost everywhere and call it
++// a win, while the rows it costs land further down. stapip_cull_d and stapip_cull_td
++// are exactly that case.
++//
++// The winning arm is left in force for the emission that follows: CodeGenerator's own
++// m_latencyTracker asks the same question again while it pairs and pads, and it has
++// to get the answer the schedule was built with.
++static VuScheduledProgram scheduleProgramChoosingClipExemption( const std::list<Token>& tokens )
++{
++	if( !vuClipExemptionBestOfEnabled() || !vuTokenListHasFullWindowClipReader( tokens ) )
++		return scheduleVuProgramReadyIssueSlotsWithFlagLiveness( tokens );
++
++	setVuExemptFullClipMasksEnabled( false );
++	VuScheduledProgram withoutExemption = scheduleVuProgramReadyIssueSlotsWithFlagLiveness( tokens );
++	const unsigned int withoutWords = vuScheduledProgramEmittedWordCount( withoutExemption );
++
++	setVuExemptFullClipMasksEnabled( true );
++	VuScheduledProgram withExemption = scheduleVuProgramReadyIssueSlotsWithFlagLiveness( tokens );
++	const unsigned int withWords = vuScheduledProgramEmittedWordCount( withExemption );
++
++	if( vuShowPairMissesEnabled() )
++		std::cerr << "[clipexempt] off=" << withoutWords
++		          << " on=" << withWords
++		          << " keep=" << ( withWords < withoutWords ? "on" : "off" ) << std::endl;
++
++	// Ties go to "off": a program the exemption does not shorten keeps the schedule it
++	// would have had without the flag, so the flag can only ever be read as a win.
++	if( withWords < withoutWords )
++		return withExemption;
++
++	setVuExemptFullClipMasksEnabled( false );
++	return withoutExemption;
++}
++
+ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens, bool& exitWritten )
+ {
+-	VuScheduledProgram program = scheduleVuProgramReadyIssueSlotsWithFlagLiveness(tokens);
++	const bool exemptionOnEntry = vuExemptFullClipMasksEnabled();
++	VuScheduledProgram program = scheduleProgramChoosingClipExemption(tokens);
++	const VuClipExemptionScope exemptionScope( exemptionOnEntry );
+ 	std::vector<const VuScheduledIssueSlot*> slots;
+ 	for( std::vector<VuScheduledBasicBlock>::const_iterator block = program.blocks.begin();
+ 	     block != program.blocks.end();
+@@ -2230,6 +2490,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -445,7 +510,7 @@ index 699abe7..7dbcbbc 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2446,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2500,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -490,7 +555,7 @@ index 699abe7..7dbcbbc 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2644,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2698,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -538,7 +603,7 @@ index 699abe7..7dbcbbc 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +2952,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +3006,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -557,7 +622,7 @@ index 699abe7..7dbcbbc 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +2973,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +3027,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -575,7 +640,7 @@ index 699abe7..7dbcbbc 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
-@@ -9833,6 +10135,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+@@ -9833,6 +10189,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
  		if(token.fields() & (1<<t))
  			fields += fieldnames[t];
  	}
@@ -631,10 +696,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..d76a613 100644
+index e6a6dea..8695d74 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,24 @@ CommandLine::CommandLine()
+@@ -75,6 +75,26 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -652,6 +717,8 @@ index e6a6dea..d76a613 100644
 +	m_sinkLoadsIntoLoops = false;
 +	m_sinkLoadsPastBranches = false;
 +	m_dropDeadWrites = false;
++	m_exemptFullClipMasks = false;
++	m_clipExemptionBestOf = false;
 +	m_showPairMisses = false;
 +	m_pairBestOfTwo = false;
 +	m_pairBestOfMany = false;
@@ -659,7 +726,7 @@ index e6a6dea..d76a613 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +143,24 @@ CommandLine::CommandLine()
+@@ -125,6 +145,26 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -677,6 +744,8 @@ index e6a6dea..d76a613 100644
 +	m_options.push_back(Option(0,"sink-loads-into-loops",SINK_LOADS_INTO_LOOPS,false));
 +	m_options.push_back(Option(0,"sink-loads-past-branches",SINK_LOADS_PAST_BRANCHES,false));
 +	m_options.push_back(Option(0,"drop-dead-writes",DROP_DEAD_WRITES,false));
++	m_options.push_back(Option(0,"exempt-full-clip-masks",EXEMPT_FULL_CLIP_MASKS,false));
++	m_options.push_back(Option(0,"clip-exemption-best-of",CLIP_EXEMPTION_BEST_OF,false));
 +	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
 +	m_options.push_back(Option(0,"pair-best-of-two",PAIR_BEST_OF_TWO,false));
 +	m_options.push_back(Option(0,"pair-best-of-many",PAIR_BEST_OF_MANY,false));
@@ -684,7 +753,7 @@ index e6a6dea..d76a613 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +275,24 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +279,26 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -702,6 +771,8 @@ index e6a6dea..d76a613 100644
 +				case SINK_LOADS_INTO_LOOPS: m_sinkLoadsIntoLoops = true; break;
 +				case SINK_LOADS_PAST_BRANCHES: m_sinkLoadsPastBranches = true; break;
 +				case DROP_DEAD_WRITES: m_dropDeadWrites = true; break;
++				case EXEMPT_FULL_CLIP_MASKS: m_exemptFullClipMasks = true; break;
++				case CLIP_EXEMPTION_BEST_OF: m_clipExemptionBestOf = true; break;
 +				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
 +				case PAIR_BEST_OF_TWO: m_pairBestOfTwo = true; break;
 +				case PAIR_BEST_OF_MANY: m_pairBestOfMany = true; break;
@@ -709,7 +780,7 @@ index e6a6dea..d76a613 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +384,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +390,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -720,10 +791,10 @@ index e6a6dea..d76a613 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..10e2d5c 100644
+index f5e4b3d..e89aeec 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,24 @@ public:
+@@ -56,6 +56,26 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -741,6 +812,8 @@ index f5e4b3d..10e2d5c 100644
 +	bool sinkLoadsIntoLoops() const;
 +	bool sinkLoadsPastBranches() const;
 +	bool dropDeadWrites() const;
++	bool exemptFullClipMasks() const;
++	bool clipExemptionBestOf() const;
 +	bool showPairMisses() const;
 +	bool pairBestOfTwo() const;
 +	bool pairBestOfMany() const;
@@ -748,7 +821,7 @@ index f5e4b3d..10e2d5c 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +148,24 @@ private:
+@@ -130,6 +150,26 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -766,6 +839,8 @@ index f5e4b3d..10e2d5c 100644
 +		SINK_LOADS_INTO_LOOPS,
 +		SINK_LOADS_PAST_BRANCHES,
 +		DROP_DEAD_WRITES,
++		EXEMPT_FULL_CLIP_MASKS,
++		CLIP_EXEMPTION_BEST_OF,
 +		SHOW_PAIR_MISSES,
 +		PAIR_BEST_OF_TWO,
 +		PAIR_BEST_OF_MANY,
@@ -773,7 +848,7 @@ index f5e4b3d..10e2d5c 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +221,24 @@ private:
+@@ -185,6 +225,26 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -791,6 +866,8 @@ index f5e4b3d..10e2d5c 100644
 +	bool m_sinkLoadsIntoLoops;
 +	bool m_sinkLoadsPastBranches;
 +	bool m_dropDeadWrites;
++	bool m_exemptFullClipMasks;
++	bool m_clipExemptionBestOf;
 +	bool m_showPairMisses;
 +	bool m_pairBestOfTwo;
 +	bool m_pairBestOfMany;
@@ -799,10 +876,10 @@ index f5e4b3d..10e2d5c 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..fe96f74 100644
+index 5500026..48dad0d 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,132 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,146 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -904,6 +981,20 @@ index 5500026..fe96f74 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::exemptFullClipMasks() const
++{
++	return m_exemptFullClipMasks;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::clipExemptionBestOf() const
++{
++	return m_clipExemptionBestOf;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::showPairMisses() const
 +{
 +	return m_showPairMisses;
@@ -996,7 +1087,7 @@ index a9a3c8e..b79b9d8 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..6bc41fd 100644
+index b8b1946..b2d3044 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1007,7 +1098,7 @@ index b8b1946..6bc41fd 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,33 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,35 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1033,6 +1124,8 @@ index b8b1946..6bc41fd 100644
 +	setVuSinkLoadsIntoLoopsEnabled( m_cmdLine.sinkLoadsIntoLoops() );
 +	setVuSinkLoadsPastBranchesEnabled( m_cmdLine.sinkLoadsPastBranches() );
 +	setVuDropDeadWritesEnabled( m_cmdLine.dropDeadWrites() );
++	setVuExemptFullClipMasksEnabled( m_cmdLine.exemptFullClipMasks() );
++	setVuClipExemptionBestOfEnabled( m_cmdLine.clipExemptionBestOf() );
 +	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
 +	setVuPairBestOfTwoEnabled( m_cmdLine.pairBestOfTwo() );
 +	setVuPairBestOfManyEnabled( m_cmdLine.pairBestOfMany() );
@@ -1041,7 +1134,7 @@ index b8b1946..6bc41fd 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2065,12 +2093,65 @@ bool Parser::tokenize()
+@@ -2065,12 +2095,65 @@ bool Parser::tokenize()
  
  bool Parser::allocateRegisters()
  {
@@ -2776,10 +2869,32 @@ index daf0965..01ad208 100644
  {
  	m_text = text;
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..e3b369b 100644
+index 71ee7cb..7b43dae 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
-@@ -51,6 +51,44 @@ void VuLatencyTracker::reset()
+@@ -26,6 +26,21 @@ namespace
+ 		    && (access.implicitWrites & resource) != 0;
+ 	}
+ 
++	// Does this token read the CLIP flag in a way that has to wait for its own six
++	// bits to arrive? The emitter has always asked the narrower question - a mask
++	// covering the whole window answers the same from any position, so it does not -
++	// and the scheduler did not ask it at all, which made the scheduler the binding
++	// constraint and left the emitter's exemption unreachable. --exempt-full-clip-masks
++	// brings the two into line; with it off this is the bare readsClip it used to be.
++	bool tokenReadsClipPositionally( const Token& token )
++	{
++		if( !tokenReadsImplicitResource( token, VU_RESOURCE_CLIP ) )
++			return false;
++		if( vuExemptFullClipMasksEnabled() && vuClipReadIsFullWindow( token ) )
++			return false;
++		return true;
++	}
++
+ 	int bypassLatencyReduction( const std::string& mnemonic, int fallback )
+ 	{
+ 		const VuInstructionInfo* info = findVuInstructionInfo( mnemonic );
+@@ -51,6 +66,44 @@ void VuLatencyTracker::reset()
  int VuLatencyTracker::readHazardDelay( const Token& token,
                                         const Token* partner,
                                         int currentCycle ) const
@@ -2824,7 +2939,7 @@ index 71ee7cb..e3b369b 100644
  {
  	std::list<std::string> reads;
  	collectVuRegisterReadKeys( token, reads );
-@@ -68,6 +106,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -68,6 +121,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  	int needed = 0;
  	for( std::list<std::string>::const_iterator i = reads.begin(); i != reads.end(); ++i )
  	{
@@ -2848,8 +2963,17 @@ index 71ee7cb..e3b369b 100644
  		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
  		if( ready == m_registerReadyCycle.end() )
  			continue;
-@@ -120,18 +175,26 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
- 		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
+@@ -113,25 +183,33 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+ 
+ 	const int flagCycle = currentCycle + needed;
+ 	bool readsMac = tokenReadsImplicitResource( token, VU_RESOURCE_MAC );
+-	bool readsClip = tokenReadsImplicitResource( token, VU_RESOURCE_CLIP );
++	bool readsClip = tokenReadsClipPositionally( token );
+ 	if( partner && partner->operand() )
+ 	{
+ 		readsMac = readsMac || tokenReadsImplicitResource( *partner, VU_RESOURCE_MAC );
+-		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
++		readsClip = readsClip || tokenReadsClipPositionally( *partner );
  	}
  
 +	// How long after its producer a flag may be read. 4 by default;
@@ -2879,7 +3003,7 @@ index 71ee7cb..e3b369b 100644
  	}
  	if( flagDelay > 0 )
  		needed += flagDelay;
-@@ -149,7 +212,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+@@ -149,7 +227,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
  	if( !token.operand() || token.operand()->latency() <= 1 )
  		return;
  
@@ -2945,7 +3069,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..dcc8757 100644
+index 3260370..1b69e74 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -3608,8 +3732,24 @@ index 3260370..dcc8757 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
+@@ -6114,6 +6483,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+ 	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
+ }
+ 
++unsigned int vuScheduledProgramEmittedWordCount( const VuScheduledProgram& program )
++{
++	unsigned int words = 0;
++	for( std::vector<VuScheduledBasicBlock>::const_iterator block = program.blocks.begin();
++	     block != program.blocks.end(); ++block )
++		words += issueSlotEmittedWordCount( block->issueSlots );
++	return words;
++}
++
+ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
+ {
+ 	std::list<Token> scheduled;
 diff --git a/src/VuSchedulerAnalysis.h b/src/VuSchedulerAnalysis.h
-index e51b7f2..c43273f 100644
+index e51b7f2..386308c 100644
 --- a/src/VuSchedulerAnalysis.h
 +++ b/src/VuSchedulerAnalysis.h
 @@ -121,6 +121,12 @@ struct VuScheduledIssueSlot
@@ -3625,11 +3765,33 @@ index e51b7f2..c43273f 100644
  };
  
  struct VuScheduledBasicBlock
+@@ -534,6 +540,13 @@ std::vector< std::vector<VuScheduledIssueSlot> > scheduleVuBasicBlocksReadyIssue
+     const std::list<Token>& tokens );
+ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::list<Token>& tokens );
+ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program );
++
++// Instruction words this schedule will cost in micro memory: one per issue slot,
++// except a multi-cycle padding slot, which costs only the nops the emitter actually
++// writes for it (the FMAC interlock resolves the rest on the hardware). NOT the same
++// number as VuScheduledProgram::cycleCount, and the only one a size comparison
++// between two schedules of the same program may use.
++unsigned int vuScheduledProgramEmittedWordCount( const VuScheduledProgram& program );
+ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator begin,
+                                                     std::list<Token>::const_iterator end );
+ VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..70c49a6 100644
+index c28ec6d..0c222a1 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
-@@ -404,7 +404,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
+@@ -6,6 +6,7 @@
+ #include "VuInstructionInfo.h"
+ #include "VuTokenResourceAccess.h"
+ 
++#include <cstdlib>
+ #include <sstream>
+ 
+ namespace vcl
+@@ -404,7 +405,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
  		return false;
  
  	unsigned int fields = token.fields();
@@ -3638,7 +3800,7 @@ index c28ec6d..70c49a6 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +547,294 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,369 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -3672,6 +3834,8 @@ index c28ec6d..70c49a6 100644
 +	unsigned int g_flagVisibilityLatency = 4;
 +	unsigned int g_clipFlagVisibilityLatency = 4;
 +	unsigned int g_clipFlagSchedulingLatency = 4;
++	bool g_exemptFullClipMasks = false;
++	bool g_clipExemptionBestOf = false;
 +	unsigned int g_integerLoadReadyCycles = 0;
 +	bool g_emitDelayFillers = false;
 +	bool g_branchInterlock = false;
@@ -3752,6 +3916,79 @@ index c28ec6d..70c49a6 100644
 +unsigned int vuClipFlagSchedulingLatency()
 +{
 +	return g_clipFlagSchedulingLatency;
++}
++
++bool vuClipReadIsFullWindow( const Token& token )
++{
++	// The mask is the reader's immediate argument. Only the whole-window values are
++	// position-independent: 0x3FFFF is the eighteen bits three vertices occupy and
++	// 0xFFFFFF the whole register, and both mean "is anything outside". A mask that
++	// names particular entries - one bit, or several OR-ed - is reading positions.
++	//
++	// An fcget takes no mask at all; it copies the register, so every position of it
++	// matters and it is never full-window by this test (the loop below finds no
++	// immediate and falls through to false).
++	for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
++	     a != token.arguments().end(); ++a )
++	{
++		if( a->type() != Token::Argument::IMMEDIATE )
++			continue;
++		const std::string& text = a->immediate();
++		if( text.empty() )
++			continue;
++		const unsigned long mask = std::strtoul( text.c_str(), NULL, 0 );
++		return mask == 0 || mask == 0x3FFFFul || mask == 0xFFFFFFul;
++	}
++	return false;      // no mask to judge by: assume the position matters
++}
++
++// --exempt-full-clip-masks. The emitter has exempted full-window reads from clip
++// padding since padForClipFlagWindow was written; the scheduler never did, and held
++// every reader vuClipFlagSchedulingLatency() cycles behind its CLIP regardless of
++// mask. The scheduler being the more conservative of the two means the emitter's
++// exemption could not pay: the reader had already been pushed away.
++void setVuExemptFullClipMasksEnabled( bool enabled )
++{
++	g_exemptFullClipMasks = enabled;
++}
++
++bool vuExemptFullClipMasksEnabled()
++{
++	return g_exemptFullClipMasks;
++}
++
++// --clip-exemption-best-of. Taking the exemption is not free downstream: the freed
++// reader issues early, the list scheduler then sees a different ready set for every
++// row after it, and on two of the ten resident programs that came out one row worse
++// even though the reader's own segment did not. Rather than argue about which way is
++// right, schedule the whole program both ways and keep the shorter one.
++void setVuClipExemptionBestOfEnabled( bool enabled )
++{
++	g_clipExemptionBestOf = enabled;
++}
++
++bool vuClipExemptionBestOfEnabled()
++{
++	return g_clipExemptionBestOf;
++}
++
++bool vuTokenListHasFullWindowClipReader( const std::list<Token>& tokens )
++{
++	// The two arms of the best-of differ only where a full-window CLIP reader exists;
++	// with none in the program the second schedule is provably the first one, so it is
++	// not worth its compile time. 44 of the 70 programs this fork compiles take this
++	// exit; the other 26 pay for a second pass and 10 of them keep its result.
++	for( std::list<Token>::const_iterator i = tokens.begin(); i != tokens.end(); ++i )
++	{
++		VuTokenResourceAccess access;
++		if( !buildVuTokenResourceAccess( *i, access ) )
++			continue;
++		if( (access.implicitReads & VU_RESOURCE_CLIP) == 0 )
++			continue;
++		if( vuClipReadIsFullWindow( *i ) )
++			return true;
++	}
++	return false;
 +}
 +
 +void setVuIntegerLoadReadyCycles( unsigned int cycles )
@@ -3935,10 +4172,10 @@ index c28ec6d..70c49a6 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..3fc268f 100644
+index 8188099..0b45fbe 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,182 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,221 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -3966,6 +4203,45 @@ index 8188099..3fc268f 100644
 +unsigned int vuClipFlagVisibilityLatency();
 +void setVuClipFlagSchedulingLatency( unsigned int cycles );
 +unsigned int vuClipFlagSchedulingLatency();
++
++// Does this CLIP-flag reader test the window as a whole? A reader carries the mask
++// it tests as an immediate; the full-window masks - all 24 bits, or the 18 that
++// three vertices occupy - ask "is anything outside" and every window position
++// answers the same, so such a read does not depend on its own six bits having
++// arrived. Anything narrower names particular entries and does.
++//
++// This lives here rather than in the emitter because BOTH the emitter
++// (CodeGenerator::padForClipFlagWindow) and the scheduler (VuLatencyTracker) have
++// to agree on it, and they did not: the emitter exempted full-window reads while
++// the scheduler kept them four cycles from their CLIP, so the scheduler's caution
++// was the binding one. Two copies of this test is how that happens again.
++bool vuClipReadIsFullWindow( const Token& token );
++
++// --exempt-full-clip-masks: let the SCHEDULER make the same exemption. Off by
++// default; with it on, a full-window reader no longer waits
++// vuClipFlagSchedulingLatency() cycles behind its CLIP. Positional reads are
++// untouched - those are the ones a Sutherland-Hodgman edge loop makes, and reading
++// one early returns a different vertex's answer under the same mask.
++void setVuExemptFullClipMasksEnabled( bool enabled );
++bool vuExemptFullClipMasksEnabled();
++
++// --clip-exemption-best-of: do not decide the question above once for the whole
++// build. Schedule each PROGRAM twice - exemption off, exemption on - and keep
++// whichever emits fewer instruction words, ties going to "off" so a program that
++// gains nothing keeps the output it had.
++//
++// Whole program, not per segment, on purpose. Freeing a reader shortens the segment
++// it sits in or leaves it the same length, never lengthens it, so a per-segment
++// best-of would look like a guaranteed win; what it would miss is that the schedule
++// downstream of the freed reader is different too, and on stapip_cull_d and
++// stapip_cull_td that downstream costs a row. Only a whole-program count sees it.
++void setVuClipExemptionBestOfEnabled( bool enabled );
++bool vuClipExemptionBestOfEnabled();
++
++// Is there anything in this program for the exemption to act on? Without a
++// full-window CLIP reader the two arms of the best-of are the same schedule, and the
++// second one is pure compile time.
++bool vuTokenListHasFullWindowClipReader( const std::list<Token>& tokens );
 +
 +// Cycles after which a memory load's destination may be read, or 0 to keep the
 +// instruction table's latency+1. --sce-latencies sets 3 (see VuLatencyTracker).

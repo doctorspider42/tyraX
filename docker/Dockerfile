@@ -82,8 +82,8 @@ ARG VCL_IMPL=legacy
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
 # Each one is measured in docs/toolchain-image.md; none is on by default in the tool
-# itself, and with all seventeen the rendered frame is pixel-identical to the one
-# Sony's vcl produces while the resident VU1 set is SMALLER (1988 words against
+# itself, and with all nineteen the rendered frame is pixel-identical to the one
+# Sony's vcl produces while the resident VU1 set is SMALLER (1986 words against
 # SCE's 2028, ceiling 2042). Keep this string equal to the one in
 # Dockerfile.fromsource - the two images are only comparable while the assembler
 # is invoked identically. The Runner rebuilds the microcode when this string changes,
@@ -105,7 +105,41 @@ ARG VCL_IMPL=legacy
 # generated corpus that was 312 instructions nobody reads - 93 loi, 65 lq, 55 muli
 # and the rest - and removing them closed the size gap against SCE from 242 words to
 # 44 (0.47%) while taking the resident set to 1988.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --drop-dead-writes"
+#
+# --exempt-full-clip-masks and --clip-exemption-best-of are the eighteenth and the
+# nineteenth, and they are one idea in two halves. openvcl's emitter and openvcl's
+# scheduler disagreed about the CLIP window: the emitter exempted a reader whose mask
+# covers the whole 24-bit register ("is anything outside" - it gets the same answer
+# from any window position) while the scheduler held every reader four cycles behind
+# its CLIP regardless of mask, so the emitter's exemption could never pay. The first
+# flag makes the scheduler agree.
+#
+# On its own that was not a pure win. Freeing a reader lets it issue early, and every
+# row after it then sees a different ready set: stapip_cull_d and stapip_cull_td each
+# came out a row worse while stapip_cull_tce came out a row better, so the RESIDENT
+# set went 1988 -> 1990 while the generated corpus went 9308 -> 9286. The second flag
+# stops that being a trade. It schedules each program BOTH ways and keeps whichever
+# emits fewer instruction words, ties going to "off". Both arms are legal - the
+# exemption only ever removes a constraint the emitter does not impose either - so the
+# choice is pure size, and it is made against the WHOLE program's word count, because
+# the segment holding the freed reader is never the one that pays.
+#
+# Measured over all 70 programs, against the seventeen flags above:
+#   generated 45   9308 -> 9286   (gap to SCE 9264: +44 -> +22, 0.24%)
+#   engine 25      3992 -> 3976   (SCE 3982 - openvcl is now 6 words UNDER Sony)
+#   resident 10    1988 -> 1986   (SCE 2028, ceiling 2042)
+# Every win the eighteenth flag had is kept and all three of its regressions are gone;
+# 10 of the 70 programs take the exempt arm and 60 keep the schedule they had. The
+# loop-weighted cost of one batch falls 816 cycles over the 70, and mcpip_cull_vu1's
+# gap to SCE goes from +21.8% to +7.7%. All 156 positional readers keep exactly the
+# distance the stock scheduler gave them - that is the safety property, and it is
+# measured, not argued.
+#
+# What it costs is compile time. 26 of the 70 programs hold a full-window reader and
+# are scheduled twice; the other 44 are detected and skipped, because with no such
+# reader the second schedule is provably the first one. The 70-program microcode build
+# goes from ~118s to ~127s here, about +7%, once per engine rebuild.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc

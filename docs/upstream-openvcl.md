@@ -191,13 +191,38 @@ can come out as two rows. The window is counted in instructions, so it belongs i
 emitter - `CodeGenerator::padForClipFlagWindow` in our copy, which walks the rows already
 emitted and pads to distance, treating a label as a barrier.
 
-## 5. Four density flags, all off by default
+**Half of it, at least. The scheduler holds the other half, and the two disagreed with each
+other for a year.** The emitter exempts a reader whose mask covers the whole window
+(`0x3FFFF`, `0xFFFFFF`: "is anything outside" gets the same answer from any position), while
+`VuLatencyTracker` applied the four-cycle CLIP latency to every reader under a bare
+`if( readsClip )`. Being the earlier and stricter of the two, the scheduler won, and the
+emitter's exemption could never pay. Worth 22 words on our generated corpus once the
+scheduler was taught the same test - `docs/toolchain-image.md`, "22 of those words were
+openvcl contradicting itself". Whatever else the CLIP window needs, it needs the scheduler
+and the emitter to be answering the same question.
+
+Two corrections to what is above, both measured after it was written. The distances quoted
+here come from `clipgap.py`, which looks only at the FIRST reader after each CLIP and counts
+MAC readers too - a different instrument from the per-reader walk used later, so the numbers
+are not comparable rather than contradictory. And the claim that SCE never places a
+positional read closer than three rows is **false**: 89 of them are closer across the 70
+programs, four of them at 1, 0, 3 and 2 rows in `stapip_billboard_c_vu1`. SCE pairs a reader
+with a `clip` several rows back rather than the nearest one, which is what modelling the
+shift window buys and what we still do not do.
+
+## 5. Nineteen flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
-engine: the resident VU1 program set went from 3072 instructions to **2040**, against
-SCE's 2042, without changing what any program computes (pixel-identical frames in
-PCSX2). Upstream may or may not want them; the measurements are in
-[toolchain-image.md](toolchain-image.md).
+engine: the resident VU1 program set went from 3072 instructions to **1986**, against SCE's
+2028 and a ceiling of 2042, without changing what any program computes (pixel-identical
+frames in PCSX2). Over the engine's whole corpus of 25 it is 3976 words against SCE's 3982 -
+*under* Sony - and over the 45 a project can generate, 9286 against 9264. Upstream may or
+may not want them; the measurements are in [toolchain-image.md](toolchain-image.md).
+
+The table below lists the four this section was originally written about. The full nineteen,
+grouped by what they do, are in the fork's own README at
+[doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax) and in
+`VCL_FLAGS` in both Dockerfiles, which are kept byte-identical to each other.
 
 | flag | what it stops paying for | evidence |
 |---|---|---|
