@@ -53,9 +53,10 @@ upstream's full history with our changes on top, so the diff is reviewable
 derivative works and redistribution outright (its §5 — the clause AFL 3.0 uses to
 make derivatives stay under the same terms — is intentionally omitted, so it is
 permissive, not copyleft). The two obligations it does impose are met there: §6
-*Attribution Rights* by `NOTICE-TYRAX.md`, which retains every upstream notice and
-states prominently that the Original Work was modified, and §4 *Exclusions* by not
-using the authors' names to endorse the copy. Nothing has been submitted upstream.
+*Attribution Rights* by that repo's `README.md`, which retains every upstream notice
+and states in its opening paragraphs that the Original Work was modified, and §4
+*Exclusions* by not using the authors' names to endorse the copy. Nothing has been
+submitted upstream.
 
 The toolchain image still builds openvcl the self-contained way — clone upstream at
 its pinned commit, apply [`docker/openvcl-tyrax.patch`](docker/openvcl-tyrax.patch) —

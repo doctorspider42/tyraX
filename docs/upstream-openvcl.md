@@ -11,7 +11,8 @@ Nothing here has been submitted, and no pull request is open. Everything is agai
 upstream commit `a5867c3daf03828806ee966aca4116622da3f671`.
 
 Our copy lives at [doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax)
-(public, AFL-2.0, `NOTICE-TYRAX.md` carries the modification notice §6 requires). It
+(public, AFL-2.0, its `README.md` carries the modification notice §6 requires — it used
+to be a separate `NOTICE-TYRAX.md`, folded in so the notice is on the first screen). It
 keeps upstream's history, so `compare/upstream-a5867c3...tyrax` is the whole diff —
 which is what any of the reports below would be offered from, when we decide to offer
 them.
