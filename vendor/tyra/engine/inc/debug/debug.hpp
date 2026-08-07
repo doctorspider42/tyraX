@@ -56,6 +56,23 @@
 
 class TyraDebug {
  public:
+  // Modified by TyraX: ONE place that decides where a log line goes, and the
+  // console half FLUSHES. Without the flush the game has no log channel at all
+  // under ps2link: writeLogsToFile is off there (a host: write per line would
+  // be a network round trip), and the EE's stdout is not a tty, so newlib
+  // buffers it fully - the lines sit in a 1 KB buffer that a game which never
+  // exits never empties. Nothing reached ps2client, bin/log.txt was never
+  // written, and the Debug window stayed empty on real hardware while
+  // everything worked in PCSX2.
+  static void emit(std::stringstream* ss) {
+    if (Tyra::Info::writeLogsToFile) {
+      writeInLogFile(ss);
+    } else {
+      printf("%s", ss->str().c_str());
+      fflush(stdout);
+    }
+  }
+
   template <typename Arg, typename... Args>
   static void writeLines(Arg&& arg, Args&&... args) {
     std::stringstream ss;
@@ -64,11 +81,7 @@ class TyraDebug {
     using expander = int[];
     (void)expander{0, (void(ss << std::forward<Args>(args)), 0)...};
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss);
-    } else {
-      printf("%s", ss.str().c_str());
-    }
+    emit(&ss);
   }
 
   template <typename... Args>
@@ -79,11 +92,7 @@ class TyraDebug {
     ss1 << "| Assertion failed!\n";
     ss1 << "|\n";
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss1);
-    } else {
-      printf("%s", ss1.str().c_str());
-    }
+    emit(&ss1);
 
     writeAssertLines(args...);
 
@@ -92,11 +101,7 @@ class TyraDebug {
     ss2 << "| File : " << file << ":" << line << "\n";
     ss2 << "====================================\n\n";
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss2);
-    } else {
-      printf("%s", ss2.str().c_str());
-    }
+    emit(&ss2);
 
     // Modified by TyraX: the assertion is already on the console / log
     // above. Only seize the screen with the kernel debug console when explicitly
@@ -126,11 +131,7 @@ class TyraDebug {
     ss1 << "| Non-fatal error (game keeps running)!\n";
     ss1 << "|\n";
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss1);
-    } else {
-      printf("%s", ss1.str().c_str());
-    }
+    emit(&ss1);
 
     writeAssertLines(args...);
 
@@ -139,11 +140,7 @@ class TyraDebug {
     ss2 << "| File : " << file << ":" << line << "\n";
     ss2 << "====================================\n\n";
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss2);
-    } else {
-      printf("%s", ss2.str().c_str());
-    }
+    emit(&ss2);
   }
 
  private:
@@ -158,11 +155,7 @@ class TyraDebug {
     (void)expander{
         0, (void(ss << "| " << std::forward<Args>(args) << "\n"), 0)...};
 
-    if (Tyra::Info::writeLogsToFile) {
-      writeInLogFile(&ss);
-    } else {
-      printf("%s", ss.str().c_str());
-    }
+    emit(&ss);
   }
 
   template <typename Arg, typename... Args>

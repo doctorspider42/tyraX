@@ -66,6 +66,31 @@ the verification, and any fact worth reusing belongs in the relevant
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
+- **Sound priority and voice stealing** - DONE (docs/sound.md), all three steps
+  of `.claude/plans/sound-priority.md`: emitters rank by priority then loudness
+  instead of hashing their scene index into one of 8 slots, the audsrv fork
+  gained a forced play (so a pinned Play Sound channel cuts off, as its tip
+  always claimed), and both the node and the emitter carry a Priority. What the
+  brief could not settle stays open, and it is a listening question rather than
+  a code one: **does a forced restart over a live voice click?** If it does, the
+  fixes in order are a volume drop plus a play on the next frame, or a KOFF and
+  the ADSR release - both a frame of latency, so they are not worth paying
+  until someone hears the problem. The other half of that question is whether a
+  click is masked in practice (a gunshot stealing footsteps hides a lot; two
+  quiet voice lines do not).
+- **Reverb: a third room, and the tail of the cross-fade.** The two reverb
+  units are both in use now (docs/reverb.md): a room owns a bus and transitions
+  cross-fade across them. Two things were left where the chip runs out. A THIRD
+  room entered while a fade is still running waits for the first to finish
+  leaving (it waits rather than glitching, but it is a wait); and a sound is
+  committed to a bus when it starts, so a long sample carried between rooms
+  keeps the old room for its whole length rather than being re-routed. Both are
+  arguably correct behaviour, both are worth re-examining if a project trips
+  over them.
+- **Reverb on real hardware.** Everything in docs/reverb.md was measured in
+  PCSX2, which does emulate SPU2 reverb. Wanted: the same decay-tail
+  measurement on a console, plus a check that the `sceSdInit`-before-audsrv
+  ordering behaves there too.
 - **Save Editor: the checks only real hardware can make.** The feature is
   complete and builds, but three things cannot be proven from the host: the card
   failure feedback (a **full**, **absent** or **unformatted** card), and the icon

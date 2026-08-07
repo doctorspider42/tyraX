@@ -35,6 +35,8 @@
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
+#include "scripts/vu_programs.gen.hpp"  // the project's own VU1 programs
+#include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
 #include <math.h>
@@ -57,6 +59,9 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+// The clock the project's own VU1 stages AND scripts read, in seconds
+// (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
+float g_vuClock = 0.0F;
 float g_frameScale = 1.0F;
 
 // True while a pausing menu owns the frame (set at the top of loop()). Read by
@@ -1793,6 +1798,15 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+  // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
+  // AFTER setVU1Clipping, which rebuilds the resident program cache: an
+  // override installed first would be rebuilt away. Compiles to nothing when
+  // the project has no program of its own.
+  vuprog::install(stapip.core);
+  // The project's own C++ VU scripts (src/vu/*.cpp), compiled and run on the
+  // HOST at build time - this header is a stub until the build container has
+  // done that, so a project builds the same with or without one.
+  vuscript::install(stapip.core);
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -2083,6 +2097,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -2235,6 +2250,20 @@ void TerrainGame::loop() {
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
   updateDynLitObjects();
+  // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
+  // range reduction folds through a 2^23 add, so an unbounded seconds counter
+  // loses the fraction. 2*pi*1024 keeps a stage running at speed 1.0
+  // continuous across the wrap; any other speed shows a one-frame step there.
+  // ...and a SCRIPT reads the same clock through vu::Ctx::time, so the counter
+  // has to run for a project that has one of those and no stage look at all.
+  // Without it a time-varying script is a static pattern - which looks exactly
+  // like a program that is not running, and reads as one.
+  if (vuprog::ENABLED || vuscript::COUNT > 0) {
+    g_vuClock += g_frameDt;
+    if (g_vuClock > 6433.98F) g_vuClock -= 6433.98F;
+    if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
+    if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
+  }
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -4161,11 +4190,143 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
-// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
-// synchronous and share one client lock with the music stream, so
-// updateSoundEmitters only issues an RPC when the quantized value changes.
+// Last volume/pan sent to each emitter channel. audsrv RPCs are synchronous
+// and share one client lock with the music stream, so updateSoundEmitters only
+// issues an RPC when the quantized value changes. `sndChBus` is which reverb
+// bus the cached pair was written for: an emitter moves to the incoming room's
+// bus (a different SPU2 core, so a different CHANNEL) and the cache has to
+// know it is describing a channel nobody is listening to any more.
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+static int sndChBus[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// Which emitter currently owns each of the eight channels (a runtime object
+// index, -1 = free). The slots used to be a hash of the object index
+// (16 + (i & 7)), so the NINTH audible emitter silently muted one of the
+// first eight and which one it was came down to scene order - an emitter at
+// the player's feet could lose to one eight indices away and half a level
+// off. They are handed to the LOUDEST emitters instead; see pickSoundSlots.
+static int sndSlotOwner[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// How much louder a challenger has to be before it takes a slot off the
+// emitter holding it. Re-ranking on the raw value makes two emitters of
+// near-equal volume trade the slot every frame, and because a change of owner
+// retriggers, that is audible as stuttering. The volumes are already
+// quantized to steps of 5 (see updateSoundEmitters), so this is two steps: far
+// below what a listener can place, far above the jitter of walking.
+static const int kSndStealMargin = 10;
+
+// One emitter's claim on a channel this frame: the runtime object, the
+// volume/pan the loop worked out for it, and the author's priority.
+struct SoundWant {
+  int obj;
+  int vol;
+  int pan;
+  int prio;
+};
+
+// Is `a` a better claim on a channel than `b`? Priority first - that is what
+// the author set it for - and the volume only decides between equals. The
+// margin applies to the volume alone: a higher priority takes a channel
+// immediately, while two ambiences a step apart must not trade one every
+// frame (see kSndStealMargin).
+static bool sndBeats(const SoundWant& a, const SoundWant& b, int margin) {
+  if (a.prio != b.prio) return a.prio > b.prio;
+  return a.vol > b.vol + margin;
+}
+// Kept between frames so the per-frame pass allocates nothing.
+static std::vector<SoundWant> sndWants;
+
+static bool sndHoldsSlot(int obj) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] == obj) return true;
+  return false;
+}
+
+static const SoundWant* sndWantOf(const std::vector<SoundWant>& wants, int obj) {
+  for (int k = 0; k < (int)wants.size(); ++k)
+    if (wants[k].obj == obj) return &wants[k];
+  return 0;  // wants nothing this frame
+}
+
+// Hands the eight emitter channels to the loudest emitters that want one.
+// Three steps, each of them O(8 x emitters) of plain arithmetic:
+//   1. a holder that has gone quiet (out of range, hidden, deactivated)
+//      releases its channel;
+//   2. free channels go to the loudest emitters holding none;
+//   3. the loudest emitter still without one takes the quietest holder's
+//      channel, but only if it beats it by kSndStealMargin.
+// Step 3 is what makes the assignment stable: without the margin, two
+// emitters a step apart swap every frame and retrigger each other to bits.
+// A channel that changes hands has its volume/pan cache invalidated here, at
+// the assignment - the same thing a bus switch does, and for the same reason.
+static void pickSoundSlots(const std::vector<SoundWant>& wants) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] >= 0 && !sndWantOf(wants, sndSlotOwner[s]))
+      sndSlotOwner[s] = -1;
+
+  for (int s = 0; s < 8; ++s) {
+    if (sndSlotOwner[s] >= 0) continue;
+    const SoundWant* best = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!best || sndBeats(wants[k], *best, 0)) best = &wants[k];
+    }
+    if (!best) break;  // nobody is waiting
+    sndSlotOwner[s] = best->obj;
+    sndChVol[s] = -1;
+    sndChPan[s] = -999;
+  }
+
+  // Bounded by the channel count: every pass moves exactly one emitter in and
+  // one out, so eight is already more than can ever be useful.
+  for (int pass = 0; pass < 8; ++pass) {
+    const SoundWant* cand = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!cand || sndBeats(wants[k], *cand, 0)) cand = &wants[k];
+    }
+    if (!cand) break;
+    int worst = -1;
+    const SoundWant* worstWant = 0;
+    for (int s = 0; s < 8; ++s) {
+      const SoundWant* w = sndWantOf(wants, sndSlotOwner[s]);
+      if (!w) continue;
+      if (!worstWant || sndBeats(*worstWant, *w, 0)) { worstWant = w; worst = s; }
+    }
+    if (worst < 0 || !sndBeats(*cand, *worstWant, kSndStealMargin)) break;
+    sndSlotOwner[worst] = cand->obj;
+    sndChVol[worst] = -1;
+    sndChPan[worst] = -999;
+  }
+}
+
+// Reverb zone state (docs/reverb.md). The SPU2 has TWO reverb units, one per
+// core, and the audsrv fork puts ADPCM channels 0-23 on core 1 and 24-47 on
+// core 0 - so a bus is reachable only by the voices playing on its core. That
+// is what makes a room CROSS-FADE possible, and it shapes everything here:
+//
+// - a room owns a bus. `reverbBus` is the one the room the listener is in
+//   currently runs on, and `REVERB_BUS_BASE` turns it into the channel offset
+//   every new sound is played at.
+// - a change of PRESET hands the room to the OTHER bus, loads it there while
+//   that bus is silent (switching the algorithm zeroes up to 96 KB of SPU2
+//   work area and doing it under a live tail is audible), and then the two
+//   depths ramp past each other.
+// - a change of AMOUNT alone does not swap anything - two zones sharing a
+//   preset just ramp on the one bus, exactly as before.
+// - sounds already playing stay on the outgoing bus and finish in the room
+//   they started in. That is not a compromise: it is what a real room does to
+//   a sound you carry out of it.
+// - depths are quantized and only pushed when they really move. These are IOP
+//   RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+//
+// The per-voice send mask deliberately lives in AudioReverb alone (both this
+// file and the generated flow graphs write it), so there is no copy here.
+static int reverbBus = 0;                 // 0 = BusA (core 1), 1 = BusB
+static int reverbPresetCur[2] = {0, 0};   // preset loaded on each bus
+static float reverbAmt[2] = {0.0F, 0.0F}; // 0..1, the ramped wet level of each
+static int reverbDepthSent[2] = {-1, -1}; // last quantized depth written
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -4534,11 +4695,31 @@ void TerrainGame::loadScene(int sceneIndex) {
   buildParticles();
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
-  // ADPCM sample can't be stopped - it plays out, but silently).
+  // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
+  // sets, because a room can have moved the emitters onto either bus.
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) {
     engine->audio.adpcm.setVolume(0, (s8)ch);
+    engine->audio.adpcm.setVolume(0, (s8)(ch + 24));
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+    sndChBus[ch - 16] = -1;  // ...and make the next write unconditional
+    // The owners are runtime object INDICES, which the new scene renumbers.
+    sndSlotOwner[ch - 16] = -1;
+  }
+
+  // Reverb: a scene switch is a cut, so drop both rooms instead of ramping one
+  // out of the old scene into the new one. The depth cache is invalidated
+  // (-1) rather than set, so the first updateReverb writes the hardware even
+  // if the new scene wants exactly what the old one had.
+  if (REVERB_ZONE_COUNT > 0 || REVERB_HAS_NODE) {
+    for (int b = 0; b < 2; ++b) {
+      reverbAmt[b] = 0.0F;
+      reverbDepthSent[b] = -1;
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, 0, 0);
+    }
+    reverbBus = 0;
+    scriptCtx.reverbBusBase = 0;
   }
 
   // A loaded save targeting this scene: apply the stored object state now
@@ -4574,22 +4755,26 @@ void TerrainGame::loadScene(int sceneIndex) {
 // "on the player" wherever they are (dialogs, narration). Hide Object mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
+  // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
+  // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so
+  // the world goes quiet within one sample instead of clicking off, and
+  // nothing new starts while the game is frozen. updateParticles takes the
+  // same early return two functions down; a halted game that keeps ticking
+  // its emitters was the odd one out.
+  if (g_gameplayPaused) return;
   if (sndTimers.size() != runtimeObjects.size())
     sndTimers.assign(runtimeObjects.size(), 0);
+
+  // Pass 1: what every emitter WANTS this frame. Pure arithmetic - not one
+  // RPC - so ranking the whole scene costs the IOP nothing, and an emitter
+  // that is out of range, hidden or deactivated simply does not appear.
+  sndWants.clear();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
-    const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
-    const int chIdx = i & 7;
-    if (!o.active || !o.visible) {
-      if (sndChVol[chIdx] != 0) {
-        engine->audio.adpcm.setVolume(0, ch);
-        sndChVol[chIdx] = 0;
-      }
-      continue;
-    }
+    if (!o.active || !o.visible) continue;
     int vol = 100;
     int pan = 0;
     if (!o.data.sndOnPlayer) {
@@ -4624,22 +4809,179 @@ void TerrainGame::updateSoundEmitters() {
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
     // one emitter + music). Quantize and only send real changes; a static
-    // player near a static emitter then costs zero RPCs per frame.
+    // player near a static emitter then costs zero RPCs per frame. The
+    // quantization is also what the steal margin is measured in.
     vol = ((vol + 2) / 5) * 5;
     if (vol > 100) vol = 100;
+    if (vol <= 0) continue;  // inaudible: wants no channel at all
     pan = pan >= 0 ? ((pan + 5) / 10) * 10 : -(((-pan + 5) / 10) * 10);
-    if (vol != sndChVol[chIdx] || pan != sndChPan[chIdx]) {
-      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
-      sndChVol[chIdx] = vol;
-      sndChPan[chIdx] = pan;
+    SoundWant w;
+    w.obj = i;
+    w.vol = vol;
+    w.pan = pan;
+    w.prio = o.data.sndPriority;
+    sndWants.push_back(w);
+  }
+
+  // Pass 2: hand the eight channels to the loudest of them.
+  pickSoundSlots(sndWants);
+
+  // Pass 3: drive each channel. Emitters own channels 16-23 OF THE ROOM'S
+  // BUS: +0 on core 1, +24 on core 0 (docs/reverb.md). A room change moves an
+  // emitter to a different channel, and its next trigger is heard through the
+  // incoming room while whatever it has in flight finishes in the outgoing one.
+  for (int s = 0; s < 8; ++s) {
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + s);
+    if (sndChBus[s] != scriptCtx.reverbBusBase) {
+      // The cached volume/pan describe the channel on the bus we just left, so
+      // they say nothing about this one - force the writes below.
+      sndChVol[s] = -1;
+      sndChPan[s] = -999;
+      sndChBus[s] = scriptCtx.reverbBusBase;
     }
-    if (vol <= 0) continue;
-    if (sndTimers[i] > 0) {
-      --sndTimers[i];
+    const int owner = sndSlotOwner[s];
+    if (owner < 0) {
+      // Nobody wants this channel. Mute it once so a stale level cannot come
+      // back with the next emitter that lands here before its own write.
+      if (sndChVol[s] != 0) {
+        engine->audio.adpcm.setVolume(0, ch);
+        sndChVol[s] = 0;
+      }
       continue;
     }
+    // The want computed in pass 1 (the ranking already found it, so this is a
+    // lookup and not a recomputation).
+    const SoundWant* want = sndWantOf(sndWants, owner);
+    const int vol = want ? want->vol : 0;
+    const int pan = want ? want->pan : 0;
+    if (vol != sndChVol[s] || pan != sndChPan[s]) {
+      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+      sndChVol[s] = vol;
+      sndChPan[s] = pan;
+    }
+    // An emitter with no channel does not tick either: its interval starts
+    // counting when it is loud enough to be heard, so walking up to a 10 s
+    // emitter cannot make it fire instantly with a countdown it spent silent.
+    if (sndTimers[owner] > 0) {
+      --sndTimers[owner];
+      continue;
+    }
+    const RuntimeObject& o = runtimeObjects[owner];
+    // Reverb send for this channel. The send is one BIT per voice, so an
+    // emitter opting out just clears its channel's bit - and because a channel
+    // changes hands, the emitter that plays owns the setting. AudioReverb
+    // holds the mask and compares before touching the hardware, which is also
+    // why nothing here keeps a copy: Play Sound nodes write the same mask from
+    // the generated graphs, and a second cache would let the two clobber each
+    // other's bits.
+    engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
-    sndTimers[i] = everyFrames(o.data.sndInterval);
+    sndTimers[owner] = everyFrames(o.data.sndInterval);
+  }
+}
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
+void TerrainGame::updateReverb() {
+  // Compile-time: a project with no reverb zone and no Set Reverb node still
+  // has this function, but the whole body folds away to nothing.
+  if (REVERB_ZONE_COUNT == 0 && !REVERB_HAS_NODE) return;
+
+  int wantPreset = 0;   // nothing found = dry
+  int wantAmount = 0;   // 0..100
+  int wantDelay = 64, wantFeedback = 64;
+
+  if (scriptCtx.reverbPreset >= 0) {
+    // A Set Reverb node is in force: it overrides the geometry outright.
+    wantPreset = scriptCtx.reverbPreset;
+    wantAmount = scriptCtx.reverbAmount;
+    wantDelay = scriptCtx.reverbDelay;
+    wantFeedback = scriptCtx.reverbFeedback;
+  } else {
+    // The listener is player 1. With split-screen two players can stand in
+    // different rooms and there is still only one reverb - that is a real
+    // limit of the hardware, documented rather than papered over.
+    const float lx = scriptCtx.playerPosition.x;
+    const float ly = scriptCtx.playerPosition.y;
+    const float lz = scriptCtx.playerPosition.z;
+    int bestPrio = 0;
+    bool found = false;
+    for (int i = 0; i < REVERB_ZONE_COUNT; ++i) {
+      const ReverbZoneData& z = REVERB_ZONES[i];
+      if (z.scene != g_activeScene) continue;
+      if (z.object < 0 || z.object >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& a = runtimeObjects[z.object];
+      // An area on an unloaded streaming layer catches nobody, exactly like a
+      // layer zone or an In Area trigger.
+      if (!a.active) continue;
+      if (!pointInArea(a.data, lx, ly, lz)) continue;
+      // Ties go to the later zone, so a room authored on top of another wins
+      // without needing a priority typed in.
+      if (found && z.priority < bestPrio) continue;
+      bestPrio = z.priority;
+      found = true;
+      wantPreset = z.preset;
+      wantAmount = z.amount;
+      wantDelay = z.delay;
+      wantFeedback = z.feedback;
+    }
+  }
+
+  // "Silence" covers both "no zone here" and an authored preset of Off: either
+  // way the answer is to ramp this bus down, NOT to hand the room to the other
+  // one. Skipping the swap there is what stops a player stepping in and out of
+  // a doorway from zeroing a work area every time.
+  const bool wantSilence = wantPreset == 0 || wantAmount <= 0;
+
+  // A change of ALGORITHM goes to the other bus, which can only take it while
+  // it is silent - its work area is about to be zeroed. If the other bus is
+  // still fading out (a second room entered before the first finished leaving)
+  // this simply waits, and the ramp below keeps running meanwhile.
+  const int other = 1 - reverbBus;
+  if (!wantSilence && wantPreset != reverbPresetCur[reverbBus] &&
+      reverbAmt[other] <= 0.0F) {
+    const Tyra::AudioReverb::Bus b = other == 0 ? Tyra::AudioReverb::BusA
+                                                : Tyra::AudioReverb::BusB;
+    reverbPresetCur[other] = wantPreset;
+    engine->audio.reverb.setDelay(b, (u8)wantDelay);
+    engine->audio.reverb.setFeedback(b, (u8)wantFeedback);
+    engine->audio.reverb.setPreset(b, (Tyra::AudioReverb::Preset)wantPreset);
+    // From this frame on, new sounds play on the incoming room's core. The
+    // ones already in flight keep going on the outgoing bus and finish in the
+    // room they started in.
+    reverbBus = other;
+    scriptCtx.reverbBusBase = reverbBus * 24;
+  }
+
+  // The active bus goes to the room's amount, the other one to zero: that IS
+  // the cross-fade. ~0.3 s for the full travel, frame-rate independent.
+  const float step = g_frameDt * (1.0F / 0.3F);
+  for (int b = 0; b < 2; ++b) {
+    float goal = 0.0F;
+    if (b == reverbBus && !wantSilence) goal = (float)wantAmount * 0.01F;
+    if (reverbAmt[b] < goal) {
+      reverbAmt[b] += step;
+      if (reverbAmt[b] > goal) reverbAmt[b] = goal;
+    } else if (reverbAmt[b] > goal) {
+      reverbAmt[b] -= step;
+      if (reverbAmt[b] < goal) reverbAmt[b] = goal;
+    }
+
+    // Quantize to 64 steps and only push a real change: this is a synchronous
+    // RPC to the IOP, sharing the SIF with the music stream.
+    int q = (int)(reverbAmt[b] * 64.0F + 0.5F);
+    if (q < 0) q = 0;
+    if (q > 64) q = 64;
+    if (q != reverbDepthSent[b]) {
+      reverbDepthSent[b] = q;
+      const s16 depth = (s16)((q * 0x7FFF) / 64);
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, depth,
+          depth);
+    }
   }
 }
 
@@ -8334,8 +8676,11 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x = nextX;
     P.z = nextZ;
 
-    P.velY -= GRAVITY * g_frameDt * g_frameDt;
-    P.y += P.velY;
+    // Gravity & jumping. velY is units/SECOND - see the note in the
+    // single-player walker below; a per-frame velocity makes the jump height
+    // depend on how long the frame the button was pressed on happened to be.
+    P.velY -= GRAVITY * g_frameDt;
+    P.y += P.velY * g_frameDt;
     const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
     if (P.y > maxY && maxY >= ground) {
       P.y = maxY;
@@ -8347,7 +8692,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.velY = 0.0F;
       grounded = true;
       if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
+        P.velY = PP_JUMP_SPEED(pi);
     }
 
     // Turn the avatar (shortest-arc lerp): toward its movement direction, or
@@ -8493,8 +8838,10 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   P.x = nextX;
   P.z = nextZ;
 
-  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  P.y += P.velY;
+  // Gravity & jumping. GRAVITY is units/s^2 and velY is units/SECOND - see
+  // the note in the single-player walker below.
+  P.velY -= GRAVITY * g_frameDt;
+  P.y += P.velY * g_frameDt;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
   const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
@@ -8506,7 +8853,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.y = ground;
     P.velY = 0.0F;
     if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
+      P.velY = PP_JUMP_SPEED(pi);  // units/s
   }
 
   const float eyeY = P.y + PP_EYE_HEIGHT(pi);
@@ -8993,7 +9340,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
       // moving objects never reuse a stale box.
       part.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-      part.infoBag->fullClipChecks = true;
+      part.infoBag->fullClipChecks = true;  // refreshed below, per frame
       part.colorBag = std::make_unique<StaPipColorBag>();
       part.bag = std::make_unique<StaPipBag>();
       part.bag->info = part.infoBag.get();
@@ -9001,6 +9348,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       part.bag->texture = nullptr;
       part.bag->lighting = nullptr;
     }
+    // OFF while a script displaces vertices AND the EE clipper is the one
+    // cutting. That clipper runs before any VU program sees the mesh, so a
+    // vertex moved afterwards is moved past a cut computed without it and the
+    // prop tears at the edge of the screen; the whole-mesh cull path is the
+    // way out, safe for a prop and NOT done for the terrain or the sky.
+    //
+    // Under VU1 CLIPPING there is nothing to compensate for: the clip program
+    // does its own MVP multiply, so the script displaces the vertex BEFORE the
+    // cut is computed and the clipper sees the final geometry. Set per frame
+    // rather than at bag creation because the mode is a run-time switch.
+    part.infoBag->fullClipChecks =
+        !vuscript::movesGeometry() || vuprog::vu1Clipping();
     part.colorBag->many = part.colors.data();
     part.bag->vertices = part.vertices.data();
     part.bag->count = static_cast<u32>(part.vertices.size());
@@ -11040,6 +11399,8 @@ void TerrainGame::renderScene() {
     }
     stapip.core.render(part.envBag.get());
   };
+  // Once a frame, before anything is submitted: the clock every time-varying
+  // script reads. One quadword, and only when the project has a script at all.
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -11122,6 +11483,12 @@ void TerrainGame::renderScene() {
           break;
         }
     }
+    // The four numbers this mesh hands to the project's own microprogram.
+    // Staged per object rather than per bag because every bag of one object
+    // shares them; a static BATCH is one bag for many objects, so its members
+    // share whatever the batch was built with (docs/vu-authoring.md).
+    if (vuprog::ENABLED)
+      vuprog::setParams(stapip.core, runtimeObjects[i].data.vuParams);
     for (GeoPart& part : objectGeometry[i].parts)
       if (part.bag) {
         stapip.core.render(part.bag.get());
@@ -11133,6 +11500,16 @@ void TerrainGame::renderScene() {
         if (part.emisBag) stapip.core.render(part.emisBag.get());
         renderEnvPass(objectGeometry[i], part);
       }
+    // Back to zero the moment this object's bags are out. The numbers are
+    // RENDERER STATE, not a property of the bag, so everything drawn after an
+    // object - the terrain, the sky dome, a static batch, the next object -
+    // would otherwise inherit them. Zero is the "wants nothing" case every
+    // stage renders bit-identically to the untouched program, so scoping them
+    // to one object is what makes the rest of the frame predictable.
+    if (vuprog::ENABLED) {
+      const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      vuprog::setParams(stapip.core, none);
+    }
   }
   // Animated models: advance playback, then skin + draw the in-view ones
   // through the same static pipeline (see updateAndRenderAnimObjects)
@@ -11170,6 +11547,11 @@ void TerrainGame::renderScene() {
         hlListD2[a] = hlListD2[b];
         hlListD2[b] = td;
       }
+  // After the scene, before the highlight: the ink line wants the objects'
+  // depth already in the buffer, and the highlight glow wants to sit on top of
+  // the line rather than under it.
+  renderOutlineShells();
+
   for (int a = 0; a < hlCount; ++a) {
     const int i = hlList[a];
     const u32 ph = DEBUG_SHOW_PROFILER ? profTicks() : 0;
@@ -12747,8 +13129,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       // vertical motion BEFORE the position is overwritten. Like the
       // objects below, carry the ACTUAL motion this frame - the walker's
       // ground clamp can zero velY on the very crossing frame.
+      // (*pvelY is units/second; the measured step is a displacement, so it
+      // has to be divided by the frame length before the two can be compared.)
       float vy = *pvelY;
-      const float stepY = *py - prevY;
+      const float stepY = g_frameDt > 0.0001F ? (*py - prevY) / g_frameDt : 0.0F;
       if (fabsf(stepY) > fabsf(vy)) vy = stepY;
       float nx2, ny2, nz2;
       mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
@@ -13040,6 +13424,121 @@ void TerrainGame::renderHighlightHull(int index) {
 // its full-detail silhouette, invisible under the soft rim. Models have no
 // cheaper source, so their parts are concatenated as-is (one submit per
 // shell instead of one per part).
+// The shell pass a project's own VU program can ask for: every visible object
+// drawn once more from its low-detail proxy, as a flat-colour bag whose
+// per-vertex colours carry the outward direction. The PROGRAM grows it - this
+// only supplies the copy, the depth pushback and the width.
+//
+// Growing on VU1 rather than by scaling the matrix is the whole point: a scale
+// about the centre moves a far vertex further than a near one, so the line
+// fattens at the ends of anything long, while a step along the vertex normal
+// is the same length everywhere.
+void TerrainGame::renderOutlineShells() {
+  if (!vuscript::shellActive()) return;
+  const float wScreen = vuscript::shellWidth();
+  if (wScreen <= 0.0F) return;
+
+  if (!outlineBag) {
+    outlineInfoBag = std::make_unique<StaPipInfoBag>();
+    outlineInfoBag->model = &outlineMat;
+    outlineInfoBag->shadingType = TyraShadingFlat;
+    outlineInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    // Clip checks ON, like any other prop - which is only correct because the
+    // shell arrives ALREADY GROWN. Growing it on VU1 instead put the clipper
+    // ahead of the growth: a package at the edge of the screen was cut on the
+    // un-grown silhouette and then grown past the cut, and the line tore into
+    // blobs exactly where an object met the edge. Turning these off to dodge
+    // that only traded it for the raster wrap raw submission gives anything
+    // half off-screen. The clipper has to see the final geometry; the only
+    // place that can be arranged is where the geometry is built.
+    outlineInfoBag->fullClipChecks = true;
+    // Standard GEQUAL, not the highlight's TestOnly. TestOnly corrupts depth
+    // relationships on the close-up clipped path - that is what commit
+    // 67e2893f found on the reflection pass, and an outline is close-up
+    // geometry by nature.
+    outlineInfoBag->zTestType = PipelineZTest_Standard;
+    outlineColorBag = std::make_unique<StaPipColorBag>();
+    outlineBag = std::make_unique<StaPipBag>();
+    outlineBag->info = outlineInfoBag.get();
+    outlineBag->color = outlineColorBag.get();
+    outlineBag->texture = nullptr;
+    outlineBag->lighting = nullptr;
+  }
+
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active) continue;
+    // A STATICALLY BATCHED object owns no solo bag - its geometry lives only
+    // in the merged batch - so the proxy builder found nothing to copy and
+    // that object silently wore no outline at all. It is not obvious from the
+    // picture either: the batched props are the still ones, so it reads as
+    // "that box just does not get a line". Bake the solo geometry on first
+    // use, exactly like the projected-shadow pass does for the same reason.
+    // A DIRTY member is left alone - rebuildObjectGeometry would eat the flag
+    // renderStaticBatches keys its demotion on, and this pass runs after it.
+    const bool batched =
+        i < (int)objectBatchOf.size() && objectBatchOf[i] >= 0;
+    if (batched && objectGeometry[i].parts.empty() && !o.dirty)
+      rebuildObjectGeometry(i);
+
+    ObjectGeometry& g = objectGeometry[i];
+    if (!g.hullProxyVerts.empty() && !g.hullProxyFine)
+      g.hullProxyVerts.clear();  // built coarse before this program came on
+    if (g.hullProxyVerts.empty()) buildHighlightProxy(i);
+    if (g.outlineVerts.empty()) continue;  // marker-only object
+
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    if (half < 0.01F) half = 0.01F;
+
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    // What buildHighlightProxy already walked each vertex by - needed here
+    // only to size the pushback. A fraction of the object rather than a screen
+    // width, because baked geometry cannot follow the camera, and because a
+    // line proportional to the thing it surrounds is what keeps small props
+    // from wearing tyres anyway.
+    const float grow = wScreen * half;
+
+    float behind = dist - half;
+    if (behind < 0.5F) behind = 0.5F;
+    // Scale about the eye: projected size unchanged, depth multiplied. Enough
+    // to clear the object's own front surface without reaching whatever sits
+    // right behind it.
+    const float k = 1.0F + (grow + 0.15F) / behind;
+    outlineMat.identity();
+    outlineMat.data[0] = k;
+    outlineMat.data[5] = k;
+    outlineMat.data[10] = k;
+    outlineMat.data[12] = (1.0F - k) * cameraPosition.x;
+    outlineMat.data[13] = (1.0F - k) * cameraPosition.y;
+    outlineMat.data[14] = (1.0F - k) * cameraPosition.z;
+
+    // x = 1 says "this mesh is a shell, paint it flat". Every other mesh this
+    // frame carries 0, so ONE program serves the shells and the ordinary
+    // objects without a branch - which is why x of the mesh parameters is
+    // RESERVED once a shell-pass program is active.
+    //
+    // The colour cannot simply be black vertices: the program rounds to band
+    // CENTRES, so black would come back at half a step and the ink line would
+    // be dark grey. It has to be zeroed after the quantise, on VU1.
+    stapip.core.setVuParams(1.0F, 0.0F, 0.0F, 0.0F);
+    outlineColorBag->single = &outlineCol;
+    outlineBag->vertices = g.outlineVerts.data();
+    outlineBag->count = static_cast<u32>(g.outlineVerts.size());
+    outlineBag->bboxVersion = g.hullProxyStamp;
+    stapip.core.render(outlineBag.get());
+  }
+  // Hand the parameters back, or the next flat-colour prop inherits the shell
+  // flag and paints itself black.
+  stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
+}
+
 void TerrainGame::buildHighlightProxy(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -13056,11 +13555,22 @@ void TerrainGame::buildHighlightProxy(int index) {
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;
+    // A SHELL PASS cannot use a coarser stand-in, and this is the difference
+    // between an outline and a handful of black plates. The proxy's vertices
+    // sit ON the object's surface but its faces are CHORDS, so they run below
+    // it - by the sagitta, which at detail 12 against a detail-24 sphere is
+    // far more than a line is wide. Push the proxy out by a constant and it
+    // emerges only near its vertices and stays buried across each face: caps
+    // at the poles, nothing at the equator. The highlight can afford the
+    // coarse version because a glow is forgiving about its own silhouette; a
+    // drawn line is exactly a silhouette, so it pays the full detail.
+    const bool shell = vuscript::shellActive();
     switch (o.data.type) {
       case 1:
       case 2:
       case 3:
-        low.primDetail = o.data.primDetail < 12 ? o.data.primDetail : 12;
+        low.primDetail = (shell || o.data.primDetail < 12) ? o.data.primDetail
+                                                           : 12;
         break;
       default:
         break;  // boxes, planes, decals: detail 1
@@ -13081,6 +13591,54 @@ void TerrainGame::buildHighlightProxy(int index) {
         break;  // marker-only types keep the proxy empty
     }
   }
+  // The outward direction a shell-pass program grows along, baked once and
+  // encoded around 128 so it rides in the colour slot. Radial from the proxy's
+  // own centroid: for a convex low-detail stand-in that IS the smoothed
+  // normal, and at a box corner it is exactly the average of the three faces
+  // meeting there - which is what stops a grown box from splitting open along
+  // its edges. Concave shapes are the honest limit of this, and the proxy is
+  // deliberately too coarse to be concave.
+  g.outlineVerts.clear();
+  if (!g.hullProxyVerts.empty() && vuscript::shellActive()) {
+    float cx = 0.0F, cy = 0.0F, cz = 0.0F;
+    for (const Vec4& v : g.hullProxyVerts) {
+      cx += v.x;
+      cy += v.y;
+      cz += v.z;
+    }
+    const float inv = 1.0F / static_cast<float>(g.hullProxyVerts.size());
+    cx *= inv, cy *= inv, cz *= inv;
+    g.outlineVerts.reserve(g.hullProxyVerts.size());
+    // How far to walk each vertex: a fraction of the object's own size, so
+    // small props do not wear tyres and nothing has to follow the camera.
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    const float grow = vuscript::shellWidth() * 0.5F * (half > 0.02F ? half
+                                                                    : 0.02F);
+    // Radial is the surface normal on a SPHERE. On anything scaled unevenly -
+    // and half the props in a scene are - it leans toward the long axis, so a
+    // constant step along it grows the squashed sides more than the stretched
+    // ones and the line comes out thick on one edge and thin on the other. The
+    // ellipsoid normal divides each axis by its own squared radius, which
+    // costs three multiplies here and nothing at all on VU1.
+    const float rx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float ry = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float rz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 1.0F;
+    const float ix = 1.0F / (rx * rx), iy = 1.0F / (ry * ry),
+                iz = 1.0F / (rz * rz);
+    for (const Vec4& v : g.hullProxyVerts) {
+      float dx = (v.x - cx) * ix, dy = (v.y - cy) * iy, dz = (v.z - cz) * iz;
+      const float l = sqrtf(dx * dx + dy * dy + dz * dz);
+      if (l > 0.0001F)
+        dx /= l, dy /= l, dz /= l;
+      else
+        dx = 0.0F, dy = 1.0F, dz = 0.0F;
+      g.outlineVerts.push_back(
+          Vec4(v.x + dx * grow, v.y + dy * grow, v.z + dz * grow, 1.0F));
+    }
+  }
+  g.hullProxyFine = vuscript::shellActive();
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 

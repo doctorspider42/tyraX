@@ -410,6 +410,18 @@ Differences on real hardware:
 - **No process to query.** `--debug-state` finds a PCSX2 session by reading the
   emulator's command line; on hardware there is none, which is why the editor's
   session pointer records the transport (`ps2link`) instead.
+- **The game's log arrives over the network, not in `bin/log.txt`.** A PCSX2
+  run writes that file over `host:`; a ps2link run would pay a network
+  round-trip per line, so the generated `main.cpp` leaves
+  `Tyra::Info::writeLogsToFile` off and logs to the EE console, which ps2link
+  forwards to `ps2client`. The editor shows those lines as `[ps2] …` in
+  **Output**, and the **Debug** window falls back to the same stream when there
+  is no log file — so `TYRA_LOG`, `TYRA_ERROR` and assertion dumps land in the
+  usual place either way. (Until 2026-08-06 they landed *nowhere* on hardware:
+  the EE's stdout is not a tty, so newlib buffered it fully and a game that
+  never exits never flushed. `TyraDebug::emit` flushes now. A game built before
+  that fix logs nothing over ps2link — rebuild it before concluding that the
+  code you are chasing is silent.)
 - **Keyboard and mouse work**, because this is the TyraX ps2link: tick
   *Project > Preferences > Build > Keyboard & mouse controls* and the
   *Also over ps2link* sub-option under it is already on — the game reuses

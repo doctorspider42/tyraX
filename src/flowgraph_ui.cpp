@@ -625,6 +625,20 @@ void App::drawFlowGraphWindow() {
             if (n.str == "autosave" && project_.saveAutosaveSlot < 0)
                 ImGui::TextColored(theme::semantics().warn,
                                    "No autosave slot set (Tools > Save Editor)");
+        } else if (t->strKind == FlowParamKind::ReverbPreset) {
+            const std::vector<ReverbPresetInfo>& presets = reverbPresets();
+            const int cur = reverbPresetIndex(n.str);
+            if (beginCombo("Preset", presets[cur].label, t->strTip)) {
+                for (int i = 0; i < (int)presets.size(); ++i) {
+                    if (ImGui::Selectable(presets[i].label, i == cur)) {
+                        n.str = presets[i].key;
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", presets[i].desc);
+                }
+                endCombo();
+            }
         } else if (t->strKind == FlowParamKind::KeyName) {
             if (beginCombo("Key",
                            n.str.empty() ? "(pick a key)" : n.str.c_str(),

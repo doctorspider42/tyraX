@@ -562,6 +562,13 @@ Notes:
   frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
   than screenshotting for assert text; the running editor also pops that dump in
   a copyable dialog. (A screenshot still shows *where* the game froze.)
+  **On a ps2link deploy there is no `bin/log.txt` at all** — the generated
+  `main.cpp` logs to the EE console there instead (a host: write per line is a
+  network round trip), and ps2link forwards it to `ps2client`. So the game's log
+  is the `[ps2] …` lines of the runner output: the Output panel in the GUI, plain
+  stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
+  the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
+  EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script — a GDI capture that works reliably:
 

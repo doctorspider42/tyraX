@@ -1,0 +1,1 @@
+{"id": "r0000000000001a", "name": "hall-drip", "type": "sound", "position": [0, 1.2, 38], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "sound": {"path": "res/sfx/knock.wav", "autoplay": true, "range": 55.0, "interval": 3.0, "onPlayer": false, "reverb": true}}

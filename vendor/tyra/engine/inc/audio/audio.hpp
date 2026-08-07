@@ -12,6 +12,7 @@
 #pragma once
 
 #include "./audio_adpcm.hpp"
+#include "./audio_reverb.hpp"
 #include "./audio_song.hpp"
 
 namespace Tyra {
@@ -26,6 +27,9 @@ class Audio {
 
   AudioSong song;
   AudioAdpcm adpcm;
+
+  /** SPU2 hardware reverb on the sound-effect core. Added by TyraX. */
+  AudioReverb reverb;
 
   void work();
 

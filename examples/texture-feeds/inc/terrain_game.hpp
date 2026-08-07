@@ -253,6 +253,19 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -737,6 +750,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -747,6 +763,19 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
@@ -878,6 +907,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -932,12 +965,21 @@ class TerrainGame : public Tyra::Game {
   void doLoad(int slot);
   void applySavedObjects();
   void refreshSlotStates();
+  // Resolves what a Commit Checkpoint asked for into a real slot, or -1 for
+  // "do nothing" (an autosave commit in a project with no autosave slot).
+  int resolveCommitSlot(int request);
+  // "Next free slot": the first empty one, skipping the autosave slot. With
+  // none empty it round-robins, so a long run keeps rewriting the same few
+  // instead of refusing to save.
+  int nextSaveSlot();
+  int nextSaveRotate = 0;
   std::vector<float> saveValues;
   std::vector<char> saveTexts;  // SAVE_TEXT_COUNT slots of SAVE_TEXT_LEN bytes
   std::vector<SaveObjectState> pendingObjState;  // applied after a scene load
   int pendingObjScene = -1;
   bool saveMenuOpen = false;
   int saveMenuSlot = 0;
+  int saveMenuPage = 0;  // derived from saveMenuSlot; kept for the renderer
   int saveMenuGrace = 0;  // frames to ignore pad input after opening
   bool slotUsed[SAVE_SLOTS] = {};
   int saveFeedback = 0, saveFeedbackFrames = 0;  // 1 saved, 2 loaded, 3 error
@@ -957,12 +999,35 @@ class TerrainGame : public Tyra::Game {
   int cardOpDelay = 0;     // frames until the blocking op runs
   int cardBusyFrames = 0;  // minimum overlay hold left
   Tyra::Sprite saveBusySprite;
+  // Asynchronous write (SAVE_ASYNC): the transfer is stepped a frame at a
+  // time while the game keeps running, so it owns neither the pad nor the
+  // screen - just the spinner. asyncSaveSlot is the slot in flight, needed to
+  // mark it used once the write lands.
+  void startAsyncSave(int slot);
+  // What a slot write should contain: the live state, or the last checkpoint
+  // when the project asked for that (SAVE_MENU_CHECKPOINT). `scratch` is only
+  // filled in the live case.
+  const SaveGameData& slotSource(SaveGameData& scratch);
+  int asyncSaveSlot = -1;
+  int spinnerFrame = 0;
+  // Minimum time the spinner stays up after a write STARTS. Without it the
+  // host fallback (and a fast card) would flash it for a single frame, which
+  // reads as a glitch rather than as "your game was saved".
+  int spinnerHold = 0;
+  Tyra::Sprite saveSpinnerSprite;
 
   // Game menus (menu_data.gen.hpp): panels baked by the editor, opened by
   // the Open Menu flow node, a menu entry, or at boot (title screen).
   // Gameplay pauses while one is open; Triangle walks the submenu stack.
   bool updateGameMenu();
   void renderGameMenu();
+  // Styled menus (docs/menu-styles.md): which rows the cursor may stop on, how
+  // it moves between them and how a scrolling list follows it. They take the
+  // menu INDEX rather than its MenuData: this header is included before
+  // menu_data.gen.hpp, so the type is not visible here.
+  bool menuRowEnabled(int menu, int row) const;
+  void menuMoveCursor(int menu, int dir);
+  void menuFollowCursor(int menu);
   // Ready-made option-block rows (Menu Editor): map each bound Toggle/Choice
   // row's option index onto its engine setting (volume/deadzone/curve/display).
   void applyMenuBindings();
@@ -973,6 +1038,19 @@ class TerrainGame : public Tyra::Game {
   // Toggle/Choice entry values: one sub-rect sprite per menu into its baked
   // value strip (menu_data.gen.hpp; only menus with such entries have one).
   std::vector<Tyra::Sprite> menuValueSprites;
+  // Styled menus (docs/menu-styles.md): a sub-rect sprite per menu into its
+  // row-state atlas, its scrolling row strip and its description atlas. All
+  // three are sub-rect windows like the value strip - the frame picks a cell by
+  // moving `offset`, so a state change costs no upload and no rebake.
+  std::vector<Tyra::Sprite> menuStateSprites;
+  std::vector<Tyra::Sprite> menuListSprites;
+  std::vector<Tyra::Sprite> menuDescSprites;
+  // The moving background layer (one per menu that has one) and the shared
+  // sheen band. Both are sprite properties over a static texture - see
+  // docs/menu-styles.md "Motion".
+  std::vector<Tyra::Sprite> menuBgSprites;
+  Tyra::Sprite menuSheenSprite;
+  bool menuSheenLoaded = false;
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
@@ -1092,10 +1170,29 @@ class TerrainGame : public Tyra::Game {
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
   std::vector<unsigned char> dynTextOn;  // visible this frame
   std::vector<float> dynTextTimer;
+  // One caret per menu: a sheet may point at its own image, and a texture link
+  // belongs to a sprite id. Menus that say nothing share the built-in file, so
+  // the repository hands them all the same Texture and VRAM does not move.
+  std::vector<Tyra::Sprite> menuCursorSprites;
   Tyra::Sprite menuCursorSprite;
   Tyra::Sprite menuDimSprite;  // fullscreen dim under pausing menus
   int gameMenuIndex = -1;
   int gameMenuCursor = 0;
+  // First visible row of a scrolling list, and the seconds the open transition
+  // and the caret have been running (docs/menu-styles.md - motion is sprite
+  // properties, so this is all the state it needs).
+  int gameMenuScroll = 0;
+  // The menu that is closing: it keeps drawing while its close transition plays,
+  // because a panel that vanishes on the frame the button was pressed is exactly
+  // the thing the transition exists to avoid.
+  int gameMenuClosing = -1;
+  float gameMenuCloseT = 0.0F;
+  float gameMenuScrollShown = 0.0F;  // eased scroll position, in rows
+  float gameMenuValueFlash = 0.0F;   // seconds left of the value flash
+  float gameMenuClock = 0.0F;        // seconds a menu has been open (the loops)
+  float gameMenuOpenT = 0.0F;
+  float gameMenuCursorY = 0.0F;   // eased caret position, panel-relative
+  int gameMenuCursorRow = -1;     // the row that position belongs to
   int gameMenuGrace = 0;
   int gameMenuStack[4] = {};
   int gameMenuStackDepth = 0;

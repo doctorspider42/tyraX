@@ -1480,6 +1480,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -2684,6 +2688,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
@@ -5082,6 +5090,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -7177,11 +7186,143 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
-// Last volume/pan sent to each emitter channel (16-23). audsrv RPCs are
-// synchronous and share one client lock with the music stream, so
-// updateSoundEmitters only issues an RPC when the quantized value changes.
+// Last volume/pan sent to each emitter channel. audsrv RPCs are synchronous
+// and share one client lock with the music stream, so updateSoundEmitters only
+// issues an RPC when the quantized value changes. `sndChBus` is which reverb
+// bus the cached pair was written for: an emitter moves to the incoming room's
+// bus (a different SPU2 core, so a different CHANNEL) and the cache has to
+// know it is describing a channel nobody is listening to any more.
 static int sndChVol[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static int sndChPan[8] = {-999, -999, -999, -999, -999, -999, -999, -999};
+static int sndChBus[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// Which emitter currently owns each of the eight channels (a runtime object
+// index, -1 = free). The slots used to be a hash of the object index
+// (16 + (i & 7)), so the NINTH audible emitter silently muted one of the
+// first eight and which one it was came down to scene order - an emitter at
+// the player's feet could lose to one eight indices away and half a level
+// off. They are handed to the LOUDEST emitters instead; see pickSoundSlots.
+static int sndSlotOwner[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// How much louder a challenger has to be before it takes a slot off the
+// emitter holding it. Re-ranking on the raw value makes two emitters of
+// near-equal volume trade the slot every frame, and because a change of owner
+// retriggers, that is audible as stuttering. The volumes are already
+// quantized to steps of 5 (see updateSoundEmitters), so this is two steps: far
+// below what a listener can place, far above the jitter of walking.
+static const int kSndStealMargin = 10;
+
+// One emitter's claim on a channel this frame: the runtime object, the
+// volume/pan the loop worked out for it, and the author's priority.
+struct SoundWant {
+  int obj;
+  int vol;
+  int pan;
+  int prio;
+};
+
+// Is `a` a better claim on a channel than `b`? Priority first - that is what
+// the author set it for - and the volume only decides between equals. The
+// margin applies to the volume alone: a higher priority takes a channel
+// immediately, while two ambiences a step apart must not trade one every
+// frame (see kSndStealMargin).
+static bool sndBeats(const SoundWant& a, const SoundWant& b, int margin) {
+  if (a.prio != b.prio) return a.prio > b.prio;
+  return a.vol > b.vol + margin;
+}
+// Kept between frames so the per-frame pass allocates nothing.
+static std::vector<SoundWant> sndWants;
+
+static bool sndHoldsSlot(int obj) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] == obj) return true;
+  return false;
+}
+
+static const SoundWant* sndWantOf(const std::vector<SoundWant>& wants, int obj) {
+  for (int k = 0; k < (int)wants.size(); ++k)
+    if (wants[k].obj == obj) return &wants[k];
+  return 0;  // wants nothing this frame
+}
+
+// Hands the eight emitter channels to the loudest emitters that want one.
+// Three steps, each of them O(8 x emitters) of plain arithmetic:
+//   1. a holder that has gone quiet (out of range, hidden, deactivated)
+//      releases its channel;
+//   2. free channels go to the loudest emitters holding none;
+//   3. the loudest emitter still without one takes the quietest holder's
+//      channel, but only if it beats it by kSndStealMargin.
+// Step 3 is what makes the assignment stable: without the margin, two
+// emitters a step apart swap every frame and retrigger each other to bits.
+// A channel that changes hands has its volume/pan cache invalidated here, at
+// the assignment - the same thing a bus switch does, and for the same reason.
+static void pickSoundSlots(const std::vector<SoundWant>& wants) {
+  for (int s = 0; s < 8; ++s)
+    if (sndSlotOwner[s] >= 0 && !sndWantOf(wants, sndSlotOwner[s]))
+      sndSlotOwner[s] = -1;
+
+  for (int s = 0; s < 8; ++s) {
+    if (sndSlotOwner[s] >= 0) continue;
+    const SoundWant* best = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!best || sndBeats(wants[k], *best, 0)) best = &wants[k];
+    }
+    if (!best) break;  // nobody is waiting
+    sndSlotOwner[s] = best->obj;
+    sndChVol[s] = -1;
+    sndChPan[s] = -999;
+  }
+
+  // Bounded by the channel count: every pass moves exactly one emitter in and
+  // one out, so eight is already more than can ever be useful.
+  for (int pass = 0; pass < 8; ++pass) {
+    const SoundWant* cand = 0;
+    for (int k = 0; k < (int)wants.size(); ++k) {
+      if (sndHoldsSlot(wants[k].obj)) continue;
+      if (!cand || sndBeats(wants[k], *cand, 0)) cand = &wants[k];
+    }
+    if (!cand) break;
+    int worst = -1;
+    const SoundWant* worstWant = 0;
+    for (int s = 0; s < 8; ++s) {
+      const SoundWant* w = sndWantOf(wants, sndSlotOwner[s]);
+      if (!w) continue;
+      if (!worstWant || sndBeats(*worstWant, *w, 0)) { worstWant = w; worst = s; }
+    }
+    if (worst < 0 || !sndBeats(*cand, *worstWant, kSndStealMargin)) break;
+    sndSlotOwner[worst] = cand->obj;
+    sndChVol[worst] = -1;
+    sndChPan[worst] = -999;
+  }
+}
+
+// Reverb zone state (docs/reverb.md). The SPU2 has TWO reverb units, one per
+// core, and the audsrv fork puts ADPCM channels 0-23 on core 1 and 24-47 on
+// core 0 - so a bus is reachable only by the voices playing on its core. That
+// is what makes a room CROSS-FADE possible, and it shapes everything here:
+//
+// - a room owns a bus. `reverbBus` is the one the room the listener is in
+//   currently runs on, and `REVERB_BUS_BASE` turns it into the channel offset
+//   every new sound is played at.
+// - a change of PRESET hands the room to the OTHER bus, loads it there while
+//   that bus is silent (switching the algorithm zeroes up to 96 KB of SPU2
+//   work area and doing it under a live tail is audible), and then the two
+//   depths ramp past each other.
+// - a change of AMOUNT alone does not swap anything - two zones sharing a
+//   preset just ramp on the one bus, exactly as before.
+// - sounds already playing stay on the outgoing bus and finish in the room
+//   they started in. That is not a compromise: it is what a real room does to
+//   a sound you carry out of it.
+// - depths are quantized and only pushed when they really move. These are IOP
+//   RPCs like the emitter volumes above, and a per-frame RPC costs frames.
+//
+// The per-voice send mask deliberately lives in AudioReverb alone (both this
+// file and the generated flow graphs write it), so there is no copy here.
+static int reverbBus = 0;                 // 0 = BusA (core 1), 1 = BusB
+static int reverbPresetCur[2] = {0, 0};   // preset loaded on each bus
+static float reverbAmt[2] = {0.0F, 0.0F}; // 0..1, the ramped wet level of each
+static int reverbDepthSent[2] = {-1, -1}; // last quantized depth written
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -7550,11 +7691,31 @@ void TerrainGame::loadScene(int sceneIndex) {
   buildParticles();
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
-  // ADPCM sample can't be stopped - it plays out, but silently).
+  // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
+  // sets, because a room can have moved the emitters onto either bus.
   sndTimers.assign(runtimeObjects.size(), 0);
   for (int ch = 16; ch < 24; ++ch) {
     engine->audio.adpcm.setVolume(0, (s8)ch);
+    engine->audio.adpcm.setVolume(0, (s8)(ch + 24));
     sndChVol[ch - 16] = 0;  // keep the RPC cache in sync with the mute
+    sndChBus[ch - 16] = -1;  // ...and make the next write unconditional
+    // The owners are runtime object INDICES, which the new scene renumbers.
+    sndSlotOwner[ch - 16] = -1;
+  }
+
+  // Reverb: a scene switch is a cut, so drop both rooms instead of ramping one
+  // out of the old scene into the new one. The depth cache is invalidated
+  // (-1) rather than set, so the first updateReverb writes the hardware even
+  // if the new scene wants exactly what the old one had.
+  if (REVERB_ZONE_COUNT > 0 || REVERB_HAS_NODE) {
+    for (int b = 0; b < 2; ++b) {
+      reverbAmt[b] = 0.0F;
+      reverbDepthSent[b] = -1;
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, 0, 0);
+    }
+    reverbBus = 0;
+    scriptCtx.reverbBusBase = 0;
   }
 
   // A loaded save targeting this scene: apply the stored object state now
@@ -7590,22 +7751,26 @@ void TerrainGame::loadScene(int sceneIndex) {
 // "on the player" wherever they are (dialogs, narration). Hide Object mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
+  // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
+  // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so
+  // the world goes quiet within one sample instead of clicking off, and
+  // nothing new starts while the game is frozen. updateParticles takes the
+  // same early return two functions down; a halted game that keeps ticking
+  // its emitters was the odd one out.
+  if (g_gameplayPaused) return;
   if (sndTimers.size() != runtimeObjects.size())
     sndTimers.assign(runtimeObjects.size(), 0);
+
+  // Pass 1: what every emitter WANTS this frame. Pure arithmetic - not one
+  // RPC - so ranking the whole scene costs the IOP nothing, and an emitter
+  // that is out of range, hidden or deactivated simply does not appear.
+  sndWants.clear();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     const RuntimeObject& o = runtimeObjects[i];
     if (o.data.type != 8 || !o.data.sndAuto) continue;
     if (o.data.snd < 0 || o.data.snd >= (int)sndSamples.size()) continue;
     if (!sndSamples[o.data.snd]) continue;  // sample failed to load (too big for SPU2?)
-    const s8 ch = (s8)(16 + (i & 7));  // emitters own channels 16-23
-    const int chIdx = i & 7;
-    if (!o.active || !o.visible) {
-      if (sndChVol[chIdx] != 0) {
-        engine->audio.adpcm.setVolume(0, ch);
-        sndChVol[chIdx] = 0;
-      }
-      continue;
-    }
+    if (!o.active || !o.visible) continue;
     int vol = 100;
     int pan = 0;
     if (!o.data.sndOnPlayer) {
@@ -7640,22 +7805,179 @@ void TerrainGame::updateSoundEmitters() {
     // stream - an RPC per emitter per frame stalls the main thread whenever
     // the song thread holds the lock (measured 50 -> 42 FPS in PCSX2 with
     // one emitter + music). Quantize and only send real changes; a static
-    // player near a static emitter then costs zero RPCs per frame.
+    // player near a static emitter then costs zero RPCs per frame. The
+    // quantization is also what the steal margin is measured in.
     vol = ((vol + 2) / 5) * 5;
     if (vol > 100) vol = 100;
+    if (vol <= 0) continue;  // inaudible: wants no channel at all
     pan = pan >= 0 ? ((pan + 5) / 10) * 10 : -(((-pan + 5) / 10) * 10);
-    if (vol != sndChVol[chIdx] || pan != sndChPan[chIdx]) {
-      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
-      sndChVol[chIdx] = vol;
-      sndChPan[chIdx] = pan;
+    SoundWant w;
+    w.obj = i;
+    w.vol = vol;
+    w.pan = pan;
+    w.prio = o.data.sndPriority;
+    sndWants.push_back(w);
+  }
+
+  // Pass 2: hand the eight channels to the loudest of them.
+  pickSoundSlots(sndWants);
+
+  // Pass 3: drive each channel. Emitters own channels 16-23 OF THE ROOM'S
+  // BUS: +0 on core 1, +24 on core 0 (docs/reverb.md). A room change moves an
+  // emitter to a different channel, and its next trigger is heard through the
+  // incoming room while whatever it has in flight finishes in the outgoing one.
+  for (int s = 0; s < 8; ++s) {
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + s);
+    if (sndChBus[s] != scriptCtx.reverbBusBase) {
+      // The cached volume/pan describe the channel on the bus we just left, so
+      // they say nothing about this one - force the writes below.
+      sndChVol[s] = -1;
+      sndChPan[s] = -999;
+      sndChBus[s] = scriptCtx.reverbBusBase;
     }
-    if (vol <= 0) continue;
-    if (sndTimers[i] > 0) {
-      --sndTimers[i];
+    const int owner = sndSlotOwner[s];
+    if (owner < 0) {
+      // Nobody wants this channel. Mute it once so a stale level cannot come
+      // back with the next emitter that lands here before its own write.
+      if (sndChVol[s] != 0) {
+        engine->audio.adpcm.setVolume(0, ch);
+        sndChVol[s] = 0;
+      }
       continue;
     }
+    // The want computed in pass 1 (the ranking already found it, so this is a
+    // lookup and not a recomputation).
+    const SoundWant* want = sndWantOf(sndWants, owner);
+    const int vol = want ? want->vol : 0;
+    const int pan = want ? want->pan : 0;
+    if (vol != sndChVol[s] || pan != sndChPan[s]) {
+      engine->audio.adpcm.setVolumeAndPan((u8)vol, (s8)pan, ch);
+      sndChVol[s] = vol;
+      sndChPan[s] = pan;
+    }
+    // An emitter with no channel does not tick either: its interval starts
+    // counting when it is loud enough to be heard, so walking up to a 10 s
+    // emitter cannot make it fire instantly with a countdown it spent silent.
+    if (sndTimers[owner] > 0) {
+      --sndTimers[owner];
+      continue;
+    }
+    const RuntimeObject& o = runtimeObjects[owner];
+    // Reverb send for this channel. The send is one BIT per voice, so an
+    // emitter opting out just clears its channel's bit - and because a channel
+    // changes hands, the emitter that plays owns the setting. AudioReverb
+    // holds the mask and compares before touching the hardware, which is also
+    // why nothing here keeps a copy: Play Sound nodes write the same mask from
+    // the generated graphs, and a second cache would let the two clobber each
+    // other's bits.
+    engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
     engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
-    sndTimers[i] = everyFrames(o.data.sndInterval);
+    sndTimers[owner] = everyFrames(o.data.sndInterval);
+  }
+}
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
+void TerrainGame::updateReverb() {
+  // Compile-time: a project with no reverb zone and no Set Reverb node still
+  // has this function, but the whole body folds away to nothing.
+  if (REVERB_ZONE_COUNT == 0 && !REVERB_HAS_NODE) return;
+
+  int wantPreset = 0;   // nothing found = dry
+  int wantAmount = 0;   // 0..100
+  int wantDelay = 64, wantFeedback = 64;
+
+  if (scriptCtx.reverbPreset >= 0) {
+    // A Set Reverb node is in force: it overrides the geometry outright.
+    wantPreset = scriptCtx.reverbPreset;
+    wantAmount = scriptCtx.reverbAmount;
+    wantDelay = scriptCtx.reverbDelay;
+    wantFeedback = scriptCtx.reverbFeedback;
+  } else {
+    // The listener is player 1. With split-screen two players can stand in
+    // different rooms and there is still only one reverb - that is a real
+    // limit of the hardware, documented rather than papered over.
+    const float lx = scriptCtx.playerPosition.x;
+    const float ly = scriptCtx.playerPosition.y;
+    const float lz = scriptCtx.playerPosition.z;
+    int bestPrio = 0;
+    bool found = false;
+    for (int i = 0; i < REVERB_ZONE_COUNT; ++i) {
+      const ReverbZoneData& z = REVERB_ZONES[i];
+      if (z.scene != g_activeScene) continue;
+      if (z.object < 0 || z.object >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& a = runtimeObjects[z.object];
+      // An area on an unloaded streaming layer catches nobody, exactly like a
+      // layer zone or an In Area trigger.
+      if (!a.active) continue;
+      if (!pointInArea(a.data, lx, ly, lz)) continue;
+      // Ties go to the later zone, so a room authored on top of another wins
+      // without needing a priority typed in.
+      if (found && z.priority < bestPrio) continue;
+      bestPrio = z.priority;
+      found = true;
+      wantPreset = z.preset;
+      wantAmount = z.amount;
+      wantDelay = z.delay;
+      wantFeedback = z.feedback;
+    }
+  }
+
+  // "Silence" covers both "no zone here" and an authored preset of Off: either
+  // way the answer is to ramp this bus down, NOT to hand the room to the other
+  // one. Skipping the swap there is what stops a player stepping in and out of
+  // a doorway from zeroing a work area every time.
+  const bool wantSilence = wantPreset == 0 || wantAmount <= 0;
+
+  // A change of ALGORITHM goes to the other bus, which can only take it while
+  // it is silent - its work area is about to be zeroed. If the other bus is
+  // still fading out (a second room entered before the first finished leaving)
+  // this simply waits, and the ramp below keeps running meanwhile.
+  const int other = 1 - reverbBus;
+  if (!wantSilence && wantPreset != reverbPresetCur[reverbBus] &&
+      reverbAmt[other] <= 0.0F) {
+    const Tyra::AudioReverb::Bus b = other == 0 ? Tyra::AudioReverb::BusA
+                                                : Tyra::AudioReverb::BusB;
+    reverbPresetCur[other] = wantPreset;
+    engine->audio.reverb.setDelay(b, (u8)wantDelay);
+    engine->audio.reverb.setFeedback(b, (u8)wantFeedback);
+    engine->audio.reverb.setPreset(b, (Tyra::AudioReverb::Preset)wantPreset);
+    // From this frame on, new sounds play on the incoming room's core. The
+    // ones already in flight keep going on the outgoing bus and finish in the
+    // room they started in.
+    reverbBus = other;
+    scriptCtx.reverbBusBase = reverbBus * 24;
+  }
+
+  // The active bus goes to the room's amount, the other one to zero: that IS
+  // the cross-fade. ~0.3 s for the full travel, frame-rate independent.
+  const float step = g_frameDt * (1.0F / 0.3F);
+  for (int b = 0; b < 2; ++b) {
+    float goal = 0.0F;
+    if (b == reverbBus && !wantSilence) goal = (float)wantAmount * 0.01F;
+    if (reverbAmt[b] < goal) {
+      reverbAmt[b] += step;
+      if (reverbAmt[b] > goal) reverbAmt[b] = goal;
+    } else if (reverbAmt[b] > goal) {
+      reverbAmt[b] -= step;
+      if (reverbAmt[b] < goal) reverbAmt[b] = goal;
+    }
+
+    // Quantize to 64 steps and only push a real change: this is a synchronous
+    // RPC to the IOP, sharing the SIF with the music stream.
+    int q = (int)(reverbAmt[b] * 64.0F + 0.5F);
+    if (q < 0) q = 0;
+    if (q > 64) q = 64;
+    if (q != reverbDepthSent[b]) {
+      reverbDepthSent[b] = q;
+      const s16 depth = (s16)((q * 0x7FFF) / 64);
+      engine->audio.reverb.setDepth(
+          b == 0 ? Tyra::AudioReverb::BusA : Tyra::AudioReverb::BusB, depth,
+          depth);
+    }
   }
 }
 
@@ -11350,8 +11672,11 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.x = nextX;
     P.z = nextZ;
 
-    P.velY -= GRAVITY * g_frameDt * g_frameDt;
-    P.y += P.velY;
+    // Gravity & jumping. velY is units/SECOND - see the note in the
+    // single-player walker below; a per-frame velocity makes the jump height
+    // depend on how long the frame the button was pressed on happened to be.
+    P.velY -= GRAVITY * g_frameDt;
+    P.y += P.velY * g_frameDt;
     const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
     if (P.y > maxY && maxY >= ground) {
       P.y = maxY;
@@ -11363,7 +11688,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       P.velY = 0.0F;
       grounded = true;
       if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-        P.velY = PP_JUMP_SPEED(pi) * g_frameDt;
+        P.velY = PP_JUMP_SPEED(pi);
     }
 
     // Turn the avatar (shortest-arc lerp): toward its movement direction, or
@@ -11509,8 +11834,10 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   P.x = nextX;
   P.z = nextZ;
 
-  P.velY -= GRAVITY * g_frameDt * g_frameDt;  // GRAVITY is units/s^2
-  P.y += P.velY;
+  // Gravity & jumping. GRAVITY is units/s^2 and velY is units/SECOND - see
+  // the note in the single-player walker below.
+  P.velY -= GRAVITY * g_frameDt;
+  P.y += P.velY * g_frameDt;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
   const float maxY = ceiling - PP_EYE_HEIGHT(pi) - EYE_CLEARANCE;
@@ -11522,7 +11849,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     P.y = ground;
     P.velY = 0.0F;
     if (PP_CAN_JUMP(pi) && !g_playerLocked && inputClicked(pad, IA_ROLE_JUMP))
-      P.velY = PP_JUMP_SPEED(pi) * g_frameDt;  // units/s
+      P.velY = PP_JUMP_SPEED(pi);  // units/s
   }
 
   const float eyeY = P.y + PP_EYE_HEIGHT(pi);
@@ -15798,8 +16125,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
       // vertical motion BEFORE the position is overwritten. Like the
       // objects below, carry the ACTUAL motion this frame - the walker's
       // ground clamp can zero velY on the very crossing frame.
+      // (*pvelY is units/second; the measured step is a displacement, so it
+      // has to be divided by the frame length before the two can be compared.)
       float vy = *pvelY;
-      const float stepY = *py - prevY;
+      const float stepY = g_frameDt > 0.0001F ? (*py - prevY) / g_frameDt : 0.0F;
       if (fabsf(stepY) > fabsf(vy)) vy = stepY;
       float nx2, ny2, nz2;
       mapPoint(*px, *py, *pz, &nx2, &ny2, &nz2);
@@ -17576,6 +17905,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   updateParticles();
   updateSoundEmitters();
+  updateReverb();
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -17921,9 +18251,16 @@ void TerrainGame::updatePlayer() {
   playerX = nextX;
   playerZ = nextZ;
 
-  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s.
-  playerVelY -= GRAVITY * g_frameDt * g_frameDt;
-  playerY += playerVelY;
+  // Gravity & jumping (X). GRAVITY: units/s^2, JUMP_SPEED: units/s, and
+  // playerVelY is units/SECOND too - integrated with THIS frame's dt on the
+  // frame it is used, never carried across frames as a displacement. That
+  // distinction is the whole point: a velocity stored per FRAME is only valid
+  // for the frame length it was computed at, so a jump that started on a long
+  // frame (a devkit file poll over ps2link, a streamed layer, any hitch) flew
+  // several times too high and a hitch mid-flight yanked the player down. At a
+  // steady frame rate the two forms are identical arithmetic.
+  playerVelY -= GRAVITY * g_frameDt;
+  playerY += playerVelY * g_frameDt;
   // Jump clamp: keep the eye EYE_CLEARANCE below overhead geometry so the
   // camera never pokes into it (skipped when the gap is too low to stand in)
   const float maxY = ceiling - EYE_HEIGHT - EYE_CLEARANCE;
@@ -17935,7 +18272,7 @@ void TerrainGame::updatePlayer() {
     playerY = ground;
     playerVelY = 0.0F;
     if (!g_playerLocked && inputClicked(engine->pad, IA_ROLE_JUMP))
-      playerVelY = JUMP_SPEED * g_frameDt;
+      playerVelY = JUMP_SPEED;
   }
 
   const float eyeY = playerY + EYE_HEIGHT;
@@ -18840,6 +19177,21 @@ struct ScriptContext {
   // applies and resets it. The optional toggle button still gates the beam.
   int flashlight = -1;
 
+  // Reverb override (Set Reverb flow node, docs/reverb.md). -1 = the reverb
+  // zones decide; 0..9 = force that preset everywhere, whatever area the
+  // player is standing in. Unlike the switches below this one is NOT consumed
+  // and reset - it stays in force until the node's "clear" pin puts it back to
+  // -1, because a room is a state and not an event.
+  int reverbPreset = -1;
+  int reverbAmount = 50;    // 0..100, used while reverbPreset >= 0
+  // Channel offset of the bus the CURRENT room runs on: 0 for SPU2 core 1,
+  // 24 for core 0. Every new sound is played at this offset so it is heard
+  // through the room the listener is in; TerrainGame::updateReverb owns it,
+  // and the generated flow graphs read it (they are a different TU).
+  int reverbBusBase = 0;
+  int reverbDelay = 64;     // 0..127, echo/delay presets only
+  int reverbFeedback = 64;  // 0..127, echo/delay presets only
+
   // Player input lock (Set Player Input flow node): -1 = leave, 0 = the walker
   // ignores the pad/keyboard/mouse, 1 = back to normal. Only INPUT is taken
   // away - gravity, collision and the camera keep running, so a locked player
@@ -19691,6 +20043,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << (o.emitterDieOnGround ? 1 : 0) << ", " << soundIdx << ", "
         << (o.soundAuto ? 1 : 0) << ", " << floatLit(o.soundRange) << ", "
         << floatLit(o.soundInterval) << ", " << (o.soundOnPlayer ? 1 : 0) << ", "
+        << (o.soundReverb ? 1 : 0) << ", " << o.soundPriority << ", "
         << floatLit(o.lightBright) << ", " << floatLit(o.lightRadius) << ", "
         << (o.lightDynamic ? 1 : 0) << ", " << floatLit(o.lightFlicker) << ", "
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
@@ -20647,6 +21000,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float sndInterval; // sound emitters: retrigger period (s), 0 = loop\n"
            "  int sndOnPlayer;   // sound emitters: 1 = centered on the player\n"
            "                     // (plain stereo, full volume, no distance/pan)\n"
+           "  int sndReverb;     // sound emitters: 1 = heard through the reverb\n"
+           "                     // zone the player is in (REVERB_ZONES below);\n"
+           "                     // 0 = always dry\n"
+           "  int sndPriority;   // sound emitters: who keeps a channel when more\n"
+           "                     // are audible than there are voices - higher\n"
+           "                     // wins, equals go to the loudest (docs/sound.md)\n"
            "  float lightBright; // point lights (type 9): baked intensity\n"
            "  float lightRadius; // point lights (type 9): falloff radius\n"
            "  int lightDynamic;  // point lights: 1 = live (engine-lit each frame,\n"
@@ -21525,6 +21884,64 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << "constexpr int MIRROR_TARGETS["
             << (targetCount ? targetCount : 1) << "] = {"
             << (targetCount ? targets.str() : "-1") << "};\n\n";
+    }
+
+    // Reverb zones (docs/reverb.md): Area objects marked as a room for the
+    // SPU2's hardware reverb. A side table rather than SceneObjectData fields,
+    // because a scene has a handful of these and hundreds of objects.
+    // The BOX is not baked - `object` indexes the live scene table, so a flow
+    // node that moves the area drags its room along, exactly like a streaming
+    // zone or an In Area trigger.
+    {
+        std::ostringstream rows;
+        int zoneCount = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::Area || !o.reverbZone) continue;
+                int amount = (int)(o.reverbAmount * 100.0f + 0.5f);
+                if (amount < 0) amount = 0;
+                if (amount > 100) amount = 100;
+                rows << (zoneCount ? ",\n" : "") << "    {" << si << ", "
+                     << (int)oi << ", " << o.reverbPreset << ", " << amount
+                     << ", " << o.reverbDelay << ", " << o.reverbFeedback
+                     << ", " << o.reverbPriority << "}";
+                ++zoneCount;
+            }
+        }
+        out << "// A room for the sound effects. While the player stands inside\n"
+               "// the area, the SPU2's reverb unit runs `preset` at `amount`.\n"
+               "// There is ONE such unit on the console, so zones never mix:\n"
+               "// the highest `priority` inside wins, and the game ramps the\n"
+               "// amount rather than cutting (see TerrainGame::updateReverb).\n"
+               "struct ReverbZoneData {\n"
+               "  int scene;     // scene index\n"
+               "  int object;    // the area's index in its scene table\n"
+               "  int preset;    // 0 off, 1 room, 2-4 studio, 5 hall,\n"
+               "                 // 6 space echo, 7 echo, 8 delay, 9 pipe\n"
+               "                 // (these ARE libsd's SD_EFFECT_MODE_*)\n"
+               "  int amount;    // wet level, 0..100\n"
+               "  int delay;     // 0..127, echo/delay presets only\n"
+               "  int feedback;  // 0..127, echo/delay presets only\n"
+               "  int priority;  // overlapping zones: the highest wins\n"
+               "};\n";
+        // A Set Reverb node can run the reverb in a project that has no zones
+        // at all, so the runtime cannot be gated on the zone count alone.
+        bool hasNode = false;
+        for (int si = 0; si < sceneCount && !hasNode; ++si)
+            for (const SceneObject& o : p.scenes[si].objects) {
+                for (const FlowNode& n : o.flowGraph.nodes)
+                    if (n.type == "SetReverb") { hasNode = true; break; }
+                if (hasNode) break;
+            }
+        out << "constexpr int REVERB_ZONE_COUNT = " << zoneCount << ";\n"
+            << "constexpr bool REVERB_HAS_NODE = " << (hasNode ? "true" : "false")
+            << ";\n"
+            << "constexpr ReverbZoneData REVERB_ZONES["
+            << (zoneCount ? zoneCount : 1) << "] = {\n"
+            << (zoneCount ? rows.str() : "    {0, -1, 0, 0, 0, 0, 0}")
+            << "\n};\n\n";
     }
 
     // Raytraced-mirror model proxies: MODEL targets of raytraced mirrors
@@ -24565,6 +24982,8 @@ std::string flowGraphScript(const Project& p) {
     bool anyRotateBy = false;
     bool anyRandom = false;
     bool anyTween = false;
+    bool anyPinnedSfx = false;
+    bool anyAutoSfx = false;
     // Every node type the project actually uses, so each generated helper is
     // gated on the one node that needs it (a project with no Math nodes should
     // not carry the Math helpers).
@@ -24584,6 +25003,13 @@ std::string flowGraphScript(const Project& p) {
                               n.type == "RollRandom" ||
                               n.type == "RollAreaPoint");
                 anyTween |= (n.type == "Tween");
+                // Play Sound emits a pinned or an auto channel picker, never
+                // both unless the project uses both (an unused static helper
+                // is a -Wall warning in the generated TU).
+                if (n.type == "PlaySound") {
+                    if ((int)n.num[1] >= 0) anyPinnedSfx = true;
+                    else anyAutoSfx = true;
+                }
             }
     const bool anyNav = anyNavAiNode(p);
     auto uses = [&](const char* k) { return used.count(k) != 0; };
@@ -24627,6 +25053,73 @@ std::string flowGraphScript(const Project& p) {
            "#include <string>\n\n"
            "namespace "
         << ns << " {\n";
+
+    if (uses("PlaySound")) {
+        out << R"(
+// Which channel a Play Sound gets, and who loses one when they are all busy
+// (docs/sound.md). The flow graphs share the sixteen channels of the CURRENT
+// room's reverb bus - 16-23 belong to the sound emitters - so the choice is
+// made here once for every graph in the game rather than per script.
+//
+// Order: a voice that has FINISHED is free and needs no victim; otherwise the
+// lowest priority STRICTLY below the incoming one is cut off; otherwise the
+// new sound is dropped. That last case is the design working, not a failure -
+// it is what "priority" means - so nothing logs it.
+//
+// The ENDX read is one IOP RPC and it happens per PLAY REQUEST, never per
+// frame. A play already costs two or three RPCs (volume, reverb send, the
+// play itself), and it is the only way to know what is still sounding.
+namespace {
+int sfxPrio[16] = {0};  // priority of what was last started on each channel
+int sfxPrioBus = -1;    // which bus those priorities describe
+
+inline void sfxSyncBus(int base) {
+  if (sfxPrioBus == base) return;
+  // The room moved to the other SPU2 core. Whatever is still finishing on the
+  // bus we left must not be stolen from - it belongs to the room the player
+  // just walked out of - and this bus's own table describes voices that have
+  // long since ended, so it starts empty.
+  for (int i = 0; i < 16; ++i) sfxPrio[i] = 0;
+  sfxPrioBus = base;
+}
+)";
+        if (anyAutoSfx)
+            out << R"(
+inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {
+  static int next = 0;  // round-robin start, so voices spread out
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  const u32 ended = ctx.engine->audio.adpcm.endedMask(base ? 0 : 1);
+  for (int k = 0; k < 16; ++k) {
+    const int c = (next + k) % 16;
+    if (ended & (1u << c)) {
+      next = (c + 1) % 16;
+      sfxPrio[c] = prio;
+      return base + c;
+    }
+  }
+  int victim = -1, low = prio;  // strictly below: equals keep their voice
+  for (int c = 0; c < 16; ++c)
+    if (sfxPrio[c] < low) { low = sfxPrio[c]; victim = c; }
+  if (victim < 0) return -1;    // everything playing matters at least as much
+  sfxPrio[victim] = prio;
+  return base + victim;
+}
+)";
+        if (anyPinnedSfx)
+            out << R"(
+// A pinned channel is the author saying "this sound owns this voice", so it
+// always gets it - but its priority still goes in the table, or an auto play
+// would steal the voice out from under it.
+inline int flowPinSfxChannel(ScriptContext& ctx, int ch, int prio) {
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  if (ch >= 0 && ch < 16) sfxPrio[ch] = prio;
+  return base + ch;
+}
+)";
+        out << "}  // namespace\n";
+    }
 
     if (anyRaycast) {
         out << R"(
@@ -24858,11 +25351,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  const float dx = ax - bx, dy = ay - by, dz = az - bz;\n"
                "  return sqrtf(dx * dx + dy * dy + dz * dz);\n"
                "}\n";
-    if (uses("GetVelocity") || uses("PlayerFallSpeed"))
-        out << "\n// Velocities are stored as per-FRAME displacements (that is\n"
-               "// what the physics pass integrates); a graph reasons in units\n"
-               "// per second, so every read and write converts. Guarded because\n"
-               "// the very first frame has no measured dt yet.\n"
+    if (uses("GetVelocity"))
+        out << "\n// OBJECT velocities are stored as per-FRAME displacements\n"
+               "// (that is what the physics pass integrates); a graph reasons\n"
+               "// in units per second, so every read and write converts.\n"
+               "// (The PLAYER's velY is already units/second and needs none of\n"
+               "// this.) Guarded because the first frame has no measured dt.\n"
                "static inline float flowVelPerSec(float perFrame) {\n"
                "  return g_frameDt > 0.0001F ? perFrame / g_frameDt : 0.0F;\n"
                "}\n";
@@ -25524,7 +26018,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             }
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
             if (n.type == "PlayerFallSpeed")
-                return "flowVelPerSec(ctx.playerVelY)";
+                // Already units/second - the walker keeps the PLAYER's
+                // vertical velocity in real time (object velocities below are
+                // still per-frame displacements and do need the conversion).
+                return "ctx.playerVelY";
             if (n.type == "ObjDistance") {
                 // The distance between the target OBJECT and the linked point.
                 const std::string dyn2 = targetExpr(n);
@@ -26496,17 +26993,63 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     if (vol > 100) vol = 100;
                     int ch = (int)n.num[1];
                     if (ch > 23) ch = 23;
+                    // Channels are relative to the bus the CURRENT room runs
+                    // on (docs/reverb.md): +0 on SPU2 core 1, +24 on core 0.
+                    // A pinned channel is pinned WITHIN the room, so a sound
+                    // the author put on channel 3 is still heard through
+                    // whatever room the listener is standing in.
+                    // Priority: who loses a voice when they are all busy
+                    // (docs/sound.md).
+                    const int prio = (int)n.num[3];
+                    // Everything inside the auto path is guarded by "did I get
+                    // a channel at all", so it is one level deeper.
+                    const std::string in = pad + (ch >= 0 ? "  " : "    ");
                     c << pad << "{\n";
                     if (ch >= 0) {
-                        c << pad << "  const s8 ch = " << ch << ";\n";
+                        c << pad << "  const s8 ch = (s8)flowPinSfxChannel(ctx, "
+                          << ch << ", " << prio << ");\n";
                     } else {
-                        c << pad << "  const s8 ch = (s8)sfxNextCh;\n"
-                          << pad << "  sfxNextCh = (sfxNextCh + 1) % 24;\n";
+                        // 0..15 only: 16-23 of every bus belong to the
+                        // sound emitters (16 + (i & 7) in
+                        // updateSoundEmitters). The cycle used to run to 24
+                        // and walked straight into them, so one auto play in
+                        // three landed on an emitter's channel - stealing it,
+                        // or bouncing off it as "busy". The picker takes an
+                        // ended voice when there is one, otherwise the lowest
+                        // priority strictly below this sound's; -1 means every
+                        // voice is carrying something that matters at least as
+                        // much and this sound is dropped - which is what a
+                        // priority is FOR, so nothing logs it.
+                        c << pad
+                          << "  const s8 ch = (s8)flowPickSfxChannel(ctx, "
+                          << prio << ");\n"
+                          << pad << "  if (ch >= 0) {\n";
                     }
-                    c << pad << "  ctx.engine->audio.adpcm.setVolume(" << vol
-                      << " * ctx.sfxVolume / 100, ch);\n"
-                      << pad << "  ctx.engine->audio.adpcm.tryPlay(sfx" << si << ", ch);\n"
-                      << pad << "}\n";
+                    c << in << "ctx.engine->audio.adpcm.setVolume(" << vol
+                      << " * ctx.sfxVolume / 100, ch);\n";
+                    // "Dry": take this channel out of the reverb bus, for a
+                    // sound that must be identical in a cave and outdoors.
+                    // The engine compares the mask, so a repeated trigger on
+                    // an already-correct channel costs no RPC.
+                    if ((int)n.num[2] != 0)
+                        c << in
+                          << "ctx.engine->audio.reverb.setChannelSend(ch, "
+                             "false);\n";
+                    else
+                        c << in
+                          << "ctx.engine->audio.reverb.setChannelSend(ch, "
+                             "true);\n";
+                    // forcePlay either way, and for the same reason: the
+                    // channel has already been DECIDED. A pinned one is the
+                    // author saying this sound owns that voice (which is what
+                    // the Channel parameter always claimed - audsrv used to
+                    // refuse a busy channel, so a pinned sound dropped every
+                    // retrigger instead of cutting itself off), and an auto
+                    // one was either free or deliberately stolen.
+                    c << in << "ctx.engine->audio.adpcm.forcePlay(sfx" << si
+                      << ", ch);\n";
+                    if (ch < 0) c << pad << "  }\n";
+                    c << pad << "}\n";
                 }
             } else if (n.type == "SetMusicVolume") {
                 const std::string wired = numInput(n);
@@ -26981,6 +27524,32 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << pad << "  if (v > 100) v = 100;\n"
                   << pad << "  ctx.sfxVolume = v;\n"
                   << pad << "}\n";
+            } else if (n.type == "SetReverb") {
+                // The node writes a REQUEST; TerrainGame::updateReverb owns the
+                // hardware, because the ramp and the preset swap have to be one
+                // decision per frame and a graph may fire several times.
+                // Unlike the other switches this one is not consumed - a room
+                // is a state, so it stays until the "clear" pin resets it.
+                if (pin == 1) {
+                    c << pad << "ctx.reverbPreset = -1;  // back to the zones\n";
+                } else {
+                    int delay = (int)n.num[1];
+                    if (delay < 0) delay = 0;
+                    if (delay > 127) delay = 127;
+                    int feedback = (int)n.num[2];
+                    if (feedback < 0) feedback = 0;
+                    if (feedback > 127) feedback = 127;
+                    c << pad << "{\n"
+                      << pad << "  int a = (int)(" << numOperand(n) << ");\n"
+                      << pad << "  if (a < 0) a = 0;\n"
+                      << pad << "  if (a > 100) a = 100;\n"
+                      << pad << "  ctx.reverbPreset = " << reverbPresetIndex(n.str)
+                      << ";\n"
+                      << pad << "  ctx.reverbAmount = a;\n"
+                      << pad << "  ctx.reverbDelay = " << delay << ";\n"
+                      << pad << "  ctx.reverbFeedback = " << feedback << ";\n"
+                      << pad << "}\n";
+                }
             } else if (n.type == "SetScale") {
                 const auto e = posExpr(n);  // a position link beats X/Y/Z
                 c << pad << obj << ".data.scale[0] = " << e[0] << ";\n"
@@ -27803,7 +28372,9 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  int frame = 0;\n"
                "  bool started = false;\n";
         if (!usedSounds.empty()) {
-            clsOut << "  int sfxNextCh = 0;\n";
+            // (the channel cursor is one per TU, not one per graph - the
+            // sixteen voices are shared by every graph in the game; see
+            // flowPickSfxChannel)
             for (size_t i = 0; i < usedSounds.size(); ++i)
                 clsOut << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
         }
@@ -29003,7 +29574,10 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
-void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
+// __attribute__((unused)): the EE crash handler is opt-in (Preferences >
+// Build), and with it off nothing references this - it sits in an anonymous
+// namespace so the compiler drops it, but it would warn on the way past.
+void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below

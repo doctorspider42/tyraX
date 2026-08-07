@@ -436,6 +436,41 @@ movable objects are dropped FROM that list so nothing is submitted twice. The
 candidates bake into a shared `CATCH_CANDIDATES` table sliced per owner
 (`liveArea`/`firstCand`/`candCount` on `MirrorData`/`PortalData`/`CamFeedData`);
 `TerrainGame::collectLiveCaught` walks a slice plus the spawn pool.
+
+An area can also be a **reverb zone** (docs/reverb.md): the SPU2's hardware
+reverb, authored as a room instead of as a number. It follows the same pattern
+— a `REVERB_ZONES` side table keyed by (scene, object) with the BOX left
+unbaked, so `TerrainGame::updateReverb` reads the live transform through
+`pointInArea` like every other consumer. What differs, and what to know before
+extending it: this is not a per-owner question but a single global decision made
+once per frame — the listener is in exactly one room (highest `priority` inside
+wins). The console has **two** reverb units, one per SPU2 core, and
+`updateReverb` cross-fades rooms across them: the incoming room takes the free
+unit while that unit is silent (switching the algorithm zeroes its work area in
+SPU2 RAM), then both depths ramp. The per-sound control is a BIT
+(`SceneObject::soundReverb`, the Play Sound node's `Dry` param) rather than an
+amount, because the hardware has no per-voice wet level.
+**The obligation that falls on ANY new code that plays a sound**: a unit is
+reachable only by voices on its own core, so a voice is committed to a room the
+moment it starts, and every play site must offset its channel by
+`ScriptContext::reverbBusBase` (0 = core 1, 24 = core 0). The emitter path and
+the Play Sound node do; a site that forgets is silently heard in the room the
+listener just left. Anything caching per-channel state needs the bus in its key
+for the same reason — `sndChBus` beside `sndChVol`/`sndChPan` is that fix.
+`reverbPresets()` in flowgraph.hpp is the single preset table — read by the Area
+combo, the Set Reverb node and codegen — and its ORDER IS THE WIRE FORMAT: it is
+`Tyra::AudioReverb::Preset`, i.e. libsd's `SD_EFFECT_MODE_*`, so append only.
+**A second obligation, and the same shape: the voices are FINITE** (24 per bus,
+16 for Play Sound and 8 for the emitters — docs/sound.md). Who keeps one when
+they are all busy is decided in exactly two places, and a new play site must go
+through one of them rather than picking a channel itself: `pickSoundSlots` in
+the emitter loop (a per-frame ranking, priority then loudness, with a steal
+margin so near-equal ambiences do not trade a channel every frame and retrigger
+each other) and `flowPickSfxChannel` in the generated flow-graph TU (an ended
+voice, else the lowest priority strictly below, else the sound is DROPPED — and
+a drop must stay unlogged, it is the feature working). The runtime table there
+is per bus and resets when the room moves to the other core: the outgoing bus's
+voices belong to the room the player just left and must not be stolen from.
 **A type whose data drives OTHER baked objects** is the heaviest kind of new
 type. `Scroller` (19) is the reference: codegen APPENDS clone objects to the
 scene table (authored indices must never shift, or every flow graph / mirror /
