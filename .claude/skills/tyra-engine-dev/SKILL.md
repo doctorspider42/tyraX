@@ -80,7 +80,8 @@ throws away the whole compiled engine, VU1 objects included, and builds it
 again from source.
 
 `vendor/tyra/Makefile.base` is shared by the engine build and every generated
-game, so an edit there moves both. TyraX changes in it: single-pass dependency
+game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
+single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
 reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
@@ -88,7 +89,26 @@ reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
 by the container's g++, and handing them to the PS2 compiler fails on the very
 first include. A new host-code directory has to be added to that `find`
-exclusion or its first file breaks every build that has one. Verified
+exclusion or its first file breaks every build that has one.
+
+**`-G0`, and the link error that names the wrong thing.** Without it the engine
+and the generated game are the only things putting data in `.sdata`/`.sbss`,
+addressed GP-relative through a 16-bit offset (+/-32 KB), and the engine has
+outgrown that window. The failure is not a size error - it is dozens of
+`relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile`,
+naming a one-byte bool instead of the section that overflowed, so it reads as a
+missing symbol rather than as "too much small data". The DEBUG profile hits it
+first (more inlined logging, more references to that bool), which is why
+**enabling `showFps` on a current project stopped linking at all** and took the
+perf-benchmark recipe with it. ps2sdk compiles its own libraries with `-G0`
+(`Defs.make`), so this is Tyra matching the SDK it links against.
+Two traps around it: **changing `Makefile.base` does NOT invalidate `libtyra.a`**
+(the Runner only rebuilds the engine when engine SOURCES changed), so a flag
+change needs `--build --rebuild` or you get objects compiled both ways and the
+same error from the stale half; and the shared engine volume is **per project**,
+so fixing one project's build leaves every other project's volume stale.
+
+Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 

@@ -2256,9 +2256,17 @@ over. Every one is in a **per-triangle** loop; not one is in the per-edge loop o
 Sutherland-Hodgman test, and in that loop - the only genuinely hot one - **both assemblers
 pad identically**, 48 rows each on the generated corpus. There is nothing to win where
 winning would matter. Weighted by loop nesting, the 43 static words are worth *negative*
-cycles: openvcl pays about 4.7 cycles per triangle for clip padding and takes back 8-9 in
-the fan emitter it schedules better. The resident set was already both smaller and faster
-than SCE's before any of this.
+ROWS: openvcl pays about 4.7 rows per triangle for clip padding and takes back 8-9 in the
+fan emitter it schedules better.
+
+> **Rows, not cycles - and the difference turned out to be the whole story.** That weighting
+> counted emitted instruction rows. It cannot see the FMAC read-after-write interlock, which
+> is a stall the hardware takes and no instruction records - exactly the stall
+> `--fmac-interlock` exists to stop paying for in *words*. Model it and openvcl's stalls are
+> **4.8x SCE's** corpus-wide; measure it on a VU1-bound scene in PCSX2 and openvcl runs
+> **26% slower** than Sony's `vcl`. See "Measured on the console, not in a model" below.
+> Everything in this section about *size* stands. Every claim in it about *cycles* was a row
+> count wearing the word "cycles", including in the two sections that follow.
 
 What the same measurement did find is a contradiction inside openvcl.
 `CodeGenerator::clipReadIsPositional` exempts **full-window** masks - `0x3FFFF`, `0xFFFFFF`,
@@ -2295,9 +2303,10 @@ a whole-program count is what the size gate measures anyway.
 The safety property is measured, not argued, over all 234 clip readers in the 70 programs:
 **no positional reader moves at all** - not one ends up closer to its `clip` than the stock
 scheduler put it - while 29 of the 78 full-window readers move adjacent to theirs. Loop-
-weighted, the resident set is 48 cycles *faster* than the 17-flag build rather than 48
-slower, `mcpip_cull_vu1`'s gap to SCE goes from +21.8% to +7.7% per block, and all 70
-programs together come to -816 cycles.
+weighted **in rows**, the resident set is 48 rows *better* than the 17-flag build rather than
+48 worse, `mcpip_cull_vu1`'s row gap to SCE goes from +21.8% to +7.7% per block, and all 70
+programs together come to -816 rows. Those numbers were written as "cycles"; they are rows,
+and rows are the smaller half of the cost - see below.
 
 The cost is compile time: 26 of the 70 programs hold a full-window reader and are scheduled
 twice, the other 44 are skipped by a token-list predicate because with no such reader the
@@ -2311,10 +2320,59 @@ read closer than three rows to its `clip`: **false**, 89 of them are closer, inc
 it pairs a reader with the `clip` several rows back rather than the nearest one - it models
 the shift window. The comment is corrected; nothing changed behaviour on the strength of it.
 
-Still open and deliberately not taken: `stapip_billboard_c/t_vu1` is +11.7% per batch and
-its readers are positional (mask 63), so only lowering `vuClipFlagSchedulingLatency()` below
-4 would help - and nobody can prove the hardware number. PCSX2's VU core would accept any
-latency, so a green e2e there is evidence of nothing.
+Still open and deliberately not taken: `stapip_billboard_c/t_vu1` is +11.7% per batch in rows.
+That was read as "the CLIP latency is the only lever left", since its readers are positional
+(mask 63) and nobody can prove a hardware latency below 4. **Wrong conclusion from the right
+number:** once the FMAC interlock is modelled, CLIP is about 10% of billboard's cycle gap.
+For `billboard_c`'s `centerLoop` the +39 cycles per iteration decompose as +9 rows, **+21
+FMAC stall** and +10 `waitq` - and of the +9 rows, only 4 are clip-window empties.
+
+## Measured on the console, not in a model
+
+Everything above is static analysis. The engine's own perf A/B harness had **never been run
+for openvcl against Sony's `vcl`**, which is what `docker/Dockerfile` and its `VCL_IMPL` knob
+exist for: the same base, the same GCC 11.3, the same PS2SDK, the same engine, the same
+scene, and only the assembler different.
+
+Two scenes, PCSX2, frame counts taken from the engine's own `VRAMSTAT f=` counter over a
+40-second window (a frame count is exact; reading an FPS HUD out of a screenshot is not):
+
+| scene | Sony `vcl` | openvcl (19 flags) | |
+|---|---:|---:|---|
+| `vu-lab`, precise clipper, 32x32 terrain | 86.96 FPS | 86.97 FPS | **not VU1-bound - blind to the difference** |
+| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts) | **104.96 / 104.96** | **77.97 / 74.99** | **-26 to -29%** |
+
+Sony's arm returned exactly 4200 frames on both runs. The heavy scene is the instrument; the
+light one is worth recording only because it shows how easy it is to measure nothing - an
+identical 3480 frames on both arms says the frame rate was decided somewhere other than VU1.
+
+**So openvcl is smaller and slower.** 1986 words against SCE's 2028 on the resident set, 3976
+against 3982 over the engine's 25 - and about a quarter of the frame rate given away on
+geometry-heavy content. Both halves are true, and the size half is the one the migration
+needed: the micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs
+said "smaller and faster", and that was a row count talking.
+
+### Where the cycles actually go
+
+Modelled with an FMAC read-after-write pass added to openvcl's own `--cost` analyzer (scratch
+build, never shipped) and applied identically to both assemblers' `.vsm`. Calibrated against
+**SCE's own `STALL_LATENCY ?n` annotations**: 2640 modelled against 2585 annotated over the
+70 programs, +2.1%; on the resident 10, 382 against 378, +1.1%.
+
+| | SCE | openvcl |
+|---|---:|---:|
+| cycles, all 70 | 16030 | **26090 (+62.8%)** |
+| FMAC stall cycles, all 70 | 2614 | **12452 (4.8x)** |
+| rows, all 70 | - | +0.2% |
+| resident 10 | 2433 | **3656 (+50%)** on 38 FEWER words |
+
+The cause is not the scheduler's ready-list ranking. SCE interleaves three independent copies
+of a serial chain so each step sits three rows from its producer; openvcl runs them one at a
+time and stalls at every step (`vu_script3_c`: SCE 22 stall cycles, openvcl 347). Instrumenting
+the ready list: of **2011 stalling scheduling steps in `billboard_c`, only 168 (8.4%) had a
+zero-delay alternative available.** The list is genuinely dry, because **register allocation
+runs before scheduling** and its anti-dependences merge the independent chains into one. No
+amount of re-ranking reaches that; the ordering of the two passes is the problem.
 
 Dead ends worth not repeating:
 
@@ -2459,6 +2517,7 @@ toolchain's artifacts straight back over the ones the image built.
 | resident VU1 set | 1986 words | **1986** (SCE 2028, ceiling 2042) |
 | engine corpus, all 25 | 3976 words | **3976** (SCE 3982 - openvcl is 6 under) |
 | generated corpus, all 45 | 9286 words | **9286** (SCE 9264 - +22, 0.24%) |
+| frame rate, VU1-bound scene | - | **-26% against Sony's `vcl`** (see "Measured on the console") |
 | microcode, all 70 | - | **byte-identical to the inherited build** |
 | `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
 | VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |
