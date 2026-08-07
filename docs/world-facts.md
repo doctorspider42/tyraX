@@ -96,6 +96,12 @@ The **profile** is its own small file (`profile.sav` next to the ELF, or
 moves rather than on a timer, and read once at boot before the first scene
 loads.
 
+*Tools > Save Editor* counts all of it. Its **What a save slot stores** table
+has a **World Facts** row (the checkpoint- and save-lived facts, 16 bytes each
+— an id plus three floats) and, when the catalog declares one, a **Profile**
+row. The profile costs a whole 1 KB cluster whatever is in it, because the
+payload is padded to one: a smaller block did not round-trip through the card.
+
 ## Using facts in a flow graph
 
 The *Facts* node category:

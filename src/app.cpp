@@ -8860,14 +8860,36 @@ void App::drawSaveEditorWindow() {
              " slots x 32 B)")
                 .c_str(),
             bytes(sz.objectsBytes));
+        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
+        // a computed or scene-scoped fact stores nothing, and a session-lived
+        // one is not in a save at all.
+        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
+            bytes(sz.factsBytes));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::Text("Save slot file (64-byte aligned)");
         ImGui::TableNextColumn();
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        row("All data (3 slots + icon, raw bytes)",
-            bytes(sz.payloadBytes * templates::saveSlotCount(project_) + sz.iconBytes));
+        if (sz.profileBytes > 0) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Facts kept in the PROFILE live in their own file beside\n"
+                    "the slots, shared by every save - unlocks, a best time,\n"
+                    "'has seen the intro'. It is padded to a whole cluster\n"
+                    "because a smaller payload did not round-trip through the\n"
+                    "card, so it costs the same 1 KB whatever is in it.");
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
+        }
+        row("All data (slots + icon + profile, raw bytes)",
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
+                  sz.iconBytes + sz.profileBytes));
         // What the card actually loses, which is the number that matters and
         // is always bigger: files are allocated in whole 1 KB clusters and
         // the save directory costs one of its own.

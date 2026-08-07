@@ -35243,14 +35243,27 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
         if (flagged > maxObjects) maxObjects = flagged;
     }
     s.objectSlots = (int)maxObjects;
-    // magic + version + scene + playerPos[3] + playerYaw + the 3 counters
-    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4;
+    // magic + version + scene + playerPos[3] + playerYaw + the 4 counters
+    // (the fourth is factCount - keep this in step with SaveGameData in
+    // saveSystemHeader below, which is the whole reason this function exists).
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4 + 4;
     s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
     s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
     s.objectsBytes = 32 * s.objectSlots;
-    const int raw =
-        s.headerBytes + s.valuesBytes + s.textsBytes + s.objectsBytes;
+    const FactPlan fp = factPlanOf(p);
+    s.facts = (int)fp.saveFacts.size();
+    s.profileFacts = (int)fp.profileFacts.size();
+    // FactSaveRow: an id plus three floats. FACT_SAVE_MAX is floored at 1 the
+    // same way the value and text blocks are, so an empty catalog still costs
+    // the one row the generated array declares.
+    s.factsBytes = 16 * (s.facts > 0 ? s.facts : 1);
+    const int raw = s.headerBytes + s.valuesBytes + s.textsBytes +
+                    s.objectsBytes + s.factsBytes;
     s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
+    // SaveProfileData: magic + version + factCount + its own rows, padded to a
+    // full cluster (see the note on the struct - a smaller payload did not
+    // round-trip through the card).
+    s.profileBytes = s.profileFacts > 0 ? 1024 : 0;
     // list.icn size depends on the icon source (flat quad vs a project
     // model's triangle/shape count) - ask the baker.
     s.iconSysBytes = savebake::kIconSysBytes;
@@ -35270,7 +35283,8 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
     s.cardFootprintBytes =
         (1 /* the save directory itself */
          + saveSlotCount(p) * clustersFor(s.payloadBytes) +
-         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
+         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes) +
+         (s.profileBytes > 0 ? clustersFor(s.profileBytes) : 0)) *
         cluster;
     return s;
 }
