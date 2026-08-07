@@ -871,6 +871,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
@@ -1569,6 +1570,14 @@ void App::drawMenuBar() {
                     "posterize - and see the micro memory it costs, the VCL it\n"
                     "generates and what it computes, without a console. Also\n"
                     "VU0 compute kernels.");
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -4234,6 +4243,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
@@ -4260,7 +4270,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "menupreview", "grading", "ambience", "loading", "disc",  "anim",
     "tree",     "debugger", "phonecam", "assets",   "gibake", "input",
-    "drone",    "pad",      "proc",     "prefabs",  "save",
+    "drone",    "pad",      "proc",     "prefabs",  "save",    "facts",
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
@@ -4621,6 +4631,9 @@ void App::commitChange() {
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    // Same contract for a freshly added fact: its id is what a player's save
+    // file is keyed by, so it must exist before the fact can be persisted.
+    project::ensureFactIds(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -8909,14 +8922,36 @@ void App::drawSaveEditorWindow() {
              " slots x 32 B)")
                 .c_str(),
             bytes(sz.objectsBytes));
+        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
+        // a computed or scene-scoped fact stores nothing, and a session-lived
+        // one is not in a save at all.
+        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
+            bytes(sz.factsBytes));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::Text("Save slot file (64-byte aligned)");
         ImGui::TableNextColumn();
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        row("All data (3 slots + icon, raw bytes)",
-            bytes(sz.payloadBytes * templates::saveSlotCount(project_) + sz.iconBytes));
+        if (sz.profileBytes > 0) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Facts kept in the PROFILE live in their own file beside\n"
+                    "the slots, shared by every save - unlocks, a best time,\n"
+                    "'has seen the intro'. It is padded to a whole cluster\n"
+                    "because a smaller payload did not round-trip through the\n"
+                    "card, so it costs the same 1 KB whatever is in it.");
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
+        }
+        row("All data (slots + icon + profile, raw bytes)",
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
+                  sz.iconBytes + sz.profileBytes));
         // What the card actually loses, which is the number that matters and
         // is always bigger: files are allocated in whole 1 KB clusters and
         // the save directory costs one of its own.

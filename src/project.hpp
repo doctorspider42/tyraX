@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ambience.hpp"
+#include "facts.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
 #include "input.hpp"
@@ -2650,6 +2651,20 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // World Facts (Tools > World Facts, docs/world-facts.md): the project's
+    // central memory of game state - the declared catalog, the reusable named
+    // conditions over it, the rules that react to it and the saved fact sets
+    // the devkit pushes into a running game. Project-wide like the preset
+    // collections above and persisted through save(), but not part of
+    // undo/redo: a fact is a declaration, and undoing one halfway through a
+    // scene edit would leave graphs referencing something that stopped
+    // existing. `factScenarios` is editing/test data and never reaches the
+    // console; the other three are compiled into the game.
+    std::vector<facts::Fact> facts;
+    std::vector<facts::Query> factQueries;
+    std::vector<facts::Rule> factRules;
+    std::vector<facts::Scenario> factScenarios;
+
     // The project's own VU1 microprograms and its VU0 kernel
     // (docs/vu-authoring.md). Project-wide like the preset collections above,
     // persisted through save(), not part of undo/redo - a microprogram is a
@@ -2780,6 +2795,48 @@ void ensureObjectIds(Project& p);
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
 
+// Assigns a stable id to every fact that lacks one and repairs duplicates.
+// A fact's id is what a PLAYER'S SAVE FILE stores, so it must exist before
+// anything is written and must never be reused - which is why this runs on
+// load and on create like ensureObjectIds, and why the save payload is keyed
+// by it instead of by position (docs/world-facts.md "Saving").
+void ensureFactIds(Project& p);
+
+// Where one fact is used. `graphs` names owning objects as "scene / object",
+// the rest name the query, rule or scenario. The single answer to "what
+// breaks if I change this" - read by the Facts window's Used by list and by
+// the delete confirmation.
+struct FactUsage {
+    std::vector<std::string> graphs;     // "Main / Door" (flow-graph nodes)
+    std::vector<std::string> queries;    // query names
+    std::vector<std::string> rules;      // rule names
+    std::vector<std::string> scenarios;  // scenario names
+    std::vector<std::string> computed;   // facts computed from a query using it
+    bool any() const {
+        return !graphs.empty() || !queries.empty() || !rules.empty() ||
+               !scenarios.empty() || !computed.empty();
+    }
+    int count() const {
+        return (int)(graphs.size() + queries.size() + rules.size() +
+                     scenarios.size() + computed.size());
+    }
+};
+FactUsage factUsage(const Project& p, const std::string& factName);
+
+// Same question for a query - which facts compute from it, which rules and
+// queries name it, which graph nodes evaluate it.
+FactUsage queryUsage(const Project& p, const std::string& queryName);
+
+// Renames a fact everywhere it is referenced: flow-graph node params, query
+// leaves, rule conditions and actions, scenario rows, and the `computed` link.
+// The renameObjectRefs contract - a by-name reference that does not join this
+// goes stale on the first rename.
+void renameFactRefs(Project& p, const std::string& from, const std::string& to);
+// The same for a query name (fact.computed, Condition::query, the FactQuery
+// flow node's param).
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to);
+
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so
 // a project from an older TyraX plays identically. Only ADDS what is missing:
@@ -2847,6 +2904,7 @@ enum class Section {
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -2858,7 +2916,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 18,
+static_assert(kSectionCount == 19,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
