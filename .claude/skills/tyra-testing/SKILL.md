@@ -424,9 +424,12 @@ Notes:
 - First-ever build downloads the toolchain image (`h4570/tyra`, 812 MB) and
   compiles the engine (minutes). Subsequent builds take seconds unless the
   engine changed.
-- **Testing a change to the toolchain image itself** (`docker/Dockerfile`):
-  build it with `docker\build.ps1` / `docker/build.sh` - both run the same
-  checks CI does - then point a scratch project at it with one line,
+- **Testing a change to the toolchain image itself**: build it with
+  `docker\build.ps1` / `docker/build.sh` (add `-FromSource` / `--from-source`
+  for `docker/Dockerfile.fromsource`, the one CI publishes; without it you get
+  `docker/Dockerfile`, the inherited A/B reference, which **CI does not build at
+  all** - so local is the only check it gets). Both scripts run the same checks
+  CI does. Then point a scratch project at it with one line,
   `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
   the way to a PCSX2 boot. `docker compose config` in the project directory
   prints which image will actually be used; `docker ps -a --filter

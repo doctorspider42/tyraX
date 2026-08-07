@@ -13932,10 +13932,15 @@ void App::drawEditorPreferencesModal() {
         const char* label;
         const char* image;
     };
+    // The GHCR row names the FROM-SOURCE package, because that is the only one
+    // CI publishes. The inherited image stays in the repo as the A/B reference
+    // against Sony's vcl and is built locally (docker/build.*), which is what
+    // the "locally built" row picks up - it is the tag those scripts default to.
     static const ToolchainChoice kToolchains[] = {
         {"Project default (.env, else h4570/tyra)", ""},
         {"Original Tyra (h4570/tyra)", "h4570/tyra"},
-        {"TyraX toolchain (GHCR)", "ghcr.io/doctorspider42/tyrax-toolchain:latest"},
+        {"TyraX toolchain (GHCR)",
+         "ghcr.io/doctorspider42/tyrax-toolchain-src:latest"},
         {"TyraX toolchain (locally built)", "tyrax-toolchain:local"},
     };
     int toolchainSel = -1;  // -1 = none of the presets, i.e. a custom image
@@ -13954,8 +13959,11 @@ void App::drawEditorPreferencesModal() {
     ImGui::InputText("Image name", prefToolchainImage_, sizeof(prefToolchainImage_));
     prefHelp(
         "Docker image the GAME is compiled in - not the editor. The TyraX image\n"
-        "is the original Tyra one plus a from-source VU assembler and our patched\n"
-        "ps2link (docs/toolchain-image.md); pick Original Tyra to fall back.\n"
+        "is built from the official ps2dev base with a from-source VU assembler,\n"
+        "the audsrv fork and our patched ps2link (docs/toolchain-image.md); pick\n"
+        "Original Tyra to fall back on the 2022 image every game here was built\n"
+        "with - it is also the only one carrying Sony's vcl.\n"
+        "The GHCR image needs a docker login while this repo is private.\n"
         "Leave empty to decide nothing here, so a project's own .env still wins.\n"
         "Changing this rebuilds the engine and the VU microcode on the next build.\n"
         "\n"

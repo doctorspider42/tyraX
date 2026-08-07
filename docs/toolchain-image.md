@@ -26,10 +26,18 @@ tuned against.
 
 ## What it is now
 
-[`docker/Dockerfile`](../docker/Dockerfile) builds the image from this repo, and
-[`.github/workflows/toolchain-image.yml`](../.github/workflows/toolchain-image.yml)
-publishes it to `ghcr.io/<owner>/tyrax-toolchain`. Two deliberate changes over
-the old image, and nothing else:
+> **Two images, one published.** This section describes
+> [`docker/Dockerfile`](../docker/Dockerfile), which inherits from `h4570/tyra`
+> and was the first answer. It is now the **A/B reference** rather than the
+> shipped image: it is the only one that can run Sony's `vcl`, which every
+> comparison in this file is measured against, and it is built locally
+> (`docker/build.*`) rather than published. What CI publishes is
+> [`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) - see
+> *Building it from source instead*, further down. Read this section anyway: the
+> reasoning here is what the other image had to answer.
+
+[`docker/Dockerfile`](../docker/Dockerfile) builds the image from this repo. Two
+deliberate changes over the old image, and nothing else:
 
 1. **The toolchain layer is pinned by digest**, not `:latest`. Same bits, but they
    cannot move under us. Bumping that digest is a toolchain change and gets
@@ -54,14 +62,25 @@ strict superset of the old one. Why, in painful detail, below.
 
 ```powershell
 docker\build.ps1                    # -> tyrax-toolchain:local, then checks it
+docker\build.ps1 -FromSource        # the published one, from the ps2dev base
 ```
 
-`docker/build.sh` is the Linux twin. Both take `-Tag`/`--tag`, `-Push`/`--push`
-and `-NoCache`/`--no-cache`, and both run the same checks the CI workflow does
-(every tool present, a real VCL program through `vcl` → `dvp-as`, both ps2link
-ELFs non-empty). The build context is the repo root — `tools/ps2link/tyrax.patch`
-has to be in it — and `docker/Dockerfile.dockerignore` keeps the rest of the repo
-(`vendor/`, `build/`, `examples/`) out.
+`docker/build.sh` is the Linux twin (`--from-source`). Both take `-Tag`/`--tag`,
+`-Push`/`--push` and `-NoCache`/`--no-cache`, and both run the same checks the CI
+workflow does (every tool present, a real VCL program through `vcl` → `dvp-as`,
+both ps2link ELFs non-empty). The build context is the repo root —
+`tools/ps2link/tyrax.patch` has to be in it — and the matching
+`<dockerfile>.dockerignore` keeps the rest of the repo out. They differ in what
+they let through: the inherited image needs nothing from `vendor/`, the
+from-source one needs the audsrv fork's EE sources, because it compiles them.
+
+**Only the from-source image is published.** CI builds, checks and pushes
+`ghcr.io/<owner>/tyrax-toolchain-src`; the inherited one is not in the workflow
+at all. A reference is needed rarely and by whoever is doing the comparison, and
+a second job on every push to `docker/` plus a second GHCR package is a standing
+cost for that. The consequence is worth stating plainly rather than discovering:
+**a change to `docker/Dockerfile` gets no CI coverage** — build it locally before
+committing one.
 
 ## Choosing which image a build uses
 
@@ -69,7 +88,9 @@ Two doors, and they are for different jobs.
 
 **In the editor: *Edit > Preferences > Build toolchain*.** A combo with the images
 worth naming - the project default, the original `h4570/tyra`, this repo's
-published one, a locally built one - plus a free-text field for anything else.
+published one (`tyrax-toolchain-src`), a locally built one (`tyrax-toolchain:local`,
+the tag `docker/build.*` writes, which is how the unpublished A/B reference is
+selected) - plus a free-text field for anything else.
 It is a **machine-global** setting (`editor.ini`, next to the PCSX2 path and the
 ps2link IP), not project data: which images a PC has pulled is a property of that
 PC, and a value stored in a shared `.tyra` would name an image a teammate does not
@@ -89,7 +110,7 @@ emulator rather than using the configured path.
 **In a project: `.env`.** Write one line into the **project** directory:
 
 ```
-TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain:latest
+TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain-src:latest
 ```
 
 The generated `docker-compose.yml` reads
@@ -110,10 +131,18 @@ always runs `compose up -d`, which reconciles it with the compose file).
 
 The default is still `h4570/tyra`, because this repo is private and so is the
 published package — a fresh clone can pull the old image without credentials and
-cannot pull ours. **When the repo goes public:** make the GHCR package public in
-its package settings, then change the default in `TPL_COMPOSE`
-([`src/templates.cpp`](../src/templates.cpp)) and the mentions in `README.md`.
-That is the whole switch.
+cannot pull ours. That is the only thing holding the default back; the technical
+side is done, including the one dependency that used to make the two images
+genuinely different (audsrv — see below). **When the repo goes public:** make the
+GHCR package public in its package settings, then change the default in
+`TPL_COMPOSE` ([`src/templates.cpp`](../src/templates.cpp)) and the mentions in
+`README.md`. That is the whole switch.
+
+Until then the pointer is the editor preset, which needs a `docker login ghcr.io`
+once per machine. The Runner's audsrv overlay is what keeps `h4570/tyra` a
+working choice meanwhile: it applies the committed `vendor/tyra/audsrv/bin/`
+artifacts to an image that does not carry the fork, and skips when the image
+already does.
 
 ## Why the toolchain was inherited, and what changed
 
@@ -2020,11 +2049,19 @@ granted: it is proprietary, and every game in this repo is built with it. That i
 a fact about the toolchain, not a decision anyone here made — but publishing an
 image that contains it would be redistributing Sony's SDK tool, which is why:
 
-- the GHCR package **stays private** while the repo is private, and going public
-  is gated on resolving `vcl` — that is, on the `openvcl` migration above. Which
-  makes that migration the thing that makes a public image clean, not a
-  nice-to-have;
-- the image label says `NOASSERTION`, not `Apache-2.0`.
+- the image label says `NOASSERTION`, not `Apache-2.0`;
+- going public was gated on resolving `vcl` — that is, on the `openvcl`
+  migration above. Which is what made that migration the thing that makes a
+  public image clean, not a nice-to-have.
+
+**That gate is now open**, and it is why the published image changed identity.
+The image carrying Sony's `vcl` is no longer published at all: CI pushes only
+`tyrax-toolchain-src`, which is built from the official ps2dev base and contains
+no unlicensed binary. The inherited one stays in the repo as the A/B reference
+and is built locally by whoever needs it — building a Dockerfile that consumes a
+tool you already have is not redistribution. What still keeps the *package*
+private is only the repository's own visibility, which is no longer a licensing
+question.
 
 **Why this lives here and not in its own repo.** Splitting the toolchain into a
 separate repository was considered for exactly this reason and does not help:
@@ -2366,10 +2403,14 @@ thirteen.
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull
-  the image yet; the workflow pushes it regardless (`GITHUB_TOKEN` can).
-- **The toolchain jump is unexplored.** GCC 11.3 → 15.2 on a glibc base is the
-  interesting experiment (it needs the from-source ps2dev build above), and it is
-  independent of the `openvcl` question.
+  the image yet; the workflow pushes it regardless (`GITHUB_TOKEN` can). This is
+  now the *only* thing between the from-source image and being the default for
+  every generated project — everything technical is done and measured.
+- **`docker/Dockerfile` has no CI coverage** now that it is the unpublished
+  reference. Breaking it would be found by the next person doing an A/B, which
+  is exactly the moment you do not want to be debugging a Dockerfile. Cheap
+  insurance if it ever bites: a build-and-check-only job for it, on
+  `pull_request` alone.
 - **`vendor/tyra`'s audsrv overlay is still applied at container start** on the
   *inherited* image, by the Runner rather than baked in, because `vendor/` is
   fetched by `deps.*` and is not in that image's build context. The from-source

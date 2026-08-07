@@ -1,21 +1,30 @@
-# Builds and publishes the TWO TyraX toolchain images - what generated games are
+# Builds and publishes the TyraX toolchain image - what generated games are
 # compiled in (docs/toolchain-image.md).
 #
-#   tyrax-toolchain      docker/Dockerfile - inherited from h4570/tyra, and the
-#                        only one carrying Sony's vcl, which every A/B in the
-#                        docs is measured against. amd64 only.
-#   tyrax-toolchain-src  docker/Dockerfile.fromsource - the official ps2dev base
-#                        with openvcl, vclpp and bin2s built from source. No
-#                        unlicensed binary. amd64 by default, arm64 on request
-#                        via the `platforms` input.
+#   docker/Dockerfile.fromsource -> ghcr.io/<owner>/tyrax-toolchain-src
 #
-# Publishing target is GHCR, ghcr.io/<owner>/tyrax-toolchain, because it needs no
-# secrets: GITHUB_TOKEN can push packages of its own repo. The package inherits
-# the repository's visibility on first push, so while this repo is PRIVATE the
-# image is pullable only with a token - which is why generated projects still
-# default to h4570/tyra and only switch over via TYRAX_IMAGE (see
-# docs/toolchain-image.md). Once the repo is public, make the package public in
-# its GHCR settings and flip that default.
+# The official ps2dev base with openvcl, vclpp and bin2s built from source, the
+# audsrv fork compiled by the image's own toolchain, and our patched ps2link. No
+# unlicensed binary anywhere in it. amd64 by default; arm64 works and is asked
+# for through the `platforms` input (see "The arm64 question" in the docs).
+#
+# The OTHER Dockerfile in docker/ is deliberately absent from this workflow.
+# `docker/Dockerfile` inherits from h4570/tyra and is the only image that can run
+# Sony's `vcl`, which makes it the reference every A/B in the docs is measured
+# against - and a reference is needed rarely, by whoever is doing the comparison.
+# So it stays in the repo and stays buildable (`docker/build.ps1`, `build.sh`,
+# with -VclImpl/--vcl-impl as the assembler A/B knob) but is not published: a
+# second job on every push to docker/ and a second GHCR package are a standing
+# cost for something used a few times a year. The consequence is worth stating
+# plainly - a change to that Dockerfile gets NO CI coverage, so build it locally
+# before committing one.
+#
+# Publishing target is GHCR because it needs no secrets: GITHUB_TOKEN can push
+# packages of its own repo. The package inherits the repository's visibility on
+# first push, so while this repo is PRIVATE the image is pullable only with a
+# token - which is why generated projects still default to h4570/tyra and only
+# switch over via TYRAX_IMAGE (see docs/toolchain-image.md). Once the repo is
+# public, make the package public in its GHCR settings and flip that default.
 #
 # Pull requests build the image and run the checks but never push - a PR from a
 # fork has no package write access, and an unreviewed image must not become the
@@ -30,17 +39,19 @@ on:
         type: boolean
         default: true
       platforms:
-        description: 'Target platforms (empty = amd64; the from-source image also builds linux/amd64,linux/arm64)'
+        description: 'Target platforms (empty = linux/amd64; arm64 also builds: linux/amd64,linux/arm64)'
         default: ''
   push:
     branches: [main]
     paths:
       - docker/**
+      - vendor/tyra/audsrv/**
       - tools/ps2link/tyrax.patch
       - .github/workflows/toolchain-image.yml
   pull_request:
     paths:
       - docker/**
+      - vendor/tyra/audsrv/**
       - tools/ps2link/tyrax.patch
       - .github/workflows/toolchain-image.yml
 
@@ -50,6 +61,7 @@ concurrency:
 
 env:
   REG: ghcr.io/${{ github.repository_owner }}
+  PACKAGE: tyrax-toolchain-src
 
 jobs:
   build:
@@ -57,49 +69,14 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # Two images, because they answer different questions and neither replaces
-    # the other (docs/toolchain-image.md, "Building it from source instead").
-    #
-    #   inherited  - the 2022 h4570/tyra layers, the ONLY image that can run
-    #                Sony's vcl. Every A/B in the docs is measured against it,
-    #                so it stays published. amd64 only, and not fixable: the
-    #                pinned toolchain layer has no arm64 manifest, and the i386
-    #                runtime it carries exists solely to run that binary.
-    #   fromsource - the official ps2dev base with openvcl, vclpp and bin2s
-    #                built from source. No unlicensed binary, and nothing in it
-    #                is x86-only - so arm64 is BUILDABLE, but not built by
-    #                default: every developer here is on x64, it doubles the
-    #                job (qemu-emulated, so more than doubles the minutes), and
-    #                the checks below cannot run it anyway. Ask for it with the
-    #                `platforms` input when someone actually needs it.
-    #
-    # fail-fast off: one flavour breaking is a fact worth having about the other.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - flavour: inherited
-            file: docker/Dockerfile
-            package: tyrax-toolchain
-            platforms: linux/amd64
-            impl: legacy
-          - flavour: fromsource
-            file: docker/Dockerfile.fromsource
-            package: tyrax-toolchain-src
-            platforms: linux/amd64
-            impl: openvcl
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # Both flavours publish amd64. The manual `platforms` input is how you ask
-      # the from-source one for `linux/amd64,linux/arm64` - the inherited one
-      # cannot do it at all (its pinned toolchain layer has no arm64 manifest),
-      # so asking would fail the build rather than silently produce one arch.
       - name: Resolve platforms
         id: plat
-        run: echo "value=${{ inputs.platforms || matrix.platforms }}" >> "$GITHUB_OUTPUT"
+        run: echo "value=${{ inputs.platforms || 'linux/amd64' }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: contains(steps.plat.outputs.value, 'arm64')
@@ -111,7 +88,7 @@ jobs:
       #
       # No `platforms:` here on purpose - `load: true` cannot take a multi-arch
       # result, so this builds the runner's own arch. The consequence is worth
-      # stating: the arm64 half of the from-source image is BUILT by the push
+      # stating: an arm64 half asked for through the input is BUILT by the push
       # step and never RUN by these checks. Checking it needs an arm64 runner,
       # or qemu plus a second load - neither is free, and a compile failure
       # would still fail the build.
@@ -119,30 +96,30 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.file }}
+          file: docker/Dockerfile.fromsource
           load: true
-          tags: tyrax-toolchain:ci-${{ matrix.flavour }}
+          tags: tyrax-toolchain:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       # A green build only proves the layers ran. These are the failures that
       # would otherwise surface as a broken game build on someone's machine: a
-      # missing tool, or a `vcl` that cannot start. Both flavours can fail that
-      # way for opposite reasons - the inherited one because Sony's vcl is a
-      # 32-bit x86 binary needing the image's i386 runtime, the from-source one
-      # because openvcl and vclpp need libstdc++, which the ps2dev base does not
-      # ship. The `vcl-impl` assertion is what keeps the two from being confused
-      # for each other.
+      # missing tool, a `vcl` that cannot start (openvcl and vclpp need
+      # libstdc++, which the ps2dev base does not ship), or an audsrv that is
+      # not the fork - which does not fail here at all, it fails as an
+      # unresolved AUDSRV_ADPCM_CH_CORE deep in an engine compile.
       - name: Check the image
         run: |
-          docker run --rm tyrax-toolchain:ci-${{ matrix.flavour }} sh -c '
+          docker run --rm tyrax-toolchain:ci sh -c '
             set -e
-            for t in vcl vclpp openvcl make rsync mips64r5900el-ps2-elf-g++ dvp-as; do
-                command -v "$t" >/dev/null || { echo "MISSING: $t"; exit 1; }
+            for t in vcl vclpp openvcl bin2s make rsync mips64r5900el-ps2-elf-g++ dvp-as; do
+                command -v "$t" >/dev/null \
+                  || [ -x /usr/local/ps2dev/ps2sdk/bin/"$t" ] \
+                  || { echo "MISSING: $t"; exit 1; }
             done
             # Which assembler `vcl` resolves to is a property of the image, so
-            # assert it rather than trust the build argument (see VCL_IMPL).
-            test "$(cat /usr/local/share/tyrax/vcl-impl)" = "${{ matrix.impl }}"
+            # assert it rather than trust the build.
+            test "$(cat /usr/local/share/tyrax/vcl-impl)" = openvcl
             vclpp 2>&1 | grep -q Usage
             printf ".init_vf_all\n.init_vi_all\n--enter\n--endenter\n\tadd.xyzw\tvf01, vf00, vf00\n--exit\n--endexit\n" > /tmp/t.vcl
             vcl /tmp/t.vcl > /tmp/t.vsm
@@ -150,19 +127,27 @@ jobs:
             dvp-as /tmp/t.vsm -o /tmp/t.o
             printf "int main(){return 0;}\n" > /tmp/t.c
             mips64r5900el-ps2-elf-gcc /tmp/t.c -o /tmp/t.elf
+            # The audsrv fork, both halves of it: the header the engine compiles
+            # against, and a library that actually LINKS with this toolchain.
+            # --whole-archive is the point - a main() referencing nothing never
+            # makes the linker open the archive members.
+            grep -q AUDSRV_ADPCM_CH_CORE /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h
+            mips64r5900el-ps2-elf-gcc /tmp/t.c \
+              -Wl,--whole-archive /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a \
+              -Wl,--no-whole-archive -o /tmp/audsrv.elf
             test -s /usr/local/share/tyrax/ps2link/ps2link.elf
             test -s /usr/local/share/tyrax/ps2link/ps2link-low-nousb-packed.elf
             echo "image OK"
           '
           echo "--- toolchain identity (must not drift silently):"
-          docker run --rm tyrax-toolchain:ci-${{ matrix.flavour }} sh -c 'mips64r5900el-ps2-elf-g++ --version | head -1; vclpp 2>&1 | head -3'
+          docker run --rm tyrax-toolchain:ci sh -c 'mips64r5900el-ps2-elf-g++ --version | head -1; vclpp 2>&1 | head -3'
 
       # The console loader, so it can be downloaded without pulling the image
       # (docs/ps2link-setup.md). Retention is the default 90 days; the image
       # itself is the durable copy.
       - name: Extract ps2link
         run: |
-          cid=$(docker create tyrax-toolchain:ci-${{ matrix.flavour }})
+          cid=$(docker create tyrax-toolchain:ci)
           mkdir -p artifacts
           docker cp "$cid:/usr/local/share/tyrax/ps2link/." artifacts/
           docker rm "$cid" > /dev/null
@@ -170,7 +155,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ps2link-${{ matrix.flavour }}
+          name: ps2link
           path: artifacts/*.elf
           if-no-files-found: error
 
@@ -189,12 +174,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.file }}
+          file: docker/Dockerfile.fromsource
           push: true
           platforms: ${{ steps.plat.outputs.value }}
           tags: |
-            ${{ env.REG }}/${{ matrix.package }}:latest
-            ${{ env.REG }}/${{ matrix.package }}:sha-${{ github.sha }}
+            ${{ env.REG }}/${{ env.PACKAGE }}:latest
+            ${{ env.REG }}/${{ env.PACKAGE }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -202,14 +187,14 @@ jobs:
         if: always()
         run: |
           {
-            echo "### TyraX toolchain image - ${{ matrix.flavour }}"
+            echo "### TyraX toolchain image"
             echo
-            echo '`'"${REG}/${{ matrix.package }}"'`'  "(${{ steps.plat.outputs.value }})"
+            echo '`'"${REG}/${PACKAGE}"'`'  "(${{ steps.plat.outputs.value }})"
             echo
             echo "Point a project at it with one line in the project directory:"
             echo
             echo '```'
-            echo "TYRAX_IMAGE=${REG}/${{ matrix.package }}:sha-${{ github.sha }}"
+            echo "TYRAX_IMAGE=${REG}/${PACKAGE}:sha-${{ github.sha }}"
             echo '```'
             echo
             echo "written to \`.env\` - see docs/toolchain-image.md."

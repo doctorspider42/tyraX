@@ -372,13 +372,16 @@ include /tyra/Makefile.base
 // from the environment and from a `.env` file in the project directory, and
 // this file is regenerated on every build, so an override in .env survives
 // while an edit to this line would not. One line switches a project onto the
-// image this repo builds itself (docker/Dockerfile, docs/toolchain-image.md):
+// image this repo builds itself (docker/Dockerfile.fromsource,
+// docs/toolchain-image.md):
 //
-//     TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain:latest
+//     TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain-src:latest
 //
 // The default stays h4570/tyra - the image every game here has been built with,
-// and the one a fresh clone can pull without credentials. It becomes the
-// default once the published package is public.
+// and the one a fresh clone can pull without credentials. The published package
+// inherits this repo's visibility, so while the repo is private that line also
+// needs a `docker login ghcr.io`; the default flips the day the package is
+// public, and nothing else has to change.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:

@@ -2,13 +2,19 @@
 # Builds the TyraX toolchain image - the image generated games compile in. The
 # POSIX twin of build.ps1; keep the two in step (same defaults, same flags).
 #
-# CI publishes this image from .github/workflows/toolchain-image.yml; this script
-# is for building it locally, which is how you test a change to the Dockerfile
-# before pushing one.
+# Two images, and which one you get is --from-source:
 #
-#   ./build.sh                        # -> tyrax-toolchain:local
+#   ./build.sh                        # docker/Dockerfile - the inherited A/B
+#                                     # reference. CI does NOT build this one,
+#                                     # so this script is its only check.
+#   ./build.sh --from-source          # docker/Dockerfile.fromsource - the image
+#                                     # CI publishes as tyrax-toolchain-src.
 #   ./build.sh --tag ghcr.io/OWNER/tyrax-toolchain:test --push
 #   ./build.sh --no-cache
+#
+# Both land on --tag, which defaults to tyrax-toolchain:local either way - so the
+# tag says nothing about which Dockerfile produced it. Pass --tag when you want
+# to keep both around.
 #
 # --toolchain replaces the digest-pinned compile environment the image inherits
 # (docker/Dockerfile: TOOLCHAIN_IMAGE). That is a compiler change, not a
@@ -24,6 +30,14 @@
 # and rebuilding - docker-compose.yml is regenerated on every build but reads
 # that variable, so nothing in the editor has to change. See
 # docs/toolchain-image.md.
+#
+# --from-source builds docker/Dockerfile.fromsource instead: the same toolchain
+# assembled from the official ps2dev base with openvcl, vclpp and bin2s built
+# from source, plus the audsrv fork's EE half compiled in. It carries no
+# unlicensed binary and is arm64-capable; it also has no Sony `vcl`, so
+# --vcl-impl does not apply to it. The inherited image stays this script's
+# default precisely because it is the only way to run Sony's assembler for an
+# A/B - which is now the only reason it exists.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."   # the build context is the repo root
 

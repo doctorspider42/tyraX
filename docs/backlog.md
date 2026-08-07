@@ -317,7 +317,11 @@ the verification, and any fact worth reusing belongs in the relevant
   `examples/blocks-terrain` may render fewer GS kicks (and possibly measurably
   faster) than before this fix.
 - **DONE (2026-08-04): the toolchain image is built from this repo.**
-  `docker/Dockerfile` + `.github/workflows/toolchain-image.yml` publish
+  *(Superseded 2026-08-07: what CI publishes is now
+  `docker/Dockerfile.fromsource` as `ghcr.io/<owner>/tyrax-toolchain-src`, and
+  `docker/Dockerfile` is the unpublished A/B reference. The rest below still
+  holds, including the flip-the-default item.)*
+  `docker/Dockerfile` + `.github/workflows/toolchain-image.yml` published
   `ghcr.io/<owner>/tyrax-toolchain`: the compile environment pinned by digest
   instead of `h4570/tyra:latest`, plus both TyraX ps2link ELFs shipped inside it.
   Projects still default to `h4570/tyra` and switch over with one

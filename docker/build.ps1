@@ -1,13 +1,19 @@
 # Builds the TyraX toolchain image - the image generated games compile in. The
 # Windows twin of build.sh; keep the two in step (same defaults, same flags).
 #
-# CI publishes this image from .github/workflows/toolchain-image.yml; this script
-# is for building it locally, which is how you test a change to the Dockerfile
-# before pushing one.
+# Two images, and which one you get is -FromSource:
 #
-#   .\build.ps1                        # -> tyrax-toolchain:local
+#   .\build.ps1                        # docker/Dockerfile - the inherited A/B
+#                                      # reference. CI does NOT build this one,
+#                                      # so this script is its only check.
+#   .\build.ps1 -FromSource            # docker/Dockerfile.fromsource - the image
+#                                      # CI publishes as tyrax-toolchain-src.
 #   .\build.ps1 -Tag ghcr.io/OWNER/tyrax-toolchain:test -Push
 #   .\build.ps1 -NoCache
+#
+# Both land on -Tag, which defaults to tyrax-toolchain:local either way - so the
+# tag says nothing about which Dockerfile produced it. Pass -Tag when you want to
+# keep both around.
 #
 # -Toolchain replaces the digest-pinned compile environment the image inherits
 # (docker/Dockerfile: TOOLCHAIN_IMAGE). That is a compiler change, not a
@@ -25,10 +31,11 @@
 # docs/toolchain-image.md.
 # -FromSource builds docker/Dockerfile.fromsource instead: the same toolchain
 # assembled from the official ps2dev base with openvcl, vclpp and bin2s built
-# from source, rather than inherited from the 2022 h4570/tyra image. It carries
-# no unlicensed binary and is multi-arch capable; it also has no Sony `vcl`, so
-# -VclImpl does not apply to it. The inherited image stays the default precisely
-# because it is the only way to run Sony's assembler for an A/B.
+# from source, plus the audsrv fork's EE half compiled in. It carries no
+# unlicensed binary and is arm64-capable; it also has no Sony `vcl`, so
+# -VclImpl does not apply to it. The inherited image stays this script's default
+# precisely because it is the only way to run Sony's assembler for an A/B -
+# which is now the only reason it exists.
 param(
     [string]$Tag = 'tyrax-toolchain:local',
     [string]$Toolchain = '',

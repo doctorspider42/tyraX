@@ -1,34 +1,45 @@
 # syntax=docker/dockerfile:1
 #
-# The TyraX toolchain image - what generated games are compiled in.
+# The TyraX toolchain image, inherited half - now the A/B REFERENCE, not the
+# published image.
 #
-# Until now every project's docker-compose.yml named `h4570/tyra`, and nothing in
-# this repo could rebuild it: a Docker Hub image published in July 2022 (Ubuntu
-# 20.04, GCC 11.3), built from a Dockerfile that lives in the upstream Tyra repo,
-# referenced at `:latest` so a rebuild could silently move under us. This file
-# takes over that reference. It is built and published from THIS repo
-# (.github/workflows/toolchain-image.yml), so the image projects pull is one we
-# can pin, inspect and add to.
+# THE SHIPPED IMAGE IS Dockerfile.fromsource, next to this file, and it is the
+# only one CI builds. This one is the only image that can run Sony's `vcl`, and
+# every assembler comparison in docs/toolchain-image.md is measured against it -
+# same base, same GCC, same PS2SDK, only VCL_IMPL differs, which is what makes a
+# difference attributable to the assembler alone. Keeping it is cheap; publishing
+# it is not (a second job on every push to docker/, a second GHCR package, and
+# the licence question below), so it is built locally by whoever needs it. That
+# also means CHANGES HERE ARE NOT COVERED BY CI - run docker/build.ps1 before
+# committing one.
+#
+# Until this file existed, every project's docker-compose.yml named `h4570/tyra`,
+# and nothing in this repo could rebuild it: a Docker Hub image published in July
+# 2022 (Ubuntu 20.04, GCC 11.3), built from a Dockerfile that lives in the
+# upstream Tyra repo, referenced at `:latest` so a rebuild could silently move
+# under us. This file took over that reference so the image could be pinned,
+# inspected and added to.
 #
 # What it changes, deliberately kept to the minimum:
 #
 #   * the toolchain layer is PINNED BY DIGEST instead of `:latest`, so it cannot
 #     move at all;
 #   * our patched ps2link is built in and shipped inside the image, so a console
-#     can be flashed without running tools/ps2link/build.* first.
+#     can be flashed without running tools/ps2link/build.* first;
+#   * both assemblers are installed, and VCL_IMPL decides which wears the name
+#     `vcl` - the A/B knob this image now exists for.
 #
 # What it does NOT change: the compiler, the PS2SDK, `vcl` and `vclpp` are the
 # same bits every game in this repo has ever been built with. That is the whole
 # point of inheriting rather than rebuilding - see "Why the toolchain is
 # inherited" in docs/toolchain-image.md for the measurements behind that. Short
 # version: the from-source `openvcl` compiles all 25 of the engine's VU1
-# microprograms and a game built with it RUNS - pixel-identical to Sony's vcl in
-# PCSX2 (2026-08-05), which is why `openvcl` is a supported choice here (see
-# VCL_IMPL) and no longer an experiment. Its VU1-clipper set now FITS as well (2040
-# instructions against a 2042 ceiling, and denser than SCE's own output on 8 of the
-# 10 programs), so the one thing left before it can be the default is a miscompile
-# in stapip_clip_c - nine of the ten resident programs are pixel-identical to a
-# legacy build, that one is not. On the EE clipper openvcl is verified end to end.
+# microprograms and all 45 a project can generate, a game built with it renders a
+# pixel-identical frame in PCSX2, and its resident VU1 set is SMALLER than Sony's
+# (1988 words against 2028, ceiling 2042). The clip_c miscompile that used to be
+# the last blocker is fixed. So `openvcl` is not an experiment here; it is what
+# the published image uses exclusively, and VCL_IMPL below is what lets this
+# image still produce the legacy side of a comparison.
 #
 # Build it: docker/build.ps1 (Windows) or docker/build.sh (Linux).
 #
@@ -58,6 +69,11 @@ ARG PS2DEV_IMAGE=ps2dev/ps2dev:v2.0.0
 # Switching this changes the microcode of the whole renderer. It is a migration
 # with its own verification (render A/B + FPS), tracked in
 # docs/toolchain-image.md - not a flag to flip casually.
+#
+# The default stays `legacy` although openvcl won the comparison, and that is not
+# inertia: this image's remaining job IS to be the legacy side of it. An openvcl
+# build of THIS image is still worth having - it isolates the assembler from the
+# compiler, which the published image cannot, since it changes both at once.
 ARG VCL_IMPL=legacy
 
 # Flags the `vcl` wrapper passes to openvcl when VCL_IMPL=openvcl. Overridable so
@@ -66,9 +82,11 @@ ARG VCL_IMPL=legacy
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
 # Each one is measured in docs/toolchain-image.md; none is on by default in the tool
-# itself, and with all sixteen the rendered frame is pixel-identical to the one Sony's
-# vcl produces while the resident VU1-clipper set is SMALLER (2008 against SCE's
-# 2028, ceiling 2042). The Runner rebuilds the microcode when this string changes,
+# itself, and with all seventeen the rendered frame is pixel-identical to the one
+# Sony's vcl produces while the resident VU1 set is SMALLER (1988 words against
+# SCE's 2028, ceiling 2042). Keep this string equal to the one in
+# Dockerfile.fromsource - the two images are only comparable while the assembler
+# is invoked identically. The Runner rebuilds the microcode when this string changes,
 # so a bisection does not need --rebuild - but check the log says "VU assembler
 # changed" before trusting a picture.
 #
