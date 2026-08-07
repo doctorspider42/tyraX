@@ -481,11 +481,10 @@ void App::drawFactCatalogTab() {
         project_.facts.push_back(f);
         factSel_ = (int)project_.facts.size() - 1;
     }
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "A new fact starts as a yes/no that lives for the session. Give it "
-            "a dotted name (world.power.state) and the list groups it for "
-            "you.");
+    prefHelp(
+        "A new fact starts as a yes/no that lives for the session. Give it "
+        "a dotted name (world.power.state) and the list groups it for "
+        "you.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(scaled(200));
     inputText("##filter", factFilter_, nullptr, "Filter...");
@@ -539,8 +538,10 @@ void App::drawFactCatalogTab() {
     // The rename dance: remember what the name WAS while the field is being
     // typed in, then retarget every reference when it commits. Same shape as
     // objRenameFrom_ in the Properties panel, and for the same reason - the
-    // intermediate states of a typed edit are not renames.
-    if (ImGui::IsItemActivated()) factRenameFrom_ = f.name;
+    // intermediate states of a typed edit are not renames. The "was" is
+    // latched on the first frame the text differs rather than from
+    // IsItemActivated(), which asks about the item submitted BEFORE it and so
+    // would report on whatever widget happened to precede this one.
     std::string typed = f.name;
     inputText("Name", typed, nullptr);
     if (typed != f.name) {
@@ -555,13 +556,12 @@ void App::drawFactCatalogTab() {
         f.name = to;
         factRenameFrom_.clear();
     }
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "Dots make the hierarchy: characters.marta.trust groups under "
-            "characters.marta. Renaming retargets every graph node, query, "
-            "rule and scenario that names this fact - and a player's existing "
-            "save survives it, because the save is keyed by the fact's id and "
-            "not by its name.");
+    prefHelp(
+        "Dots make the hierarchy: characters.marta.trust groups under "
+        "characters.marta. Renaming retargets every graph node, query, "
+        "rule and scenario that names this fact - and a player's existing "
+        "save survives it, because the save is keyed by the fact's id and "
+        "not by its name.");
 
     ImGui::SetNextItemWidth(scaled(280));
     {
@@ -642,12 +642,11 @@ void App::drawFactCatalogTab() {
         else if (!project_.factQueries.empty())
             f.computed = project_.factQueries[0].name;
     }
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "A computed fact has no storage at all - it IS the query, worked "
-            "out wherever it is read. Nothing can write to one, which is the "
-            "point: marta.isAlly should never be settable behind the back of "
-            "the things that decide it.");
+    prefHelp(
+        "A computed fact has no storage at all - it IS the query, worked "
+        "out wherever it is read. Nothing can write to one, which is the "
+        "point: marta.isAlly should never be settable behind the back of "
+        "the things that decide it.");
     if (computed) {
         ImGui::SetNextItemWidth(scaled(280));
         factQueryCombo("From query", f.computed);
@@ -658,18 +657,16 @@ void App::drawFactCatalogTab() {
         ImGui::SetNextItemWidth(scaled(280));
         float v3[3] = {f.value, 0, 0};
         if (factValueWidget("Starts at", f, v3)) f.value = v3[0];
-        if (ImGui::IsItemHovered())
-            prefHelp(
-                "What a NEW GAME starts this fact at, and what Clear Fact puts "
-                "it back to. An existing save keeps whatever it stored.");
+        prefHelp(
+            "What a NEW GAME starts this fact at, and what Clear Fact puts "
+            "it back to. An existing save keeps whatever it stored.");
     }
 
     ImGui::SetNextItemWidth(scaled(280));
     inputText("What it means", f.desc, nullptr);
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "Shown when picking this fact anywhere in the editor. Worth "
-            "writing: a catalog is read far more often than it is edited.");
+    prefHelp(
+        "Shown when picking this fact anywhere in the editor. Worth "
+        "writing: a catalog is read far more often than it is edited.");
 
     // Where the value came from and where it goes - the live half of the
     // catalog, so a fact can be read without switching tabs.
@@ -745,12 +742,11 @@ void App::drawFactQueriesTab() {
         project_.factQueries.push_back(q);
         factQuerySel_ = (int)project_.factQueries.size() - 1;
     }
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "A named condition over facts - CanEnterBasement, MartaWillTalk. "
-            "The same query gates a door, a dialogue line and an NPC's "
-            "behaviour, so the design changes in one place instead of in every "
-            "graph that copied it.");
+    prefHelp(
+        "A named condition over facts - CanEnterBasement, MartaWillTalk. "
+        "The same query gates a door, a dialogue line and an NPC's "
+        "behaviour, so the design changes in one place instead of in every "
+        "graph that copied it.");
     ImGui::SameLine();
     ImGui::TextDisabled("%d quer(ies)", (int)project_.factQueries.size());
     ImGui::Separator();
@@ -774,7 +770,6 @@ void App::drawFactQueriesTab() {
     facts::Query& q = project_.factQueries[(size_t)factQuerySel_];
 
     ImGui::SetNextItemWidth(scaled(280));
-    if (ImGui::IsItemActivated()) factQueryRenameFrom_ = q.name;
     std::string typed = q.name;
     inputText("Name", typed, nullptr);
     if (typed != q.name) {
@@ -845,11 +840,10 @@ void App::drawFactRulesTab() {
         project_.factRules.push_back(r);
         factRuleSel_ = (int)project_.factRules.size() - 1;
     }
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "A reaction: when this condition holds, change these facts or send "
-            "this event. Rules run once per frame before every graph, so a "
-            "fact a rule writes is already there by the time a graph looks.");
+    prefHelp(
+        "A reaction: when this condition holds, change these facts or send "
+        "this event. Rules run once per frame before every graph, so a "
+        "fact a rule writes is already there by the time a graph looks.");
     ImGui::SameLine();
     ImGui::TextDisabled("%d rule(s)", (int)project_.factRules.size());
     ImGui::Separator();
@@ -1060,12 +1054,11 @@ void App::drawFactScenariosTab() {
         factPushOverrides();
     }
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        prefHelp(
-            "Applied as blackboard overrides, which the game re-asserts every "
-            "frame until they are cleared - so a rule that fights the value "
-            "cannot quietly undo the scenario before you have seen it. Clear "
-            "them from the Blackboard tab.");
+    prefHelp(
+        "Applied as blackboard overrides, which the game re-asserts every "
+        "frame until they are cleared - so a rule that fights the value "
+        "cannot quietly undo the scenario before you have seen it. Clear "
+        "them from the Blackboard tab.");
 
     ImGui::SeparatorText("Values");
     int removeRow = -1;
