@@ -433,6 +433,15 @@ Capability capability(const Project& p, const SceneData& sc,
             reject("an unknown node type (" + n.type + ")");
             continue;
         }
+        // World Facts are rejected as a family rather than one title at a
+        // time: the store lives in the compiled game (flow_graph.gen.cpp) and
+        // the IR has no way to reach it, so "Set Fact" on its own would read
+        // as an oversight instead of a property of the interpreter.
+        if (t->strKind == FlowParamKind::FactName ||
+            t->strKind == FlowParamKind::FactQueryName) {
+            reject("World Facts (the fact store lives in the compiled game)");
+            continue;
+        }
         const bool supported = triggerFor(n.type) || actionFor(n.type) ||
                                isDataType(n.type);
         if (!supported) {

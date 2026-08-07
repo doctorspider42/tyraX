@@ -179,6 +179,8 @@ add_executable(tyrax-editor
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
     src/devsession.cpp
+    src/facts.cpp
+    src/facts_ui.cpp
     src/flowgraph_ui.cpp
     src/flownode.cpp
     src/hud_ui.cpp

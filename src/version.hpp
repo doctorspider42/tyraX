@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 3
+#define TYRAX_VERSION_MINOR 4
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -45,6 +45,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive with safe defaults - an empty `style` IS the old look, byte
 // for byte (checked by diffing the baked panels of every example against the
 // previous baker), so no migration step.
-inline constexpr int kFormatVersion = 3;
+// v4 (World Facts, docs/world-facts.md): the "facts" section - the declared
+// fact catalog, the named queries over it, the reaction rules and the saved
+// test scenarios. Purely additive: a project with no facts writes no section
+// and behaves exactly as it did, so no migration step. A fact's `id` is
+// stamped by project::ensureFactIds on load, which is what lets a player's
+// save survive renames and reordering later.
+inline constexpr int kFormatVersion = 4;
 
 }  // namespace version

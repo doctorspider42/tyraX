@@ -1,0 +1,1001 @@
+{
+  "name": "world-facts",
+  "formatVersion": 4,
+  "editorVersion": "1.4.0",
+  "template": "fpp",
+  "projectId": "74214fd3e0c69d8a",
+  "settings": {
+    "videoSystem": "auto",
+    "displayMode": "interlaced",
+    "palFullHeight": true,
+    "widescreen": false,
+    "buildProfile": "debug",
+    "textureQuant": "4bit",
+    "textureAtlas": false,
+    "showFps": false,
+    "showMemory": false,
+    "showProfiler": false,
+    "showAreas": false,
+    "liveLink": true,
+    "liveDebug": true,
+    "eeCrashHandler": false,
+    "liveLogic": true,
+    "timeMachine": true,
+    "remotePad": true,
+    "keyboardMouse": false,
+    "keyboardMousePs2Link": true,
+    "disableVsync": false,
+    "clipping": "vu1",
+    "animLodDistance": 0,
+    "meshLodDistance": 0,
+    "animSourceFps": 24,
+    "animPlayFps": 24,
+    "staticBatching": true,
+    "envProbeReflected": false,
+    "navCellSize": 1,
+    "navMaxSlope": 40,
+    "navAgentRadius": 0.4,
+    "unitsPerMeter": 1,
+    "terrainDetail": 32,
+    "terrainViewDistance": 0,
+    "skyColor": [
+      0.25,
+      0.55,
+      0.78
+    ],
+    "skyTopColor": [
+      0.08,
+      0.3,
+      0.65
+    ],
+    "skyDome": true,
+    "zenithSize": 0.5,
+    "eyeHeight": 1.8,
+    "walkSpeed": 0.1,
+    "lookSpeed": 1,
+    "sprintMultiplier": 1.8,
+    "stickDeadzoneL": 0.2,
+    "stickDeadzoneR": 0.2,
+    "stickCurveL": 0,
+    "stickCurveR": 0,
+    "stickExpL": 2,
+    "stickExpR": 2,
+    "multiplayer": "off",
+    "p2JoinOnStart": true,
+    "orbitSpeed": 1,
+    "gravity": 9.8,
+    "jumpSpeed": 4.5,
+    "lightDir": [
+      0.37,
+      0.82,
+      0.44
+    ],
+    "ambient": 0.55,
+    "diffuse": 0.45,
+    "lightColor": [
+      1,
+      1,
+      1
+    ],
+    "brightness": 1,
+    "aoEnabled": false,
+    "aoStrength": 0.55,
+    "aoRadius": 2.5,
+    "giEnabled": false,
+    "giRays": 128,
+    "giBounces": 2,
+    "giSkyLight": 1,
+    "giSunLight": 1,
+    "giAmbientFloor": 0.03,
+    "giProbes": true,
+    "giProbeSpacing": 3,
+    "giProbeHeight": 2,
+    "giProbeLevels": 4,
+    "terrainMaterial": "",
+    "bloom": 0,
+    "bloomThreshold": 0,
+    "bloomSpread": 0,
+    "grain": 0,
+    "dofAmount": 0,
+    "dofFocus": 20,
+    "dofRange": 15,
+    "flare": 0,
+    "godRays": 0,
+    "blobShadows": false,
+    "fogEnabled": false,
+    "fogColor": [
+      0.5,
+      0.5,
+      0.55
+    ],
+    "fogStart": 15,
+    "fogEnd": 120,
+    "highlightUsable": false,
+    "highlightDistance": 6,
+    "highlightColor": [
+      1,
+      0.85,
+      0.15
+    ],
+    "highlightWidth": 0.35,
+    "highlightSteps": 4,
+    "highlightOpacity": 0.56,
+    "highlightOverlay": false,
+    "loadingScreen": true
+  },
+  "scenes": [
+    {
+      "name": "main",
+      "terrain": {
+        "width": 64,
+        "depth": 32
+      },
+      "settings": {
+        "lighting": {
+          "dir": [
+            0.37,
+            0.82,
+            0.44
+          ],
+          "ambient": 0.55,
+          "diffuse": 0.45,
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "brightness": 1
+        },
+        "sky": {
+          "color": [
+            0.25,
+            0.55,
+            0.78
+          ],
+          "topColor": [
+            0.08,
+            0.3,
+            0.65
+          ],
+          "dome": true,
+          "zenithSize": 0.5
+        },
+        "clipping": "vu1",
+        "terrainMaterial": "",
+        "postfx": {
+          "bloom": 0,
+          "bloomThreshold": 0,
+          "bloomSpread": 0,
+          "grain": 0,
+          "dofAmount": 0,
+          "dofFocus": 20,
+          "dofRange": 15,
+          "flare": 0,
+          "godRays": 0
+        },
+        "fog": {
+          "enabled": false,
+          "color": [
+            0.5,
+            0.5,
+            0.55
+          ],
+          "start": 15,
+          "end": 120
+        },
+        "highlight": {
+          "usable": false,
+          "distance": 6,
+          "color": [
+            1,
+            0.85,
+            0.15
+          ],
+          "width": 0.35,
+          "steps": 4,
+          "opacity": 0.56,
+          "overlay": false
+        }
+      },
+      "overrides": {
+        "lighting": false,
+        "sky": false,
+        "clipping": false,
+        "terrainMat": false,
+        "postFx": false,
+        "fog": false,
+        "highlight": false
+      },
+      "objects": [
+        "47def2bf7dc68272",
+        "fac70000000000a1",
+        "fac70000000000a2",
+        "fac70000000000a3",
+        "fac70000000000f1",
+        "fac70000000000b1",
+        "fac70000000000c1",
+        "fac700000000000f",
+        "fac70000000000e1",
+        "fac70000000000d1",
+        "fac70000000000bb",
+        "fac70000000000aa"
+      ]
+    }
+  ],
+  "fonts": [
+    {
+      "name": "Default",
+      "path": "",
+      "atlasSize": 16,
+      "color": [
+        1,
+        1,
+        1
+      ],
+      "shadow": true,
+      "quant": "4bit"
+    }
+  ],
+  "hud": [],
+  "usePrompt": {
+    "image": "",
+    "pos": [
+      0.5,
+      0.755714
+    ],
+    "size": [
+      128,
+      32
+    ],
+    "texW": 0,
+    "texH": 0,
+    "texQuant": ""
+  },
+  "usePromptIsText": true,
+  "usePromptText": {
+    "text": "{{use}} USE",
+    "size": 20,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
+  "pickPromptIsText": true,
+  "pickPromptText": {
+    "text": "{{use}} PICK UP",
+    "size": 20,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
+  "hudTexts": [],
+  "textIcons": [
+    {
+      "name": "cross",
+      "path": "res/hud/icon-cross.png"
+    },
+    {
+      "name": "square",
+      "path": "res/hud/icon-square.png"
+    },
+    {
+      "name": "triangle",
+      "path": "res/hud/icon-triangle.png"
+    },
+    {
+      "name": "circle",
+      "path": "res/hud/icon-circle.png"
+    },
+    {
+      "name": "dpadup",
+      "path": "res/hud/icon-dpadup.png"
+    },
+    {
+      "name": "dpaddown",
+      "path": "res/hud/icon-dpaddown.png"
+    },
+    {
+      "name": "dpadleft",
+      "path": "res/hud/icon-dpadleft.png"
+    },
+    {
+      "name": "dpadright",
+      "path": "res/hud/icon-dpadright.png"
+    },
+    {
+      "name": "l1",
+      "path": "res/hud/icon-l1.png"
+    },
+    {
+      "name": "l2",
+      "path": "res/hud/icon-l2.png"
+    },
+    {
+      "name": "l3",
+      "path": "res/hud/icon-l3.png"
+    },
+    {
+      "name": "r1",
+      "path": "res/hud/icon-r1.png"
+    },
+    {
+      "name": "r2",
+      "path": "res/hud/icon-r2.png"
+    },
+    {
+      "name": "r3",
+      "path": "res/hud/icon-r3.png"
+    },
+    {
+      "name": "start",
+      "path": "res/hud/icon-start.png"
+    },
+    {
+      "name": "select",
+      "path": "res/hud/icon-select.png"
+    }
+  ],
+  "hudBloomLayer": -1,
+  "hudGrainLayer": -1,
+  "music": [],
+  "sounds": [],
+  "saveValues": [],
+  "saveTexts": [],
+  "saveTitle": "",
+  "saveIcon": "",
+  "saveIconModel": "",
+  "saveIconClip": "",
+  "saveIconFrames": 6,
+  "saveIconMotion": "",
+  "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
+  "saveAsync": false,
+  "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
+  "gradings": [],
+  "defaultGrading": -1,
+  "ambience": [
+    {
+      "name": "Default",
+      "skyColor": [
+        0.25,
+        0.55,
+        0.78
+      ],
+      "skyTopColor": [
+        0.08,
+        0.3,
+        0.65
+      ],
+      "skyDome": true,
+      "zenithSize": 0.5,
+      "lightDir": [
+        0.37,
+        0.82,
+        0.44
+      ],
+      "ambient": 0.55,
+      "diffuse": 0.45,
+      "lightColor": [
+        1,
+        1,
+        1
+      ],
+      "brightness": 1,
+      "aoEnabled": true,
+      "aoStrength": 0.55,
+      "aoRadius": 2.5,
+      "fogEnabled": false,
+      "fogColor": [
+        0.5,
+        0.5,
+        0.55
+      ],
+      "fogStart": 15,
+      "fogEnd": 120
+    }
+  ],
+  "defaultAmbience": 0,
+  "loadingScreens": [],
+  "defaultLoadingScreen": -1,
+  "splashScreens": [],
+  "credits": [],
+  "sequences": [],
+  "menus": [
+    {
+      "name": "save",
+      "title": "SAVE GAME",
+      "saveMenu": true,
+      "screenPos": [
+        0.5,
+        0.45
+      ],
+      "accent": [
+        0.47,
+        0.82,
+        1
+      ],
+      "entries": []
+    }
+  ],
+  "input": {
+    "activePreset": 0,
+    "allowRebind": true,
+    "actions": [
+      {
+        "name": "move-forward",
+        "label": "Move forward",
+        "role": "move-forward"
+      },
+      {
+        "name": "move-back",
+        "label": "Move back",
+        "role": "move-back"
+      },
+      {
+        "name": "move-left",
+        "label": "Move left",
+        "role": "move-left"
+      },
+      {
+        "name": "move-right",
+        "label": "Move right",
+        "role": "move-right"
+      },
+      {
+        "name": "jump",
+        "label": "Jump",
+        "role": "jump"
+      },
+      {
+        "name": "sprint",
+        "label": "Sprint",
+        "role": "sprint"
+      },
+      {
+        "name": "use",
+        "label": "Use",
+        "role": "use"
+      },
+      {
+        "name": "throw",
+        "label": "Throw",
+        "role": "throw"
+      },
+      {
+        "name": "fly-up",
+        "label": "Fly up",
+        "role": "fly-up"
+      },
+      {
+        "name": "fly-down",
+        "label": "Fly down",
+        "role": "fly-down"
+      },
+      {
+        "name": "confirm",
+        "label": "Confirm",
+        "role": "confirm",
+        "rebindable": false
+      },
+      {
+        "name": "back",
+        "label": "Back",
+        "role": "back",
+        "rebindable": false
+      },
+      {
+        "name": "menu",
+        "label": "Pause menu",
+        "role": "menu",
+        "rebindable": false
+      },
+      {
+        "name": "alt",
+        "label": "Alternate",
+        "role": "alt",
+        "rebindable": false
+      },
+      {
+        "name": "menu-up",
+        "label": "Menu up",
+        "role": "menu-up",
+        "rebindable": false
+      },
+      {
+        "name": "menu-down",
+        "label": "Menu down",
+        "role": "menu-down",
+        "rebindable": false
+      },
+      {
+        "name": "menu-left",
+        "label": "Menu left",
+        "role": "menu-left",
+        "rebindable": false
+      },
+      {
+        "name": "menu-right",
+        "label": "Menu right",
+        "role": "menu-right",
+        "rebindable": false
+      }
+    ],
+    "presets": [
+      {
+        "name": "Default",
+        "bindings": [
+          {
+            "action": "move-forward",
+            "key": 26
+          },
+          {
+            "action": "move-back",
+            "key": 22
+          },
+          {
+            "action": "move-left",
+            "key": 4
+          },
+          {
+            "action": "move-right",
+            "key": 7
+          },
+          {
+            "action": "jump",
+            "pad": "Cross",
+            "key": 44,
+            "mouse": 2
+          },
+          {
+            "action": "sprint",
+            "pad": "R2",
+            "key": 225
+          },
+          {
+            "action": "use",
+            "pad": "Square",
+            "key": 8,
+            "mouse": 1
+          },
+          {
+            "action": "throw",
+            "pad": "Circle",
+            "mouse": 3
+          },
+          {
+            "action": "fly-up",
+            "pad": "Cross",
+            "key": 44
+          },
+          {
+            "action": "fly-down",
+            "pad": "Square",
+            "key": 8
+          },
+          {
+            "action": "confirm",
+            "pad": "Cross",
+            "key": 40
+          },
+          {
+            "action": "back",
+            "pad": "Triangle",
+            "key": 42
+          },
+          {
+            "action": "menu",
+            "pad": "Start",
+            "key": 41
+          },
+          {
+            "action": "alt",
+            "pad": "Circle",
+            "key": 21,
+            "mouse": 3
+          },
+          {
+            "action": "menu-up",
+            "pad": "DpadUp",
+            "key": 82
+          },
+          {
+            "action": "menu-down",
+            "pad": "DpadDown",
+            "key": 81
+          },
+          {
+            "action": "menu-left",
+            "pad": "DpadLeft",
+            "key": 80
+          },
+          {
+            "action": "menu-right",
+            "pad": "DpadRight",
+            "key": 79
+          }
+        ]
+      }
+    ]
+  },
+  "editor": {
+    "selectedObject": -1,
+    "gizmo": 0,
+    "gizmoSpace": 0,
+    "viewMode": 0,
+    "viewProjection": 0,
+    "breakpoints": []
+  },
+  "activeLayout": 0,
+  "layouts": [
+    {
+      "name": "Default",
+      "recipe": 0,
+      "open": [],
+      "ini": ""
+    },
+    {
+      "name": "Director",
+      "recipe": 1,
+      "open": [
+        "cutscene"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Material Designer",
+      "recipe": 2,
+      "open": [
+        "material"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Debugger",
+      "recipe": 3,
+      "open": [
+        "debugger"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Procedural",
+      "recipe": 4,
+      "open": [
+        "proc",
+        "prefabs"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Menu Designer",
+      "recipe": 5,
+      "open": [
+        "menus",
+        "menupreview",
+        "fonts"
+      ],
+      "ini": ""
+    }
+  ],
+  "facts": [
+    {
+      "id": "fac71000000000001",
+      "name": "world.generator.parts",
+      "type": "int",
+      "persist": "save",
+      "desc": "How many of the three generator parts the player has fitted."
+    },
+    {
+      "id": "fac71000000000002",
+      "name": "world.power.state",
+      "type": "enum",
+      "persist": "save",
+      "options": [
+        "Broken",
+        "Powered",
+        "Overloaded"
+      ],
+      "desc": "What the plant is doing. Printed on the HUD by name, not by number - which is the reason it is a one-of-several fact and not an int."
+    },
+    {
+      "id": "fac71000000000003",
+      "name": "world.power.load",
+      "type": "float",
+      "persist": "checkpoint",
+      "default": 0.0,
+      "desc": "How hard the plant is being pushed, 0..1. Checkpoint-lived: it belongs to the attempt, not to the save."
+    },
+    {
+      "id": "fac71000000000004",
+      "name": "world.alarm.ringing",
+      "type": "bool",
+      "persist": "session",
+      "scope": "scene",
+      "desc": "Scene-scoped on purpose: an alarm is a property of the room you are in, and reloading the level should silence it."
+    },
+    {
+      "id": "fac71000000000005",
+      "name": "characters.marta.trust",
+      "type": "int",
+      "persist": "save",
+      "desc": "0..10. Rescuing her is worth 5 of it."
+    },
+    {
+      "id": "fac71000000000006",
+      "name": "characters.marta.rescued",
+      "type": "bool",
+      "persist": "save",
+      "desc": "The player got Marta out of the flooded room."
+    },
+    {
+      "id": "fac71000000000007",
+      "name": "characters.marta.isAlly",
+      "type": "bool",
+      "persist": "session",
+      "computed": "MartaIsAlly",
+      "desc": "COMPUTED - derived from her trust and whether she was rescued. Nothing can write to it, which is the point: an alliance should never be settable behind the back of the things that decide it."
+    },
+    {
+      "id": "fac71000000000008",
+      "name": "player.hasBasementKey",
+      "type": "bool",
+      "persist": "save",
+      "desc": "Picked up in the yard."
+    },
+    {
+      "id": "fac71000000000009",
+      "name": "player.lastCheckpoint",
+      "type": "position",
+      "persist": "save",
+      "pos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "desc": "Where to put the player back. A position fact - three floats in their own runtime array."
+    },
+    {
+      "id": "fac7100000000000a",
+      "name": "profile.timesPlayed",
+      "type": "int",
+      "persist": "profile",
+      "desc": "PROFILE-lived: one file per memory card, outside the save slots and shared by all of them. Survives starting a new game, which is exactly what an unlock or a play counter wants."
+    }
+  ],
+  "factQueries": [
+    {
+      "name": "GeneratorReady",
+      "desc": "All three parts are in.",
+      "when": {
+        "kind": "compare",
+        "fact": "world.generator.parts",
+        "cmp": "ge",
+        "value": 3
+      }
+    },
+    {
+      "name": "MartaIsAlly",
+      "desc": "She was rescued AND trusts the player enough.",
+      "when": {
+        "kind": "all",
+        "children": [
+          {
+            "kind": "compare",
+            "fact": "characters.marta.rescued",
+            "cmp": "eq",
+            "value": 1
+          },
+          {
+            "kind": "compare",
+            "fact": "characters.marta.trust",
+            "cmp": "ge",
+            "value": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "CanEnterBasement",
+      "desc": "The key, plus either working power or Marta vouching for you.",
+      "when": {
+        "kind": "all",
+        "children": [
+          {
+            "kind": "compare",
+            "fact": "player.hasBasementKey",
+            "cmp": "eq",
+            "value": 1
+          },
+          {
+            "kind": "any",
+            "children": [
+              {
+                "kind": "compare",
+                "fact": "world.power.state",
+                "cmp": "eq",
+                "value": 1
+              },
+              {
+                "kind": "query",
+                "query": "MartaIsAlly"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "factRules": [
+    {
+      "name": "PowerRestored",
+      "desc": "Fitting the last part powers the plant and tells the lamp.",
+      "policy": "rising",
+      "when": {
+        "kind": "query",
+        "query": "GeneratorReady"
+      },
+      "then": [
+        {
+          "do": "set",
+          "target": "world.power.state",
+          "value": 1
+        },
+        {
+          "do": "event",
+          "target": "power-on",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "name": "OverloadTrips",
+      "desc": "Pushed past 80% with the plant running, it trips.",
+      "policy": "rising",
+      "when": {
+        "kind": "all",
+        "children": [
+          {
+            "kind": "compare",
+            "fact": "world.power.state",
+            "cmp": "eq",
+            "value": 1
+          },
+          {
+            "kind": "compare",
+            "fact": "world.power.load",
+            "cmp": "gt",
+            "value": 0.8
+          }
+        ]
+      },
+      "then": [
+        {
+          "do": "set",
+          "target": "world.power.state",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "name": "AlarmWhileOverloaded",
+      "desc": "Every frame while overloaded - the alarm has to be re-asserted, which is the one shape 'every frame' is right for.",
+      "policy": "while",
+      "when": {
+        "kind": "compare",
+        "fact": "world.power.state",
+        "cmp": "eq",
+        "value": 2
+      },
+      "then": [
+        {
+          "do": "set",
+          "target": "world.alarm.ringing",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "RescueEarnsTrust",
+      "desc": "Once per run: getting her out is worth 5 trust, and only the first time.",
+      "policy": "once",
+      "when": {
+        "kind": "compare",
+        "fact": "characters.marta.rescued",
+        "cmp": "eq",
+        "value": 1
+      },
+      "then": [
+        {
+          "do": "add",
+          "target": "characters.marta.trust",
+          "value": 5
+        }
+      ]
+    }
+  ],
+  "factScenarios": [
+    {
+      "name": "Endgame",
+      "desc": "Everything done: plant powered, Marta rescued and trusting, key in hand.",
+      "values": [
+        {
+          "fact": "world.generator.parts",
+          "value": 3
+        },
+        {
+          "fact": "world.power.state",
+          "value": 1
+        },
+        {
+          "fact": "characters.marta.rescued",
+          "value": 1
+        },
+        {
+          "fact": "characters.marta.trust",
+          "value": 8
+        },
+        {
+          "fact": "player.hasBasementKey",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "Locked out",
+      "desc": "The awkward one: the key but nothing else, so the basement query is false and you can see WHY.",
+      "values": [
+        {
+          "fact": "world.generator.parts",
+          "value": 1
+        },
+        {
+          "fact": "world.power.state",
+          "value": 0
+        },
+        {
+          "fact": "characters.marta.rescued",
+          "value": 0
+        },
+        {
+          "fact": "characters.marta.trust",
+          "value": 2
+        },
+        {
+          "fact": "player.hasBasementKey",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "Overloaded",
+      "desc": "Powered and pushed past the trip point - the alarm rule and the scene-scoped fact in action.",
+      "values": [
+        {
+          "fact": "world.generator.parts",
+          "value": 3
+        },
+        {
+          "fact": "world.power.state",
+          "value": 2
+        },
+        {
+          "fact": "world.power.load",
+          "value": 0.95
+        }
+      ]
+    }
+  ]
+}

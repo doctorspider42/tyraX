@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <array>
 #include <map>
 #include <memory>
 #include <set>
@@ -662,6 +663,35 @@ private:
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
 
+    // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
+    // catalog, the named queries over it, the reaction rules, the saved test
+    // scenarios and the live World Blackboard. Its own TU (the prefab_ui.cpp
+    // precedent) - it is a self-contained subsystem and app.cpp is already the
+    // build's critical path.
+    void drawWorldFactsWindow();
+    void drawFactCatalogTab();
+    void drawFactQueriesTab();
+    void drawFactRulesTab();
+    void drawFactScenariosTab();
+    void drawFactBlackboardTab();
+    // The recursive condition editor, shared by queries and rules. Returns
+    // true when the tree changed. `depth` guards the nesting the UI draws.
+    bool drawFactCondition(facts::Condition& c, int depth, const char* id);
+    // A fact / query picker, the paramCombo idiom - used by the condition
+    // editor, the rule actions, the scenarios AND the flow-graph node params,
+    // so every place a fact is named offers the same list.
+    bool factCombo(const char* id, std::string& value, bool positionsToo);
+    bool factQueryCombo(const char* id, std::string& value);
+    // The value widget for one fact, chosen from its declared type (a checkbox
+    // for a yes/no, a combo of option names for a one-of-several). One
+    // function so the catalog, the rules, the scenarios and the blackboard
+    // cannot each invent their own idea of what a fact's value looks like.
+    bool factValueWidget(const char* id, const facts::Fact& f, float* v3);
+    // Live values for the Why? explanation and the blackboard: the running
+    // game's, or the catalog defaults when nothing is attached.
+    bool factLiveValue(const std::string& name, float* out3) const;
+    void factPushOverrides();
+
     // Tools > VU Programs (vu_ui.cpp, docs/vu-authoring.md).
     void drawVuProgramsWindow();
     void drawVuStageList(std::vector<VuStage>& stages, bool kernel);
@@ -1290,6 +1320,22 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
+    // the window is a tabbed list with an index and nothing about it is per
+    // scene.
+    bool showWorldFacts_ = false;
+    int factSel_ = -1;        // selected catalog row
+    int factQuerySel_ = -1;   // selected query
+    int factRuleSel_ = -1;    // selected rule
+    int factScenarioSel_ = -1;
+    std::string factFilter_;  // catalog search box
+    // The name a rename is being typed over, so renameFactRefs can retarget
+    // every reference when the field commits - the objRenameFrom_ idiom.
+    std::string factRenameFrom_, factQueryRenameFrom_;
+    // Manual blackboard overrides, keyed by fact name. Held here rather than
+    // in the Command so the list survives a game restart and can be edited
+    // while nothing is running.
+    std::map<std::string, std::array<float, 3>> factOverrides_;
     bool showVuPrograms_ = false;
     // Rebuilt every frame the VU window is open (milliseconds), so the
     // listing, the budget bar and the simulation are one answer rather than

@@ -57,6 +57,28 @@ struct Event {
     uint32_t frame = 0;
 };
 
+/** One World Fact change, with the frame it happened on and WHO did it
+ * (docs/world-facts.md). `slot` indexes the fact store the same way the watch
+ * table does - scalars first, then positions - and `src` is an instrumented
+ * node's key, or -(rule + 1) for the fact rule engine, or -1 for a write with
+ * nothing to attribute it to. That one number is the whole "which graph
+ * changed this, and when" answer. */
+struct FactEvent {
+    int slot = 0;
+    int src = -1;
+    float value = 0.0f;
+    uint32_t frame = 0;
+};
+
+/** One manual override the editor is asserting on the running game. Re-sent
+ * every command until the author clears it, because a fact a rule rewrites
+ * every frame would otherwise flicker back before it could be seen. */
+struct FactSet {
+    int slot = 0;
+    bool isPosition = false;
+    float v[3] = {0, 0, 0};
+};
+
 /** One frame of a watched object's runtime state. */
 struct ObjSample {
     uint32_t frame = 0;
@@ -125,6 +147,10 @@ struct Snapshot {
     // draw a real 50 Hz curve (and a trail in the viewport), not the 8 Hz the
     // flush cadence would give. Oldest sample first.
     std::vector<ObjWatch> objects;
+    // World Fact changes, oldest first (v5). Empty from a game built before
+    // the facts block existed, which is not an error - the blackboard simply
+    // shows values without a history.
+    std::vector<FactEvent> factEvents;
     Stats stats;                    // v4
     std::vector<FlushInfo> flushes;  // v4: the last complete frame's draws
 };
@@ -165,10 +191,15 @@ struct Command {
     std::vector<uint16_t> fire;         // node keys to force-fire once
     // Runtime object indices to sample every frame (see Snapshot::objects).
     std::vector<uint16_t> watchObjects;
+    // World Facts the editor is holding at a value (Blackboard > Override).
+    std::vector<FactSet> factSets;
 
     /** Everything except `seq` - the editor rewrites the file only when this
      * changes (a resend of the same state would re-run a step). */
     bool sameStateAs(const Command& o) const;
+
+ private:
+    bool sameFactSets(const Command& o) const;
 };
 
 std::vector<unsigned char> encodeCommand(const Command& c);
@@ -213,6 +244,8 @@ constexpr int kMaxBreakpoints = 64;   // breakpoints the game tracks at once
 constexpr int kMaxForced = 8;         // force-fire keys per command
 constexpr int kMaxEvents = 192;       // event ring the game flushes
 constexpr int kMaxWatchObjects = 8;   // objects sampled per frame
+constexpr int kMaxFactEvents = 128;   // World Fact changes the game rings
+constexpr int kMaxFactSets = 32;      // manual fact overrides per command
 constexpr int kObjRing = 32;          // per-object sample ring in the game
 
 }  // namespace livedbg

@@ -4968,6 +4968,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   const float portalPrevX = players[0].x, portalPrevY = players[0].y,
               portalPrevZ = players[0].z;
@@ -5465,6 +5475,20 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // World Facts: the profile tier is read once at boot and then only written,
+  // so an unlock earned in a previous session is already true before the first
+  // scene loads (docs/world-facts.md "Saving"). It MUST come after saveInit():
+  // that call is what decides whether the transport is the memory card or the
+  // host file next to the ELF, and a read taken before it silently used the
+  // host path while every write went to the card - which looks exactly like a
+  // profile that does not persist. A missing profile is the normal first-run
+  // state; the catalog defaults stand and the file appears the first time one
+  // of them moves.
+  if (FACT_PROFILE_COUNT > 0) {
+    static SaveProfileData prof;  // a few dozen bytes, kept off the stack
+    if (profileRead(prof)) factProfileRestore(prof.facts, prof.factCount);
+    factProfileDirty();  // swallow the restore's own writes
+  }
   // Read which slots already hold a save. The menu refreshes this when it
   // opens, but a Commit Checkpoint in "next free slot" mode can fire long
   // before the player ever opens it - and against an all-false table it would
@@ -8566,6 +8590,9 @@ void TerrainGame::captureState(SaveGameData& d) {
   d.textCount = SAVE_TEXT_COUNT;
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
+  // World Facts: whatever the catalog declared as checkpoint- or save-lived,
+  // each row carrying its fact's own id (docs/world-facts.md).
+  d.factCount = factSaveCapture(d.facts, FACT_SAVE_MAX);
   d.objectCount = 0;
   for (int i = 0;
        i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -8625,6 +8652,12 @@ void TerrainGame::doLoad(int slot) {
 void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  // Facts are matched to slots BY ID, so a payload written before a fact was
+  // renamed, moved or removed still restores everything it still shares with
+  // this build - and silently drops the rest instead of writing a value into
+  // whatever now sits at that position.
+  if (d.factCount > 0 && d.factCount <= FACT_SAVE_MAX)
+    factSaveRestore(d.facts, d.factCount);
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
     d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);
@@ -17422,6 +17455,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   // (Player entity when the scene has one, the built-in FPP walker otherwise)
   const bool portalEnt = PLAYER_INDEX >= 0;
@@ -24050,6 +24093,65 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
             }
 }
 
+// --- World Facts codegen (docs/world-facts.md) -------------------------------
+// The catalog resolves to indices here and nowhere else: facts::layoutOf gives
+// every stored fact its slot in one of two flat runtime arrays, and every
+// reference - a flow node's param, a query leaf, a rule action - becomes that
+// number. The editor's blackboard builds the SAME layout from the SAME
+// function, which is what makes the index a graph was compiled against and the
+// index the debugger reads the same number by construction rather than by
+// agreement.
+
+struct FactPlan {
+    const std::vector<facts::Fact>* facts = nullptr;
+    const std::vector<facts::Query>* queries = nullptr;
+    const std::vector<facts::Rule>* rules = nullptr;
+    facts::Layout layout;
+    std::vector<bool> queryCyclic;
+    // Stored facts riding the checkpoint/save payload, and the profile file,
+    // as indices into `facts`. Two walks, because they are written at
+    // different moments and to different places.
+    std::vector<int> saveFacts;
+    std::vector<int> profileFacts;
+    bool any() const { return facts && !facts->empty(); }
+};
+
+FactPlan factPlanOf(const Project& p) {
+    FactPlan fp;
+    fp.facts = &p.facts;
+    fp.queries = &p.factQueries;
+    fp.rules = &p.factRules;
+    fp.layout = facts::layoutOf(p.facts);
+    fp.queryCyclic = facts::cyclicQueries(p.factQueries);
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        const facts::Fact& f = p.facts[i];
+        if (f.isComputed()) continue;  // no storage, nothing to persist
+        // A scene-scoped fact is overwritten by its default on the next scene
+        // load, so persisting it would store something already doomed. The
+        // validator says so; codegen simply does not walk it.
+        if (f.scope == facts::Scope::Scene) continue;
+        if (f.persist == facts::Persist::Checkpoint ||
+            f.persist == facts::Persist::Save)
+            fp.saveFacts.push_back((int)i);
+        else if (f.persist == facts::Persist::Profile)
+            fp.profileFacts.push_back((int)i);
+    }
+    return fp;
+}
+
+// The low 32 bits of a fact's 16-hex id - what a save file is keyed by. 32
+// bits rather than 64 keeps the payload small, and the birthday odds over a
+// few hundred facts are negligible; a collision would be caught by the
+// editor's own duplicate-id repair long before it reached a card.
+uint32_t factSaveKey(const facts::Fact& f) {
+    uint32_t h = 2166136261u;  // FNV-1a over the id text: stable everywhere
+    for (char c : f.id) {
+        h ^= (uint32_t)(unsigned char)c;
+        h *= 16777619u;
+    }
+    return h ? h : 1u;  // 0 is the "empty row" marker in the payload
+}
+
 // Graph events (Send Event / On Event) live in one game-global namespace, like
 // the flow variables above and for the same reason: an event exists by being
 // named on either node, and the slot index has to be the same answer for
@@ -24104,6 +24206,25 @@ DbgSymbols debugSymbols(const Project& p) {
     // Save values ride in the same watch array (read straight off
     // ScriptContext), so a paused game shows its persistent state too.
     for (const SaveValue& v : p.saveValues) s.vars.push_back({'s', v.name});
+    // World Facts complete it, in the layout's own order - scalars, then
+    // positions. The runtime's readVar() walks exactly this, so the slot the
+    // blackboard asks for and the slot the game answers with are the same
+    // number by construction rather than by two lists agreeing.
+    {
+        const facts::Layout lay = facts::layoutOf(p.facts);
+        std::vector<const facts::Fact*> scalars(std::max(0, lay.numCount),
+                                                nullptr);
+        std::vector<const facts::Fact*> positions(std::max(0, lay.posCount),
+                                                  nullptr);
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (lay.numOf[i] >= 0) scalars[(size_t)lay.numOf[i]] = &p.facts[i];
+            if (lay.posOf[i] >= 0) positions[(size_t)lay.posOf[i]] = &p.facts[i];
+        }
+        for (const facts::Fact* f : scalars)
+            s.vars.push_back({'f', f ? f->name : std::string()});
+        for (const facts::Fact* f : positions)
+            s.vars.push_back({'F', f ? f->name : std::string()});
+    }
 
     std::ostringstream t;
     t << "nodes " << s.nodes.size() << "\n";
@@ -24524,6 +24645,104 @@ std::string flowGraphScript(const Project& p) {
     };
     auto intLit = [](float f) { return std::to_string((long)std::lround(f)); };
 
+    // --- World Facts -------------------------------------------------------
+    // Every fact reference below goes through these three, so a fact that is
+    // not in the catalog (a graph authored against a fact since deleted)
+    // produces a commented-out node rather than a compile error - the same
+    // courtesy an unknown object name already gets.
+    const FactPlan factPlan = factPlanOf(p);
+    auto factOf = [&](const std::string& name) -> const facts::Fact* {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? nullptr : &p.facts[(size_t)i];
+    };
+    auto factNumSlot = [&](const std::string& name) {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? -1 : factPlan.layout.numOf[(size_t)i];
+    };
+    auto factPosSlot = [&](const std::string& name) {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? -1 : factPlan.layout.posOf[(size_t)i];
+    };
+    auto factQueryIdx = [&](const std::string& name) {
+        return facts::queryIndexOf(p.factQueries, name);
+    };
+    // A fact READ, as a float expression. A computed fact is its query -
+    // which is the whole reason it costs no storage - and an unknown one is
+    // 0, never a dangling index.
+    auto factReadExpr = [&](const std::string& name) -> std::string {
+        const facts::Fact* f = factOf(name);
+        if (!f) return "0.0F";
+        if (f->isComputed()) {
+            const int qi = factQueryIdx(f->computed);
+            if (qi < 0) return "0.0F";
+            return "(factQuery" + std::to_string(qi) + "() ? 1.0F : 0.0F)";
+        }
+        const int slot = factNumSlot(name);
+        if (slot < 0) return "0.0F";
+        return "factNum[" + std::to_string(slot) + "]";
+    };
+
+    // A condition tree, as one self-contained C++ bool expression. Mutually
+    // recursive with itself through queries only, and a query that takes part
+    // in a cycle folds to `false` (facts::cyclicQueries) - a catalog the
+    // author has not fixed yet must not make the GENERATOR recurse forever.
+    std::function<std::string(const facts::Condition&)> factCondExpr =
+        [&](const facts::Condition& c) -> std::string {
+        switch (c.kind) {
+            case facts::Condition::Kind::All:
+            case facts::Condition::Kind::Any:
+            case facts::Condition::Kind::Not: {
+                // Empty ALL is true and empty ANY is false - the same
+                // arithmetic the host evaluator uses, so the editor's answer
+                // and the console's cannot disagree on a half-built group.
+                if (c.children.empty())
+                    return c.kind == facts::Condition::Kind::All ? "true"
+                                                                 : "false";
+                const char* op =
+                    c.kind == facts::Condition::Kind::All ? " && " : " || ";
+                std::string s = "(";
+                for (size_t i = 0; i < c.children.size(); ++i)
+                    s += (i ? op : "") + factCondExpr(c.children[i]);
+                s += ")";
+                // NOT folds with OR and negates: one child is plain negation,
+                // several read as "none of these".
+                if (c.kind == facts::Condition::Kind::Not) return "(!" + s + ")";
+                return s;
+            }
+            case facts::Condition::Kind::Compare: {
+                const facts::Fact* f = factOf(c.fact);
+                if (!f || f->type == facts::Type::Position) return "false";
+                const std::string lhs = factReadExpr(c.fact);
+                std::string rhs;
+                if (!c.rhsFact.empty()) {
+                    const facts::Fact* r = factOf(c.rhsFact);
+                    if (!r || r->type == facts::Type::Position) return "false";
+                    rhs = factReadExpr(c.rhsFact);
+                } else {
+                    rhs = floatLit(c.value);
+                }
+                // Equality on a float plane needs a tolerance, and it must be
+                // the same one facts.cpp uses or the editor's "Why?" and the
+                // console disagree at the boundary.
+                if (c.cmp == facts::Cmp::Equal)
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) <= 1e-4F)";
+                if (c.cmp == facts::Cmp::NotEqual)
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) > 1e-4F)";
+                return "((" + lhs + ") " + facts::cmpCpp(c.cmp) + " (" + rhs +
+                       "))";
+            }
+            case facts::Condition::Kind::Query: {
+                const int qi = factQueryIdx(c.query);
+                if (qi < 0) return "false";
+                if ((size_t)qi < factPlan.queryCyclic.size() &&
+                    factPlan.queryCyclic[(size_t)qi])
+                    return "false /* query cycle */";
+                return "factQuery" + std::to_string(qi) + "()";
+            }
+        }
+        return "false";
+    };
+
     // Spawn Object nodes: each gets a global handle slot holding the index
     // of the clone it spawned last (-1 = none). Handles are runtime data -
     // the one object reference that cannot resolve statically - and reset
@@ -24600,7 +24819,8 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/credits.gen.hpp\"  // Play/Stop Credits, On "
            "Credits Finished\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
-           "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n";
+           "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
+           "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -25139,6 +25359,341 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         registrations << "TYRA_SCRIPT(" << ns << "::FlowEventBus);\n";
     }
 
+    // --- World Facts: the store, the queries, the rules --------------------
+    // Emitted unconditionally (the arrays are declared extern in
+    // facts.gen.hpp, which every consumer includes), so a project with no
+    // facts still links - it just gets two one-element arrays nothing reads.
+    {
+        const int numCount = factPlan.layout.numCount;
+        const int posCount = factPlan.layout.posCount;
+        out << "\n// World Facts (docs/world-facts.md): the declared state of\n"
+               "// the game world. One float array for every scalar fact, one\n"
+               "// for positions; a computed fact has no slot because it IS a\n"
+               "// query. factWrite() is the only door in - it exists so the\n"
+               "// Live Debugger can record WHO changed a fact, and folds to a\n"
+               "// plain store when the debugger is off.\n"
+               "float factNum["
+            << std::max(1, numCount) << "] = {";
+        if (numCount == 0) {
+            out << "0.0F";
+        } else {
+            bool first = true;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                if (factPlan.layout.numOf[i] < 0) continue;
+                out << (first ? "" : ", ")
+                    << floatLit(facts::defaultNum(p.facts[i]));
+                first = false;
+            }
+        }
+        out << "};\n"
+               "float factPos["
+            << std::max(1, posCount) << "][3] = {";
+        if (posCount == 0) {
+            out << "{0.0F, 0.0F, 0.0F}";
+        } else {
+            bool first = true;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                if (factPlan.layout.posOf[i] < 0) continue;
+                out << (first ? "" : ", ") << "{" << floatLit(p.facts[i].pos[0])
+                    << ", " << floatLit(p.facts[i].pos[1]) << ", "
+                    << floatLit(p.facts[i].pos[2]) << "}";
+                first = false;
+            }
+        }
+        out << "};\n\n";
+
+        // The profile tier is written when it MOVES, so the store has to know
+        // that something moved. One flag, set by the writer, cleared by the
+        // reader - cheaper than diffing the array every frame and exactly as
+        // correct.
+        if (!factPlan.profileFacts.empty())
+            out << "static bool g_factProfileDirty = false;\n";
+
+        // Which scalar slots belong to the profile tier - only needed when
+        // there is a profile at all.
+        if (!factPlan.profileFacts.empty()) {
+            std::vector<int> prof(std::max(1, numCount), 0);
+            for (int fi : factPlan.profileFacts)
+                if (factPlan.layout.numOf[(size_t)fi] >= 0)
+                    prof[(size_t)factPlan.layout.numOf[(size_t)fi]] = 1;
+            out << "static const unsigned char FACT_NUM_PROFILE["
+                << prof.size() << "] = {";
+            for (size_t i = 0; i < prof.size(); ++i)
+                out << (i ? ", " : "") << prof[i];
+            out << "};\n";
+        }
+
+        // `src` is who wrote it: an instrumented node's key, or -(rule+1) for
+        // the rule engine. The debugger turns that back into a place in the
+        // editor - which is the entire "who changed this fact, and when"
+        // feature, for one int per write in a debug build and nothing at all
+        // in a release one.
+        out << "static inline void factWrite(int slot, float v, int src) {\n";
+        if (!factPlan.profileFacts.empty()) {
+            out << "  if (factNum[slot] != v && FACT_NUM_PROFILE[slot])\n"
+                   "    g_factProfileDirty = true;\n";
+        }
+        if (dbgOn)
+            out << "  if (factNum[slot] != v) livedbg::factWrite(slot, v, src);\n";
+        else
+            out << "  (void)src;\n";
+        out << "  factNum[slot] = v;\n"
+               "}\n"
+               "static inline void factWritePos(int slot, float x, float y,\n"
+               "                                float z, int src) {\n";
+        if (!factPlan.profileFacts.empty())
+            out << "  (void)0;  // positions never ride the profile file\n";
+        if (dbgOn)
+            out << "  if (factPos[slot][0] != x || factPos[slot][1] != y ||\n"
+                   "      factPos[slot][2] != z)\n"
+                   "    livedbg::factWritePos(slot, x, y, z, src);\n";
+        else
+            out << "  (void)src;\n";
+        out << "  factPos[slot][0] = x;\n"
+               "  factPos[slot][1] = y;\n"
+               "  factPos[slot][2] = z;\n"
+               "}\n";
+
+        // Enum labels, for Get Fact As Text. Emitted only when something
+        // actually prints a fact - the strings are the one part of the
+        // catalog that costs the console anything.
+        if (uses("GetFactText")) {
+            bool anyEnum = false;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                const facts::Fact& f = p.facts[i];
+                if (f.type != facts::Type::Enum || f.options.empty()) continue;
+                if (f.isComputed()) continue;
+                anyEnum = true;
+                out << "static const char* const factEnum" << i << "["
+                    << f.options.size() << "] = {";
+                for (size_t k = 0; k < f.options.size(); ++k)
+                    out << (k ? ", " : "") << "\"" << escapeCString(f.options[k])
+                        << "\"";
+                out << "};  // " << f.name << "\n";
+            }
+            if (anyEnum)
+                out << "static inline std::string flowEnumText(float v,\n"
+                       "                                       const char* "
+                       "const* opts,\n"
+                       "                                       int count) {\n"
+                       "  const long i = lroundf(v);\n"
+                       "  if (i < 0 || i >= count) return std::to_string(i);\n"
+                       "  return std::string(opts[i]);\n"
+                       "}\n";
+        }
+
+        out << "\nvoid factResetAll() {\n"
+               "  for (int i = 0; i < FACT_NUM_COUNT; ++i)\n"
+               "    factNum[i] = FACT_NUM_DEFAULT[i];\n"
+               "  for (int i = 0; i < FACT_POS_COUNT; ++i)\n"
+               "    for (int a = 0; a < 3; ++a)\n"
+               "      factPos[i][a] = FACT_POS_DEFAULT[i][a];\n"
+               "}\n"
+               "\n"
+               "void factResetScene() {\n"
+               "  for (int i = 0; i < FACT_NUM_COUNT; ++i)\n"
+               "    if (FACT_NUM_SCENE[i]) factNum[i] = FACT_NUM_DEFAULT[i];\n"
+               "  for (int i = 0; i < FACT_POS_COUNT; ++i)\n"
+               "    if (FACT_POS_SCENE[i])\n"
+               "      for (int a = 0; a < 3; ++a)\n"
+               "        factPos[i][a] = FACT_POS_DEFAULT[i][a];\n"
+               "}\n";
+
+        // --- the save / profile walks, keyed by id
+        auto emitWalk = [&](const char* capName, const char* resName,
+                            const std::vector<int>& list, bool profile) {
+            out << "\nint " << capName << "(FactSaveRow* out, int max) {\n"
+                   "  int n = 0;\n";
+            for (int fi : list) {
+                const facts::Fact& f = p.facts[(size_t)fi];
+                const int ns_ = factPlan.layout.numOf[(size_t)fi];
+                const int ps_ = factPlan.layout.posOf[(size_t)fi];
+                out << "  if (n < max) {  // " << f.name << "\n"
+                    << "    out[n].id = " << factSaveKey(f) << "u;\n";
+                if (ps_ >= 0)
+                    out << "    out[n].v[0] = factPos[" << ps_ << "][0];\n"
+                        << "    out[n].v[1] = factPos[" << ps_ << "][1];\n"
+                        << "    out[n].v[2] = factPos[" << ps_ << "][2];\n";
+                else
+                    out << "    out[n].v[0] = factNum[" << ns_ << "];\n"
+                        << "    out[n].v[1] = 0.0F;\n"
+                        << "    out[n].v[2] = 0.0F;\n";
+                out << "    ++n;\n  }\n";
+            }
+            out << "  return n;\n}\n";
+
+            out << "\nvoid " << resName
+                << "(const FactSaveRow* rows, int count) {\n"
+                   "  for (int i = 0; i < count; ++i) {\n"
+                   "    switch (rows[i].id) {\n";
+            for (int fi : list) {
+                const facts::Fact& f = p.facts[(size_t)fi];
+                const int ns_ = factPlan.layout.numOf[(size_t)fi];
+                const int ps_ = factPlan.layout.posOf[(size_t)fi];
+                out << "      case " << factSaveKey(f) << "u:  // " << f.name
+                    << "\n";
+                if (ps_ >= 0)
+                    out << "        factPos[" << ps_ << "][0] = rows[i].v[0];\n"
+                        << "        factPos[" << ps_ << "][1] = rows[i].v[1];\n"
+                        << "        factPos[" << ps_ << "][2] = rows[i].v[2];\n";
+                else
+                    out << "        factNum[" << ns_ << "] = rows[i].v[0];\n";
+                out << "        break;\n";
+            }
+            out << "      default: break;  // a fact this build no longer has\n"
+                   "    }\n"
+                   "  }\n";
+            if (profile) out << "  g_factProfileDirty = false;\n";
+            out << "}\n";
+        };
+        emitWalk("factSaveCapture", "factSaveRestore", factPlan.saveFacts, false);
+        emitWalk("factProfileCapture", "factProfileRestore",
+                 factPlan.profileFacts, !factPlan.profileFacts.empty());
+
+        out << "\nbool factProfileDirty() {\n";
+        if (factPlan.profileFacts.empty())
+            out << "  return false;\n";
+        else
+            out << "  const bool d = g_factProfileDirty;\n"
+                   "  g_factProfileDirty = false;\n"
+                   "  return d;\n";
+        out << "}\n";
+
+        // --- named queries
+        if (!p.factQueries.empty()) {
+            out << "\n// Named conditions (Tools > World Facts > Queries).\n"
+                   "// Forward-declared as a block so one query may name\n"
+                   "// another whatever order they were authored in; a query\n"
+                   "// that takes part in a cycle is emitted as false.\n";
+            for (size_t i = 0; i < p.factQueries.size(); ++i)
+                out << "static bool factQuery" << i << "();  // "
+                    << p.factQueries[i].name << "\n";
+            for (size_t i = 0; i < p.factQueries.size(); ++i) {
+                out << "static bool factQuery" << i << "() {  // \""
+                    << p.factQueries[i].name << "\"\n";
+                if (factPlan.queryCyclic[i])
+                    out << "  return false;  // this query is part of a "
+                           "reference cycle\n";
+                else
+                    out << "  return " << factCondExpr(p.factQueries[i].root)
+                        << ";\n";
+                out << "}\n";
+            }
+        }
+
+        // --- the rule engine
+        if (!p.factRules.empty()) {
+            out << "\n// Fact rules (Tools > World Facts > Rules): the\n"
+                   "// reactive half. Registered after the event bus and\n"
+                   "// before every graph script, so a fact a rule writes is\n"
+                   "// already there by the time a graph looks - and an event\n"
+                   "// a rule sends rides the next frame's mail like any\n"
+                   "// other.\n"
+                   "class WorldFactRules : public Script {\n"
+                   " public:\n"
+                   "  void update(ScriptContext& ctx) override {\n";
+            if (dbgOn)
+                out << "    if (livedbg::halted()) return;\n";
+            out << "    if (ctx.sceneGeneration != generation_) {\n"
+                   "      generation_ = ctx.sceneGeneration;\n"
+                   "      factResetScene();\n"
+                   "      // Re-arm the edge latches: entering a level must\n"
+                   "      // re-fire what that level's state already implies.\n"
+                   "      // `spent_` is deliberately NOT cleared - 'once per\n"
+                   "      // run' means the run, not the scene.\n"
+                   "      for (int i = 0; i < FACT_RULE_COUNT; ++i)\n"
+                   "        was_[i] = false;\n"
+                   "      return;\n"
+                   "    }\n"
+                   "    for (int pass = 0; pass < FACT_RULE_PASSES; ++pass) {\n"
+                   "      bool changed = false;\n";
+            for (size_t ri = 0; ri < p.factRules.size(); ++ri) {
+                const facts::Rule& r = p.factRules[ri];
+                out << "      {  // rule \"" << r.name << "\"\n";
+                if (!r.enabled) {
+                    out << "        // disabled in the editor\n      }\n";
+                    continue;
+                }
+                out << "        const bool c = " << factCondExpr(r.when) << ";\n";
+                switch (r.policy) {
+                    case facts::RulePolicy::OnBecomeTrue:
+                        out << "        const bool fire = c && !was_[" << ri
+                            << "];\n";
+                        break;
+                    case facts::RulePolicy::WhileTrue:
+                        // Pass 0 only: a while-true rule that fired once per
+                        // cascade pass would run up to FACT_RULE_PASSES times
+                        // in one frame, which is never what "every frame"
+                        // means.
+                        out << "        const bool fire = c && pass == 0;\n";
+                        break;
+                    case facts::RulePolicy::Once:
+                        out << "        const bool fire = c && !was_[" << ri
+                            << "] && !spent_[" << ri << "];\n";
+                        break;
+                }
+                out << "        was_[" << ri << "] = c;\n"
+                    << "        if (fire) {\n"
+                    << "          spent_[" << ri << "] = true;\n";
+                for (const facts::RuleAction& a : r.then) {
+                    if (a.kind == facts::RuleAction::Kind::SendEvent) {
+                        const int ei = eventIndex(a.target);
+                        if (ei < 0) {
+                            out << "          // no graph listens for event '"
+                                << a.target << "'\n";
+                        } else {
+                            out << "          flowEvtNext[" << ei << "] = 1;\n"
+                                << "          flowEvtNextVal[" << ei << "] = "
+                                << floatLit(a.value) << ";\n";
+                        }
+                        continue;
+                    }
+                    const int slot = factNumSlot(a.target);
+                    if (slot < 0) {
+                        out << "          // unknown or unwritable fact '"
+                            << a.target << "'\n";
+                        continue;
+                    }
+                    // -(rule + 2), NOT -(rule + 1): -1 already means "a
+                    // write with nothing to attribute it to" (a graph node in
+                    // a build with the debugger off), so rule 0 would have
+                    // been indistinguishable from it in the blackboard.
+                    const std::string src = std::to_string(-(int)ri - 2);
+                    switch (a.kind) {
+                        case facts::RuleAction::Kind::SetFact:
+                            out << "          factWrite(" << slot << ", "
+                                << floatLit(a.value) << ", " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::AddFact:
+                            out << "          factWrite(" << slot
+                                << ", factNum[" << slot << "] + "
+                                << floatLit(a.value) << ", " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::ToggleFact:
+                            out << "          factWrite(" << slot
+                                << ", factNum[" << slot
+                                << "] != 0.0F ? 0.0F : 1.0F, " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::SendEvent:
+                            break;  // handled above
+                    }
+                }
+                out << "          changed = true;\n"
+                    << "        }\n      }\n";
+            }
+            out << "      if (!changed) break;\n"
+                   "    }\n"
+                   "  }\n"
+                   "\n private:\n"
+                   "  unsigned int generation_ = 0;\n"
+                   "  bool was_[FACT_RULE_COUNT] = {};\n"
+                   "  bool spent_[FACT_RULE_COUNT] = {};\n"
+                   "};\n";
+            registrations << "TYRA_SCRIPT(" << ns << "::WorldFactRules);\n";
+        }
+    }
+
+
     for (size_t si = 0; si < p.scenes.size(); ++si) {
     const auto& sceneObjs = p.scenes[si].objects;
     auto objectIndex = [&](const std::string& name) {
@@ -25178,6 +25733,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             const int k = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
             return k < 0 ? std::string()
                          : pad + "livedbg::hit(" + std::to_string(k) + ");\n";
+        };
+
+        // Who wrote a fact, for the blackboard's change history: this node's
+        // debugger key, or -1 when there is nothing to attribute it to. The
+        // rule engine uses -(rule + 1) in the same field, so one number
+        // answers "which node or which rule" - see factWrite in the store.
+        auto factSrc = [&](const FlowNode& n) {
+            if (!dbgOn) return -1;
+            return dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
         };
 
         // Which object a node refers to: incoming data link (follow the
@@ -25396,6 +25960,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string base = "flowPos[" + std::to_string(vi) + "][";
                 return {base + "0]", base + "1]", base + "2]"};
             }
+            if (n.type == "GetFactPos") {
+                const int slot = factPosSlot(n.str);
+                if (slot < 0) return {"0.0F", "0.0F", "0.0F"};
+                const std::string base =
+                    "factPos[" + std::to_string(slot) + "][";
+                return {base + "0]", base + "1]", base + "2]"};
+            }
             // Nodes whose own X/Y/Z params ARE their position when nothing is
             // wired (a rotation triple counts - it rides this plane too).
             if (n.type == "SetPosition" || n.type == "SetVarPos" ||
@@ -25493,6 +26064,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) return "0.0F";
                 return "(float)flowInt[" + std::to_string(vi) + "]";
             }
+            // A fact READ folds to its slot, or - for a computed fact - to
+            // the query behind it, which is why a computed fact costs no
+            // storage and no per-frame work beyond the condition itself.
+            if (n.type == "GetFact") return factReadExpr(n.str);
             if (n.type == "GetSaveValue") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "0.0F";
@@ -25788,6 +26363,29 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) return "false";
                 return "flowBool[" + std::to_string(vi) + "]";
             }
+            if (n.type == "GetFactBool")
+                return "(" + factReadExpr(n.str) + " != 0.0F)";
+            if (n.type == "FactAtLeast" || n.type == "FactAtMost" ||
+                n.type == "FactIs") {
+                if (!factOf(n.str)) return "false";
+                const std::string lhs = factReadExpr(n.str);
+                // A wired number replaces the threshold param, so one fact
+                // can be compared against another with no extra node.
+                const std::string e = numInput(n);
+                const std::string rhs = e.empty() ? floatLit(n.num[0]) : e;
+                if (n.type == "FactIs")
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) <= 1e-4F)";
+                return "((" + lhs + (n.type == "FactAtMost" ? ") <= (" : ") >= (") +
+                       rhs + "))";
+            }
+            if (n.type == "FactQuery") {
+                const int qi = factQueryIdx(n.str);
+                if (qi < 0) return "false";
+                if ((size_t)qi < factPlan.queryCyclic.size() &&
+                    factPlan.queryCyclic[(size_t)qi])
+                    return "false";
+                return "factQuery" + std::to_string(qi) + "()";
+            }
             if (n.type == "VarAtLeast") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "false";
@@ -25917,6 +26515,27 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "std::string(\"?\")";
                 return "std::to_string(flowInt[" + std::to_string(vi) + "])";
+            }
+            if (n.type == "GetFactText") {
+                const facts::Fact* f = factOf(n.str);
+                if (!f) return "std::string(\"?\")";
+                // A one-of-several fact prints its OPTION NAME - the reason to
+                // declare one instead of using a bare int. The label table is
+                // baked next to the reader so nothing has to be looked up.
+                if (f->type == facts::Type::Enum && !f->options.empty()) {
+                    std::string tbl = "factEnum" +
+                                      std::to_string(facts::indexOf(p.facts,
+                                                                    n.str));
+                    return "flowEnumText(" + factReadExpr(n.str) + ", " + tbl +
+                           ", " + std::to_string(f->options.size()) + ")";
+                }
+                if (f->type == facts::Type::Bool)
+                    return "std::string(" + factReadExpr(n.str) +
+                           " != 0.0F ? \"true\" : \"false\")";
+                if (f->type == facts::Type::Int)
+                    return "std::to_string((long)lroundf(" +
+                           factReadExpr(n.str) + "))";
+                return "flowNumText(" + factReadExpr(n.str) + ")";
             }
             if (n.type == "PosToText") {
                 const auto e = posExpr(n);
@@ -26588,6 +27207,73 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << (e.empty() ? (n.num[0] != 0.0f ? "true" : "false")
                                     : "(" + e + " != 0.0F)")
                       << ";  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetFact") {
+                const facts::Fact* f = factOf(n.str);
+                const int slot = factNumSlot(n.str);
+                if (!f) {
+                    c << pad << "// node " << n.id
+                      << " (Set Fact): no fact named '" << n.str << "'\n";
+                } else if (f->isComputed()) {
+                    c << pad << "// node " << n.id << " (Set Fact): '" << n.str
+                      << "' is computed - nothing can write to it\n";
+                } else if (slot < 0) {
+                    c << pad << "// node " << n.id << " (Set Fact): '" << n.str
+                      << "' is a position - use Set Fact Position\n";
+                } else {
+                    // pin 0 set, 1 add, 2 toggle. A whole-number or
+                    // one-of-several fact rounds on the way in: the plane is
+                    // float and the declared type is not, and a fact that
+                    // drifted to 2.9999 would fail every "is" test against 3.
+                    const std::string e = numInput(n);
+                    std::string v = e.empty() ? floatLit(n.num[0]) : e;
+                    const bool whole = f->type == facts::Type::Int ||
+                                       f->type == facts::Type::Enum;
+                    const std::string src = std::to_string(factSrc(n));
+                    const std::string cur = "factNum[" + std::to_string(slot) + "]";
+                    std::string val;
+                    if (pin == 2)
+                        val = cur + " != 0.0F ? 0.0F : 1.0F";
+                    else if (pin == 1)
+                        val = cur + " + (" + v + ")";
+                    else if (f->type == facts::Type::Bool)
+                        val = "((" + v + ") != 0.0F ? 1.0F : 0.0F)";
+                    else
+                        val = v;
+                    if (whole && pin != 2)
+                        val = "(float)lroundf(" + val + ")";
+                    c << pad << "factWrite(" << slot << ", " << val << ", "
+                      << src << ");  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetFactPos") {
+                const int slot = factPosSlot(n.str);
+                if (slot < 0) {
+                    c << pad << "// node " << n.id
+                      << " (Set Fact Position): no position fact named '"
+                      << n.str << "'\n";
+                } else {
+                    const auto e = posExpr(n);  // a wired position beats X/Y/Z
+                    c << pad << "factWritePos(" << slot << ", " << e[0] << ", "
+                      << e[1] << ", " << e[2] << ", " << factSrc(n)
+                      << ");  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "ClearFact") {
+                const facts::Fact* f = factOf(n.str);
+                const int ns_ = factNumSlot(n.str);
+                const int ps_ = factPosSlot(n.str);
+                if (!f || (ns_ < 0 && ps_ < 0)) {
+                    c << pad << "// node " << n.id
+                      << " (Clear Fact): no stored fact named '" << n.str
+                      << "'\n";
+                } else if (ps_ >= 0) {
+                    c << pad << "factWritePos(" << ps_ << ", FACT_POS_DEFAULT["
+                      << ps_ << "][0], FACT_POS_DEFAULT[" << ps_
+                      << "][1], FACT_POS_DEFAULT[" << ps_ << "][2], "
+                      << factSrc(n) << ");  // \"" << n.str << "\"\n";
+                } else {
+                    c << pad << "factWrite(" << ns_ << ", FACT_NUM_DEFAULT["
+                      << ns_ << "], " << factSrc(n) << ");  // \"" << n.str
+                      << "\"\n";
                 }
             } else if (n.type == "SetVarPos") {
                 const int vi = varIndex(posVars, n.str);
@@ -27703,6 +28389,58 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "      if (ended != " << flag << ") {\n"
                        << "        " << flag << " = ended;\n" << body
                        << "      }\n    }\n";
+            } else if (n.type == "OnFactChanged") {
+                // The reactive door in. A latch of the PREVIOUS value rather
+                // than a rising edge, because "changed" has to cover a count
+                // going up, an enum moving sideways and a bool going false -
+                // and it has to fire whoever wrote it, graph or rule, which a
+                // condition on the fact's value cannot express.
+                const facts::Fact* f = factOf(n.str);
+                const int ns_ = factNumSlot(n.str);
+                const int ps_ = factPosSlot(n.str);
+                if (!f) {
+                    clsOut << "    // node " << n.id
+                           << " (On Fact Changed): no fact named '" << n.str
+                           << "'\n";
+                    continue;
+                }
+                if (f->isComputed()) {
+                    // A computed fact has no storage, so there is nothing to
+                    // latch against except the query's own answer - which is
+                    // exactly what we want and costs one bool.
+                    const std::string flag = "factWas" + std::to_string(n.id);
+                    addMember("float", flag, "-1.0F", 'f', 1);
+                    flagResets << "      " << flag << " = -1.0F;\n";
+                    clsOut << "    {\n      const float v = " << factReadExpr(n.str)
+                           << ";\n      if (v != " << flag << ") {\n"
+                           << "        " << flag << " = v;\n" << body
+                           << "      }\n    }\n";
+                    continue;
+                }
+                if (ps_ >= 0) {
+                    const std::string flag = "factWas" + std::to_string(n.id);
+                    addMember("float", flag + "[3]", "{}", 'f', 3);
+                    // Seeded from the LIVE value on a scene reload, not from
+                    // zero: a fact that has held its value since the last
+                    // level is not news to a graph starting now.
+                    flagResets << "      for (int a = 0; a < 3; ++a) " << flag
+                               << "[a] = factPos[" << ps_ << "][a];\n";
+                    clsOut << "    if (" << flag << "[0] != factPos[" << ps_
+                           << "][0] || " << flag << "[1] != factPos[" << ps_
+                           << "][1] ||\n        " << flag << "[2] != factPos["
+                           << ps_ << "][2]) {\n"
+                           << "      for (int a = 0; a < 3; ++a) " << flag
+                           << "[a] = factPos[" << ps_ << "][a];\n" << body
+                           << "    }\n";
+                    continue;
+                }
+                const std::string flag = "factWas" + std::to_string(n.id);
+                addMember("float", flag, "0.0F", 'f', 1);
+                flagResets << "      " << flag << " = factNum[" << ns_ << "];\n";
+                clsOut << "    if (" << flag << " != factNum[" << ns_
+                       << "]) {  // \"" << n.str << "\"\n"
+                       << "      " << flag << " = factNum[" << ns_ << "];\n"
+                       << body << "    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);
@@ -27906,13 +28644,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         // liveTimeSource sizes its buffer from collectFlowEvents, so the two
         // counts agree by construction.
         const size_t evSlots = flowEvents.size() * 2;
+        // World Facts join the same walk (docs/world-facts.md): a rewind that
+        // put the world back but left the facts in the future would restore a
+        // door to closed while "the generator is repaired" stayed true, which
+        // is exactly the silent kind of wrong this walk exists to prevent.
+        const size_t factSlots =
+            (size_t)factPlan.layout.numCount + (size_t)factPlan.layout.posCount;
         out << "\n// Time machine (docs/time-machine.md): the flow variables and "
                "the event bus, both directions.\n"
                "int flowTimeVarCount() { return "
-            << (total + evSlots) << "; }\n"
+            << (total + evSlots + factSlots) << "; }\n"
                "void flowTimeRead(int index, float* out3) {\n"
                "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
-        if (total + evSlots == 0) {
+        if (total + evSlots + factSlots == 0) {
             out << "  (void)index;  // this project defines no flow variables\n";
         } else {
             out << "  switch (index) {\n";
@@ -27937,11 +28681,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     << "];\n      break;  // event \"" << flowEvents[i]
                     << "\" (in flight)\n";
             }
+            for (int i = 0; i < factPlan.layout.numCount; ++i)
+                out << "    case " << slot++ << ": out3[0] = factNum[" << i
+                    << "]; break;\n";
+            for (int i = 0; i < factPlan.layout.posCount; ++i)
+                out << "    case " << slot++ << ":\n      out3[0] = factPos["
+                    << i << "][0]; out3[1] = factPos[" << i
+                    << "][1]; out3[2] = factPos[" << i << "][2];\n      break;\n";
             out << "    default: break;\n  }\n";
         }
         out << "}\n"
                "void flowTimeWrite(int index, const float* in3) {\n";
-        if (total + evSlots == 0) {
+        if (total + evSlots + factSlots == 0) {
             out << "  (void)index; (void)in3;\n";
         } else {
             out << "  switch (index) {\n";
@@ -27966,6 +28717,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
                     << "\" (in flight)\n";
             }
+            for (int i = 0; i < factPlan.layout.numCount; ++i)
+                out << "    case " << slot++ << ": factNum[" << i
+                    << "] = in3[0]; break;\n";
+            for (int i = 0; i < factPlan.layout.posCount; ++i)
+                out << "    case " << slot++ << ":\n      factPos[" << i
+                    << "][0] = in3[0]; factPos[" << i
+                    << "][1] = in3[1]; factPos[" << i
+                    << "][2] = in3[2];\n      break;\n";
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
@@ -28840,6 +29599,20 @@ bool forced(int key);
  * frame per Delay node with its current counter; 0 = not armed. */
 void timer(int key, int framesLeft);
 
+/** A World Fact changed (docs/world-facts.md). `src` is WHO changed it - an
+ * instrumented node's key, or -(rule + 1) for the fact rule engine - which is
+ * what lets the blackboard's history say "Set Fact in Main / Door" rather than
+ * just showing a number that moved. Called only from the fact store's
+ * factWrite(), which already compared old against new, so every call here is
+ * a real change. */
+void factWrite(int slot, float v, int src);
+void factWritePos(int slot, float x, float y, float z, int src);
+
+/** The editor's manual overrides, applied once per frame after the graphs and
+ * rules have run - so what the author typed wins over what the world computed
+ * for exactly the frame they typed it, and the world takes over again. */
+void applyFactOverrides();
+
 /** Per-frame pump. The generated loop calls tickFromLoop() before anything
  * reads halted(); tickFromScript() is the fallback for projects that took
  * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).
@@ -28868,6 +29641,9 @@ inline void hit(int) {}
 inline bool halted() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
+inline void factWrite(int, float, int) {}
+inline void factWritePos(int, float, float, float, int) {}
+inline void applyFactOverrides() {}
 inline void tickFromLoop(ScriptContext&) {}
 inline void tickFromScript(ScriptContext&) {}
 
@@ -28902,6 +29678,7 @@ static const char* TPL_LIVE_DEBUG_CPP = R"DBG(// Generated by TyraX. Do not edit
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
+#include "facts.gen.hpp"  // the World Facts store, for the blackboard
 
 namespace {{NS}} {
 namespace livedbg {
@@ -28911,10 +29688,10 @@ namespace {
 const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
 
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
+const unsigned int SNAP_VERSION = 5U;  // v5 appends the fact block
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
-const unsigned int CMD_VERSION = 1U;
+const unsigned int CMD_VERSION = 2U;  // v2 appends fact overrides
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
@@ -28968,6 +29745,33 @@ ObjSample watchRing[MAX_WATCH][OBJ_RING];
 int watchRingNext[MAX_WATCH] = {};
 int watchRingCount[MAX_WATCH] = {};
 
+// World Facts (docs/world-facts.md). The blackboard reads the live values out
+// of the watch table like any other variable; what needs state HERE is the
+// change history - a small ring of (slot, value, who, age) that answers "when
+// did this become true, and what did it" without the author having to guess
+// which graph to breakpoint. Positions ride the same ring as their X, which is
+// enough to see one move; the value itself is in the watch table.
+const int FACT_EVENTS = {{FACT_EVENTS}};
+struct FactEvent {
+  unsigned short slot;
+  short src;          // node key, or -(rule + 1)
+  unsigned int frame;
+  float value;
+};
+FactEvent factEv[FACT_EVENTS > 0 ? FACT_EVENTS : 1] = {};
+int factEvCount = 0, factEvNext = 0;
+// Manual overrides: the editor's "make it so" list, re-applied every frame it
+// stays in the command file. Not one-shot on purpose - a fact a rule rewrites
+// every frame would otherwise flicker back before anyone could see it.
+const int MAX_FACT_SET = {{MAX_FACT_SET}};
+struct FactSet {
+  unsigned short slot;
+  unsigned char isPos;
+  float v[3];
+};
+FactSet factSets[MAX_FACT_SET > 0 ? MAX_FACT_SET : 1] = {};
+int factSetCount = 0;
+
 int lastScene = 0;  // for the crash report
 // VU1 packet capture state (the buffer + the tap live further down).
 bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
@@ -29015,10 +29819,13 @@ bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
-// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry; v5 adds 2 +
+// 12 per fact change. A buffer one entry short here is a stack smash on a
+// console, so every block that can grow is in this sum.
 unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
                       MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
-                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
+                      64 + 2 + MAX_FLUSHMAP * 8 +
+                      2 + (FACT_EVENTS > 0 ? FACT_EVENTS : 1) * 12 + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -29030,11 +29837,29 @@ void readVar(ScriptContext& ctx, int i, float* out) {
     return;
   }
   const int s = i - FLOW_VARS;
-  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+  if (s < ctx.saveValueCount) {
+    if (ctx.saveValues) out[0] = ctx.saveValues[s];
+    return;
+  }
+  // World Facts share the watch table with everything else, in catalog order:
+  // scalars first, then positions. The editor builds the same order from
+  // facts::layoutOf, so a slot means the same thing on both ends.
+  int f = s - ctx.saveValueCount;
+  if (f < FACT_NUM_COUNT) {
+    out[0] = factNum[f];
+    return;
+  }
+  f -= FACT_NUM_COUNT;
+  if (f < FACT_POS_COUNT) {
+    out[0] = factPos[f][0];
+    out[1] = factPos[f][1];
+    out[2] = factPos[f][2];
+  }
 }
 
 void pollCommand() {
-  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
+                        MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
   if (!f) return;  // no editor attached (or a shipped build)
   const size_t got = fread(c, 1, sizeof(c), f);
@@ -29056,10 +29881,15 @@ void pollCommand() {
   int watchLen;
   memcpy(&watchLen, c + 28, 4);
   if (watchLen < 0 || watchLen > MAX_WATCH) return;
-  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
-    return;
+  // Fact overrides ride the top byte of `flags`: the header is full, and a
+  // count that small has nowhere better to live. An editor that predates
+  // them sets those bits to 0, which reads as "no overrides".
+  int factc = (int)((flags >> 24) & 0xFFU);
+  if (factc > MAX_FACT_SET) return;
+  const int listLen = bpc * 2 + firec * 2 + watchLen * 2;
+  if (got != (size_t)(CMD_HEADER + listLen + factc * 16 + 4)) return;
   unsigned int foot;
-  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
+  memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
   cmdSeq = seq;
@@ -29087,6 +29917,15 @@ void pollCommand() {
         memcpy(&watchIdx[i], w + i * 2, 2);
         watchRingNext[i] = watchRingCount[i] = 0;
       }
+    }
+  }
+  {
+    const unsigned char* fs = c + CMD_HEADER + listLen;
+    factSetCount = factc;
+    for (int i = 0; i < factc; ++i, fs += 16) {
+      memcpy(&factSets[i].slot, fs, 2);
+      factSets[i].isPos = fs[2];
+      memcpy(factSets[i].v, fs + 4, 12);
     }
   }
   const bool halt = (flags & 1U) != 0;
@@ -29232,6 +30071,26 @@ void flush(ScriptContext& ctx) {
     put16(p + 6, flushMap[i].program);
   }
 
+  // --- v5: the World Facts change ring -------------------------------------
+  // Oldest first, each with its AGE in frames like the node events above, so
+  // the editor rebuilds absolute frame numbers from the header's counter.
+  put16(p, (unsigned short)factEvCount);
+  p += 2;
+  {
+    const int start = factEvCount == FACT_EVENTS ? factEvNext : 0;
+    for (int i = 0; i < factEvCount; ++i, p += 12) {
+      const FactEvent& e = factEv[(start + i) % FACT_EVENTS];
+      put16(p + 0, e.slot);
+      short src = e.src;
+      memcpy(p + 2, &src, 2);
+      unsigned int age = frameNo - e.frame;
+      if (age > 65535U) age = 65535U;
+      put16(p + 4, (unsigned short)age);
+      put16(p + 6, 0);
+      memcpy(p + 8, &e.value, 4);
+    }
+  }
+
   put32(p, outSeq ^ FOOTER_XOR);
   p += 4;
 
@@ -29243,6 +30102,11 @@ void flush(ScriptContext& ctx) {
 
 void tickImpl(ScriptContext& ctx) {
   lastScene = ctx.scene;
+  // The editor's manual fact overrides, re-asserted at the top of the frame so
+  // the graphs and rules that run after this SEE them. Re-applied every frame
+  // the command file still lists them, which is what makes overriding a fact a
+  // rule rewrites continuously actually visible.
+  applyFactOverrides();
   // Install the EE crash handler on the first tick (idempotent). This call is
   // ALSO what pulls the engine's crash-handler object out of libtyra.a - a
   // release build never reaches it, so it links none of it.
@@ -29601,6 +30465,36 @@ const bool g_pumpRegistered = []() {
 }  // namespace
 
 
+void factWrite(int slot, float v, int src) {
+  FactEvent& e = factEv[factEvNext];
+  e.slot = (unsigned short)slot;
+  e.src = (short)src;
+  e.frame = frameNo;
+  e.value = v;
+  factEvNext = (factEvNext + 1) % FACT_EVENTS;
+  if (factEvCount < FACT_EVENTS) ++factEvCount;
+}
+
+void factWritePos(int slot, float x, float y, float z, int src) {
+  (void)y;
+  (void)z;
+  // One ring entry per position write, carrying X: the point of the history
+  // is WHEN and BY WHAT, and the full value is a watch-table read away.
+  factWrite(FACT_NUM_COUNT + slot, x, src);
+}
+
+void applyFactOverrides() {
+  for (int i = 0; i < factSetCount; ++i) {
+    const FactSet& f = factSets[i];
+    if (f.isPos) {
+      if (f.slot < FACT_POS_COUNT)
+        for (int a = 0; a < 3; ++a) factPos[f.slot][a] = f.v[a];
+    } else if (f.slot < FACT_NUM_COUNT) {
+      factNum[f.slot] = f.v[0];
+    }
+  }
+}
+
 void hit(int key) {
   if (key < 0 || key >= NODES) return;
   ++hits[key];
@@ -29699,6 +30593,8 @@ static std::string liveDebugSource(const Project& p) {
                          "nothing links it in.");
     s = replaceAll(s, "{{MAX_WATCH}}",
                    std::to_string(livedbg::kMaxWatchObjects));
+    s = replaceAll(s, "{{FACT_EVENTS}}", std::to_string(livedbg::kMaxFactEvents));
+    s = replaceAll(s, "{{MAX_FACT_SET}}", std::to_string(livedbg::kMaxFactSets));
     s = replaceAll(s, "{{OBJ_RING}}", std::to_string(livedbg::kObjRing));
     s = replaceAll(s, "{{HASH_LO}}",
                    std::to_string((unsigned int)(syms.hash & 0xFFFFFFFFULL)));
@@ -30121,8 +31017,14 @@ static std::string liveTimeSource(const Project& p) {
     // same two collectors.
     std::vector<std::string> flowEvents;
     collectFlowEvents(p, flowEvents);
+    // World Facts take one slot each (a position fact still one, carrying
+    // three floats) at the end of the same walk - flowTimeVarCount() in
+    // flow_graph.gen.cpp counts them identically, from this same layout.
+    const facts::Layout factLayout = facts::layoutOf(p.facts);
     const size_t vars = intVars.size() + boolVars.size() + posVars.size() +
-                        flowEvents.size() * 2;
+                        flowEvents.size() * 2 +
+                        (size_t)factLayout.numCount +
+                        (size_t)factLayout.posCount;
     // Upper bound on the graphs' own state. The exact figure is a sum of
     // per-class constants in flow_graph.gen.cpp, which this translation unit
     // can only ask for at runtime - so size the buffer for the worst case a
@@ -30144,8 +31046,9 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(4);  // layout version - bump when the walk above changes
+    mix(5);  // layout version - bump when the walk above changes
              // (4: graph events joined the variable slots)
+             // (5: World Facts joined them after the events)
     mix(maxObjects);
     mix(vars);
     mix(saves);
@@ -31120,6 +32023,158 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
     std::vector<int> out;
     for (const auto& f : found) out.push_back(f.second);
     return out;
+}
+
+// inc/facts.gen.hpp - the World Facts store, as the game sees it
+// (docs/world-facts.md).
+//
+// Tables plus declarations only: the ARRAYS live in flow_graph.gen.cpp, which
+// is the TU that owns every other piece of graph state for the same reason -
+// one place holds the values, and everything that needs them (the save system,
+// the Live Debugger's watch table, the time machine) goes through the
+// accessors below. A project with no facts still gets a valid header with
+// zero counts, so no consumer needs a `#if`.
+static std::string factsDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const FactPlan fp = factPlanOf(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n";
+
+    const int numCount = fp.layout.numCount;
+    const int posCount = fp.layout.posCount;
+    out << "// The fact store: every scalar fact (yes/no, whole number,\n"
+           "// number, one-of-several) shares one float array, positions get\n"
+           "// their own. A COMPUTED fact has no slot at all - it is an\n"
+           "// expression folded into whoever reads it.\n"
+           "constexpr int FACT_NUM_COUNT = "
+        << numCount << ";\n"
+           "constexpr int FACT_POS_COUNT = " << posCount << ";\n"
+           "constexpr int FACT_SAVE_MAX = "
+        << std::max<size_t>(1, fp.saveFacts.size()) << ";\n"
+           "constexpr int FACT_PROFILE_MAX = "
+        << std::max<size_t>(1, fp.profileFacts.size()) << ";\n"
+           "constexpr int FACT_SAVE_COUNT = " << fp.saveFacts.size() << ";\n"
+           "constexpr int FACT_PROFILE_COUNT = " << fp.profileFacts.size()
+        << ";\n"
+           "constexpr int FACT_RULE_COUNT = "
+        << (p.factRules.empty() ? 0 : (int)p.factRules.size()) << ";\n"
+           "// The rule engine re-runs until nothing changes, bounded by this:\n"
+           "// 'until nothing changes' is otherwise a hang with no way to\n"
+           "// break in on a console.\n"
+           "constexpr int FACT_RULE_PASSES = "
+        << facts::kMaxRulePasses << ";\n\n";
+
+    // Names, for the log line and for anyone reading the generated source.
+    if (fp.any()) {
+        out << "// Catalog:\n";
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            const facts::Fact& f = p.facts[i];
+            out << "//   " << f.name << " : " << facts::typeKey(f.type) << " / "
+                << facts::persistKey(f.persist);
+            if (f.scope == facts::Scope::Scene) out << " / scene";
+            if (f.isComputed()) out << " = query \"" << f.computed << "\"";
+            else if (f.type == facts::Type::Position)
+                out << "  -> factPos[" << fp.layout.posOf[i] << "]";
+            else
+                out << "  -> factNum[" << fp.layout.numOf[i] << "]";
+            out << "\n";
+        }
+        out << "\n";
+    }
+
+    auto emitFloatTable = [&](const char* name, const std::vector<float>& v) {
+        out << "constexpr float " << name << "[" << std::max<size_t>(1, v.size())
+            << "] = {";
+        if (v.empty())
+            out << "0.0F";
+        else
+            for (size_t i = 0; i < v.size(); ++i)
+                out << (i ? ", " : "") << floatLit(v[i]);
+        out << "};\n";
+    };
+
+    std::vector<float> numDefaults;
+    std::vector<uint32_t> numScene;
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        if (fp.layout.numOf[i] < 0) continue;
+        numDefaults.push_back(facts::defaultNum(p.facts[i]));
+        numScene.push_back(p.facts[i].scope == facts::Scope::Scene ? 1u : 0u);
+    }
+    emitFloatTable("FACT_NUM_DEFAULT", numDefaults);
+    out << "constexpr unsigned char FACT_NUM_SCENE["
+        << std::max<size_t>(1, numScene.size()) << "] = {";
+    if (numScene.empty()) out << "0";
+    for (size_t i = 0; i < numScene.size(); ++i)
+        out << (i ? ", " : "") << numScene[i];
+    out << "};\n";
+
+    out << "constexpr float FACT_POS_DEFAULT["
+        << std::max(1, posCount) << "][3] = {";
+    if (posCount == 0) {
+        out << "{0.0F, 0.0F, 0.0F}";
+    } else {
+        bool first = true;
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (fp.layout.posOf[i] < 0) continue;
+            out << (first ? "" : ", ") << "{" << floatLit(p.facts[i].pos[0])
+                << ", " << floatLit(p.facts[i].pos[1]) << ", "
+                << floatLit(p.facts[i].pos[2]) << "}";
+            first = false;
+        }
+    }
+    out << "};\n";
+    out << "constexpr unsigned char FACT_POS_SCENE["
+        << std::max(1, posCount) << "] = {";
+    if (posCount == 0) {
+        out << "0";
+    } else {
+        bool first = true;
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (fp.layout.posOf[i] < 0) continue;
+            out << (first ? "" : ", ")
+                << (p.facts[i].scope == facts::Scope::Scene ? 1 : 0);
+            first = false;
+        }
+    }
+    out << "};\n\n";
+
+    out << "// The fact store, and every door into it. Defined in\n"
+           "// src/gen/flow_graph.gen.cpp.\n"
+           "extern float factNum[FACT_NUM_COUNT > 0 ? FACT_NUM_COUNT : 1];\n"
+           "extern float factPos[FACT_POS_COUNT > 0 ? FACT_POS_COUNT : 1][3];\n"
+           "\n"
+           "// Puts every fact back to the value a new game starts it at.\n"
+           "void factResetAll();\n"
+           "// The same, for scene-scoped facts only - run on every scene load.\n"
+           "void factResetScene();\n"
+           "\n"
+           "// One row of the save payload. Keyed by the fact's own stable id\n"
+           "// and NOT by its position, which is what lets the catalog be\n"
+           "// renamed, reordered and pruned without a player's card turning\n"
+           "// into a different world (docs/world-facts.md \"Saving\").\n"
+           "struct FactSaveRow {\n"
+           "  unsigned int id;\n"
+           "  float v[3];\n"
+           "};\n"
+           "\n"
+           "// Fills `out` with the facts that ride a checkpoint/save slot and\n"
+           "// returns how many. Restore matches rows to slots BY ID and\n"
+           "// silently ignores a row naming a fact that no longer exists.\n"
+           "int factSaveCapture(FactSaveRow* out, int max);\n"
+           "void factSaveRestore(const FactSaveRow* rows, int count);\n"
+           "// The same pair for the profile tier, which lives in its own file\n"
+           "// outside the slots.\n"
+           "int factProfileCapture(FactSaveRow* out, int max);\n"
+           "void factProfileRestore(const FactSaveRow* rows, int count);\n"
+           "// True when a profile fact changed since the last call - the cue\n"
+           "// to write the profile file, so it is saved when it moves rather\n"
+           "// than on a timer.\n"
+           "bool factProfileDirty();\n"
+           "\n}  // namespace "
+        << ns << "\n";
+    return out.str();
 }
 
 // inc/nav_data.gen.hpp - the baked walkable grid, one bitmap per scene
@@ -33636,7 +34691,9 @@ static std::string saveSystemHeader(const Project& p) {
     const savebake::SpinnerInfo spin = savebake::spinnerInfo(p);
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
-           "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
+           "#pragma once\n\n#include \"scene_data.hpp\"\n"
+           "#include \"facts.gen.hpp\"  // FactSaveRow + FACT_SAVE_MAX\n\n"
+           "namespace "
         << ns
         << " {\n\n"
            "// Memory card save system: fixed slots under SAVE_MC_DIR on card 1\n"
@@ -33654,7 +34711,12 @@ static std::string saveSystemHeader(const Project& p) {
            "// v3: the objects array is sized by the save-flagged object\n"
            "// count (SAVE_OBJECT_MAX), not the scene size - older, larger\n"
            "// slot files fail the size/version check and read as empty.\n"
-           "constexpr int SAVE_VERSION = 3;\n"
+           "// v4: the World Facts block. Unlike every block above it, the\n"
+           "// rows are keyed by the fact's own id and NOT by position, so\n"
+           "// renaming, reordering or deleting a fact leaves an existing\n"
+           "// card readable - the rows that still match are restored and the\n"
+           "// rest are ignored (docs/world-facts.md \"Saving\").\n"
+           "constexpr int SAVE_VERSION = 4;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -33678,7 +34740,32 @@ static std::string saveSystemHeader(const Project& p) {
            "  char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];\n"
            "  int objectCount;\n"
            "  SaveObjectState objects[SAVE_OBJECT_MAX];\n"
+           "  int factCount;\n"
+           "  FactSaveRow facts[FACT_SAVE_MAX];\n"
            "};\n"
+           "\n"
+           "// The PROFILE: facts declared with profile persistence, in one\n"
+           "// file per card outside the save slots and shared by all of them\n"
+           "// - unlocks, a best time, 'has seen the intro'. Its own tiny\n"
+           "// payload rather than a slot, because it is written whenever a\n"
+           "// profile fact moves and must never cost a slot-sized transfer.\n"
+           "struct alignas(64) SaveProfileData {\n"
+           "  unsigned int magic;\n"
+           "  int version;\n"
+           "  int factCount;\n"
+           "  FactSaveRow facts[FACT_PROFILE_MAX];\n"
+           "  // Padded to a full 1 KiB memory-card CLUSTER. A card allocates\n"
+           "  // in clusters and the libmc RPC transfers by DMA, and a 64-byte\n"
+           "  // payload did not round-trip: the write reported success and the\n"
+           "  // next boot read a full-size block of something else back (magic\n"
+           "  // mismatch, so it was correctly rejected - which reads as 'the\n"
+           "  // profile does not persist'). The slot payload is kilobytes and\n"
+           "  // never hit this.\n"
+           "  char pad[1024 - (int)sizeof(unsigned int) - 2 * (int)sizeof(int) -\n"
+           "           FACT_PROFILE_MAX * (int)sizeof(FactSaveRow)];\n"
+           "};\n"
+           "bool profileWrite(const SaveProfileData& data);\n"
+           "bool profileRead(SaveProfileData& out);\n"
            "\n"
            "// Loads the BIOS memory card modules once (sio2man is already\n"
            "// resident - the engine loads it for the pads).\n"
@@ -33931,6 +35018,79 @@ static std::string hostSlotPath(int slot) {
   char buf[32];
   snprintf(buf, sizeof(buf), "save%d.sav", slot);  // next to the ELF
   return Tyra::FileUtils::fromCwd(buf);
+}
+
+// --- The profile file (docs/world-facts.md "Saving") -------------------------
+// Same two transports as a slot, one fixed name, no slot index. Deliberately
+// blocking: the payload is a few dozen bytes and it is written when a profile
+// fact moves, which is rare - the async machinery below exists for the
+// slot-sized transfers and would be pure complication here.
+static std::string mcProfileName() {
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s/profile.sav", SAVE_MC_DIR);
+  return std::string(buf);
+}
+
+static std::string hostProfilePath() {
+  return Tyra::FileUtils::fromCwd("profile.sav");
+}
+
+bool profileWrite(const SaveProfileData& data) {
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcWronly | kMcCreat);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int wrote = -1, ret = 0;
+    mcWrite(fd, &data, sizeof(data));
+    mcSync(MC_WAIT, nullptr, &wrote);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+    return wrote == (int)sizeof(data);
+  }
+  FILE* f = fopen(hostProfilePath().c_str(), "wb");
+  if (!f) return false;
+  const size_t written = fwrite(&data, 1, sizeof(data), f);
+  fclose(f);
+  return written == sizeof(data);
+}
+
+bool profileRead(SaveProfileData& out) {
+  SaveProfileData d;
+  bool got = false;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcRdonly);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd >= 0) {
+      int read = -1, ret = 0;
+      mcRead(fd, &d, sizeof(d));
+      mcSync(MC_WAIT, nullptr, &read);
+      mcClose(fd);
+      mcSync(MC_WAIT, nullptr, &ret);
+      // A card read reports FEWER bytes than it delivered for a payload this
+      // small - measured: a 1 KiB profile came back with the whole header and
+      // its rows intact and a reported count of less than sizeof(d), so an
+      // exact-size test rejected a perfectly good profile and the tier read as
+      // "never persists". The payload is self-describing (magic + version +
+      // factCount), so validate THAT and treat a short count as a delivered
+      // read. The slot payload is kilobytes and never hit this.
+      got = read > 0 || d.magic == SAVE_MAGIC;
+    }
+  } else {
+    FILE* f = fopen(hostProfilePath().c_str(), "rb");
+    if (f) {
+      got = fread(&d, 1, sizeof(d), f) == sizeof(d);
+      fclose(f);
+    }
+  }
+  // A profile from a build with a different layout is not migrated, it is
+  // ignored: every row is id-keyed, so the honest answer to "I cannot read
+  // this" is a fresh profile rather than half of an old one.
+  if (!got || d.magic != SAVE_MAGIC || d.version != SAVE_VERSION) return false;
+  if (d.factCount < 0 || d.factCount > FACT_PROFILE_MAX) return false;
+  out = d;
+  return true;
 }
 
 bool saveWrite(int slot, const SaveGameData& data) {
@@ -35333,6 +36493,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scripts\\credits.gen.hpp", creditsHeader(p)},
         {"src\\gen\\credits.gen.cpp", creditsScript(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
+        {"inc\\facts.gen.hpp", factsDataHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
