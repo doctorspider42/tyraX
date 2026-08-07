@@ -374,17 +374,27 @@ def part_graph():
 
 def marta_graph():
     """Use her once to rescue her. The trust that follows is a RULE's job, not
-    this graph's - which is the division the whole system is for."""
+    this graph's - which is the division the whole system is for.
+
+    Note the Sequence: a plain ACTION has no "then" output at all (only the
+    Flow-category nodes and execThrough ones do - flowExecOutCount), so two
+    actions are SIBLINGS of a Sequence rather than a chain. Wiring Set Fact
+    straight into Display Text produces a link to a pin that does not exist:
+    the editor draws nothing and codegen emits nothing, which reads exactly
+    like "the node is never triggered".
+    """
     g = G()
     used = g.n("OnUsed", 0, 0)
     once = g.n("DoOnce", 1, 0)
-    setf = g.n("SetFact", 2, 0, str_="characters.marta.rescued",
+    seq = g.n("Sequence", 2, 0)
+    setf = g.n("SetFact", 3, 0, str_="characters.marta.rescued",
                num=[1, 0, 0, 0])
-    say = g.n("DisplayText", 3, 0, str_="", str2="Marta: I owe you one.",
+    say = g.n("DisplayText", 3, 1, str_="", str2="Marta: I owe you one.",
               num=[0.5, 0.18, 16, 3])
     g.link(used, once)
-    g.link(once, setf)
-    g.link(setf, say)
+    g.link(once, seq)
+    g.link(seq, setf)
+    g.link(seq, say, fpin=1)
     return g.out()
 
 
@@ -431,12 +441,14 @@ def door_graph():
     g = G()
     q = g.n("FactQuery", 0, 0, str_="CanEnterBasement")
     cond = g.n("OnCondition", 1, 0)
-    move = g.n("MoveObjectTo", 2, 0, num=[0, -4, 0, 3])
-    say = g.n("DisplayText", 2, 1, str_="", str2="The basement door unlocks.",
+    seq = g.n("Sequence", 2, 0)
+    move = g.n("MoveObjectTo", 3, 0, num=[0, -4, 0, 3])
+    say = g.n("DisplayText", 3, 1, str_="", str2="The basement door unlocks.",
               num=[0.5, 0.26, 16, 3])
     g.link(q, cond, kind="bool")
-    g.link(cond, move)
-    g.link(move, say)
+    g.link(cond, seq)
+    g.link(seq, move)
+    g.link(seq, say, fpin=1)
     return g.out()
 
 
