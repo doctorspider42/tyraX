@@ -98,5 +98,17 @@ constexpr bool DEBUG_SHOW_PROFILER = false;
 // diagnose from inside the game. Guarded by this constexpr, so a build with it
 // false emits no vertices at all (see rebuildObjectGeometry case 17).
 constexpr bool DEBUG_SHOW_AREAS = false;
+// Draw the COLLISION BOX of every collider (docs/collision-boxes.md) as a red
+// wireframe. The volume the walker and the third-person camera boom test is
+// not the mesh - a model collides as its bounding box - so a prop that blocks
+// the player short of its surface, or a camera that pulls in early, is
+// invisible until you can see the box. Guarded by this constexpr, so a build
+// with it false emits nothing (see renderCollisionBoxes).
+constexpr bool DEBUG_SHOW_COLLISION = false;
+// How far from the camera the overlay reaches, and how many boxes it will draw
+// (nearest first). Both are frame-budget caps, not authoring limits: an edge is
+// 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
+constexpr float COLLISION_BOX_RANGE = 60.0F;
+constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace Video_modes

@@ -273,6 +273,32 @@ V3 invRotated(const V3& v, const float* rotDeg) {
   return r;
 }
 
+// The box's frame: R(rotation) * Ryaw(modelYaw). The content-forward
+// correction turns the MESH between scale and rotation (see the animated model
+// matrix in updateAndRenderAnimObjects), so it has to turn the mesh's box too -
+// without it an X-forward-authored character collided and blocked the camera
+// across its own body.
+V3 boxRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = v;
+  if (d.modelYaw != 0.0F) {
+    const float a = d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return rotated(p, d.rotation);
+}
+
+V3 boxInvRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = invRotated(v, d.rotation);
+  if (d.modelYaw != 0.0F) {
+    const float a = -d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return p;
+}
+
+
 /** Directional light (Project > Preferences), baked into vertex colors.
  * Returns per-channel multipliers: brightness * (ambient + diffuse*d*lightColor). */
 V3 shadeOf(const V3& n) {
@@ -1334,6 +1360,10 @@ void drawIconAt(Engine* engine, int i, float x, float y, float box) {
   sp->size = Vec2((float)ir.w, (float)ir.h);
   sp->offset = Vec2((float)ir.u, (float)ir.v);
   sp->scale = box / (float)ir.h;
+  // The icon sheet is ONE shared sprite (iconSheetSprite) and drawFontText
+  // gives it a per-axis drawSize for squeezed text - clear it, or a widescreen
+  // menu leaves every later icon drawn at that width.
+  sp->drawSize = Vec2(0.0F, 0.0F);
   sp->position = Vec2(x, y);
   engine->renderer.renderer2D.render(*sp);
 }
@@ -1345,16 +1375,20 @@ int liveIconForAction(int action) {
   return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
 }
 
-float fontTextWidth(int fontIdx, const char* s, float size) {
+/** Width of a string in framebuffer pixels. `sx` squeezes the horizontal axis
+ * (1 = square glyphs): a menu panel compensated for anamorphic widescreen is
+ * narrower than the buffer says, and text measured without the same factor
+ * would be laid out for a panel that is not there. */
+float fontTextWidth(int fontIdx, const char* s, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
-  const float k = size / (float)f.baseSize;
+  const float k = (size / (float)f.baseSize) * sx;
   float w = 0.0F;
   while (*s) {
     int tokenLen = 0;
     const int icon = resolveIconToken(s, &tokenLen);
     if (icon >= 0) {
-      w += iconAdvanceFor(icon, size);
+      w += iconAdvanceFor(icon, size) * sx;
       s += tokenLen;
       continue;
     }
@@ -1366,8 +1400,12 @@ float fontTextWidth(int fontIdx, const char* s, float size) {
   return w;
 }
 
+/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
+ * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
+ * compensated for anamorphic widescreen, where the glyphs have to be squeezed
+ * with the panel or they come out fatter than the baked rows around them. */
 void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size) {
+                  float cy, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs || !f.atlas[0]) return;
 
@@ -1385,10 +1423,11 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
 
   Sprite& sp = glyph[fontIdx];
   const float k = size / (float)f.baseSize;
+  const float kx = k * sx;  // the same factor with the horizontal squeeze in
   sp.scale = k;
 
   // Center anchor, like the baked HUD text sprites.
-  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float startX = cx - fontTextWidth(fontIdx, s, size, sx) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
   // The shared icon-sheet sprite (one texture, see iconSheetSprite).
@@ -1413,16 +1452,20 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       int tokenLen = 0;
       const int icon = resolveIconToken(c, &tokenLen);
       if (icon >= 0) {
-        const float adv = iconAdvanceFor(icon, size);
-        const float box = adv - size * 0.12F;
+        // The box is the icon's HEIGHT, so it never takes the squeeze; only
+        // the advance and the drawn width do.
+        const float box = iconAdvanceFor(icon, size) - size * 0.12F;
+        const float adv = iconAdvanceFor(icon, size) * sx;
         const IconRect& ir = ICONS[icon];
         if (ir.h > 0 && pass == 1 && iconSp) {
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
+          iconSp->drawSize =
+              Vec2((float)ir.w * (box / (float)ir.h) * sx, box);
           // Sit on the line box like a capital does, not on the baseline.
           iconSp->position =
-              Vec2(pen + size * 0.06F + ox,
+              Vec2(pen + size * 0.06F * sx + ox,
                    top + ((float)f.lineH * k - box) * 0.5F + ox);
           engine->renderer.renderer2D.render(*iconSp);
         }
@@ -1437,11 +1480,12 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       if (g.w > 0 && g.h > 0) {
         sp.size = Vec2((float)g.w, (float)g.h);
         sp.offset = Vec2((float)g.u, (float)g.v);
-        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+        sp.drawSize = Vec2((float)g.w * kx, (float)g.h * k);
+        sp.position = Vec2(pen + (float)g.xoff * kx + ox,
                            top + (float)g.yoff * k + ox);
         engine->renderer.renderer2D.render(sp);
       }
-      pen += (float)g.adv * k;
+      pen += (float)g.adv * kx;
     }
   }
 }
@@ -3901,15 +3945,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // The carried object rides in front of the face - letting it block its
     // own carrier would wedge the player against thin air.
     if (oi == carryIndex) continue;
-    if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14 ||                       // 14 = camera marker
-        o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
-        o.data.type == 19)                         // 19 = scroller belt marker
-      continue;
-    if (o.data.collision == 2) continue;  // none
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // block nothing - one list, shared with the camera sweep (objectCollides).
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
     // Portal pass-through (updatePortalPass): while the walker stands in a
     // linked portal's opening, objects fully behind that portal's plane
     // stop colliding - the mounting wall becomes a doorway. Exact OBB
@@ -4020,28 +4058,16 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
     // animated models: the baked AABB, a union over every clip's poses -
-    // mesh mode is a static-model feature, so .glb objects collide as boxes)
-    const SkelModel* anim = nullptr;
-    if (o.data.type == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
+    // mesh mode is a static-model feature, so .glb objects collide as boxes).
+    // The box comes from objectCollisionBox, the same one the camera boom
+    // sweeps and the editor's overlay draws.
+    const CollisionBox cb = objectCollisionBox(o);
+    const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
-    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const V3 cWorld =
+        boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
@@ -4065,7 +4091,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // "inside" and the back-projection contracts the committed position
     // toward the box center (the player teleported into thrown objects and
     // stuck inside them).
-    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    // modelYaw rides along: it is a rotation about the same (model) Y, so for
+    // the yaw-only frame the two simply add.
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
     const float yawC = cosf(yaw), yawS = sinf(yaw);
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
       const float dx = wx - cx, dz = wz - cz;
@@ -6520,8 +6548,16 @@ void TerrainGame::renderGameMenu() {
   // across the same raster, so 448 columns cover exactly the width 512 do.
   // That also means the two axes scale by different factors - hence
   // Sprite::drawSize rather than Sprite::scale.
+  // Widescreen is ANAMORPHIC (docs/menu-styles.md "Widescreen"): the
+  // framebuffer does not change shape, the TV stretches the same signal across
+  // a 16:9 raster. A panel drawn with the resolution scale alone would come out
+  // a third wider than it was baked, with the text fattened to match - so the
+  // horizontal factor divides the window's shape back out and the panel keeps
+  // the physical size and proportions it was authored at, whatever the player
+  // picks. In 4:3 the ratio is exactly 1 and nothing moves.
   const auto& uiScr = engine->renderer.core.getSettings();
-  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiAspectFix = (4.0F / 3.0F) / uiScr.getWindowAspect();
+  const float uiSX = uiScr.getWidth() / 512.0F * uiAspectFix;
   const float uiSY = uiScr.getHeight() / 448.0F;
   auto sxi = [&](int v) { return (float)v * uiSX; };
   auto syi = [&](int v) { return (float)v * uiSY; };
@@ -6794,16 +6830,19 @@ void TerrainGame::renderGameMenu() {
       // resolutions anyway).
       float size = (float)m.rowH * 0.8F * uiSY;
       const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
-      float w = fontTextWidth(m.font, txt, size);
+      // The panel around this text is squeezed for widescreen (uiAspectFix),
+      // so the binding has to be measured and drawn squeezed too - otherwise
+      // it is a third wider than the row it is supposed to sit in.
+      float w = fontTextWidth(m.font, txt, size, uiAspectFix);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
-        w = fontTextWidth(m.font, txt, size);
+        w = fontTextWidth(m.font, txt, size, uiAspectFix);
       }
       drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
                    baseY + syi(m.row0Y + (i - first) * m.rowH) +
                        syi(m.rowH) * 0.5F,
-                   size);
+                   size, uiAspectFix);
     }
   }
 }
@@ -8374,6 +8413,198 @@ void TerrainGame::updateAndRenderDynTexts() {
 constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
                                       // exceed the 0.15 near clip
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
+// --- the collision box -------------------------------------------------------
+// One builder for the box every collision consumer reduces an object to (the
+// walker's box mode, the camera's spring arm, the split-screen band cull and,
+// in a debug build, the wireframe overlay). Host twin: placement::collisionBox.
+bool TerrainGame::objectCollides(const SceneObjectData& d) {
+  if (d.collision == 2) return false;  // "none" opts out
+  switch (d.type) {
+    // Everything with no geometry in the game. This list used to be written
+    // out by number at each call site, and they had drifted: the scroller belt
+    // marker (19) was missing from the camera sweep, so an invisible belt
+    // origin pushed the boom in.
+    case 4:   // spawn point
+    case 6:   // player marker
+    case 7:   // particle emitter
+    case 8:   // sound emitter
+    case 9:   // point light
+    case 11:  // empty
+    case 13:  // decal
+    case 14:  // camera marker
+    case 17:  // area (a volume, not a wall)
+    case 18:  // procedural volume (authoring only)
+    case 19:  // scroller belt marker
+      return false;
+    default: return true;
+  }
+}
+
+TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
+    const RuntimeObject& o) const {
+  // A model collides as its MESH bounds (a static .tmdl's, or an animated
+  // model's baked all-clips AABB) - the unit scale box is only the fallback,
+  // and for a model authored standing on its own origin it is its ankles.
+  const float* mn = nullptr;
+  const float* mx = nullptr;
+  if (o.data.type == 5) {
+    if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
+      mn = gameModels[o.data.model].mn;
+      mx = gameModels[o.data.model].mx;
+    } else if (o.data.animModel >= 0 &&
+               o.data.animModel < (int)gameAnimModels.size()) {
+      const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();
+      if (anim) mn = anim->min, mx = anim->max;
+    }
+  }
+  const float lmn[3] = {mn ? mn[0] : -0.5F, mn ? mn[1] : -0.5F,
+                        mn ? mn[2] : -0.5F};
+  const float lmx[3] = {mx ? mx[0] : 0.5F, mx ? mx[1] : 0.5F,
+                        mx ? mx[2] : 0.5F};
+  CollisionBox b;
+  float c[3], h[3];
+  for (int k = 0; k < 3; ++k) {
+    float a = lmn[k] * o.data.scale[k], e = lmx[k] * o.data.scale[k];
+    if (a > e) {  // negative scale mirrors the box, it does not invert it
+      const float t = a;
+      a = e;
+      e = t;
+    }
+    c[k] = 0.5F * (a + e);
+    h[k] = 0.5F * (e - a);
+  }
+  for (int k = 0; k < 3; ++k) b.center[k] = c[k], b.half[k] = h[k];
+  b.yaw = o.data.modelYaw;
+  return b;
+}
+
+// Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
+// reduces to, drawn where it actually is. The walker and the camera boom test
+// a volume nothing renders, so "why did I stop here", "why did the camera jump
+// in" and "why does that character block a doorway sideways" are questions the
+// screen cannot answer - this puts the volume on screen, in the same red the
+// editor overlay uses (View > Collision boxes), from the SAME objectCollisionBox.
+//
+// Rebuilt every frame rather than baked into each object's geometry: a box has
+// to follow a tumbling physics body and a flow-node-moved prop, and those never
+// dirty-rebuild. That is affordable because of two caps - only colliders within
+// COLLISION_BOX_RANGE of the camera, and at most COLLISION_BOX_LIMIT of them
+// (the nearest win; the rest are silently absent, which is why the range is
+// generous rather than the count) - and because an edge is a CROSS of two thin
+// quads (12 vertices) instead of a beam box (36): nothing here backface-culls,
+// so a cross reads as a solid edge from every angle at a third of the cost.
+void TerrainGame::renderCollisionBoxes() {
+  if (!DEBUG_SHOW_COLLISION) return;
+  const float kRange = COLLISION_BOX_RANGE;
+  collisionBoxVerts.clear();
+  collisionBoxCols.clear();
+  const Color red(255.0F, 48.0F, 48.0F, 128.0F);
+
+  // Nearest-first without a sort: the list is short and a partial insertion
+  // over COLLISION_BOX_LIMIT entries costs less than sorting the scene.
+  int picked[COLLISION_BOX_LIMIT];
+  float pickedD[COLLISION_BOX_LIMIT];
+  int count = 0;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > kRange * kRange) continue;
+    int at = count;
+    if (count == COLLISION_BOX_LIMIT) {
+      // full: replace the farthest, and only if this one is nearer
+      int worst = 0;
+      for (int k = 1; k < count; ++k)
+        if (pickedD[k] > pickedD[worst]) worst = k;
+      if (pickedD[worst] <= d2) continue;
+      at = worst;
+    } else {
+      ++count;
+    }
+    picked[at] = oi;
+    pickedD[at] = d2;
+  }
+
+  for (int k = 0; k < count; ++k) {
+    const RuntimeObject& o = runtimeObjects[picked[k]];
+    const CollisionBox b = objectCollisionBox(o);
+    // The box frame in world space: unit axes plus the world centre.
+    const V3 ax[3] = {boxRotate({1.0F, 0.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 1.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 0.0F, 1.0F}, o.data)};
+    const V3 cw = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float half[3] = {b.half[0], b.half[1], b.half[2]};
+    float big = half[0] > half[1] ? half[0] : half[1];
+    if (half[2] > big) big = half[2];
+    float t = big * 0.02F;  // edge thickness: readable at any box size
+    if (t < 0.02F) t = 0.02F;
+
+    auto vtx = [&](float px, float py, float pz) {
+      collisionBoxVerts.push_back(Vec4(px, py, pz, 1.0F));
+      collisionBoxCols.push_back(red);
+    };
+    // One quad as two triangles, from four world points.
+    auto quad = [&](const V3& p0, const V3& p1, const V3& p2, const V3& p3) {
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p1.x, p1.y, p1.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p3.x, p3.y, p3.z);
+    };
+    for (int a = 0; a < 3; ++a) {
+      const int u = (a + 1) % 3, v = (a + 2) % 3;
+      for (int corner = 0; corner < 4; ++corner) {
+        const float su = (corner & 1) ? 1.0F : -1.0F;
+        const float sv = (corner & 2) ? 1.0F : -1.0F;
+        // Edge midpoint, then half the edge vector along `a`.
+        const float mx = cx + ax[u].x * su * half[u] + ax[v].x * sv * half[v];
+        const float my = cy + ax[u].y * su * half[u] + ax[v].y * sv * half[v];
+        const float mz = cz + ax[u].z * su * half[u] + ax[v].z * sv * half[v];
+        const V3 e = {ax[a].x * half[a], ax[a].y * half[a], ax[a].z * half[a]};
+        // Two thin quads crossing along the edge - one spread along u, one
+        // along v - so the edge is visible whichever way the camera looks.
+        for (int p = 0; p < 2; ++p) {
+          const V3& w = p == 0 ? ax[u] : ax[v];
+          const V3 wt = {w.x * t, w.y * t, w.z * t};
+          quad({mx - e.x - wt.x, my - e.y - wt.y, mz - e.z - wt.z},
+               {mx + e.x - wt.x, my + e.y - wt.y, mz + e.z - wt.z},
+               {mx + e.x + wt.x, my + e.y + wt.y, mz + e.z + wt.z},
+               {mx - e.x + wt.x, my - e.y + wt.y, mz - e.z + wt.z});
+        }
+      }
+    }
+  }
+
+  if (collisionBoxVerts.empty()) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  if (!collisionBoxBag) {
+    collisionBoxColorBag = std::make_unique<StaPipColorBag>();
+    collisionBoxBag = std::make_unique<StaPipBag>();
+    collisionBoxBag->info = batchInfoBag.get();
+    collisionBoxBag->color = collisionBoxColorBag.get();
+    collisionBoxBag->lighting = nullptr;
+    collisionBoxBag->texture = nullptr;
+  }
+  collisionBoxColorBag->many = collisionBoxCols.data();
+  collisionBoxBag->vertices = collisionBoxVerts.data();
+  collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
+  collisionBoxBag->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(collisionBoxBag.get());
+}
+
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
   // Camera boom: the camera's own radius, ignoring the carried object (it
@@ -8398,11 +8629,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
-    const int ty = o.data.type;
-    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14 || ty == 17 || ty == 18)
-      continue;  // markers / emitters / decals / areas / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the sweep passes through
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // are not blockers - one list, shared with the walker (objectCollides).
+    if (!objectCollides(o.data)) continue;
     if (sweepPassOn) {
       // Portal pass-through for a thrown object's sweep: obstacles fully
       // behind the aimed portal's plane open up (exact OBB extent along
@@ -8427,32 +8656,12 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // Oriented box, sized exactly like box-mode player collision (the real
-    // mesh or baked anim AABB when the object has one, else the unit scale
-    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
-    // boom at its real faces instead of leaking through the corners of an
-    // axis-aligned stand-in.
-    const GameModel* gm = nullptr;
-    if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
-      gm = &gameModels[o.data.model];
-    const SkelModel* anim = nullptr;
-    if (ty == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
-    const V3 cW = rotated(localCenter, o.data.rotation);
+    // The shared collision box, cast in the box's OWN frame - so a rotated
+    // block stops the boom at its real faces instead of leaking through the
+    // corners of an axis-aligned stand-in.
+    const CollisionBox b = objectCollisionBox(o);
+    const float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+    const V3 cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
     const float cx = o.data.position[0] + cW.x;
     const float cy = o.data.position[1] + cW.y;
     const float cz = o.data.position[2] + cW.z;
@@ -8461,9 +8670,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // per axis), inflated by r, vs the boom segment AABB. Conservative - it
     // never rejects an object the local slab test could still hit (the old
     // scale-box AABB was too small for a rotated block and leaked candidates).
-    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
-    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
-    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const V3 hxv = boxRotate({ex, 0.0F, 0.0F}, o.data);
+    const V3 hyv = boxRotate({0.0F, ey, 0.0F}, o.data);
+    const V3 hzv = boxRotate({0.0F, 0.0F, ez}, o.data);
     const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
     const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
     const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
@@ -8472,10 +8681,10 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Narrow phase: slab test in the box's local frame. invRotated is
+    // Narrow phase: slab test in the box's local frame. The frame is
     // orthonormal, so the hit parameter t is still a world-space distance.
-    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
-    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
+    const V3 lo = boxInvRotate({px - cx, py - cy, pz - cz}, o.data);
+    const V3 ld = boxInvRotate({dx, dy, dz}, o.data);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -11377,6 +11586,9 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   renderProcChunks();
+  // Debug overlay: the collision boxes the walker and the camera boom test
+  // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
+  renderCollisionBoxes();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -14383,29 +14595,11 @@ bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
 // under-cull but never over-cull.
 bool TerrainGame::objectOutsideSplitBand(int i) const {
   const RuntimeObject& o = runtimeObjects[i];
-  const GameModel* gm = nullptr;
-  if (o.data.type == 5 && o.data.model >= 0 &&
-      o.data.model < (int)gameModels.size())
-    gm = &gameModels[o.data.model];
-  const SkelModel* anim = nullptr;
-  if (o.data.type == 5 && o.data.animModel >= 0 &&
-      o.data.animModel < (int)gameAnimModels.size())
-    anim = gameAnimModels[o.data.animModel].src.get();
+  const CollisionBox b = objectCollisionBox(o);
   float cx = o.data.position[0], cy = o.data.position[1],
         cz = o.data.position[2];
-  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-        ez = 0.5F * o.data.scale[2];
-  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
-  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
-  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
-  if (mnp && mxp) {
-    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
-    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
-    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
-    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
-    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
-    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
-  }
+  float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+  float ox = b.center[0], oy = b.center[1], oz = b.center[2];
   const float* rot = o.data.rotation;
   if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
       o.data.modelYaw != 0.0F) {

@@ -858,10 +858,39 @@ class TerrainGame : public Tyra::Game {
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   // The general sweep behind springArm: first blocked distance along d for a
-  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
-  // (the swept object itself). Also carries/throws pickable objects.
+  // sphere of `radius`, vs object collision boxes + the terrain; skipIndex is
+  // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+
+  // --- the collision box (docs/collision-boxes.md) --------------------------
+  // What an object reduces to for the walker, the camera boom and the
+  // split-screen cull. ONE builder: these three used to size the box
+  // themselves, by hand, from the same fields - and had already drifted (the
+  // scroller belt marker blocked the camera but not the player, and none of
+  // them turned the box by an animated model's content-forward yaw, so an
+  // X-forward-authored character collided across its own mesh).
+  // Twin of placement::collisionBox on the host, which is what the editor's
+  // View > Collision boxes overlay draws.
+  struct CollisionBox {
+    float center[3] = {0.0F, 0.0F, 0.0F};  // MODEL frame, scale folded in
+    float half[3] = {0.5F, 0.5F, 0.5F};
+    float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
+  };
+  CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+  // Debug overlay: draws those boxes as red wireframes in the running game
+  // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
+  // constexpr, so a shipping build emits nothing). Rebuilt every frame from
+  // the nearest COLLISION_BOX_LIMIT colliders, so it follows physics bodies
+  // and anything a flow node moves.
+  void renderCollisionBoxes();
+  std::vector<Tyra::Vec4> collisionBoxVerts;
+  std::vector<Tyra::Color> collisionBoxCols;
+  std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
+  std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // Does this object take part in collision at all? Geometry-less markers and
+  // "collision: none" objects do not.
+  static bool objectCollides(const SceneObjectData& d);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
