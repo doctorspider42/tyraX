@@ -2126,6 +2126,7 @@ void App::updateProjectedDecals() {
             mix((uint64_t)o.type);
             for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
             mix((uint64_t)o.primDetail);
+            mix(o.primRings ? 1u : 0u);
             for (char c : o.id) mix((uint8_t)c);
             for (char c : o.modelPath) mix((uint8_t)c);
             if (o.type == PrimitiveType::Decal) {
@@ -6160,6 +6161,11 @@ void App::addObject(PrimitiveType type, bool commit) {
     o.name = name;
     o.type = type;
     o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
+    // A cylinder placed today gets the axial rings; one loaded from a project
+    // that predates them does not (project.cpp's "rings" key defaults off), so
+    // no existing scene silently grows triangles. The tri readout next to the
+    // Properties checkbox is what an author reads before deciding otherwise.
+    o.primRings = type == PrimitiveType::Cylinder;
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;

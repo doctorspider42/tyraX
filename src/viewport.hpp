@@ -839,7 +839,7 @@ private:
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).
     std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
-    const Mesh& primMesh(PrimitiveType type, int detail);
+    const Mesh& primMesh(PrimitiveType type, int detail, bool rings = false);
     void clearPrimMeshCache();
     std::string projectDir_;
     // .obj models split per material (MTL): each part carries its own GL mesh

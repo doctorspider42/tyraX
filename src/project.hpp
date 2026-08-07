@@ -183,16 +183,36 @@ inline int primSphereStacks(int detail) {
     const int s = detail * 5 / 7;
     return s < 2 ? 2 : s;
 }
+// Cylinder rings ALONG THE AXIS, same idea. Without them the side is one quad
+// tall however high the detail goes, so anything that varies vertically - a
+// lamp above the pillar, the contact darkening at its foot, a probe gradient -
+// can only be a linear ramp between the top and bottom rims, and every segment
+// shows that ramp's diagonal seam as a full-height stripe. Measured on the
+// PS2: raising detail 4 -> 32 multiplied the stripes (0 -> 15 reversals across
+// the silhouette) without shrinking their amplitude at all, because the added
+// vertices all went AROUND the cylinder and none of them went up it.
+// One ring per four radial segments keeps a side quad roughly square at the
+// default 16 and leaves detail < 8 emitting exactly what it emitted before.
+// Opt-in per object (SceneObject::primRings): the rings only pay for
+// themselves when something lights the cylinder from above or below, so a
+// fencepost under a plain sun keeps the classic single-quad side.
+inline int primCylinderStacks(int detail, bool rings) {
+    if (!rings) return 1;
+    const int s = detail / 4;
+    return s < 1 ? 1 : s;
+}
 // Triangles a primitive tessellates to at the given detail - for the UI
 // readout. Marker/geometry-less types report 0.
-inline int primTriangleCount(PrimitiveType type, int detail) {
+inline int primTriangleCount(PrimitiveType type, int detail, bool rings = false) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint:
             return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
-        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        // side (2 per seg per ring) + 2 caps (1 per seg each)
+        case PrimitiveType::Cylinder:
+            return d * 2 * (primCylinderStacks(d, rings) + 1);
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
@@ -292,6 +312,16 @@ struct SceneObject {
     // more triangles. Type-dependent range/default - see clampPrimDetail /
     // defaultPrimDetail / primTriangleCount.
     int primDetail = kDefaultPrimDetail;
+    // Cylinders only: subdivide the side ALONG THE AXIS too (see
+    // primCylinderStacks). Off = the classic side, one quad tall however high
+    // the detail goes - cheapest, and correct whenever nothing lights the
+    // object from above or below, because then there is no vertical gradient
+    // to resolve and the rings are pure triangle cost. On = one ring per four
+    // radial segments, which is what a baked point light overhead or a probe
+    // gradient needs to stop showing up as full-height diagonal stripes.
+    // Defaults OFF so that opening an old project changes no geometry and no
+    // frame budget; App::addObject turns it on for newly created cylinders.
+    bool primRings = false;
     // Rendering cut-off: farther than this from the camera the object is not
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
@@ -845,7 +875,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
-           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.primDetail == b.primDetail && a.primRings == b.primRings &&
+           a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
