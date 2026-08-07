@@ -2327,6 +2327,49 @@ number:** once the FMAC interlock is modelled, CLIP is about 10% of billboard's 
 For `billboard_c`'s `centerLoop` the +39 cycles per iteration decompose as +9 rows, **+21
 FMAC stall** and +10 `waitq` - and of the +9 rows, only 4 are clip-window empties.
 
+### The twentieth flag: allocate twice, keep the smaller
+
+The four `--sink-loads*` flags exist because without them **11 of the 45 generated programs
+fail register allocation**. But where the unsunk arm *does* allocate, it is smaller - the
+sinking that buys a register costs rows elsewhere. `--sink-loads-best-of` runs allocation and
+emission both ways per program and keeps the fewer words, falling back to the sunk arm
+wherever the unsunk one cannot allocate.
+
+| | SCE | 19 flags | **20 flags** |
+|---|---:|---:|---:|
+| generated 45 | 9264 | 9286 (+22) | **9254 (-10)** |
+| engine 25 | 3982 | 3976 | **3928 (-54)** |
+| resident 10 | 2028 | 1986 | **1978** |
+
+That is the flag that flipped the last corpus. Of the 70: 18 take the unsunk arm, 41 keep the
+sunk one (35 exact ties plus 6 where unsunk is bigger), 11 fall back because unsunk cannot
+allocate. `dynpip_d_vu1`, the worst word loser in the corpus, goes 180 → 156.
+
+Three decisions make "run allocation twice" safe, and they are the answer to *what stops a
+half-applied first pass from poisoning the second*:
+
+* **The sunk arm runs first and to completion**, through untouched code. So a program the flag
+  does not improve is emitted in exactly the order it would be with the flag off - gate 7
+  (flag off ⇒ byte-identical) holds by construction rather than by luck.
+* **The second arm re-runs the tokenizer** off the source lines instead of restoring a copy of
+  the token list. A copy would have to be taken before the first allocation and held across
+  the first emission, which perturbs the first arm's own heap - and parts of the allocator
+  iterate `std::set<Alias*>`, i.e. in address order.
+* **Fresh tokenizer, allocator and generator per arm**, with errors suppressed on the second,
+  so a failed allocation is a *decision* and cannot trip the global error flag `main()` exits
+  on. Ties keep the sunk arm.
+
+The determinism that buys is measured, not assumed: every one of the 70 emitted programs is
+byte-identical to one of the two standalone arms, **none matching neither**.
+
+Cost: no predicate can skip the second arm, because you cannot know whether a program
+allocates without trying. So it is roughly double - **+96% serial, +64% in the engine's real
+parallel build** (26/29 s → 43/47 s), once per engine rebuild.
+
+It also moves the FMAC stall ratio the right way, and not far: 4.21x → **3.88x** of SCE on the
+resident set. Worth recording as evidence that fewer sunk loads mean fewer anti-dependences -
+which is the same mechanism the section below is about - and as evidence of how much is left.
+
 ## Measured on the console, not in a model
 
 Everything above is static analysis. The engine's own perf A/B harness had **never been run
@@ -2337,20 +2380,28 @@ scene, and only the assembler different.
 Two scenes, PCSX2, frame counts taken from the engine's own `VRAMSTAT f=` counter over a
 40-second window (a frame count is exact; reading an FPS HUD out of a screenshot is not):
 
-| scene | Sony `vcl` | openvcl (19 flags) | |
+| scene | Sony `vcl` | openvcl | |
 |---|---:|---:|---|
 | `vu-lab`, precise clipper, 32x32 terrain | 86.96 FPS | 86.97 FPS | **not VU1-bound - blind to the difference** |
-| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts) | **104.96 / 104.96** | **77.97 / 74.99** | **-26 to -29%** |
+| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts), 19 flags | **104.96 / 104.96** | **77.97 / 74.99** | **-26 to -29%** |
+| the same scene, 20 flags (`--sink-loads-best-of`) | 104.96 | **77.98 / 74.98** | **unchanged** |
 
 Sony's arm returned exactly 4200 frames on both runs. The heavy scene is the instrument; the
 light one is worth recording only because it shows how easy it is to measure nothing - an
 identical 3480 frames on both arms says the frame rate was decided somewhere other than VU1.
 
-**So openvcl is smaller and slower.** 1986 words against SCE's 2028 on the resident set, 3976
-against 3982 over the engine's 25 - and about a quarter of the frame rate given away on
-geometry-heavy content. Both halves are true, and the size half is the one the migration
-needed: the micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs
-said "smaller and faster", and that was a row count talking.
+**The third row is the load-bearing one.** `--sink-loads-best-of` took openvcl from +22 words
+over SCE on the generated corpus to -10 under it, and from 1986 to 1978 on the resident set -
+and returned frame counts of 3120 and 3000, the same two numbers the 19-flag build returned.
+Not one frame. Size and speed here are decoupled, which is exactly what the diagnosis below
+predicts: the cost is stalls, and a stall is not a word.
+
+**So openvcl is smaller and slower.** Smaller on all three corpora now - 1978 words against
+SCE's 2028 on the resident set, 3928 against 3982 over the engine's 25, 9254 against 9264
+over the generated 45 - and about a quarter of the frame rate given away on geometry-heavy
+content. Both halves are true, and the size half is the one the migration needed: the
+micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs said "smaller
+and faster", and that was a row count talking.
 
 ### Where the cycles actually go
 
@@ -2514,10 +2565,15 @@ toolchain's artifacts straight back over the ones the image built.
 |---|---|---|
 | engine programs | 25/25 | **25/25** |
 | generated programs | 45/45 | **45/45** |
-| resident VU1 set | 1986 words | **1986** (SCE 2028, ceiling 2042) |
-| engine corpus, all 25 | 3976 words | **3976** (SCE 3982 - openvcl is 6 under) |
-| generated corpus, all 45 | 9286 words | **9286** (SCE 9264 - +22, 0.24%) |
+| resident VU1 set | 1978 words | **1978** (SCE 2028, ceiling 2042) |
+| engine corpus, all 25 | 3928 words | **3928** (SCE 3982 - openvcl is 54 under) |
+| generated corpus, all 45 | 9254 words | **9254** (SCE 9264 - 10 under; it was +22 at 19 flags) |
 | frame rate, VU1-bound scene | - | **-26% against Sony's `vcl`** (see "Measured on the console") |
+
+Smaller than Sony's `vcl` on **all three** corpora as of the twentieth flag, and still 26%
+slower. The `microcode, all 70 | byte-identical to the inherited build` row above was
+established at 19 flags and has not been re-checked at 20 - byte-identity of the *microcode*
+across images is a property of the image swap, and the flag changes both images equally.
 | microcode, all 70 | - | **byte-identical to the inherited build** |
 | `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
 | VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |

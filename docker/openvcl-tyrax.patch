@@ -154,7 +154,7 @@ index 5bec71c..739b634 100644
  		if( state.dependency() )
  			newDependency->depend( state.dependency() );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..5cc059e 100644
+index 699abe7..dd54143 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -273,10 +273,37 @@ index 699abe7..5cc059e 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -1549,6 +1639,111 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+@@ -1549,6 +1639,158 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
  	}
  }
  
++// What one line of m_codeLines IS. Two callers ask, and they must not be allowed to
++// disagree about what a word is: emittedRowsSinceClipWrite() measures a distance back
++// to a CLIP in words, emittedWordCount() measures the whole program in the same unit.
++// Only an instruction row occupies micro memory - blank lines, `.directives`,
++// `; source` comments and `label:` lines do not.
++namespace
++{
++	enum EmittedLineKind
++	{
++		EMITTED_NOTHING,
++		EMITTED_LABEL,
++		EMITTED_ROW
++	};
++
++	EmittedLineKind classifyEmittedLine( const std::string& line )
++	{
++		const std::string::size_type first = line.find_first_not_of( " \t" );
++		if( first == std::string::npos )
++			return EMITTED_NOTHING;
++		if( line[first] == ';' || line[first] == '.' )
++			return EMITTED_NOTHING;
++		if( line[line.size() - 1] == ':' )
++			return EMITTED_LABEL;
++		return EMITTED_ROW;
++	}
++}
++
 +unsigned int CodeGenerator::emittedRowsSinceClipWrite() const
 +{
 +	// How many instruction rows have been EMITTED since the row holding a CLIP.
@@ -296,12 +323,10 @@ index 699abe7..5cc059e 100644
 +	     i != m_codeLines.rend(); ++i )
 +	{
 +		const std::string& line = *i;
-+		const std::string::size_type first = line.find_first_not_of( " 	" );
-+		if( first == std::string::npos )
++		const EmittedLineKind kind = classifyEmittedLine( line );
++		if( kind == EMITTED_NOTHING )
 +			continue;
-+		if( line[first] == ';' || line[first] == '.' )
-+			continue;
-+		if( line[line.size() - 1] == ':' )
++		if( kind == EMITTED_LABEL )
 +			break;
 +		// The mnemonic comes from the opcode metadata, never a literal - there is a
 +		// unit test that enforces exactly that (test_codegen_instruction_literals).
@@ -312,6 +337,28 @@ index 699abe7..5cc059e 100644
 +			break;
 +	}
 +	return 0xFFFFu;
++}
++
++unsigned int CodeGenerator::emittedWordCount() const
++{
++	// The size the emitted program occupies in micro memory, counted the way nm
++	// counts it in the size gate: (CodeEnd - CodeStart) / 8 is one word per
++	// instruction row, and the trailing `.align 4` rounds an odd count up to an even
++	// upload.
++	//
++	// Deliberately the finished emission and not the scheduler's own estimate,
++	// vuScheduledProgramEmittedWordCount(): after the scheduler is done the emitter
++	// still retracts rows into branch delay slots, pads clip windows and adds the [E]
++	// pair, so the two numbers do not have to agree, and only this one is the number
++	// the assembler will produce.
++	unsigned int rows = 0;
++	for( std::list<std::string>::const_iterator i = m_codeLines.begin();
++	     i != m_codeLines.end(); ++i )
++	{
++		if( classifyEmittedLine( *i ) == EMITTED_ROW )
++			++rows;
++	}
++	return rows + ( rows & 1u );
 +}
 +
 +bool CodeGenerator::clipReadIsPositional( const Token& token ) const
@@ -385,7 +432,7 @@ index 699abe7..5cc059e 100644
  void CodeGenerator::emitSingleToken( const Token& token )
  {
  	std::string instruction = generateInstruction(token);
-@@ -1592,6 +1787,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+@@ -1592,6 +1834,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
  		}
  	}
  
@@ -394,7 +441,7 @@ index 699abe7..5cc059e 100644
  	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
  	if( branchDelaySlots > 0 )
  	{
-@@ -1701,6 +1898,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+@@ -1701,6 +1945,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -402,7 +449,7 @@ index 699abe7..5cc059e 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -1724,6 +1922,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+@@ -1724,6 +1969,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -410,7 +457,7 @@ index 699abe7..5cc059e 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2238,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2285,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -432,7 +479,7 @@ index 699abe7..5cc059e 100644
  			break;
  		}
  
-@@ -2053,9 +2256,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2053,9 +2303,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  	}
  }
  
@@ -500,7 +547,7 @@ index 699abe7..5cc059e 100644
  	std::vector<const VuScheduledIssueSlot*> slots;
  	for( std::vector<VuScheduledBasicBlock>::const_iterator block = program.blocks.begin();
  	     block != program.blocks.end();
-@@ -2230,6 +2490,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2537,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -510,7 +557,7 @@ index 699abe7..5cc059e 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2500,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2547,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -555,7 +602,7 @@ index 699abe7..5cc059e 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2698,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2745,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -603,7 +650,7 @@ index 699abe7..5cc059e 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +3006,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +3053,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -622,7 +669,7 @@ index 699abe7..5cc059e 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +3027,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +3074,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -640,7 +687,7 @@ index 699abe7..5cc059e 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
-@@ -9833,6 +10189,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+@@ -9833,6 +10236,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
  		if(token.fields() & (1<<t))
  			fields += fieldnames[t];
  	}
@@ -652,10 +699,22 @@ index 699abe7..5cc059e 100644
  	std::list<Token::Argument>::const_iterator dst = token.arguments().begin();
  	std::list<Token::Argument>::const_iterator src = dst;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
-index 1845035..31f577f 100644
+index 1845035..d05414a 100644
 --- a/src/CodeGenerator.h
 +++ b/src/CodeGenerator.h
-@@ -68,11 +68,23 @@ private:
+@@ -43,6 +43,11 @@ public:
+ 	bool beginProcess(const std::list<Token>& tokens);
+ 	bool write(std::ostream& stream);
+ 
++	// Size of everything emitted so far, in micro-memory words, counted the way nm
++	// counts it - see the definition.  Only meaningful after beginProcess().  This
++	// is what --sink-loads-best-of compares its two arms on.
++	unsigned int emittedWordCount() const;
++
+ 	void setEmitSource( bool emitSource );
+ 	bool emitSource() const;
+ 
+@@ -68,11 +73,23 @@ private:
  	std::string accumulatorArg( const Token::Argument& arg, const Token& token );
  
  	void addNopLine();
@@ -679,7 +738,7 @@ index 1845035..31f577f 100644
  	void emitSingleToken( const Token& token );
  	void emitBranchWithDelayFiller( const Token& branch, const Token& filler );
  	void emitPairedTokens( const Token& a, const Token& b );
-@@ -195,11 +207,15 @@ private:
+@@ -195,11 +212,15 @@ private:
  	bool m_knownLoopOptimizations;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
@@ -696,10 +755,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..8695d74 100644
+index e6a6dea..058d341 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,26 @@ CommandLine::CommandLine()
+@@ -75,6 +75,27 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -716,6 +775,7 @@ index e6a6dea..8695d74 100644
 +	m_sinkLoadsAcrossStores = false;
 +	m_sinkLoadsIntoLoops = false;
 +	m_sinkLoadsPastBranches = false;
++	m_sinkLoadsBestOf = false;
 +	m_dropDeadWrites = false;
 +	m_exemptFullClipMasks = false;
 +	m_clipExemptionBestOf = false;
@@ -726,7 +786,7 @@ index e6a6dea..8695d74 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +145,26 @@ CommandLine::CommandLine()
+@@ -125,6 +146,27 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -743,6 +803,7 @@ index e6a6dea..8695d74 100644
 +	m_options.push_back(Option(0,"sink-loads-across-stores",SINK_LOADS_ACROSS_STORES,false));
 +	m_options.push_back(Option(0,"sink-loads-into-loops",SINK_LOADS_INTO_LOOPS,false));
 +	m_options.push_back(Option(0,"sink-loads-past-branches",SINK_LOADS_PAST_BRANCHES,false));
++	m_options.push_back(Option(0,"sink-loads-best-of",SINK_LOADS_BEST_OF,false));
 +	m_options.push_back(Option(0,"drop-dead-writes",DROP_DEAD_WRITES,false));
 +	m_options.push_back(Option(0,"exempt-full-clip-masks",EXEMPT_FULL_CLIP_MASKS,false));
 +	m_options.push_back(Option(0,"clip-exemption-best-of",CLIP_EXEMPTION_BEST_OF,false));
@@ -753,7 +814,7 @@ index e6a6dea..8695d74 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +279,26 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +281,27 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -770,6 +831,7 @@ index e6a6dea..8695d74 100644
 +				case SINK_LOADS_ACROSS_STORES: m_sinkLoadsAcrossStores = true; break;
 +				case SINK_LOADS_INTO_LOOPS: m_sinkLoadsIntoLoops = true; break;
 +				case SINK_LOADS_PAST_BRANCHES: m_sinkLoadsPastBranches = true; break;
++				case SINK_LOADS_BEST_OF: m_sinkLoadsBestOf = true; break;
 +				case DROP_DEAD_WRITES: m_dropDeadWrites = true; break;
 +				case EXEMPT_FULL_CLIP_MASKS: m_exemptFullClipMasks = true; break;
 +				case CLIP_EXEMPTION_BEST_OF: m_clipExemptionBestOf = true; break;
@@ -780,7 +842,7 @@ index e6a6dea..8695d74 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +390,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +393,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -791,10 +853,10 @@ index e6a6dea..8695d74 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..e89aeec 100644
+index f5e4b3d..9c7a6f2 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,26 @@ public:
+@@ -56,6 +56,27 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -811,6 +873,7 @@ index f5e4b3d..e89aeec 100644
 +	bool sinkLoadsAcrossStores() const;
 +	bool sinkLoadsIntoLoops() const;
 +	bool sinkLoadsPastBranches() const;
++	bool sinkLoadsBestOf() const;
 +	bool dropDeadWrites() const;
 +	bool exemptFullClipMasks() const;
 +	bool clipExemptionBestOf() const;
@@ -821,7 +884,7 @@ index f5e4b3d..e89aeec 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +150,26 @@ private:
+@@ -130,6 +151,27 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -838,6 +901,7 @@ index f5e4b3d..e89aeec 100644
 +		SINK_LOADS_ACROSS_STORES,
 +		SINK_LOADS_INTO_LOOPS,
 +		SINK_LOADS_PAST_BRANCHES,
++		SINK_LOADS_BEST_OF,
 +		DROP_DEAD_WRITES,
 +		EXEMPT_FULL_CLIP_MASKS,
 +		CLIP_EXEMPTION_BEST_OF,
@@ -848,7 +912,7 @@ index f5e4b3d..e89aeec 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +225,26 @@ private:
+@@ -185,6 +227,27 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -865,6 +929,7 @@ index f5e4b3d..e89aeec 100644
 +	bool m_sinkLoadsAcrossStores;
 +	bool m_sinkLoadsIntoLoops;
 +	bool m_sinkLoadsPastBranches;
++	bool m_sinkLoadsBestOf;
 +	bool m_dropDeadWrites;
 +	bool m_exemptFullClipMasks;
 +	bool m_clipExemptionBestOf;
@@ -876,10 +941,10 @@ index f5e4b3d..e89aeec 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..48dad0d 100644
+index 5500026..9e98930 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,146 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,153 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -970,6 +1035,13 @@ index 5500026..48dad0d 100644
 +inline bool CommandLine::sinkLoadsPastBranches() const
 +{
 +	return m_sinkLoadsPastBranches;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::sinkLoadsBestOf() const
++{
++	return m_sinkLoadsBestOf;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1087,7 +1159,7 @@ index a9a3c8e..b79b9d8 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..b2d3044 100644
+index b8b1946..abb3647 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1098,7 +1170,16 @@ index b8b1946..b2d3044 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,35 @@ bool Parser::tokenize()
+@@ -1136,6 +1137,8 @@ Parser::Parser()
+ 	m_tempCounter = 0;
+ 
+ 	m_preParser = DISABLED;
++
++	m_haveUnsunkOutput = false;
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -2045,6 +2048,35 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1134,7 +1215,7 @@ index b8b1946..b2d3044 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2065,12 +2095,65 @@ bool Parser::tokenize()
+@@ -2065,12 +2097,65 @@ bool Parser::tokenize()
  
  bool Parser::allocateRegisters()
  {
@@ -1201,6 +1282,204 @@ index b8b1946..b2d3044 100644
  		return false;
  
  	setState( GENERATE_CODE );
+@@ -2080,17 +2165,143 @@ bool Parser::allocateRegisters()
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+-bool Parser::generateCode()
++bool Parser::generateCodeInto( CodeGenerator& generator, const std::string& name,
++                               const std::list<Token>& tokens )
++{
++	generator.setEmitSource( m_cmdLine.emitSource() );
++	generator.setKnownLoopOptimizations( m_cmdLine.knownLoopOptimizations() );
++	generator.setGenericSoftwarePipelining( m_cmdLine.genericSoftwarePipelining() );
++	generator.setStrictScheduleSlots( m_cmdLine.strictScheduleSlots() );
++	generator.setName( name );
++
++	return generator.beginProcess( tokens );
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++// --sink-loads-best-of.  Compile the program a second time with all four
++// --sink-loads* flags off, and keep whichever whole program is smaller.
++//
++// The four sinking flags exist because without them eleven of the forty-five
++// microprograms a TyraX project can generate run out of registers - sinking a load to
++// its reader is what shortens the live range that does not fit.  But where the unsunk
++// arm DOES allocate it is usually the better code: sinking moves a load next to the
++// instruction that reads it, and the allocator, which runs before the scheduler, then
++// writes an anti-dependence between the two that the scheduler cannot undo.  Over the
++// fifty-nine programs that compile both ways the unsunk arm is smaller far more often
++// than it is larger, so the flags were paying for eleven programs out of the pockets
++// of the other fifty-nine.  Best-of stops that: the sinking arm becomes a fallback for
++// exactly the programs that need it.
++//
++// Three things about the shape of this, each of which was the alternative:
++//
++// * The sinking arm runs FIRST and runs to completion - allocation in
++//   allocateRegisters(), emission in generateCode() - through code this function does
++//   not touch.  So with the flag on, a program the flag does not improve is emitted by
++//   the same code, in the same order, as with the flag off.  The reverse order would
++//   have made the ordinary output the second arm's, and the second arm is the one that
++//   sees a heap the first arm has already churned; parts of the allocator iterate
++//   std::set<Alias*>, which is address order.
++//
++// * The second arm re-runs the TOKENIZER rather than working from a copy of the token
++//   list.  A copy would have to be taken before the first allocation and held alive
++//   across the first emission, which changes what the first arm's own allocations look
++//   like - the thing the point above exists to prevent.  m_lines outlives everything
++//   and re-parsing it is free by comparison.
++//
++// * The choice is per PROGRAM, on the finished word count, exactly like
++//   --clip-exemption-best-of.  A tie keeps the sinking arm, so the flag can only ever
++//   be read as a win over the build without it.
++void Parser::tryUnsunkArm()
+ {
+-	m_codeGenerator.setEmitSource( m_cmdLine.emitSource() );
+-	m_codeGenerator.setKnownLoopOptimizations( m_cmdLine.knownLoopOptimizations() );
+-	m_codeGenerator.setGenericSoftwarePipelining( m_cmdLine.genericSoftwarePipelining() );
+-	m_codeGenerator.setStrictScheduleSlots( m_cmdLine.strictScheduleSlots() );
+-	m_codeGenerator.setName( m_registerAllocator.name() );
++	// A fresh tokenizer, allocator and generator, so nothing the first arm built -
++	// aliases hung off token arguments, branch states, the emitted line list - can
++	// leak into the second and quietly poison it.  A half-applied first pass would
++	// not crash; it would emit a wrong program.
++	Tokenizer tokenizer;
++	tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
++	tokenizer.setOperands( m_operands );
++
++	const bool sink = vuSinkLoadsEnabled();
++	const bool sinkAcrossStores = vuSinkLoadsAcrossStoresEnabled();
++	const bool sinkIntoLoops = vuSinkLoadsIntoLoopsEnabled();
++	const bool sinkPastBranches = vuSinkLoadsPastBranchesEnabled();
++
++	setVuSinkLoadsEnabled( false );
++	setVuSinkLoadsAcrossStoresEnabled( false );
++	setVuSinkLoadsIntoLoopsEnabled( false );
++	setVuSinkLoadsPastBranchesEnabled( false );
++
++	// Running out of registers is this arm's normal outcome for the eleven, and a
++	// decision rather than a diagnosis - the same bargain the --sink-loads-past-branches
++	// retry above makes.  Anything wrong with the INPUT was already reported by the
++	// first arm, which ran unsuppressed and succeeded.
++	Error::SetSuppressed( true );
+ 
+-	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
++	bool built = true;
++	for( std::list<Line>::const_iterator i = m_lines.begin(); built && i != m_lines.end(); ++i )
++	{
++		if( !tokenizer.parse( *i ) )
++			built = false;
++	}
++
++	CodeGenerator generator;
++
++	if( built )
++	{
++		RegisterAllocator allocator;
++		allocator.setAvailableFloats( tokenizer.availableFloats() );
++		allocator.setAvailableIntegers( tokenizer.availableIntegers() );
++		allocator.setDynamicThreshold( m_cmdLine.threshold() );
++		// Not setShowRegisterInfo: --show-reg-alloc describes the allocation that
++		// produced the output, and this one usually does not.
++		built = allocator.process( tokenizer.tokens() );
++
++		if( built )
++			built = generateCodeInto( generator, allocator.name(), tokenizer.tokens() );
++	}
++
++	Error::SetSuppressed( false );
++
++	setVuSinkLoadsEnabled( sink );
++	setVuSinkLoadsAcrossStoresEnabled( sinkAcrossStores );
++	setVuSinkLoadsIntoLoopsEnabled( sinkIntoLoops );
++	setVuSinkLoadsPastBranchesEnabled( sinkPastBranches );
++
++	if( !built )
++	{
++		if( m_cmdLine.showPairMisses() )
++			std::cerr << "[sinkbestof] unsunk arm did not compile, keeping the sunk one" << std::endl;
++		return;
++	}
++
++	const unsigned int sunkWords = m_codeGenerator.emittedWordCount();
++	const unsigned int unsunkWords = generator.emittedWordCount();
++
++	if( m_cmdLine.showPairMisses() )
++		std::cerr << "[sinkbestof] sunk=" << sunkWords
++		          << " unsunk=" << unsunkWords
++		          << " keep=" << ( unsunkWords < sunkWords ? "unsunk" : "sunk" ) << std::endl;
++
++	if( unsunkWords >= sunkWords )
++		return;
++
++	std::stringstream text;
++	generator.write( text );
++	m_unsunkOutput = text.str();
++	m_haveUnsunkOutput = true;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++bool Parser::generateCode()
++{
++	if( !generateCodeInto( m_codeGenerator, m_registerAllocator.name(), m_tokenizer.tokens() ) )
+ 		return false;
+ 
++	if( m_cmdLine.sinkLoads() && m_cmdLine.sinkLoadsBestOf() )
++		tryUnsunkArm();
++
+ 	setState( WRITE_OUTPUT );
+ 
+ 	return true;
+@@ -2126,7 +2337,10 @@ bool Parser::writeOutput()
+ 
+ bool Parser::writeOutputStream( std::ostream& stream )
+ {
+-	m_codeGenerator.write( stream );
++	if( m_haveUnsunkOutput )
++		stream << m_unsunkOutput;
++	else
++		m_codeGenerator.write( stream );
+ 
+ 	setState( EXIT );
+ 
+diff --git a/src/Parser.h b/src/Parser.h
+index 7b16a5b..27372a9 100644
+--- a/src/Parser.h
++++ b/src/Parser.h
+@@ -99,6 +99,16 @@ private:
+ 	bool generateCode();
+ 	bool writeOutput();
+ 
++	// The body of generateCode(), against a caller-supplied generator instead of
++	// m_codeGenerator, so --sink-loads-best-of can emit its second arm into one of
++	// its own without disturbing the first.
++	bool generateCodeInto( CodeGenerator& generator, const std::string& name,
++	                       const std::list<Token>& tokens );
++
++	// --sink-loads-best-of.  Compile the whole program a second time with load
++	// sinking off and keep that output instead when it is the smaller one.
++	void tryUnsunkArm();
++
+ 	bool readInputStream( std::istream& stream );
+ 	bool writeOutputStream( std::ostream& stream );
+ 
+@@ -123,6 +133,13 @@ private:
+ 
+ 	std::string m_inputFile;
+ 	std::string m_sourceFile;
++
++	// --sink-loads-best-of.  When the unsunk arm wins, its finished text is parked
++	// here and written in place of m_codeGenerator's.  The winning generator is not
++	// kept alive instead, so that m_codeGenerator - the arm that runs first, and the
++	// only one that is the compiler's ordinary output - is never touched by the flag.
++	bool m_haveUnsunkOutput;
++	std::string m_unsunkOutput;
+ };
+ 
+ }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
 index cf6d79b..3e8323b 100644
 --- a/src/RegisterAllocator.cpp

@@ -82,9 +82,12 @@ ARG VCL_IMPL=legacy
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
 # Each one is measured in docs/toolchain-image.md; none is on by default in the tool
-# itself, and with all nineteen the rendered frame is pixel-identical to the one
-# Sony's vcl produces while the resident VU1 set is SMALLER (1986 words against
-# SCE's 2028, ceiling 2042). Keep this string equal to the one in
+# itself, and with all twenty openvcl is SMALLER than Sony's vcl on every corpus
+# measured here - the resident VU1 set at 1978 words against SCE's 2028 (ceiling 2042),
+# the engine's 25 at 3928 against 3982, the 45 a project generates at 9254 against 9264 -
+# while the rendered frame does not move: the nineteenth flag's build was checked
+# pixel-identical against Sony's, and the twentieth is pixel-identical against the
+# nineteenth's. Keep this string equal to the one in
 # Dockerfile.fromsource - the two images are only comparable while the assembler
 # is invoked identically. The Runner rebuilds the microcode when this string changes,
 # so a bisection does not need --rebuild - but check the log says "VU assembler
@@ -139,7 +142,44 @@ ARG VCL_IMPL=legacy
 # are scheduled twice; the other 44 are detected and skipped, because with no such
 # reader the second schedule is provably the first one. The 70-program microcode build
 # goes from ~118s to ~127s here, about +7%, once per engine rebuild.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of"
+#
+# --sink-loads-best-of is the twentieth, and it is the four sinking flags being made to
+# pay their own way. Sinking a load down to its reader shortens the live range that does
+# not fit, and without it eleven of the forty-five generated programs run out of
+# registers - that is why those flags are here. But where the unsunk arm DOES allocate
+# it is usually the better code: the load lands next to the instruction reading it, and
+# register allocation, which runs BEFORE scheduling in this compiler, writes an anti-
+# dependence between the two that the scheduler cannot undo. Over the 59 programs that
+# compile both ways the unsunk arm is smaller far more often than larger, so the four
+# flags were paying for eleven programs out of the other fifty-nine's pockets.
+#
+# So compile each program BOTH ways and keep the smaller - per program, on the finished
+# word count, the same criterion the size gate uses. The sinking arm becomes the
+# fallback for exactly the programs that need it. Ties keep the sinking arm, so the flag
+# can only ever read as a win over the build without it.
+#
+#   generated 45   9286 -> 9254   (SCE 9264: +22 -> -10, the last corpus Sony still won)
+#   engine 25      3976 -> 3928   (SCE 3982)
+#   resident 10    1986 -> 1978   (SCE 2028, ceiling 2042)
+#
+# The 70 split 18 / 41 / 11: 18 take the unsunk arm, 41 keep the sunk one (35 because
+# the two arms are the same size and 6 because the unsunk one is bigger), and 11 fall
+# back because the unsunk arm cannot allocate at all. So 52 programs come out byte-
+# identical to the nineteen-flag build, and every one of the 18 that change is byte-
+# identical to what the unsunk arm emits when it is the ONLY arm - which is the check
+# that the two-pass plumbing leaves nothing of the first attempt behind. Cycles fall as
+# well, with the FMAC read-after-write interlock modelled: -217 on the generated corpus,
+# -216 on the engine, -111 on the resident set, because a load that was not sunk is an
+# anti-dependence that was not written. examples/vu-lab renders 0 of 526264 pixels
+# different from the nineteen-flag build, against an idle control that also measures 0.
+#
+# The cost is compile time and this one is NOT cheap. Nothing can predict whether the
+# unsunk arm will allocate, so there is no predicate to skip it with the way
+# --clip-exemption-best-of has one: allocation AND emission run twice for all 70. Run
+# serially in a container that is 170s -> 333s for the 70; the engine's own 25-program
+# rebuild inside a real build is `make -j`-parallel and goes 26/29s -> 43/47s over
+# alternated rounds, about +64%, once per engine rebuild.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --sink-loads-best-of --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
