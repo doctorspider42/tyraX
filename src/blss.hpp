@@ -265,7 +265,8 @@ std::vector<Features> buildFeatures(int cols, int rows,
 // ----------------------------------------------------------------- network ---
 
 // MLP 8 -> 12 -> 3, tanh hidden, logistic outputs. 147 weights; the whole
-// frame is 1812 MACs, which is why it runs on the EE FPU and not on VU1 (whose
+// frame is ~29 600 MACs (132 per tile over a 16x14 grid), which is still small
+// enough to run on the EE FPU rather than VU1 (whose
 // micro memory has nothing left - see the tyra-engine-dev skill).
 struct Net {
     float w1[kHidden][kFeatures] = {};
