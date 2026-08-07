@@ -15,6 +15,7 @@
 #include "aobake.hpp"
 #include "gl_loader.h"
 #include "objparser.hpp"
+#include "placement.hpp"
 #include "primmesh.hpp"
 #include "scrollsim.hpp"
 #include <stb_image.h>
@@ -958,9 +959,11 @@ std::vector<float> unitCameraBody() {
     return v;
 }
 
-std::vector<float> unitWireCube() {
+// h = half size. The selection outline uses 0.52 (slightly larger than the
+// shape, which avoids z-fighting); the collision overlay needs the box's real
+// edges, so it passes 0.5.
+std::vector<float> unitWireCube(float h = 0.52f) {
     std::vector<float> v;
-    const float h = 0.52f;  // slightly larger than the shape, avoids z-fighting
     const float c[8][3] = {{-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {-h, -h, h},
                            {-h, h, -h},  {h, h, -h},  {h, h, h},  {-h, h, h}};
     const int e[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
@@ -1291,6 +1294,7 @@ void Viewport::shutdown() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
@@ -1596,6 +1600,7 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
@@ -1615,6 +1620,7 @@ void Viewport::buildPrimitiveMeshes() {
     spawnMarker_ = uploadMesh(unitSpawnMarker());
     playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
+    collisionCube_ = uploadMesh(unitWireCube(0.5f));  // exact edges (overlay)
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
     cameraBody_ = uploadMesh(unitCameraBody());
@@ -4820,6 +4826,33 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
         draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
              o.color[1], o.color[2]);
+    }
+
+    // Collision boxes (View > Collision boxes, docs/collision-boxes.md): what
+    // the GAME blocks the player and the camera boom with, which for a model is
+    // its bounding box and not its mesh. placement::collisionBox is the host
+    // twin of the generated objectCollisionBox, so this overlay and the
+    // console's own (Preferences > Build > Show collision boxes) draw one
+    // answer - including the content-forward yaw, which turns an animated
+    // model's box with its mesh.
+    if (collisionOverlay_) {
+        const aobake::ModelAabbFn bounds = [this](const SceneObject& o, float* mn,
+                                                  float* mx) {
+            return modelLocalBounds(o, mn, mx);
+        };
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            const SceneObject& o = objects[oi];
+            if (hiddenAt(oi) || !placement::collides(o)) continue;
+            const placement::CollisionBox b = placement::collisionBox(o, bounds);
+            Mat4 m = scaleM(2.0f * b.half[0], 2.0f * b.half[1], 2.0f * b.half[2]);
+            m = mul(translation(b.center[0], b.center[1], b.center[2]), m);
+            if (b.yaw != 0.0f) m = mul(rotY(b.yaw * kPi / 180.0f), m);
+            m = mul(rotX(o.rotation[0] * kPi / 180.0f), m);
+            m = mul(rotY(o.rotation[1] * kPi / 180.0f), m);
+            m = mul(rotZ(o.rotation[2] * kPi / 180.0f), m);
+            m = mul(translation(o.position[0], o.position[1], o.position[2]), m);
+            draw(collisionCube_, GL_LINES, mul(viewProj, m), 1.0f, 0.25f, 0.25f);
+        }
     }
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and

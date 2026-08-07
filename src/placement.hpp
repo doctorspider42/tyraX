@@ -37,6 +37,39 @@ Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb);
 // surfaces - you would never mean to stand a crate on a point light.
 bool isSupport(const SceneObject& o);
 
+// --- the collision box (docs/collision-boxes.md) ---------------------------
+// The box the GAME tests against: the walker's box mode, the third-person
+// camera's spring arm and the split-screen band cull all reduce an object to
+// this. Host-side twin of `objectCollisionBox` in the generated game (which is
+// the ONE builder there) - the editor's overlay draws exactly what the console
+// collides with, so "why did the camera stop there" is a thing you can look at.
+struct CollisionBox {
+    // Centre and half extents in the MODEL's own frame, scale already folded
+    // in. A primitive's centre is 0; a model's is wherever its mesh sits
+    // relative to its origin, which for anything authored standing on the
+    // ground is half its height up.
+    float center[3] = {0.0f, 0.0f, 0.0f};
+    float half[3] = {0.5f, 0.5f, 0.5f};
+    // The model frame's own rotation about its Y, in degrees: an animated
+    // model's content-forward correction (SceneObject::modelYawOffset), which
+    // turns the MESH and therefore has to turn its box too. The full world
+    // frame is R(o.rotation) * Ryaw(yaw).
+    float yaw = 0.0f;
+};
+
+// True when an object takes part in collision at all: it has geometry the
+// runtime can block with (markers, lights, emitters, decals, cameras, areas,
+// procedural volumes and scroller belts have none) and collision is not
+// switched off. Mirrors and portals DO collide - a mirror is glass in a wall -
+// even though isSupport() refuses to stack anything on them.
+bool collides(const SceneObject& o);
+
+// The box for one object. Filled for anything, whether or not it collides -
+// the caller decides what to do with a marker (the editor overlay skips them,
+// which is what `collides` is for).
+CollisionBox collisionBox(const SceneObject& o,
+                          const aobake::ModelAabbFn& modelAabb);
+
 // Terrain height sampler (the viewport's bilinear one - the same function the
 // game samples the heightmap with).
 using HeightFn = std::function<float(float x, float z)>;

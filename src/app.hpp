@@ -2200,6 +2200,10 @@ private:
     // walkable grid, recomputed only when its inputs change (same signature
     // trick as the projected decals). Session state, not persisted.
     bool showNavOverlay_ = false;
+    // Collision-box overlay (View > Collision boxes, docs/collision-boxes.md):
+    // the volume the game blocks the player and the camera boom with. Session
+    // state like the other view toggles - the viewport is told each frame.
+    bool showCollisionBoxes_ = false;
     navmesh::NavGrid navGrid_;
     uint64_t navOverlaySig_ = 0;
     uint64_t navOverlayVersion_ = 0;

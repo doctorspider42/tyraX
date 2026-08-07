@@ -403,12 +403,24 @@ codegen + runtime as above. If the type needs per-object variable-length data
 POD — emit a flat side table into scene_data.hpp keyed by (scene, object), the
 `OBJECT_SCRIPT_ATTACHES` / `MIRRORS` / `SCROLLERS` pattern. **A type with no geometry must be
 added to every marker skip list**, and they are scattered by *number*, not by
-enum: `collidePlayer`, the USE-target scan, the carry/throw sweep,
-`physObstacle` and the geometry `switch` in templates.cpp (all `o.data.type ==
-N` lists), `flowRaycast` in `flowGraphScript`, plus `blocksNavigation`
-(navmesh.cpp) and `objectShape`/`regionCountFor` (aobake.cpp, whose `default`
-already excludes unknown types). Miss one and an invisible marker blocks the
-player or eats a raycast.
+enum: the USE-target scan, the carry/throw sweep, `physObstacle` and the
+geometry `switch` in templates.cpp (all `o.data.type == N` lists), `flowRaycast`
+in `flowGraphScript`, plus `blocksNavigation` (navmesh.cpp) and
+`objectShape`/`regionCountFor` (aobake.cpp, whose `default` already excludes
+unknown types). Miss one and an invisible marker blocks the player or eats a
+raycast. **Collision is no longer one of them**: `collidePlayer`, `sweepSphere`
+(the camera boom) and `objectOutsideSplitBand` now go through
+**`objectCollides`/`objectCollisionBox`**, one pair, because three hand-written
+copies of the same list and the same box arithmetic had already drifted - the
+scroller belt marker blocked the camera but not the player, and none of them
+turned the box by an animated model's `modelYaw`, so an X-forward-authored
+character collided at 90 degrees to its own mesh (docs/collision-boxes.md).
+Their host twin is `placement::collisionBox`/`collides`, which is what the
+editor's View > Collision boxes overlay, the placement snap and the drag/paste
+raycast read - so a new collider type is TWO functions, not six, and the
+editor cannot draw a box the console does not use. Both overlays (editor +
+the in-game `renderCollisionBoxes`, `ProjectSettings::showCollision`) exist
+precisely because a box that disagrees with its mesh is invisible otherwise.
 
 **Areas (`PrimitiveType::Area`, docs/areas.md)** are the reference point for
 "replace a hand-typed distance with a placed volume". The pattern: the volume

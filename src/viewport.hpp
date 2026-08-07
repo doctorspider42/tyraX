@@ -25,6 +25,11 @@ public:
         SolidWireframe = 2,  // solid shading with a dark wireframe overlay
     };
 
+    // View > Collision boxes: draw the box the GAME collides with over every
+    // collider (docs/collision-boxes.md). Editor state, no project data.
+    void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
+    bool collisionOverlay() const { return collisionOverlay_; }
+
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
@@ -632,11 +637,13 @@ private:
     int hmW_ = 0, hmD_ = 0;
 
     // Nav-mesh overlay mesh (see setNavOverlay)
+    bool collisionOverlay_ = false;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+    Mesh collisionCube_;  // exact unit wire cube for the collision overlay
 
     // Scatter preview (see setScatterPreview): the pushed result plus the GL
     // meshes for its mask / curve overlays, rebuilt only when version changes.

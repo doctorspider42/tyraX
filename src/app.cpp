@@ -1340,6 +1340,17 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                                hasProject_))
+                showCollisionBoxes_ = !showCollisionBoxes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the box the GAME blocks the player and the "
+                    "third-person\ncamera with (red). A model collides as its "
+                    "bounding box, not its\nmesh, so this is what explains a "
+                    "prop you cannot walk up to or a\ncamera that pulls in "
+                    "early. The running game can draw the same\nboxes - "
+                    "Preferences > Build > Show collision boxes.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -2504,6 +2515,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        viewport_.setCollisionOverlay(showCollisionBoxes_);
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -13335,6 +13347,18 @@ void App::drawPreferencesModal() {
         "the console by design, which is exactly why \"why did that layer not\n"
         "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
         "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
