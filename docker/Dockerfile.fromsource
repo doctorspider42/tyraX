@@ -1,0 +1,127 @@
+# The toolchain image built from the official ps2dev base instead of inherited
+# from h4570/tyra. The other Dockerfile in this folder stays: it is the only way
+# to run Sony's vcl, which is what A/B comparisons are measured against.
+#
+# Why this is possible now. The whole reason docs/toolchain-image.md gives for
+# inheriting is `vcl`: a 32-bit glibc i386 binary with no source, which Alpine
+# cannot host, which forced a glibc base and therefore the 4-year-old image. That
+# reason is gone - openvcl compiles all 70 programs and beats SCE on the resident
+# set. The second suspected blocker, `vclpp`, turned out never to be one: h4570's
+# own Dockerfile builds it from https://github.com/glampert/vclpp (MIT), and today's
+# HEAD produces .vsm byte-identical to the 2022 binary on all 70 (it only stops
+# emitting trailing whitespace).
+#
+# Base pin. The plan was v1.3.0 (Alpine 3.14 / GCC 11.1) first, so that swapping
+# the base and jumping the compiler stayed two separate changes - but that split
+# is not purchasable: v1.3.0's ps2sdk has no bdmfs_fatfs.irx, which the engine
+# links, and Docker Hub offers nothing between v1.3.0 and v2.0.0. So the oldest
+# base that can build this engine at all is v2.0.0, and it brings GCC 15.2 with
+# it. What IS still separated is the half that matters most: the VU side was
+# verified on the v1.3.0 build first - all 70 microprograms byte-identical - and
+# it does not depend on the EE compiler, so anything that breaks from here is the
+# EE half, with the inherited image as the reference to bisect against.
+ARG PS2DEV_BASE=ps2dev/ps2dev@sha256:8e6dc4564598ecce94d078d3111b8c4803f88faa94a6f183ac60240a0ae010a1
+ARG PS2DEV_IMAGE=ps2dev/ps2dev:v2.0.0
+
+# ---------------------------------------------------------------- VU tools --
+# Both tools are built HERE, against the same musl base they will run on - an
+# Ubuntu-built binary is "not found" on Alpine (missing loader), which is a
+# confusing way to discover a libc mismatch.
+FROM ${PS2DEV_BASE} AS vu-tools
+
+ARG OPENVCL_REPO=https://github.com/ps2dev/openvcl.git
+ARG OPENVCL_COMMIT=a5867c3daf03828806ee966aca4116622da3f671
+ARG VCLPP_REPO=https://github.com/glampert/vclpp.git
+ARG VCLPP_COMMIT=00e44ecf78e34e16325b173ba39b5fdacdd01666
+
+RUN apk add --no-cache git make g++ cmake
+
+COPY docker/openvcl-tyrax.patch /tmp/openvcl-tyrax.patch
+
+RUN git clone --quiet "${OPENVCL_REPO}" /src/openvcl \
+    && git -C /src/openvcl checkout --quiet "${OPENVCL_COMMIT}" \
+    && git -C /src/openvcl apply --verbose /tmp/openvcl-tyrax.patch \
+    && cmake -S /src/openvcl -B /src/openvcl/build -DCMAKE_BUILD_TYPE=Release \
+             -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+    && cmake --build /src/openvcl/build -j"$(nproc)" \
+    && install -D -m 0755 /src/openvcl/openvcl /out/bin/openvcl
+
+# vclpp is the VCL preprocessor Makefile.base runs before the assembler:
+# #include, one-level #define and non-nesting #macro/Name{ }. MIT, one .cpp.
+RUN git clone --quiet "${VCLPP_REPO}" /src/vclpp \
+    && git -C /src/vclpp checkout --quiet "${VCLPP_COMMIT}" \
+    && make -C /src/vclpp \
+    && install -D -m 0755 /src/vclpp/vclpp /out/bin/vclpp
+
+# bin2s turns an IRX into an assembly blob with `<name>_irx` / `size_<name>_irx`
+# symbols, and Makefile.base embeds TEN modules that way. ps2sdk DELETED it in
+# 8dafdfde ("Remove bin2s and bin2o in favor of bin2c"), which is in v2.0.0 - so
+# the base cannot build this engine as it stands. bin2c is not a drop-in: it
+# emits a C array, so switching would mean changing every extern declaration and
+# call site across the engine. That is an upstream Tyra change, not something to
+# smuggle into an image swap, so the tool is rebuilt from the commit before its
+# removal. Still AFL-2.0 ps2sdk source, just no longer shipped; the whole
+# Makefile has to be bypassed because it wants ps2sdk's build tree around it.
+ARG PS2SDK_BIN2S_COMMIT=8f3975761d20a7aeb334ff5354300758d4b4ee4f
+RUN git clone --quiet --filter=blob:none https://github.com/ps2dev/ps2sdk.git /src/ps2sdk \
+    && git -C /src/ps2sdk checkout --quiet "${PS2SDK_BIN2S_COMMIT}" \
+    && gcc -O2 -o /out/bin/bin2s /src/ps2sdk/tools/bin2s/src/bin2s.c \
+    && chmod 0755 /out/bin/bin2s
+
+# ---------------------------------------------------------------- ps2link --
+FROM ${PS2DEV_IMAGE} AS ps2link-build
+
+ARG PS2LINK_REPO=https://github.com/ps2dev/ps2link.git
+ARG PS2LINK_COMMIT=0c6138c5553760423070d1797ac475c4d98a06e6
+
+RUN apk add --no-cache make git
+COPY tools/ps2link/tyrax.patch /tmp/tyrax.patch
+RUN mkdir -p /out \
+    && git clone --quiet "${PS2LINK_REPO}" /src/ps2link \
+    && git -C /src/ps2link checkout --quiet "${PS2LINK_COMMIT}" \
+    && git -C /src/ps2link apply /tmp/tyrax.patch
+RUN cd /src/ps2link && make ee LOADHIGH=1 NOUSB=0 \
+    && cp ee/ps2link.elf /out/ps2link.elf
+RUN cd /src/ps2link && make clean && make LOADHIGH=0 NOUSB=1 \
+    && cp bin/PS2LINK.ELF /out/ps2link-low-nousb-packed.elf
+
+# ------------------------------------------------------------------ image --
+FROM ${PS2DEV_BASE}
+
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --drop-dead-writes"
+
+# What the base does not carry and the build needs. Everything else the Runner
+# shells out to (cd, cp, cmp, find, md5sum, mkdir) is busybox.
+# libstdc++ for our two VU tools; gmp/mpfr4/mpc1 are GCC's OWN runtime deps -
+# the base image ships cc1plus without them, so the EE compiler cannot start
+# until they are added. Neither is a TyraX dependency; both are the base being
+# incomplete for actually compiling anything.
+RUN apk add --no-cache make rsync libstdc++ gmp mpfr4 mpc1
+
+COPY --from=ps2link-build /out/ /usr/local/share/tyrax/ps2link/
+COPY --from=vu-tools /out/bin/openvcl /usr/local/bin/openvcl
+COPY --from=vu-tools /out/bin/vclpp /usr/local/bin/vclpp
+# Makefile.base spells this one out as $(PS2SDK)/bin/bin2s, so it goes back
+# exactly where ps2sdk used to keep it rather than onto PATH.
+COPY --from=vu-tools /out/bin/bin2s /usr/local/ps2dev/ps2sdk/bin/bin2s
+
+# There is no VCL_IMPL switch here and that is the point: this image has no
+# Sony binary to fall back to. A project that wants one uses the inherited
+# image, which is what the editor's Build toolchain setting is for.
+RUN printf '#!/bin/sh\nexec /usr/local/bin/openvcl %s "$@"\n' "${VCL_FLAGS}" \
+      > /usr/local/bin/vcl \
+    && chmod 0755 /usr/local/bin/vcl \
+    && mkdir -p /usr/local/share/tyrax \
+    && echo openvcl > /usr/local/share/tyrax/vcl-impl
+
+# The licence picture is genuinely different from the inherited image's, which
+# is one of the reasons for doing this: no unlicensed binary is left. What
+# remains is GCC and binutils (GPL-3.0-or-later, so a public push carries their
+# source-offer duty), PS2SDK and openvcl (AFL-2.0), vclpp (MIT) and ps2link.
+LABEL org.opencontainers.image.title="TyraX toolchain (from source)" \
+      org.opencontainers.image.description="PS2DEV toolchain from the official ps2dev base, openvcl and vclpp built from source, plus the TyraX ps2link" \
+      org.opencontainers.image.source="https://github.com/doctorspider42/tyra-editor" \
+      org.opencontainers.image.licenses="NOASSERTION"
+
+WORKDIR /src
+CMD ["sh"]

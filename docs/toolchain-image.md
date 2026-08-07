@@ -115,7 +115,15 @@ its package settings, then change the default in `TPL_COMPOSE`
 ([`src/templates.cpp`](../src/templates.cpp)) and the mentions in `README.md`.
 That is the whole switch.
 
-## Why the toolchain is inherited, not rebuilt
+## Why the toolchain was inherited, and what changed
+
+> **Resolved.** Everything in this section was true until openvcl became good
+> enough, and it is kept because the reasoning is what makes the resolution
+> readable. [`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) is
+> the image this section says is impossible; "Building it from source instead"
+> below is what it cost. The inherited image stays the default, for one reason
+> that has nothing to do with the argument here: it is the only one that can run
+> Sony's `vcl`, and every A/B in this document is measured against it.
 
 The obvious version of this change — base the image on the official
 `ps2dev/ps2dev`, build the VU tools from source, get a small multi-arch image with
@@ -2209,6 +2217,89 @@ range forward to its first read (`scratchpad/ra-sinkpeak.py`) brings **8 of the 
 31; three would still be over, by 1, 3 and 4. The obstacle is that `Token::m_line` is a
 `const Line&` with a cached number and the allocator uses that number as its timeline, so
 moving a token breaks the ordering everything depends on.
+
+## Building it from source instead
+
+[`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) assembles the
+same toolchain from the official `ps2dev/ps2dev` base instead of inheriting the
+2022 `h4570/tyra` layers. `docker\build.ps1 -FromSource` / `docker/build.sh
+--from-source` builds it; the editor picks between the two per machine in
+*Edit > Preferences > Build toolchain*.
+
+The base is **pinned by digest**, not by tag, the same way the inherited one is.
+Not because it is old - it is three months old against the inherited image's four
+years (Alpine 3.23, GCC 15.2, binutils 2.45, newlib 4.6.0), and it is multi-arch
+including **arm64**, which the inherited image cannot be while it carries
+`qemu-i386` to run Sony's `vcl`. The pin is because `ps2dev/build-all.sh` clones
+its sub-projects at their tips, so a tag can move under us; a digest cannot.
+Rebuilding that toolchain ourselves would buy only the pinning we get from the
+digest, and cost an hour per CI run plus ownership of GCC and binutils bugs on
+MIPS R5900.
+
+**What it removes:** the last binary with no source in the loop. What is left is
+GCC and binutils (GPL-3.0-or-later, so a public push carries their source-offer
+duty), PS2SDK and openvcl (AFL-2.0), vclpp (MIT) and ps2link.
+
+**`vclpp` was never a blocker**, contrary to the assumption that it was a second
+`vcl`. h4570's own Dockerfile builds it from
+[glampert/vclpp](https://github.com/glampert/vclpp) (MIT, one `.cpp`), and today's
+HEAD emits `.vsm` byte-identical to the 2022 binary on all 70 programs - it only
+stops writing trailing whitespace.
+
+### What the base actually cost
+
+Seven obstacles, and they are three different kinds of thing:
+
+**The base is incomplete for compiling** (three). `libstdc++` for the two VU
+tools, and `gmp`/`mpfr4`/`mpc1` - GCC's OWN runtime deps, without which `cc1plus`
+cannot start - plus `make` and `rsync`. Each surfaces as a hundred lines of
+"symbol not found" or "Error loading shared library", which reads like a broken
+image rather than a missing package.
+
+**Upstream removed a tool** (one). `bin2s` turns an IRX into an assembly blob with
+`<name>_irx` / `size_<name>_irx` symbols, and `Makefile.base` embeds ten modules
+that way. ps2sdk deleted it in `8dafdfde` ("Remove bin2s and bin2o in favor of
+bin2c"), which is in v2.0.0. `bin2c` is not a drop-in - it emits a C array, so
+switching means changing every extern declaration and call site in the engine,
+which is an upstream Tyra change. The tool is rebuilt from the commit before its
+removal instead; still AFL-2.0 ps2sdk source, just no longer shipped.
+
+**Our own assumptions** (one). The Runner installed the container-side C++
+compiler with `apt-get`, which Alpine does not have - and the failure surfaced as
+"A VU source failed to build", sending the reader into their own C++. It asks the
+image now.
+
+**Real engine bugs the old image was hiding** (two), and these are the argument
+for doing this at all:
+
+* `renderer_3d_pipeline.hpp` used `std::function` without including
+  `<functional>`. GCC 11 reached it transitively; GCC 15 does not.
+* `FileUtils::fromCwd` concatenated the working directory with a file name and
+  relied on `getcwd()` returning a trailing separator. The stock image's ps2sdk
+  returns `host:/dir/bin/`, a current one returns `host:/dir/bin` - so every path
+  became `.../binlivepad.bin`, and PCSX2 refused it with *"Denying access to path
+  outside of ELF directory"*, which points at the emulator's sandbox rather than
+  at a missing slash. The game could open no file at all, including its own log.
+  `getCwd()` also ignored `getcwd()`'s return value, handing callers stack
+  garbage on failure.
+
+And one thing **removed**: the vendored `audsrv` panning overlay
+(`vendor/tyra/audsrv-pan`) is unnecessary on a current base, because upstream
+ps2sdk has carried `audsrv_adpcm_set_volume_and_pan` since 2023. Worse than
+unnecessary - its prebuilt `libaudsrv.a` carries GCC 11.3 LTO bytecode that a
+newer toolchain refuses to link. The Runner now asks the image whether its own
+audsrv has the API and skips the overlay when it does.
+
+### Verified
+
+| | inherited (`h4570/tyra`, GCC 11.3) | from source (`ps2dev`, GCC 15.2) |
+|---|---|---|
+| engine programs | 25/25 | **25/25** |
+| generated programs | 45/45 | **45/45** |
+| resident VU1 set | 1988 words | **1988** |
+| microcode, all 70 | - | **byte-identical to the inherited build** |
+| `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
+| VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |
 
 ## Still open
 

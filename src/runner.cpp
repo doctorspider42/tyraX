@@ -838,6 +838,23 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // the overlay. The /tyra one guards the compiled ENGINE in the
                            // shared volume: when the vendored IRX changes, libtyra has to
                            // be relinked so the new one gets re-embedded.
+                           // ...and the overlay is skipped entirely on an image
+                           // whose own audsrv already has the panning API. That
+                           // is not a special case, it is the overlay's whole
+                           // reason for existing (audsrv-pan/README): the stock
+                           // Tyra image predates upstream's positional audio, so
+                           // three artifacts are vendored to backport it. An
+                           // image built from a current ps2dev base HAS it - and
+                           // there the overlay is actively harmful, because those
+                           // artifacts carry GCC 11.3 LTO bytecode and a newer
+                           // toolchain refuses to link them ("bytecode stream ...
+                           // generated with LTO version 11.3"). Ask the image
+                           // rather than guessing from a version string.
+                           "if grep -q audsrv_adpcm_set_volume_and_pan "
+                           "/usr/local/ps2dev/ps2sdk/ee/include/audsrv.h 2>/dev/null; then "
+                           "  echo '[editor] Image audsrv already has panning - "
+                           "skipping the vendored overlay.'; "
+                           "else "
                            "md5sum /engine-src/audsrv-pan/audsrv.irx "
                            "/engine-src/audsrv-pan/libaudsrv.a "
                            "/engine-src/audsrv-pan/audsrv.h > /tmp/audsrv.stamp; "
@@ -853,6 +870,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // this bin2s never re-runs and the OLD irx stays inside libtyra.
                            "rm -f /tyra/engine/bin/libtyra.a /tyra/engine/obj/irx/audsrv.o; "
                            "cp /tmp/audsrv.stamp /tyra/.audsrv-stamp; fi; "
+                           "fi; "
                            // Third stamp, same idea, for the VU chain: WHICH ASSEMBLER built
                            // the microcode is a build input, and nothing else here can see it.
                            // Two implementations of `vcl` exist now (Sony's prebuilt VCL and
@@ -978,12 +996,25 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             appendLine("[editor] Building the project's VU sources...");
             ok = exec(dc + platform::shellArg(
                           "set -e; "
+                          // Ask the image which package manager it has rather
+                          // than assuming Debian: the stock toolchain image is
+                          // Ubuntu, the one built from the official ps2dev base
+                          // is Alpine, and there `apt-get: not found` surfaces
+                          // as "a VU source failed to build" - a message that
+                          // sends the reader into their own C++.
                           "if ! command -v g++ >/dev/null 2>&1; then "
                           "  echo '[editor] Installing a host C++ compiler in "
                           "the container (one time)...'; "
-                          "  apt-get update -qq >/dev/null && "
-                          "  DEBIAN_FRONTEND=noninteractive apt-get install -y "
+                          "  if command -v apk >/dev/null 2>&1; then "
+                          "    apk add --no-cache g++ >/dev/null; "
+                          "  elif command -v apt-get >/dev/null 2>&1; then "
+                          "    apt-get update -qq >/dev/null && "
+                          "    DEBIAN_FRONTEND=noninteractive apt-get install -y "
                           "-qq --no-install-recommends g++ >/dev/null; "
+                          "  else "
+                          "    echo '[editor] No apk or apt-get in this image - "
+                          "install g++ in it yourself.' >&2; exit 1; "
+                          "  fi; "
                           "fi; "
                           "mkdir -p /src/src/gen /src/inc/scripts /src/obj; "
                           // TWO source directories, and either may be empty - a

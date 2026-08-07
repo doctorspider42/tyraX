@@ -725,6 +725,16 @@ banner both, so a previously built ELF still reports.
   a `;1` version suffix; `FileUtils::fromCwd` and the extension helpers handle
   the conversion. Test asset-loading changes on BOTH boot paths (host: via
   normal Build & Run, cdrom0: via Export PS2 ISO).
+- **Whether `getcwd()` ends with a separator is not a guarantee, and the failure
+  does not look like a path bug.** `fromCwd` used to be a plain `cwd + file`,
+  which is correct only while the SDK returns `host:/dir/bin/`; a current ps2sdk
+  returns it without the slash, so every path became `.../binlivepad.bin` and
+  PCSX2 answered *"IopHLE: Denying access to path outside of ELF directory"* —
+  which reads as the emulator's host: sandbox refusing you, not as a missing
+  character. The game then opens NOTHING, its own log included, so there is no
+  in-game diagnostic either. `fromCwd` inserts the separator itself now, and
+  leaves a trailing `:` alone (`host:` + `file` is a valid path). Any new path
+  builder owes the same care.
 
 **Build environment**
 - PS2SDK's `math3d.h` `#define`s names like `LIGHT_AMBIENT` — prefix your

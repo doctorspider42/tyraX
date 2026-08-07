@@ -23,12 +23,19 @@
 # and rebuilding - docker-compose.yml is regenerated on every build but reads
 # that variable, so nothing in the editor has to change. See
 # docs/toolchain-image.md.
+# -FromSource builds docker/Dockerfile.fromsource instead: the same toolchain
+# assembled from the official ps2dev base with openvcl, vclpp and bin2s built
+# from source, rather than inherited from the 2022 h4570/tyra image. It carries
+# no unlicensed binary and is multi-arch capable; it also has no Sony `vcl`, so
+# -VclImpl does not apply to it. The inherited image stays the default precisely
+# because it is the only way to run Sony's assembler for an A/B.
 param(
     [string]$Tag = 'tyrax-toolchain:local',
     [string]$Toolchain = '',
     [ValidateSet('legacy', 'openvcl')]
     [string]$VclImpl = 'legacy',
     [string]$VclFlags = '',
+    [switch]$FromSource,
     [switch]$Push,
     [switch]$NoCache
 )
@@ -43,13 +50,23 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw 'docker not found - this builds a Docker image.'
 }
 
-$extra = @('--build-arg', "VCL_IMPL=$VclImpl")
+# The from-source image has no legacy assembler to choose between, so VCL_IMPL
+# is not one of its build args - passing it would fail the build on an unknown
+# ARG rather than being ignored.
+$dockerfile = if ($FromSource) { 'docker/Dockerfile.fromsource' } else { 'docker/Dockerfile' }
+$extra = if ($FromSource) { @() } else { @('--build-arg', "VCL_IMPL=$VclImpl") }
+if ($FromSource -and $PSBoundParameters.ContainsKey('VclImpl')) {
+    throw '-VclImpl does not apply to -FromSource: that image ships openvcl only.'
+}
 # Passed whenever it was given, EMPTY INCLUDED: `-VclFlags ''` is how you ask for
 # a stock openvcl with no flags at all, and skipping the build-arg would silently
 # hand you the Dockerfile's default set instead - which is exactly the mistake
 # that made the first flag bisection meaningless.
 if ($PSBoundParameters.ContainsKey('VclFlags')) { $extra += @('--build-arg', "VCL_FLAGS=$VclFlags") }
-if ($Toolchain) { $extra += @('--build-arg', "TOOLCHAIN_IMAGE=$Toolchain") }
+if ($Toolchain) {
+    if ($FromSource) { throw '-Toolchain is the inherited image; -FromSource has none.' }
+    $extra += @('--build-arg', "TOOLCHAIN_IMAGE=$Toolchain")
+}
 if ($Push)      { $extra += '--push' }
 if ($NoCache)   { $extra += '--no-cache' }
 
@@ -57,8 +74,8 @@ if ($NoCache)   { $extra += '--no-cache' }
 # vendor\ and build\ out of a repo-root context) is a BuildKit feature.
 $env:DOCKER_BUILDKIT = '1'
 
-Write-Host "== Building $Tag =="
-docker build -f docker/Dockerfile -t $Tag @extra .
+Write-Host "== Building $Tag ($dockerfile) =="
+docker build -f $dockerfile -t $Tag @extra .
 if ($LASTEXITCODE -ne 0) { throw "docker build failed (exit $LASTEXITCODE)" }
 
 # A green build proves the layers ran, not that the image can compile anything.

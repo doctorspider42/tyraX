@@ -33,16 +33,19 @@ VCL_IMPL='legacy'
 VCL_FLAGS=''
 VCL_FLAGS_SET=0
 PUSH=0
+FROM_SOURCE=0
+VCL_IMPL_SET=0
 EXTRA=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --tag|-Tag)             TAG="$2"; shift 2 ;;
         --toolchain|-Toolchain) TOOLCHAIN="$2"; shift 2 ;;
-        --vcl-impl|-VclImpl)    VCL_IMPL="$2"; shift 2 ;;
+        --vcl-impl|-VclImpl)    VCL_IMPL="$2"; VCL_IMPL_SET=1; shift 2 ;;
         --vcl-flags|-VclFlags)  VCL_FLAGS="$2"; VCL_FLAGS_SET=1; shift 2 ;;
         --push|-Push)           PUSH=1; shift ;;
         --no-cache)             EXTRA+=(--no-cache); shift ;;
-        *) echo "Unknown option: $1 (expected --tag, --toolchain, --vcl-impl, --vcl-flags, --push, --no-cache)" >&2; exit 2 ;;
+        --from-source|-FromSource) FROM_SOURCE=1; shift ;;
+        *) echo "Unknown option: $1 (expected --tag, --toolchain, --vcl-impl, --vcl-flags, --from-source, --push, --no-cache)" >&2; exit 2 ;;
     esac
 done
 case "$VCL_IMPL" in
@@ -55,7 +58,17 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-EXTRA+=(--build-arg "VCL_IMPL=$VCL_IMPL")
+# The from-source image has no legacy assembler to choose between, so VCL_IMPL
+# is not one of its build args - passing it would fail the build on an unknown
+# ARG rather than being ignored.
+DOCKERFILE='docker/Dockerfile'
+if [ "$FROM_SOURCE" = 1 ]; then
+    DOCKERFILE='docker/Dockerfile.fromsource'
+    [ "$VCL_IMPL_SET" = 1 ] && { echo "--vcl-impl does not apply to --from-source: that image ships openvcl only." >&2; exit 2; }
+    [ -n "$TOOLCHAIN" ] && { echo "--toolchain is the inherited image; --from-source has none." >&2; exit 2; }
+else
+    EXTRA+=(--build-arg "VCL_IMPL=$VCL_IMPL")
+fi
 # Passed whenever it was given, EMPTY INCLUDED: `--vcl-flags ''` is how you ask
 # for a stock openvcl with no flags at all, and skipping the build-arg would
 # silently hand you the Dockerfile's default set instead - which is exactly the
@@ -68,8 +81,8 @@ EXTRA+=(--build-arg "VCL_IMPL=$VCL_IMPL")
 # vendor/ and build/ out of a repo-root context) is a BuildKit feature.
 export DOCKER_BUILDKIT=1
 
-echo "== Building $TAG =="
-docker build -f docker/Dockerfile -t "$TAG" "${EXTRA[@]+${EXTRA[@]}}" .
+echo "== Building $TAG ($DOCKERFILE) =="
+docker build -f "$DOCKERFILE" -t "$TAG" "${EXTRA[@]+${EXTRA[@]}}" .
 
 # A green build proves the layers ran, not that the image can compile anything.
 # These four are the ones a broken image fails on silently: vclpp/vcl missing
