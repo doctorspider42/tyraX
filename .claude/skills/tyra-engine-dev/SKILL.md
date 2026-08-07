@@ -383,10 +383,13 @@ Six things here that were paid for, and that any edit must keep:
   bit-for-bit. The shared restore also fixed a latent `InterlacedField` bug none
   of the three brackets had: the per-field `XYOFFSET` bias
   (`RendererCoreGS::getFieldYOffset16`) was never re-applied.
-  **`RendererCorePostFx::portalMaskBegin/End` is the one bracket still NOT
-  converted** — it also runs inside `renderScene()` and still restores the
-  display buffer. Portals are independently incompatible with BLSS, so it is not
-  urgent, but it is the same bug a fourth time.
+  `RendererCorePostFx::portalMaskBegin/End` was the same bug a **fourth** time
+  and is **converted now** (`332f3193`): both read `getRasterTarget()` and
+  restore through `emitRasterRestore()`, so this bracket finally carries the
+  per-field `XYOFFSET` bias too. `Begin` re-narrows the scissor to the portal's
+  bbox *after* the restore, because the destination view is the one thing here
+  that must stay bounded; `End` lets it go. **All four brackets now share one
+  restore — do not add a fifth that does not.**
 - **The z buffer follows the RASTER, not the display buffer.**
   `allocateVramBuffers()` sizes it from
   `RendererSettings::getRasterWidthUI/HeightUI` — 57 344 words instead of
@@ -433,20 +436,36 @@ Six things here that were paid for, and that any edit must keep:
   quantised byte), and `--blss-eval` reports occupancy through the same rule — so
   changing when a cell is skipped changes what the network was trained to want,
   even though the objective itself has no engine counterpart. Measured on the
-  shipped net: mean **2.99 full-screen passes in distribution, 3.29 out of it**,
-  against 1.00 for plain bilinear and 5.00 for the worst case — and those are
-  **fill counts, not timings; no BLSS frame has ever been profiled**, in PCSX2 or
-  on hardware.
+  shipped net: mean **2.90 full-screen passes on held-out shots and 2.91 in
+  distribution**, against 1.00 for plain bilinear and 5.00 for the worst case,
+  while the oracle reaches a *better* PSNR at 1.36–1.56 — so about half the
+  remaining fill is the network failing to generalise the cost model. Occupancy
+  is noisy (sd 0.61 over 39 cross-validation fold-runs, one fold at 4.33), and
+  these are **fill counts, not timings; no BLSS frame has ever been profiled**,
+  in PCSX2 or on hardware.
 
 Incompatible with **depth of field, portals and split view** — all three read or
 write real GS depth at display resolution, which since the z shrink is not merely
-unwritten but unallocated. **The editor warns and that is the whole interlock:
-codegen does NOT refuse the combination** (nothing in `src/templates.cpp` gates
-them on `blssEnabled`), so "codegen does not emit them together", which this
-paragraph and both docs used to claim, was never true. Env maps, camera feeds and
-projected shadows are **no longer on that list** — they nest now. The HUD, 2D and
-every post effect still draw at full resolution, after the composite, which is
-the one property an upscaler must not spoil.
+unwritten but unallocated. **The build REFUSES the combination now**
+(`332f3193`): `blssClashes()` + `blssInterlock()` in `src/templates.cpp` put
+`#error` lines into the generated `inc/scene_data.hpp` naming the feature and the
+scene, and `generate()` prints the same on the host. Until then the editor's
+warning was the whole interlock, and this paragraph's and both docs' claim that
+"codegen does not emit them together" was simply false. Each condition mirrors
+what the generated game does — DoF per scene *and* the `Set Depth Of Field` flow
+node, portals only when **linked**, split view only with a **second `Player`
+object** — so it refuses nothing that would have worked; the preferences dialog
+asks the same four questions live. Env maps, camera feeds and projected shadows
+are **no longer on that list** — they nest now. The HUD, 2D and every post effect
+still draw at full resolution, after the composite, which is the one property an
+upscaler must not spoil.
+
+**Out-of-distribution numbers: use `tyrax-editor --blss-eval --cv`**
+(leave-one-shot-out cross-validation), never a plain `--blss-eval`'s held-out
+columns. A single split is a sample of size one, this feature quoted one five
+times, and the ±0.4 dB it blamed on the training seed was **which shot got held
+out** (per-seed fold-mean sd: 0.01 dB). The current answer is **+0.40 dB over
+plain bilinear**, 39 fold-runs, 5 of them below bilinear.
 
 ## Before you hand-edit a `.vclpp`: run it on the host first
 

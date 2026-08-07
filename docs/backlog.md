@@ -68,13 +68,17 @@ the verification, and any fact worth reusing belongs in the relevant
     patch failed GEQUAL - drawn, then discarded. `emitRasterRestore()` writes
     ZBUF explicitly and LAST.
 
-    **STILL OPEN: the PORTAL bracket was not converted.**
-    `RendererCorePostFx::portalMaskBegin/End` also run inside `renderScene()`
-    and still take FRAME from `gs->getCurrentFrameBuffer()` plus a display-sized
-    SCISSOR and XYOFFSET - the same bug, a fourth time. It does not gate the
-    feature, because portals are independently incompatible with BLSS (they want
-    real display-resolution depth), but converting them to `emitRasterRestore()`
-    is what would leave "portals are incompatible" a depth argument only.
+    **DONE: the PORTAL bracket was the fourth copy and is converted**
+    (332f3193). `RendererCorePostFx::portalMaskBegin/End` also run inside
+    `renderScene()` and took FRAME from `gs->getCurrentFrameBuffer()` plus a
+    display-sized SCISSOR and XYOFFSET - the same bug, a fourth time. Both read
+    `getRasterTarget()` and restore through `emitRasterRestore()` now, so there
+    is ONE implementation and this bracket finally carries the InterlacedField
+    per-field XYOFFSET bias; Begin re-narrows the scissor to the portal's bbox
+    after the restore, because the destination view must stay bounded. "Portals
+    are incompatible with BLSS" is a depth argument only now. Verified in PCSX2
+    on examples/portals with BLSS off, before vs after, same fixture and camera:
+    the same picture past frame 4000, no assert.
   - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BY ITS OWN MEASUREMENT: flicker
     in the ORACLE's objective.** This entry used to say "score a candidate over
     a PAIR of consecutive frames with a penalty on the difference". That was
@@ -89,10 +93,13 @@ the verification, and any fact worth reusing belongs in the relevant
     | held-out PSNR | 23.38 | 23.16 | 22.90 | 22.37 |
     | training flicker | 21.01 | 20.86 | 20.80 | 20.20 |
 
-    (bilinear: 23.26 dB, 23.41 flicker.) Every non-zero setting pays 0.2-1.0 dB
-    of OUT-OF-DISTRIBUTION quality for a few percent of flicker, and 0.02 upwards
-    already scores below plain bilinear. **The form is wrong, not just the
-    weight**: MSE against the reprojected history is minimised by the picture
+    (bilinear: 23.26 dB, 23.41 flicker.) **That sweep was read off ONE held-out
+    split and it overstated the price by an order of magnitude.** Re-measured
+    under cross-validation (13 shots, 21 fold-runs per point, decay 1e-4,
+    fill 16): flicker weight 0.02 costs **0.02 dB**, not 0.22 - and the per-fold
+    flicker column is identical to two decimal places with and without it. So the
+    term is not expensive; it simply **does not work**. **The form is wrong, not
+    just the weight**: MSE against the reprojected history is minimised by the picture
     FREEZING, which is free on the near-static training shots and is ghosting on
     the held-out orbit and dolly - it cannot tell "stable because the jitter got
     fused" from "stable because nothing moved". If this is picked up again, gate
@@ -119,35 +126,68 @@ the verification, and any fact worth reusing belongs in the relevant
     bobbing on a television is UNVERIFIED in both directions. That is a
     twenty-minute PCSX2 boot and it gates the feature.
   - **DONE: charge the oracle for the fill it asks for.** `--fill-weight`,
-    default 6, charged as a STEP on the quantised alpha byte (a weight rounding
+    now **16**, charged as a STEP on the quantised alpha byte (a weight rounding
     to alpha 1 costs a whole pass and buys nothing, so a smooth penalty would
     park there), mirroring the engine's own skip rule. `--blss-eval` gained the
     occupancy columns so the effect is visible in the tool rather than in one
-    report. Measured: sharpen occupancy 79% -> 28% training and 93% -> 14% held
-    out; mean full-screen passes 4.25 -> ~3.4 against a 5.00 worst case and 1.00
-    for plain bilinear; quality unchanged in distribution. The knee is sharp -
-    at fill 7.5 the network stops generalising, and at 12 it scores a full
-    decibel BELOW plain bilinear.
+    report. Measured: sharpen occupancy collapses to 14.9% training and 4.8%
+    held out; mean full-screen passes 4.25 -> ~2.9 against a 5.00 worst case and
+    1.00 for plain bilinear; quality unchanged in distribution.
+
+    **The "sharp knee at 6" was an artefact of the single split it was read off,
+    and there is no cliff.** Re-swept over 21 fold-runs per point: the margin
+    over bilinear runs +0.36 / +0.53 / +0.55 / +0.50 / +0.43 dB at fill
+    6 / 12 / 16 / 24 / 40, i.e. a **plateau from 12 to 24** across which the fill
+    falls by most of a pass. 16 ships. The old recommendation, 6, is the worst
+    point on the new sweep, and 12 - "a full decibel below plain bilinear" -
+    is +0.53. Set the fill weight and the weight decay TOGETHER: at decay 1e-5
+    the same corpus reads +0.36 at fill 6 and +0.33 at fill 12.
 
     **What this did NOT fix, and it is a live follow-up: point and temporal are
-    still drawn over most of the screen.** Measured on the shipped net, 59%/81%
-    of grid cells in distribution and **96%/99% out of it**, where the oracle
-    reaches better PSNR at 1.53-1.94 total passes against the network's
-    2.99-3.29. So roughly half the remaining fill is the network failing to
+    still drawn over most of the screen.** Measured on the shipped net, 80%/81%
+    of grid cells in distribution and **90%/91% out of it**, where the oracle
+    reaches better PSNR at 1.36-1.56 total passes against the network's
+    2.90-2.91. So roughly half the remaining fill is the network failing to
     generalise the cost model, not a floor - and the doc claim that "passes 2..5
     cover a minority of the screen" is true of the SHARPEN pass only. Occupancy
-    is also seed-sensitive (2.99-3.60 training, 3.29-4.27 held out over four
-    seeds) while PSNR barely moves, so it is not a number to put in a budget.
-  - **Held-out numbers in this feature are inside the seed noise, and every
-    write-up must say so.** The split is 2 shots out of 7 and held-out PSNR moves
-    +-0.4 dB on the seed alone. Re-running train+eval at four seeds: BLSS beats
-    bilinear out of distribution by +0.16, +0.26, **-0.23** and +0.22 dB, i.e. a
-    mean of **+0.10 dB and one loss in four**. The in-distribution win is the
-    solid one (+1.03 .. +1.15 over the same four). Two earlier write-ups quoted
-    "+0.18 dB" and "+0.24 dB" held-out from single runs; both were noise, and
-    both cost debugging time. Worth doing properly: make the seed spread part of
-    what `--blss-eval` reports, so the tool states its own error bar instead of
-    each report having to remember to.
+    is noisier than PSNR (sd 0.61 over 39 cross-validation fold-runs, with the
+    empty `flat` pan alone at 4.33 passes), so it is not a number to put in a
+    budget - size off the 5.00 worst case.
+  - **DONE, AND IT REVERSED THE HEADLINE: cross-validate instead of trusting one
+    split.** This entry used to read "held-out numbers are inside the SEED noise
+    and every write-up must say so - +-0.4 dB on the seed alone, mean +0.10 dB
+    and one loss in four". **The +-0.4 dB was not the seed.** `--blss-eval --cv`
+    is leave-one-shot-out cross-validation (`--cv-seeds N` independent corpora,
+    `--cv-folds N` to shorten it), and it separates the two sources of spread:
+    fold to fold the sd is **0.40 dB**, while the sd of the per-seed fold MEAN is
+    **0.01 dB**. A single held-out split was a sample of size one, and this
+    feature quoted one FIVE times.
+
+    The honest number is **+0.40 dB over plain bilinear** out of distribution
+    (13 shots x 3 seeds = 39 fold-runs, 5 below bilinear, 2.85 mean passes), or
+    **+0.23 dB** over the six shots that took no part in choosing the defaults.
+    So the careful-sounding retraction "about parity, ~+0.1 dB" UNDERSTATED the
+    feature. Two things had to be re-swept as a result: `kFillWeight`'s "sharp
+    knee at 6" does not exist (12..24 is a plateau; it ships at **16**), and
+    `--flicker-weight 0.02` costs **0.02 dB**, not the 0.22 the old split
+    reported - and moves the flicker column not at all, which is the real reason
+    it ships at zero. The corpus grew from 7 shots to **13** in the same pass,
+    with shots 0..6 rendering bit-identically so the before/after is a comparison.
+
+    The cleanest illustration, and worth keeping: at today's defaults the shipped
+    2-of-13 split reads **-0.02 dB** while the 13-fold mean reads **+0.40**,
+    because that split contains `corridor` - the one shot the net loses on.
+
+    **Still open from this item:** the network loses on `corridor` (-0.52 dB)
+    because `depth` is a clamped 1/w against `kDepthRef = 8` that spends the shot
+    pinned at 1.0, and `--blss-eval --features` says 58.8% of ALL corpus tiles
+    read it at exactly 1.0 (`depthGrad` 61.6%, `coverage` 71.7%). A saturated
+    feature is a feature the network does not have. A log or reciprocal mapping
+    is a `buildFeatures()` change on BOTH twins, i.e. a contract change. Also
+    measured and worth not repeating: **input standardisation fitted the training
+    shots better and generalised WORSE**, which is the shape of everything in
+    this feature - it is variance-limited, not optimisation-limited, and the
+    search went to regularisation instead (weight decay 1e-5 -> **1e-4**).
   - **DONE: shrink the z-buffer, and BLSS is now measurably VRAM-POSITIVE.**
     `RendererCoreGS::allocateVramBuffers` sizes z from
     `RendererSettings::getRasterWidthUI/HeightUI` instead of the display buffer:
@@ -197,8 +237,8 @@ the verification, and any fact worth reusing belongs in the relevant
     and the `kMinCoverage` sky fix have since taken the held-out row to ~23.4 dB
     with the *raw-area* feature, i.e. most of the gap that number described was
     two other bugs. What the UV span is now worth is **unmeasured against the
-    current baseline**, and given that held-out PSNR moves +-0.4 dB on the seed
-    alone, re-measuring it means a multi-seed run and not a single one. Beyond that, the editor could measure actual high-frequency energy
+    current baseline**, and re-measuring it means `--blss-eval --cv` and not a
+    single split. Beyond that, the editor could measure actual high-frequency energy
     per texture at bake time - a feature DLSS structurally cannot have, and the
     one place this design could beat it rather than imitate it.
   - **Unroll the temporal loop during label generation.** The oracle's labels
@@ -206,25 +246,36 @@ the verification, and any fact worth reusing belongs in the relevant
     depends on the previous frame's weights. `--blss-eval` already closes the
     loop for the *reported* numbers; closing it for the *labels* means either
     iterating training to a fixed point or a short BPTT window.
-  - **Depth of field, portals and split-screen are mutually exclusive with it,
-    and NOTHING BUT THE UI ENFORCES THAT.** All three want real GS depth at
-    display resolution, which since the z-buffer shrink is not merely unwritten
-    but unallocated. Two corrections to what this entry and the docs used to
-    say. **Codegen does not refuse the combination**: no path in
-    `src/templates.cpp` gates DoF, portals or split-screen on `blssEnabled`, so
-    "the generated game does not emit them together" - which appeared in
-    docs/neural-upscaler.md, docs/blss-reconstruction.md and the engine skill -
-    was always false; the *Neural upscaler (BLSS)* block of
-    `drawPreferencesModal` is the entire interlock, and it now names the reason
-    per feature. And two of the three fail for a second, independent reason:
-    portals cancel the raster redirect (see the nesting entry above), and split
-    frames are never bracketed at all - codegen wraps only the single-view
-    branch, so a split frame renders full-resolution with scene depth writes
-    still masked. DoF is the interesting one to actually fix: it would need an
+  - **DONE: depth of field, portals and split-screen are mutually exclusive
+    with it, and THE BUILD REFUSES THE PAIR** (332f3193). All three want real GS
+    depth at display resolution, which since the z-buffer shrink is not merely
+    unwritten but unallocated. For three commits nothing but the preferences
+    warning enforced that - no path in `src/templates.cpp` gated them on
+    `blssEnabled`, so "the generated game does not emit them together", which
+    appeared in docs/neural-upscaler.md, docs/blss-reconstruction.md and the
+    engine skill, was simply false, and a user who went past the warning got an
+    ELF that compiled, booted and drew the wrong picture. `blssClashes()` +
+    `blssInterlock()` now put `#error` lines into the generated
+    `inc/scene_data.hpp` naming the feature and the scene, so nothing that
+    produces an ELF gets past them; `generate()` prints the same on the host.
+    Refusing rather than auto-disabling, because a build that quietly measured a
+    different configuration than the project describes is the worst outcome for a
+    proof of concept whose point is being measured.
+
+    Each condition mirrors the generated game rather than the coarser question,
+    and **`App::drawPreferencesModal` was brought into line with all four**: DoF
+    per SCENE, quantised to 1/128 and gated on a non-zero focus; **the `Set Depth
+    Of Field` flow node**, which raises DoF at runtime in a project whose
+    authored amount is 0 everywhere and which the dialog missed entirely;
+    portals only when the target resolves to another Portal in the same scene;
+    split screen only when a scene has a **second Player object**
+    (PLAYER2_INDEXES), which the dialog used to ignore, warning about projects
+    that never render a split frame.
+
+    **Still open:** DoF is the interesting one to actually fix. It would need an
     upscaled depth buffer, which the GS cannot produce in a blend pass, so it
     probably means keeping a low-res depth *colour* target and re-deriving z - a
-    design, not a fix. Making codegen refuse (or auto-disable, loudly) instead of
-    trusting a warning is the cheap half.
+    design, not a fix.
   - **Close the UV-clamp parity gap.** The UV register's fields are 14 bits
     unsigned, so the engine clamps grid-corner UVs to >= 0 and the host, which
     evaluates `u(x)` analytically per pixel, does not need to. Across the first

@@ -77,11 +77,14 @@ guides. What is queued is in [Backlog](backlog.md).
   that tile wants: the sub-pixel `XYOFFSET` jitter, the features the EE can
   produce without ever reading the framebuffer back, the free full-resolution
   history hiding in the other display buffer, the host-side trainer
-  (`--blss-train` / `--blss-eval`), the three-term objective the oracle actually
-  minimises - accuracy, flicker and the fill the composite would cost - the
-  four times this feature learned that anything absent from that objective does
-  not exist for the network, and why shrinking the z buffer to the reduced raster
-  makes it leave MORE texture VRAM than not using it at all.
+  (`--blss-train` / `--blss-eval` / `--blss-eval --cv`), the three-term objective
+  the oracle actually minimises - accuracy, flicker and the fill the composite
+  would cost - the FIVE times this feature learned that anything absent from the
+  objective, or from the measurement, does not exist (the fifth is the most
+  transferable: every out-of-distribution decibel it ever quoted came from a
+  single held-out split, and cross-validating turned "statistically a draw" into
+  a real +0.40 dB), and why shrinking the z buffer to the reduced raster makes it
+  leave MORE texture VRAM than not using it at all.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why

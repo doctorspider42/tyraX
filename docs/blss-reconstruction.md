@@ -15,7 +15,9 @@ change to one side is a change to this page and to the other side.
 oracle and every fixed kernel it prints PSNR, flicker and **occupancy** — what
 fraction of grid cells each pass draws and the mean full-screen passes per frame.
 A parity break shows up as the trained net scoring below the oracle by more than
-the usual ~0.3 dB.
+the usual ~0.8–0.9 dB. (`--blss-eval --cv` is the *generalisation* measurement and
+a different question; for parity, the plain run is the one to watch, because the
+gap to the oracle is the quantity that moves when the twins drift.)
 
 **What is NOT part of this contract: the oracle's objective.** The three terms it
 minimises (accuracy, `--flicker-weight`, `--fill-weight`) live entirely in
@@ -327,29 +329,30 @@ count.
 **How much it actually culls, measured.** `--blss-eval` prints the fraction of
 grid cells each pass draws and the resulting mean full-screen passes per frame
 (1.00 = plain bilinear, 5.00 = every kernel everywhere), through that same
-four-corner rule rather than through the raw weights. On the shipped net, at 84
-corpus frames:
+four-corner rule rather than through the raw weights. On the shipped net, at 156
+corpus frames over 13 shots:
 
 | | point | temporal | sharpen | mean passes |
 |---|---|---|---|---|
-| trained net, training shots | 59.1 % | 81.3 % | 29.3 % | 2.99 |
-| trained net, held-out shots | 95.7 % | 98.6 % | 17.1 % | 3.29 |
-| oracle, training shots | 19.7 % | 53.9 % | 10.0 % | 1.94 |
-| oracle, held-out shots | 10.0 % | 39.9 % | 1.5 % | 1.53 |
+| trained net, training shots | 80.1 % | 81.3 % | 14.9 % | 2.91 |
+| trained net, held-out shots | 90.2 % | 90.6 % | 4.8 % | 2.90 |
+| oracle, training shots | 7.5 % | 43.4 % | 2.4 % | 1.56 |
+| oracle, held-out shots | 3.0 % | 32.7 % | 0.0 % | 1.36 |
 
 **An earlier draft of this section claimed "passes 2..5 typically cover a minority
 of the screen". That was aspirational and it was false when written** — with a
 fill-blind objective the held-out mean was **4.85 of a possible 5.00 passes**,
 i.e. every kernel over essentially the whole screen. It is true today of the
-**sharpen** pass only (100 % → 17.1 % held out). Point and temporal are still
-drawn over most of the screen, and out of distribution over nearly all of it; the
-oracle rows show that a better
-answer exists at half the fill, so this is the network failing to generalise the
-cost model rather than a floor. Occupancy is also **seed-sensitive**: re-training
-at four different `--seed` values spans 2.99–3.60 mean passes in distribution and
-3.29–4.27 out of it, nearly all of it in the sharpen channel. Treat the table as
-one measurement of a noisy quantity, re-run `--blss-eval` rather than quoting it,
-and size anything that has to be *correct* off the worst case.
+**sharpen** pass only (100 % → 4.8 % held out). Point and temporal are still
+drawn over most of the screen; the oracle rows show that a *better* answer exists
+at half the fill, so this is the network failing to generalise the cost model
+rather than a floor.
+
+Occupancy is **noisier than PSNR**: over 39 leave-one-shot-out fold-runs the mean
+is 2.85 passes with an sd of **0.61**, and one fold (`flat`, an empty untextured
+pan) reaches 4.33 on its own. Treat the table as one measurement of a noisy
+quantity, re-run `--blss-eval --cv` rather than quoting it, and size anything that
+has to be *correct* off the worst case.
 
 None of this is a *timing*. Occupancy counts grid cells; **no frame time has ever
 been measured for BLSS**, in PCSX2 or on hardware. Size the packet for the worst
@@ -382,17 +385,25 @@ case regardless — see the packet budget above.
   display resolution and are therefore incompatible with a raster-sized z — and
   since the shrink, that depth is not merely unwritten, it is not allocated.
   **This bullet used to end "the generated game does not emit them together with
-  BLSS", and that was never true.** Nothing in `src/templates.cpp` gates them on
-  `blssEnabled`; the editor's *Neural upscaler (BLSS)* block warns, and that is
-  the whole of the interlock. Two of the three have a second, independent
-  problem:
-  - **Portals** are the fourth copy of the raster-restore bug. `renderPortalView`
-    runs inside `renderScene()` and `RendererCorePostFx::portalMaskBegin/End`
-    still take `FRAME` from `gs->getCurrentFrameBuffer()` and write a
-    display-sized `SCISSOR` and `XYOFFSET` — i.e. they cancel the BLSS redirect
-    exactly the way the env map used to before it was converted to
-    `emitRasterRestore()`. Converting them fixes the redirect half and leaves the
-    depth half.
+  BLSS", and that was not true when it was written.** It is true now, and by a
+  different mechanism than the sentence implied: `blssClashes()` +
+  `blssInterlock()` in `src/templates.cpp` emit `#error` lines into
+  `inc/scene_data.hpp`, so the pair does not *build* rather than not being
+  emitted. The editor's *Neural upscaler (BLSS)* block warns about the same four
+  conditions live, and is now the early warning rather than the whole interlock.
+  One of the three had a second, independent problem and no longer does:
+  - **Portals** were the fourth copy of the raster-restore bug.
+    `renderPortalView` runs inside `renderScene()` and
+    `RendererCorePostFx::portalMaskBegin/End` took `FRAME` from
+    `gs->getCurrentFrameBuffer()` and wrote a display-sized `SCISSOR` and
+    `XYOFFSET` — i.e. they cancelled the BLSS redirect exactly the way the env
+    map used to before it was converted. **Converted in `332f3193`**: both read
+    `getRasterTarget()` and restore through `emitRasterRestore()`, so there is
+    one implementation and not two, and this bracket now carries the
+    `InterlacedField` per-field `XYOFFSET` bias (`getFieldYOffset16`) it never
+    had. `Begin` re-narrows the scissor to the portal's bbox after the restore;
+    `End` lets it go. The depth half is untouched, so portals and BLSS are still
+    refused together.
   - **Split view** is never bracketed: codegen wraps only the single-view branch,
     so a split frame renders at full resolution with scene depth writes still
     masked.

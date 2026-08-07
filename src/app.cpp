@@ -13562,10 +13562,17 @@ void App::drawPreferencesModal() {
     // node. Off by default and honest about the trade in every tooltip.
     ImGui::SeparatorText("Neural upscaler (BLSS)");
     // What it cannot be combined with, checked against the STAGED settings for
-    // the project-wide half and the live scenes for the per-scene overrides.
-    // Said next to the checkbox rather than left for the build to discover -
-    // NOTHING in codegen refuses the combination, this warning is the whole
-    // interlock (docs/neural-upscaler.md, Limitations).
+    // the project-wide half and the live scenes for the per-scene half.
+    //
+    // THESE ARE THE BUILD'S OWN CONDITIONS. blssClashes() in src/templates.cpp
+    // emits a #error into inc/scene_data.hpp for each of them, so the build
+    // REFUSES the combination now - this dialog is no longer the interlock, it
+    // is the early warning that stops someone reaching a refused build. The two
+    // must therefore answer alike: a dialog that is quieter than the build lets
+    // a user walk into a wall of #error, and one that is louder cries wolf on a
+    // project that would have built. Mirrored rather than shared because
+    // blssClashes() reads a saved Project and this has to answer for the STAGED
+    // settings while the modal is open; if you edit one, edit the other.
     //
     // The list is SHORTER than it was when this block was written. Env maps,
     // camera feeds and projected shadows used to restore the display buffer
@@ -13574,19 +13581,71 @@ void App::drawPreferencesModal() {
     // correctly, so they are not warned about and must not be. What is left is
     // the three features that want real GS depth at DISPLAY resolution, which
     // the engine does not even allocate any more - the z buffer follows the
-    // reduced raster. Two of them fail a second way as well, and the warning
-    // says which, because "it will be wrong" sends nobody anywhere useful.
-    const bool blssSplit = prefSettings_.multiplayer == "split";
-    bool blssDof = prefSettings_.dofAmount > 0.0f;
+    // reduced raster. Split screen fails a second way as well (its frame is
+    // never bracketed at all), and the warning says which, because "it will be
+    // wrong" sends nobody anywhere useful.
+    //
+    // Every condition is the one the GENERATED GAME takes, not the coarser
+    // question "does this project mention the feature at all":
+    //   - depth of field per SCENE (a scene can override the whole post-fx
+    //     group), quantised the way POSTFX_DOFS is and gated on a non-zero
+    //     focus distance, because applyPostFx runs the pass only for
+    //     `dof > 0 && dofFocus > 0`;
+    //   - ...AND the Set Depth Of Field flow node, which raises it at RUNTIME in
+    //     a project whose authored amount is 0 everywhere. This warning missed
+    //     that for as long as it existed, which is a broken picture with nothing
+    //     said about it;
+    //   - a portal only when its target resolves to another Portal in the same
+    //     scene: renderPortalView skips target < 0, so an unlinked portal is a
+    //     tinted surface and no clash;
+    //   - split screen only when the preference AND a scene with a second Player
+    //     object, which is what PLAYER2_INDEXES gates the split branch on. A
+    //     project set to split with no player two anywhere never renders a split
+    //     frame, and this used to warn about it anyway.
+    //
+    // POSTFX_DOFS stores the amount in 1/128ths, so an amount under 1/128 is
+    // depth of field that never draws.
+    auto blssDofActive = [](float amount, float focus) {
+        return (int)(amount * 128.0f + 0.5f) > 0 && focus > 0.0f;
+    };
+    const bool blssSplitPref = prefSettings_.multiplayer == "split";
+    bool blssDof = false;      // an authored amount, project-wide or per scene
+    bool blssDofNode = false;  // ...or a Set Depth Of Field node that turns it on
     bool blssPortals = false;
+    bool blssSplit = false;
     if (hasProject_) {
         for (const SceneData& sc : project_.scenes) {
-            // The scene's own resolved DoF (a scene may override the postfx
-            // group, so the project-wide value above is not the whole answer).
-            if (project::resolvedSettings(project_, sc).dofAmount > 0.0f)
-                blssDof = true;
-            for (const SceneObject& o : sc.objects)
-                if (o.type == PrimitiveType::Portal) blssPortals = true;
+            // project::resolvedSettings()' post-fx branch, against the STAGED
+            // project settings: dofAmount/dofFocus come from the scene only
+            // when it overrides that group, and nothing else in that function -
+            // the ambience preset overlay included - touches either field.
+            const ProjectSettings& fx =
+                sc.overrides.postFx ? sc.settings : prefSettings_;
+            if (blssDofActive(fx.dofAmount, fx.dofFocus)) blssDof = true;
+            int players = 0;
+            for (const SceneObject& o : sc.objects) {
+                if (o.type == PrimitiveType::Player) ++players;
+                if (o.type == PrimitiveType::Portal && !o.portalTarget.empty())
+                    for (const SceneObject& t : sc.objects)
+                        if (&t != &o && t.type == PrimitiveType::Portal &&
+                            t.name == o.portalTarget)
+                            blssPortals = true;
+                // Mode 1 turns depth of field off and mode 2 restores the
+                // scene's authored value (which the loop above already caught
+                // when it is non-zero), so only mode 0 sets its own. The amount
+                // is a literal in the emitted code - nothing can wire it - but a
+                // wired POSITION replaces Focus with the live player-to-point
+                // distance, which is > 0.
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    if (n.type != "SetDof" || (int)n.num[3] != 0) continue;
+                    bool posWired = false;
+                    for (const FlowLink& l : o.flowGraph.links)
+                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                    if (blssDofActive(n.num[2], posWired ? 1.0f : n.num[0]))
+                        blssDofNode = true;
+                }
+            }
+            if (blssSplitPref && players >= 2) blssSplit = true;
         }
     }
     ImGui::Checkbox("Reconstruct from a reduced-resolution render",
@@ -13599,13 +13658,16 @@ void App::drawPreferencesModal() {
         "the menus, the text and every post effect still draw at FULL\n"
         "resolution, so 2D stays crisp.\n"
         "\n"
-        "PROOF OF CONCEPT, and worth knowing BEFORE you turn it on: on shots\n"
-        "it was not trained on it measures about level with a plain bilinear\n"
-        "upscale - about +0.1 dB averaged over four training seeds, and one\n"
-        "of those four scored BELOW bilinear. The win on the training corpus\n"
-        "(+1.1 dB over the best fixed kernel) is the solid one. No BLSS frame\n"
-        "has ever been TIMED, in the emulator or on hardware, so whether it\n"
-        "is faster on your scene is genuinely unknown.\n"
+        "PROOF OF CONCEPT, and worth knowing BEFORE you turn it on. On content\n"
+        "it was NOT trained on it beats a plain bilinear upscale by +0.40 dB -\n"
+        "leave-one-shot-out cross-validation, 13 shots x 3 seeds = 39 fold-runs,\n"
+        "sd 0.40, and 5 of those 39 still came out below bilinear. Over the six\n"
+        "shots that took no part in choosing the defaults it is +0.23 dB. It\n"
+        "is a real win and a modest one, and it is not uniform: on an indoor\n"
+        "corridor it LOSES half a decibel. No BLSS frame has ever been TIMED,\n"
+        "in the emulator or on hardware, so whether it is faster on your scene\n"
+        "is genuinely unknown, and nobody has watched the picture in PCSX2\n"
+        "since the training objective last changed.\n"
         "\n"
         "VRAM it gives back: the z-buffer shrinks with the render, which\n"
         "returns more than the reduced-resolution target costs (measured at\n"
@@ -13616,40 +13678,53 @@ void App::drawPreferencesModal() {
         "\n"
         "Reflections, camera feeds and projected shadows work with it - they\n"
         "used to switch it off in the middle of the frame. Depth of field,\n"
-        "portals and split-screen do not, and nothing in the build refuses\n"
-        "the combination: the warning below is the only guard.\n"
+        "portals and split-screen do not, and the BUILD REFUSES the pair: the\n"
+        "generated scene_data.hpp carries an #error naming the feature and the\n"
+        "scene it is in. The warning below is the same check, live.\n"
         "\n"
         "Train the network with 'tyrax-editor --blss-train' in the project\n"
-        "directory, then check it with '--blss-eval'; without a blss.net the\n"
-        "game is built with random weights and says so in its boot log.");
+        "directory, then check it with '--blss-eval --cv' - plain '--blss-eval'\n"
+        "holds out one fixed split, which is a sample of size one. Without a\n"
+        "blss.net the game is built with random weights and says so in its\n"
+        "boot log.");
     if (prefSettings_.blssEnabled) {
         ImGui::TextColored(
             ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-            "    Proof of concept. On content it was not trained on it measures\n"
-            "    about level with a plain bilinear upscale (+0.1 dB averaged over\n"
-            "    four training seeds; one of the four came out below bilinear),\n"
-            "    and no frame of it has ever been timed on console or hardware.\n"
-            "    Run 'tyrax-editor --blss-eval' and look at the result in PCSX2\n"
-            "    before you ship a game with this on.");
+            "    Proof of concept. On content it was not trained on it beats a\n"
+            "    plain bilinear upscale by +0.40 dB (13-shot cross-validation,\n"
+            "    39 fold-runs, sd 0.40; 5 of the 39 came out below bilinear),\n"
+            "    but no frame of it has ever been timed on console or hardware.\n"
+            "    Run 'tyrax-editor --blss-eval --cv' and look at the result in\n"
+            "    PCSX2 before you ship a game with this on.");
     }
-    if (prefSettings_.blssEnabled && (blssDof || blssPortals || blssSplit)) {
+    if (prefSettings_.blssEnabled &&
+        (blssDof || blssDofNode || blssPortals || blssSplit)) {
         const ImVec4 warn(1.0f, 0.6f, 0.2f, 1.0f);
         ImGui::TextColored(warn,
                            "    Cannot be combined with what this project uses,\n"
-                           "    and the build will NOT stop you:");
-        if (blssDof)
+                           "    and the BUILD WILL REFUSE IT:");
+        if (blssDof || blssDofNode)
             ImGui::TextColored(
                 warn,
                 "      - Depth of field composites its blur through the GS depth\n"
                 "        test at display resolution, and with this on the depth\n"
                 "        buffer is only as big as the reduced render.");
+        if (blssDofNode)
+            ImGui::TextColored(
+                warn,
+                blssDof ? "          ...and a Set Depth Of Field flow node turns it\n"
+                          "          on at runtime as well: set that node's Mode to\n"
+                          "          Off, or delete it."
+                        : "          The authored amount is 0, but a Set Depth Of\n"
+                          "          Field flow node turns it ON at runtime. Set\n"
+                          "          that node's Mode to Off, or delete it.");
         if (blssPortals)
             ImGui::TextColored(
                 warn,
-                "      - Portals want that same display-resolution depth, and\n"
-                "        their through-view points the raster back at the display\n"
-                "        buffer mid-scene, which cancels the reduction for the\n"
-                "        rest of the frame.");
+                "      - Portals want that same display-resolution depth, and a\n"
+                "        through-view carves its opening from inside the scene\n"
+                "        pass with a display-sized raster window. Only a LINKED\n"
+                "        pair renders one, so unlinking is a fix too.");
         if (blssSplit)
             ImGui::TextColored(
                 warn,
@@ -13657,7 +13732,8 @@ void App::drawPreferencesModal() {
                 "        single-view path is), and scene depth writes are masked\n"
                 "        outside the reduced pass - so both halves would render\n"
                 "        full-resolution with no working depth buffer.");
-        ImGui::TextColored(warn, "    Leave one of the two off.");
+        ImGui::TextColored(warn,
+                           "    Turn one of the two off; either side resolves it.");
     }
     ImGui::BeginDisabled(!prefSettings_.blssEnabled);
     {
