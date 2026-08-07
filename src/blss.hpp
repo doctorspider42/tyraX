@@ -101,6 +101,91 @@ constexpr float kDepthRef = 8.0f;
 // 115 is ~0.9 retention, about a 10-frame constant. Twinned with the engine.
 constexpr float kTemporalMax = 115.0f;
 
+// How hard the oracle is penalised for a frame that differs from the previous
+// one, relative to how hard it is penalised for differing from the truth.
+//
+// This exists because "measured is not optimised" cost this feature three
+// rounds of debugging. Flicker was reported by --blss-eval and still absent
+// from the objective, so asking for history was free in the labels and the
+// network never learned to fuse the jitter - the picture oscillated on a
+// television while every number looked good. The penalty is the difference
+// between the output and the REPROJECTED history, which the composite has
+// already sampled, so it costs nothing to evaluate.
+//
+// 0 reproduces the old PSNR-only objective; raise it and the oracle buys
+// stability with sharpness. Check BOTH columns of --blss-eval after changing it.
+//
+// IT IS 0 AFTER MEASURING, AND THAT IS NOT THE SAME AS DELETING IT. Swept
+// jointly against kFillWeight below, 84 frames, 600 epochs, 3-6 training seeds
+// per point (held-out PSNR moves +-0.4 dB with the seed alone, so one run
+// decides nothing), at fill 6:
+//
+//   flicker weight   0.00    0.02    0.05    0.15
+//   held-out PSNR   23.38   23.16   22.90   22.37     (bilinear 23.26)
+//   training flick  21.01   20.86   20.80   20.20     (bilinear 23.41)
+//
+// so every non-zero setting pays 0.2 .. 1.0 dB of OUT-OF-DISTRIBUTION quality
+// for a few percent of flicker, and 0.02 upwards already scores below plain
+// bilinear on the held-out shots. The reason is visible in the split: the
+// penalty is MSE against the reprojected history, which is minimised by
+// out == history, i.e. by FREEZING - free on the near-static training shots,
+// ghosting on the held-out orbit and dolly. It does not distinguish "stable
+// because the jitter got fused" from "stable because nothing moved".
+//
+// What replaced it is the fill term: charging for kernels culls the point and
+// sharpen passes, which are exactly the two that alternate with the jitter, so
+// stability now comes out of the cost model for free (flicker 21.49 -> 21.01
+// training, 27.12 -> 26.62 held-out, at fill 0 -> 6 with this weight at zero).
+// If the console still oscillates, `--flicker-weight` is the knob and the
+// numbers above are its price - but fix the FORM first: gate the penalty on
+// reprojection confidence so it cannot be paid by freezing.
+constexpr float kFlickerWeight = 0.0f;
+
+// What one full-screen composite pass costs the oracle, in the same units as
+// the error it is trading against: mean squared 8-bit level over the region.
+//
+// This is the SAME mistake as the flicker one, a level further up. The whole
+// performance story of BLSS is sparsity - passes 2..5 are emitted per grid cell
+// and a cell whose alpha byte rounds to zero is skipped - but nothing in the
+// objective ever charged for a kernel, so the oracle asked for every kernel
+// everywhere (blssDebugView showed the temporal channel saturated across the
+// whole frame, sky included) and the composite degenerated to five full-screen
+// passes. Anything absent from the objective does not exist for the network.
+//
+// The charge is a STEP ON THE QUANTISED ALPHA BYTE, not a smooth function of
+// the weight, because the byte is what the engine's skip test reads: a weight
+// that rounds to alpha 1 costs exactly as much fill as a weight of 1.0. A
+// smooth penalty would leave the oracle sitting at a weight that pays for a
+// whole pass and buys nothing.
+//
+// Scale: an all-kernels-everywhere frame costs 4 * kFillWeight (point +
+// temporal + the TWO sharpen passes), against a whole-corpus MSE of ~70 at the
+// PSNR the trained net reaches. 0 reproduces the old fill-blind objective.
+// Check the occupancy columns of --blss-eval after changing it.
+//
+// 6 is the knee of the sweep (84 frames, 600 epochs, 3-6 seeds per point,
+// flicker weight 0), and the knee is sharp:
+//
+//   fill weight        0      2      4      6     7.5     9     12     24
+//   held-out PSNR   23.26  23.44  23.44  23.38  22.85  22.69  22.45  22.86
+//   mean passes      4.25   3.99   3.84   3.39   3.29   2.81   2.58   2.43
+//
+// Up to 6 the quality is flat and the fill comes down; past it the network
+// stops generalising - 7.5 costs half a decibel out of distribution and buys a
+// tenth of a pass, and 12 is a full decibel BELOW plain bilinear. (Bilinear is
+// 23.26 dB at exactly 1.00 passes, and the worst case is 5.00.)
+constexpr float kFillWeight = 6.0f;
+
+// The oracle's objective in one struct, because a term that is not in here is a
+// term the network is structurally unable to learn - which is the bug this
+// feature shipped three times. `--blss-train` / `--blss-eval` take
+// `--flicker-weight` and `--fill-weight` so the two can be swept jointly
+// without a rebuild; the defaults are the swept-and-chosen configuration.
+struct Objective {
+    float flicker = kFlickerWeight;  // vs the reprojected history: stability
+    float fill = kFillWeight;        // per full-screen pass drawn: cost
+};
+
 // A tile with no geometry has nothing to reconstruct: whatever the network says
 // about it is unsupervised noise, because the oracle's importance weighting
 // gives "tiles where every kernel is identical" no vote during training. Both
@@ -298,6 +383,24 @@ void composite(const Frame&, const WeightField&, float sharpen, Image& out);
 enum class Kernel { Point, Bilinear, Temporal, Sharpen };
 void kernelOnly(const Frame&, Kernel, float sharpen, Image& out);
 
+// HOW MUCH OF THE SCREEN EACH PASS ACTUALLY COVERS - the direct read-out of
+// whether sparsity works, and the reason --blss-eval prints it next to PSNR.
+//
+// Measured through the ENGINE's own skip rule, not through the weights: a grid
+// cell is drawn when ANY of its four corner alpha bytes is non-zero
+// (`emitGrid` in renderer_core_blss.cpp breaks the strip otherwise), so a
+// single tile asking for a kernel lights up the nine cells that touch its
+// corners. That bleed is real fill and the number has to show it.
+struct Occupancy {
+    float point = 0;     // fraction of grid cells drawing pass 2
+    float temporal = 0;  // ... pass 3
+    float sharpen = 0;   // ... passes 4 AND 5
+    // Mean full-screen passes per frame, base included:
+    // 1 + point + temporal + 2*sharpen. 1 is bilinear, 5 is the worst case.
+    float passes = 0;
+};
+Occupancy occupancy(const WeightField&, float sharpen);
+
 // ------------------------------------------------------------------ oracle ---
 
 // Per tile, the (wA, wC, wD) that minimise MSE against `truth` under
@@ -308,8 +411,14 @@ void kernelOnly(const Frame&, Kernel, float sharpen, Image& out);
 // that tile: MSE(worst weights) - MSE(best). Tiles where every kernel is
 // equally good get a near-zero value and are down-weighted during training, so
 // the net spends its 147 weights on the tiles that actually differ.
+//
+// The score is NOT plain MSE - see Objective: it is MSE against the truth, plus
+// a flicker penalty against the reprojected history, plus the fill the
+// candidate would cost the GS. All three, because the network only ever learns
+// what the labels were scored on.
 WeightField oracle(const Frame&, const Image& truth, float sharpen,
-                   std::vector<float>* importance = nullptr);
+                   std::vector<float>* importance = nullptr,
+                   const Objective& obj = Objective{});
 
 // ----------------------------------------------------------------- trainer ---
 

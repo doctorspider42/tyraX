@@ -617,7 +617,77 @@ inline void alphaBytes(const float w[kOutputs], float sharpen, int& aA, int& aC,
     aD = static_cast<int>(clamp01(w[2]) * clamp01(sharpen) * 128.0f);
 }
 
+// WHICH PASSES ONE GRID CELL MAKES THE GS DRAW.
+//
+// This is the engine's skip rule, mirrored: `emitGrid` walks the cells of a row
+// and breaks the triangle strip at any cell whose four corner alpha bytes are
+// ALL zero, so a cell is drawn as soon as one corner is non-zero. Passes 4 and
+// 5 are the two halves of the same unsharp mask and are drawn together, so
+// sharpen costs twice what point or temporal do. Pass 1 is the opaque base -
+// always drawn, and therefore free to any decision.
+//
+// The corner ALPHA BYTE is the test, not the weight. Truncation to a byte is
+// what the hardware does and it is a step: at sharpen 0.5 a corner weight of
+// 0.008 rounds to alpha 0 and costs nothing, 0.016 rounds to 1 and costs two
+// whole passes for a change no one can see. An objective that penalised the
+// weight smoothly would happily park there.
+enum CellDrawn { kDrawPoint = 1, kDrawTemporal = 2, kDrawSharpen = 4 };
+
+inline int cellDrawn(const float* c00, const float* c01, const float* c10, const float* c11,
+                     float sharpen) {
+    int anyA = 0, anyC = 0, anyD = 0;
+    for (const float* c : {c00, c01, c10, c11}) {
+        int aA, aC, aD;
+        alphaBytes(c, sharpen, aA, aC, aD);
+        anyA |= aA;
+        anyC |= aC;
+        anyD |= aD;
+    }
+    return (anyA ? kDrawPoint : 0) | (anyC ? kDrawTemporal : 0) | (anyD ? kDrawSharpen : 0);
+}
+
+// What that cell costs, in full-screen-cell draws: sharpen counts TWICE because
+// passes 4 and 5 are the two halves of one unsharp mask and are always drawn
+// together. 0 = the cell is skipped entirely and only the opaque base covers it.
+inline int cellCost(int drawn) {
+    return ((drawn & kDrawPoint) ? 1 : 0) + ((drawn & kDrawTemporal) ? 1 : 0) +
+           ((drawn & kDrawSharpen) ? 2 : 0);
+}
+
 }  // namespace
+
+Occupancy occupancy(const WeightField& wf, float sharpen) {
+    Occupancy occ;
+    if (wf.cols <= 0 || wf.rows <= 0) return occ;
+    // The grid's cells are the tiles; a cell's corners are the corner-averaged
+    // weights the runtime ships as vertex alpha.
+    std::vector<std::array<float, kOutputs>> cc(
+        static_cast<size_t>(wf.cols + 1) * (wf.rows + 1));
+    for (int j = 0; j <= wf.rows; ++j)
+        for (int i = 0; i <= wf.cols; ++i)
+            cornerOf(wf, i, j, cc[static_cast<size_t>(j) * (wf.cols + 1) + i].data());
+
+    const int stride = wf.cols + 1;
+    long nA = 0, nC = 0, nD = 0;
+    for (int cy = 0; cy < wf.rows; ++cy)
+        for (int cx = 0; cx < wf.cols; ++cx) {
+            const size_t k = static_cast<size_t>(cy) * stride + cx;
+            const float* c00 = cc[k].data();
+            const float* c01 = cc[k + stride].data();
+            const float* c10 = cc[k + 1].data();
+            const float* c11 = cc[k + stride + 1].data();
+            const int drawn = cellDrawn(c00, c01, c10, c11, sharpen);
+            nA += (drawn & kDrawPoint) ? 1 : 0;
+            nC += (drawn & kDrawTemporal) ? 1 : 0;
+            nD += (drawn & kDrawSharpen) ? 1 : 0;
+        }
+    const float cells = static_cast<float>(wf.cols) * wf.rows;
+    occ.point = static_cast<float>(nA) / cells;
+    occ.temporal = static_cast<float>(nC) / cells;
+    occ.sharpen = static_cast<float>(nD) / cells;
+    occ.passes = 1.0f + occ.point + occ.temporal + 2.0f * occ.sharpen;
+    return occ;
+}
 
 void composite(const Frame& fr, const WeightField& wf, float sharpen, Image& out) {
     out.resize(fr.outW, fr.outH);
@@ -655,7 +725,7 @@ void kernelOnly(const Frame& fr, Kernel k, float sharpen, Image& out) {
 // ------------------------------------------------------------------ oracle ---
 
 WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
-                   std::vector<float>* importance) {
+                   std::vector<float>* importance, const Objective& obj) {
     const int cols = fr.cols, rows = fr.rows;
     WeightField wf;
     wf.resize(cols, rows);
@@ -690,7 +760,10 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
 
         const int x0 = cx0 * kTile, x1 = std::min((cx1 + 1) * kTile, fr.outW);
         const int y0 = cy0 * kTile, y1 = std::min((cy1 + 1) * kTile, fr.outH);
-        double se = 0.0;
+        double se = 0.0, seH = 0.0;
+        // The flicker term ships at weight 0 (see kFlickerWeight); hoisting the
+        // test keeps its samples out of the oracle's innermost loop.
+        const bool wantFlicker = obj.flicker > 0.0f;
         long n = 0;
         for (int sy = (y0 + kStep - 1) / kStep; sy * kStep < y1; ++sy)
             for (int sx = (x0 + kStep - 1) / kStep; sx * kStep < x1; ++sx) {
@@ -707,16 +780,47 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
                                   gx - i, gy - j, w);
                 int aA, aC, aD;
                 alphaBytes(w, sharpen, aA, aC, aD);
+                const Taps& tp = taps[static_cast<size_t>(sy) * sw + sx];
                 int rgb[3];
-                blend(taps[static_cast<size_t>(sy) * sw + sx], aA, aC, aD, rgb);
+                blend(tp, aA, aC, aD, rgb);
                 const uint8_t* t = truth.at(x, y);
                 for (int c = 0; c < 3; ++c) {
                     const double d = static_cast<double>(rgb[c]) - t[c];
                     se += d * d;
+                    // The flicker term: how far this pixel lands from where the
+                    // PREVIOUS frame put the same content. `tp.hist` is the
+                    // reprojected history the composite already sampled, so
+                    // camera motion is not penalised - only instability is.
+                    if (wantFlicker) {
+                        const double dh = static_cast<double>(rgb[c]) - tp.hist[c];
+                        seH += dh * dh;
+                    }
                 }
                 n += 3;
             }
-        return n ? se / n : 0.0;
+
+        // THE FILL TERM. Every cell of the region is charged for the passes it
+        // would make the GS draw, under the engine's own "any corner alpha
+        // non-zero" rule - which is why the region is exactly the 3x3 the
+        // caller sweeps: a tile's weight reaches the four corners it owns, and
+        // those corners reach the nine cells around it, so this region contains
+        // the WHOLE cost consequence of changing this tile and nothing else.
+        //
+        // Normalised per cell so it has the same units and the same magnitude
+        // whether the region is 3x3 or clipped to 2x2 at the frame edge, and so
+        // that `obj.fill` reads as "MSE per full-screen pass".
+        double fill = 0.0;
+        for (int j = 0; j + 1 < cny; ++j)
+            for (int i = 0; i + 1 < cnx; ++i)
+                fill += cellCost(cellDrawn(cc[static_cast<size_t>(j) * cnx + i].data(),
+                                           cc[static_cast<size_t>(j + 1) * cnx + i].data(),
+                                           cc[static_cast<size_t>(j) * cnx + i + 1].data(),
+                                           cc[static_cast<size_t>(j + 1) * cnx + i + 1].data(),
+                                           sharpen));
+        const double cells = static_cast<double>(cnx - 1) * (cny - 1);
+        const double fillTerm = cells > 0 ? obj.fill * fill / cells : 0.0;
+
+        return n ? (se + obj.flicker * seH) / n + fillTerm : fillTerm;
     };
 
     // Coordinate descent over tiles, each candidate scored on its 3x3
@@ -868,6 +972,11 @@ struct CliOpts {
     Scale scale = Scale::X2Y2;
     float sharpen = 0.5f;
     uint32_t seed = 0xB1557u;
+    // What the oracle is actually asked to minimise. Overridable because the
+    // two weights are a JOINT trade (stability against sharpness against fill)
+    // and the only honest way to set them is to sweep the pair and read all
+    // three columns - which a rebuild per point makes miserable.
+    Objective obj;
 };
 
 CliOpts parseCli(int argc, char** argv) {
@@ -884,6 +993,10 @@ CliOpts parseCli(int argc, char** argv) {
         else if (a == "--frames") o.frames = std::atoi(next("48").c_str());
         else if (a == "--epochs") o.epochs = std::atoi(next("400").c_str());
         else if (a == "--sharpen") o.sharpen = static_cast<float>(std::atof(next("0.5").c_str()));
+        else if (a == "--flicker-weight")
+            o.obj.flicker = static_cast<float>(std::atof(next("0.15").c_str()));
+        else if (a == "--fill-weight")
+            o.obj.fill = static_cast<float>(std::atof(next("6").c_str()));
         else if (a == "--seed") o.seed = static_cast<uint32_t>(std::strtoul(next("0").c_str(), nullptr, 0));
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
@@ -952,9 +1065,10 @@ using Method = std::function<WeightField(const Frame&, const Image& truth)>;
 double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool wantHeldOut,
                      float sharpen, const Method& weights, const std::string& dumpDir,
                      const char* dumpName, std::vector<double>* perShot,
-                     double* flicker) {
+                     double* flicker, Occupancy* occ = nullptr) {
     double sum = 0.0;
     int n = 0;
+    double occA = 0.0, occC = 0.0, occD = 0.0;
     std::vector<double> shotSum(shotCount, 0.0);
     std::vector<int> shotN(shotCount, 0);
     Image prevOut, out;
@@ -965,7 +1079,17 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
         if (isHeldOut(cf.shot, shotCount) != wantHeldOut) continue;
         Frame fr = cf.frame;
         fr.history = (cf.shot == prevShot && prevOut.w == fr.outW) ? &prevOut : nullptr;
-        composite(fr, weights(fr, cf.truth), sharpen, out);
+        const WeightField wf = weights(fr, cf.truth);
+        // OCCUPANCY: how much of the screen this method's weights actually make
+        // the GS draw. It belongs next to PSNR for the same reason flicker does
+        // - the whole performance case for BLSS is that passes 2..5 cover a
+        // minority of the frame, and until this was printed the network was
+        // quietly asking for all of them everywhere.
+        const Occupancy fo = occupancy(wf, sharpen);
+        occA += fo.point;
+        occC += fo.temporal;
+        occD += fo.sharpen;
+        composite(fr, wf, sharpen, out);
         const double p = psnr(out, cf.truth);
         sum += p;
         ++n;
@@ -1004,6 +1128,13 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
             (*perShot)[s] = shotN[s] ? shotSum[s] / shotN[s] : 0.0;
     }
     if (flicker) *flicker = flickN ? flickSum / flickN : 0.0;
+    if (occ) {
+        const double inv = n ? 1.0 / n : 0.0;
+        occ->point = static_cast<float>(occA * inv);
+        occ->temporal = static_cast<float>(occC * inv);
+        occ->sharpen = static_cast<float>(occD * inv);
+        occ->passes = 1.0f + occ->point + occ->temporal + 2.0f * occ->sharpen;
+    }
     return n ? sum / n : 0.0;
 }
 
@@ -1043,7 +1174,7 @@ int trainMain(int argc, char** argv) {
     for (const CorpusFrame& cf : corpus) {
         if (isHeldOut(cf.shot, shots)) continue;
         std::vector<float> imp;
-        const WeightField wf = oracle(cf.frame, cf.truth, o.sharpen, &imp);
+        const WeightField wf = oracle(cf.frame, cf.truth, o.sharpen, &imp, o.obj);
         for (size_t k = 0; k < wf.tile.size(); ++k) {
             Sample s;
             s.f = cf.frame.features[k];
@@ -1063,7 +1194,8 @@ int trainMain(int argc, char** argv) {
     if (impMean > 0.0f)
         for (Sample& s : samples) s.importance /= impMean;
 
-    std::printf("blss: training on %zu tiles from %d shots\n", samples.size(), shots - 2);
+    std::printf("blss: training on %zu tiles from %d shots (objective: flicker %.3f, fill %.2f)\n",
+                samples.size(), shots - 2, o.obj.flicker, o.obj.fill);
     TrainConfig tc;
     tc.epochs = o.epochs;
     tc.seed = o.seed;
@@ -1108,7 +1240,9 @@ int evalMain(int argc, char** argv) {
         {"BLSS (trained)", [&net](const Frame& fr, const Image&) { return netField(net, fr); },
          "net"},
         {"oracle (upper bound)",
-         [&o](const Frame& fr, const Image& truth) { return oracle(fr, truth, o.sharpen, nullptr); },
+         [&o](const Frame& fr, const Image& truth) {
+             return oracle(fr, truth, o.sharpen, nullptr, o.obj);
+         },
          "oracle"},
     };
 
@@ -1169,23 +1303,32 @@ int evalMain(int argc, char** argv) {
             }
         if (!frames) continue;
 
-        std::printf("\n  %s shots %s- %d frame(s), PSNR vs supersampled truth\n",
-                    heldOut ? "HELD-OUT" : "training", "", frames);
-        std::printf("  %-22s %9s %8s ", "", "overall", "flicker");
+        std::printf("\n  %s shots %s- %d frame(s), PSNR vs supersampled truth"
+                    " (oracle objective: flicker %.3f, fill %.2f)\n",
+                    heldOut ? "HELD-OUT" : "training", "", frames, o.obj.flicker, o.obj.fill);
+        // point/temp/sharp are the fraction of grid CELLS each pass draws, and
+        // `passes` the mean full-screen passes per frame including the base -
+        // 1.00 is plain bilinear, 5.00 is every kernel everywhere.
+        std::printf("  %-22s %9s %8s %7s %7s %7s %7s ", "", "overall", "flicker", "point",
+                    "temp", "sharp", "passes");
         for (int s : ids) std::printf("  shot%-2d", s);
-        std::printf("\n  %s\n", std::string(24 + 19 + ids.size() * 8, '-').c_str());
+        std::printf("\n  %s\n", std::string(24 + 19 + 32 + ids.size() * 8, '-').c_str());
 
         std::vector<double> ps;
         double fl = 0.0;
         const double nat = nativeOf(heldOut, &ps, &fl);
-        std::printf("  %-22s %8.3f %8.2f  ", "native full-res", nat, fl);
+        std::printf("  %-22s %8.3f %8.2f %7s %7s %7s %7s  ", "native full-res", nat, fl, "-", "-",
+                    "-", "-");
         for (int s : ids) std::printf("%8.3f", ps[s]);
         std::printf("\n");
 
         for (const Row& r : rows) {
+            Occupancy occ;
             const double p = evalRecurrent(corpus, shots, heldOut, o.sharpen, r.m, o.dumpDir,
-                                           heldOut ? r.dump : nullptr, &ps, &fl);
-            std::printf("  half-res + %-11s %8.3f %8.2f  ", r.name, p, fl);
+                                           heldOut ? r.dump : nullptr, &ps, &fl, &occ);
+            std::printf("  half-res + %-11s %8.3f %8.2f %6.1f%% %6.1f%% %6.1f%% %7.2f  ", r.name, p,
+                        fl, occ.point * 100.0f, occ.temporal * 100.0f, occ.sharpen * 100.0f,
+                        occ.passes);
             for (int s : ids) std::printf("%8.3f", ps[s]);
             std::printf("%s\n", std::strcmp(r.name, "BLSS (trained)") == 0 ? "   <-- the network"
                                                                            : "");
