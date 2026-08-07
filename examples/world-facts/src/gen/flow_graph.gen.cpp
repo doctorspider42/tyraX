@@ -307,23 +307,33 @@ class WorldFactRules : public Script {
           changed = true;
         }
       }
-      {  // rule "AlarmWhileOverloaded"
-        const bool c = (fabsf((factNum[1]) - (2.0F)) <= 1e-4F);
-        const bool fire = c && pass == 0;
+      {  // rule "PowerSettles"
+        const bool c = ((fabsf((factNum[1]) - (2.0F)) <= 1e-4F) && ((factNum[2]) <= (0.1F)));
+        const bool fire = c && !was_[2];
         was_[2] = c;
         if (fire) {
           spent_[2] = true;
-          factWrite(3, 1.0F, -4);
+          factWrite(1, 1.0F, -4);
+          changed = true;
+        }
+      }
+      {  // rule "AlarmWhileOverloaded"
+        const bool c = (fabsf((factNum[1]) - (2.0F)) <= 1e-4F);
+        const bool fire = c && pass == 0;
+        was_[3] = c;
+        if (fire) {
+          spent_[3] = true;
+          factWrite(3, 1.0F, -5);
           changed = true;
         }
       }
       {  // rule "RescueEarnsTrust"
         const bool c = (fabsf((factNum[5]) - (1.0F)) <= 1e-4F);
-        const bool fire = c && !was_[3] && !spent_[3];
-        was_[3] = c;
+        const bool fire = c && !was_[4] && !spent_[4];
+        was_[4] = c;
         if (fire) {
-          spent_[3] = true;
-          factWrite(4, factNum[4] + 5.0F, -5);
+          spent_[4] = true;
+          factWrite(4, factNum[4] + 5.0F, -6);
           changed = true;
         }
       }

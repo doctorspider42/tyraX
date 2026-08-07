@@ -16,6 +16,8 @@ The point of the example is coverage, so between them the pieces exercise:
   * a COMPUTED fact          - marta.isAlly, which nothing can write
   * nested QUERIES           - CanEnterBasement names MartaIsAlly
   * all three RULE policies  - becomes-true, every-frame, once-per-run
+  * rule ORDER inside a pass  - PowerSettles is listed BEFORE the alarm rule
+                               on purpose (see its note)
   * a rule that SENDS AN EVENT into a graph
   * the reactive trigger     - On Fact Changed
   * Get Fact As Text         - the one-of-several fact printed by NAME
@@ -286,6 +288,26 @@ RULES = [
         },
         "then": [
             {"do": "set", "target": "world.power.state", "value": 2},
+        ],
+    },
+    {
+        "name": "PowerSettles",
+        "desc": "The load came off a tripped plant, so it comes back. Without "
+                "this the world has a DEAD END: nothing else can leave the "
+                "Overloaded state, so CanEnterBasement - which wants Powered - "
+                "could never become true a second time.",
+        "policy": "rising",
+        "when": {
+            "kind": "all",
+            "children": [
+                {"kind": "compare", "fact": "world.power.state",
+                 "cmp": "eq", "value": 2},
+                {"kind": "compare", "fact": "world.power.load",
+                 "cmp": "le", "value": 0.1},
+            ],
+        },
+        "then": [
+            {"do": "set", "target": "world.power.state", "value": 1},
         ],
     },
     {

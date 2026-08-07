@@ -20,6 +20,7 @@ on one page.
 | A **computed** fact | `characters.marta.isAlly` — derived, and nothing can write to it |
 | **Nested queries** | `CanEnterBasement` names `MartaIsAlly` |
 | All three **rule policies** | becomes-true (`PowerRestored`), every-frame (`AlarmWhileOverloaded`), once-per-run (`RescueEarnsTrust`) |
+| Rule **order** mattering | `PowerSettles` sits above the alarm rule on purpose, so the frame the plant recovers the alarm is not raised one more time |
 | A rule that **sends an event** | `PowerRestored` → `power-on` → the status lamp's graph |
 | **On Fact Changed**, all three outputs | the lamp's HUD line hangs off *changed*; the alarm's *became true* / *became false* are raised by a RULE and lowered by a graph's Clear Fact, and the lamp does not care which |
 | **Get Fact As Text** | the plant's state prints as *Broken / Powered / Overloaded*, not as a number |
@@ -34,9 +35,12 @@ Walk into the three yellow spheres — each fits a generator part
 prints the new state by name.
 
 Use the generator to push `world.power.load` up by 0.25 a time. Past 0.8 the
-**OverloadTrips** rule flips the state to *Overloaded*, and
-**AlarmWhileOverloaded** re-asserts the alarm every frame. The red switch beside
-it clears both back to their catalog defaults.
+**OverloadTrips** rule flips the state to *Overloaded*, **AlarmWhileOverloaded**
+re-asserts the alarm every frame, and the lamp goes red off *On Fact Changed*'s
+`became true`. The red switch beside the generator clears the load and the
+alarm; the **PowerSettles** rule then notices the load is off a tripped plant
+and brings it back to *Powered* — which is what makes the whole loop replayable
+and lets the basement door's `On Condition` fire more than once in a run.
 
 Pick up the key in the yard, use Marta to rescue her (which is worth 5 trust —
 from the **RescueEarnsTrust** rule, once per run, not from her graph). The

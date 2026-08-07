@@ -13,7 +13,7 @@ constexpr int FACT_SAVE_MAX = 7;
 constexpr int FACT_PROFILE_MAX = 1;
 constexpr int FACT_SAVE_COUNT = 7;
 constexpr int FACT_PROFILE_COUNT = 1;
-constexpr int FACT_RULE_COUNT = 4;
+constexpr int FACT_RULE_COUNT = 5;
 // The rule engine re-runs until nothing changes, bounded by this:
 // 'until nothing changes' is otherwise a hang with no way to
 // break in on a console.

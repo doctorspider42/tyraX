@@ -890,6 +890,35 @@
       ]
     },
     {
+      "name": "PowerSettles",
+      "desc": "The load came off a tripped plant, so it comes back. Without this the world has a DEAD END: nothing else can leave the Overloaded state, so CanEnterBasement - which wants Powered - could never become true a second time.",
+      "policy": "rising",
+      "when": {
+        "kind": "all",
+        "children": [
+          {
+            "kind": "compare",
+            "fact": "world.power.state",
+            "cmp": "eq",
+            "value": 2
+          },
+          {
+            "kind": "compare",
+            "fact": "world.power.load",
+            "cmp": "le",
+            "value": 0.1
+          }
+        ]
+      },
+      "then": [
+        {
+          "do": "set",
+          "target": "world.power.state",
+          "value": 1
+        }
+      ]
+    },
+    {
       "name": "AlarmWhileOverloaded",
       "desc": "Every frame while overloaded - the alarm has to be re-asserted, which is the one shape 'every frame' is right for.",
       "policy": "while",

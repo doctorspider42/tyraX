@@ -157,6 +157,15 @@ watches, so the engine re-runs until nothing changes — bounded at 8 passes,
 because "until nothing changes" is otherwise a hang with no way to break in on a
 console.
 
+Within one pass the rules run **in the order the list shows**, and that order is
+part of the design rather than an accident of authoring. A rule that settles a
+state should sit above one that reacts to that state: the example puts
+*PowerSettles* (which brings a tripped plant back) above *AlarmWhileOverloaded*
+(which re-asserts the alarm every frame the plant is tripped), so the frame the
+plant recovers, the alarm rule already sees the new state and does not raise it
+one more time. Reversed, the alarm would flicker on for a frame after every
+recovery. Drag a rule up or down when its answer depends on another's.
+
 The editor detects **reaction cycles** (rule A writes what rule B reads, and
 back) and reports the chain as a warning. It settles rather than hangs, but it
 is almost never what anybody meant.
