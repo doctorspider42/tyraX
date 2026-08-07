@@ -210,13 +210,13 @@ programs, four of them at 1, 0, 3 and 2 rows in `stapip_billboard_c_vu1`. SCE pa
 with a `clip` several rows back rather than the nearest one, which is what modelling the
 shift window buys and what we still do not do.
 
-## 5. Twenty flags, all off by default
+## 5. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
-engine: the resident VU1 program set went from 3072 instructions to **1978**, against SCE's
+engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's
 2028 and a ceiling of 2042, without changing what any program computes (pixel-identical
-frames in PCSX2). Over the engine's whole corpus of 25 it is 3928 words against SCE's 3982,
-and over the 45 a project can generate, 9254 against 9264 - **under Sony on all three**.
+frames in PCSX2). Over the engine's whole corpus of 25 it is 3874 words against SCE's 3982,
+and over the 45 a project can generate, 9202 against 9264 - **under Sony on all three**.
 Upstream may or may not want them; the measurements are in
 [toolchain-image.md](toolchain-image.md).
 
@@ -225,7 +225,7 @@ different, openvcl runs about **26% slower** than Sony's `vcl`, and the flag tha
 last size corpus did not move a single frame. The cause is the FMAC read-after-write
 interlock, not size - see "Measured on the console" in that file.
 
-The table below lists the four this section was originally written about. The full twenty,
+The table below lists the four this section was originally written about. The full twenty-one,
 grouped by what they do, are in the fork's own README at
 [doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax) and in
 `VCL_FLAGS` in both Dockerfiles, which are kept byte-identical to each other.

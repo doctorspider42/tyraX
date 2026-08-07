@@ -2385,6 +2385,7 @@ Two scenes, PCSX2, frame counts taken from the engine's own `VRAMSTAT f=` counte
 | `vu-lab`, precise clipper, 32x32 terrain | 86.96 FPS | 86.97 FPS | **not VU1-bound - blind to the difference** |
 | fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts), 19 flags | **104.96 / 104.96** | **77.97 / 74.99** | **-26 to -29%** |
 | the same scene, 20 flags (`--sink-loads-best-of`) | 104.96 | **77.98 / 74.98** | **unchanged** |
+| the same scene, 21 flags (`--split-dead-float-ranges`) | 104.96 | **83.97 / 83.99 / 83.99** | **-20%**, gap down from -26% |
 
 Sony's arm returned exactly 4200 frames on both runs. The heavy scene is the instrument; the
 light one is worth recording only because it shows how easy it is to measure nothing - an
@@ -2424,6 +2425,59 @@ the ready list: of **2011 stalling scheduling steps in `billboard_c`, only 168 (
 zero-delay alternative available.** The list is genuinely dry, because **register allocation
 runs before scheduling** and its anti-dependences merge the independent chains into one. No
 amount of re-ranking reaches that; the ordering of the two passes is the problem.
+
+### And the root cause is narrower than that, which is what made it fixable
+
+"Allocation runs before scheduling" is true and would be a rewrite. The actual defect is one
+line. `BranchState::writeFloat` decides whether a write can reuse an alias with
+`depend = ((state.fields() & ~argument.fields()) != 0)`, and `state.fields()` is every field
+the name has **ever** been written, not the fields still **live**. So a name written `.z` and
+later `.x` stays **one `Alias` for the whole program**, and three independent per-vertex
+chains get welded onto one register before the scheduler ever runs. The scheduler keys
+hazards on the allocated register, so it sees one serial graph and there is nothing to
+interleave. On `vu_script3_c` SCE splits the same source name into VF22/VF27/VF26 and runs
+the three copies three rows apart: **22 stall cycles against openvcl's 347**, on 256 words
+against 258 - SCE spends registers to buy the interleave.
+
+`--split-dead-float-ranges` renames such a name per independent value before allocation
+(`vuS1` → `vuS1~1`, `~2`), and the rest of the compiler simply sees more names. Safety is by
+construction rather than by analysis: every access must sit in **one straight-line region**
+(no label, branch or directive inside, so a linear scan is exact and the value can neither
+enter nor leave), the region's first access must be a write, and a split point must be a
+write whose mask covers **every still-live field** and that does not read the name.
+`in_vf`/`out_vf` names are never renamed.
+
+Two things were needed to make it pay, and both were found by measuring rather than reasoning:
+
+* **First-fit is the wrong placement once ranges are split** - disjoint webs land back on the
+  same register and nothing changes. `preferSpreadRegister` takes the acceptable register
+  whose nearest occupied neighbour is furthest, in both the main loop and the two-address
+  chain pre-pass that places almost everything. **FLOAT only:** spreading the 16-wide integer
+  file caused most of the allocation failures, and restricting it is better on all three
+  corpora *and* on cycles.
+* **The split has to be retryable.** Seven programs run out of registers with it, so
+  allocation retries without it and they compile exactly as before - the flag can only ever
+  add programs that build. (Suppression had to be made nestable for that, or the outer retry
+  un-suppresses the inner `--sink-loads-past-branches` one.)
+
+| | SCE | 20 flags | **21 flags** |
+|---|---:|---:|---:|
+| modelled cycles, all 70 | 16030 | 25657 (+60.1%) | **21543 (+34.4%)** |
+| modelled FMAC stalls | 2614 | 12068 | **8192** |
+| resident 10, cycles | 2433 | 3545 (+45.7%) | **3010 (+23.7%)** |
+| resident 10, words | 2028 | 1978 | **1968** |
+| engine 25, words | 3982 | 3928 | **3872** |
+| generated 45, words | 9264 | 9254 | **9194** |
+
+**43% of the modelled cycle gap, and every corpus got smaller rather than paying for it.**
+On the console that is 3120 → 3360 frames, 77.98 → 83.98 FPS, the gap to Sony from -26% to
+-20%. The frame gap closes by less than the modelled one, which is what you expect when VU1
+is one stage of several.
+
+Still open, and the next thing worth doing: the **seven fallback programs get nothing**.
+`vu0_rt_kernel` (337 → 747 stalls) and `vu_script3_td_cl` (58 → 327) are untouched, about
+1200 modelled cycles, because the retry is all-or-nothing. A ladder that splits only the
+widest-separated webs before giving up should reach most of them.
 
 Dead ends worth not repeating:
 
@@ -2565,13 +2619,13 @@ toolchain's artifacts straight back over the ones the image built.
 |---|---|---|
 | engine programs | 25/25 | **25/25** |
 | generated programs | 45/45 | **45/45** |
-| resident VU1 set | 1978 words | **1978** (SCE 2028, ceiling 2042) |
-| engine corpus, all 25 | 3928 words | **3928** (SCE 3982 - openvcl is 54 under) |
-| generated corpus, all 45 | 9254 words | **9254** (SCE 9264 - 10 under; it was +22 at 19 flags) |
-| frame rate, VU1-bound scene | - | **-26% against Sony's `vcl`** (see "Measured on the console") |
+| resident VU1 set | 1968 words | **1968** (SCE 2028, ceiling 2042) |
+| engine corpus, all 25 | 3872 words | **3872** (SCE 3982 - openvcl is 110 under) |
+| generated corpus, all 45 | 9194 words | **9194** (SCE 9264 - 70 under; it was +22 at 19 flags) |
+| frame rate, VU1-bound scene | - | **-20% against Sony's `vcl`** (see "Measured on the console") |
 
-Smaller than Sony's `vcl` on **all three** corpora as of the twentieth flag, and still 26%
-slower. The `microcode, all 70 | byte-identical to the inherited build` row above was
+Smaller than Sony's `vcl` on **all three** corpora as of the twentieth flag, and 20% slower
+as of the twenty-first. The `microcode, all 70 | byte-identical to the inherited build` row above was
 established at 19 flags and has not been re-checked at 20 - byte-identity of the *microcode*
 across images is a property of the image swap, and the flag changes both images equally.
 | microcode, all 70 | - | **byte-identical to the inherited build** |

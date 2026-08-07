@@ -963,8 +963,11 @@ banner both, so a previously built ELF still reports.
   rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
   because they pick up what sits outside those symbols. On the resident ten that is a
   ~7-word error — enough to call a build an overflow when it fits, or the reverse. `nm`
-  currently says **SCE 2028, openvcl 2026** against a 2042 ceiling; row counting says
-  neither. Ask the built object:
+  currently says **SCE 2028, openvcl 1968** against a 2042 ceiling; row counting says
+  neither. And words are NOT the perf metric: openvcl is smaller than Sony's `vcl` on all
+  three corpora and still ~20% slower on a VU1-bound scene, because the cost is FMAC
+  read-after-write stalls and a stall is not a word (docs/toolchain-image.md,
+  "Measured on the console"). Ask the built object:
   ```bash
   docker run --rm -v "tyra-engine-<hash>:/tyra:ro" tyrax-toolchain:local sh -c 'mips64r5900el-ps2-elf-nm /tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o | grep -i Code'
   ```

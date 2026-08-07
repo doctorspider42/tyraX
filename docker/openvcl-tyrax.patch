@@ -755,10 +755,10 @@ index 1845035..d05414a 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..058d341 100644
+index e6a6dea..f84df32 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,27 @@ CommandLine::CommandLine()
+@@ -75,6 +75,28 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -770,6 +770,7 @@ index e6a6dea..058d341 100644
 +	m_loopLivenessAlways = false;
 +	m_upperMoveWithW = false;
 +	m_coalesceFloatWrites = false;
++	m_splitDeadFloatRanges = false;
 +	m_trimUncarriedRanges = false;
 +	m_sinkLoads = false;
 +	m_sinkLoadsAcrossStores = false;
@@ -786,7 +787,7 @@ index e6a6dea..058d341 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +146,27 @@ CommandLine::CommandLine()
+@@ -125,6 +147,28 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -798,6 +799,7 @@ index e6a6dea..058d341 100644
 +	m_options.push_back(Option(0,"loop-liveness-always",LOOP_LIVENESS_ALWAYS,false));
 +	m_options.push_back(Option(0,"upper-move-with-w",UPPER_MOVE_WITH_W,false));
 +	m_options.push_back(Option(0,"coalesce-float-writes",COALESCE_FLOAT_WRITES,false));
++	m_options.push_back(Option(0,"split-dead-float-ranges",SPLIT_DEAD_FLOAT_RANGES,false));
 +	m_options.push_back(Option(0,"trim-uncarried-ranges",TRIM_UNCARRIED_RANGES,false));
 +	m_options.push_back(Option(0,"sink-loads",SINK_LOADS,false));
 +	m_options.push_back(Option(0,"sink-loads-across-stores",SINK_LOADS_ACROSS_STORES,false));
@@ -814,7 +816,7 @@ index e6a6dea..058d341 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +281,27 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +283,28 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -826,6 +828,7 @@ index e6a6dea..058d341 100644
 +				case LOOP_LIVENESS_ALWAYS: m_loopLivenessAlways = true; break;
 +				case UPPER_MOVE_WITH_W: m_upperMoveWithW = true; break;
 +				case COALESCE_FLOAT_WRITES: m_coalesceFloatWrites = true; break;
++				case SPLIT_DEAD_FLOAT_RANGES: m_splitDeadFloatRanges = true; break;
 +				case TRIM_UNCARRIED_RANGES: m_trimUncarriedRanges = true; break;
 +				case SINK_LOADS: m_sinkLoads = true; break;
 +				case SINK_LOADS_ACROSS_STORES: m_sinkLoadsAcrossStores = true; break;
@@ -842,7 +845,7 @@ index e6a6dea..058d341 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +393,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +396,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -853,10 +856,10 @@ index e6a6dea..058d341 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..9c7a6f2 100644
+index f5e4b3d..70557b9 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,27 @@ public:
+@@ -56,6 +56,28 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -868,6 +871,7 @@ index f5e4b3d..9c7a6f2 100644
 +	bool loopLivenessAlways() const;
 +	bool upperMoveWithW() const;
 +	bool coalesceFloatWrites() const;
++	bool splitDeadFloatRanges() const;
 +	bool trimUncarriedRanges() const;
 +	bool sinkLoads() const;
 +	bool sinkLoadsAcrossStores() const;
@@ -884,7 +888,7 @@ index f5e4b3d..9c7a6f2 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +151,27 @@ private:
+@@ -130,6 +152,28 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -896,6 +900,7 @@ index f5e4b3d..9c7a6f2 100644
 +		LOOP_LIVENESS_ALWAYS,
 +		UPPER_MOVE_WITH_W,
 +		COALESCE_FLOAT_WRITES,
++		SPLIT_DEAD_FLOAT_RANGES,
 +		TRIM_UNCARRIED_RANGES,
 +		SINK_LOADS,
 +		SINK_LOADS_ACROSS_STORES,
@@ -912,7 +917,7 @@ index f5e4b3d..9c7a6f2 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +227,27 @@ private:
+@@ -185,6 +229,28 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -924,6 +929,7 @@ index f5e4b3d..9c7a6f2 100644
 +	bool m_loopLivenessAlways;
 +	bool m_upperMoveWithW;
 +	bool m_coalesceFloatWrites;
++	bool m_splitDeadFloatRanges;
 +	bool m_trimUncarriedRanges;
 +	bool m_sinkLoads;
 +	bool m_sinkLoadsAcrossStores;
@@ -941,10 +947,10 @@ index f5e4b3d..9c7a6f2 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..9e98930 100644
+index 5500026..e6ad6d8 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,153 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,160 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1000,6 +1006,13 @@ index 5500026..9e98930 100644
 +inline bool CommandLine::coalesceFloatWrites() const
 +{
 +	return m_coalesceFloatWrites;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::splitDeadFloatRanges() const
++{
++	return m_splitDeadFloatRanges;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1099,7 +1112,7 @@ index 5500026..9e98930 100644
  {
  	return m_genericSoftwarePipelining;
 diff --git a/src/Error.cpp b/src/Error.cpp
-index 3f5cfc3..f3fbb3d 100644
+index 3f5cfc3..a4d6ad2 100644
 --- a/src/Error.cpp
 +++ b/src/Error.cpp
 @@ -8,6 +8,7 @@ namespace vcl
@@ -1120,7 +1133,7 @@ index 3f5cfc3..f3fbb3d 100644
  	std::cerr << e.toString() << std::endl;
  	// Track non-warning errors so main() can fail the run with a non-zero
  	// exit code.  Without this, openvcl prints diagnostics and still
-@@ -175,4 +179,9 @@ void Error::ResetErrorCount()
+@@ -175,4 +179,14 @@ void Error::ResetErrorCount()
  	ms_errorCount = 0;
  }
  
@@ -1129,12 +1142,17 @@ index 3f5cfc3..f3fbb3d 100644
 +	ms_suppressed = suppressed;
 +}
 +
++bool Error::Suppressed()
++{
++	return ms_suppressed;
++}
++
  }
 diff --git a/src/Error.h b/src/Error.h
-index a9a3c8e..b79b9d8 100644
+index a9a3c8e..7458bcf 100644
 --- a/src/Error.h
 +++ b/src/Error.h
-@@ -30,6 +30,15 @@ public:
+@@ -30,6 +30,20 @@ public:
  	static bool HasErrors();
  	static void ResetErrorCount();
  
@@ -1147,10 +1165,15 @@ index a9a3c8e..b79b9d8 100644
 +	// unsuppressed retry reports it just the same.
 +	static void SetSuppressed( bool suppressed );
 +
++	// Suppression has to NEST: --split-dead-float-ranges retries around the
++	// --sink-loads-past-branches retry, and an outer attempt that restored
++	// `false` on the way out would un-suppress the inner one.
++	static bool Suppressed();
++
  private:
  
  	enum
-@@ -50,6 +59,7 @@ private:
+@@ -50,6 +64,7 @@ private:
  
  	static std::list<Error> ms_errors;
  	static unsigned int ms_errorCount;
@@ -1159,7 +1182,7 @@ index a9a3c8e..b79b9d8 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..abb3647 100644
+index b8b1946..06fba96 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1179,7 +1202,7 @@ index b8b1946..abb3647 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -2045,6 +2048,35 @@ bool Parser::tokenize()
+@@ -2045,6 +2048,36 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1199,6 +1222,7 @@ index b8b1946..abb3647 100644
 +	setVuLoopLivenessAlwaysEnabled( m_cmdLine.loopLivenessAlways() );
 +	setVuUpperMoveWithWEnabled( m_cmdLine.upperMoveWithW() );
 +	setVuCoalesceFloatWritesEnabled( m_cmdLine.coalesceFloatWrites() );
++	setVuSplitDeadFloatRangesEnabled( m_cmdLine.splitDeadFloatRanges() );
 +	setVuTrimUncarriedRangesEnabled( m_cmdLine.trimUncarriedRanges() );
 +	setVuSinkLoadsEnabled( m_cmdLine.sinkLoads() );
 +	setVuSinkLoadsAcrossStoresEnabled( m_cmdLine.sinkLoadsAcrossStores() );
@@ -1215,10 +1239,63 @@ index b8b1946..abb3647 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2065,12 +2097,65 @@ bool Parser::tokenize()
+@@ -2063,34 +2096,263 @@ bool Parser::tokenize()
  
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
++// --split-dead-float-ranges costs registers, and seven of the seventy programs
++// run out.  Allocate with it, and if that runs out put the tokenizer's own output
++// back and allocate again without it - the same bargain --coalesce-float-writes
++// and --sink-loads-past-branches strike, so the flag can only ever add programs
++// that compile.  The flag stays off for the REST of this program once the
++// fallback fires, because --sink-loads-best-of recompiles from the source lines
++// and has to reach the same decision this attempt did.
  bool Parser::allocateRegisters()
  {
++	const bool retrySplit = m_cmdLine.splitDeadFloatRanges();
++
++	std::list<Token> pristine;
++	const bool wasSuppressed = Error::Suppressed();
++	if( retrySplit )
++	{
++		const std::list<Token>& current = m_tokenizer.tokens();
++		pristine.insert( pristine.end(), current.begin(), current.end() );
++		Error::SetSuppressed( true );
++	}
++
++	bool allocated = allocateRegistersAttempt();
++
++	if( retrySplit )
++	{
++		Error::SetSuppressed( wasSuppressed );
++
++		if( !allocated )
++		{
++			if( m_cmdLine.showRegisterInfo() )
++				std::cerr << "Retrying allocation without --split-dead-float-ranges" << std::endl;
++
++			m_tokenizer.tokens().clear();
++			m_tokenizer.tokens().insert( m_tokenizer.tokens().end(),
++			                             pristine.begin(), pristine.end() );
++			m_registerAllocator.reset();
++			setVuSplitDeadFloatRangesEnabled( false );
++
++			allocated = allocateRegistersAttempt();
++		}
++	}
++
++	if( !allocated )
++		return false;
++
++	setState( GENERATE_CODE );
++
++	return true;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++bool Parser::allocateRegistersAttempt()
++{
 +	// --sink-loads-past-branches is not applied speculatively. Carrying a load
 +	// over a branch reorders the block it lands in, and the scheduler then does
 +	// something slightly different with the whole program - measured over the 45
@@ -1230,6 +1307,10 @@ index b8b1946..abb3647 100644
 +	// --coalesce-float-writes retry inside the allocator makes: the flag can only
 +	// ever add programs that compile, never change one that already did.
 +	const bool retryPastBranches = m_cmdLine.sinkLoads() && m_cmdLine.sinkLoadsPastBranches();
++
++	// Saved, not assumed false: allocateRegisters() may already have suppressed
++	// on the way in for its own speculative attempt.
++	const bool suppressedOnEntry = Error::Suppressed();
 +
 +	std::list<Token> pristine;
 +	if( retryPastBranches )
@@ -1252,12 +1333,15 @@ index b8b1946..abb3647 100644
  	m_registerAllocator.setShowRegisterInfo( m_cmdLine.showRegisterInfo() );
  
 -	if( !m_registerAllocator.process( m_tokenizer.tokens() ) )
+-		return false;
 +	bool allocated = m_registerAllocator.process( m_tokenizer.tokens() );
-+
+ 
+-	setState( GENERATE_CODE );
 +	if( retryPastBranches )
 +	{
-+		Error::SetSuppressed( false );
-+
++		Error::SetSuppressed( suppressedOnEntry );
+ 
+-	return true;
 +		if( !allocated )
 +		{
 +			if( m_cmdLine.showRegisterInfo() )
@@ -1278,11 +1362,8 @@ index b8b1946..abb3647 100644
 +		}
 +	}
 +
-+	if( !allocated )
- 		return false;
- 
- 	setState( GENERATE_CODE );
-@@ -2080,17 +2165,143 @@ bool Parser::allocateRegisters()
++	return allocated;
+ }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1364,8 +1445,7 @@ index b8b1946..abb3647 100644
 +	// retry above makes.  Anything wrong with the INPUT was already reported by the
 +	// first arm, which ran unsuppressed and succeeded.
 +	Error::SetSuppressed( true );
- 
--	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
++
 +	bool built = true;
 +	for( std::list<Line>::const_iterator i = m_lines.begin(); built && i != m_lines.end(); ++i )
 +	{
@@ -1384,7 +1464,8 @@ index b8b1946..abb3647 100644
 +		// Not setShowRegisterInfo: --show-reg-alloc describes the allocation that
 +		// produced the output, and this one usually does not.
 +		built = allocator.process( tokenizer.tokens() );
-+
+ 
+-	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
 +		if( built )
 +			built = generateCodeInto( generator, allocator.name(), tokenizer.tokens() );
 +	}
@@ -1433,7 +1514,7 @@ index b8b1946..abb3647 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2337,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2388,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {
@@ -1446,10 +1527,14 @@ index b8b1946..abb3647 100644
  	setState( EXIT );
  
 diff --git a/src/Parser.h b/src/Parser.h
-index 7b16a5b..27372a9 100644
+index 7b16a5b..830e41e 100644
 --- a/src/Parser.h
 +++ b/src/Parser.h
-@@ -99,6 +99,16 @@ private:
+@@ -96,9 +96,20 @@ private:
+ 	bool preProcess();
+ 	bool tokenize();
+ 	bool allocateRegisters();
++	bool allocateRegistersAttempt();
  	bool generateCode();
  	bool writeOutput();
  
@@ -1466,7 +1551,7 @@ index 7b16a5b..27372a9 100644
  	bool readInputStream( std::istream& stream );
  	bool writeOutputStream( std::ostream& stream );
  
-@@ -123,6 +133,13 @@ private:
+@@ -123,6 +134,13 @@ private:
  
  	std::string m_inputFile;
  	std::string m_sourceFile;
@@ -1481,7 +1566,7 @@ index 7b16a5b..27372a9 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..3e8323b 100644
+index cf6d79b..5470241 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -1535,7 +1620,7 @@ index cf6d79b..3e8323b 100644
  void RegisterAllocator::setAvailableFloats( unsigned int floats )
  {
  	for( unsigned int i = 1; i < 32; i++ )
-@@ -79,6 +109,25 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -79,6 +109,35 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  {
  	BranchState* branchState = NULL;
  
@@ -1547,6 +1632,16 @@ index cf6d79b..3e8323b 100644
 +		const unsigned int dropped = dropDeadRegisterWrites( tokens );
 +		if( m_showRegisterInfo )
 +			std::cerr << "--drop-dead-writes removed " << dropped << " tokens" << std::endl;
++	}
++
++	// Before the sink pass, and while a name still means what the source meant
++	// by it: splitting renames alias occurrences, and sinking decides where a
++	// load goes by which alias reads it.
++	if( vuSplitDeadFloatRangesEnabled() )
++	{
++		const unsigned int split = splitDeadFloatRanges( tokens );
++		if( m_showRegisterInfo )
++			std::cerr << "--split-dead-float-ranges renamed " << split << " occurrences" << std::endl;
 +	}
 +
 +	// First, before anything reads a line number: this is the one pass that
@@ -1561,7 +1656,7 @@ index cf6d79b..3e8323b 100644
  	if( !collectLabels( tokens.begin(), tokens.end() ) )
  		return false;
  
-@@ -262,14 +311,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -262,14 +321,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  			return false;
  	}
  
@@ -1618,7 +1713,7 @@ index cf6d79b..3e8323b 100644
  		{
  			Error::Display( Error( "Register allocation ran out of registers" ) );
  			return false;
-@@ -610,7 +700,9 @@ bool RegisterAllocator::processAliases()
+@@ -610,7 +710,9 @@ bool RegisterAllocator::processAliases()
  		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
  		{
  			Alias* alias = i->first;
@@ -1629,7 +1724,94 @@ index cf6d79b..3e8323b 100644
  			if( alias->allocatedRegister() )
  				std::cerr << "[prealloc: " << alias->allocatedRegister()->name() << "] ";
  			alias->printRanges( std::cerr );
-@@ -796,13 +888,29 @@ bool RegisterAllocator::processAliases()
+@@ -659,6 +761,21 @@ bool RegisterAllocator::processAliases()
+ 		}
+ 
+ 		unsigned int maxLimit = root->type() == Alias::FLOAT ? 32 : 16;
++		// With --split-dead-float-ranges, first fit is the wrong answer here for
++		// the same reason as in the main loop below - and this pre-pass places
++		// almost everything, because --coalesce-float-writes makes almost every
++		// alias a chain root or a chain member.  A spread policy that skipped
++		// this loop would never run.
++		// FLOAT only.  The split pass renames float aliases, so only the float
++		// file has webs to spread; spreading the sixteen-wide integer file buys no
++		// interleave and burns the registers that hold loop counters and DMA base
++		// pointers.  Left on for integers it was the cause of most of the
++		// fallbacks below - `Failed to allocate INTEGER register for alias
++		// srcBase` in vu_script3_td_cl, with the float side fitting fine - and
++		// turning it off is better on all three corpora AND on modelled cycles.
++		const bool spreadChain = vuSplitDeadFloatRangesEnabled()
++		                         && root->type() == Alias::FLOAT;
++		std::vector<const Register*> chainAcceptable;
+ 		for( unsigned int j = 0; j < maxLimit; ++j )
+ 		{
+ 			const Register* candidate = (root->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
+@@ -692,11 +809,22 @@ bool RegisterAllocator::processAliases()
+ 
+ 			if( !conflict )
+ 			{
+-				for( unsigned int m = 0; m < chain.size(); ++m )
+-					chain[m]->setAllocatedRegister( candidate );
+-				break;
++				if( !spreadChain )
++				{
++					for( unsigned int m = 0; m < chain.size(); ++m )
++						chain[m]->setAllocatedRegister( candidate );
++					break;
++				}
++				chainAcceptable.push_back( candidate );
+ 			}
+ 		}
++
++		if( spreadChain && !chainAcceptable.empty() )
++		{
++			const Register* chosen = preferSpreadRegister( chain, chainAcceptable );
++			for( unsigned int m = 0; m < chain.size(); ++m )
++				chain[m]->setAllocatedRegister( chosen );
++		}
+ 	}
+ 
+ 	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
+@@ -757,6 +885,15 @@ bool RegisterAllocator::processAliases()
+ 			}
+ 		}
+ 
++		// With --split-dead-float-ranges the lowest-numbered acceptable
++		// register is the wrong answer, so every acceptable one is collected
++		// and preferSpreadRegister picks.  Without the flag the vector is
++		// short-circuited on the first hit and the behaviour is unchanged,
++		// byte for byte.
++		const bool spread = vuSplitDeadFloatRangesEnabled()
++		                    && dest->type() == Alias::FLOAT;
++		std::vector<const Register*> acceptable;
++
+ 		for( unsigned int j = 0; j < maxLimit; ++j )
+ 		{
+ 			const Register* candidate = (dest->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
+@@ -786,23 +923,50 @@ bool RegisterAllocator::processAliases()
+ 
+ 			if( candidate )
+ 			{
+-				dest->setAllocatedRegister( candidate );
+-				break;
++				if( !spread )
++				{
++					dest->setAllocatedRegister( candidate );
++					break;
++				}
++				acceptable.push_back( candidate );
+ 			}
+ 		}
+ 
++		if( spread && !acceptable.empty() )
++		{
++			std::vector<Alias*> group;
++			group.push_back( dest );
++			dest->setAllocatedRegister( preferSpreadRegister( group, acceptable ) );
++		}
++
+ 		if( !dest->allocatedRegister() )
+ 		{
  			if( m_showRegisterInfo )
  			{
  				std::cerr << "Failed to allocate " << (dest->type() == Alias::FLOAT ? "FLOAT" : "INTEGER")
@@ -1660,7 +1842,7 @@ index cf6d79b..3e8323b 100644
  	return true;
  }
  
-@@ -905,44 +1013,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1069,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -1828,7 +2010,7 @@ index cf6d79b..3e8323b 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1197,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1253,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -1844,7 +2026,7 @@ index cf6d79b..3e8323b 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1447,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1503,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -1858,7 +2040,7 @@ index cf6d79b..3e8323b 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1558,1089 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1614,1357 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -2867,6 +3049,274 @@ index cf6d79b..3e8323b 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++namespace
++{
++	// One occurrence of a float alias name in the token list.
++	struct FloatAliasAccess
++	{
++		Token::Argument* argument;
++		unsigned int slot;
++		unsigned int mask;
++		bool write;
++	};
++}
++
++// --split-dead-float-ranges.  See VuSchedulingRules.h.
++//
++// The safety argument, because this pass is exactly how a scheduler comes to
++// emit a program that assembles, fits, and computes the wrong thing:
++//
++//  * A REGION is a maximal run of emittable instructions with no label, no
++//    branch and no directive inside.  Control flow cannot enter a region except
++//    at its top and cannot leave it except at its bottom, so a linear scan of a
++//    region is exact - no CFG needed, and none of the conservatism a wrong CFG
++//    would hide.
++//  * A name is only considered when EVERY access to it in the whole program is
++//    inside ONE region.  A name accessed nowhere else cannot be live-out (a
++//    later read would be an access), and cannot be live-in either unless the
++//    region's own first access reads it - which is checked separately and
++//    disqualifies the name.  So the value neither enters nor leaves, including
++//    across a back edge that re-enters the region every iteration.
++//  * A SPLIT POINT is a write whose field mask covers every field of the name
++//    that is still to be read, and which does not itself read the name.  The
++//    first condition makes it a full kill: nothing of the old value survives, so
++//    a fresh register may start here and no masked write ever inherits fields
++//    from a register that no longer holds them.  The second excludes two-address
++//    self-updates (`sub.x vuS2, vuS2, k0[z]`), where the edge crossed is a true
++//    RAW and splitting would only widen liveness by one row for no gain.
++//  * Names bound to physical registers by --enter/--exit (in_vf / out_vf) are
++//    never renamed: their register is the program's ABI.
++unsigned int RegisterAllocator::splitDeadFloatRanges( std::list<Token>& tokens )
++{
++	// Names pinned to a physical register by the entry / exit blocks.
++	std::set<std::string> pinned;
++	for( std::list<Token>::const_iterator t = tokens.begin(); t != tokens.end(); ++t )
++	{
++		if( !t->operand() )
++			continue;
++		if( t->operand()->unit() != Operand::ENTER && t->operand()->unit() != Operand::EXIT )
++			continue;
++		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin();
++		     a != t->arguments().end(); ++a )
++		{
++			if( !a->immediate().empty() )
++				pinned.insert( a->immediate() );
++			if( !a->alias().empty() )
++				pinned.insert( a->alias() );
++		}
++	}
++
++	// Slots: the emittable instructions in list order, each tagged with the
++	// region it belongs to.  A label, a directive and anything not emittable
++	// break the region BEFORE the token; a branch breaks it after.
++	std::vector<Token*> slots;
++	std::vector<unsigned int> slotRegion;
++	unsigned int region = 0;
++	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
++	{
++		if( !t->label().empty() || !tokenIsEmittable( *t ) )
++			++region;
++		if( !tokenIsEmittable( *t ) )
++			continue;
++		slots.push_back( &*t );
++		slotRegion.push_back( region );
++		if( t->operand()->unit() == Operand::BRU )
++			++region;
++	}
++
++	// Every float-alias occurrence, grouped by name, in slot order.
++	std::map< std::string, std::vector<FloatAliasAccess> > byName;
++	for( unsigned int s = 0; s < slots.size(); ++s )
++	{
++		Token& token = *slots[s];
++		for( std::list<Token::Argument>::iterator a = token.arguments().begin();
++		     a != token.arguments().end(); ++a )
++		{
++			if( a->type() != Token::Argument::FLOAT_REGISTER )
++				continue;
++			if( a->content() != Token::Argument::ALIAS )
++				continue;
++			if( a->alias().empty() )
++				continue;
++
++			FloatAliasAccess access;
++			access.argument = &*a;
++			access.slot = s;
++			access.write = ( a->flags() & Token::Argument::WRITE ) != 0;
++			access.mask = access.write ? vuWriteFieldMask( token, *a )
++			                           : vuReadFieldMask( token, *a );
++			byName[ a->alias() ].push_back( access );
++		}
++	}
++
++	unsigned int renamed = 0;
++
++	for( std::map< std::string, std::vector<FloatAliasAccess> >::iterator n = byName.begin();
++	     n != byName.end(); ++n )
++	{
++		const std::string& name = n->first;
++		std::vector<FloatAliasAccess>& access = n->second;
++
++		if( pinned.find( name ) != pinned.end() )
++			continue;
++		if( access.size() < 2 )
++			continue;
++
++		// One region, or nothing doing.
++		const unsigned int home = slotRegion[ access[0].slot ];
++		bool oneRegion = true;
++		for( unsigned int i = 1; oneRegion && i < access.size(); ++i )
++			if( slotRegion[ access[i].slot ] != home )
++				oneRegion = false;
++		if( !oneRegion )
++			continue;
++
++		// Backward scan.  `live` is the set of fields that will still be read
++		// before something writes them.
++		unsigned int live = 0;
++		std::vector<unsigned int> kills;
++		int i = (int)access.size() - 1;
++		while( i >= 0 )
++		{
++			const unsigned int slot = access[i].slot;
++			unsigned int writeMask = 0;
++			unsigned int readMask = 0;
++			int j = i;
++			while( j >= 0 && access[j].slot == slot )
++			{
++				if( access[j].write )
++					writeMask |= access[j].mask;
++				else
++					readMask |= access[j].mask;
++				--j;
++			}
++			if( writeMask )
++			{
++				if( live != 0 && ( live & ~writeMask ) == 0 && readMask == 0 )
++					kills.push_back( slot );
++				live &= ~writeMask;
++			}
++			live |= readMask;
++			i = j;
++		}
++
++		// live != 0 here means a field is read before any write covers it: the
++		// name is live-in, so the value crosses the region boundary and the
++		// whole argument above collapses.  Refuse.
++		if( live != 0 || kills.empty() )
++			continue;
++
++		// Forward rewrite.  kills came out of a backward scan, so it is
++		// descending; walk it from the back.
++		unsigned int generation = 0;
++		int nextKill = (int)kills.size() - 1;
++		for( unsigned int k = 0; k < access.size(); ++k )
++		{
++			while( nextKill >= 0 && access[k].slot == kills[nextKill] )
++			{
++				++generation;
++				--nextKill;
++			}
++			if( generation == 0 )
++				continue;
++			std::stringstream renamedTo;
++			renamedTo << name << "~" << generation;
++			access[k].argument->setAlias( renamedTo.str() );
++			++renamed;
++		}
++	}
++
++	return renamed;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++// Among the registers the conflict test already accepted, the one whose nearest
++// occupied neighbour is furthest from `dest`.  A register with nothing on it at
++// all wins outright; ties keep the lowest number, so the choice is a function of
++// the ranges and not of allocation order.
++const Register* RegisterAllocator::preferSpreadRegister( const std::vector<Alias*>& group,
++                                                         const std::vector<const Register*>& candidates ) const
++{
++	if( candidates.empty() )
++		return NULL;
++	if( candidates.size() == 1 )
++		return candidates[0];
++	if( group.empty() )
++		return candidates[0];
++
++	// The group's extent: a two-address chain shares one register over the
++	// union of its members' ranges, so that union is what the gap is measured
++	// from.
++	unsigned int lo = 0;
++	unsigned int hi = 0;
++	bool haveExtent = false;
++	for( unsigned int g = 0; g < group.size(); ++g )
++	{
++		unsigned int glo = 0;
++		unsigned int ghi = 0;
++		if( !group[g]->rangeExtent( glo, ghi ) )
++			continue;
++		if( !haveExtent || glo < lo ) lo = glo;
++		if( !haveExtent || ghi > hi ) hi = ghi;
++		haveExtent = true;
++	}
++	if( !haveExtent )
++		return candidates[0];
++
++	const Register* best = candidates[0];
++	long bestScore = -1;
++
++	for( unsigned int c = 0; c < candidates.size(); ++c )
++	{
++		const Register* candidate = candidates[c];
++		long score = -1;
++
++		for( AliasMap::const_iterator k = m_aliases.begin(); k != m_aliases.end(); ++k )
++		{
++			Alias* src = k->first;
++			bool inGroup = false;
++			for( unsigned int g = 0; !inGroup && g < group.size(); ++g )
++				if( group[g] == src ) inGroup = true;
++			if( inGroup )
++				continue;
++			if( src->allocatedRegister() != candidate )
++				continue;
++			unsigned int slo = 0;
++			unsigned int shi = 0;
++			if( !src->rangeExtent( slo, shi ) )
++				continue;
++
++			long gap;
++			if( shi < lo )
++				gap = (long)lo - (long)shi;
++			else if( slo > hi )
++				gap = (long)slo - (long)hi;
++			else
++				gap = 0;                      // overlapping: the conflict test
++			                                  // let it through on ranges with
++			                                  // holes, so score it worst.
++			if( score < 0 || gap < score )
++				score = gap;
++		}
++
++		if( score < 0 )
++			return candidate;                 // untouched register, take it
++
++		if( score > bestScore )
++		{
++			bestScore = score;
++			best = candidate;
++		}
++	}
++
++	return best;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +void RegisterAllocator::coalesceSameNameFloatWrites( std::list<Token>& tokens )
 +{
 +	// `mul.x fogAccum, fogAccum, fogParams[z]` is one value, but openvcl gives
@@ -2949,7 +3399,7 @@ index cf6d79b..3e8323b 100644
  {
  	Alias* alias = new Alias( type );
 diff --git a/src/RegisterAllocator.h b/src/RegisterAllocator.h
-index 738fca5..78ac32b 100644
+index 738fca5..f281575 100644
 --- a/src/RegisterAllocator.h
 +++ b/src/RegisterAllocator.h
 @@ -24,6 +24,7 @@
@@ -2975,7 +3425,7 @@ index 738fca5..78ac32b 100644
  	void releaseAlias( Alias* alias );
  	Alias* obtainAlias( Alias::Type type );
  
-@@ -98,11 +107,68 @@ private:
+@@ -98,11 +107,86 @@ private:
  	// happens to share VI01.  Synthesized as preallocated aliases inserted
  	// into m_aliases so the existing interference check picks them up.
  	void collectLiteralRegisterUsage( std::list<Token>& tokens );
@@ -3028,6 +3478,24 @@ index 738fca5..78ac32b 100644
 +	// whatever liveness they genuinely require.
 +	void trimUncarriedLoopLocalRanges( std::list<Token>& tokens );
 +
++	// --split-dead-float-ranges.  Rename float alias occurrences so each
++	// independent value of a source name gets its own Alias, and so its own
++	// register.  Runs before anything reads a line number or builds a branch
++	// state: it is a pure rewrite of Token::Argument::alias() and the rest of
++	// the compiler simply sees more names.  Returns the number of renamed
++	// occurrences.  See VuSchedulingRules.h for why this is the pass that
++	// reaches openvcl's FMAC stalls.
++	unsigned int splitDeadFloatRanges( std::list<Token>& tokens );
++
++	// The register a free-list scan should hand out.  With
++	// --split-dead-float-ranges the lowest-numbered free register is the wrong
++	// answer: two webs of one split name have disjoint ranges by construction,
++	// so first fit puts them straight back on one register and the split buys
++	// nothing.  Score each acceptable candidate by how far the nearest range
++	// already on it sits from `dest`, and take the furthest.
++	const Register* preferSpreadRegister( const std::vector<Alias*>& group,
++	                                      const std::vector<const Register*>& candidates ) const;
++
 +	// --coalesce-float-writes.  Tie a float write to the alias holding the same
 +	// source-level name's previous value when that value is dead from here on,
 +	// so the two-address chain pre-pass hands both one register.  Runs last, on
@@ -3044,7 +3512,7 @@ index 738fca5..78ac32b 100644
  	void extendMultiQStageRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd );
  
  	bool updateDynamicTracker( const Token* src );
-@@ -128,6 +194,11 @@ private:
+@@ -128,6 +212,11 @@ private:
  	bool m_showRegisterInfo;
  
  	AliasMap m_aliases;
@@ -4059,7 +4527,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..0c222a1 100644
+index c28ec6d..3579b2c 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -4079,7 +4547,7 @@ index c28ec6d..0c222a1 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,369 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,380 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -4122,6 +4590,7 @@ index c28ec6d..0c222a1 100644
 +	bool g_upperMoveWithW = false;
 +	bool g_coalesceFloatWrites = false;
 +	bool g_trimUncarriedRanges = false;
++	bool g_splitDeadFloatRanges = false;
 +	bool g_sinkLoads = false;
 +	bool g_sinkLoadsAcrossStores = false;
 +	bool g_sinkLoadsIntoLoops = false;
@@ -4335,6 +4804,16 @@ index c28ec6d..0c222a1 100644
 +	return g_coalesceFloatWrites;
 +}
 +
++void setVuSplitDeadFloatRangesEnabled( bool enabled )
++{
++	g_splitDeadFloatRanges = enabled;
++}
++
++bool vuSplitDeadFloatRangesEnabled()
++{
++	return g_splitDeadFloatRanges;
++}
++
 +void setVuTrimUncarriedRangesEnabled( bool enabled )
 +{
 +	g_trimUncarriedRanges = enabled;
@@ -4451,10 +4930,10 @@ index c28ec6d..0c222a1 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..0b45fbe 100644
+index 8188099..488eedc 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,221 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,259 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -4579,6 +5058,44 @@ index 8188099..0b45fbe 100644
 +// same loop, and no branch lies between the two ends - i.e. only when the value
 +// provably dies at its last use. Off by default: it removes liveness, so it is
 +// the one change here that could hide a real carry if the test were wrong.
++// --split-dead-float-ranges: give each INDEPENDENT value of a float name its own
++// register, so the scheduler can interleave chains that only ever shared a name.
++//
++// openvcl keeps one Alias per source name as soon as the name's writes use mixed
++// field masks, because BranchState::writeFloat decides whether to reuse the
++// existing alias with
++//     depend = ((state.fields() & ~argument.fields()) != 0)
++// and state.fields() is every field EVER written to the name, not the fields
++// still live.  `vuS1`, written .z and then .x, is therefore ONE alias for the
++// whole program - and the three per-vertex chains in the generated scripts,
++// which reuse the same temporary names, are welded onto one register before the
++// scheduler ever runs.  The scheduler keys its hazards on the ALLOCATED register
++// (VuTokenResourceAccess::vuRegisterKey), so it sees one serial dependence graph
++// where the source has three independent ones, and stalls at every step.  SCE's
++// vcl splits the same names - in vu_script3_c it puts the three copies of vuS1
++// in VF22, VF27 and VF26 and interleaves them three rows apart, 22 stall cycles
++// against openvcl's 347 on the same 258 words.
++//
++// This pass renames, before anything else looks at the token list, so the rest
++// of the compiler is untouched and just sees more names.  A rename is only taken
++// where it is provably safe: every access to the name must sit inside ONE
++// straight-line region (no label, no branch, no directive inside), which makes a
++// linear scan exact and means the name can be neither live-in nor live-out; the
++// region's first access must be a write, so nothing is carried in across a back
++// edge; and the split point must be a write whose field mask covers every field
++// still to be read AND which does not itself read the name, so it is a full kill
++// of the old value rather than a two-address self-update.
++//
++// Splitting costs registers, which is what the six allocator flags fight, so it
++// is paired with a register CHOICE change under the same flag: among the free
++// registers the allocator would accept, take the one whose nearest already-
++// placed neighbour is furthest away instead of the lowest-numbered one.  Without
++// that the split webs, whose ranges are disjoint, land back on one register by
++// first fit and nothing has changed.  Off by default: it changes which register
++// every value lands in.
++void setVuSplitDeadFloatRangesEnabled( bool enabled );
++bool vuSplitDeadFloatRangesEnabled();
++
 +void setVuTrimUncarriedRangesEnabled( bool enabled );
 +bool vuTrimUncarriedRangesEnabled();
 +

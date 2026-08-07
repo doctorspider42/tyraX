@@ -179,7 +179,7 @@ ARG VCL_IMPL=legacy
 # serially in a container that is 170s -> 333s for the 70; the engine's own 25-program
 # rebuild inside a real build is `make -j`-parallel and goes 26/29s -> 43/47s over
 # alternated rounds, about +64%, once per engine rebuild.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --sink-loads-best-of --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of"
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --split-dead-float-ranges --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --sink-loads-best-of --drop-dead-writes --exempt-full-clip-masks --clip-exemption-best-of"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
