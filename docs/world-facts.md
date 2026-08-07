@@ -30,10 +30,18 @@ Every fact carries five things beyond its name.
 | **Owned by** | World (one value for the game) or Scene (reset on every scene load). |
 | **What it means** | Prose, shown wherever the fact is picked. Worth writing: a catalog is read far more often than it is edited. |
 
-Names are hierarchical by convention — `characters.marta.trust` groups under
-`characters.marta` in the list. That is purely a view over the name; there is no
-folder to keep in sync, and a project that never uses dots simply sees one flat
-list.
+Names are hierarchical by convention, and the catalog list **nests on the
+dots**: `characters.marta.trust` sits under `characters` > `marta`. That is
+purely a view over the name — there is no folder field to keep in sync, a
+project that never uses dots simply sees one flat list, and renaming a fact
+moves it in the tree because the tree *is* the names.
+
+The Name field **completes against the catalog**: type `world.` and the line
+under it lists what already exists at that level (`generator.` `power.`
+`alarm.`), and **Tab** completes as far as the matches agree — the shell's
+rule, so it is predictable rather than a guess. It is the fastest way to keep a
+project's naming consistent, which is most of what makes a catalog readable a
+year later.
 
 **One-of-several** (an enum) is the type worth reaching for early. `power.state`
 with options *Broken / Powered / Overloaded* costs the console exactly what an

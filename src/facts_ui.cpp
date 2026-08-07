@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -46,15 +47,9 @@ std::string uniqueName(std::string base, Fn taken) {
     return n;
 }
 
-// The catalog's tree grouping. A fact name is hierarchical by convention
-// ("world.power.state"), so the list groups on the part before the last dot -
-// which costs nothing, needs no extra field, and means a project that never
-// adopts the convention simply sees one flat group.
-std::string factGroup(const std::string& name) {
-    const size_t dot = name.rfind('.');
-    return dot == std::string::npos ? std::string() : name.substr(0, dot);
-}
-
+// A fact name is hierarchical by convention ("world.power.state"); the
+// catalog list nests on the dots and this is the last segment - the part a
+// leaf row shows once its groups are already on screen.
 std::string factLeaf(const std::string& name) {
     const size_t dot = name.rfind('.');
     return dot == std::string::npos ? name : name.substr(dot + 1);
@@ -78,6 +73,67 @@ void inputText(const char* id, std::string& value, bool* changed,
              : ImGui::InputText(id, buf, sizeof(buf));
     if (edited) value = buf;
     if (ImGui::IsItemDeactivatedAfterEdit() && changed) *changed = true;
+}
+
+// Tab-completion over the existing catalog, the shell's rule: complete to the
+// LONGEST COMMON PREFIX of everything that matches, which is predictable in a
+// way "cycle through the candidates" is not. The candidates themselves are
+// shown under the field, so a Tab that adds nothing is not a mystery.
+struct NameComplete {
+    const std::vector<facts::Fact>* facts;
+    int skip;  // the fact being renamed - it must not complete against itself
+};
+
+int factNameCompletion(ImGuiInputTextCallbackData* data) {
+    if (data->EventFlag != ImGuiInputTextFlags_CallbackCompletion) return 0;
+    const NameComplete* nc = (const NameComplete*)data->UserData;
+    const std::string typed(data->Buf, (size_t)data->BufTextLen);
+    std::string best;
+    bool any = false;
+    for (size_t i = 0; i < nc->facts->size(); ++i) {
+        if ((int)i == nc->skip) continue;
+        const std::string& n = (*nc->facts)[i].name;
+        if (n.size() < typed.size() ||
+            n.compare(0, typed.size(), typed) != 0)
+            continue;
+        if (!any) {
+            best = n;
+            any = true;
+            continue;
+        }
+        size_t k = 0;
+        while (k < best.size() && k < n.size() && best[k] == n[k]) ++k;
+        best.resize(k);
+    }
+    if (!any || best.size() <= typed.size()) return 0;
+    data->DeleteChars(0, data->BufTextLen);
+    data->InsertChars(0, best.c_str());
+    return 0;
+}
+
+// What could come next after what has been typed: the distinct SEGMENTS that
+// follow it in existing names. Typing "world." offers generator / power /
+// alarm, which is the answer somebody wants - the full names would just repeat
+// what they already typed.
+std::vector<std::string> nextSegments(const std::vector<facts::Fact>& facts,
+                                      const std::string& typed, int skip) {
+    std::vector<std::string> out;
+    if (typed.empty()) return out;
+    for (size_t i = 0; i < facts.size(); ++i) {
+        if ((int)i == skip) continue;
+        const std::string& n = facts[i].name;
+        if (n.size() <= typed.size() ||
+            n.compare(0, typed.size(), typed) != 0)
+            continue;
+        const std::string rest = n.substr(typed.size());
+        const size_t dot = rest.find('.');
+        std::string seg = dot == std::string::npos ? rest : rest.substr(0, dot);
+        if (dot != std::string::npos) seg += ".";
+        bool seen = false;
+        for (const std::string& e : out) seen |= (e == seg);
+        if (!seen) out.push_back(seg);
+    }
+    return out;
 }
 
 }  // namespace
@@ -493,36 +549,67 @@ void App::drawFactCatalogTab() {
 
     ImGui::Separator();
     ImGui::BeginChild("##factlist", ImVec2(scaled(280), 0), true);
-    // Grouped by the dotted prefix. Purely a view over the names - there is no
-    // folder field to keep in sync, and a project that never uses dots simply
-    // sees one list.
-    std::string lastGroup = "\x01";  // impossible, so the first row opens one
-    bool groupOpen = true;
+    // The dotted name IS the hierarchy - characters.marta.trust nests under
+    // characters > marta - so the tree is built from the names every frame and
+    // there is no folder field to keep in sync. A project that never uses dots
+    // simply sees one flat list. Filtering builds the tree from the SURVIVING
+    // facts only, so a group whose every leaf was filtered out does not appear
+    // at all rather than sitting there empty.
+    struct Group {
+        std::string seg;                 // this level's name segment
+        std::vector<int> leaves;         // fact indices that end here
+        std::vector<Group> kids;         // first-appearance order, not sorted
+        Group* kid(const std::string& s) {
+            for (Group& g : kids)
+                if (g.seg == s) return &g;
+            kids.push_back(Group{s, {}, {}});
+            return &kids.back();
+        }
+    };
+    Group root;
     for (size_t i = 0; i < project_.facts.size(); ++i) {
-        const facts::Fact& f = project_.facts[i];
-        if (!matchesFilter(f, factFilter_)) continue;
-        const std::string g = factGroup(f.name);
-        if (g != lastGroup) {
-            lastGroup = g;
-            groupOpen =
-                g.empty() ? true
-                          : ImGui::TreeNodeEx(g.c_str(),
-                                              ImGuiTreeNodeFlags_DefaultOpen |
-                                                  ImGuiTreeNodeFlags_SpanAvailWidth);
-            if (!g.empty() && groupOpen) ImGui::TreePop();
+        if (!matchesFilter(project_.facts[i], factFilter_)) continue;
+        const std::string& name = project_.facts[i].name;
+        Group* at = &root;
+        size_t from = 0, dot;
+        while ((dot = name.find('.', from)) != std::string::npos) {
+            at = at->kid(name.substr(from, dot - from));
+            from = dot + 1;
         }
-        if (!groupOpen) continue;
-        if (!g.empty()) ImGui::Indent(scaled(12));
-        const std::string label =
-            factLeaf(f.name) + "##fl" + std::to_string(i);
-        if (ImGui::Selectable(label.c_str(), factSel_ == (int)i))
-            factSel_ = (int)i;
-        if (f.isComputed()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("=");
-        }
-        if (!g.empty()) ImGui::Unindent(scaled(12));
+        at->leaves.push_back((int)i);
     }
+
+    // Groups first, then this level's own leaves - the file-manager order, and
+    // the one that keeps a fact named `world` from hiding above the `world.*`
+    // subtree it looks like it owns.
+    std::function<void(Group&, const std::string&)> drawGroup =
+        [&](Group& g, const std::string& path) {
+            for (Group& k : g.kids) {
+                const std::string kpath =
+                    path.empty() ? k.seg : path + "." + k.seg;
+                // The full path is the ImGui id: two groups named "marta"
+                // under different parents would otherwise be one node.
+                const std::string label = k.seg + "##g" + kpath;
+                if (ImGui::TreeNodeEx(label.c_str(),
+                                      ImGuiTreeNodeFlags_DefaultOpen |
+                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
+                    drawGroup(k, kpath);
+                    ImGui::TreePop();
+                }
+            }
+            for (int i : g.leaves) {
+                const facts::Fact& f = project_.facts[(size_t)i];
+                const std::string label =
+                    factLeaf(f.name) + "##fl" + std::to_string(i);
+                if (ImGui::Selectable(label.c_str(), factSel_ == i))
+                    factSel_ = i;
+                if (f.isComputed()) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("=");
+                }
+            }
+        };
+    drawGroup(root, "");
     ImGui::EndChild();
 
     ImGui::SameLine();
@@ -543,7 +630,16 @@ void App::drawFactCatalogTab() {
     // IsItemActivated(), which asks about the item submitted BEFORE it and so
     // would report on whatever widget happened to precede this one.
     std::string typed = f.name;
-    inputText("Name", typed, nullptr);
+    {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+        NameComplete nc{&project_.facts, factSel_};
+        ImGui::InputText("Name", buf, sizeof(buf),
+                         ImGuiInputTextFlags_CallbackCompletion,
+                         factNameCompletion, &nc);
+        typed = buf;
+    }
+    const bool nameActive = ImGui::IsItemActive();
     if (typed != f.name) {
         if (factRenameFrom_.empty()) factRenameFrom_ = f.name;
         f.name = typed;
@@ -562,6 +658,23 @@ void App::drawFactCatalogTab() {
         "rule and scenario that names this fact - and a player's existing "
         "save survives it, because the save is keyed by the fact's id and "
         "not by its name.");
+
+    // One line, ALWAYS submitted (empty when there is nothing to say), so the
+    // form below does not jump up and down while somebody types.
+    {
+        std::string hint;
+        if (nameActive) {
+            const std::vector<std::string> next =
+                nextSegments(project_.facts, f.name, factSel_);
+            if (!next.empty()) {
+                hint = "Tab completes - next: ";
+                for (size_t i = 0; i < next.size() && i < 6; ++i)
+                    hint += (i ? "   " : "") + next[i];
+                if (next.size() > 6) hint += " ...";
+            }
+        }
+        ImGui::TextDisabled("%s", hint.c_str());
+    }
 
     ImGui::SetNextItemWidth(scaled(280));
     {
