@@ -16,6 +16,16 @@
 // poles, cutout foliage, a curved silhouette, high-frequency textures at
 // grazing angles - shot with camera moves (still, pan, orbit, dolly) so the
 // temporal channel sees both easy and hopeless reprojection.
+//
+// THIRTEEN shots, and the second six are there because a measurement asked for
+// them. `--blss-eval --cv` (leave-one-shot-out) showed the network scoring
+// +0.31 dB over bilinear when it trains on six shots and +0.10 when it trains on
+// five - one shot of training data was worth 0.2 dB and most of the run-to-run
+// spread the docs had been blaming on the seed. The binding constraint was the
+// corpus, not the objective or the topology, so buildShots() gained the content
+// and camera classes the first seven had no representative of. See the comment
+// above shot 7 in blsscorpus.cpp; shots 0..6 are untouched and render
+// bit-identically, which is what lets a fold table be compared across the change.
 
 #pragma once
 
@@ -46,6 +56,12 @@ struct CorpusFrame {
     Image truth;      // outW x outH, box-resolved from the supersampled render
     Image native;     // outW x outH rendered at 1 sample - the "no BLSS" baseline
     int shot = 0;     // which camera move this frame belongs to (held-out split)
+    // What that shot IS. Carried per frame rather than looked up, because the
+    // consumer that needs it most - leave-one-shot-out cross-validation - reports
+    // one row per shot and "fold 4 lost 0.3 dB" is useless without "fold 4 is the
+    // grazing wall". Static string literals owned by the shot table.
+    const char* shotName = "";
+    const char* moveName = "";
 };
 
 // Renders the whole corpus. Frame N's `prevLow` is frame N-1 of the same shot

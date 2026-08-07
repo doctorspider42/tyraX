@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <thread>
 
 #include <stb_image.h>
 #include <stb_image_write.h>
@@ -507,9 +508,126 @@ bool load(Net& n, const std::string& path, std::string* err) {
     return true;
 }
 
+namespace {
+
+// ONE WEIGHT, AS A C++ FLOATING LITERAL THAT IS ACTUALLY ONE.
+//
+// `%.9g` renders 0.0f as "0" and 1.0f as "1", and "0F" is not a float literal -
+// it is an integer followed by a user-defined-literal suffix that does not
+// exist, so the generated header fails to compile with
+// `unable to find numeric literal operator 'operator""F'`. Every bias starts at
+// exactly 0 (Net::randomize), and templates.cpp emits a DEFAULT-CONSTRUCTED Net
+// when a project has BLSS enabled and no blss.net - all 147 weights zero - so
+// the "a missing net is not a build failure, just an untrained network and a
+// warning banner" path in blssNetHeader could never once have worked. It was
+// never executed, which is the same class of miss as the rest of this feature's
+// history: something the docs asserted and nothing ran.
+//
+// %.9g is kept (it round-trips a float exactly and stays readable); the decimal
+// point is added afterwards when the rendering carries neither '.' nor an
+// exponent. Non-finite weights cannot be spelled as a literal at all, so they
+// are written as zero and counted - the caller puts a banner at the top of the
+// file rather than shipping a header that does not compile.
+std::string floatLiteral(float v, int* nonFinite) {
+    if (!std::isfinite(v)) {
+        if (nonFinite) ++*nonFinite;
+        return "0.0F";
+    }
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(v));
+    std::string t(buf);
+    if (t.find('.') == std::string::npos && t.find('e') == std::string::npos &&
+        t.find('E') == std::string::npos)
+        t += ".0";
+    return t + "F";
+}
+
+// Does this text parse as a C++ floating literal with an F suffix? Deliberately
+// stricter than "it looked fine": the regression this guards is a header that
+// only fails at the point where it is compiled inside a Docker PS2 build, days
+// away from whoever changed the emitter.
+bool isFloatLiteral(const std::string& t) {
+    if (t.size() < 3 || t.back() != 'F') return false;
+    const std::string body = t.substr(0, t.size() - 1);
+    size_t i = (body[0] == '-' || body[0] == '+') ? 1 : 0;
+    bool digits = false, dot = false, exp = false;
+    for (; i < body.size(); ++i) {
+        const char c = body[i];
+        if (c >= '0' && c <= '9') { digits = true; continue; }
+        if (c == '.' && !dot && !exp) { dot = true; continue; }
+        if ((c == 'e' || c == 'E') && digits && !exp) {
+            exp = true;
+            if (i + 1 < body.size() && (body[i + 1] == '-' || body[i + 1] == '+')) ++i;
+            if (i + 1 >= body.size()) return false;
+            continue;
+        }
+        return false;
+    }
+    // An integer-looking body is exactly the bug: "0F" and "1F" are not floats.
+    return digits && (dot || exp);
+}
+
+}  // namespace
+
+namespace {
+// The values that break the emitter are the boring ones: an all-zero net is
+// precisely what a project with no blss.net emits, and 1 / -1 are what a
+// saturated weight rounds to. Checked on every emit - it is eleven snprintfs
+// against a header that is otherwise only ever compiled inside a Docker PS2
+// build, days away from whoever changed the formatting.
+bool literalProbesOk(std::string* bad) {
+    static const float probes[] = {0.0f,  -0.0f, 1.0f,   -1.0f,   2.0f,    1e9f,
+                                   1e-9f, 0.5f,  -0.25f, 3.4e38f, 1.0e-38f};
+    for (float v : probes) {
+        int nf = 0;
+        const std::string lit = floatLiteral(v, &nf);
+        if (!isFloatLiteral(lit)) {
+            if (bad) *bad = lit + "' for " + std::to_string(v);
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace
+
+bool selfTestEmitter(std::string* err) {
+    std::string bad;
+    if (!literalProbesOk(&bad)) {
+        if (err) *err = "emitter produced '" + bad;
+        return false;
+    }
+    // And the whole header for the untrained net, token by token: the failure
+    // mode was 147 bad literals in a file nobody compiled on the host.
+    Net zero;  // every weight and bias exactly 0
+    const std::string src = emitGeneratedSource(zero);
+    size_t at = src.find('{');
+    while (at != std::string::npos) {
+        const size_t end = src.find('}', at);
+        if (end == std::string::npos) break;
+        std::string tok;
+        for (size_t i = at + 1; i <= end; ++i) {
+            const char c = src[i];
+            if (c == ',' || c == '}' || c == '\n' || c == ' ') {
+                if (!tok.empty()) {
+                    if (!isFloatLiteral(tok)) {
+                        if (err) *err = "emitted header contains '" + tok + "', not a float literal";
+                        return false;
+                    }
+                    tok.clear();
+                }
+            } else {
+                tok += c;
+            }
+        }
+        at = src.find('{', end);
+    }
+    return true;
+}
+
 std::string emitGeneratedSource(const Net& n) {
     float flat[kNetFloats];
     netToFlat(n, flat);
+    int nonFinite = 0;
     std::string s;
     s += "// GENERATED by tyrax-editor --blss-emit. Do not edit.\n";
     s += "// The trained BLSS network (docs/neural-upscaler.md): an MLP\n";
@@ -527,12 +645,10 @@ std::string emitGeneratedSource(const Net& n) {
     }
     s += "\n\n#pragma once\n\n";
 
-    char buf[64];
     const auto table = [&](const char* name, int count, size_t at, int perLine) {
         s += "static const float " + std::string(name) + "[" + std::to_string(count) + "] = {\n   ";
         for (int i = 0; i < count; ++i) {
-            std::snprintf(buf, sizeof(buf), " %.9gF,", static_cast<double>(flat[at + i]));
-            s += buf;
+            s += " " + floatLiteral(flat[at + i], &nonFinite) + ",";
             if ((i + 1) % perLine == 0 && i + 1 < count) s += "\n   ";
         }
         s += "};\n\n";
@@ -545,6 +661,17 @@ std::string emitGeneratedSource(const Net& n) {
     table("BLSS_NET_W2", kOutputs * kHidden, at, kHidden);
     at += kOutputs * kHidden;
     table("BLSS_NET_B2", kOutputs, at, 3);
+    if (nonFinite > 0)
+        s.insert(0, "// WARNING: " + std::to_string(nonFinite) +
+                        " weight(s) were not finite and were written as 0.\n"
+                        "// The .net file is corrupt - retrain rather than shipping this.\n");
+    // The codegen path (templates.cpp) calls this function directly, not
+    // emitMain, so the guard has to live here or it does not cover the case that
+    // actually shipped broken. A legible #error beats
+    // "unable to find numeric literal operator" from inside a Docker build.
+    std::string bad;
+    if (!literalProbesOk(&bad))
+        s.insert(0, "#error BLSS emitter is producing invalid float literals ('" + bad + ")\n");
     return s;
 }
 
@@ -875,6 +1002,71 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
     if (samples.empty()) return 0.0f;
     net.randomize(cfg.seed);
 
+    // INPUT STANDARDISATION, FOLDED BACK INTO THE FIRST LAYER. OFF BY DEFAULT,
+    // AND THE MEASUREMENT THAT TURNED IT OFF IS THE DIAGNOSIS OF THIS NETWORK.
+    //
+    // The eight channels do not remotely share a scale over the corpus
+    // (--blss-eval --features prints the table): texDetail lives in 0.00 .. 0.20
+    // with sd 0.14, luma never exceeds 0.48, coverage is 1.0 on seven tenths of
+    // all tiles. One learning rate and one weight decay serve all of them, so the
+    // narrow channels get smaller gradients and are the first thing decay pulls
+    // to zero - and texDetail is the channel most correlated with what the oracle
+    // asks of the temporal weight. That looks exactly like an optimisation
+    // defect, so it was fixed, and the fix MADE GENERALISATION WORSE:
+    //
+    //   leave-one-shot-out, 7 shots, 84 frames, 3 seeds, decay 1e-5
+    //                        raw     standardised
+    //   held-out margin     +0.31       -0.15   dB over bilinear
+    //   spread over folds    0.39        1.18
+    //   in-distribution     +0.93       +1.05   (per-fold mean)
+    //
+    // Better fit on the shots it trained on, worse on the shot it did not, with
+    // four times the spread: this network is variance-limited, not
+    // optimisation-limited, and anything that makes the fit EASIER makes the
+    // feature worse. That is what sent the search to weight decay (TrainConfig)
+    // and to the corpus (blsscorpus.hpp) instead. Kept, because the next person
+    // to notice those channel scales should find this table rather than re-run it.
+    //
+    // The mechanism, for when someone does want it: it has to leave the ENGINE
+    // alone, because buildFeatures() is twinned with RendererCoreBlss, which
+    // computes the raw channels on the EE and knows nothing about any statistics.
+    // So it is applied only while fitting and then FOLDED INTO w1/b1, which is
+    // exact for an affine map:
+    //
+    //     h = tanh( sum_i w_i * (x_i - mu_i)/sd_i + b )
+    //       = tanh( sum_i (w_i/sd_i) * x_i + (b - sum_i w_i*mu_i/sd_i) )
+    //
+    // so the net that comes out eats RAW features, saves and emits unchanged, and
+    // the console cannot tell this happened. Statistics come from the training
+    // samples only - a fold that standardised against its held-out shot would be
+    // leaking, which is the one mistake a cross-validation harness must not make.
+    float mu[kFeatures] = {}, sd[kFeatures] = {};
+    if (cfg.standardise) {
+        double sum[kFeatures] = {}, sq[kFeatures] = {};
+        for (const Sample& s : samples)
+            for (int i = 0; i < kFeatures; ++i) {
+                sum[i] += s.f.v[i];
+                sq[i] += static_cast<double>(s.f.v[i]) * s.f.v[i];
+            }
+        const double inv = 1.0 / static_cast<double>(samples.size());
+        for (int i = 0; i < kFeatures; ++i) {
+            const double m = sum[i] * inv;
+            const double var = std::max(0.0, sq[i] * inv - m * m);
+            const double s = std::sqrt(var);
+            // A channel that does not move cannot be standardised - dividing by
+            // its noise would amplify exactly nothing into a large weight. Leave
+            // it alone and let the report say it is dead.
+            mu[i] = s > 1e-4 ? static_cast<float>(m) : 0.0f;
+            sd[i] = s > 1e-4 ? static_cast<float>(s) : 1.0f;
+        }
+    } else {
+        for (int i = 0; i < kFeatures; ++i) sd[i] = 1.0f;
+    }
+    std::vector<std::array<float, kFeatures>> xs(samples.size());
+    for (size_t s = 0; s < samples.size(); ++s)
+        for (int i = 0; i < kFeatures; ++i)
+            xs[s][static_cast<size_t>(i)] = (samples[s].f.v[i] - mu[i]) / sd[i];
+
     Net m{}, v{};  // Adam moments, same shape as the net
     float* pw = reinterpret_cast<float*>(&net);
     float* pm = reinterpret_cast<float*>(&m);
@@ -898,7 +1090,9 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
             std::memset(pg, 0, sizeof(Net));
             double batchW = 0.0;
             for (int s = 0; s < cfg.batch; ++s) {
-                const Sample& smp = samples[rng.next() % samples.size()];
+                const size_t pick = rng.next() % samples.size();
+                const Sample& smp = samples[pick];
+                const float* x = xs[pick].data();  // standardised; identity if off
                 const float iw = std::max(smp.importance, 0.0f);
                 if (iw <= 0.0f) continue;
                 batchW += iw;
@@ -907,7 +1101,7 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
                 float h[kHidden], o[kOutputs];
                 for (int k = 0; k < kHidden; ++k) {
                     float a = net.b1[k];
-                    for (int i = 0; i < kFeatures; ++i) a += net.w1[k][i] * smp.f.v[i];
+                    for (int i = 0; i < kFeatures; ++i) a += net.w1[k][i] * x[i];
                     h[k] = std::tanh(a);
                 }
                 for (int mo = 0; mo < kOutputs; ++mo) {
@@ -934,7 +1128,7 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
                 }
                 for (int k = 0; k < kHidden; ++k) {
                     const float d = dH[k] * (1.0f - h[k] * h[k]);  // through tanh
-                    for (int i = 0; i < kFeatures; ++i) grad.w1[k][i] += d * smp.f.v[i];
+                    for (int i = 0; i < kFeatures; ++i) grad.w1[k][i] += d * x[i];
                     grad.b1[k] += d;
                 }
             }
@@ -955,6 +1149,19 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
         if (cfg.verbose && (epoch % 50 == 0 || epoch == cfg.epochs - 1))
             std::printf("  epoch %4d  loss %.6f\n", epoch, lastLoss);
     }
+
+    // Unfold the standardisation into the first layer, so what leaves this
+    // function is a net over the RAW features the engine computes. Exact, not an
+    // approximation: an affine input map is a change of basis of layer 1.
+    if (cfg.standardise)
+        for (int k = 0; k < kHidden; ++k) {
+            float shift = 0.0f;
+            for (int i = 0; i < kFeatures; ++i) {
+                net.w1[k][i] /= sd[i];
+                shift += net.w1[k][i] * mu[i];
+            }
+            net.b1[k] -= shift;
+        }
     return lastLoss;
 }
 
@@ -967,7 +1174,12 @@ struct CliOpts {
     std::string outPath;
     std::string dumpDir;
     std::string assetDir = "examples";
-    int frames = 48;
+    // 12 frames per shot over the 13-shot bestiary. Frames are split evenly, so
+    // this number and the shot count have to move together: at the old default of
+    // 48 the tail shots got three frames each, and a shot with three frames
+    // teaches the temporal channel almost nothing (its history is one frame deep
+    // and the first frame of a shot has none at all).
+    int frames = 156;
     int epochs = 400;
     Scale scale = Scale::X2Y2;
     float sharpen = 0.5f;
@@ -977,6 +1189,25 @@ struct CliOpts {
     // and the only honest way to set them is to sweep the pair and read all
     // three columns - which a rebuild per point makes miserable.
     Objective obj;
+    // --cv: leave-one-shot-out cross-validation instead of the single split.
+    // See crossValidate(). --cv-seeds repeats the whole thing on N corpora, so
+    // the table carries a spread and not just a mean.
+    bool cv = false;
+    int cvSeeds = 1;
+    // Hold out only the FIRST N shots in turn (0 = all of them). The corpus grew
+    // after the folds below were measured, and "same held-out content, more
+    // training content" is the only before/after that means anything - a fold
+    // table whose rows changed is a different experiment, not a comparison.
+    int cvFolds = 0;
+    float weightDecay = 0.0f;  // 0 = TrainConfig's default
+    // --all-shots: fit the whole corpus instead of the split's training side.
+    // For the net you SHIP, not for the net you measure - see trainMain.
+    bool allShots = false;
+    bool standardise = false;  // --standardise for the A/B, see train()
+    // --features: what the eight input channels actually look like over the
+    // corpus. A channel that is constant is a channel the net cannot use, and
+    // nothing printed that until this flag existed.
+    bool featureStats = false;
 };
 
 CliOpts parseCli(int argc, char** argv) {
@@ -990,14 +1221,22 @@ CliOpts parseCli(int argc, char** argv) {
         else if (a == "-i" || a == "--net") o.netPath = next("blss.net");
         else if (a == "--dump") o.dumpDir = next(".");
         else if (a == "--assets") o.assetDir = next("examples");
-        else if (a == "--frames") o.frames = std::atoi(next("48").c_str());
+        else if (a == "--frames") o.frames = std::atoi(next("156").c_str());
         else if (a == "--epochs") o.epochs = std::atoi(next("400").c_str());
         else if (a == "--sharpen") o.sharpen = static_cast<float>(std::atof(next("0.5").c_str()));
         else if (a == "--flicker-weight")
             o.obj.flicker = static_cast<float>(std::atof(next("0.15").c_str()));
         else if (a == "--fill-weight")
-            o.obj.fill = static_cast<float>(std::atof(next("6").c_str()));
+            o.obj.fill = static_cast<float>(std::atof(next("16").c_str()));
         else if (a == "--seed") o.seed = static_cast<uint32_t>(std::strtoul(next("0").c_str(), nullptr, 0));
+        else if (a == "--cv") o.cv = true;
+        else if (a == "--cv-seeds") o.cvSeeds = std::max(1, std::atoi(next("1").c_str()));
+        else if (a == "--cv-folds") o.cvFolds = std::max(0, std::atoi(next("0").c_str()));
+        else if (a == "--weight-decay")
+            o.weightDecay = static_cast<float>(std::atof(next("1e-5").c_str()));
+        else if (a == "--standardise") o.standardise = true;
+        else if (a == "--all-shots") o.allShots = true;
+        else if (a == "--features") o.featureStats = true;
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
     }
@@ -1014,9 +1253,95 @@ CliOpts parseCli(int argc, char** argv) {
 // the last two measured a frame where even a perfect oracle beat plain bilinear
 // by 0.2 dB. That is a report about the split, not about the method. A stride
 // keeps a hard shot and an easy one on both sides.
+//
+// AND IT IS STILL ONE DRAW. Every held-out decibel this feature ever quoted came
+// out of this one function, and a 2-of-7 (now 4-of-13) partition is a sample of
+// size one: re-running the whole cycle at four seeds moved it from -0.23 to
+// +0.26 dB, which was read as seed noise and is mostly the split. Use
+// `--blss-eval --cv` for anything you intend to act on - it holds out each shot
+// in turn, which is seven estimates and, more usefully, seven answers to WHICH
+// content the net helps. This split remains what --blss-train fits on, because
+// training needs one training set, not seven.
 bool isHeldOut(int shot, int shotCount) {
     if (shotCount <= 2) return shot == shotCount - 1;
     return shot % 3 == 1;
+}
+
+// WHICH SHOTS A PASS LOOKS AT, indexed by shot id. Everything below takes one of
+// these rather than a bool, because the shipped split is only ONE draw out of
+// the seven the corpus can give you: leave-one-shot-out cross-validation needs
+// `shot == f` and `shot != f` for every f, and that is the whole point of --cv.
+using ShotMask = std::vector<char>;
+
+ShotMask heldOutMask(int shots) {
+    ShotMask m(static_cast<size_t>(std::max(shots, 0)), 0);
+    for (int s = 0; s < shots; ++s) m[static_cast<size_t>(s)] = isHeldOut(s, shots) ? 1 : 0;
+    return m;
+}
+ShotMask singleShotMask(int shots, int shot) {
+    ShotMask m(static_cast<size_t>(std::max(shots, 0)), 0);
+    if (shot >= 0 && shot < shots) m[static_cast<size_t>(shot)] = 1;
+    return m;
+}
+ShotMask complementMask(const ShotMask& m) {
+    ShotMask c(m.size(), 0);
+    for (size_t i = 0; i < m.size(); ++i) c[i] = m[i] ? 0 : 1;
+    return c;
+}
+bool inMask(const ShotMask& m, int shot) {
+    return shot >= 0 && static_cast<size_t>(shot) < m.size() && m[static_cast<size_t>(shot)] != 0;
+}
+
+// Fixed work per worker, matmul-style: item i is always handled by the same
+// arithmetic whatever the core count, and `body` may only touch item i, so the
+// RESULT does not depend on how many threads ran. Determinism has to survive
+// parallelism here - a cross-validation table that moved with the machine it ran
+// on would be worthless. (Same rule as matbake.cpp's sampler.)
+template <class F>
+void parallelFor(int n, const F& body) {
+    if (n <= 0) return;
+    unsigned hw = std::thread::hardware_concurrency();
+    if (hw < 1) hw = 1;
+    if (hw > 32) hw = 32;
+    const int workers = std::min<int>(static_cast<int>(hw), n);
+    if (workers <= 1) {
+        for (int i = 0; i < n; ++i) body(i);
+        return;
+    }
+    const auto run = [&](int w) {
+        for (int i = w; i < n; i += workers) body(i);
+    };
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<size_t>(workers - 1));
+    for (int w = 1; w < workers; ++w) pool.emplace_back(run, w);
+    run(0);
+    for (std::thread& t : pool) t.join();
+}
+
+// Mean and (population) standard deviation, because a mean without a spread is
+// how this feature quoted "+0.18 dB" twice from single runs that were noise.
+struct Spread {
+    double mean = 0, sd = 0;
+    int n = 0;
+};
+Spread spreadOf(const std::vector<double>& v) {
+    Spread s;
+    s.n = static_cast<int>(v.size());
+    if (v.empty()) return s;
+    for (double x : v) s.mean += x;
+    s.mean /= v.size();
+    for (double x : v) s.sd += (x - s.mean) * (x - s.mean);
+    s.sd = std::sqrt(s.sd / v.size());
+    return s;
+}
+
+TrainConfig trainConfigOf(const CliOpts& o) {
+    TrainConfig tc;
+    tc.epochs = o.epochs;
+    tc.seed = o.seed;
+    if (o.weightDecay > 0.0f) tc.weightDecay = o.weightDecay;
+    tc.standardise = o.standardise;
+    return tc;
 }
 
 std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
@@ -1034,6 +1359,13 @@ int shotCountOf(const std::vector<CorpusFrame>& c) {
     int n = 0;
     for (const auto& f : c) n = std::max(n, f.shot + 1);
     return n;
+}
+
+// "fold 4 lost 0.3 dB" is a fact about the grazing wall, not about fold 4.
+std::string shotNameOf(const std::vector<CorpusFrame>& c, int shot) {
+    for (const CorpusFrame& f : c)
+        if (f.shot == shot) return std::string(f.shotName) + " " + f.moveName;
+    return "shot " + std::to_string(shot);
 }
 
 WeightField netField(const Net& net, const Frame& fr) {
@@ -1054,15 +1386,17 @@ WeightField netField(const Net& net, const Frame& fr) {
 
 // A reconstruction method: tile weights for one frame. `truth` is passed so the
 // oracle can be measured through the exact same loop as every fixed kernel -
-// it ignores nothing else, and the oracle ignores nothing at all.
-using Method = std::function<WeightField(const Frame&, const Image& truth)>;
+// it ignores nothing else, and the oracle ignores nothing at all. `idx` is the
+// frame's index in the corpus, which lets --cv serve the oracle row out of the
+// labels it already computed instead of solving every frame seven more times.
+using Method = std::function<WeightField(const Frame&, const Image& truth, size_t idx)>;
 
 // PSNR over one side of the split, closing the temporal loop: each frame's
 // history is the previous frame's real composite, which is what the console has.
 // `perShot` (optional, indexed by shot id) receives per-shot means, because a
 // single average over a bestiary hides exactly the thing worth knowing - which
 // cases the network helps and which it should have left alone.
-double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool wantHeldOut,
+double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, const ShotMask& want,
                      float sharpen, const Method& weights, const std::string& dumpDir,
                      const char* dumpName, std::vector<double>* perShot,
                      double* flicker, Occupancy* occ = nullptr) {
@@ -1075,11 +1409,12 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
     int prevShot = -1;
     double flickSum = 0.0;
     int flickN = 0;
-    for (const CorpusFrame& cf : corpus) {
-        if (isHeldOut(cf.shot, shotCount) != wantHeldOut) continue;
+    for (size_t idx = 0; idx < corpus.size(); ++idx) {
+        const CorpusFrame& cf = corpus[idx];
+        if (!inMask(want, cf.shot)) continue;
         Frame fr = cf.frame;
         fr.history = (cf.shot == prevShot && prevOut.w == fr.outW) ? &prevOut : nullptr;
-        const WeightField wf = weights(fr, cf.truth);
+        const WeightField wf = weights(fr, cf.truth, idx);
         // OCCUPANCY: how much of the screen this method's weights actually make
         // the GS draw. It belongs next to PSNR for the same reason flicker does
         // - the whole performance case for BLSS is that passes 2..5 cover a
@@ -1140,7 +1475,7 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
 
 // A constant weight field - every fixed kernel is one of these.
 Method fixedMethod(Kernel k) {
-    return [k](const Frame& fr, const Image&) {
+    return [k](const Frame& fr, const Image&, size_t) {
         WeightField wf;
         wf.resize(fr.cols, fr.rows);
         std::array<float, kOutputs> w{};
@@ -1155,11 +1490,390 @@ Method fixedMethod(Kernel k) {
     };
 }
 
+// ------------------------------------------------------- oracle labels, once ---
+
+// The oracle's answer for a frame does NOT depend on which side of a split the
+// frame is on - it is a per-frame optimisation against that frame's own truth.
+// So cross-validation labels every frame once and each fold merely selects,
+// which is what makes seven folds cost barely more than one split. Per frame,
+// cols*rows samples in tile order; importance is raw here and normalised by
+// gatherSamples() once the fold is known.
+using FrameLabels = std::vector<Sample>;
+
+std::vector<FrameLabels> labelCorpus(const std::vector<CorpusFrame>& corpus, float sharpen,
+                                     const Objective& obj, const ShotMask* want = nullptr) {
+    std::vector<FrameLabels> labels(corpus.size());
+    parallelFor(static_cast<int>(corpus.size()), [&](int i) {
+        const CorpusFrame& cf = corpus[static_cast<size_t>(i)];
+        if (want && !inMask(*want, cf.shot)) return;
+        std::vector<float> imp;
+        const WeightField wf = oracle(cf.frame, cf.truth, sharpen, &imp, obj);
+        FrameLabels& out = labels[static_cast<size_t>(i)];
+        out.resize(wf.tile.size());
+        for (size_t k = 0; k < wf.tile.size(); ++k) {
+            out[k].f = cf.frame.features[k];
+            out[k].target = wf.tile[k];
+            out[k].importance = imp[k];
+        }
+    });
+    return labels;
+}
+
+// The labelled tiles of the shots in `want`, importance normalised to mean 1 so
+// the learning rate means the same thing whatever the fold looks like.
+std::vector<Sample> gatherSamples(const std::vector<FrameLabels>& labels,
+                                  const std::vector<CorpusFrame>& corpus, const ShotMask& want) {
+    std::vector<Sample> out;
+    double impSum = 0.0;
+    for (size_t i = 0; i < corpus.size() && i < labels.size(); ++i) {
+        if (!inMask(want, corpus[i].shot)) continue;
+        for (const Sample& s : labels[i]) {
+            out.push_back(s);
+            impSum += s.importance;
+        }
+    }
+    const float mean = out.empty() ? 0.0f : static_cast<float>(impSum / out.size());
+    if (mean > 0.0f)
+        for (Sample& s : out) s.importance /= mean;
+    return out;
+}
+
+// The oracle row, served from the labels instead of re-solved. Same field, and
+// the reason --cv can print an upper bound per fold for free.
+Method labelMethod(const std::vector<FrameLabels>& labels) {
+    return [&labels](const Frame& fr, const Image&, size_t idx) {
+        WeightField wf;
+        wf.resize(fr.cols, fr.rows);
+        if (idx < labels.size())
+            for (size_t k = 0; k < wf.tile.size() && k < labels[idx].size(); ++k)
+                wf.tile[k] = labels[idx][k].target;
+        return wf;
+    };
+}
+
+Method netMethod(const Net& net) {
+    return [&net](const Frame& fr, const Image&, size_t) { return netField(net, fr); };
+}
+
+// ------------------------------------------------------- cross-validation ---
+
+// ONE FOLD: train on every shot but `shot`, measure on `shot`.
+struct FoldResult {
+    int shot = 0;
+    double blss = 0, bilinear = 0, oracleBound = 0, native = 0;  // held-out shot, dB
+    double inBlss = 0, inBilinear = 0;                           // the six trained-on shots
+    double flicker = 0;
+    Occupancy occ;
+    double margin() const { return blss - bilinear; }
+    double inMargin() const { return inBlss - inBilinear; }
+};
+
+double nativePsnr(const std::vector<CorpusFrame>& corpus, const ShotMask& want) {
+    double sum = 0.0;
+    int n = 0;
+    for (const CorpusFrame& cf : corpus)
+        if (inMask(want, cf.shot)) {
+            sum += psnr(cf.native, cf.truth);
+            ++n;
+        }
+    return n ? sum / n : 0.0;
+}
+
+// LEAVE-ONE-SHOT-OUT over one corpus. Seven folds, seven independent estimates
+// of "does this beat bilinear on content it has not seen", instead of the single
+// draw the shipped 2-of-7 split gives - and, more usefully, seven answers to
+// WHICH content it fails on.
+std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus, int shots,
+                                          const CliOpts& o, uint32_t seed) {
+    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj);
+    const int nFolds = o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots;
+    std::vector<FoldResult> folds(static_cast<size_t>(nFolds));
+    // Folds are independent, so they run in parallel; each writes only its own
+    // slot and trains its own net from its own sample vector.
+    parallelFor(nFolds, [&](int f) {
+        FoldResult& r = folds[static_cast<size_t>(f)];
+        r.shot = f;
+        const ShotMask test = singleShotMask(shots, f);
+        const ShotMask train = complementMask(test);
+
+        const std::vector<Sample> samples = gatherSamples(labels, corpus, train);
+        TrainConfig tc = trainConfigOf(o);
+        tc.seed = seed;
+        tc.verbose = false;
+        Net net;
+        blss::train(net, samples, tc);
+
+        double fl = 0.0;
+        r.blss = evalRecurrent(corpus, shots, test, o.sharpen, netMethod(net), "", nullptr,
+                               nullptr, &fl, &r.occ);
+        r.flicker = fl;
+        r.bilinear = evalRecurrent(corpus, shots, test, o.sharpen, fixedMethod(Kernel::Bilinear),
+                                   "", nullptr, nullptr, &fl);
+        r.oracleBound = evalRecurrent(corpus, shots, test, o.sharpen, labelMethod(labels), "",
+                                      nullptr, nullptr, &fl);
+        r.native = nativePsnr(corpus, test);
+        // The in-distribution control. If this collapses, the fold did not train
+        // and its held-out number says nothing about generalisation.
+        r.inBlss = evalRecurrent(corpus, shots, train, o.sharpen, netMethod(net), "", nullptr,
+                                 nullptr, &fl);
+        r.inBilinear = evalRecurrent(corpus, shots, train, o.sharpen,
+                                     fixedMethod(Kernel::Bilinear), "", nullptr, nullptr, &fl);
+    });
+    return folds;
+}
+
+// Seeds for --cv-seeds N. The first is whatever --seed says, so `--cv` alone
+// reproduces the shipped corpus; the rest are derived from it, so the whole
+// table is one number away from being re-runnable.
+uint32_t cvSeedAt(uint32_t base, int i) {
+    if (i == 0) return base;
+    uint32_t h = base ^ (0x9E3779B9u * static_cast<uint32_t>(i + 1));
+    h ^= h >> 16;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15;
+    return h ? h : 1u;
+}
+
+int crossValidate(const CliOpts& o) {
+    std::printf(
+        "\nblss: leave-one-shot-out cross-validation, %d seed(s) x every shot held out in turn\n"
+        "      %d frames, %d epochs, decay %.0e, %s inputs\n"
+        "      objective: flicker %.3f, fill %.2f, sharpen %.2f\n",
+        o.cvSeeds, o.frames, o.epochs,
+        static_cast<double>(trainConfigOf(o).weightDecay),
+        o.standardise ? "standardised" : "raw", o.obj.flicker, o.obj.fill, o.sharpen);
+
+    std::vector<std::vector<FoldResult>> all;  // [seed][fold]
+    std::vector<uint32_t> seeds;
+    std::vector<std::string> shotNames;
+    int shots = 0;
+    for (int si = 0; si < o.cvSeeds; ++si) {
+        CliOpts so = o;
+        so.seed = cvSeedAt(o.seed, si);
+        seeds.push_back(so.seed);
+        std::vector<CorpusFrame> corpus = buildCorpus(so);
+        if (corpus.empty()) {
+            std::printf("blss: the corpus generator produced no frames\n");
+            return 1;
+        }
+        shots = shotCountOf(corpus);
+        if (shotNames.empty())
+            for (int s = 0; s < shots; ++s) shotNames.push_back(shotNameOf(corpus, s));
+        std::printf("blss: seed 0x%X - labelling %zu frames, then %d fold(s) over %d shot(s)\n",
+                    so.seed, corpus.size(), o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots,
+                    shots);
+        all.push_back(crossValidateOnce(corpus, shots, so, so.seed));
+    }
+    if (all.empty() || shots <= 0 || all[0].empty()) return 1;
+    // Folds may be fewer than shots (--cv-folds): the rows of the table are the
+    // shots that get held out, the training set is always everything else.
+    const int nFolds = static_cast<int>(all[0].size());
+
+    // --- the table that matters: held-out margin over plain bilinear, per fold.
+    std::printf("\n  BLSS - bilinear on the HELD-OUT shot, dB (positive = the network helped)\n");
+    std::printf("  %-27s", "held-out shot");
+    for (uint32_t s : seeds) std::printf("  seed %-8X", s);
+    std::printf("      mean     sd\n  %s\n",
+                std::string(29 + seeds.size() * 15 + 17, '-').c_str());
+
+    std::vector<double> everyFold;
+    int losses = 0;
+    for (int f = 0; f < nFolds; ++f) {
+        std::printf("  %-2d %-24s", f, shotNames[static_cast<size_t>(f)].c_str());
+        std::vector<double> perSeed;
+        for (size_t si = 0; si < all.size(); ++si) {
+            const double m = all[si][static_cast<size_t>(f)].margin();
+            perSeed.push_back(m);
+            everyFold.push_back(m);
+            if (m < 0.0) ++losses;
+            std::printf("  %+12.2f ", m);
+        }
+        const Spread sp = spreadOf(perSeed);
+        std::printf(" %+8.2f  %5.2f\n", sp.mean, sp.sd);
+    }
+    std::printf("  %s\n", std::string(29 + seeds.size() * 15 + 17, '-').c_str());
+
+    // Mean over folds, per seed: this is the number the single split was trying
+    // to estimate with one draw.
+    std::printf("  %-27s", "mean over folds");
+    std::vector<double> seedMeans;
+    for (size_t si = 0; si < all.size(); ++si) {
+        std::vector<double> v;
+        for (int f = 0; f < nFolds; ++f) v.push_back(all[si][static_cast<size_t>(f)].margin());
+        const Spread sp = spreadOf(v);
+        seedMeans.push_back(sp.mean);
+        std::printf("  %+12.2f ", sp.mean);
+    }
+    const Spread overall = spreadOf(everyFold);
+    const Spread bySeed = spreadOf(seedMeans);
+    std::printf(" %+8.2f  %5.2f\n", overall.mean, bySeed.sd);
+    // Passes belong on the SUMMARY line, not only in the table below, because a
+    // margin bought at 5.00 passes is not a win - it is plain bilinear plus every
+    // kernel everywhere, which costs more fill than the half-res render saved.
+    // Reading the dB column alone is how this feature would make the same mistake
+    // a fifth time.
+    std::vector<double> everyPasses;
+    for (const auto& seedRun : all)
+        for (const FoldResult& r : seedRun) everyPasses.push_back(r.occ.passes);
+    const Spread pas = spreadOf(everyPasses);
+    std::printf("\n  overall %+.2f dB, sd %.2f over %d fold-runs; %d of %d BELOW bilinear;"
+                " %.2f passes (sd %.2f)\n",
+                overall.mean, overall.sd, overall.n, losses, overall.n, pas.mean, pas.sd);
+    std::printf("  (sd of the per-seed fold-mean: %.2f - that is what one --blss-eval run"
+                " is estimating)\n", bySeed.sd);
+
+    // --- absolutes, averaged over seeds. Which content it helps, and at what
+    // fill: a margin alone cannot say whether a fold is hard or merely cheap.
+    std::printf("\n  per fold, mean over %zu seed(s): PSNR on the held-out shot\n", seeds.size());
+    std::printf("  %-27s %8s %8s %8s %8s %8s %8s %8s\n", "held-out shot", "native", "bilin",
+                "BLSS", "oracle", "passes", "flicker", "in-dist");
+    std::printf("  %s\n", std::string(29 + 8 * 9, '-').c_str());
+    for (int f = 0; f < nFolds; ++f) {
+        double nat = 0, bil = 0, net = 0, orc = 0, pas = 0, fli = 0, ind = 0;
+        for (const auto& seedRun : all) {
+            const FoldResult& r = seedRun[static_cast<size_t>(f)];
+            nat += r.native;
+            bil += r.bilinear;
+            net += r.blss;
+            orc += r.oracleBound;
+            pas += r.occ.passes;
+            fli += r.flicker;
+            ind += r.inMargin();
+        }
+        const double k = 1.0 / static_cast<double>(all.size());
+        std::printf("  %-2d %-24s %8.2f %8.2f %8.2f %8.2f %8.2f %8.2f %+8.2f\n", f,
+                    shotNames[static_cast<size_t>(f)].c_str(), nat * k, bil * k, net * k, orc * k,
+                    pas * k, fli * k, ind * k);
+    }
+    std::printf("\n  in-dist is BLSS - bilinear on that fold's six TRAINING shots: the control"
+                " that says\n  the fold trained at all. A held-out number under a collapsed"
+                " in-dist number means nothing.\n\n");
+    return 0;
+}
+
+// ----------------------------------------------------- feature diagnostics ---
+
+// WHAT THE EIGHT INPUTS ACTUALLY LOOK LIKE. A channel that never moves is a
+// channel the 147 weights cannot use, and no amount of training fixes it - this
+// is the same class of bug as a term missing from the objective, one level
+// further down. Prints, per feature: the distribution over the corpus, and how
+// strongly it correlates with what the ORACLE asked for (weighted by importance,
+// because tiles where every kernel is equal do not get a vote in training
+// either).
+int featureReport(const CliOpts& o) {
+    std::vector<CorpusFrame> corpus = buildCorpus(o);
+    if (corpus.empty()) return 1;
+    const int shots = shotCountOf(corpus);
+    std::printf("blss: labelling %zu frames to correlate features against the oracle\n",
+                corpus.size());
+    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj);
+
+    struct Acc {
+        double n = 0, sum = 0, sq = 0, lo = 1e30, hi = -1e30, at0 = 0, at1 = 0;
+    };
+    std::vector<Acc> all(kFeatures);
+    std::vector<std::vector<Acc>> byShot(static_cast<size_t>(shots),
+                                         std::vector<Acc>(kFeatures));
+    // Importance-weighted covariance of each feature with each oracle output.
+    std::vector<std::array<double, kOutputs>> cov(kFeatures, std::array<double, kOutputs>{});
+    std::vector<double> fMean(kFeatures, 0.0), fVar(kFeatures, 0.0);
+    std::array<double, kOutputs> tMean{}, tVar{};
+    double wSum = 0.0;
+
+    for (size_t i = 0; i < corpus.size(); ++i)
+        for (const Sample& s : labels[i]) {
+            const double w = std::max(0.0f, s.importance);
+            wSum += w;
+            for (int c = 0; c < kFeatures; ++c) {
+                const double v = s.f.v[c];
+                Acc& a = all[static_cast<size_t>(c)];
+                a.n += 1;
+                a.sum += v;
+                a.sq += v * v;
+                a.lo = std::min(a.lo, v);
+                a.hi = std::max(a.hi, v);
+                a.at0 += v <= 1e-4 ? 1 : 0;
+                a.at1 += v >= 1.0 - 1e-4 ? 1 : 0;
+                Acc& b = byShot[static_cast<size_t>(corpus[i].shot)][static_cast<size_t>(c)];
+                b.n += 1;
+                b.sum += v;
+                b.sq += v * v;
+                fMean[static_cast<size_t>(c)] += w * v;
+            }
+            for (int m = 0; m < kOutputs; ++m) tMean[static_cast<size_t>(m)] += w * s.target[m];
+        }
+    if (wSum <= 0.0) return 1;
+    for (int c = 0; c < kFeatures; ++c) fMean[static_cast<size_t>(c)] /= wSum;
+    for (int m = 0; m < kOutputs; ++m) tMean[static_cast<size_t>(m)] /= wSum;
+    for (size_t i = 0; i < corpus.size(); ++i)
+        for (const Sample& s : labels[i]) {
+            const double w = std::max(0.0f, s.importance);
+            for (int c = 0; c < kFeatures; ++c) {
+                const double d = s.f.v[c] - fMean[static_cast<size_t>(c)];
+                fVar[static_cast<size_t>(c)] += w * d * d;
+                for (int m = 0; m < kOutputs; ++m)
+                    cov[static_cast<size_t>(c)][static_cast<size_t>(m)] +=
+                        w * d * (s.target[m] - tMean[static_cast<size_t>(m)]);
+            }
+            for (int m = 0; m < kOutputs; ++m) {
+                const double d = s.target[m] - tMean[static_cast<size_t>(m)];
+                tVar[static_cast<size_t>(m)] += w * d * d;
+            }
+        }
+
+    std::printf("\n  input channels over %zu frames / %.0f tiles"
+                " (corr = importance-weighted, vs the oracle's answer)\n",
+                corpus.size(), all[0].n);
+    std::printf("  %-11s %7s %7s %7s %7s %7s %7s  %7s %7s %7s\n", "feature", "mean", "sd", "min",
+                "max", "%at 0", "%at 1", "r:point", "r:temp", "r:sharp");
+    std::printf("  %s\n", std::string(13 + 6 * 8 + 3 * 8 + 2, '-').c_str());
+    for (int c = 0; c < kFeatures; ++c) {
+        const Acc& a = all[static_cast<size_t>(c)];
+        const double mean = a.sum / a.n;
+        const double sd = std::sqrt(std::max(0.0, a.sq / a.n - mean * mean));
+        std::printf("  %-11s %7.3f %7.3f %7.3f %7.3f %6.1f%% %6.1f%%", kFeatureNames[c], mean, sd,
+                    a.lo, a.hi, 100.0 * a.at0 / a.n, 100.0 * a.at1 / a.n);
+        for (int m = 0; m < kOutputs; ++m) {
+            const double den = std::sqrt(fVar[static_cast<size_t>(c)] * tVar[static_cast<size_t>(m)]);
+            std::printf(" %+7.3f",
+                        den > 0 ? cov[static_cast<size_t>(c)][static_cast<size_t>(m)] / den : 0.0);
+        }
+        std::printf("\n");
+    }
+
+    std::printf("\n  per-shot mean of each channel - a channel that is the same number in every"
+                " column\n  cannot tell the shots apart, which is what it exists to do\n");
+    std::printf("  %-11s", "feature");
+    for (int s = 0; s < shots; ++s) std::printf(" %8s", shotNameOf(corpus, s).substr(0, 8).c_str());
+    std::printf("   spread\n  %s\n", std::string(13 + shots * 9 + 9, '-').c_str());
+    for (int c = 0; c < kFeatures; ++c) {
+        std::printf("  %-11s", kFeatureNames[c]);
+        std::vector<double> means;
+        for (int s = 0; s < shots; ++s) {
+            const Acc& b = byShot[static_cast<size_t>(s)][static_cast<size_t>(c)];
+            const double m = b.n ? b.sum / b.n : 0.0;
+            means.push_back(m);
+            std::printf(" %8.3f", m);
+        }
+        std::printf("   %6.3f\n", spreadOf(means).sd);
+    }
+    std::printf("\n");
+    return 0;
+}
+
 }  // namespace
 
 int trainMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
     const std::string outPath = o.outPath.empty() ? o.netPath : o.outPath;
+    // Cheap, and it fails here rather than three commands later inside a Docker
+    // PS2 build: a net whose weights cannot be spelled as C++ literals is not a
+    // trained net, it is a broken generated project.
+    std::string emitErr;
+    if (!selfTestEmitter(&emitErr)) {
+        std::printf("blss: %s - the generated header would not compile\n", emitErr.c_str());
+        return 1;
+    }
 
     std::vector<CorpusFrame> corpus = buildCorpus(o);
     if (corpus.empty()) {
@@ -1168,37 +1882,31 @@ int trainMain(int argc, char** argv) {
     }
     const int shots = shotCountOf(corpus);
 
+    // By default the split's held-out shots are kept OUT, so that a later
+    // `--blss-eval -i` on the same corpus is measuring content this net has not
+    // seen. That costs the shipped net real quality - it is fitted on 9 of the
+    // 13 shots, and cross-validation measured every extra shot as worth a
+    // fraction of a decibel (leave-one-out +0.31 dB against leave-two-out +0.10
+    // on identical content). `--all-shots` fits the whole corpus, which is what
+    // you want for the net you actually bake into a game; the price is that
+    // --blss-eval's held-out columns then mean nothing, and --cv is the only
+    // honest measurement left.
+    const ShotMask trained =
+        o.allShots ? ShotMask(static_cast<size_t>(shots), 1) : complementMask(heldOutMask(shots));
+    int trainShots = 0;
+    for (char c : trained) trainShots += c ? 1 : 0;
+
     std::printf("blss: labelling %zu frames with the oracle\n", corpus.size());
-    std::vector<Sample> samples;
-    double impSum = 0.0;
-    for (const CorpusFrame& cf : corpus) {
-        if (isHeldOut(cf.shot, shots)) continue;
-        std::vector<float> imp;
-        const WeightField wf = oracle(cf.frame, cf.truth, o.sharpen, &imp, o.obj);
-        for (size_t k = 0; k < wf.tile.size(); ++k) {
-            Sample s;
-            s.f = cf.frame.features[k];
-            s.target = wf.tile[k];
-            s.importance = imp[k];
-            impSum += imp[k];
-            samples.push_back(s);
-        }
-    }
+    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, &trained);
+    std::vector<Sample> samples = gatherSamples(labels, corpus, trained);
     if (samples.empty()) {
         std::printf("blss: no training samples (every shot held out?)\n");
         return 1;
     }
-    // Normalise importance to mean 1 so the learning rate means the same thing
-    // whatever the corpus looks like.
-    const float impMean = static_cast<float>(impSum / samples.size());
-    if (impMean > 0.0f)
-        for (Sample& s : samples) s.importance /= impMean;
 
     std::printf("blss: training on %zu tiles from %d shots (objective: flicker %.3f, fill %.2f)\n",
-                samples.size(), shots - 2, o.obj.flicker, o.obj.fill);
-    TrainConfig tc;
-    tc.epochs = o.epochs;
-    tc.seed = o.seed;
+                samples.size(), trainShots, o.obj.flicker, o.obj.fill);
+    const TrainConfig tc = trainConfigOf(o);
     Net net;
     const float loss = train(net, samples, tc);
 
@@ -1213,6 +1921,12 @@ int trainMain(int argc, char** argv) {
 
 int evalMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
+    // Two diagnostics that train their OWN nets and therefore ignore -i: the
+    // cross-validation table (which is the honest answer to "does this
+    // generalise", the single split being one draw) and the input-channel
+    // report (which is the honest answer to "can it, with these features").
+    if (o.cv) return crossValidate(o);
+    if (o.featureStats) return featureReport(o);
     Net net;
     std::string err;
     if (!load(net, o.netPath, &err)) {
@@ -1237,10 +1951,9 @@ int evalMain(int argc, char** argv) {
         {"bilinear", fixedMethod(Kernel::Bilinear), "bilinear"},
         {"temporal", fixedMethod(Kernel::Temporal), "temporal"},
         {"sharpen", fixedMethod(Kernel::Sharpen), "sharpen"},
-        {"BLSS (trained)", [&net](const Frame& fr, const Image&) { return netField(net, fr); },
-         "net"},
+        {"BLSS (trained)", netMethod(net), "net"},
         {"oracle (upper bound)",
-         [&o](const Frame& fr, const Image& truth) {
+         [&o](const Frame& fr, const Image& truth, size_t) {
              return oracle(fr, truth, o.sharpen, nullptr, o.obj);
          },
          "oracle"},
@@ -1292,12 +2005,14 @@ int evalMain(int argc, char** argv) {
         return n ? sum / n : 0.0;
     };
 
+    const ShotMask held = heldOutMask(shots), trained = complementMask(held);
     for (int pass = 0; pass < 2; ++pass) {
         const bool heldOut = pass == 0;
+        const ShotMask& want = heldOut ? held : trained;
         int frames = 0;
         std::vector<int> ids;
         for (const CorpusFrame& cf : corpus)
-            if (isHeldOut(cf.shot, shots) == heldOut) {
+            if (inMask(want, cf.shot) ) {
                 ++frames;
                 if (std::find(ids.begin(), ids.end(), cf.shot) == ids.end()) ids.push_back(cf.shot);
             }
@@ -1324,7 +2039,7 @@ int evalMain(int argc, char** argv) {
 
         for (const Row& r : rows) {
             Occupancy occ;
-            const double p = evalRecurrent(corpus, shots, heldOut, o.sharpen, r.m, o.dumpDir,
+            const double p = evalRecurrent(corpus, shots, want, o.sharpen, r.m, o.dumpDir,
                                            heldOut ? r.dump : nullptr, &ps, &fl, &occ);
             std::printf("  half-res + %-11s %8.3f %8.2f %6.1f%% %6.1f%% %6.1f%% %7.2f  ", r.name, p,
                         fl, occ.point * 100.0f, occ.temporal * 100.0f, occ.sharpen * 100.0f,
@@ -1361,8 +2076,12 @@ int evalMain(int argc, char** argv) {
 
 int emitMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
-    Net net;
     std::string err;
+    if (!selfTestEmitter(&err)) {
+        std::printf("blss: %s - the generated header would not compile\n", err.c_str());
+        return 1;
+    }
+    Net net;
     if (!load(net, o.netPath, &err)) {
         std::printf("blss: %s\n", err.c_str());
         return 1;

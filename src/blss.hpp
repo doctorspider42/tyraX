@@ -115,22 +115,33 @@ constexpr float kTemporalMax = 115.0f;
 // 0 reproduces the old PSNR-only objective; raise it and the oracle buys
 // stability with sharpness. Check BOTH columns of --blss-eval after changing it.
 //
-// IT IS 0 AFTER MEASURING, AND THAT IS NOT THE SAME AS DELETING IT. Swept
-// jointly against kFillWeight below, 84 frames, 600 epochs, 3-6 training seeds
-// per point (held-out PSNR moves +-0.4 dB with the seed alone, so one run
-// decides nothing), at fill 6:
+// IT IS 0 AFTER MEASURING, AND THAT IS NOT THE SAME AS DELETING IT. Measured
+// twice, and the second measurement is the one to trust because the first was
+// read off a single 2-of-7 split:
 //
-//   flicker weight   0.00    0.02    0.05    0.15
-//   held-out PSNR   23.38   23.16   22.90   22.37     (bilinear 23.26)
-//   training flick  21.01   20.86   20.80   20.20     (bilinear 23.41)
+// (a) the original sweep, 84 frames, 600 epochs, one split, 3-6 seeds per point,
+//     at fill 6 - held-out PSNR 23.38 / 23.16 / 22.90 / 22.37 at flicker weight
+//     0 / 0.02 / 0.05 / 0.15, i.e. "0.02 already scores below bilinear";
 //
-// so every non-zero setting pays 0.2 .. 1.0 dB of OUT-OF-DISTRIBUTION quality
-// for a few percent of flicker, and 0.02 upwards already scores below plain
-// bilinear on the held-out shots. The reason is visible in the split: the
-// penalty is MSE against the reprojected history, which is minimised by
-// out == history, i.e. by FREEZING - free on the near-static training shots,
-// ghosting on the held-out orbit and dolly. It does not distinguish "stable
-// because the jitter got fused" from "stable because nothing moved".
+// (b) leave-one-shot-out cross-validation (`--blss-eval --cv --cv-seeds 3`, 13
+//     shots, 156 frames, decay 1e-4, fill 16) - the same 21 fold-runs with and
+//     without it:
+//
+//       flicker weight        0.00     0.02
+//       held-out margin      +0.55    +0.53   dB over bilinear
+//       mean passes           3.00     2.89
+//       held-out flicker     33.3 / 44.9 / 28.7 / 6.5 / 7.8 / 41.6  (per fold)
+//                            33.0 / 44.7 / 28.8 / 6.5 / 7.8 / 41.6
+//
+// So (a) OVERSTATED the price - it is 0.02 dB, not 0.22 - and understated
+// nothing: the flicker column does not move at all. The term buys no measurable
+// stability, which is the actual reason it ships at zero.
+//
+// The reason it cannot work in this form is unchanged: the penalty is MSE
+// against the reprojected history, which is minimised by out == history, i.e. by
+// FREEZING - free on near-static shots, ghosting on an orbit or a dolly. It does
+// not distinguish "stable because the jitter got fused" from "stable because
+// nothing moved".
 //
 // What replaced it is the fill term: charging for kernels culls the point and
 // sharpen passes, which are exactly the two that alternate with the jitter, so
@@ -163,18 +174,33 @@ constexpr float kFlickerWeight = 0.0f;
 // PSNR the trained net reaches. 0 reproduces the old fill-blind objective.
 // Check the occupancy columns of --blss-eval after changing it.
 //
-// 6 is the knee of the sweep (84 frames, 600 epochs, 3-6 seeds per point,
-// flicker weight 0), and the knee is sharp:
+// IT WAS 6, AND 6 WAS AN ARTEFACT OF THE SPLIT IT WAS CHOSEN ON. The old sweep
+// read a sharp knee at 6 off a SINGLE 2-of-7 held-out split ("12 is a full
+// decibel below plain bilinear"). Under leave-one-shot-out cross-validation -
+// seven folds instead of one draw, `--blss-eval --cv` - that cliff does not
+// exist: on the same seven shots, fill 12 scores +0.27 dB over bilinear where
+// fill 6 scores +0.30, a difference inside the fold noise, while spending half a
+// pass less. The cliff was one unlucky pair of shots.
 //
-//   fill weight        0      2      4      6     7.5     9     12     24
-//   held-out PSNR   23.26  23.44  23.44  23.38  22.85  22.69  22.45  22.86
-//   mean passes      4.25   3.99   3.84   3.39   3.29   2.81   2.58   2.43
+// 16 is the knee of the sweep that replaced it: 13 shots, 156 frames, 400
+// epochs, weight decay 1e-4, flicker 0, 7 folds x 3 seeds = 21 fold-runs per
+// point, holding out each of the ORIGINAL seven shots in turn so every column is
+// the same held-out content:
 //
-// Up to 6 the quality is flat and the fill comes down; past it the network
-// stops generalising - 7.5 costs half a decibel out of distribution and buys a
-// tenth of a pass, and 12 is a full decibel BELOW plain bilinear. (Bilinear is
-// 23.26 dB at exactly 1.00 passes, and the worst case is 5.00.)
-constexpr float kFillWeight = 6.0f;
+//   fill weight       6      12     16     24     40
+//   held-out margin  +0.36  +0.53  +0.55  +0.50  +0.43   dB over bilinear
+//   mean passes       3.92   3.59   3.00   2.76   2.67
+//   folds below bil   3/21   2/21   2/21   1/21   1/21
+//
+// (at decay 1e-5 the same corpus reads +0.36 at fill 6 and +0.33 at fill 12, so
+// the fill term and the decay have to be set TOGETHER - see TrainConfig.)
+//
+// The shape is a plateau, not a cliff: 12..24 are one measurement, and the fill
+// falls by a whole pass across it. 16 sits in the middle of the plateau at
+// 3.00 passes, which is what a knee looks like when it is measured over seven
+// held-out shots instead of two. Past 24 the network starts giving up kernels it
+// should have kept and the margin goes with it.
+constexpr float kFillWeight = 16.0f;
 
 // The oracle's objective in one struct, because a term that is not in here is a
 // term the network is structurally unable to learn - which is the bug this
@@ -285,6 +311,16 @@ bool load(Net&, const std::string& path, std::string* err = nullptr);
 // The C++ the generated game compiles: a BLSS_NET_* constant table plus the
 // forward pass. Returns the file body (templates.cpp writes it).
 std::string emitGeneratedSource(const Net&);
+
+// Does the emitter still produce compilable C++? Checks the literal formatter
+// against the values that broke it - exact zeros and exact ones, which `%.9g`
+// renders as "0" and "1", so the header said `0F` and no compiler accepts that.
+// Every bias of an untrained net is exactly 0 and templates.cpp emits an
+// untrained net whenever a project has BLSS on and no blss.net, so the documented
+// "missing net is not a build failure" path was broken from the day it was
+// written and nothing on the host ever compiled the file to notice.
+// --blss-train and --blss-emit both run it; `err` gets the offending literal.
+bool selfTestEmitter(std::string* err = nullptr);
 
 // ------------------------------------------------------------------ images ---
 
@@ -433,9 +469,32 @@ struct TrainConfig {
     int epochs = 400;
     int batch = 64;
     float lr = 0.01f;
-    float weightDecay = 1e-5f;
+    // 147 weights over ~13 000 supervised tiles sounds like a lot of data per
+    // weight, and it is not: the tiles come from 12 camera moves, so the number
+    // that matters is a dozen scenes, and this network's whole failure mode is
+    // variance. Decay was 1e-5, which is barely regularisation at all. Under
+    // leave-one-shot-out cross-validation (13 shots, 156 frames, 7 folds x 3
+    // seeds, held-out margin over bilinear at the fill weight that matches its
+    // pass count):
+    //
+    //   weight decay     1e-5     1e-4     1e-3
+    //   held-out margin  +0.36    +0.55    +0.40   dB
+    //   mean passes       3.92     3.00     4.34
+    //
+    // 1e-4 is worth a fifth of a decibel AND a whole pass; 1e-3 over-smooths the
+    // weight field into asking for every kernel everywhere again. Set with
+    // kFillWeight, never alone - decay pulls the outputs toward the mean oracle
+    // answer, which is nonzero, so more decay means more fill unless the
+    // objective charges for it.
+    float weightDecay = 1e-4f;
     uint32_t seed = 0x5AFE1234u;
     bool verbose = true;
+    // Standardise the eight inputs while fitting, then fold the affine map back
+    // into w1/b1 so the net that comes out still eats the RAW features the
+    // engine computes. OFF, AFTER MEASURING - it fits the training shots better
+    // and generalises worse, which is the whole diagnosis of this network in one
+    // switch; train() carries the numbers. `--standardise` turns it back on.
+    bool standardise = false;
 };
 
 // Adam, MSE weighted by Sample::importance. Returns final training loss.
@@ -443,9 +502,31 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 
 // ------------------------------------------------------------- CLI entries ---
 
-// --blss-train [-o blss.net] [--frames N] [--epochs N] [--dump <dir>]
+// --blss-train [-o blss.net] [--frames N] [--epochs N] [--weight-decay W]
+//              [--dump <dir>]
 int trainMain(int argc, char** argv);
 // --blss-eval [-i blss.net] [--frames N] [--dump <dir>]
+//
+// Two modes train their own nets and therefore ignore -i:
+//
+//   --cv [--cv-seeds N] [--cv-folds N]
+//       LEAVE-ONE-SHOT-OUT CROSS-VALIDATION, and it is the number to quote for
+//       anything out of distribution. Each shot is held out in turn while the
+//       net trains on all the others, so the table is one row per KIND of
+//       content ("which shots does it fail on") rather than one average over an
+//       arbitrary pair. --cv-seeds repeats it on N independently generated
+//       corpora, because a mean without a spread is how this feature published
+//       noise twice. --cv-folds N holds out only the first N shots, which is how
+//       a before/after survives the corpus growing under it.
+//       It prints the margin over bilinear per fold AND the mean pass count:
+//       a decibel bought at 5.00 passes is not a win, it is bilinear plus every
+//       kernel everywhere.
+//
+//   --features
+//       What the eight input channels actually look like over the corpus -
+//       distribution, saturation, per-shot means, and correlation with what the
+//       oracle asked for. A channel that is constant is a channel the 147
+//       weights cannot use, and nothing printed that until this existed.
 int evalMain(int argc, char** argv);
 // --blss-emit [-i blss.net] [-o blss_net.gen.hpp]
 int emitMain(int argc, char** argv);

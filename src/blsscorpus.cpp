@@ -1160,6 +1160,198 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
         shots.push_back(std::move(s));
     }
 
+    // ------------------------------------------------------------------------
+    // 7.. - THE SECOND HALF OF THE BESTIARY, and it exists because a measurement
+    // asked for it rather than because the list looked short.
+    //
+    // Leave-one-shot-out cross-validation (`--blss-eval --cv`) put the shipped
+    // 2-of-7 split next to the seven single-shot folds it is a draw from, and the
+    // gap was the finding: holding out ONE shot and training on six scores
+    // +0.31 dB over bilinear, holding out TWO and training on five scores +0.10
+    // with four times the spread. One shot of training data was worth 0.2 dB and
+    // most of the variance the docs had been attributing to the seed - i.e. the
+    // network was data-starved, and the corpus was the binding constraint, not
+    // the objective or the topology.
+    //
+    // So these six add the CONTENT AND CAMERA CLASSES the first seven had no
+    // representative of: lateral parallax, a pitch through the horizon, close
+    // geometry that saturates the depth channel, extreme minification that does
+    // not, curved silhouettes at several distances, and cutouts under motion
+    // rather than standing still. They are appended, never inserted, and they
+    // draw their randomness from fresh mix32 purposes - so shots 0..6 render
+    // BIT-IDENTICALLY with or without them, which is what makes a before/after
+    // fold table a comparison instead of two different experiments.
+    // ------------------------------------------------------------------------
+
+    // 7 - a corridor, dollied down. Everything is within a few units of the eye,
+    // which is where `depth` saturates (it reads 1.0 for anything closer than
+    // kDepthRef = 8), so this is the shot that says what the net does when that
+    // channel is a constant - and it is also what an indoor PS2 game looks like
+    // for most of its running time.
+    {
+        Shot s;
+        s.name = "corridor";
+        s.moveName = "dolly-down";
+        s.move = Move::Dolly;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x5107u));
+        pieceFloor(s.objs, m, m.assetOr(0, m.checker), 24.0f, 24.0f, /*bilinear=*/true,
+                   {0.7f, 0.7f, 0.72f});
+        pieceWall(s.objs, m, m.assetOr(1, m.noise), {-2.2f, 0.0f, -6.0f}, {-2.2f, 0.0f, 26.0f},
+                  3.2f, 24.0f, 2.0f, {0.95f, 0.92f, 0.88f});
+        pieceWall(s.objs, m, m.bands, {2.2f, 0.0f, 26.0f}, {2.2f, 0.0f, -6.0f}, 3.2f, 24.0f,
+                  2.0f, {0.9f, 0.9f, 0.95f});
+        // A ceiling, because a corridor without one is a trench: it is the half
+        // of the frame that would otherwise be sky, and sky teaches nothing here.
+        pieceWall(s.objs, m, m.checker, {-2.2f, 3.2f, -6.0f}, {-2.2f, 3.2f, 26.0f}, 0.0f, 24.0f,
+                  1.0f, {0.55f, 0.55f, 0.6f});
+        {
+            Object o;
+            o.tex = m.checker;
+            o.bilinear = true;
+            addQuad(o, {-2.2f, 3.2f, -6.0f}, {2.2f, 3.2f, -6.0f}, {2.2f, 3.2f, 26.0f},
+                    {-2.2f, 3.2f, 26.0f}, 0, 0, 4.0f, 24.0f, {0.5f, 0.5f, 0.54f});
+            finishObject(o, m);
+            s.objs.push_back(std::move(o));
+        }
+        pieceBoxes(s.objs, m, r, 4, 1.6f, 12.0f);
+        s.eye0 = {0.0f, 1.5f, -4.0f};
+        s.eye1 = {0.0f, 1.5f, 12.0f};
+        s.pitch0 = s.pitch1 = -0.02f;
+        shots.push_back(std::move(s));
+    }
+
+    // 8 - a STRAFE past a box field. Every other move in the bestiary is a
+    // rotation, a zoom or a whip; a sideways translation is the one that produces
+    // real parallax, so near geometry slides across far geometry and the tile's
+    // single representative depth reprojects the two of them to the same place.
+    // This is the disocclusion case, and it is where a temporal weight that is
+    // not gated on depthGrad ghosts.
+    {
+        Shot s;
+        s.name = "strafe-field";
+        s.moveName = "dolly-lateral";
+        s.move = Move::Dolly;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x5108u));
+        pieceFloor(s.objs, m, m.checker, 70.0f, 35.0f, /*bilinear=*/false,
+                   {0.78f, 0.78f, 0.8f});
+        pieceBoxes(s.objs, m, r, 5, 3.0f, 4.0f);
+        pieceBoxes(s.objs, m, r, 4, 8.0f, 16.0f);
+        piecePoles(s.objs, m, r, 6);
+        s.eye0 = {-5.0f, 1.5f, -2.0f};
+        s.eye1 = {5.0f, 1.5f, -2.0f};
+        s.yaw0 = s.yaw1 = 0.0f;  // look straight ahead while translating sideways
+        s.pitch0 = s.pitch1 = -0.05f;
+        shots.push_back(std::move(s));
+    }
+
+    // 9 - a PITCH through the horizon, floor to sky. Coverage sweeps from 1 to
+    // nearly 0 over the shot, which is the one thing that makes the empty-tile
+    // path (kMinCoverage, and the sky-ghosting bug it was written for) a moving
+    // target rather than a corner of the frame.
+    {
+        Shot s;
+        s.name = "pitch-sky";
+        s.moveName = "pitch-up";
+        s.move = Move::Pan;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x5109u));
+        pieceFloor(s.objs, m, m.checker, 90.0f, 45.0f, /*bilinear=*/false,
+                   {0.82f, 0.8f, 0.78f});
+        pieceBoxes(s.objs, m, r, 5, 5.0f, 10.0f);
+        pieceFoliage(s.objs, m, r, 6);
+        s.eye0 = s.eye1 = {0.0f, 1.6f, -2.0f};
+        s.yaw0 = s.yaw1 = 0.05f;
+        s.pitch0 = -0.42f;  // looking at the floor a few units ahead
+        s.pitch1 = 0.34f;   // ...and up into empty sky
+        shots.push_back(std::move(s));
+    }
+
+    // 10 - the OPPOSITE end of the depth range from the corridor: a plain that
+    // runs to the horizon with everything far away, so `depth` spends the shot
+    // BELOW saturation and the minification ratio is extreme. Slow dolly, so the
+    // history is nearly perfect and the temporal weight should be free to take
+    // it - the counterexample to the whip.
+    {
+        Shot s;
+        s.name = "distant-plain";
+        s.moveName = "slow dolly";
+        s.move = Move::Dolly;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x510Au));
+        pieceFloor(s.objs, m, m.noise, 400.0f, 400.0f, /*bilinear=*/true,
+                   {0.86f, 0.86f, 0.84f});
+        for (int i = 0; i < 7; ++i) {
+            Object o;
+            o.tex = m.assetOr((size_t)(i % 2), m.bands);
+            o.bilinear = true;
+            const float d = 30.0f + 22.0f * (float)i;
+            const float sz = r.range(1.4f, 3.2f);
+            addBox(o, {r.range(-0.35f, 0.35f) * d, sz * 0.5f, d}, {sz, sz * 0.5f, sz},
+                   r.range(1.0f, 3.0f), {r.range(0.7f, 1.0f), r.range(0.7f, 1.0f), 0.9f});
+            finishObject(o, m);
+            s.objs.push_back(std::move(o));
+        }
+        s.eye0 = {0.0f, 2.2f, -6.0f};
+        s.eye1 = {0.0f, 2.2f, 4.0f};
+        s.pitch0 = s.pitch1 = -0.03f;
+        shots.push_back(std::move(s));
+    }
+
+    // 11 - curved silhouettes at SEVERAL distances at once. `boxes-sphere` has
+    // exactly one ball, always about the same size on screen; a fold that holds
+    // it out has nothing else curved to learn from, which is visible in the fold
+    // table as the shot with the largest margin (the net simply has not seen it).
+    {
+        Shot s;
+        s.name = "sphere-field";
+        s.moveName = "orbit-wide";
+        s.move = Move::Orbit;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x510Bu));
+        pieceFloor(s.objs, m, m.bands, 50.0f, 25.0f, /*bilinear=*/true, {0.72f, 0.74f, 0.78f});
+        for (int i = 0; i < 6; ++i) {
+            Object o;
+            o.tex = i % 2 ? m.assetOr(3, m.bands) : -1;
+            o.bilinear = true;
+            const float rad = r.range(0.35f, 1.5f);
+            addSphere(o, {r.range(-6.0f, 6.0f), rad, r.range(-5.0f, 7.0f)}, rad,
+                      i % 2 ? 14 : 8, i % 2 ? 8 : 5,
+                      {r.range(0.7f, 1.0f), r.range(0.7f, 1.0f), r.range(0.7f, 1.0f)});
+            finishObject(o, m);
+            s.objs.push_back(std::move(o));
+        }
+        s.centre = {0.0f, 1.0f, 1.0f};
+        s.orbitR = 9.0f;
+        s.orbitH = 3.4f;
+        s.yaw0 = 2.1f;
+        s.yaw1 = 3.3f;
+        shots.push_back(std::move(s));
+    }
+
+    // 12 - cutouts UNDER MOTION. `foliage` is static, so the only thing that
+    // moves in it is the jitter and the temporal weight can go to the ceiling for
+    // free; a fold trained on that alone learns "leaves mean history", which is
+    // wrong the moment the player walks. Same material, a dolly through it.
+    {
+        Shot s;
+        s.name = "foliage-walk";
+        s.moveName = "dolly-through";
+        s.move = Move::Dolly;
+        Rng r;
+        r.seed(mix32(cfg.seed, 0x510Cu));
+        pieceFloor(s.objs, m, m.noise, 50.0f, 25.0f, /*bilinear=*/true, {0.6f, 0.64f, 0.58f});
+        pieceFoliage(s.objs, m, r, 16);
+        pieceBoxes(s.objs, m, r, 3, 5.0f, 9.0f);
+        s.eye0 = {-1.2f, 1.6f, -5.0f};
+        s.eye1 = {1.2f, 1.6f, 4.0f};
+        s.yaw0 = -0.08f;
+        s.yaw1 = 0.10f;
+        s.pitch0 = s.pitch1 = -0.06f;
+        shots.push_back(std::move(s));
+    }
+
     return shots;
 }
 
@@ -1269,6 +1461,8 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
 
             CorpusFrame cf;
             cf.shot = si;
+            cf.shotName = shot.name;
+            cf.moveName = shot.moveName;
             Frame& fr = cf.frame;
             fr.cols = cols, fr.rows = rows;
             fr.outW = outW, fr.outH = outH;
