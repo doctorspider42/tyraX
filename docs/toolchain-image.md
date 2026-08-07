@@ -2032,6 +2032,105 @@ Nothing in this repo changed between the first two rows. Both build scripts and
 `docker/Dockerfile` now pin the same tag, so the image's ps2link and a hand-built
 one are the same ELF.
 
+## A second corpus, and what it said
+
+Everything above was measured on the engine's **25 handwritten** microprograms. When the
+VU authoring layer landed, a project that uses it generates **45 more** into
+`examples/vu-lab/src/gen/`, and running both assemblers over them changed the verdict:
+
+| | Sony `vcl` | openvcl |
+|---|---|---|
+| compile **and** assemble | **45 / 45** | **23 / 45** |
+| smaller code, of those that did | 15 | 5 |
+
+So "at least as good as SCE" held for the handwritten set and **did not hold** for the
+generated one. Every failure was `Register allocation ran out of registers`.
+
+The 22 split in a way that matters. Fourteen fail whatever flags are passed. The other
+eight fail only with `--loop-liveness-always` — and **without** it they compile to silently
+wrong code (`loopcarry.py` reports five clobbered registers in each), so openvcl could not
+build them in any mode: with the flag it refuses, without it it lies. The honest number was
+23, not 31.
+
+**It is not a missing-spilling problem, and it is not a scheduling problem.** Allocation
+runs *before* scheduling in openvcl, so none of the density flags can affect it - verified,
+the failures reproduce with `--loop-liveness-always` alone. On `vu_script0_d`:
+
+| | peak live floats | held constants | loop body |
+|---|---|---|---|
+| SCE | **31** (of 31 available - zero headroom) | 17 | 13 |
+| openvcl | **33** | 17 | 16 |
+
+Both hold the same 17 whole-program constants (`mvp[0..3]`, `lightMatrix[0..2]`,
+`lightDirections[0..2]`, `lightColors[..]`, `gifSetTag`). The gap is entirely loop-body
+temporaries, on a program that batches a whole triangle - `vertex1/2/3`, `normal1/2/3`,
+`outputColor1/2/3` are live together by design. Two registers, on five lines out of 230.
+
+**Two default-off flags closed half of it.** `--trim-uncarried-ranges` rebuilds an alias's
+live range from its own accesses as per-component liveness *with holes*, instead of letting
+the branch-state merge (`Dependency::depend` → `Alias::merge`) stretch the survivor across
+the whole enclosing loop - which had given `outputColor1/2/3` a range of 192 lines for
+values recomputed every iteration. `--coalesce-float-writes` ties a float write to its own
+name's previous alias when that alias is dead from the write on, **with a retry** that
+withdraws the added edges if allocation then fails.
+
+Then **load sinking** closed the rest. `--sink-loads` splices a load token down the
+`std::list<Token>` to just before its first reader; `--sink-loads-across-stores` lets it
+pass a store through a different base register (SCE assumes the same - its
+`vu_script3_d.vsm` puts `lq.xyz VF25,2(VI05)` at row 199, after three stores through VI07);
+`--sink-loads-into-loops` lets it pass one loop header; and `--sink-loads-past-branches`
+lets it land where every path out of its old position arrives. That last one needed
+post-dominance, decided during the sink pass's own forward walk from a program-wide count
+of how many branches name each label, because `VuBasicBlock` is a linear partition with no
+edges and the allocator cannot reach it anyway. It is **not** applied speculatively:
+allocation runs exactly as before and only retries with it on register exhaustion.
+
+The enabling surgery: `Token::setLineNumber` exists now and the allocator's timeline is
+re-derived from list position whenever the pass moves anything. `Line::number()` is
+untouched, so the timeline and the line a diagnostic prints are two different things - and
+must stay that way.
+
+| | start | trim + coalesce | + sinking | 
+|---|---|---|---|
+| generated programs compiling | 23 / 45 | 34 / 45 | **45 / 45** |
+| silent clobbers (`loopcarry.py`) | - | 0 | **0** |
+| resident VU1 set | 2026 | 2010 | **2008** (SCE 2028) |
+| upstream tests | 419 | 419 | **419** |
+| default output | - | byte-identical | byte-identical, MD5-verified |
+
+The 18 words off the resident set were a side effect, not a goal. All of the above was
+re-measured independently of the agents that produced it (`scratchpad/final-verify.sh`,
+written separately so a harness and the claim it verifies do not share a bug).
+
+**Where SCE is still ahead: size on generated code.** openvcl now compiles everything
+`vcl` compiles, but across the 45 it emits **9506 words against SCE's 9264** - +2.6%,
+larger in 34 programs, smaller in 4, equal in 7. On the engine's handwritten set the
+ranking is the other way round (2008 against 2028). Machine-generated code is a different
+shape - long straight-line blocks, many simultaneously live values - and that is where the
+scheduler's choices, not the allocator's, decide the row count. It is the open gap.
+
+Dead ends worth not repeating:
+
+* **Copy coalescing "on `move`" is the wrong target.** The 45 programs contain **57**
+  `move` instructions and **3673** two-address self-updates (`op d, d, s`).
+* **Coalescing without the retry is a regression**: 26/45 on the generated set but it broke
+  `vu0_rt_kernel`, which compiles fine without it. The chain pre-pass treats coalescing as a
+  *requirement* - one register free over the union of all members - so a long chain placed
+  early starves a later one.
+* **Trimming without hole punching** (clip to `[first,last]`) was worth 30 alone / 33
+  combined against 31 / 34 with holes.
+* **A better colouring order cannot fix the remaining 11.** Each exceeds 31 live *ranges*
+  at its peak (32, 33×5, 34×4, 37). The allocator is no longer the bottleneck there.
+
+What those 11 needed was **load sinking**, which SCE does and openvcl could not, because
+it allocates before it schedules. In SCE's `vu_script3_d.vsm` the loads land at rows
+50, 76, 126 and 195 - the one at 126 reusing the register `vertex1` had just vacated - so
+SCE never holds all six vertex and normal registers at once. Pulling each single-`lq`-defined
+range forward to its first read (`scratchpad/ra-sinkpeak.py`) brings **8 of the 11** under
+31; three would still be over, by 1, 3 and 4. The obstacle is that `Token::m_line` is a
+`const Line&` with a cached number and the allocator uses that number as its timeline, so
+moving a token breaks the ordering everything depends on.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull

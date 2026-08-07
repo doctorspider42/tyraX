@@ -66,8 +66,8 @@ ARG VCL_IMPL=legacy
 #     -VclFlags "--schedule-flag-readers --fmac-interlock"
 #   docker/build.ps1 -Tag t:stock -VclImpl openvcl -VclFlags ''   # none at all
 # Each one is measured in docs/toolchain-image.md; none is on by default in the tool
-# itself, and with all ten the rendered frame is pixel-identical to the one Sony's
-# vcl produces while the resident VU1-clipper set is SMALLER (2026 against SCE's
+# itself, and with all sixteen the rendered frame is pixel-identical to the one Sony's
+# vcl produces while the resident VU1-clipper set is SMALLER (2008 against SCE's
 # 2028, ceiling 2042). The Runner rebuilds the microcode when this string changes,
 # so a bisection does not need --rebuild - but check the log says "VU assembler
 # changed" before trusting a picture.
@@ -75,7 +75,13 @@ ARG VCL_IMPL=legacy
 # --pair-best-of-many supersedes --pair-best-of-two (its strategy table has that
 # pair as its first two entries); both are passed so a bisection can drop the
 # newer one and land on the older behaviour rather than on no best-of at all.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many"
+#
+# The last six are the allocator group, and they are not optional in the way the
+# density ones are: WITHOUT them openvcl compiles only 23 of the 45 VU1 programs a
+# project generates when it uses the VU authoring layer (Sony's vcl compiles 45).
+# With them it compiles all 45. Dropping one to bisect a rendering fault is fine;
+# shipping without them is not.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc
