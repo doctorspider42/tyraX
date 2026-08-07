@@ -631,10 +631,10 @@ index 1845035..31f577f 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..53f24c4 100644
+index e6a6dea..d76a613 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,23 @@ CommandLine::CommandLine()
+@@ -75,6 +75,24 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -651,6 +651,7 @@ index e6a6dea..53f24c4 100644
 +	m_sinkLoadsAcrossStores = false;
 +	m_sinkLoadsIntoLoops = false;
 +	m_sinkLoadsPastBranches = false;
++	m_dropDeadWrites = false;
 +	m_showPairMisses = false;
 +	m_pairBestOfTwo = false;
 +	m_pairBestOfMany = false;
@@ -658,7 +659,7 @@ index e6a6dea..53f24c4 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +142,23 @@ CommandLine::CommandLine()
+@@ -125,6 +143,24 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -675,6 +676,7 @@ index e6a6dea..53f24c4 100644
 +	m_options.push_back(Option(0,"sink-loads-across-stores",SINK_LOADS_ACROSS_STORES,false));
 +	m_options.push_back(Option(0,"sink-loads-into-loops",SINK_LOADS_INTO_LOOPS,false));
 +	m_options.push_back(Option(0,"sink-loads-past-branches",SINK_LOADS_PAST_BRANCHES,false));
++	m_options.push_back(Option(0,"drop-dead-writes",DROP_DEAD_WRITES,false));
 +	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
 +	m_options.push_back(Option(0,"pair-best-of-two",PAIR_BEST_OF_TWO,false));
 +	m_options.push_back(Option(0,"pair-best-of-many",PAIR_BEST_OF_MANY,false));
@@ -682,7 +684,7 @@ index e6a6dea..53f24c4 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +273,23 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +275,24 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -699,6 +701,7 @@ index e6a6dea..53f24c4 100644
 +				case SINK_LOADS_ACROSS_STORES: m_sinkLoadsAcrossStores = true; break;
 +				case SINK_LOADS_INTO_LOOPS: m_sinkLoadsIntoLoops = true; break;
 +				case SINK_LOADS_PAST_BRANCHES: m_sinkLoadsPastBranches = true; break;
++				case DROP_DEAD_WRITES: m_dropDeadWrites = true; break;
 +				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
 +				case PAIR_BEST_OF_TWO: m_pairBestOfTwo = true; break;
 +				case PAIR_BEST_OF_MANY: m_pairBestOfMany = true; break;
@@ -706,7 +709,7 @@ index e6a6dea..53f24c4 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +381,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +384,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -717,10 +720,10 @@ index e6a6dea..53f24c4 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..24c667b 100644
+index f5e4b3d..10e2d5c 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,23 @@ public:
+@@ -56,6 +56,24 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -737,6 +740,7 @@ index f5e4b3d..24c667b 100644
 +	bool sinkLoadsAcrossStores() const;
 +	bool sinkLoadsIntoLoops() const;
 +	bool sinkLoadsPastBranches() const;
++	bool dropDeadWrites() const;
 +	bool showPairMisses() const;
 +	bool pairBestOfTwo() const;
 +	bool pairBestOfMany() const;
@@ -744,7 +748,7 @@ index f5e4b3d..24c667b 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +147,23 @@ private:
+@@ -130,6 +148,24 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -761,6 +765,7 @@ index f5e4b3d..24c667b 100644
 +		SINK_LOADS_ACROSS_STORES,
 +		SINK_LOADS_INTO_LOOPS,
 +		SINK_LOADS_PAST_BRANCHES,
++		DROP_DEAD_WRITES,
 +		SHOW_PAIR_MISSES,
 +		PAIR_BEST_OF_TWO,
 +		PAIR_BEST_OF_MANY,
@@ -768,7 +773,7 @@ index f5e4b3d..24c667b 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +219,23 @@ private:
+@@ -185,6 +221,24 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -785,6 +790,7 @@ index f5e4b3d..24c667b 100644
 +	bool m_sinkLoadsAcrossStores;
 +	bool m_sinkLoadsIntoLoops;
 +	bool m_sinkLoadsPastBranches;
++	bool m_dropDeadWrites;
 +	bool m_showPairMisses;
 +	bool m_pairBestOfTwo;
 +	bool m_pairBestOfMany;
@@ -793,10 +799,10 @@ index f5e4b3d..24c667b 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..3aa31c9 100644
+index 5500026..fe96f74 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,125 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,132 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -887,6 +893,13 @@ index 5500026..3aa31c9 100644
 +inline bool CommandLine::sinkLoadsPastBranches() const
 +{
 +	return m_sinkLoadsPastBranches;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::dropDeadWrites() const
++{
++	return m_dropDeadWrites;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -983,7 +996,7 @@ index a9a3c8e..b79b9d8 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..38abbb5 100644
+index b8b1946..6bc41fd 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -994,7 +1007,7 @@ index b8b1946..38abbb5 100644
  
  #include <iostream>
  #include <fstream>
-@@ -2045,6 +2046,32 @@ bool Parser::tokenize()
+@@ -2045,6 +2046,33 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1019,6 +1032,7 @@ index b8b1946..38abbb5 100644
 +	setVuSinkLoadsAcrossStoresEnabled( m_cmdLine.sinkLoadsAcrossStores() );
 +	setVuSinkLoadsIntoLoopsEnabled( m_cmdLine.sinkLoadsIntoLoops() );
 +	setVuSinkLoadsPastBranchesEnabled( m_cmdLine.sinkLoadsPastBranches() );
++	setVuDropDeadWritesEnabled( m_cmdLine.dropDeadWrites() );
 +	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
 +	setVuPairBestOfTwoEnabled( m_cmdLine.pairBestOfTwo() );
 +	setVuPairBestOfManyEnabled( m_cmdLine.pairBestOfMany() );
@@ -1027,7 +1041,7 @@ index b8b1946..38abbb5 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2065,12 +2092,65 @@ bool Parser::tokenize()
+@@ -2065,12 +2093,65 @@ bool Parser::tokenize()
  
  bool Parser::allocateRegisters()
  {
@@ -1095,7 +1109,7 @@ index b8b1946..38abbb5 100644
  
  	setState( GENERATE_CODE );
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..717b527 100644
+index cf6d79b..3e8323b 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -1149,10 +1163,20 @@ index cf6d79b..717b527 100644
  void RegisterAllocator::setAvailableFloats( unsigned int floats )
  {
  	for( unsigned int i = 1; i < 32; i++ )
-@@ -79,6 +109,15 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -79,6 +109,25 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  {
  	BranchState* branchState = NULL;
  
++	// Before the sink pass and before anything reads a line number: deleting a
++	// token is the only thing cheaper than scheduling it well, and every later
++	// pass - sinking, allocation, the scheduler - is better off not seeing it.
++	if( vuDropDeadWritesEnabled() )
++	{
++		const unsigned int dropped = dropDeadRegisterWrites( tokens );
++		if( m_showRegisterInfo )
++			std::cerr << "--drop-dead-writes removed " << dropped << " tokens" << std::endl;
++	}
++
 +	// First, before anything reads a line number: this is the one pass that
 +	// reorders the token list, and it rewrites the timeline when it does.
 +	if( vuSinkLoadsEnabled() )
@@ -1165,7 +1189,7 @@ index cf6d79b..717b527 100644
  	if( !collectLabels( tokens.begin(), tokens.end() ) )
  		return false;
  
-@@ -262,14 +301,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -262,14 +311,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  			return false;
  	}
  
@@ -1222,7 +1246,7 @@ index cf6d79b..717b527 100644
  		{
  			Error::Display( Error( "Register allocation ran out of registers" ) );
  			return false;
-@@ -610,7 +690,9 @@ bool RegisterAllocator::processAliases()
+@@ -610,7 +700,9 @@ bool RegisterAllocator::processAliases()
  		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
  		{
  			Alias* alias = i->first;
@@ -1233,7 +1257,7 @@ index cf6d79b..717b527 100644
  			if( alias->allocatedRegister() )
  				std::cerr << "[prealloc: " << alias->allocatedRegister()->name() << "] ";
  			alias->printRanges( std::cerr );
-@@ -796,13 +878,29 @@ bool RegisterAllocator::processAliases()
+@@ -796,13 +888,29 @@ bool RegisterAllocator::processAliases()
  			if( m_showRegisterInfo )
  			{
  				std::cerr << "Failed to allocate " << (dest->type() == Alias::FLOAT ? "FLOAT" : "INTEGER")
@@ -1264,7 +1288,7 @@ index cf6d79b..717b527 100644
  	return true;
  }
  
-@@ -905,44 +1003,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1013,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -1432,7 +1456,7 @@ index cf6d79b..717b527 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1187,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1197,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -1448,7 +1472,7 @@ index cf6d79b..717b527 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1437,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1447,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -1462,7 +1486,7 @@ index cf6d79b..717b527 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1548,824 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1558,1089 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1643,6 +1667,271 @@ index cf6d79b..717b527 100644
 +		}
 +		return target;
 +	}
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++namespace
++{
++	const unsigned int ALL_FIELDS = Token::X | Token::Y | Token::Z | Token::W;
++
++	// Every value the token reads and writes, keyed by name, with the field mask
++	// for each. Built from the arguments rather than from the flattened
++	// per-component key lists buildVuTokenResourceAccess produces, because this
++	// pass has to know whether a key came from a float - where a trailing ".x" is
++	// a component - or from an integer, where it could only be part of a name.
++	// `aliasOnly` comes back false as soon as one destination is a literal VFxx:
++	// a register the author named by number may be an interface with something
++	// this compiler cannot see, and is never a candidate for deletion.
++	void collectDeadWriteAccess( const Token& token,
++	                             std::map<std::string, unsigned int>& reads,
++	                             std::map<std::string, unsigned int>& writes,
++	                             bool& aliasOnly )
++	{
++		for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
++		     a != token.arguments().end(); ++a )
++		{
++			std::string key;
++			if( !vuRegisterKey( *a, key ) )
++				continue;
++
++			const bool isFloat = ( a->type() == Token::Argument::FLOAT_REGISTER );
++
++			if( a->flags() & Token::Argument::WRITE )
++			{
++				if( a->content() != Token::Argument::ALIAS )
++					aliasOnly = false;
++				writes[key] |= isFloat ? vuWriteFieldMask( token, *a ) : ALL_FIELDS;
++			}
++			else
++			{
++				reads[key] |= isFloat ? vuReadFieldMask( token, *a ) : ALL_FIELDS;
++			}
++		}
++	}
++
++	// The hardware resource an `out_hw_*`/`in_hw_*` directive names. Those are
++	// the program's contract with whatever runs next, so a resource one of them
++	// mentions is read even when no instruction reads it.
++	unsigned int declaredHardwareResource( const Token& token )
++	{
++		if( !token.operand() )
++			return VU_RESOURCE_NONE;
++		const std::string& n = token.operand()->name();
++		if( n == "out_hw_acc" || n == "in_hw_acc" )       return VU_RESOURCE_ACC;
++		if( n == "out_hw_i" || n == "in_hw_i" )           return VU_RESOURCE_I;
++		if( n == "out_hw_q" || n == "in_hw_q" )           return VU_RESOURCE_Q;
++		if( n == "out_hw_p" || n == "in_hw_p" )           return VU_RESOURCE_P;
++		if( n == "out_hw_r" || n == "in_hw_r" )           return VU_RESOURCE_R;
++		if( n == "out_hw_clip" || n == "in_hw_clip" )     return VU_RESOURCE_CLIP;
++		if( n == "out_hw_status" || n == "in_hw_status" ) return VU_RESOURCE_MAC;
++		return VU_RESOURCE_NONE;
++	}
++
++	// Can this token be considered for deletion at all? Everything with an effect
++	// the destination register does not describe is out: stores and xgkick, the
++	// auto-incrementing loads, branches and anything with a delay slot, a token
++	// carrying a label (its branches would lose their target), and every token a
++	// previous pass pinned.
++	bool tokenIsDeadWriteCandidate( const Token& token, VuTokenResourceAccess& access )
++	{
++		if( !token.operand() )
++			return false;
++		if( token.operand()->flags() & Operand::PREPROCESSOR )
++			return false;
++		if( token.operand()->unit() == Operand::ENTER
++		    || token.operand()->unit() == Operand::EXIT
++		    || token.operand()->unit() == Operand::BRU )
++			return false;
++		if( token.flags() & (Token::PREORDERED | Token::E | Token::D | Token::T
++		                     | Token::IGNORED | Token::BRANCH_DELAY_FILLER
++		                     | Token::KERNEL_BLOCK_BEGIN | Token::KERNEL_BLOCK_END) )
++			return false;
++		if( !token.label().empty() )
++			return false;
++		if( !buildVuTokenResourceAccess( token, access ) )
++			return false;
++		if( access.memoryKind == VU_MEMORY_STORE || access.memoryKind == VU_MEMORY_XGKICK )
++			return false;
++		if( access.memoryFlags & (VU_MEMORY_FLAG_PREDEC | VU_MEMORY_FLAG_POSTINC) )
++			return false;
++		if( access.branchDelaySlots != 0 )
++			return false;
++		return true;
++	}
++
++	// Does anything observe this token's write to `resources`? Walks forward from
++	// it: a reader says yes, another writer of the same resource says no, and
++	// anything the walk cannot follow - a label, a branch, a preprocessor
++	// directive, the end of the program - says yes, because the allocator has no
++	// dominance information and a wrong answer here is a miscompile.
++	//
++	// The caller has already masked `resources` down to what the program reads at
++	// all, which is what makes this useful: in a program with no MAC reader every
++	// FMAC's flag write drops out before the walk starts, and the walk only has
++	// to be right about the resources somebody really does read.
++	bool implicitWriteIsObservable( std::list<Token>::const_iterator token,
++	                                std::list<Token>::const_iterator end,
++	                                unsigned int resources )
++	{
++		unsigned int pending = resources;
++		for( ++token; token != end && pending != VU_RESOURCE_NONE; ++token )
++		{
++			if( !token->operand() )
++				continue;
++			if( token->operand()->flags() & Operand::PREPROCESSOR )
++				return true;
++			if( !token->label().empty() )
++				return true;
++
++			VuTokenResourceAccess access;
++			if( !buildVuTokenResourceAccess( *token, access ) )
++				return true;
++			if( access.implicitReads & pending )
++				return true;
++			if( token->operand()->unit() == Operand::BRU )
++				return true;
++
++			pending &= ~access.implicitWrites;
++		}
++		return pending != VU_RESOURCE_NONE;
++	}
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++unsigned int RegisterAllocator::dropDeadRegisterWrites( std::list<Token>& tokens )
++{
++	// The VU authoring layer emits a whole constant vector when the program reads
++	// two of its components, and a `lq` for every quadword the description names
++	// whether or not the body touches it. SCE's vcl drops both; openvcl carried
++	// them all the way to micro memory, which is where its generated code was
++	// losing to SCE's - measured over the 45 generated TyraX programs, openvcl
++	// emitted 312 more instructions than SCE at the same rows-per-instruction
++	// density, and 246 more rows.
++	//
++	// The analysis is deliberately the weakest one that finds them: a value is
++	// live if ANY token anywhere reads that component, with no control flow in
++	// it at all. Nothing here reasons about a write being dead on the path it is
++	// on while live on another - that needs dominance the allocator does not
++	// have - so a value read once, anywhere, keeps every write to it.
++	unsigned int removed = 0;
++
++	// A fixed point, because deleting the reader is what makes the producer dead.
++	// The bound is a guard, not a schedule: each round deletes at least one token
++	// or stops, so it cannot spin.
++	for( unsigned int round = 0; round < 32; ++round )
++	{
++		std::map<std::string, unsigned int> readFields;
++		std::set<std::string> protectedNames;
++		unsigned int resourcesRead = VU_RESOURCE_NONE;
++
++		for( std::list<Token>::const_iterator t = tokens.begin(); t != tokens.end(); ++t )
++		{
++			if( !t->operand() )
++				continue;
++
++			// A name mentioned by in_vf/out_vf, and any other string a directive
++			// carries, is part of the program's interface. Collected as raw text
++			// because that is how the directives hold it - out_vf's argument is an
++			// immediate whose spelling is the alias name, not a register operand.
++			if( t->operand()->flags() & Operand::PREPROCESSOR )
++			{
++				resourcesRead |= declaredHardwareResource( *t );
++				for( std::list<Token::Argument>::const_iterator a = t->arguments().begin();
++				     a != t->arguments().end(); ++a )
++				{
++					if( !a->immediate().empty() ) protectedNames.insert( a->immediate() );
++					if( !a->alias().empty() )     protectedNames.insert( a->alias() );
++					if( !a->text().empty() )      protectedNames.insert( a->text() );
++				}
++				continue;
++			}
++
++			std::map<std::string, unsigned int> reads, writes;
++			bool aliasOnly = true;
++			collectDeadWriteAccess( *t, reads, writes, aliasOnly );
++			for( std::map<std::string, unsigned int>::const_iterator r = reads.begin();
++			     r != reads.end(); ++r )
++				readFields[r->first] |= r->second;
++
++			VuTokenResourceAccess access;
++			if( buildVuTokenResourceAccess( *t, access ) )
++				resourcesRead |= access.implicitReads;
++		}
++
++		unsigned int roundRemoved = 0;
++		for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); )
++		{
++			VuTokenResourceAccess access;
++			if( !tokenIsDeadWriteCandidate( *t, access ) )
++			{
++				++t;
++				continue;
++			}
++
++			std::map<std::string, unsigned int> reads, writes;
++			bool aliasOnly = true;
++			collectDeadWriteAccess( *t, reads, writes, aliasOnly );
++
++			// A token that writes no register and no resource is a nop, a waitq or
++			// something else placed for its timing. Not this pass's business.
++			if( writes.empty() && access.implicitWrites == VU_RESOURCE_NONE )
++			{
++				++t;
++				continue;
++			}
++
++			bool dead = aliasOnly;
++			for( std::map<std::string, unsigned int>::const_iterator w = writes.begin();
++			     dead && w != writes.end(); ++w )
++			{
++				if( protectedNames.find( w->first ) != protectedNames.end() )
++					dead = false;
++				else
++				{
++					const std::map<std::string, unsigned int>::const_iterator r =
++						readFields.find( w->first );
++					if( r != readFields.end() && (r->second & w->second) != 0 )
++						dead = false;
++				}
++			}
++
++			if( dead )
++			{
++				const unsigned int live = access.implicitWrites & resourcesRead;
++				if( live != VU_RESOURCE_NONE
++				    && implicitWriteIsObservable( t, tokens.end(), live ) )
++					dead = false;
++			}
++
++			if( !dead )
++			{
++				++t;
++				continue;
++			}
++
++			t = tokens.erase( t );
++			++roundRemoved;
++		}
++
++		if( roundRemoved == 0 )
++			break;
++		removed += roundRemoved;
++	}
++
++	if( removed )
++	{
++		// Same reason the sink pass renumbers: the allocator's timeline is the
++		// token's line number, and after an erase it is no longer an ordering.
++		// The Line each token was parsed from is untouched, so diagnostics still
++		// point at the source the user wrote.
++		unsigned int line = 1;
++		for( std::list<Token>::iterator i = tokens.begin(); i != tokens.end(); ++i )
++			i->setLineNumber( line++ );
++	}
++
++	return removed;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2288,7 +2577,7 @@ index cf6d79b..717b527 100644
  {
  	Alias* alias = new Alias( type );
 diff --git a/src/RegisterAllocator.h b/src/RegisterAllocator.h
-index 738fca5..7c783cd 100644
+index 738fca5..78ac32b 100644
 --- a/src/RegisterAllocator.h
 +++ b/src/RegisterAllocator.h
 @@ -24,6 +24,7 @@
@@ -2314,10 +2603,18 @@ index 738fca5..7c783cd 100644
  	void releaseAlias( Alias* alias );
  	Alias* obtainAlias( Alias::Type type );
  
-@@ -98,11 +107,60 @@ private:
+@@ -98,11 +107,68 @@ private:
  	// happens to share VI01.  Synthesized as preallocated aliases inserted
  	// into m_aliases so the existing interference check picks them up.
  	void collectLiteralRegisterUsage( std::list<Token>& tokens );
++
++	// --drop-dead-writes.  Delete every token whose only effect is a value the
++	// program never reads.  Runs FIRST, before --sink-loads, so the sink pass and
++	// the allocator both see the smaller program, and renumbers the timeline from
++	// list position for the same reason the sink pass does.  Iterated to a fixed
++	// point: dropping `add.z k0, vf00, i` is what makes the `loi` above it dead.
++	// Returns the number of tokens removed.
++	unsigned int dropDeadRegisterWrites( std::list<Token>& tokens );
 +
 +	// --sink-loads.  Move each load down the token list to just before the value
 +	// it loads is first read, or as far as a legal move goes.  Runs FIRST, before
@@ -2375,7 +2672,7 @@ index 738fca5..7c783cd 100644
  	void extendMultiQStageRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd );
  
  	bool updateDynamicTracker( const Token* src );
-@@ -128,6 +186,11 @@ private:
+@@ -128,6 +194,11 @@ private:
  	bool m_showRegisterInfo;
  
  	AliasMap m_aliases;
@@ -3329,7 +3626,7 @@ index e51b7f2..c43273f 100644
  
  struct VuScheduledBasicBlock
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..37c36f2 100644
+index c28ec6d..70c49a6 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -404,7 +404,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
@@ -3341,7 +3638,7 @@ index c28ec6d..37c36f2 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +547,279 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +547,294 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -3386,6 +3683,7 @@ index c28ec6d..37c36f2 100644
 +	bool g_sinkLoadsAcrossStores = false;
 +	bool g_sinkLoadsIntoLoops = false;
 +	bool g_sinkLoadsPastBranches = false;
++	bool g_dropDeadWrites = false;
 +	bool g_showPairMisses = false;
 +	bool g_pairBestOfTwo = false;
 +	bool g_pairBestOfMany = false;
@@ -3571,6 +3869,20 @@ index c28ec6d..37c36f2 100644
 +	return g_sinkLoadsPastBranches;
 +}
 +
++// --drop-dead-writes: delete an instruction whose only effect is a value nothing
++// ever reads. Off by default because it deletes code the author wrote, and an
++// author who writes a value the program never reads may be describing an
++// interface this compiler cannot see.
++void setVuDropDeadWritesEnabled( bool enabled )
++{
++	g_dropDeadWrites = enabled;
++}
++
++bool vuDropDeadWritesEnabled()
++{
++	return g_dropDeadWrites;
++}
++
 +// Diagnostics only: report why a row went out with one slot used.
 +void setVuShowPairMissesEnabled( bool enabled )
 +{
@@ -3623,10 +3935,10 @@ index c28ec6d..37c36f2 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..d40367a 100644
+index 8188099..3fc268f 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,175 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,182 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -3788,6 +4100,13 @@ index 8188099..d40367a 100644
 +// change a count. Only has an effect together with --sink-loads.
 +void setVuSinkLoadsPastBranchesEnabled( bool enabled );
 +bool vuSinkLoadsPastBranchesEnabled();
++// Delete a token whose register destination is dead - no reader anywhere in the
++// program, field by field - and whose implicit writes (MAC/CLIP/I/Q/P/R/ACC)
++// nothing observes either. Iterated to a fixed point, so the `loi` feeding a
++// deleted reader goes with it. Only aliases are candidates: a literal VFxx an
++// author named by number may be an interface with the outside world.
++void setVuDropDeadWritesEnabled( bool enabled );
++bool vuDropDeadWritesEnabled();
 +void setVuShowPairMissesEnabled( bool enabled );
 +bool vuShowPairMissesEnabled();
 +void setVuPairBestOfTwoEnabled( bool enabled );

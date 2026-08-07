@@ -76,12 +76,18 @@ ARG VCL_IMPL=legacy
 # pair as its first two entries); both are passed so a bisection can drop the
 # newer one and land on the older behaviour rather than on no best-of at all.
 #
-# The last six are the allocator group, and they are not optional in the way the
-# density ones are: WITHOUT them openvcl compiles only 23 of the 45 VU1 programs a
-# project generates when it uses the VU authoring layer (Sony's vcl compiles 45).
-# With them it compiles all 45. Dropping one to bisect a rendering fault is fine;
-# shipping without them is not.
-ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches"
+# The six allocator flags are not optional in the way the density ones are: WITHOUT
+# them openvcl compiles only 23 of the 45 VU1 programs a project generates when it
+# uses the VU authoring layer (Sony's vcl compiles 45). With them it compiles all 45.
+# Dropping one to bisect a rendering fault is fine; shipping without them is not.
+#
+# --drop-dead-writes is the last one and it is worth its own note: SCE's vcl does
+# dead-code elimination and openvcl did none, so a description that names a whole
+# 4-component constant while the body reads two components paid for all four. On the
+# generated corpus that was 312 instructions nobody reads - 93 loi, 65 lq, 55 muli
+# and the rest - and removing them closed the size gap against SCE from 242 words to
+# 44 (0.47%) while taking the resident set to 1988.
+ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-delay-fillers --branch-interlock --branch-bubble-on-dependency --loop-liveness-always --upper-move-with-w --pair-best-of-two --pair-best-of-many --trim-uncarried-ranges --coalesce-float-writes --sink-loads --sink-loads-across-stores --sink-loads-into-loops --sink-loads-past-branches --drop-dead-writes"
 
 # ------------------------------------------------------------------- openvcl --
 # Built on the SAME distro release the final image runs (Ubuntu 20.04 / glibc

@@ -2102,12 +2102,68 @@ The 18 words off the resident set were a side effect, not a goal. All of the abo
 re-measured independently of the agents that produced it (`scratchpad/final-verify.sh`,
 written separately so a harness and the claim it verifies do not share a bug).
 
-**Where SCE is still ahead: size on generated code.** openvcl now compiles everything
-`vcl` compiles, but across the 45 it emits **9506 words against SCE's 9264** - +2.6%,
-larger in 34 programs, smaller in 4, equal in 7. On the engine's handwritten set the
-ranking is the other way round (2008 against 2028). Machine-generated code is a different
-shape - long straight-line blocks, many simultaneously live values - and that is where the
-scheduler's choices, not the allocator's, decide the row count. It is the open gap.
+### The size gap on generated code, and what it actually was
+
+With all 45 compiling, openvcl emitted **9506 words against SCE's 9264** - +2.6%, larger in
+34 programs. Two plausible culprits were measured and both are innocent:
+
+* **The six allocator flags did not cost it.** On the 23 programs that build under every
+  configuration: ten density flags alone 4064 words, all sixteen **4064**. The four sink
+  flags cost +30 and trim+coalesce buys 8 back; they net to zero.
+* **openvcl was not scheduling less densely.** 1.183 real operations per row against SCE's
+  1.181 - parity, and parity *before* any of this work. That is why `--show-pair-misses`,
+  the instrument that found the previous size win, found nothing here.
+
+The real answer came from counting opcodes rather than rows: openvcl was emitting **312
+instructions SCE never emitted** - 93 `loi`, 65 `lq`, 55 `muli`, 45 `mulw`, 44 `addw`, 38
+`addi`. They are dead. TyraX's VU layer writes a whole 4-component constant vector when the
+body reads two components, and an `lq` for every quadword a description names. **SCE's `vcl`
+does dead-code elimination; openvcl did none.**
+
+`--drop-dead-writes` is a field-precise dead-write pass, iterated to a fixed point (deleting
+`add.z k0, vf00, i` is what makes the `loi` above it dead) and deliberately conservative: no
+control flow in the analysis, so a write dead on one path and live on another is never
+touched; declared names, stores, `xgkick`, auto-incrementing loads, branches and delay-slot
+carriers are all excluded; and every FMAC writes MAC, so implicit writes need a global "no
+flag reader anywhere" test before a forward walk. Two extra invariants held across all 70
+programs: the multiset of stores and `xgkick`s is unchanged, and so is the label sequence.
+
+| | before | after |
+|---|---|---|
+| generated corpus | 9506 vs SCE 9264 (+242) | **9308 vs 9264 (+44, 0.47%)** |
+| per program | 4 smaller / 34 larger | **17 smaller / 24 larger / 4 equal** |
+| resident VU1 set | 2008 | **1988** (SCE 2028) |
+
+### The wall: overlapping CLIP chains
+
+After the dead code goes, openvcl emits **fewer real operations than SCE** - 10864 non-`nop`
+slots against 10910 - in **more rows**, 9283 against 9240. None of the remaining 43 rows is
+work. All of it is `nop nop` in front of a CLIP reader: 91 padding words against SCE's 48,
+and +43 is exactly the row gap.
+
+SCE pays the four-row CLIP window once per `_cl` program; openvcl pays it 3 to 11 times,
+because SCE keeps two or three `clip`s in flight and openvcl cannot:
+
+| | SCE | openvcl |
+|---|---|---|
+| a `clip` sharing a row with a CLIP reader | 12 | **0** |
+| `clip`-to-`clip` distance 2 / 3 / 4 rows | 10 / 10 / 13 | **0 / 0 / 0** |
+| `clip`-to-`clip` distance exactly 5 rows | 3 | 37 |
+
+Two rules produce it: `vuTokenPairResourcesAreIndependent` refuses a `clip` and a CLIP reader
+on one row outright, and `emittedRowsSinceClipWrite()` measures against the *nearest
+preceding* `clip` rather than the one whose bits the mask selects. Both are the same
+omission - the CLIP register is a 24-bit shift window of four 6-bit entries and neither the
+scheduler nor the emitter models the shift, only "a `clip` happened N rows ago". Under that
+model a second `clip` in flight is indistinguishable from clobbering the first, so refusing
+it is the only safe answer.
+
+Closing it means threading mask position and push count through the dependency graph, the
+pair test, the latency tracker and `emittedRowsSinceClipWrite`. **Not attempted, on purpose.**
+This is the area with the worst defect record in this whole migration - three separate
+corrections to the positional CLIP window are in the history above - and it is exactly the
+resident clip programs the size gate protects. Forty-three words out of 9264 do not justify
+reopening it without hardware to check against.
 
 Dead ends worth not repeating:
 

@@ -23,3 +23,9 @@ examples/** text=auto eol=lf
 # The TyraX ps2link patch is applied to a Unix (Linux-container) checkout of
 # ps2link; a CRLF patch fails `git apply`. Keep it (and the tool sources) LF.
 tools/ps2link/** text=auto eol=lf
+
+# Same reason, same failure: docker/Dockerfile COPYs this one into the openvcl
+# build stage and runs `git apply` on it inside Linux. It is LF today only
+# because it is written by a script that normalises; a fresh clone on Windows
+# would check it out CRLF and the image build would stop there.
+docker/openvcl-tyrax.patch text eol=lf
