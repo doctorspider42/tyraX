@@ -227,59 +227,10 @@ void App::drawPropertiesWindow() {
         const std::string from =
             objRenameIdx_ == selectedObject_ ? objRenameFrom_ : std::string();
         objRenameIdx_ = -1;
-        if (!from.empty() && from != o.name) {
-            for (Sequence& s : project_.sequences) {
-                for (SeqTrack& tr : s.tracks)
-                    if (tr.target == from) tr.target = o.name;
-                for (SeqCameraKey& k : s.cameraKeys)
-                    if (k.camera == from) k.camera = o.name;
-            }
-            if (lookThroughCam_ == from) lookThroughCam_ = o.name;
-            // Mirror target lists reference objects by name too.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Mirror)
-                    for (std::string& t : m.mirrorObjects)
-                        if (t == from) t = o.name;
-            // Scroller segment member lists reference objects by name.
-            for (SceneObject& sc : project_.objects())
-                if (sc.type == PrimitiveType::Scroller)
-                    for (ScrollSegment& seg : sc.scrollSegments)
-                        for (ScrollMember& t : seg.objects)
-                            if (t.name == from) t.name = o.name;
-            // Camera feed view lists + per-object texture-feed refs
-            // ("camera:<name>" / "mirror:<name>").
-            for (SceneObject& m : project_.objects()) {
-                if (m.type == PrimitiveType::Camera)
-                    for (std::string& t : m.camFeedObjects)
-                        if (t == from) t = o.name;
-                if (m.textureFeed == "camera:" + from)
-                    m.textureFeed = "camera:" + o.name;
-                else if (m.textureFeed == "mirror:" + from)
-                    m.textureFeed = "mirror:" + o.name;
-            }
-            // Portal links + view lists likewise.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Portal) {
-                    if (m.portalTarget == from) m.portalTarget = o.name;
-                    for (std::string& t : m.portalObjects)
-                        if (t == from) t = o.name;
-                }
-            // Area references (docs/areas.md): catch areas, streaming-layer
-            // zones and In Area nodes all point at an area by name.
-            if (o.type == PrimitiveType::Area) {
-                for (SceneObject& m : project_.objects()) {
-                    if (m.catchArea == from) m.catchArea = o.name;
-                    for (FlowNode& fn : m.flowGraph.nodes) {
-                        const FlowNodeType* t = flowNodeType(fn.type);
-                        if (t && t->strKind == FlowParamKind::AreaName &&
-                            fn.str == from)
-                            fn.str = o.name;
-                    }
-                }
-                for (SceneLayer& l : project_.active().layers)
-                    if (l.streamArea == from) l.streamArea = o.name;
-            }
-        }
+        // One remap for every by-name reference in the project (app.cpp) - the
+        // AI Assistant's set_object renames through the same function.
+        if (!from.empty() && from != o.name)
+            renameObjectRefs(project_.active(), o, from);
     }
 
     // Provenance. Stated once, right under the name, because "where did this

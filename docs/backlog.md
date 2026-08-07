@@ -22,6 +22,38 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **AI Assistant follow-ups** (docs/ai-chat.md). The window, the tool table and
+  the docs-as-skills prompt shipped; what was deliberately left out, roughly in
+  the order it is worth adding:
+  - **No build/run tool.** The assistant cannot start a Docker build or PCSX2,
+    on purpose - an agentic loop that spends ten minutes and a container because
+    the model felt like it is not a good default. The shape it wants is an
+    explicit confirmation in the chat (a tool call the user has to press), which
+    is a UI pattern the editor does not have yet.
+  - **No terrain.** Sculpting and splat painting are heightmap-shaped, not
+    chat-shaped; a tool would have to invent a language for them.
+  - **No asset import and no file writes.** Importing means a file dialog and a
+    dependency-closed copy (the Asset Browser's job); a tool that could write
+    `res/` would also have to answer "what may it overwrite".
+  - Project-wide data, the feedback loop and building all landed: `get_section`/
+    `set_section` (the project's own per-section JSON, so every collection is
+    covered by two tools rather than one pair each), `refresh_generated`, and
+    `build_game` with the chat parking until the build settles. The running game
+    followed: `game_state` / `game_log` / `graph_activity` read the devkit
+    channels and `press_pad` drives the controller, both parking the turn - so
+    the loop closes (place a thing, build it, drive the player into it, read what
+    the graph did). Still out: the time machine (rewinding is a stranger verb for
+    an assistant than reading), Live Link edits into a running game, and anything
+    visual - it can read what the game SAYS, never what it looks like.
+  - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
+    (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
+    constants picked by eye, not measured against a long session.
+  - Full-text search over the docs and saved chat history both landed with the
+    window (`search_docs`, `--search-docs`, the History popup). What search still
+    lacks is any notion of a synonym: it matches exact substrings, so a question
+    in words the docs do not use ("lag" for frame time, "collision box" for
+    `collisionMode`) falls through to its loose tier. A small hand-written alias
+    table would be cheap and is probably worth more than anything cleverer.
 - **Menu styling follow-ups.** The stylesheet, the layout engine, the Style tab
   and the runtime compositor shipped (docs/menu-styles.md;
   `.claude/plans/menu-styling.md` records the design). What was left out on

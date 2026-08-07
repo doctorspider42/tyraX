@@ -2563,6 +2563,25 @@ void App::uiScriptTick() {
 // emulator. The same file is what the --pad CLI writes from a script.
 // -------------------------------------------------------------------------
 
+// One step of a running pad script. A step with no duration is applied and the
+// next one taken in the same frame ("press" is a state change plus a wait);
+// a step with a duration holds until its deadline.
+void App::padScriptTick() {
+    if (!padScriptRunning_) return;
+    const double now = ImGui::GetTime();
+    while (padScriptRunning_ && now >= padScriptUntil_) {
+        if (padScriptStep_ >= padScript_.size()) {
+            padScriptRunning_ = false;
+            padState_.clear();  // never leave the game holding a button
+            break;
+        }
+        const livepad::Step& s = padScript_[padScriptStep_++];
+        padState_ = s.state;
+        padScriptUntil_ = now + s.seconds;
+        if (s.seconds > 0.0) break;
+    }
+}
+
 void App::remotePadTick() {
     namespace fs = std::filesystem;
     const bool usable = hasProject_ && project_.settings.remotePad &&
@@ -2570,7 +2589,9 @@ void App::remotePadTick() {
     // "Driving" means the window is open. Anything else (window closed, project
     // closed, preference off) has to let go explicitly - a game left holding a
     // direction because a panel was closed would look exactly like a stuck pad.
-    const bool want = usable && showRemotePad_;
+    // A script drives the pad with no panel open: the assistant is holding the
+    // controller, and the panel is a different way of holding the same one.
+    const bool want = usable && (showRemotePad_ || padScriptRunning_);
     if (!want) {
         if (padAttached_) {
             padState_.clear();
@@ -2590,6 +2611,10 @@ void App::remotePadTick() {
         padSeq_ = (uint32_t)std::time(nullptr);
         padAttached_ = true;
     }
+    // Advance a script EVERY frame, not at the write cadence: a `press cross 0.1`
+    // is shorter than two writes apart, and a step resolved late would be
+    // announced late or not at all.
+    padScriptTick();
     const double now = ImGui::GetTime();
     if (now < padNextWrite_) return;
     padNextWrite_ = now + 0.04;  // ~25 Hz: keeps the game's stale watchdog fed

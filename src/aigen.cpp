@@ -22,17 +22,22 @@ namespace aigen {
 
 const char* backendLabel(const std::string& backend) {
     if (backend == "copilot") return "GitHub Copilot CLI";
+    if (backend == "codex") return "OpenAI Codex CLI";
     if (backend == "openai") return "OpenAI API";
     return "Claude CLI";
 }
 
-std::vector<const char*> backendIds() { return {"claude", "copilot", "openai"}; }
+std::vector<const char*> backendIds() {
+    return {"claude", "codex", "copilot", "openai"};
+}
 
 std::vector<const char*> modelPresets(const std::string& backend) {
     // Presets are a convenience, not a whitelist - the preferences dialog also
     // takes free text, so new models work the day they ship.
     if (backend == "copilot")
         return {"", "claude-sonnet-4.5", "gpt-5.1"};
+    if (backend == "codex")
+        return {"", "gpt-5.1-codex", "gpt-5.1"};
     if (backend == "openai")
         return {"gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-4.1"};
     return {"", "opus", "sonnet", "haiku"};
@@ -42,28 +47,7 @@ std::vector<const char*> modelPresets(const std::string& backend) {
 // System prompt
 // ---------------------------------------------------------------------------
 
-static std::string jsonEsc(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"': out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n"; break;
-            case '\r': out += "\\r"; break;
-            case '\t': out += "\\t"; break;
-            default:
-                if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += (char)c;
-                }
-        }
-    }
-    return out;
-}
+static std::string jsonEsc(const std::string& s) { return json::escape(s); }
 
 // What a FlowParamKind's str slot means, plus where its legal values come from.
 static std::string strKindDesc(FlowParamKind k) {
@@ -240,10 +224,19 @@ static std::string nameList(const std::vector<T>& v, F name) {
     return s;
 }
 
+std::string nodeCatalog(const std::string& category) {
+    std::string s;
+    for (const FlowNodeType* t : flowAllNodeTypes()) {
+        if (!category.empty() && category != t->category) continue;
+        s += nodeCatalogLine(*t) + "\n";
+    }
+    return s;
+}
+
 // A graph in the REPLY schema ("kind" strings), for the edit-mode prompt -
 // the model sees its input in exactly the shape it must answer in. (The
 // project-file serializer uses bool flags instead; parseGraph reads both.)
-static std::string graphPromptJson(const FlowGraph& fg) {
+std::string graphJson(const FlowGraph& fg) {
     std::ostringstream o;
     o << "{ \"nodes\": [";
     for (size_t i = 0; i < fg.nodes.size(); ++i) {
@@ -438,7 +431,7 @@ std::string systemPrompt(const Project& p, int ownerIndex,
              "parameter values of nodes you are not changing exactly as they "
              "are; give new nodes fresh unused ids and place them near the "
              "nodes they relate to without overlapping.\n"
-          << graphPromptJson(*editing) << "\n";
+          << graphJson(*editing) << "\n";
     }
     return o.str();
 }
@@ -448,7 +441,7 @@ std::string systemPrompt(const Project& p, int ownerIndex,
 // ---------------------------------------------------------------------------
 
 // The first balanced top-level {...} in `text` (string-aware), or "".
-static std::string extractJsonObject(const std::string& text) {
+std::string extractJsonObject(const std::string& text) {
     const size_t start = text.find('{');
     if (start == std::string::npos) return "";
     int depth = 0;
@@ -482,7 +475,11 @@ std::string parseGraph(const std::string& reply, FlowGraph& out,
     json::Value root;
     if (!json::parse(doc, root))
         return "The reply's JSON is malformed. Head: " + doc.substr(0, 200);
+    return parseGraphJson(root, out, warnings);
+}
 
+std::string parseGraphJson(const json::Value& root, FlowGraph& out,
+                           std::string* warnings) {
     const json::Value* nodes = root.find("nodes");
     if (!nodes || nodes->type != json::Value::Type::Array || nodes->arr.empty())
         return "The reply has no \"nodes\" array.";
@@ -669,11 +666,18 @@ std::string Generator::error() const {
     return error_;
 }
 
-void Generator::finish(State s, const std::string& reply, const std::string& error) {
+Usage Generator::usage() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return usage_;
+}
+
+void Generator::finish(State s, const std::string& reply, const std::string& error,
+                       const Usage& usage) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         reply_ = reply;
         error_ = error;
+        usage_ = usage;
     }
     state_ = s;
 }
@@ -718,6 +722,7 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
         };
 
         std::string cmdline;
+        std::string lastMsgFile;  // codex: where its final message is written
         const bool openai = cfg.backend == "openai";
         if (openai) {
             const char* key = getenv("OPENAI_API_KEY");
@@ -766,9 +771,43 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
                 return;
             }
             tempFiles = {promptFile};
-            if (cfg.backend == "copilot") {
-                cmdline = "copilot -p \"Follow the instructions piped on "
-                          "stdin. Reply with only the JSON they describe.\"";
+            if (cfg.backend == "codex") {
+                // `codex exec -` takes the prompt on stdin (its own documented
+                // spelling), and the flags are the same intent as the other
+                // CLIs': one non-interactive run that reads nothing and writes
+                // nothing.
+                //   --ephemeral          no session files for a one-shot
+                //   --skip-git-repo-check  we run from a temp dir, not a repo
+                //   -s read-only         the sandbox for anything it does try
+                //   -o <file>            the FINAL message, alone, in a file -
+                //                        stdout carries progress chatter, and
+                //                        picking the reply out of that would be
+                //                        guesswork
+                //   --json               JSONL events, read for the token usage
+                lastMsgFile = writeTempFile("codex-last.txt", "");
+                if (lastMsgFile.empty()) {
+                    finish(State::Failed, "", "Could not write the reply file.");
+                    return;
+                }
+                tempFiles.push_back(lastMsgFile);
+                cmdline = "codex exec --ephemeral --skip-git-repo-check "
+                          "-s read-only --json -o " +
+                          platform::shellArg(lastMsgFile);
+                if (!cfg.model.empty())
+                    cmdline += " -m " + platform::shellArg(cfg.model);
+                // Codex takes its reasoning effort from config, so Thinking is
+                // an override of that key rather than a flag of its own.
+                if (cfg.thinking) cmdline += " -c model_reasoning_effort=\"high\"";
+                cmdline += " - < " + platform::shellArg(promptFile);
+            } else if (cfg.backend == "copilot") {
+                // --no-custom-instructions is the Copilot twin of running from a
+                // neutral directory (below): the instructions in THIS prompt are
+                // the whole contract, and a project's own
+                // .github/copilot-instructions.md - which the editor may well
+                // have installed itself - is a second, contradictory one.
+                cmdline = "copilot --no-custom-instructions -p \"Follow the "
+                          "instructions piped on stdin. Reply with only the JSON "
+                          "they describe.\"";
                 if (!cfg.model.empty())
                     cmdline += " --model " + platform::shellArg(cfg.model);
                 cmdline += " < " + platform::shellArg(promptFile);
@@ -777,7 +816,19 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
                 // Extended thinking in the claude CLI is budget-driven.
                 if (cfg.thinking)
                     cmdline += platform::envPrefix("MAX_THINKING_TOKENS", "16000");
-                cmdline += "claude -p --output-format text --max-turns 1";
+                // `--tools ""` disables the built-in tool set, which is what
+                // makes this ONE completion instead of an agent run: we want the
+                // model to answer from the prompt, not to go reading files. It
+                // replaced `--max-turns 1`, which was approximating the same
+                // thing and is no longer in the CLI's --help (still parsed by
+                // 2.1.x, but a hidden flag is not something to depend on).
+                // The JSON envelope instead of bare text: it carries the
+                // model's OWN token counts and the run's cost, which is worth
+                // more than any estimate we could make of the same request (the
+                // chat window shows them). Parsed below, with the raw output as
+                // the fallback - a CLI whose envelope changes shape must not
+                // take the feature down with it.
+                cmdline += "claude -p --output-format json --tools \"\"";
                 if (!cfg.model.empty())
                     cmdline += " --model " + platform::shellArg(cfg.model);
                 cmdline += " < " + platform::shellArg(promptFile);
@@ -793,6 +844,19 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
         platform::Process::Options opts;
         opts.capture = true;
         opts.stderrFile = errFile;
+        // Run the backend from a NEUTRAL directory. Both CLIs auto-load the
+        // instruction files of whatever project they start in (CLAUDE.md /
+        // AGENTS.md / .github/copilot-instructions.md, skills), and the editor's
+        // CWD is usually a game project - which, with AI support installed,
+        // carries guidance written for an assistant driving the editor's CLI.
+        // That is exactly the wrong context for these calls: the instructions
+        // here are the whole contract, and a second set of them is at best noise
+        // and at worst tells the model it can run commands it cannot.
+        {
+            std::error_code ec;
+            const fs::path neutral = fs::temp_directory_path(ec);
+            if (!ec) opts.cwd = neutral.string();
+        }
         std::shared_ptr<platform::Process> proc =
             platform::Process::start(cmdline, opts);
         if (!proc) {
@@ -819,6 +883,16 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
             ss << ef.rdbuf();
             errText = ss.str();
         }
+        // Anything a backend wrote to a FILE has to be read before cleanup, which
+        // deletes every temp path this request made (the Codex CLI's reply is one
+        // - it goes to -o rather than to stdout).
+        std::string lastMsgText;
+        if (!lastMsgFile.empty()) {
+            std::ifstream f(lastMsgFile, std::ios::binary);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            lastMsgText = ss.str();
+        }
         cleanup();
 
         if (cancelRequested_) {
@@ -830,6 +904,106 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
             if (!errText.empty()) msg += "\n" + errText.substr(0, 1000);
             else if (!output.empty()) msg += "\n" + output.substr(0, 1000);
             finish(State::Failed, "", msg);
+            return;
+        }
+
+        // Usage as the backend reports it, per backend envelope.
+        auto usageOf = [](const json::Value& u, double cost) {
+            Usage out;
+            auto num = [&u](const char* k) -> long long {
+                const json::Value* v = u.find(k);
+                return v ? (long long)v->numberOr(0) : 0;
+            };
+            // Everything the model READ: fresh input plus whatever was served
+            // from or written to the prompt cache. Reporting only input_tokens
+            // would show 2 for a 20 KB prompt the moment caching kicks in.
+            out.inputTokens = num("input_tokens") + num("cache_creation_input_tokens") +
+                              num("cache_read_input_tokens") + num("prompt_tokens");
+            out.outputTokens = num("output_tokens") + num("completion_tokens");
+            out.costUsd = cost;
+            out.real = out.inputTokens > 0 || out.outputTokens > 0;
+            return out;
+        };
+
+        if (cfg.backend == "codex") {
+            // The reply is the file; stdout is the event stream and is read only
+            // for what it says about tokens. A run that wrote no file failed in
+            // a way its own output explains better than we could.
+            const std::string& text = lastMsgText;
+            Usage u;
+            // JSONL, one event per line, shape not contractual - so this looks
+            // for token counts wherever they sit and keeps the LAST it sees
+            // (the totals event comes at the end), rather than insisting on a
+            // schema that a future version may rename.
+            {
+                std::istringstream lines(output);
+                std::string line;
+                while (std::getline(lines, line)) {
+                    if (line.find("token") == std::string::npos) continue;
+                    json::Value ev;
+                    if (!json::parse(line, ev)) continue;
+                    // Walk one level of nesting: the counts live under an
+                    // "info"/"usage"/"token_usage" object depending on version.
+                    const json::Value* holders[] = {&ev, ev.find("info"),
+                                                    ev.find("usage"),
+                                                    ev.find("token_usage"),
+                                                    ev.find("msg")};
+                    for (const json::Value* h : holders) {
+                        if (!h) continue;
+                        const json::Value* nested = h->find("total_token_usage");
+                        const json::Value* src = nested ? nested : h;
+                        const json::Value* in = src->find("input_tokens");
+                        const json::Value* out = src->find("output_tokens");
+                        if (!in && !out) continue;
+                        // NOT added to input_tokens, unlike Anthropic's
+                        // cache fields: OpenAI reports cached_input_tokens as a
+                        // SUBSET of input_tokens (measured - a 40-character
+                        // prompt reported 14039 input with 9984 of them cached,
+                        // which only makes sense as a subset), while Anthropic
+                        // reports its cache_creation/cache_read separately from
+                        // input_tokens and they have to be summed. Adding here
+                        // would inflate every Codex turn by its cache hit.
+                        u.inputTokens = (long long)(in ? in->numberOr(0) : 0);
+                        u.outputTokens = (long long)(out ? out->numberOr(0) : 0);
+                        u.real = u.inputTokens > 0 || u.outputTokens > 0;
+                    }
+                }
+            }
+            if (text.empty()) {
+                finish(State::Failed, "",
+                       "The Codex CLI produced no final message.\n" +
+                           (errText.empty() ? output.substr(0, 1000)
+                                            : errText.substr(0, 1000)));
+                return;
+            }
+            finish(State::Success, text, "", u);
+            return;
+        }
+
+        if (!openai && cfg.backend != "copilot") {
+            // claude --output-format json: { result, usage, total_cost_usd, ... }
+            json::Value root;
+            const json::Value* result = nullptr;
+            if (json::parse(output, root)) result = root.find("result");
+            if (!result) {
+                // Not the envelope we expected (an older CLI, a changed shape):
+                // the output is still the reply, we just learn nothing about
+                // what it cost.
+                finish(State::Success, output, "");
+                return;
+            }
+            const json::Value* err = root.find("is_error");
+            const std::string text = result->stringOr("");
+            if (err && err->boolOr(false)) {
+                finish(State::Failed, "",
+                       "Claude CLI reported an error: " +
+                           (text.empty() ? output.substr(0, 500) : text));
+                return;
+            }
+            const json::Value* u = root.find("usage");
+            const json::Value* cost = root.find("total_cost_usd");
+            finish(State::Success, text, "",
+                   u ? usageOf(*u, cost ? cost->numberOr(0.0) : 0.0) : Usage{});
             return;
         }
 
@@ -856,10 +1030,12 @@ void Generator::start(const Config& cfg, const std::string& systemPrompt,
             }
             const json::Value* msg = choices->arr[0].find("message");
             const json::Value* content = msg ? msg->find("content") : nullptr;
-            finish(State::Success, content ? content->stringOr("") : "", "");
+            const json::Value* u = root.find("usage");
+            finish(State::Success, content ? content->stringOr("") : "", "",
+                   u ? usageOf(*u, 0.0) : Usage{});
             return;
         }
-        finish(State::Success, output, "");
+        finish(State::Success, output, "");  // copilot: plain text, no usage
     });
 }
 

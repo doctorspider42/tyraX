@@ -108,6 +108,17 @@ whatever the change affected.
   always-loaded instruction file; keep it tiny).
 
 - **`docs/`** — when a feature has (or needs) a design doc, update or add it.
+  Note that `docs/*.md` is no longer only for humans: every page is **compiled
+  into the editor** (`cmake/embed_docs.cmake` -> `docs_gen.hpp`) and read at
+  runtime by the in-editor AI Assistant, which answers from it (docs/ai-chat.md).
+  Three consequences. A page written well is a feature two ways over, and a page
+  left stale misinforms an assistant as well as a reader. A new page joins the
+  assistant's index by existing - the index is derived from each page's own H1 and
+  first sentence, so **open with a plain prose sentence that says what the thing
+  is**, not with a table, a quote or a bullet list (those are skipped, and the
+  page then indexes as whatever prose comes next). And the content must not
+  contain the raw-string delimiter `)TYRAXDOC"` - cmake fails the build if it
+  does, which is the only way this can bite you.
 
 ## Rule of thumb
 
