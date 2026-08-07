@@ -26,6 +26,13 @@ material, no physics, no collision, no draw distance).
 The Properties panel of an area lists **what references it** and how many
 objects it currently catches, so resizing or deleting one is never a guess.
 
+**Selecting one in the viewport.** An area big enough to enclose a room has its
+front face closer to the camera than everything inside it, so it would swallow
+every click in that room — areas therefore rank *last* among the objects under
+the cursor, and the first click always gets the prop. Click the **same spot
+again** and the pick steps to the next candidate there; keep clicking and the
+area comes up (it is also always one click away in the Project panel).
+
 ## Point tests: what "inside" means
 
 An area's box is the unit cube under its transform: rotation order X, then Y,

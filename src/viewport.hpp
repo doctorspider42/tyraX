@@ -25,6 +25,11 @@ public:
         SolidWireframe = 2,  // solid shading with a dark wireframe overlay
     };
 
+    // View > Collision boxes: draw the box the GAME collides with over every
+    // collider (docs/collision-boxes.md). Editor state, no project data.
+    void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
+    bool collisionOverlay() const { return collisionOverlay_; }
+
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
@@ -89,7 +94,7 @@ public:
     // Objects on hidden layers are excluded like they are for picking.
     // Returns false when the ray leaves the scene without hitting anything.
     bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
-                          const std::vector<char>& skip, float outPoint[3]) const;
+                          const std::vector<char>& skip, float outPoint[3]);
 
     // Inverse of camRay: a world point -> normalized image coords (u, v in
     // [0,1], origin top-left) of the LAST rendered frame. False when the point
@@ -588,7 +593,23 @@ public:
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
-    int pick(float u, float v, const std::vector<SceneObject>& objects) const;
+    int pick(float u, float v, const std::vector<SceneObject>& objects);
+
+    // Every object under those coordinates, front to back - the click order
+    // pick() returns the first of. Repeated clicks at the same spot walk this
+    // list, which is the only way to reach something standing inside or behind
+    // another object with the mouse alone (App::viewportPick).
+    void pickAll(float u, float v, const std::vector<SceneObject>& objects,
+                 std::vector<int>& out);
+
+    // The box a click tests against, in the object's own rotated frame and in
+    // WORLD units - i.e. what the object DRAWS as, not the unit cube: a
+    // model's mesh bounds, a marker's own extents, a primitive's unit box.
+    // The object's scale is already folded in, because a fixed-size marker
+    // (an emitter cone, a scroller origin) draws the same whatever the scale
+    // says. Shared by pick() and placementRaycast() so what the cursor rests
+    // on stays what a click would select.
+    void pickBounds(const SceneObject& o, float mn[3], float mx[3]);
 
 private:
     struct Mesh {
@@ -616,11 +637,13 @@ private:
     int hmW_ = 0, hmD_ = 0;
 
     // Nav-mesh overlay mesh (see setNavOverlay)
+    bool collisionOverlay_ = false;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+    Mesh collisionCube_;  // exact unit wire cube for the collision overlay
 
     // Scatter preview (see setScatterPreview): the pushed result plus the GL
     // meshes for its mask / curve overlays, rebuilt only when version changes.

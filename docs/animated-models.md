@@ -119,7 +119,7 @@ what ships.
 | **Speed** | Playback multiplier (1.00x = authored speed, itself scaled by the project's animation fps and the clip's own time scale - see [Animation editor](#animation-editor)). |
 | **Color** | *Not used by animated models.* Their look comes from the model's own materials (or the `.mtl` override below); the console folds only the part color into the lit pass, so the field only tints the placeholder box shown while a model is missing. |
 | **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
-| **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Collision** | Box from the model's all-clips pose AABB, or none - turned by the model yaw offset like the mesh is ([collision-boxes.md](collision-boxes.md)). Per-triangle mesh collision is a static-model (.obj) feature. |
 | **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
 
 ### Material override (.mtl)
@@ -289,8 +289,12 @@ eases back out when the way is clear.
 *Distance* is therefore the maximum boom length, not a guarantee. Objects set to
 collision **none** are ignored by the arm (the camera passes through them),
 which doubles as the opt-out for scenery that should never shove the camera.
-The arm tests **AABBs only**, even for mesh-collision models - camera collision
-needs no triangle precision, and the cost has to fit a per-frame EE budget.
+The arm tests **collision boxes only**, even for mesh-collision models - camera
+collision needs no triangle precision, and the cost has to fit a per-frame EE
+budget. The box is the model's own bounds, oriented with the object (including
+the *Model yaw offset* below, so an X-forward-authored avatar's box turns with
+its mesh); *View > Collision boxes* and *Preferences > Build > Show collision
+boxes* draw exactly what the arm tests. See [collision-boxes.md](collision-boxes.md).
 
 The runtime auto-selects idle/walk/run/jump from the player's **actual planar
 speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
