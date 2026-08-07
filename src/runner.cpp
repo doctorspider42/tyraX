@@ -816,10 +816,12 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "mkdir -p /tyra/engine && "
                            "cmp -s /engine-src/Makefile.base /tyra/Makefile.base || "
                            "cp /engine-src/Makefile.base /tyra/Makefile.base; "
-                           // Overlay the custom audsrv (per-channel L/R panning for sound
-                           // emitters) over the image's PS2SDK copies, so the engine embeds
-                           // this IRX, links this EE lib and compiles against this header
-                           // (see vendor/tyra/audsrv-pan/README.md).
+                           // Overlay the TyraX audsrv fork (per-channel L/R panning for
+                           // sound emitters) over the image's PS2SDK copies, so the engine
+                           // embeds this IRX, links this EE lib and compiles against this
+                           // header. These are BUILT ARTIFACTS of the sources vendored
+                           // beside them - rebuilt by vendor/tyra/audsrv/build.sh, never by
+                           // this pipeline (see that directory's README.md).
                            //
                            // Both copies are STAMPED, and that is load-bearing rather than
                            // tidy: `cp` sets the destination's mtime to now, PS2SDK headers
@@ -838,31 +840,50 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // the overlay. The /tyra one guards the compiled ENGINE in the
                            // shared volume: when the vendored IRX changes, libtyra has to
                            // be relinked so the new one gets re-embedded.
-                           // ...and the overlay is skipped entirely on an image
-                           // whose own audsrv already has the panning API. That
-                           // is not a special case, it is the overlay's whole
-                           // reason for existing (audsrv-pan/README): the stock
-                           // Tyra image predates upstream's positional audio, so
-                           // three artifacts are vendored to backport it. An
-                           // image built from a current ps2dev base HAS it - and
-                           // there the overlay is actively harmful, because those
-                           // artifacts carry GCC 11.3 LTO bytecode and a newer
-                           // toolchain refuses to link them ("bytecode stream ...
-                           // generated with LTO version 11.3"). Ask the image
-                           // rather than guessing from a version string.
-                           "if grep -q audsrv_adpcm_set_volume_and_pan "
-                           "/usr/local/ps2dev/ps2sdk/ee/include/audsrv.h 2>/dev/null; then "
-                           "  echo '[editor] Image audsrv already has panning - "
-                           "skipping the vendored overlay.'; "
+                           // ...and it is skipped on an image whose toolchain
+                           // cannot USE the vendored library. `bin/libaudsrv.a`
+                           // is built by vendor/tyra/audsrv/build.* with the
+                           // stock image's compiler and carries its LTO
+                           // bytecode, which a different GCC refuses outright
+                           // ("bytecode stream in file ... generated with LTO
+                           // version 11.3"). One committed artifact cannot serve
+                           // two toolchains, so ASK by trying the link rather
+                           // than guessing from a version string - the probe is
+                           // one empty main() and costs a few hundred ms once
+                           // per container.
+                           //
+                           // Skipping is a real loss, not a tidy fallback: the
+                           // fork is what puts ADPCM voices on both SPU2 cores,
+                           // and without it the second reverb unit is
+                           // unreachable and reverb zones stop cross-fading
+                           // (docs/reverb.md). So say so loudly. The way out is
+                           // to build the fork against that image - its
+                           // build.sh already takes one - or to build it without
+                           // LTO so a single artifact links anywhere; both are
+                           // in docs/backlog.md.
+                           // --whole-archive is the whole point of the probe: a
+                           // main() that references nothing from the library
+                           // never makes the linker OPEN its members, so the
+                           // bad bytecode is never read and the probe passes on
+                           // an image that cannot actually build the game.
+                           // Measured - without it both images said "links".
+                           "printf 'int main(){return 0;}' > /tmp/audsrv-probe.c; "
+                           "if ! mips64r5900el-ps2-elf-gcc /tmp/audsrv-probe.c "
+                           "-Wl,--whole-archive /engine-src/audsrv/bin/libaudsrv.a "
+                           "-Wl,--no-whole-archive -o /tmp/audsrv-probe.elf "
+                           ">/dev/null 2>&1; then "
+                           "  echo '[editor] WARNING: this image cannot link the vendored "
+                           "audsrv (built for another toolchain) - skipping the overlay. "
+                           "Positional audio and the second SPU2 reverb unit are OFF.'; "
                            "else "
-                           "md5sum /engine-src/audsrv-pan/audsrv.irx "
-                           "/engine-src/audsrv-pan/libaudsrv.a "
-                           "/engine-src/audsrv-pan/audsrv.h > /tmp/audsrv.stamp; "
+                           "md5sum /engine-src/audsrv/bin/audsrv.irx "
+                           "/engine-src/audsrv/bin/libaudsrv.a "
+                           "/engine-src/audsrv/bin/audsrv.h > /tmp/audsrv.stamp; "
                            "if ! cmp -s /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp 2>/dev/null; then "
                            "echo '[editor] Applying the vendored audsrv overlay...' && "
-                           "cp /engine-src/audsrv-pan/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
-                           "cp /engine-src/audsrv-pan/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
-                           "cp /engine-src/audsrv-pan/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
+                           "cp /engine-src/audsrv/bin/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
+                           "cp /engine-src/audsrv/bin/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
+                           "cp /engine-src/audsrv/bin/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
                            "cp /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp; fi; "
                            "if ! cmp -s /tmp/audsrv.stamp /tyra/.audsrv-stamp 2>/dev/null; then "
                            // obj/irx/audsrv.o must go too: the .irx-em make rule depends only

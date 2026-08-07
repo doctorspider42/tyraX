@@ -1,5 +1,12 @@
-# Builds and publishes the TyraX toolchain image - the image generated games are
-# compiled in (docker/Dockerfile, docs/toolchain-image.md).
+# Builds and publishes the TWO TyraX toolchain images - what generated games are
+# compiled in (docs/toolchain-image.md).
+#
+#   tyrax-toolchain      docker/Dockerfile - inherited from h4570/tyra, and the
+#                        only one carrying Sony's vcl, which every A/B in the
+#                        docs is measured against. amd64 only.
+#   tyrax-toolchain-src  docker/Dockerfile.fromsource - the official ps2dev base
+#                        with openvcl, vclpp and bin2s built from source. No
+#                        unlicensed binary, and multi-arch.
 #
 # Publishing target is GHCR, ghcr.io/<owner>/tyrax-toolchain, because it needs no
 # secrets: GITHUB_TOKEN can push packages of its own repo. The package inherits
@@ -22,8 +29,8 @@ on:
         type: boolean
         default: true
       platforms:
-        description: 'Target platforms'
-        default: linux/amd64
+        description: 'Target platforms (empty = per-image default; the from-source one is amd64+arm64)'
+        default: ''
   push:
     branches: [main]
     paths:
@@ -41,7 +48,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/tyrax-toolchain
+  REG: ghcr.io/${{ github.repository_owner }}
 
 jobs:
   build:
@@ -49,46 +56,87 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Two images, because they answer different questions and neither replaces
+    # the other (docs/toolchain-image.md, "Building it from source instead").
+    #
+    #   inherited  - the 2022 h4570/tyra layers, the ONLY image that can run
+    #                Sony's vcl. Every A/B in the docs is measured against it,
+    #                so it stays published. amd64 only, and not fixable: the
+    #                pinned toolchain layer has no arm64 manifest, and the i386
+    #                runtime it carries exists solely to run that binary.
+    #   fromsource - the official ps2dev base with openvcl, vclpp and bin2s
+    #                built from source. No unlicensed binary, and multi-arch
+    #                because nothing in it is x86-only.
+    #
+    # fail-fast off: one flavour breaking is a fact worth having about the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavour: inherited
+            file: docker/Dockerfile
+            package: tyrax-toolchain
+            platforms: linux/amd64
+            impl: legacy
+          - flavour: fromsource
+            file: docker/Dockerfile.fromsource
+            package: tyrax-toolchain-src
+            platforms: linux/amd64,linux/arm64
+            impl: openvcl
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # The image inherits a digest-pinned Ubuntu/glibc toolchain layer that
-      # exists for linux/amd64 only, so amd64 is the honest default. Building
-      # linux/arm64 needs a toolchain layer that has an arm64 manifest first -
-      # see "The arm64 question" in docs/toolchain-image.md.
+      # Only the from-source flavour has an arm64 manifest to build against; the
+      # manual `platforms` input overrides either, which is how you ask for a
+      # single-arch push when arm64 emulation is the slow part.
+      - name: Resolve platforms
+        id: plat
+        run: echo "value=${{ inputs.platforms || matrix.platforms }}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
-        if: contains(inputs.platforms, 'arm64')
+        if: contains(steps.plat.outputs.value, 'arm64')
         uses: docker/setup-qemu-action@v3
 
       # Load a single-platform image into the runner's docker so the checks
       # below run against the actual artifact. buildx caches the layers, so the
       # push step afterwards is not a second build.
+      #
+      # No `platforms:` here on purpose - `load: true` cannot take a multi-arch
+      # result, so this builds the runner's own arch. The consequence is worth
+      # stating: the arm64 half of the from-source image is BUILT by the push
+      # step and never RUN by these checks. Checking it needs an arm64 runner,
+      # or qemu plus a second load - neither is free, and a compile failure
+      # would still fail the build.
       - name: Build (load for checking)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.file }}
           load: true
-          tags: tyrax-toolchain:ci
+          tags: tyrax-toolchain:ci-${{ matrix.flavour }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       # A green build only proves the layers ran. These are the failures that
-      # would otherwise surface as a broken game build on someone's machine:
-      # a missing tool, or a vcl that cannot run (it is a 32-bit x86 binary and
-      # needs the image's i386 runtime).
+      # would otherwise surface as a broken game build on someone's machine: a
+      # missing tool, or a `vcl` that cannot start. Both flavours can fail that
+      # way for opposite reasons - the inherited one because Sony's vcl is a
+      # 32-bit x86 binary needing the image's i386 runtime, the from-source one
+      # because openvcl and vclpp need libstdc++, which the ps2dev base does not
+      # ship. The `vcl-impl` assertion is what keeps the two from being confused
+      # for each other.
       - name: Check the image
         run: |
-          docker run --rm tyrax-toolchain:ci sh -c '
+          docker run --rm tyrax-toolchain:ci-${{ matrix.flavour }} sh -c '
             set -e
             for t in vcl vclpp openvcl make rsync mips64r5900el-ps2-elf-g++ dvp-as; do
                 command -v "$t" >/dev/null || { echo "MISSING: $t"; exit 1; }
             done
             # Which assembler `vcl` resolves to is a property of the image, so
             # assert it rather than trust the build argument (see VCL_IMPL).
-            test "$(cat /usr/local/share/tyrax/vcl-impl)" = "legacy"
+            test "$(cat /usr/local/share/tyrax/vcl-impl)" = "${{ matrix.impl }}"
             vclpp 2>&1 | grep -q Usage
             printf ".init_vf_all\n.init_vi_all\n--enter\n--endenter\n\tadd.xyzw\tvf01, vf00, vf00\n--exit\n--endexit\n" > /tmp/t.vcl
             vcl /tmp/t.vcl > /tmp/t.vsm
@@ -101,14 +149,14 @@ jobs:
             echo "image OK"
           '
           echo "--- toolchain identity (must not drift silently):"
-          docker run --rm tyrax-toolchain:ci sh -c 'mips64r5900el-ps2-elf-g++ --version | head -1; vclpp 2>&1 | head -3'
+          docker run --rm tyrax-toolchain:ci-${{ matrix.flavour }} sh -c 'mips64r5900el-ps2-elf-g++ --version | head -1; vclpp 2>&1 | head -3'
 
       # The console loader, so it can be downloaded without pulling the image
       # (docs/ps2link-setup.md). Retention is the default 90 days; the image
       # itself is the durable copy.
       - name: Extract ps2link
         run: |
-          cid=$(docker create tyrax-toolchain:ci)
+          cid=$(docker create tyrax-toolchain:ci-${{ matrix.flavour }})
           mkdir -p artifacts
           docker cp "$cid:/usr/local/share/tyrax/ps2link/." artifacts/
           docker rm "$cid" > /dev/null
@@ -116,7 +164,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ps2link
+          name: ps2link-${{ matrix.flavour }}
           path: artifacts/*.elf
           if-no-files-found: error
 
@@ -135,12 +183,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.file }}
           push: true
-          platforms: ${{ inputs.platforms || 'linux/amd64' }}
+          platforms: ${{ steps.plat.outputs.value }}
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.REG }}/${{ matrix.package }}:latest
+            ${{ env.REG }}/${{ matrix.package }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -148,14 +196,14 @@ jobs:
         if: always()
         run: |
           {
-            echo "### TyraX toolchain image"
+            echo "### TyraX toolchain image - ${{ matrix.flavour }}"
             echo
-            echo '`'"${IMAGE}"'`'
+            echo '`'"${REG}/${{ matrix.package }}"'`'  "(${{ steps.plat.outputs.value }})"
             echo
             echo "Point a project at it with one line in the project directory:"
             echo
             echo '```'
-            echo "TYRAX_IMAGE=${IMAGE}:sha-${{ github.sha }}"
+            echo "TYRAX_IMAGE=${REG}/${{ matrix.package }}:sha-${{ github.sha }}"
             echo '```'
             echo
             echo "written to \`.env\` - see docs/toolchain-image.md."

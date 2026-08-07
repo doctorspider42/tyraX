@@ -227,59 +227,10 @@ void App::drawPropertiesWindow() {
         const std::string from =
             objRenameIdx_ == selectedObject_ ? objRenameFrom_ : std::string();
         objRenameIdx_ = -1;
-        if (!from.empty() && from != o.name) {
-            for (Sequence& s : project_.sequences) {
-                for (SeqTrack& tr : s.tracks)
-                    if (tr.target == from) tr.target = o.name;
-                for (SeqCameraKey& k : s.cameraKeys)
-                    if (k.camera == from) k.camera = o.name;
-            }
-            if (lookThroughCam_ == from) lookThroughCam_ = o.name;
-            // Mirror target lists reference objects by name too.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Mirror)
-                    for (std::string& t : m.mirrorObjects)
-                        if (t == from) t = o.name;
-            // Scroller segment member lists reference objects by name.
-            for (SceneObject& sc : project_.objects())
-                if (sc.type == PrimitiveType::Scroller)
-                    for (ScrollSegment& seg : sc.scrollSegments)
-                        for (ScrollMember& t : seg.objects)
-                            if (t.name == from) t.name = o.name;
-            // Camera feed view lists + per-object texture-feed refs
-            // ("camera:<name>" / "mirror:<name>").
-            for (SceneObject& m : project_.objects()) {
-                if (m.type == PrimitiveType::Camera)
-                    for (std::string& t : m.camFeedObjects)
-                        if (t == from) t = o.name;
-                if (m.textureFeed == "camera:" + from)
-                    m.textureFeed = "camera:" + o.name;
-                else if (m.textureFeed == "mirror:" + from)
-                    m.textureFeed = "mirror:" + o.name;
-            }
-            // Portal links + view lists likewise.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Portal) {
-                    if (m.portalTarget == from) m.portalTarget = o.name;
-                    for (std::string& t : m.portalObjects)
-                        if (t == from) t = o.name;
-                }
-            // Area references (docs/areas.md): catch areas, streaming-layer
-            // zones and In Area nodes all point at an area by name.
-            if (o.type == PrimitiveType::Area) {
-                for (SceneObject& m : project_.objects()) {
-                    if (m.catchArea == from) m.catchArea = o.name;
-                    for (FlowNode& fn : m.flowGraph.nodes) {
-                        const FlowNodeType* t = flowNodeType(fn.type);
-                        if (t && t->strKind == FlowParamKind::AreaName &&
-                            fn.str == from)
-                            fn.str = o.name;
-                    }
-                }
-                for (SceneLayer& l : project_.active().layers)
-                    if (l.streamArea == from) l.streamArea = o.name;
-            }
-        }
+        // One remap for every by-name reference in the project (app.cpp) - the
+        // AI Assistant's set_object renames through the same function.
+        if (!from.empty() && from != o.name)
+            renameObjectRefs(project_.active(), o, from);
     }
 
     // Provenance. Stated once, right under the name, because "where did this
@@ -902,6 +853,7 @@ void App::drawPropertiesWindow() {
         ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
         ImGui::BulletText("A mirror / portal / camera feed's target list");
         ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        ImGui::BulletText("A reverb room for the sound effects (below)");
         // What references it, so deleting/resizing one is not a guess.
         std::vector<std::string> users;
         for (const SceneObject& t : project_.objects())
@@ -932,6 +884,86 @@ void App::drawPropertiesWindow() {
             for (size_t i = 0; i < caught.size(); ++i)
                 list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
             ImGui::SetTooltip("%s", list.c_str());
+        }
+
+        ImGui::SeparatorText("Reverb zone");
+        if (ImGui::Checkbox("This area is a room for the sound effects",
+                            &o.reverbZone))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Sound effects played while the player stands inside this box\n"
+                "go through the SPU2's hardware reverb unit. Costs no EE time -\n"
+                "the sound chip does the mixing. Music stays dry.");
+        if (o.reverbZone) {
+            {
+                const std::vector<ReverbPresetInfo>& presets = reverbPresets();
+                if (o.reverbPreset < 0 || o.reverbPreset >= (int)presets.size())
+                    o.reverbPreset = 1;
+                if (ImGui::BeginCombo("Preset",
+                                      presets[o.reverbPreset].label)) {
+                    for (int i = 0; i < (int)presets.size(); ++i) {
+                        if (ImGui::Selectable(presets[i].label,
+                                              i == o.reverbPreset)) {
+                            o.reverbPreset = i;
+                            committed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", presets[i].desc);
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SliderFloat("Amount", &o.reverbAmount, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How wet the effects get, 0..1. This is the one value that\n"
+                    "moves smoothly - entering and leaving the box ramps it, so\n"
+                    "two overlapping zones sharing a preset cross-fade.");
+            if (reverbUsesEcho(o.reverbPreset)) {
+                ImGui::SliderInt("Delay", &o.reverbDelay, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time between repeats. Echo/Delay only.");
+                ImGui::SliderInt("Feedback", &o.reverbFeedback, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How much of each repeat feeds the next - how many times\n"
+                        "it echoes before dying. Echo/Delay only.");
+            }
+            // No "why is Delay missing" paragraph here: each preset's own
+            // entry in the combo says whether it reads them.
+            ImGui::DragInt("Priority", &o.reverbPriority, 0.1f, -100, 100);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Overlapping zones do not mix - the console has ONE reverb\n"
+                    "unit. The highest priority inside wins, so a closet placed\n"
+                    "inside a hall needs a higher number than the hall.");
+
+            // The count is the useful glance - how the transitions behave
+            // is a paragraph, and a paragraph belongs behind a (?).
+            int zones = 0;
+            for (const SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Area && t.reverbZone) ++zones;
+            ImGui::TextDisabled("%d reverb zone%s in this scene", zones,
+                                zones == 1 ? "" : "s");
+            if (zones > 1)
+                prefHelp(
+                    "Crossing into another zone cross-fades, whatever presets\n"
+                    "the two use: the console has two reverb units and the\n"
+                    "game hands the incoming room the free one.\n"
+                    "\n"
+                    "Only TWO rooms can be live at once, so a third entered\n"
+                    "while a fade is still running waits for the first to\n"
+                    "finish leaving - it waits rather than glitching.\n"
+                    "\n"
+                    "A sound is heard in the room it STARTED in: a reverb unit\n"
+                    "is per sound-chip core, so a voice is committed the "
+                    "moment\nit plays. Carry a long sound out of a hall and "
+                    "its tail\ncomes with you.");
         }
     }
 
@@ -1473,6 +1505,28 @@ void App::drawPropertiesWindow() {
         }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reverb (rooms affect this sound)", &o.soundReverb))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "On: this emitter is heard through whatever reverb zone the\n"
+                "player is standing in (docs/reverb.md).\n"
+                "Off: it stays dry everywhere - a UI beep, a voice line, or a\n"
+                "sample that was recorded with its own room already on it.\n"
+                "The send is one bit per voice in hardware, so there is no\n"
+                "per-emitter wet amount - only the zone's own.");
+        ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which emitters win when more of them are audible than the\n"
+                "sound chip has voices (docs/sound.md). Eight emitters can be\n"
+                "heard at once; a ninth has to lose a channel, and the one\n"
+                "that loses is the lowest priority - among equals, the\n"
+                "quietest.\n"
+                "0 is ordinary ambience. Raise it for the one sound a scene\n"
+                "cannot afford to drop (an alarm, a boss loop, a hint the\n"
+                "player is waiting on).");
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"

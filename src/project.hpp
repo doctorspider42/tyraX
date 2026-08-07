@@ -465,6 +465,18 @@ struct SceneObject {
     float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
     bool soundOnPlayer = false; // plays centered on the player (plain stereo,
                                 // full volume, no distance/pan) - e.g. dialogs
+    // Send this emitter into the SPU2 reverb bus (docs/reverb.md). The send is
+    // one BIT per voice in hardware - there is no per-emitter wet amount, only
+    // the zone's global depth. Off = this emitter stays dry wherever the
+    // listener stands (a UI beep, a sound already recorded with its own room).
+    bool soundReverb = true;
+    // Which emitters win when there are more audible ones than voices
+    // (docs/sound.md). The SPU2 gives the emitters EIGHT channels per reverb
+    // bus, so a ninth audible emitter has to lose one; higher priority wins,
+    // and among equals the loudest does. 0 is "ordinary ambience" - raise it
+    // for the one sound a scene cannot afford to drop (an alarm, a boss's
+    // loop, a hint the player is waiting on).
+    int soundPriority = 0;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -517,6 +529,25 @@ struct SceneObject {
     // is by construction the set static batching already refuses). Ignored by
     // raytraced mirrors: their proxy meshes are baked per mirror at build.
     bool catchAreaLive = false;
+
+    // Reverb zone (docs/reverb.md): make this Area a room for the SPU2's
+    // hardware reverb. While the listener stands inside it, the sound effects
+    // play through `reverbPreset` at `reverbAmount`.
+    // The console has ONE reverb unit, so zones do not mix: the highest
+    // `reverbPriority` inside wins (ties: the later object). A move between
+    // two zones of the same preset is a smooth ramp of the amount; a move
+    // between different presets ramps to zero, swaps, and ramps back, because
+    // switching the algorithm means zeroing its work area in SPU2 RAM.
+    // Outside every zone the reverb is off.
+    bool reverbZone = false;
+    int reverbPreset = 1;        // 0 off, 1 room, 2-4 studio A/B/C, 5 hall,
+                                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                                 // (the values ARE AudioReverb::Preset)
+    float reverbAmount = 0.5f;   // 0..1, wet return level
+    int reverbDelay = 64;        // 0..127, read by echo/delay/pipe only
+    int reverbFeedback = 64;     // 0..127, read by echo/delay only
+    int reverbPriority = 0;      // overlapping zones: the highest wins, so a
+                                 // small closet inside a hall can override it
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -860,7 +891,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterDieOnGround == b.emitterDieOnGround &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
-           a.soundOnPlayer == b.soundOnPlayer &&
+           a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
+           a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
@@ -870,6 +902,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.textureFeed == b.textureFeed &&
            a.catchArea == b.catchArea &&
            a.catchAreaLive == b.catchAreaLive &&
+           a.reverbZone == b.reverbZone && a.reverbPreset == b.reverbPreset &&
+           a.reverbAmount == b.reverbAmount && a.reverbDelay == b.reverbDelay &&
+           a.reverbFeedback == b.reverbFeedback &&
+           a.reverbPriority == b.reverbPriority &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&

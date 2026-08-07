@@ -16,6 +16,7 @@ with a radius or a list you maintained one name at a time:
 | Portal through-view objects | a hand-built list of names | everything the box holds (optionally per frame) |
 | Camera feed (CCTV) view list | a hand-built list of names | everything the box holds (optionally per frame) |
 | A "player is here" trigger | Near Object + a radius | the **In Area** trigger |
+| A room for the sound effects | (not possible) | the area IS the room - see [reverb](reverb.md) |
 
 Add one with **Add object > Gameplay > Area**. It starts as a room-sized green
 box on the ground; Position / Rotation / **Size** in the Properties panel are
@@ -166,6 +167,28 @@ Compared with **Near Object** + Radius: the area is a real volume (height
 included) and it is shaped and placed visually instead of being a number that
 means nothing until you run the game.
 
+## Reverb zones
+
+Tick **This area is a room for the sound effects** in the Properties panel and
+the box becomes a room for the SPU2's hardware reverb: every sound effect played
+while the listener is inside it is heard through the chosen preset, at the
+chosen strength. Full guide: [reverb](reverb.md).
+
+Two things that follow from the console having exactly ONE reverb unit, and that
+belong here because they are about how you place the boxes:
+
+- **Zones do not mix.** The highest **Priority** zone containing the listener
+  wins, so a dead closet inside a cathedral is "cathedral 0, closet 1" — and the
+  closet can be preset *Off*, which is what makes the effect stop at its door.
+- **Only the STRENGTH cross-fades.** Two zones sharing a preset blend smoothly
+  as the player crosses between them; two zones with different presets cannot,
+  so the game fades the reverb out, swaps the algorithm and fades back in
+  (~0.3 s). The Properties panel warns when a scene mixes presets, because
+  nothing in the viewport shows it.
+
+Outside every zone the reverb is off — there is no scene-wide default, so a
+level that should be reverberant everywhere gets one big box.
+
 ## Seeing them in the game: "Show areas"
 
 An area is invisible on the console by design — which is exactly the problem
@@ -201,6 +224,9 @@ express them either.
   `SceneObject::catchAreaLive` is the per-frame switch.
 - `SCENE_LAYER_STREAM_AREAS[scene][layer]` is the zone's object index
   (-1 = use the circle).
+- A reverb zone bakes a row into `REVERB_ZONES` (`scene`, `object`, preset,
+  amount, delay, feedback, priority). The BOX is not baked - `object` indexes
+  the live scene table, so a moved area drags its room along.
 - A live catch area bakes three more fields into its owner's side-table row
   (`MirrorData` / `PortalData` / `CamFeedData`): `liveArea` — the area's own
   scene index, so the game reads its *live* transform — plus `firstCand` and

@@ -22,6 +22,38 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **AI Assistant follow-ups** (docs/ai-chat.md). The window, the tool table and
+  the docs-as-skills prompt shipped; what was deliberately left out, roughly in
+  the order it is worth adding:
+  - **No build/run tool.** The assistant cannot start a Docker build or PCSX2,
+    on purpose - an agentic loop that spends ten minutes and a container because
+    the model felt like it is not a good default. The shape it wants is an
+    explicit confirmation in the chat (a tool call the user has to press), which
+    is a UI pattern the editor does not have yet.
+  - **No terrain.** Sculpting and splat painting are heightmap-shaped, not
+    chat-shaped; a tool would have to invent a language for them.
+  - **No asset import and no file writes.** Importing means a file dialog and a
+    dependency-closed copy (the Asset Browser's job); a tool that could write
+    `res/` would also have to answer "what may it overwrite".
+  - Project-wide data, the feedback loop and building all landed: `get_section`/
+    `set_section` (the project's own per-section JSON, so every collection is
+    covered by two tools rather than one pair each), `refresh_generated`, and
+    `build_game` with the chat parking until the build settles. The running game
+    followed: `game_state` / `game_log` / `graph_activity` read the devkit
+    channels and `press_pad` drives the controller, both parking the turn - so
+    the loop closes (place a thing, build it, drive the player into it, read what
+    the graph did). Still out: the time machine (rewinding is a stranger verb for
+    an assistant than reading), Live Link edits into a running game, and anything
+    visual - it can read what the game SAYS, never what it looks like.
+  - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
+    (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
+    constants picked by eye, not measured against a long session.
+  - Full-text search over the docs and saved chat history both landed with the
+    window (`search_docs`, `--search-docs`, the History popup). What search still
+    lacks is any notion of a synonym: it matches exact substrings, so a question
+    in words the docs do not use ("lag" for frame time, "collision box" for
+    `collisionMode`) falls through to its loose tier. A small hand-written alias
+    table would be cheap and is probably worth more than anything cleverer.
 - **Menu styling follow-ups.** The stylesheet, the layout engine, the Style tab
   and the runtime compositor shipped (docs/menu-styles.md;
   `.claude/plans/menu-styling.md` records the design). What was left out on
@@ -34,6 +66,31 @@ the verification, and any fact worth reusing belongs in the relevant
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
+- **Sound priority and voice stealing** - DONE (docs/sound.md), all three steps
+  of `.claude/plans/sound-priority.md`: emitters rank by priority then loudness
+  instead of hashing their scene index into one of 8 slots, the audsrv fork
+  gained a forced play (so a pinned Play Sound channel cuts off, as its tip
+  always claimed), and both the node and the emitter carry a Priority. What the
+  brief could not settle stays open, and it is a listening question rather than
+  a code one: **does a forced restart over a live voice click?** If it does, the
+  fixes in order are a volume drop plus a play on the next frame, or a KOFF and
+  the ADSR release - both a frame of latency, so they are not worth paying
+  until someone hears the problem. The other half of that question is whether a
+  click is masked in practice (a gunshot stealing footsteps hides a lot; two
+  quiet voice lines do not).
+- **Reverb: a third room, and the tail of the cross-fade.** The two reverb
+  units are both in use now (docs/reverb.md): a room owns a bus and transitions
+  cross-fade across them. Two things were left where the chip runs out. A THIRD
+  room entered while a fade is still running waits for the first to finish
+  leaving (it waits rather than glitching, but it is a wait); and a sound is
+  committed to a bus when it starts, so a long sample carried between rooms
+  keeps the old room for its whole length rather than being re-routed. Both are
+  arguably correct behaviour, both are worth re-examining if a project trips
+  over them.
+- **Reverb on real hardware.** Everything in docs/reverb.md was measured in
+  PCSX2, which does emulate SPU2 reverb. Wanted: the same decay-tail
+  measurement on a console, plus a check that the `sceSdInit`-before-audsrv
+  ordering behaves there too.
 - **Save Editor: the checks only real hardware can make.** The feature is
   complete and builds, but three things cannot be proven from the host: the card
   failure feedback (a **full**, **absent** or **unformatted** card), and the icon
@@ -51,6 +108,17 @@ the verification, and any fact worth reusing belongs in the relevant
   the same run on a physical PS2 (PCSX2's COP2 timing is not the console's), and
   a measurement of what `run()` actually costs in EE time per batch size - the
   docs say "32 elements is microseconds" from reasoning, not from a stopwatch.
+- **One audsrv artifact cannot serve two toolchains.** `vendor/tyra/audsrv/bin/`
+  is committed as built by the stock image's compiler, and it carries that
+  compiler's LTO bytecode - so the from-source image (GCC 15.2) refuses it
+  outright and the Runner skips the overlay with a warning, which costs
+  positional audio and the second SPU2 reverb unit on that image. Two ways
+  out, both small: build the fork **without LTO**, so one artifact links
+  under any GCC of the same ABI (check what it costs in size and speed), or
+  commit a second set per toolchain and pick by probe (more files, no
+  thinking required). The first is better if the numbers allow it. Until
+  then the from-source image is fine for graphics work and wrong for audio
+  work, which is a sharp enough edge to be worth removing.
 - **openvcl: a minimal reproducer for the loop-liveness bail-out.** The bug is
   closed by `--loop-liveness-always` (measured: without it, three of the five
   `as_is_*` programs clobber a register carried across the back edge), and the

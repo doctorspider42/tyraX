@@ -162,6 +162,14 @@ struct EditorConfig {
     unsigned logMaskDebug = logview::kAll;
     bool logSelectOutput = false;
     bool logSelectDebug = false;
+    // AI Assistant: may it run the tools that CHANGE things (docs/ai-chat.md)?
+    // A workflow preference like placementSnap - how a person wants to work,
+    // not a property of any project.
+    bool chatAllowEdits = true;
+    // ...and whether it may spend a Docker container and several minutes on a
+    // build. Off by default: everything else the assistant does is instant and
+    // one Ctrl+Z away, this is neither.
+    bool chatAllowBuild = false;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -254,6 +262,8 @@ static EditorConfig loadEditorConfig() {
             cfg.logMaskDebug = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
         else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
         else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
+        else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
+        else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -323,7 +333,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "logMaskOutput=" << cfg.logMaskOutput << "\n"
       << "logMaskDebug=" << cfg.logMaskDebug << "\n"
       << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
-      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n";
+      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
+      << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
+      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -573,6 +585,8 @@ int App::run(const std::string& initialProjectDir) {
         logDbg_.mask = cfg.logMaskDebug;
         logOut_.selectText = cfg.logSelectOutput;
         logDbg_.selectText = cfg.logSelectDebug;
+        chatAllowEdits_ = cfg.chatAllowEdits;
+        chatAllowBuild_ = cfg.chatAllowBuild;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -838,6 +852,12 @@ void App::drawUI() {
     // link data meets project_/ImGui.
     phoneCamTick();
 
+    // Consume a finished AI Assistant reply: run the tool calls it asked for and
+    // send their results back for the next step (docs/ai-chat.md). Same contract
+    // again - the only place chat data meets project_/ImGui - and it runs whether
+    // or not the window is open, so a reply is never stranded by closing it.
+    aiChatTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -858,6 +878,7 @@ void App::drawUI() {
     drawFontManagerWindow();
     drawInputMapWindow();
     drawAssetBrowserWindow();
+    drawAiChatWindow();
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
@@ -1028,7 +1049,8 @@ void App::saveGlobalConfig() {
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
-                      logDbg_.selectText, std::move(recent)});
+                      logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      std::move(recent)});
 }
 
 void App::setUiScale(float userScale) {
@@ -1497,6 +1519,14 @@ void App::drawMenuBar() {
         }
 
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ask about the editor - it answers from the editor's own\n"
+                    "documentation - or ask for something to be done: it can\n"
+                    "add and change objects, write flow graphs, switch scenes\n"
+                    "and open windows. Uses the AI backend from Edit >\n"
+                    "Preferences; every change it makes is one Ctrl+Z away.");
             if (ImGui::MenuItem("Asset Browser...")) {
                 showAssetBrowser_ = true;
                 scanAssetTree();
@@ -4205,6 +4235,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
+    if (key == "chat") return &showAiChat_;
     return nullptr;
 }
 
@@ -4227,7 +4258,16 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu"};
+    "credits",  "vu",       "chat"};
+
+// The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
+// here rather than there because kLayoutWindowKeys is private to this TU, and
+// because "what windows can be opened" must have one answer.
+std::vector<std::string> App::chatWindowKeys() {
+    std::vector<std::string> keys;
+    for (const char* k : kLayoutWindowKeys) keys.emplace_back(k);
+    return keys;
+}
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -6086,6 +6126,66 @@ void App::addObject(PrimitiveType type, bool commit) {
     if (commit) commitChange();
 }
 
+// Retargets every BY-NAME reference to `renamed` after its name changed from
+// `from`. Object references are names, not ids (only the merge machinery uses
+// the id), so a rename that stops here leaves cutscene tracks, mirror lists,
+// scroller members, camera feeds, portal links and area references pointing at a
+// name nothing answers to - and a flow graph's In Area at a missing volume. One
+// function because there are now two renamers: the Properties field and the AI
+// Assistant's set_object. `sc` is the scene the object lives in; sequences are
+// project-wide.
+void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
+                           const std::string& from) {
+    if (from.empty() || from == renamed.name) return;
+    const std::string& to = renamed.name;
+    // Cutscene tracks and camera-shot bindings (project-wide).
+    for (Sequence& q : project_.sequences) {
+        for (SeqTrack& tr : q.tracks)
+            if (tr.target == from) tr.target = to;
+        for (SeqCameraKey& k : q.cameraKeys)
+            if (k.camera == from) k.camera = to;
+    }
+    if (lookThroughCam_ == from) lookThroughCam_ = to;
+    for (SceneObject& m : sc.objects) {
+        // Mirror target lists.
+        if (m.type == PrimitiveType::Mirror)
+            for (std::string& t : m.mirrorObjects)
+                if (t == from) t = to;
+        // Scroller segment member lists.
+        if (m.type == PrimitiveType::Scroller)
+            for (ScrollSegment& seg : m.scrollSegments)
+                for (ScrollMember& t : seg.objects)
+                    if (t.name == from) t.name = to;
+        // Camera feed view lists.
+        if (m.type == PrimitiveType::Camera)
+            for (std::string& t : m.camFeedObjects)
+                if (t == from) t = to;
+        // Portal links + their view lists.
+        if (m.type == PrimitiveType::Portal) {
+            if (m.portalTarget == from) m.portalTarget = to;
+            for (std::string& t : m.portalObjects)
+                if (t == from) t = to;
+        }
+        // Per-object texture-feed refs ("camera:<name>" / "mirror:<name>").
+        if (m.textureFeed == "camera:" + from) m.textureFeed = "camera:" + to;
+        else if (m.textureFeed == "mirror:" + from) m.textureFeed = "mirror:" + to;
+    }
+    // Area references (docs/areas.md): catch areas, streaming-layer zones and
+    // In Area nodes all point at an area by name.
+    if (renamed.type == PrimitiveType::Area) {
+        for (SceneObject& m : sc.objects) {
+            if (m.catchArea == from) m.catchArea = to;
+            for (FlowNode& fn : m.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(fn.type);
+                if (t && t->strKind == FlowParamKind::AreaName && fn.str == from)
+                    fn.str = to;
+            }
+        }
+        for (SceneLayer& l : sc.layers)
+            if (l.streamArea == from) l.streamArea = to;
+    }
+}
+
 std::string App::importModelAsset() {
     const std::string src = pickModelFile();
     if (src.empty()) return "";
@@ -6980,7 +7080,8 @@ void App::drawAssetsSection() {
 // Creates a scene object for a model that is already inside the project
 // (res/models/...) - the "no-copy" path used by the From-project menu and
 // after an import has placed the files.
-void App::addModelObject(const std::string& relPath, const float* at) {
+void App::addModelObject(const std::string& relPath, const float* at,
+                         bool commit) {
     SceneObject o;
     o.type = PrimitiveType::Model;
     o.modelPath = relPath;
@@ -7008,7 +7109,7 @@ void App::addModelObject(const std::string& relPath, const float* at) {
     project_.objects().push_back(std::move(o));
     selectOnly((int)project_.objects().size() - 1);
     snapInsertedObject();  // stand the model on the surface, not inside it
-    commitChange();
+    if (commit) commitChange();
 }
 
 // Categorized object palette, shared by the Scene menu and the "+ Add"
@@ -11945,6 +12046,29 @@ void App::drawOutputWindow() {
 // emulog.txt - boot progress, BIOS/ELF-load errors). The game log is the
 // primary channel; EE printf does not reliably reach emulog (see tyra-testing).
 // ---------------------------------------------------------------------------
+
+// "Run on PS2" games do NOT write bin/log.txt: the generated main.cpp turns
+// Tyra::Info::writeLogsToFile off under ps2link, because a host: write per log
+// line is a network round trip, and ps2link forwards the EE console instead.
+// That stream reaches the editor as "[ps2] ..." lines in the runner log, so the
+// Debug window's "Game log" falls back to it - same window, same severity
+// classification, whichever transport the game was launched on.
+static std::string ps2ConsoleLog(const std::string& runnerLog) {
+    static const std::string kTag = "[ps2] ";
+    std::string out;
+    for (size_t i = 0; i < runnerLog.size();) {
+        size_t e = runnerLog.find('\n', i);
+        if (e == std::string::npos) e = runnerLog.size();
+        const size_t tag = runnerLog.find(kTag, i);
+        if (tag != std::string::npos && tag < e) {
+            out.append(runnerLog, tag + kTag.size(), e - (tag + kTag.size()));
+            out += '\n';
+        }
+        i = e + 1;
+    }
+    return out;
+}
+
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
@@ -11962,7 +12086,11 @@ void App::drawDebugWindow() {
     // (per-frame file reads would be wasteful for a possibly large log).
     const double now = ImGui::GetTime();
     if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
-        logSetText(logDbg_, readTextFileTail(path, 1u << 20));  // last 1 MB
+        std::string text = readTextFileTail(path, 1u << 20);  // last 1 MB
+        // No log file? On a PS2 deploy there never is one - take the console
+        // stream the runner captured instead (see ps2ConsoleLog above).
+        if (debugLogSource_ == 0 && text.empty()) text = ps2ConsoleLog(runner_.log());
+        logSetText(logDbg_, std::move(text));
         debugNextReload_ = now + 0.5;
     }
     debugReloadNow_ = false;

@@ -1,0 +1,1 @@
+{"id": "r00000000000018", "name": "zone-chamber", "type": "area", "position": [-27, 3, 12], "rotation": [0, 0, 0], "scale": [14, 12, 16], "color": [0.3, 0.9, 0.5], "physics": false, "reverb": {"preset": 1, "amount": 0.55, "delay": 64, "feedback": 64, "priority": 0}}

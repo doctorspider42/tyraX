@@ -1,6 +1,7 @@
 #include "json.hpp"
 
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -153,6 +154,58 @@ bool parse(const std::string& src, Value& out) {
     if (!parser.parseValue(out)) return false;
     parser.skipWs();
     return parser.p == parser.end;
+}
+
+std::string escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += (char)c;
+                }
+        }
+    }
+    return out;
+}
+
+std::string write(const Value& v) {
+    switch (v.type) {
+        case Value::Type::Null: return "null";
+        case Value::Type::Bool: return v.boolean ? "true" : "false";
+        case Value::Type::Number: {
+            char buf[40];
+            // %.17g round-trips an IEEE double exactly; the trailing ".0" a
+            // whole number would get from other formats is not JSON's problem.
+            std::snprintf(buf, sizeof(buf), "%.17g", v.number);
+            return buf;
+        }
+        case Value::Type::String: return "\"" + escape(v.str) + "\"";
+        case Value::Type::Array: {
+            std::string s = "[";
+            for (size_t i = 0; i < v.arr.size(); ++i)
+                s += (i ? "," : "") + write(v.arr[i]);
+            return s + "]";
+        }
+        case Value::Type::Object: {
+            std::string s = "{";
+            for (size_t i = 0; i < v.obj.size(); ++i)
+                s += std::string(i ? "," : "") + "\"" + escape(v.obj[i].first) +
+                     "\":" + write(v.obj[i].second);
+            return s + "}";
+        }
+    }
+    return "null";
 }
 
 }  // namespace json

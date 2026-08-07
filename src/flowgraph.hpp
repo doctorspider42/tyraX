@@ -132,6 +132,8 @@ enum class FlowParamKind {
     PrefabName,  // name of a Project::prefabs entry (Tools > Prefabs)
     EventName,  // name of a graph event (free text; exists by being named)
     ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
+    ReverbPreset,  // key of a reverbPresets() entry - a closed list, like
+                   // SaveSlotMode below, not a project lookup
     // Which slot a Commit Checkpoint writes: "" / "fixed" = the Slot number
     // below it, "autosave" = the project's autosave slot, "next" = the next
     // free one. "" is fixed so a graph written before this existed is
@@ -160,6 +162,45 @@ inline const std::vector<SaveSlotModeInfo>& saveSlotModes() {
     };
     return modes;
 }
+
+// The SPU2 reverb presets (docs/reverb.md). Unlike the list above, ORDER IS
+// LOAD-BEARING: the index is Tyra::AudioReverb::Preset, which is libsd's
+// SD_EFFECT_MODE_*, and it is what gets baked into REVERB_ZONES and written to
+// the hardware. Append only, never reorder. This is the single source for the
+// Area properties combo, the Set Reverb node and codegen alike; the node
+// stores the KEY, an area stores the INDEX.
+struct ReverbPresetInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<ReverbPresetInfo>& reverbPresets() {
+    static const std::vector<ReverbPresetInfo> presets = {
+        {"off", "Off", "No reverb - a dry pocket. Useful INSIDE another zone."},
+        {"room", "Room", "A small, tight room. The subtle one."},
+        {"studioA", "Studio A", "A treated room, short tail."},
+        {"studioB", "Studio B", "Studio A, bigger."},
+        {"studioC", "Studio C", "The biggest of the studio three."},
+        {"hall", "Hall", "A large hall - the obvious cave/church/hangar."},
+        {"space", "Space echo", "A long, washed-out ambience. Very wet."},
+        {"echo", "Echo", "Discrete repeats. Delay and feedback apply."},
+        {"delay", "Delay", "A single delay line. Delay and feedback apply."},
+        {"pipe", "Pipe", "A resonant tube - metallic, narrow."},
+    };
+    return presets;
+}
+// Index of a preset key. An unknown or empty key reads as Room, so a node
+// dropped and not yet configured does something audible rather than nothing.
+inline int reverbPresetIndex(const std::string& key) {
+    const std::vector<ReverbPresetInfo>& ps = reverbPresets();
+    for (size_t i = 0; i < ps.size(); ++i)
+        if (key == ps[i].key) return (int)i;
+    return 1;
+}
+// Delay and feedback are read by Echo and Delay ONLY - libsd folds them into
+// that line's taps and zeroes both for every other preset. Pipe looks like an
+// echo and is not one.
+inline bool reverbUsesEcho(int preset) { return preset == 7 || preset == 8; }
 
 struct FlowNodeType {
     const char* key = "";
@@ -1446,16 +1487,50 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "The one place to duck all the sound effects at once - under "
                  "a cutscene, under dialogue. Music has its own Set Music "
                  "Volume."},
+        {.key = "SetReverb", .title = "Set Reverb", .category = "Audio",
+         .strKind = FlowParamKind::ReverbPreset,
+         .strTip = "Which room the effects are heard in. \"Off\" silences the "
+                   "reverb without handing control back to the zones.",
+         .numCount = 3, .numLabels = {"Amount", "Delay", "Feedback"},
+         .numTips = {"How wet, 0..100. A wired number replaces it, so a Tween "
+                     "into this ramps a room up or down.",
+                     "Time between repeats, 0..127. Echo and Delay presets "
+                     "only - the room presets have fixed geometry.",
+                     "How much of each repeat feeds the next, 0..127. Echo and "
+                     "Delay presets only."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "clear"},
+         .execInTips = {"Force this reverb everywhere, whatever area the "
+                        "player is standing in.",
+                        "Hand control back to the reverb zones (docs/"
+                        "reverb.md). Without this the override stays in force."},
+         .desc = "Overrides the reverb for the whole game - a scripted moment "
+                 "that should sound like a cathedral wherever it happens, or "
+                 "an underwater stretch. Rooms placed as Areas cover the "
+                 "ordinary case and need no node at all. The console has ONE "
+                 "reverb unit, so this REPLACES the zones rather than adding "
+                 "to them; changing preset fades out and back in (~0.3 s) "
+                 "because switching the algorithm zeroes its work area."},
         {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
          .strKind = FlowParamKind::SoundTrack,
          .strTip = "The sound effect to play (imported in the Project panel > "
                    "Sounds). One-shot ADPCM - for looping background audio use "
                    "Play Music.",
-         .numCount = 2, .numLabels = {"Volume", "Channel"},
+         .numCount = 4, .numLabels = {"Volume", "Channel", "Dry", "Priority"},
          .numTips = {"How loud, 0..100. Set Sound Volume scales this on top.",
-                     "Which of the SPU's 24 voices to use, or auto to rotate "
-                     "through them. Pinning a channel is how you make a new "
-                     "trigger CUT OFF the previous one instead of layering."},
+                     "Which voice to use, or auto to rotate through them. "
+                     "Auto cycles 0-15 and layers; 16-23 belong to the sound "
+                     "emitters. A PINNED channel CUTS OFF its own previous "
+                     "sample instead of layering - pin a footstep, a UI beep "
+                     "or a weapon so the new one replaces the old one.",
+                     "1 = never send this sound through a reverb zone - a menu "
+                     "beep or a voice line that must sound the same in a cave "
+                     "as outdoors. 0 (the default) = the room applies.",
+                     "Who wins when all sixteen voices are busy: a sound cuts "
+                     "off the LOWEST priority strictly below its own, and is "
+                     "dropped when nothing playing is less important. 0 is "
+                     "ordinary; raise it for a gunshot or a line of dialogue, "
+                     "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.

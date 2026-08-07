@@ -706,15 +706,137 @@ banner both, so a previously built ELF still reports.
   the first `loadScene` runs from the loop (not `init()`) so its loading-screen
   progress is vsync-paced (see the editor's loading-screen feature).
 
+- **`Color`'s default constructor does not initialise anything** ("Initialize
+  Color without setting default values" - it is a vector type used in hot
+  paths), so any `Color` MEMBER is garbage until something assigns it. That is
+  fine for a value that is always written before it is read, and it was not:
+  `RendererCore::bgColor` is the clear colour, and `Engine::init` calls
+  `banner.show()` immediately after `renderer.init()` - the logo hold clears the
+  framebuffer with it, every frame, for two seconds, long before any game code
+  can call `setClearScreenColor`. The boot logo therefore came up on whatever
+  was in that memory: black on one build, BLUE on the next, with nothing in the
+  game changed to explain it (reported from the console exactly that way, and
+  any change to the binary or heap layout can move it). Initialised in the
+  constructor now. The general rule this leaves: anything read before the first
+  game frame - a clear colour, a mode, a flag - must be initialised where it is
+  DECLARED or in its owner's constructor, because "the game sets it at startup"
+  is not true of the engine's own boot screens.
+
 **Audio**
-- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
-  voices cannot be stopped — the editor round-robins SPU channels to avoid
-  drop-outs. Channels 16–23 are reserved by generated games for sound emitters.
+- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
+  ADPCM voice cannot be STOPPED - only started, or started over.
+  **The channel budget of a generated game**, per bus (every new sound goes to
+  the CURRENT room's bus, so this is what is available at once): 0-15 for Play
+  Sound, 16-23 for the sound emitters. The auto cycle runs 16, not 24 — it used
+  to run the full 24 and walked into the emitters' slots, so one auto play in
+  three stole an emitter's channel or bounced off it as "busy". Who gets one
+  when they are all busy is **docs/sound.md** (priority, then loudness); the
+  engine's part of it is `forcePlay` and `endedMask` below.
+- **`AudioAdpcm::forcePlay` plays over a busy channel** - `AUDSRV_ADPCM_FORCE`,
+  a flag bit ORed into the channel number, which the fork masks off and uses to
+  skip its own ENDX busy check. The refusal was always a software check in
+  `audsrv_ch_play_adpcm`, not a hardware limit: KON on a sounding voice
+  restarts it. The bit rides in the channel because that number already travels
+  EE -> RPC -> IOP untouched, so this cost no new export and no signature
+  change (adding an IRX export means touching the import list of everything
+  that links it). **Whether a forced restart CLICKS is a hardware question and
+  is not settled** - it depends where in the waveform the victim was, and PCSX2
+  is not a witness worth trusting on the SPU2. If it turns out to click, the
+  fixes in order are: drop the victim's volume and play on the next frame, or
+  KOFF first and let the ADSR release run (both cost a frame of latency).
+- **`AudioAdpcm::endedMask(core)` is how to ask what is still playing** - the
+  SPU2's own ENDX register, one bit per voice, one IOP RPC. Ask it per PLAY
+  REQUEST, never per frame (a play already costs two or three RPCs; a per-frame
+  poll is what the emitter loop's whole quantization exists to avoid).
+- **An EE buffer handed to a SIF DMA must be written back to main memory
+  first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
+  it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
+  read with `fread()` reaches the IOP as *whatever was in that memory before* —
+  for whichever loads happen to still be cached, which in practice is never the
+  first one. **PCSX2 emulates no EE cache, so every load looks perfect there**;
+  on a console the second sound of a project was silent (the SPU2 dutifully
+  played the garbage, which is usually zeros) while the first worked. Fixed
+  2026-08-06 in the vendored fork. Two things to take from it: the same rule
+  applies to ANY EE→IOP transfer you add, and the tell is cheap — audsrv
+  reports the sample's header back, so a **nonsense `pitch` for a file whose
+  earlier load reported a sane one** identifies a corrupt upload in one log
+  line (1881 vs 0x41C00000 was the actual pair).
+- **`AudioAdpcm` logs why a sound did not play** (debug builds): once per
+  channel per reason - no sample, channel busy, audsrv error - plus a one-line
+  SPU2 dump (per-voice volume/ADSR/start address, the core's VMIX masks, MMIX,
+  master and reverb volume) at each channel's first successful play. That dump
+  is the instrument for "it plays but I hear nothing": diff a channel that
+  works against one that does not.
+- **`audsrv_ch_play_adpcm` reports "I do not know this sample" as a POSITIVE
+  `AUDSRV_ERR_ARGS` (5)**, which no sign test can tell from a channel number.
+  `tryPlay` now demands that an explicit channel comes back as itself; before
+  that, playing a freed/never-loaded sample looked like success and simply made
+  no sound.
 - WAV files: 8-bit PCM is unsigned (0x80 = silence) but audsrv mixes signed —
   convert (XOR 0x80) or it wraps at every zero crossing (loud crackle at
   correct pitch — that exact symptom happened).
 - Mono/low-rate streams need smaller chunk size + fill threshold or audsrv's
   ring buffer starves.
+- **The SPU2's hardware reverb is reachable, and only through a second RPC
+  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
+  exposes playback and nothing else, so the registers come from PS2SDK's
+  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
+  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself,
+  which is LGPL v2 per every file header), so this cost one `.irx-em`, one
+  loader call and `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd
+  directly on the IOP; the two are ordinary co-clients of one driver.
+- **audsrv is a SOURCE fork, not a blob** (`vendor/tyra/audsrv/`): the IOP and
+  EE sources are in-tree at ps2sdk `e78a9cb2`, and `build.sh`/`build.ps1`
+  rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
+  build container. Change the sources and you must re-run that script and commit
+  `bin/` in the same commit - nothing in the game build compiles audsrv.
+  `./build.sh --check` diffs a fresh build against the committed artifacts;
+  `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
+  members, gcc's LTO section names carry a random per-compilation id), so the
+  member SIZES are what that check compares.
+  The ps2sdk that script fetches (a build TREE - these Makefiles include
+  `$(PS2SDKSRC)/Defs.make`) has a **mirror** fallback like every entry in
+  `deps.sh`: `doctorspider42/tyrax-vendor-ps2sdk`. Losing upstream costs the
+  ability to REBUILD the module, not the module (its sources are in-tree) and
+  not game builds (those use the SDK installed in the `h4570/tyra` image).
+- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
+  streaming ring installs.** So the reverb's RPC bind runs BEFORE
+  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
+  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
+  MUSIC goes silent with no error anywhere while the sfx keep working - which
+  points the investigation at completely the wrong subsystem.
+- **libsd's defaults send EVERYTHING to the effect bus**, music included:
+  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
+  the core input (the streamed song) into the reverb. So a per-voice send
+  normally REMOVES a voice, and keeping the music dry is an explicit write.
+  (Those bit meanings were confirmed against libsd's own block-transfer
+  handler, which clears bits 6/7 - the dry pair - when a stream ends.)
+- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
+  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
+  preset set with the core's effect bit still off leaves whatever was in SPU2
+  RAM circulating as noise. Enable, then set.
+- **Reverb RPCs cost what audsrv's do**: synchronous SIF calls sharing the bus
+  with the music stream, so the generated game quantizes the wet depth to 64
+  steps and sends only real changes - the discipline `updateSoundEmitters`
+  already follows for volume/pan. A per-frame RPC is measurable in frame rate.
+- Reverb presets occupy 8-96 KB of SPU2 RAM at the TOP of the 2 MB while audsrv
+  loads ADPCM samples from 0x5010 upward, so they collide only past ~1.9 MB of
+  effects. Changing preset zeroes that area, which is why the game only does it
+  at zero wet level and never per frame.
+- **The audsrv fork plays voices on BOTH cores**: channels 0-23 are core 1
+  (unchanged, so old callers cannot tell), 24-47 are core 0. Upstream muted
+  core 0's master outright, which is what made the SECOND reverb unit
+  unreachable - a reverb is per core and only that core's voices feed it.
+  Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
+  volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
+  master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser

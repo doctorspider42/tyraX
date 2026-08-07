@@ -30,7 +30,7 @@ TyraX's own license — Apache-2.0, the same terms as the engine — is in
 | [ufbx](https://github.com/ufbx/ufbx) | `fcc5d6ba` | MIT **or** public domain | No — fetched |
 | [miniaudio](https://github.com/mackron/miniaudio) | `9634bedb` | Public domain **or** MIT-0 | No — fetched |
 | [ps2client](https://github.com/ps2dev/ps2client) | v1.3.0 | no explicit license — see below | **Yes** (Windows binary only) |
-| [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | see `vendor/tyra/audsrv-pan` | Academic Free License v2.0 | **Yes** (prebuilt module) |
+| [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | `e78a9cb2`, forked in `vendor/tyra/audsrv` | **GNU Library GPL v2** (not AFL - see below) | **Yes** (source + built module) |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
@@ -341,13 +341,40 @@ patch, and its build clones ps2link from upstream itself.
 If the ps2dev project ever states an explicit license, this entry should be
 replaced with it.
 
-## PS2SDK `audsrv` — Academic Free License v2.0
+## PS2SDK `audsrv` — GNU Library General Public License v2
 
-`vendor/tyra/audsrv-pan` is a prebuilt module derived from the PS2SDK `audsrv`
-sources ([`ps2dev/ps2sdk`](https://github.com/ps2dev/ps2sdk)), with L/R panning
-added — see [`vendor/tyra/audsrv-pan/README.md`](vendor/tyra/audsrv-pan/README.md).
-PS2SDK is distributed under the Academic Free License version 2.0; the full text
-is at <https://opensource.org/license/afl-2-0-php> and in the PS2SDK repository.
+**`audsrv` is the one part of PS2SDK that is not AFL**, and it is worth being
+precise about because a generated game ships it.
+
+[`vendor/tyra/audsrv`](vendor/tyra/audsrv/README.md) is a **source fork** of the
+PS2SDK `audsrv` module ([`ps2dev/ps2sdk`](https://github.com/ps2dev/ps2sdk)),
+pinned at commit `e78a9cb2` — the last one carrying the per-channel L/R panning
+API that still builds with the toolchain image. The sources are in-tree; the
+built `audsrv.irx` / `libaudsrv.a` / `audsrv.h` are committed beside them and are
+what a generated game embeds and links.
+
+Every file of that module, IOP and EE alike, carries:
+
+> Copyright 2005, ps2dev — *Licenced under GNU Library General Public License
+> version 2*
+
+while ps2sdk's own `README` and `LICENSE` place the SDK under the Academic Free
+License 2.0. Upstream contradicts itself here (those same headers add "Review
+ps2sdk README & LICENSE files for further details"). TyraX takes the stricter and
+more specific reading — the per-file notice — and treats audsrv as
+**LGPL-2.0-only** (the headers carry no "or later").
+
+Practically: the LGPL is not "publish your game" copyleft — the *Library* GPL
+covers the library, not the application that links it. It does ask for more than
+attribution, namely that the library's own source be available and that a
+recipient be able to relink against a modified copy. TyraX satisfies that by
+carrying the fork's full source in this repository. The full licence text is at
+<https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html>.
+
+The **rest** of PS2SDK — everything else a generated game links, `libsd` and the
+`ps2snd` RPC client the reverb uses included — is Academic Free License version
+2.0; the full text is at <https://opensource.org/license/afl-2-0-php> and in the
+PS2SDK repository.
 
 ---
 

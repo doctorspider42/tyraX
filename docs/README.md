@@ -237,14 +237,20 @@ guides. What is queued is in [Backlog](backlog.md).
   Director records the move into keyframes at a chosen density. Covers pairing
   and firewall, the mapping controls, the recording options and table-size
   budget, the WebSocket protocol, and the built-in browser test client.
+- [The AI Assistant window](ai-chat.md) - the chat built into the editor: it
+  answers questions about the editor from these very pages (they are baked into
+  the executable) and carries out operations in the project - adding and
+  changing objects, writing flow graphs, switching scenes, opening windows.
+  Covers what it knows, its tool list, the read-only switch, and how edits
+  relate to undo and saving.
 - [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
   plain language and letting an AI backend (Claude CLI, Copilot CLI or the
   OpenAI API) build the graph: backend/model/thinking preferences, what the
   model is told, validation, and the cancelable in-editor flow.
 - [AI-agent CLI tools](ai-tools.md) - the headless commands
   (`--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
-  `--refresh-gen`, `--ai-graph`) that let an AI assistant or script inspect
-  and modify a project without the GUI.
+  `--refresh-gen`, `--ai-graph`, `--chat-prompt`) that let an AI assistant or
+  script inspect and modify a project without the GUI.
 - [AI support in projects](ai-support.md) - the "Add AI support" option
   (New Project / Project Preferences): assistant guidance files (Claude Code
   skills + `CLAUDE.md`, Copilot instructions) installed into a project, and

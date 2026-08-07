@@ -150,6 +150,8 @@ TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --dump <projectDir>            # JSON project summary
+TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
+TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
@@ -560,6 +562,13 @@ Notes:
   frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
   than screenshotting for assert text; the running editor also pops that dump in
   a copyable dialog. (A screenshot still shows *where* the game froze.)
+  **On a ps2link deploy there is no `bin/log.txt` at all** — the generated
+  `main.cpp` logs to the EE console there instead (a host: write per line is a
+  network round trip), and ps2link forwards it to `ps2client`. So the game's log
+  is the `[ps2] …` lines of the runner output: the Output panel in the GUI, plain
+  stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
+  the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
+  EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script — a GDI capture that works reliably:
 
@@ -1272,6 +1281,127 @@ test rather than a screenshot:
   stopped arriving - the one failure mode a "did it move?" test cannot see.
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
+
+## Verifying the AI Assistant (docs/ai-chat.md)
+
+An AI feature looks untestable and is not: three of its four layers need no
+backend at all, and the fourth needs no tokens.
+
+**0. Is the documentation searchable?** `TYRAX --search-docs "<query>" [page]` runs
+the assistant's `search_docs` over the pages baked into the exe and exits 1 when
+nothing matches - so a doc-facing change ("does anything still say
+`--max-turns`?") is one command, no project and no backend.
+
+**1. What is it told?** `TYRAX --chat-prompt [projectDir]` prints the whole system
+prompt - the tool catalog built from `aichat::tools()`, the documentation index
+derived from `docs/*.md`, the object type/property tables and the live project
+context. This is the `--list-nodes` trick applied to the chat, and it is the
+check for anything prompt-shaped ("is my new tool described?", "did that doc page
+join the index?", "how big is the prompt?"). With no project argument you get the
+no-project-open variant.
+
+**2. The pure half, from a harness.** `aichat.cpp` has no ImGui, no GL and no
+`App`, so the doc index, the reply parser, argument validation, every read tool
+and the transcript trimming can be exercised from a host `main()`. The cheapest
+way to link one is to reuse the objects a dev build already produced:
+
+```bash
+OBJS=$(ls build-dev/CMakeFiles/tyrax-editor.dir/src/*.o | grep -v /main.cpp.o)
+g++ -std=c++20 -O0 -I src -I build-dev/generated -I vendor/imgui -I vendor/imguizmo/src \
+    -I vendor/imnodes -I vendor/stb -I vendor/ufbx -I vendor/miniaudio \
+    harness.cpp $OBJS build-dev/CMakeFiles/tyrax-editor.dir/vendor/*/*.o \
+    build-dev/CMakeFiles/tyrax-editor.dir/vendor/ufbx/ufbx.c.o \
+    build-dev/libimgui.a build-dev/vendor/glfw/src/libglfw3.a \
+    -ldl -lrt -lm -lGLX -lOpenGL -lpthread -o harness
+```
+
+(Everything but `main.cpp.o`, plus a harness with its own `main()`. The GUI code
+comes along unused - it costs a link, not a display.) The same recipe works for
+any host-only module that a plain `g++ aichat.cpp` cannot link on its own because
+it reaches `project.cpp`.
+
+**3. The whole loop, with a FAKE backend and no tokens.** The backends are
+external commands found on `PATH`, so a shell script called `claude` earlier on
+`PATH` IS a backend. Have it drain stdin, count its invocations in a state file
+and answer from a canned sequence, and the multi-step tool loop becomes
+deterministic and free:
+
+```sh
+#!/bin/sh
+cat > /dev/null                                     # the prompt arrives on stdin
+n=$(cat "$STATE" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STATE"
+case "$n" in
+1) echo '{ "say": "Placing it.", "calls": [ { "tool": "add_object", "args": { "type": "box", "name": "lever", "position": [4, 0, -6] } } ] }' ;;
+*) echo '{ "say": "Done." }' ;;
+esac
+```
+
+Drive the window with `--ui-script` (no focus needed, see above) and check the
+RESULT in the project rather than on screen - that is what makes it a test:
+
+```bash
+STATE=/tmp/fake PATH=/tmp/fakebin:$PATH TYRAX --ui-script <proj> "
+frames 20; click Tools; click 'AI Assistant'
+click 'AI Assistant/Allow project edits'      # see the trap below
+click 'AI Assistant/##chatinput'; text 'add a lever'; click 'AI Assistant/Send'
+wait 12; key ctrl+s; shot /tmp/chat.png"
+TYRAX --dump <proj>                            # is the lever there?
+TYRAX --refresh-gen <proj>                     # did its graph compile?
+```
+
+A fake can also drive paths a real backend reaches only after a long, expensive
+session: have it answer with a HUGE tool result (`read_doc` of the biggest page)
+to push the conversation over its budget, and have it recognise the compaction
+request by its prompt (`grep -q "You are compacting a conversation"`) so the whole
+compact-then-continue loop runs deterministically. That is how the context meter
+and compaction were checked - 63.6k of context down to 5.8k, verified in the saved
+chat file (`role: ['summary', 'user', 'assistant']`) rather than by eye.
+
+The same trick reaches the tools that are expensive or destructive: a canned
+`build_game` proves the park-and-resume (the turn stops, the Runner runs for real,
+the outcome is appended to the tool result already in the transcript and the loop
+continues - measured end to end with one Docker build), and a canned `set_section`
+that sends an EMPTY list proves the shrink guard refuses it, then that
+`confirm_replace` gets through. Check the destructive ones against the SAVED
+project (`--dump`, the `objects/*.json`, the manifest) rather than the chat: the
+tool result says what it did, the file says what happened.
+
+Worth building canned replies that MISBEHAVE, because that is the half a real
+backend will not reproduce on demand: a fenced envelope with prose around it, a
+`name`/`arguments` spelling instead of `tool`/`args`, an invented node type, an
+unknown property, a wrong object name. All of those have honest paths and the
+transcript's tool rows say which fired.
+
+**Two traps specific to testing anything that RUNS the game from a chat.** A
+hermetic `XDG_CONFIG_HOME` isolates PCSX2 as well - its BIOS, memory cards and
+settings live under `$XDG_CONFIG_HOME/PCSX2`, so the emulator either fails to
+start or comes up unconfigured and the run looks like a broken feature. Symlink
+the real one into the scratch config (`ln -sfn ~/.config/PCSX2 $CFG/PCSX2`) and
+keep the editor isolated. And remember that **a build compiles the IN-MEMORY
+model**: an assistant that added an object and built it produced a correct ELF
+while the `.tyra` on disk still knew nothing about it, so the NEXT session's build
+regenerated an empty debug runtime and no channel ever appeared - which reads
+exactly like a broken devkit. A multi-session test has to save.
+
+**Four traps this cost.** Set `XDG_CONFIG_HOME` (or `LOCALAPPDATA`) to a scratch
+directory for any run that touches the chat: history files and `editor.ini` both
+live there, so a hermetic run neither pollutes the machine's config nor inherits
+whatever the last run left switched. **A popup's items live in a window of their
+own** (`##Popup_<hash>`), so `dump` lists them under that name and not under the
+window that opened it - a `dump | grep` that stops at the first screenful will
+miss them and read as "the popup never opened"; grep for the LABEL, and confirm
+with `shot` before believing a popup is broken (that cost an hour here, and the
+popup was working the whole time). And uiscript's `text` needs the widget to have
+processed the keystrokes before the button that consumes them is clicked -
+`ImGui::BeginDisabled` on an empty field means a Send clicked too early is a
+no-op that still reports success, so put a `frames 5` between typing and
+clicking. `chatAllowEdits_` is persisted in `editor.ini`, so a run
+that toggled it leaves it that way for the NEXT run - a scripted click on the
+checkbox is a toggle, not an assignment, so assert with `expect-checked` right
+after (a whole loop reading `[failed]` on every edit is that switch, not a bug).
+And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or not
+the window is open - so a `wait` long enough for N backend invocations is what a
+multi-step turn needs, and closing the window mid-turn does not strand it.
 
 ## Choosing the right depth
 

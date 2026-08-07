@@ -1,0 +1,1 @@
+{"id": "r00000000000004", "name": "hall-floor", "type": "box", "position": [0, 0.05, 31], "rotation": [0, 0, 0], "scale": [40, 0.1, 26], "color": [0.22, 0.24, 0.32], "physics": false, "collision": "none"}
