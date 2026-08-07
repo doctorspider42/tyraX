@@ -12,13 +12,13 @@ BLSS is the other half of DLSS — **the part that picks and blends
 reconstruction kernels** — done honestly, on hardware that has a 147 MHz
 rasteriser and no pixel shaders at all.
 
-> Status: **proof of concept**, off by default. The network is real, trained and
-> measured, and it now beats every fixed kernel on both image quality and
-> temporal stability, in and out of distribution. It **boots and runs in PCSX2**
-> (50 FPS, no assert). Frame timings are not measured, it has not run on real
-> hardware, and there are two known correctness issues in
-> [Limitations](#limitations) — one of which silently disables the whole feature
-> around env maps and projected shadows. See [Measured](#measured).
+> Status: **proof of concept**, off by default, **and it visibly oscillates on a
+> television**. The network is real, trained and measured, and on the host it
+> beats every fixed kernel on both image quality and temporal stability. But the
+> picture in PCSX2 shakes every frame, and a probe settled why: with the jitter
+> forced to zero the picture is perfectly still, so the oscillation is the
+> jittered sampling itself, which the temporal accumulator is failing to fuse.
+> See [The oscillation](#the-oscillation). Do not enable this yet.
 
 ## Why this can work at all on a PS2
 
@@ -299,6 +299,48 @@ line apart, and the two appear to compound. Turning the deinterlacer on removes
 it. Which of the two is the dominant term has not been isolated (the BLSS-off /
 deinterlacer-off corner was never measured), and locking the jitter phase to the
 field parity is the obvious fix — it is in [the backlog](backlog.md).
+
+### The oscillation
+
+**The picture shakes, and it is not the interlacing.** Measured on a scratch
+project, static camera, in this order:
+
+| display mode | BLSS | PCSX2 deinterlacer | result |
+|---|---|---|---|
+| interlaced | off | on *and* off | perfectly still |
+| interlaced | on | off | **visible bob** |
+| interlaced | on | on | bob hidden |
+| progressive 480p | on | on *or* off | **still bobs**, deinterlacer irrelevant |
+| progressive 480p | on, **jitter forced to 0** | off | **perfectly still** |
+
+The first four rows killed the obvious hypothesis: a blending deinterlacer was
+merely *averaging adjacent frames* and hiding the effect, which is why turning it
+on looked like a fix. The last row is the answer.
+
+And it is not a sign error in the jitter undo — the signs and units were checked
+on both sides. It is more basic than that: **jittered sampling is supposed to
+produce a different image every frame.** The point kernel snaps to a different
+texel per phase; bilinear gets different weights; the low-res render itself
+samples different scene points. That is where the extra information comes from.
+The only thing entitled to fuse it back into a stable picture is the temporal
+accumulator — and it is not converging hard enough.
+
+The reason is a mistake made three times in this feature, each time one level
+further up:
+
+1. per-frame PSNR could not see flicker,
+2. the on-screen sampler could not see it either (0.8 s at 50 Hz is 40 frames —
+   an even number, so every sample landed on the same jitter phase),
+3. and now: flicker **is** measured, but it is only *reported*. The oracle still
+   optimises single-frame PSNR alone, so the labels the network learns from
+   have no notion of temporal stability, and asking for history is free.
+
+**Measured is not optimised.** The fix is to score an oracle candidate over a
+PAIR of consecutive frames with a penalty on the difference between them, so
+that "use the history" stops being free in the objective. The corpus already
+renders sequences; this is a change to `oracle()`, not to the data. Until then
+the honest workaround is to run with the jitter disabled, which gives up the
+temporal supersampling and keeps only the spatial kernel selection.
 
 **Frame timings are still not measured** — no profiling pass has been run, so
 the fill-cost discussion above remains arithmetic, not measurement.

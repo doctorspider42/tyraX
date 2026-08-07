@@ -43,16 +43,21 @@ the verification, and any fact worth reusing belongs in the relevant
     bracket is open: the three `end()` implementations then restore the right
     thing and none of them changes. Cheap, but it moves an accessor that
     shipping features depend on, so it wants a hardware pass.
-  - **Lock the jitter phase to the field parity on interlaced output.** With
-    PCSX2's deinterlacer off the picture visibly bobs: BLSS adds a half-scanline
-    vertical jitter on top of a signal whose two fields are already a line apart,
-    and they appear to compound. Measured with the deinterlacer ON, a static
-    camera changes 0.000% of pixels with BLSS off and 0.02-0.16% with it on, so
-    the reconstruction itself is nearly still - the interaction is with the scan
-    mode. Which term dominates was never isolated (nobody measured BLSS-off with
-    the deinterlacer off). Deriving the phase from `CSR.FIELD` the way
-    `flipBuffers` already does for `InterlacedField`, or simply dropping the
-    vertical jitter in interlaced modes, should settle it.
+  - **Put flicker into the ORACLE's objective, not just the report. THE ONE
+    THAT MATTERS - the feature visibly oscillates on a television without it.**
+    A probe settled the cause: with the jitter forced to zero the picture is
+    perfectly still, in progressive mode where no deinterlacer can be involved.
+    So the oscillation is the jittered sampling itself - which is *supposed* to
+    differ every frame, that is where the information comes from - and the
+    temporal accumulator is failing to fuse it. It fails because `wC` comes from
+    the network, the network learns from the oracle's labels, and the oracle
+    still scores a single frame's PSNR, in which asking for history is free.
+    Score a candidate over a PAIR of consecutive frames with a penalty on the
+    difference instead. The corpus already renders sequences, so this is a change
+    to `oracle()` and not to the data. Note the earlier "lock the jitter phase to
+    the field parity" theory is REFUTED: a blending deinterlacer was averaging
+    adjacent frames and hiding the effect, which is why enabling it looked like
+    a fix, and the bob survives into progressive 480p unchanged.
   - **Shrink the z-buffer.** With BLSS on nothing ever renders 3D at display
     resolution, so a 256x224 z instead of 512x448 hands back 172 032 words
     (672 KB) - more than three times what the feature costs. It is allocated in
