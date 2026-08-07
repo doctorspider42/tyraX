@@ -2299,6 +2299,251 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// --- World Facts (docs/world-facts.md) ---------------------------------------
+// One section carrying all four collections, because they only mean anything
+// together: a query over facts that are not there, or a rule over a query that
+// is not, is not a state a collaboration peer should ever be handed.
+
+static void writeFactCondition(std::ostream& json, const facts::Condition& c) {
+    json << "{ \"kind\": \"" << facts::conditionKindKey(c.kind) << "\"";
+    if (c.kind == facts::Condition::Kind::Compare) {
+        json << ", \"fact\": \"" << jsonEscape(c.fact) << "\", \"cmp\": \""
+             << facts::cmpKey(c.cmp) << "\"";
+        if (!c.rhsFact.empty())
+            json << ", \"rhsFact\": \"" << jsonEscape(c.rhsFact) << "\"";
+        else
+            json << ", \"value\": " << fmtFloat(c.value);
+    } else if (c.kind == facts::Condition::Kind::Query) {
+        json << ", \"query\": \"" << jsonEscape(c.query) << "\"";
+    } else if (!c.children.empty()) {
+        json << ", \"children\": [";
+        for (size_t i = 0; i < c.children.size(); ++i) {
+            json << (i ? ", " : "");
+            writeFactCondition(json, c.children[i]);
+        }
+        json << "]";
+    }
+    json << " }";
+}
+
+static void readFactCondition(const json::Value& v, facts::Condition& out) {
+    out = facts::Condition();
+    if (v.type != json::Value::Type::Object) return;
+    if (const json::Value* x = v.find("kind"))
+        out.kind = facts::conditionKindFromKey(x->stringOr("all"));
+    if (const json::Value* x = v.find("fact")) out.fact = x->stringOr("");
+    if (const json::Value* x = v.find("cmp"))
+        out.cmp = facts::cmpFromKey(x->stringOr("ge"));
+    if (const json::Value* x = v.find("value"))
+        out.value = (float)x->numberOr(0.0);
+    if (const json::Value* x = v.find("rhsFact")) out.rhsFact = x->stringOr("");
+    if (const json::Value* x = v.find("query")) out.query = x->stringOr("");
+    if (const json::Value* kids = v.find("children");
+        kids && kids->type == json::Value::Type::Array) {
+        for (const json::Value& k : kids->arr) {
+            facts::Condition c;
+            readFactCondition(k, c);
+            out.children.push_back(std::move(c));
+        }
+    }
+}
+
+static void writeFactsSection(std::ostream& json, const Project& p) {
+    if (p.facts.empty() && p.factQueries.empty() && p.factRules.empty() &&
+        p.factScenarios.empty())
+        return;
+    json << "\"facts\": [";
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        const facts::Fact& f = p.facts[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(f.id)
+             << "\", \"name\": \"" << jsonEscape(f.name) << "\", \"type\": \""
+             << facts::typeKey(f.type) << "\", \"persist\": \""
+             << facts::persistKey(f.persist) << "\"";
+        if (f.scope != facts::Scope::World)
+            json << ", \"scope\": \"" << facts::scopeKey(f.scope) << "\"";
+        if (f.type == facts::Type::Position)
+            json << ", \"pos\": [" << fmtFloat(f.pos[0]) << ", "
+                 << fmtFloat(f.pos[1]) << ", " << fmtFloat(f.pos[2]) << "]";
+        else if (f.value != 0.0f)
+            json << ", \"default\": " << fmtFloat(f.value);
+        if (!f.options.empty()) {
+            json << ", \"options\": [";
+            for (size_t k = 0; k < f.options.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(f.options[k])
+                     << "\"";
+            json << "]";
+        }
+        if (!f.computed.empty())
+            json << ", \"computed\": \"" << jsonEscape(f.computed) << "\"";
+        if (!f.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(f.desc) << "\"";
+        json << " }";
+    }
+    json << (p.facts.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factQueries\": [";
+    for (size_t i = 0; i < p.factQueries.size(); ++i) {
+        const facts::Query& q = p.factQueries[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(q.name) << "\"";
+        if (!q.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(q.desc) << "\"";
+        json << ", \"when\": ";
+        writeFactCondition(json, q.root);
+        json << " }";
+    }
+    json << (p.factQueries.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factRules\": [";
+    for (size_t i = 0; i < p.factRules.size(); ++i) {
+        const facts::Rule& r = p.factRules[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(r.name) << "\", \"policy\": \""
+             << facts::policyKey(r.policy) << "\"";
+        if (!r.enabled) json << ", \"off\": true";
+        if (!r.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(r.desc) << "\"";
+        json << ", \"when\": ";
+        writeFactCondition(json, r.when);
+        json << ", \"then\": [";
+        for (size_t k = 0; k < r.then.size(); ++k) {
+            const facts::RuleAction& a = r.then[k];
+            json << (k ? ", " : "") << "{ \"do\": \""
+                 << facts::actionKindKey(a.kind) << "\", \"target\": \""
+                 << jsonEscape(a.target) << "\"";
+            if (a.kind != facts::RuleAction::Kind::ToggleFact)
+                json << ", \"value\": " << fmtFloat(a.value);
+            json << " }";
+        }
+        json << "] }";
+    }
+    json << (p.factRules.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factScenarios\": [";
+    for (size_t i = 0; i < p.factScenarios.size(); ++i) {
+        const facts::Scenario& s = p.factScenarios[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(s.name) << "\"";
+        if (!s.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(s.desc) << "\"";
+        json << ", \"values\": [";
+        for (size_t k = 0; k < s.values.size(); ++k) {
+            const facts::ScenarioValue& v = s.values[k];
+            json << (k ? ", " : "") << "{ \"fact\": \"" << jsonEscape(v.fact)
+                 << "\", \"value\": " << fmtFloat(v.value);
+            if (v.pos[0] != 0.0f || v.pos[1] != 0.0f || v.pos[2] != 0.0f)
+                json << ", \"pos\": [" << fmtFloat(v.pos[0]) << ", "
+                     << fmtFloat(v.pos[1]) << ", " << fmtFloat(v.pos[2]) << "]";
+            json << " }";
+        }
+        json << "] }";
+    }
+    json << (p.factScenarios.empty() ? "]" : "\n  ]");
+}
+
+static void readFactsSection(const json::Value& root, Project& out) {
+    out.facts.clear();
+    out.factQueries.clear();
+    out.factRules.clear();
+    out.factScenarios.clear();
+
+    if (const json::Value* arr = root.find("facts");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Fact f;
+            if (const json::Value* x = e.find("id")) f.id = x->stringOr("");
+            if (const json::Value* x = e.find("name")) f.name = x->stringOr("");
+            if (f.name.empty()) continue;
+            if (const json::Value* x = e.find("type"))
+                f.type = facts::typeFromKey(x->stringOr("bool"));
+            if (const json::Value* x = e.find("persist"))
+                f.persist = facts::persistFromKey(x->stringOr("session"));
+            if (const json::Value* x = e.find("scope"))
+                f.scope = facts::scopeFromKey(x->stringOr("world"));
+            if (const json::Value* x = e.find("default"))
+                f.value = (float)x->numberOr(0.0);
+            if (const json::Value* x = e.find("pos");
+                x && x->type == json::Value::Type::Array)
+                for (size_t a = 0; a < 3 && a < x->arr.size(); ++a)
+                    f.pos[a] = (float)x->arr[a].numberOr(0.0);
+            if (const json::Value* x = e.find("options");
+                x && x->type == json::Value::Type::Array)
+                for (const json::Value& o : x->arr)
+                    f.options.push_back(o.stringOr(""));
+            if (const json::Value* x = e.find("computed"))
+                f.computed = x->stringOr("");
+            if (const json::Value* x = e.find("desc")) f.desc = x->stringOr("");
+            out.facts.push_back(std::move(f));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factQueries");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Query q;
+            if (const json::Value* x = e.find("name")) q.name = x->stringOr("");
+            if (q.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) q.desc = x->stringOr("");
+            if (const json::Value* x = e.find("when")) readFactCondition(*x, q.root);
+            out.factQueries.push_back(std::move(q));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factRules");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Rule r;
+            if (const json::Value* x = e.find("name")) r.name = x->stringOr("");
+            if (r.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) r.desc = x->stringOr("");
+            if (const json::Value* x = e.find("policy"))
+                r.policy = facts::policyFromKey(x->stringOr("rising"));
+            if (const json::Value* x = e.find("off")) r.enabled = !x->boolOr(false);
+            if (const json::Value* x = e.find("when")) readFactCondition(*x, r.when);
+            if (const json::Value* acts = e.find("then");
+                acts && acts->type == json::Value::Type::Array) {
+                for (const json::Value& a : acts->arr) {
+                    facts::RuleAction ra;
+                    if (const json::Value* x = a.find("do"))
+                        ra.kind = facts::actionKindFromKey(x->stringOr("set"));
+                    if (const json::Value* x = a.find("target"))
+                        ra.target = x->stringOr("");
+                    if (const json::Value* x = a.find("value"))
+                        ra.value = (float)x->numberOr(0.0);
+                    r.then.push_back(std::move(ra));
+                }
+            }
+            out.factRules.push_back(std::move(r));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factScenarios");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Scenario s;
+            if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
+            if (s.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) s.desc = x->stringOr("");
+            if (const json::Value* vals = e.find("values");
+                vals && vals->type == json::Value::Type::Array) {
+                for (const json::Value& v : vals->arr) {
+                    facts::ScenarioValue sv;
+                    if (const json::Value* x = v.find("fact"))
+                        sv.fact = x->stringOr("");
+                    if (const json::Value* x = v.find("value"))
+                        sv.value = (float)x->numberOr(0.0);
+                    if (const json::Value* x = v.find("pos");
+                        x && x->type == json::Value::Type::Array)
+                        for (size_t a = 0; a < 3 && a < x->arr.size(); ++a)
+                            sv.pos[a] = (float)x->arr[a].numberOr(0.0);
+                    if (!sv.fact.empty()) s.values.push_back(std::move(sv));
+                }
+            }
+            out.factScenarios.push_back(std::move(s));
+        }
+    }
+}
+
 static void readVuSection(const json::Value& root, Project& out) {
     out.vu = VuSettings();
     const json::Value* v = root.find("vu");
@@ -2385,6 +2630,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
+        case Section::Facts: writeFactsSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -2410,6 +2656,7 @@ const char* sectionName(Section s) {
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
         case Section::VuPrograms: return "vu";
+        case Section::Facts: return "facts";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -2513,6 +2760,178 @@ void ensureProjectId(Project& p) {
     // Same id shape as objects (16 hex chars of 64-bit randomness); projects
     // and objects never share a namespace, so reusing the generator is fine.
     if (p.projectId.empty()) p.projectId = newObjectId();
+}
+
+void ensureFactIds(Project& p) {
+    std::set<std::string> seen;
+    for (facts::Fact& f : p.facts) {
+        if (f.id.empty() || seen.count(f.id)) f.id = newObjectId();
+        seen.insert(f.id);
+    }
+}
+
+namespace {
+
+// Every flow node whose STRING param is a fact name, found through the
+// registry rather than a hardcoded list - so a fact node added tomorrow is
+// covered by the rename and the usage scan today.
+bool nodeNamesFact(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && t->strKind == FlowParamKind::FactName;
+}
+bool nodeNamesQuery(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && t->strKind == FlowParamKind::FactQueryName;
+}
+
+void pushUnique(std::vector<std::string>& v, const std::string& s) {
+    for (const std::string& e : v)
+        if (e == s) return;
+    v.push_back(s);
+}
+
+// Walks every graph in the project (scene objects and prefab members alike -
+// a prefab carries its members' graphs, so a fact used only inside one is
+// still used).
+template <typename Fn>
+void forEachGraphNode(const Project& p, Fn&& fn) {
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (const SceneObject& o : p.scenes[si].objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                fn(p.scenes[si].name, o.name, n);
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                fn("prefab " + pf.name, o.name, n);
+}
+
+template <typename Fn>
+void forEachGraphNodeMut(Project& p, Fn&& fn) {
+    for (SceneData& sc : p.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& n : o.flowGraph.nodes) fn(n);
+    for (Prefab& pf : p.prefabs)
+        for (SceneObject& o : pf.objects)
+            for (FlowNode& n : o.flowGraph.nodes) fn(n);
+}
+
+// Does this condition tree mention the fact anywhere in it (as either side of
+// a comparison)? Query leaves are NOT followed - a query that uses the fact is
+// reported as a user in its own right, which is the more useful answer.
+bool conditionMentionsFact(const facts::Condition& c, const std::string& name) {
+    if (c.kind == facts::Condition::Kind::Compare)
+        return c.fact == name || c.rhsFact == name;
+    for (const facts::Condition& ch : c.children)
+        if (conditionMentionsFact(ch, name)) return true;
+    return false;
+}
+
+bool conditionMentionsQuery(const facts::Condition& c, const std::string& name) {
+    if (c.kind == facts::Condition::Kind::Query) return c.query == name;
+    for (const facts::Condition& ch : c.children)
+        if (conditionMentionsQuery(ch, name)) return true;
+    return false;
+}
+
+void renameInCondition(facts::Condition& c, const std::string& from,
+                       const std::string& to, bool query) {
+    if (query) {
+        if (c.kind == facts::Condition::Kind::Query && c.query == from)
+            c.query = to;
+    } else if (c.kind == facts::Condition::Kind::Compare) {
+        if (c.fact == from) c.fact = to;
+        if (c.rhsFact == from) c.rhsFact = to;
+    }
+    for (facts::Condition& ch : c.children) renameInCondition(ch, from, to, query);
+}
+
+}  // namespace
+
+FactUsage factUsage(const Project& p, const std::string& factName) {
+    FactUsage u;
+    if (factName.empty()) return u;
+
+    forEachGraphNode(p, [&](const std::string& scene, const std::string& obj,
+                            const FlowNode& n) {
+        if (nodeNamesFact(n) && n.str == factName)
+            pushUnique(u.graphs, scene + " / " + obj);
+    });
+    for (const facts::Query& q : p.factQueries)
+        if (conditionMentionsFact(q.root, factName)) pushUnique(u.queries, q.name);
+    for (const facts::Rule& r : p.factRules) {
+        bool used = conditionMentionsFact(r.when, factName);
+        for (const facts::RuleAction& a : r.then)
+            if (a.kind != facts::RuleAction::Kind::SendEvent &&
+                a.target == factName)
+                used = true;
+        if (used) pushUnique(u.rules, r.name);
+    }
+    for (const facts::Scenario& s : p.factScenarios)
+        for (const facts::ScenarioValue& v : s.values)
+            if (v.fact == factName) pushUnique(u.scenarios, s.name);
+    // A computed fact whose query reads this one depends on it too - the
+    // indirection is exactly what makes it easy to miss by hand.
+    for (const facts::Fact& f : p.facts) {
+        if (!f.isComputed()) continue;
+        const int qi = facts::queryIndexOf(p.factQueries, f.computed);
+        if (qi < 0) continue;
+        std::vector<std::string> reads;
+        facts::conditionFacts(p.factQueries[(size_t)qi].root, p.factQueries,
+                              reads);
+        for (const std::string& r : reads)
+            if (r == factName) pushUnique(u.computed, f.name);
+    }
+    return u;
+}
+
+FactUsage queryUsage(const Project& p, const std::string& queryName) {
+    FactUsage u;
+    if (queryName.empty()) return u;
+
+    forEachGraphNode(p, [&](const std::string& scene, const std::string& obj,
+                            const FlowNode& n) {
+        if (nodeNamesQuery(n) && n.str == queryName)
+            pushUnique(u.graphs, scene + " / " + obj);
+    });
+    for (const facts::Query& q : p.factQueries)
+        if (q.name != queryName && conditionMentionsQuery(q.root, queryName))
+            pushUnique(u.queries, q.name);
+    for (const facts::Rule& r : p.factRules)
+        if (conditionMentionsQuery(r.when, queryName)) pushUnique(u.rules, r.name);
+    for (const facts::Fact& f : p.facts)
+        if (f.computed == queryName) pushUnique(u.computed, f.name);
+    return u;
+}
+
+void renameFactRefs(Project& p, const std::string& from, const std::string& to) {
+    if (from.empty() || to.empty() || from == to) return;
+    forEachGraphNodeMut(p, [&](FlowNode& n) {
+        if (nodeNamesFact(n) && n.str == from) n.str = to;
+    });
+    for (facts::Query& q : p.factQueries)
+        renameInCondition(q.root, from, to, false);
+    for (facts::Rule& r : p.factRules) {
+        renameInCondition(r.when, from, to, false);
+        for (facts::RuleAction& a : r.then)
+            if (a.kind != facts::RuleAction::Kind::SendEvent && a.target == from)
+                a.target = to;
+    }
+    for (facts::Scenario& s : p.factScenarios)
+        for (facts::ScenarioValue& v : s.values)
+            if (v.fact == from) v.fact = to;
+}
+
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to) {
+    if (from.empty() || to.empty() || from == to) return;
+    forEachGraphNodeMut(p, [&](FlowNode& n) {
+        if (nodeNamesQuery(n) && n.str == from) n.str = to;
+    });
+    for (facts::Query& q : p.factQueries)
+        renameInCondition(q.root, from, to, true);
+    for (facts::Rule& r : p.factRules) renameInCondition(r.when, from, to, true);
+    for (facts::Fact& f : p.facts)
+        if (f.computed == from) f.computed = to;
 }
 
 const char* inputRoleName(int role) {
@@ -2804,6 +3223,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureFactIds(out);
     ensureSaveMenu(out);
     ensureTextIcons(out);
     // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
@@ -5265,6 +5685,13 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
         case Section::VuPrograms: readVuSection(root, p); break;
+        // A peer's catalog arrives whole; a fact that reached them without an
+        // id (hand-edited .tyra, an older editor) must get one here or the
+        // next save writes a save-key that is not there.
+        case Section::Facts:
+            readFactsSection(root, p);
+            ensureFactIds(p);
+            break;
         case Section::Count: return false;  // not a section
     }
     return true;
@@ -5429,6 +5856,11 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
+    readFactsSection(root, out);
+    // A fact's id is what a player's save file is keyed by, so a
+    // catalog authored before ids existed gets them before anything
+    // can be written - the ensureObjectIds contract.
+    ensureFactIds(out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -6213,6 +6645,11 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scripts\\credits.gen.hpp" ||
             f.relativePath == "src\\gen\\credits.gen.cpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
+            // World Facts store. Same reasoning as the scroller pair above:
+            // flow_graph.gen.cpp and both game templates include it
+            // unconditionally, so every existing project needs it refreshed
+            // rather than written once at creation.
+            f.relativePath == "inc\\facts.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||
