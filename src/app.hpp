@@ -1192,6 +1192,23 @@ private:
     std::vector<int> selection_;
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
+    // Click cycling: clicking the same spot again walks the objects stacked
+    // under the cursor (Viewport::pickAll order) instead of re-selecting the
+    // front one, which is the only way to reach something enclosed by or
+    // hidden behind another with the mouse alone. The candidate list is
+    // captured when the cycle STARTS and then walked - selecting something
+    // moves the orbit pivot (View > Orbit around selected object), so
+    // re-picking on the second click would ask a different camera a different
+    // question. pickCycleLast_ is what the previous click at that spot chose;
+    // the selection is not the anchor, because it may have been changed from
+    // the outliner in between.
+    ImVec2 pickCyclePos_{-1e9f, -1e9f};
+    std::vector<int> pickCycle_;
+    int pickCycleLast_ = -1;
+    // Resolves a viewport click into an object index (-1 = empty space),
+    // advancing the cycle. `cycled` reports that this click stepped through
+    // the stack rather than starting a new pick.
+    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
