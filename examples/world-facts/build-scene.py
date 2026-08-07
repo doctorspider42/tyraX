@@ -49,6 +49,13 @@ IDS = {
     "overload-switch": "fac700000000000f",
     "hud": "fac70000000000aa",
     "checkpoint": "fac70000000000bb",
+    # --- the basement, scene 2
+    "b-player": "fac71100000000a0",
+    "b-floor": "fac71100000000a1",
+    "b-status": "fac71100000000a2",
+    "b-savepoint": "fac71100000000a3",
+    "b-ledger": "fac71100000000a4",
+    "b-exit": "fac71100000000a5",
 }
 
 
@@ -199,6 +206,16 @@ FACTS = [
         "pos": [0.0, 0.0, 0.0],
         "desc": "Where to put the player back. A position fact - three floats "
                 "in their own runtime array.",
+    },
+    {
+        "id": "fac7100000000000b",
+        "name": "world.basementVisits",
+        "type": "int",
+        "persist": "save",
+        "desc": "How many times THIS SAVE has been down to the basement. The "
+                "per-slot counterpart of profile.timesPlayed: load an older "
+                "slot and this comes back with it, while timesPlayed keeps "
+                "counting whatever you load.",
     },
     {
         "id": "fac7100000000000a",
@@ -395,28 +412,52 @@ def part_graph():
 
 
 def marta_graph():
-    """Use her once to rescue her. The trust that follows is a RULE's job, not
-    this graph's - which is the division the whole system is for.
+    """Two different things to say, chosen by a fact.
 
-    Note the Sequence: a plain ACTION has no "then" output at all (only the
-    Flow-category nodes and execThrough ones do - flowExecOutCount), so two
-    actions are SIBLINGS of a Sequence rather than a chain. Wiring Set Fact
-    straight into Display Text produces a link to a pin that does not exist:
-    the editor draws nothing and codegen emits nothing, which reads exactly
-    like "the node is never triggered".
+    Before she is out she asks for help - on PROXIMITY, so it lands without the
+    player having to guess she is interactive - and using her rescues her. After
+    that, using her thanks the player instead. One Branch on
+    characters.marta.rescued is the whole state machine, which is the argument
+    for facts in one picture: the graph holds no state of its own.
+
+    The trust that follows the rescue is still a RULE's job, not this graph's.
     """
     g = G()
-    used = g.n("OnUsed", 0, 0)
-    once = g.n("DoOnce", 1, 0)
-    seq = g.n("Sequence", 2, 0)
-    setf = g.n("SetFact", 3, 0, str_="characters.marta.rescued",
-               num=[1, 0, 0, 0])
-    say = g.n("DisplayText", 3, 1, str_="", str2="Marta: I owe you one.",
-              num=[0.5, 0.18, 16, 3])
-    g.link(used, once)
-    g.link(once, seq)
-    g.link(seq, setf)
-    g.link(seq, say, fpin=1)
+    # "please help" while she is still trapped - throttled, or it would re-arm
+    # every frame the player stands next to her.
+    near = g.n("NearObject", 0, 0, num=[4.0, 0, 0, 0])
+    cool = g.n("Cooldown", 1, 0, num=[6.0, 0, 0, 0])
+    plead = g.n("Branch", 2, 0)
+    notYet = g.n("Not", 1, 1)
+    isOut = g.n("GetFactBool", 0, 1, str_="characters.marta.rescued")
+    beg = g.n("DisplayText", 3, 0, str_="",
+              str2="Marta: Please - the water is rising. Help me!",
+              num=[0.5, 0.18, 16, 4])
+    g.link(near, cool)
+    g.link(cool, plead)
+    g.link(isOut, notYet, kind="bool")
+    g.link(notYet, plead, kind="bool")
+    g.link(plead, beg)  # exec output 0 = "true"
+
+    # using her: rescue once, thank afterwards
+    used = g.n("OnUsed", 0, 3)
+    which = g.n("Branch", 1, 3)
+    already = g.n("GetFactBool", 0, 4, str_="characters.marta.rescued")
+    thanks = g.n("DisplayText", 2, 3, str_="",
+                 str2="Marta: I owe you one. The basement key is in the yard.",
+                 num=[0.5, 0.18, 16, 4])
+    seq = g.n("Sequence", 2, 5)
+    rescue = g.n("SetFact", 3, 5, str_="characters.marta.rescued",
+                 num=[1, 0, 0, 0])
+    relief = g.n("DisplayText", 3, 6, str_="",
+                 str2="Marta: Thank you. I thought that was it.",
+                 num=[0.5, 0.18, 16, 4])
+    g.link(already, which, kind="bool")
+    g.link(used, which)
+    g.link(which, thanks)            # true  -> she is already out
+    g.link(which, seq, fpin=1)       # false -> get her out
+    g.link(seq, rescue)
+    g.link(seq, relief, fpin=1)
     return g.out()
 
 
@@ -472,11 +513,13 @@ def lamp_graph():
 
 
 def door_graph():
-    """The basement door: opens exactly while the named query says so.
+    """Opens exactly while the named query says so - and when it does NOT, says
+    which half is missing.
 
-    Nothing here restates the condition - CanEnterBasement is authored once in
-    the Queries tab and this graph asks it. That is the difference the queries
-    exist to make.
+    Nothing here restates the condition: CanEnterBasement is authored once in
+    the Queries tab and this graph asks it. The 'locked' branch then asks ONE
+    more fact to tell "no key" apart from "no power and no ally", which is the
+    cheap way to make a refusal informative instead of mysterious.
     """
     g = G()
     q = g.n("FactQuery", 0, 0, str_="CanEnterBasement")
@@ -489,16 +532,59 @@ def door_graph():
     g.link(cond, seq)
     g.link(seq, move)
     g.link(seq, say, fpin=1)
+
+    # Using it: through it when open, an explanation when not.
+    used = g.n("OnUsed", 0, 3)
+    open_ = g.n("Branch", 1, 3)
+    q2 = g.n("FactQuery", 0, 4, str_="CanEnterBasement")
+    goSeq = g.n("Sequence", 2, 3)
+    goSay = g.n("DisplayText", 3, 3, str_="", str2="Down into the basement.",
+                num=[0.5, 0.26, 16, 2])
+    go = g.n("SwitchScene", 3, 4, str_="basement")
+    hasKey = g.n("Branch", 2, 5)
+    keyFact = g.n("GetFactBool", 1, 6, str_="player.hasBasementKey")
+    noPower = g.n("DisplayText", 3, 5, str_="",
+                  str2="Locked: the plant is dead and Marta does not vouch "
+                       "for you.",
+                  num=[0.5, 0.26, 16, 4])
+    noKey = g.n("DisplayText", 3, 6, str_="",
+                str2="Locked: it needs the basement key.",
+                num=[0.5, 0.26, 16, 4])
+    g.link(q2, open_, kind="bool")
+    g.link(used, open_)
+    g.link(open_, goSeq)
+    g.link(goSeq, goSay)
+    g.link(goSeq, go, fpin=1)
+    g.link(open_, hasKey, fpin=1)
+    g.link(keyFact, hasKey, kind="bool")
+    g.link(hasKey, noPower)          # has the key, so it is the other half
+    g.link(hasKey, noKey, fpin=1)
     return g.out()
 
 
 def generator_graph():
-    """Drives the load fact so the overload rule has something to react to,
-    and shows the number plane feeding a fact."""
+    """Pushes the load up and REPORTS, because a number nobody can see is a
+    number nobody can debug. Two readouts: the plant's state by NAME (a
+    one-of-several fact through Get Fact As Text) and the load as a figure
+    (Get Fact -> Number To Text)."""
     g = G()
     used = g.n("OnUsed", 0, 0)
-    add = g.n("SetFact", 1, 0, str_="world.power.load", num=[0.25, 0, 0, 0])
-    g.link(used, add, pin=1)  # "add"
+    seq = g.n("Sequence", 1, 0)
+    add = g.n("SetFact", 2, 0, str_="world.power.load", num=[0.25, 0, 0, 0])
+    sayState = g.n("DisplayText", 2, 1, str_="", str2="Generator: ",
+                   num=[0.5, 0.10, 16, 3])
+    stateText = g.n("GetFactText", 1, 2, str_="world.power.state")
+    sayLoad = g.n("DisplayText", 2, 3, str_="", str2="Load: ",
+                  num=[0.5, 0.16, 16, 3])
+    loadNum = g.n("GetFact", 0, 4, str_="world.power.load")
+    loadText = g.n("NumToTextFmt", 1, 4, num=[2, 1, 0, 0])
+    g.link(used, seq)
+    g.link(seq, add, pin=1)          # "add"
+    g.link(seq, sayState, fpin=1)
+    g.link(seq, sayLoad, fpin=2)
+    g.link(stateText, sayState, kind="text")
+    g.link(loadNum, loadText, kind="number")
+    g.link(loadText, sayLoad, kind="text")
     return g.out()
 
 
@@ -544,6 +630,97 @@ def checkpoint_graph():
     return g.out()
 
 
+# --- the basement, scene 2 ---------------------------------------------------
+# The reason there are two scenes at all: a WORLD-scoped fact has to be shown
+# surviving the switch, and a SCENE-scoped one has to be shown not surviving it.
+
+
+def basement_status_graph():
+    """On arrival, print what came through the door with you.
+
+    world.power.state is world-scoped, so it reads whatever the plant was left
+    at. world.alarm.ringing is SCENE-scoped, so it is back to false however
+    loudly it was ringing upstairs - that pair is the whole demonstration.
+    """
+    g = G()
+    start = g.n("OnStart", 0, 0)
+    seq = g.n("Sequence", 1, 0)
+    visit = g.n("SetFact", 2, 0, str_="world.basementVisits", num=[1, 0, 0, 0])
+    sayPlant = g.n("DisplayText", 2, 1, str_="",
+                   str2="Basement. The plant is: ", num=[0.5, 0.08, 16, 5])
+    plantText = g.n("GetFactText", 1, 2, str_="world.power.state")
+    sayAlarm = g.n("DisplayText", 2, 3, str_="",
+                   str2="Alarm down here (scene-scoped): ",
+                   num=[0.5, 0.14, 16, 5])
+    alarmBool = g.n("GetFactBool", 0, 4, str_="world.alarm.ringing")
+    alarmText = g.n("BoolToText", 1, 4)
+    g.link(start, seq)
+    g.link(seq, visit, pin=1)        # "add"
+    g.link(seq, sayPlant, fpin=1)
+    g.link(seq, sayAlarm, fpin=2)
+    g.link(plantText, sayPlant, kind="text")
+    g.link(alarmBool, alarmText, kind="bool")
+    g.link(alarmText, sayAlarm, kind="text")
+    return g.out()
+
+
+def basement_ledger_graph():
+    """The per-slot / per-card difference, side by side.
+
+    world.basementVisits is SAVE-lived, so it belongs to the slot: load an
+    older save and it comes back with that save. profile.timesPlayed is
+    PROFILE-lived, so it is the card's and keeps counting whatever you load.
+    Reading them next to each other is the fastest way to feel the difference.
+    """
+    g = G()
+    used = g.n("OnUsed", 0, 0)
+    seq = g.n("Sequence", 1, 0)
+    sayVisits = g.n("DisplayText", 2, 0, str_="",
+                    str2="This save has been here: ", num=[0.5, 0.20, 16, 5])
+    visits = g.n("GetFactText", 1, 1, str_="world.basementVisits")
+    sayPlays = g.n("DisplayText", 2, 2, str_="",
+                   str2="This card has booted the game: ",
+                   num=[0.5, 0.26, 16, 5])
+    plays = g.n("GetFactText", 1, 3, str_="profile.timesPlayed")
+    g.link(used, seq)
+    g.link(seq, sayVisits)
+    g.link(seq, sayPlays, fpin=1)
+    g.link(visits, sayVisits, kind="text")
+    g.link(plays, sayPlays, kind="text")
+    return g.out()
+
+
+def basement_save_graph():
+    """Write the slot, and say so.
+
+    Save Checkpoint takes the RAM snapshot (every checkpoint- and save-lived
+    fact goes into it); Commit Checkpoint is the one node that touches the
+    card. Splitting them is what lets a game checkpoint constantly and only
+    pay for the card at a chapter break - see docs/save-editor.md.
+    """
+    g = G()
+    used = g.n("OnUsed", 0, 0)
+    seq = g.n("Sequence", 1, 0)
+    snap = g.n("SaveCheckpoint", 2, 0)
+    commit = g.n("CommitCheckpoint", 2, 1, str_="fixed", num=[0, 0, 0, 0])
+    say = g.n("DisplayText", 2, 2, str_="",
+              str2="Saved to slot 1 - facts included.",
+              num=[0.5, 0.32, 16, 4])
+    g.link(used, seq)
+    g.link(seq, snap)
+    g.link(seq, commit, fpin=1)
+    g.link(seq, say, fpin=2)
+    return g.out()
+
+
+def basement_exit_graph():
+    g = G()
+    used = g.n("OnUsed", 0, 0)
+    back = g.n("SwitchScene", 1, 0, str_="main")
+    g.link(used, back)
+    return g.out()
+
+
 # --- assembly ----------------------------------------------------------------
 
 def main():
@@ -566,7 +743,7 @@ def main():
         obj("lamp", "status-lamp", "sphere", (0, 3.4, -12), (0.7, 0.2, 0.2),
             (0.7, 0.7, 0.7), lamp_graph(), collision="none"),
         obj("basement-door", "basement-door", "box", (14, 2, 0),
-            (0.35, 0.3, 0.28), (0.6, 4, 5), door_graph()),
+            (0.35, 0.3, 0.28), (0.6, 4, 5), door_graph(), usable=True),
         obj("checkpoint", "checkpoint-flag", "cone", (0, 1, 4),
             (0.4, 0.8, 0.9), (0.6, 1.4, 0.6), checkpoint_graph(),
             collision="none"),
@@ -574,7 +751,36 @@ def main():
             (1, 1, 1), hud_graph(), collision="none"),
     ]
 
-    for o in objects:
+    # --- the basement. No terrain at all (docs/terrain.md): a scene can be
+    # built without one, so the floor is an ordinary box and the void below it
+    # is what the player would fall into without one.
+    player2 = {
+        "id": IDS["b-player"],
+        "name": "player-2",
+        "type": "player",
+        "position": [0, 1, 8],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1],
+        "color": [0.15, 0.9, 0.9],
+        "physics": False,
+        "player": {"mode": "walk", "walkSpeed": 0.1, "lookSpeed": 1,
+                   "eyeHeight": 1.8, "jumpSpeed": 4.5, "canJump": True},
+    }
+    basement = [
+        player2,
+        obj("b-floor", "basement-floor", "box", (0, -0.25, 0),
+            (0.22, 0.2, 0.24), (26, 0.5, 26)),
+        obj("b-status", "arrival-logic", "empty", (0, 0, 0), (0.5, 0.5, 0.5),
+            (1, 1, 1), basement_status_graph(), collision="none"),
+        obj("b-ledger", "ledger", "cylinder", (-5, 1, 0), (0.4, 0.7, 0.9),
+            (0.8, 2, 0.8), basement_ledger_graph(), usable=True),
+        obj("b-savepoint", "save-point", "cone", (5, 1, 0), (0.95, 0.85, 0.3),
+            (0.9, 2, 0.9), basement_save_graph(), usable=True),
+        obj("b-exit", "stairs-up", "box", (0, 1.5, -11), (0.35, 0.3, 0.28),
+            (5, 3, 0.6), basement_exit_graph(), usable=True),
+    ]
+
+    for o in objects + basement:
         with open(os.path.join(OBJ, o["id"] + ".json"), "w",
                   encoding="utf-8") as f:
             json.dump(o, f)
@@ -585,6 +791,21 @@ def main():
     seeded = [i for i in manifest["scenes"][0].get("objects", [])
               if i not in IDS.values()]
     manifest["scenes"][0]["objects"] = seeded + [o["id"] for o in objects]
+    # Scene 2. It borrows scene 1's settings block wholesale - what this
+    # example is about is the facts, not the lighting - but darkens the sky,
+    # because it is a basement. `enabled: false` on the terrain is the
+    # terrain-less path (docs/terrain.md); the floor object is why the player
+    # does not fall through it.
+    import copy
+    base = copy.deepcopy(manifest["scenes"][0])
+    base["name"] = "basement"
+    base["terrain"] = {"width": 32, "depth": 32, "enabled": False}
+    base["objects"] = [o["id"] for o in basement]
+    base["settings"]["sky"] = {"color": [0.05, 0.05, 0.07],
+                               "topColor": [0.02, 0.02, 0.04],
+                               "dome": False, "zenithSize": 0.5}
+    base["settings"]["lighting"]["ambient"] = 0.42
+    manifest["scenes"] = [manifest["scenes"][0], base]
     manifest["facts"] = FACTS
     manifest["factQueries"] = QUERIES
     manifest["factRules"] = RULES
@@ -596,8 +817,9 @@ def main():
     with open(TYRA, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
-    print("scene written: %d objects, %d facts, %d queries, %d rules" %
-          (len(objects), len(FACTS), len(QUERIES), len(RULES)))
+    print("written: %d + %d objects over 2 scenes, %d facts, %d queries, "
+          "%d rules" % (len(objects), len(basement), len(FACTS), len(QUERIES),
+                        len(RULES)))
 
 
 if __name__ == "__main__":

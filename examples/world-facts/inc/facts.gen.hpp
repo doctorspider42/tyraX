@@ -7,11 +7,11 @@ namespace World_facts {
 // number, one-of-several) shares one float array, positions get
 // their own. A COMPUTED fact has no slot at all - it is an
 // expression folded into whoever reads it.
-constexpr int FACT_NUM_COUNT = 8;
+constexpr int FACT_NUM_COUNT = 9;
 constexpr int FACT_POS_COUNT = 1;
-constexpr int FACT_SAVE_MAX = 7;
+constexpr int FACT_SAVE_MAX = 8;
 constexpr int FACT_PROFILE_MAX = 1;
-constexpr int FACT_SAVE_COUNT = 7;
+constexpr int FACT_SAVE_COUNT = 8;
 constexpr int FACT_PROFILE_COUNT = 1;
 constexpr int FACT_RULE_COUNT = 5;
 // The rule engine re-runs until nothing changes, bounded by this:
@@ -29,10 +29,11 @@ constexpr int FACT_RULE_PASSES = 8;
 //   characters.marta.isAlly : bool / session = query "MartaIsAlly"
 //   player.hasBasementKey : bool / save  -> factNum[6]
 //   player.lastCheckpoint : position / save  -> factPos[0]
-//   profile.timesPlayed : int / profile  -> factNum[7]
+//   world.basementVisits : int / save  -> factNum[7]
+//   profile.timesPlayed : int / profile  -> factNum[8]
 
-constexpr float FACT_NUM_DEFAULT[8] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-constexpr unsigned char FACT_NUM_SCENE[8] = {0, 0, 0, 1, 0, 0, 0, 0};
+constexpr float FACT_NUM_DEFAULT[9] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+constexpr unsigned char FACT_NUM_SCENE[9] = {0, 0, 0, 1, 0, 0, 0, 0, 0};
 constexpr float FACT_POS_DEFAULT[1][3] = {{0.0F, 0.0F, 0.0F}};
 constexpr unsigned char FACT_POS_SCENE[1] = {0};
 

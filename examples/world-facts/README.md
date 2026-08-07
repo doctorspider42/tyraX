@@ -25,6 +25,9 @@ on one page.
 | **On Fact Changed**, all three outputs | the lamp's HUD line hangs off *changed*; the alarm's *became true* / *became false* are raised by a RULE and lowered by a graph's Clear Fact, and the lamp does not care which |
 | **Get Fact As Text** | the plant's state prints as *Broken / Powered / Overloaded*, not as a number |
 | **Scenarios** | *Endgame*, *Locked out*, *Overloaded* |
+| Facts **across a scene switch** | the basement prints `world.power.state` (world-scoped, comes through the door with you) next to `world.alarm.ringing` (scene-scoped, back to false however loudly it was ringing upstairs) |
+| **Per-slot vs per-card** | the basement's *ledger* reads `world.basementVisits` (save-lived, belongs to the slot) next to `profile.timesPlayed` (profile-lived, belongs to the card) |
+| **Checkpoint vs card** | the *save-point* takes the RAM snapshot and commits it to slot 1 as two separate nodes |
 
 ## Playing it
 
@@ -42,10 +45,47 @@ alarm; the **PowerSettles** rule then notices the load is off a tripped plant
 and brings it back to *Powered* — which is what makes the whole loop replayable
 and lets the basement door's `On Condition` fire more than once in a run.
 
-Pick up the key in the yard, use Marta to rescue her (which is worth 5 trust —
-from the **RescueEarnsTrust** rule, once per run, not from her graph). The
-basement door opens exactly while `CanEnterBasement` holds: the key, plus either
-working power or Marta vouching for you.
+Everything that can be used now **reports**, because a fact nobody can see is a
+fact nobody can debug. The generator prints its state by name and its load as a
+figure. The door says why it is shut, and tells *"it needs the key"* apart from
+*"the plant is dead and Marta does not vouch for you"* by asking one more fact.
+
+Marta asks for help as you come near — and only once she is out does using her
+thank you instead. One `Branch` on `characters.marta.rescued` is that entire
+state machine: the graph holds no state of its own, which is the argument for
+facts in one picture. Rescuing her is worth 5 trust, and that comes from the
+**RescueEarnsTrust** rule rather than from her graph.
+
+Pick up the key in the yard. The basement door opens exactly while
+`CanEnterBasement` holds: the key, plus either working power or Marta vouching
+for you.
+
+## The basement, and what survives the trip
+
+Using the basement door once it is open takes you to a **second scene**, which
+exists for one reason: to show which facts cross a scene boundary and which do
+not. On arrival it prints the plant's state — `world.power.state` is
+world-scoped, so it is whatever you left it at — beside the alarm, which is
+**scene-scoped** and reads *false* however loudly it was ringing upstairs.
+
+Two objects down there make the persistence tiers concrete:
+
+- the **ledger** reads `world.basementVisits` (save-lived, so it belongs to the
+  slot) next to `profile.timesPlayed` (profile-lived, so it belongs to the
+  card);
+- the **save-point** takes the RAM snapshot and writes it to slot 1 — as two
+  nodes, *Save Checkpoint* then *Commit Checkpoint*, because that split is what
+  lets a game checkpoint constantly and only pay for the card at a chapter
+  break.
+
+The demonstration worth doing by hand: visit the basement a few times, save,
+visit a few more, then load slot 1. `basementVisits` comes back to what the save
+held; `timesPlayed` does not, because it never belonged to the save. Quit and
+relaunch and `timesPlayed` goes up again while nothing else does.
+
+The basement also has **no terrain at all** (`enabled: false` — see
+[terrain.md](../../docs/terrain.md)), so its floor is an ordinary box. That is
+incidental to the facts, but it is why the void is under you rather than ground.
 
 ## Reading it while it runs
 

@@ -53,7 +53,7 @@ inline const LoadingBarData LS_BARS[1] = {
 };
 
 constexpr int LS_DEFAULT = -1;  // -1 = built-in fallback
-inline const int SCENE_LOADING_SCREEN[1] = {-1};
+inline const int SCENE_LOADING_SCREEN[2] = {-1, -1};
 
 struct SplashData {
   const char* path;      // relative to the game binary

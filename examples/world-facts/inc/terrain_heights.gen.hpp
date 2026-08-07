@@ -99,16 +99,19 @@ constexpr float HM_0_HEIGHTS[1089] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
 };
+// scene "basement"
+constexpr float HM_1_HEIGHTS[4] = {0, 0, 0, 0
+};
 
-constexpr int HM_WS[SCENE_COUNT] = {33};
-constexpr int HM_DS[SCENE_COUNT] = {33};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-32.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-16.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {2.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.0F};
-inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
+constexpr int HM_WS[SCENE_COUNT] = {33, 2};
+constexpr int HM_DS[SCENE_COUNT] = {33, 2};
+constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-32.0F, -16.0F};
+constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-16.0F, -16.0F};
+constexpr float HM_STEP_XS[SCENE_COUNT] = {2.0F, 32.0F};
+constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.0F, 32.0F};
+inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS, HM_1_HEIGHTS};
 
-inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};
+inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr, nullptr};
 
 /** Bilinear terrain height at world coordinates in a scene. The
  * game maps terrainHeightAt(x, z) to the active scene.

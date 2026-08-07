@@ -261,9 +261,15 @@ never returns.
 
 ## Example
 
-`examples/world-facts` is a level built entirely on this: three generator parts
-to collect, an NPC to rescue, a locked basement and a power state other things
-react to. Between them the pieces exercise every fact type, every persistence
-tier, both scopes, a computed fact, nested queries, all three rule policies, a
-rule that sends an event, *On Fact Changed*, and a one-of-several fact printed
-by name. `build-scene.py` authors it and is the readable form of the design.
+`examples/world-facts` is a **two-scene** level built entirely on this: three
+generator parts to collect, an NPC to rescue, a locked basement and a power
+state other things react to. Between them the pieces exercise every fact type,
+every persistence tier, both scopes, a computed fact, nested queries, all three
+rule policies, rule ordering, a rule that sends an event, all three *On Fact
+Changed* outputs, and a one-of-several fact printed by name.
+
+The second scene is there for the two things a single scene cannot show: a
+world-scoped fact coming through the door while a scene-scoped one resets, and a
+**save-lived** counter next to a **profile-lived** one, with a save point so the
+difference can be felt rather than read. `build-scene.py` authors the whole
+thing and is the readable form of the design.

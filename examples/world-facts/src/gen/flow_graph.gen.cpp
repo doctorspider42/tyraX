@@ -28,6 +28,23 @@ static inline std::string flowPosText(float x, float y, float z) {
   snprintf(b, sizeof(b), "(%g, %g, %g)", (double)x, (double)y, (double)z);
   return std::string(b);
 }
+// Number To Text (formatted): fixed decimals and a zero-padded
+// minimum width, so a score reads 00420. The width counts the
+// WHOLE digits only - padding the decimals too would be a second
+// meaning for one number.
+static std::string flowNumTextFmt(float v, int dec, int wid) {
+  char b[40];
+  const bool neg = v < 0.0F;
+  if (neg) v = -v;
+  snprintf(b, sizeof(b), "%.*f", dec, (double)v);
+  std::string s(b);
+  int whole = (int)s.size();
+  const size_t dot = s.find('.');
+  if (dot != std::string::npos) whole = (int)dot;
+  std::string pad;
+  for (int i = whole; i < wid; ++i) pad += '0';
+  return (neg ? std::string("-") : std::string()) + pad + s;
+}
 
 // Display Text: copy a runtime string into its slot's buffer
 // (silently truncated - the slot is a fixed DYN_TEXT_LEN).
@@ -83,11 +100,11 @@ class FlowEventBus : public Script {
 // query. factWrite() is the only door in - it exists so the
 // Live Debugger can record WHO changed a fact, and folds to a
 // plain store when the debugger is off.
-float factNum[8] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+float factNum[9] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
 float factPos[1][3] = {{0.0F, 0.0F, 0.0F}};
 
 static bool g_factProfileDirty = false;
-static const unsigned char FACT_NUM_PROFILE[8] = {0, 0, 0, 0, 0, 0, 0, 1};
+static const unsigned char FACT_NUM_PROFILE[9] = {0, 0, 0, 0, 0, 0, 0, 0, 1};
 static inline void factWrite(int slot, float v, int src) {
   if (factNum[slot] != v && FACT_NUM_PROFILE[slot])
     g_factProfileDirty = true;
@@ -181,6 +198,13 @@ int factSaveCapture(FactSaveRow* out, int max) {
     out[n].v[2] = factPos[0][2];
     ++n;
   }
+  if (n < max) {  // world.basementVisits
+    out[n].id = 157842195u;
+    out[n].v[0] = factNum[7];
+    out[n].v[1] = 0.0F;
+    out[n].v[2] = 0.0F;
+    ++n;
+  }
   return n;
 }
 
@@ -210,6 +234,9 @@ void factSaveRestore(const FactSaveRow* rows, int count) {
         factPos[0][1] = rows[i].v[1];
         factPos[0][2] = rows[i].v[2];
         break;
+      case 157842195u:  // world.basementVisits
+        factNum[7] = rows[i].v[0];
+        break;
       default: break;  // a fact this build no longer has
     }
   }
@@ -219,7 +246,7 @@ int factProfileCapture(FactSaveRow* out, int max) {
   int n = 0;
   if (n < max) {  // profile.timesPlayed
     out[n].id = 174619814u;
-    out[n].v[0] = factNum[7];
+    out[n].v[0] = factNum[8];
     out[n].v[1] = 0.0F;
     out[n].v[2] = 0.0F;
     ++n;
@@ -231,7 +258,7 @@ void factProfileRestore(const FactSaveRow* rows, int count) {
   for (int i = 0; i < count; ++i) {
     switch (rows[i].id) {
       case 174619814u:  // profile.timesPlayed
-        factNum[7] = rows[i].v[0];
+        factNum[8] = rows[i].v[0];
         break;
       default: break;  // a fact this build no longer has
     }
@@ -717,44 +744,97 @@ class FlowGraphScript_0_5 : public Script {
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
-      once2 = false;
+      cool2 = 0.0F;
+      near1 = false;
     }
     frame++;
+    if (cool2 > 0.0F) {
+      cool2 -= g_frameDt;
+      if (cool2 < 0.0F) cool2 = 0.0F;
+    }
     if (ctx.dynTextOn && ctx.dynTextOn[0])
-      flowSetDynText(ctx, 0, std::string("Marta: I owe you one."));
+      flowSetDynText(ctx, 0, std::string("Marta: Please - the water is rising. Help me!"));
+    if (ctx.dynTextOn && ctx.dynTextOn[1])
+      flowSetDynText(ctx, 1, std::string("Marta: I owe you one. The basement key is in the yard."));
+    if (ctx.dynTextOn && ctx.dynTextOn[2])
+      flowSetDynText(ctx, 2, std::string("Marta: Thank you. I thought that was it."));
     if (livedbg::forced(20)) {  // Live Debugger: fired from the editor
       livedbg::hit(20);
       livedbg::hit(21);
-      if (!once2) {
-        once2 = true;
+      if (cool2 <= 0.0F) {
+        cool2 = 6.0F;
         livedbg::hit(22);
-        {  // Sequence output 1
+        if (((!((factNum[5] != 0.0F))))) {
           livedbg::hit(23);
-          factWrite(5, ((1.0F) != 0.0F ? 1.0F : 0.0F), 23);  // "characters.marta.rescued"
+          ctx.dynTextRequest[0] = 1;
+          ctx.dynTextDuration[0] = 4.0F;
+          flowSetDynText(ctx, 0, std::string("Marta: Please - the water is rising. Help me!"));
+        }
+      }
+    }
+    {
+      const float dx = ctx.playerPosition.x - ctx.objects[5].data.position[0];
+      const float dz = ctx.playerPosition.z - ctx.objects[5].data.position[2];
+      const bool isNear = dx * dx + dz * dz < 16.0F;
+      if (isNear && !near1) {
+      livedbg::hit(20);
+      livedbg::hit(21);
+      if (cool2 <= 0.0F) {
+        cool2 = 6.0F;
+        livedbg::hit(22);
+        if (((!((factNum[5] != 0.0F))))) {
+          livedbg::hit(23);
+          ctx.dynTextRequest[0] = 1;
+          ctx.dynTextDuration[0] = 4.0F;
+          flowSetDynText(ctx, 0, std::string("Marta: Please - the water is rising. Help me!"));
+        }
+      }
+      }
+      near1 = isNear;
+    }
+    if (livedbg::forced(24)) {  // Live Debugger: fired from the editor
+      livedbg::hit(24);
+      livedbg::hit(25);
+      if (((factNum[5] != 0.0F))) {
+        livedbg::hit(26);
+        ctx.dynTextRequest[1] = 1;
+        ctx.dynTextDuration[1] = 4.0F;
+        flowSetDynText(ctx, 1, std::string("Marta: I owe you one. The basement key is in the yard."));
+      }
+      else {
+        livedbg::hit(27);
+        {  // Sequence output 1
+          livedbg::hit(28);
+          factWrite(5, ((1.0F) != 0.0F ? 1.0F : 0.0F), 28);  // "characters.marta.rescued"
         }
         {  // Sequence output 2
-          livedbg::hit(24);
-          ctx.dynTextRequest[0] = 1;
-          ctx.dynTextDuration[0] = 3.0F;
-          flowSetDynText(ctx, 0, std::string("Marta: I owe you one."));
+          livedbg::hit(29);
+          ctx.dynTextRequest[2] = 1;
+          ctx.dynTextDuration[2] = 4.0F;
+          flowSetDynText(ctx, 2, std::string("Marta: Thank you. I thought that was it."));
         }
       }
     }
     if (ctx.usedObject == 5) {
-      livedbg::hit(20);
-      livedbg::hit(21);
-      if (!once2) {
-        once2 = true;
-        livedbg::hit(22);
+      livedbg::hit(24);
+      livedbg::hit(25);
+      if (((factNum[5] != 0.0F))) {
+        livedbg::hit(26);
+        ctx.dynTextRequest[1] = 1;
+        ctx.dynTextDuration[1] = 4.0F;
+        flowSetDynText(ctx, 1, std::string("Marta: I owe you one. The basement key is in the yard."));
+      }
+      else {
+        livedbg::hit(27);
         {  // Sequence output 1
-          livedbg::hit(23);
-          factWrite(5, ((1.0F) != 0.0F ? 1.0F : 0.0F), 23);  // "characters.marta.rescued"
+          livedbg::hit(28);
+          factWrite(5, ((1.0F) != 0.0F ? 1.0F : 0.0F), 28);  // "characters.marta.rescued"
         }
         {  // Sequence output 2
-          livedbg::hit(24);
-          ctx.dynTextRequest[0] = 1;
-          ctx.dynTextDuration[0] = 3.0F;
-          flowSetDynText(ctx, 0, std::string("Marta: I owe you one."));
+          livedbg::hit(29);
+          ctx.dynTextRequest[2] = 1;
+          ctx.dynTextDuration[2] = 4.0F;
+          flowSetDynText(ctx, 2, std::string("Marta: Thank you. I thought that was it."));
         }
       }
     }
@@ -764,23 +844,26 @@ class FlowGraphScript_0_5 : public Script {
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
   FlowGraphScript_0_5() { g_time_FlowGraphScript_0_5 = this; }
-  static const unsigned int kTimeBytes = 6;
+  static const unsigned int kTimeBytes = 10;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
     p[4] = started ? 1 : 0;
-    p[5] = once2 ? 1 : 0;
+    memcpy(p + 5, &cool2, 4);
+    p[9] = near1 ? 1 : 0;
   }
   void timeRestore(const unsigned char* p) {
     memcpy(&frame, p + 0, 4);
     started = p[4] != 0;
-    once2 = p[5] != 0;
+    memcpy(&cool2, p + 5, 4);
+    near1 = p[9] != 0;
   }
 
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  bool once2 = false;
+  float cool2 = 0.0F;
+  bool near1 = false;
 };
 class FlowGraphScript_0_6;
 FlowGraphScript_0_6* g_time_FlowGraphScript_0_6 = nullptr;
@@ -803,15 +886,49 @@ class FlowGraphScript_0_6 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(25)) {  // Live Debugger: fired from the editor
-      livedbg::hit(25);
-      livedbg::hit(26);
-      factWrite(2, factNum[2] + (0.25F), 26);  // "world.power.load"
+    if (ctx.dynTextOn && ctx.dynTextOn[3])
+      flowSetDynText(ctx, 3, std::string("Generator: ") + flowEnumText(factNum[1], factEnum1, 3));
+    if (ctx.dynTextOn && ctx.dynTextOn[4])
+      flowSetDynText(ctx, 4, std::string("Load: ") + flowNumTextFmt(factNum[2], 2, 1));
+    if (livedbg::forced(30)) {  // Live Debugger: fired from the editor
+      livedbg::hit(30);
+      livedbg::hit(31);
+      {  // Sequence output 1
+        livedbg::hit(32);
+        factWrite(2, factNum[2] + (0.25F), 32);  // "world.power.load"
+      }
+      {  // Sequence output 2
+        livedbg::hit(33);
+        ctx.dynTextRequest[3] = 1;
+        ctx.dynTextDuration[3] = 3.0F;
+        flowSetDynText(ctx, 3, std::string("Generator: ") + flowEnumText(factNum[1], factEnum1, 3));
+      }
+      {  // Sequence output 3
+        livedbg::hit(34);
+        ctx.dynTextRequest[4] = 1;
+        ctx.dynTextDuration[4] = 3.0F;
+        flowSetDynText(ctx, 4, std::string("Load: ") + flowNumTextFmt(factNum[2], 2, 1));
+      }
     }
     if (ctx.usedObject == 6) {
-      livedbg::hit(25);
-      livedbg::hit(26);
-      factWrite(2, factNum[2] + (0.25F), 26);  // "world.power.load"
+      livedbg::hit(30);
+      livedbg::hit(31);
+      {  // Sequence output 1
+        livedbg::hit(32);
+        factWrite(2, factNum[2] + (0.25F), 32);  // "world.power.load"
+      }
+      {  // Sequence output 2
+        livedbg::hit(33);
+        ctx.dynTextRequest[3] = 1;
+        ctx.dynTextDuration[3] = 3.0F;
+        flowSetDynText(ctx, 3, std::string("Generator: ") + flowEnumText(factNum[1], factEnum1, 3));
+      }
+      {  // Sequence output 3
+        livedbg::hit(34);
+        ctx.dynTextRequest[4] = 1;
+        ctx.dynTextDuration[4] = 3.0F;
+        flowSetDynText(ctx, 4, std::string("Load: ") + flowNumTextFmt(factNum[2], 2, 1));
+      }
     }
   }
 
@@ -855,28 +972,28 @@ class FlowGraphScript_0_7 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(27)) {  // Live Debugger: fired from the editor
-      livedbg::hit(27);
-      livedbg::hit(28);
+    if (livedbg::forced(35)) {  // Live Debugger: fired from the editor
+      livedbg::hit(35);
+      livedbg::hit(36);
       {  // Sequence output 1
-        livedbg::hit(29);
-        factWrite(2, FACT_NUM_DEFAULT[2], 29);  // "world.power.load"
+        livedbg::hit(37);
+        factWrite(2, FACT_NUM_DEFAULT[2], 37);  // "world.power.load"
       }
       {  // Sequence output 2
-        livedbg::hit(30);
-        factWrite(3, FACT_NUM_DEFAULT[3], 30);  // "world.alarm.ringing"
+        livedbg::hit(38);
+        factWrite(3, FACT_NUM_DEFAULT[3], 38);  // "world.alarm.ringing"
       }
     }
     if (ctx.usedObject == 7) {
-      livedbg::hit(27);
-      livedbg::hit(28);
+      livedbg::hit(35);
+      livedbg::hit(36);
       {  // Sequence output 1
-        livedbg::hit(29);
-        factWrite(2, FACT_NUM_DEFAULT[2], 29);  // "world.power.load"
+        livedbg::hit(37);
+        factWrite(2, FACT_NUM_DEFAULT[2], 37);  // "world.power.load"
       }
       {  // Sequence output 2
-        livedbg::hit(30);
-        factWrite(3, FACT_NUM_DEFAULT[3], 30);  // "world.alarm.ringing"
+        livedbg::hit(38);
+        factWrite(3, FACT_NUM_DEFAULT[3], 38);  // "world.alarm.ringing"
       }
     }
   }
@@ -923,62 +1040,62 @@ class FlowGraphScript_0_8 : public Script {
       factWas6 = factNum[3];
     }
     frame++;
-    if (ctx.dynTextOn && ctx.dynTextOn[1])
-      flowSetDynText(ctx, 1, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
-    if (ctx.dynTextOn && ctx.dynTextOn[2])
-      flowSetDynText(ctx, 2, std::string("ALARM - plant overloaded"));
-    if (livedbg::forced(31)) {  // Live Debugger: fired from the editor
-      livedbg::hit(31);
-      livedbg::hit(32);
+    if (ctx.dynTextOn && ctx.dynTextOn[5])
+      flowSetDynText(ctx, 5, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
+    if (ctx.dynTextOn && ctx.dynTextOn[6])
+      flowSetDynText(ctx, 6, std::string("ALARM - plant overloaded"));
+    if (livedbg::forced(39)) {  // Live Debugger: fired from the editor
+      livedbg::hit(39);
+      livedbg::hit(40);
       ctx.objects[8].data.color[0] = 0.3F;
       ctx.objects[8].data.color[1] = 1.0F;
       ctx.objects[8].data.color[2] = 0.4F;
       ctx.objects[8].dirty = true;
     }
     if (flowEvtCur[0]) {  // "power-on"
-      livedbg::hit(31);
-      livedbg::hit(32);
+      livedbg::hit(39);
+      livedbg::hit(40);
       ctx.objects[8].data.color[0] = 0.3F;
       ctx.objects[8].data.color[1] = 1.0F;
       ctx.objects[8].data.color[2] = 0.4F;
       ctx.objects[8].dirty = true;
     }
-    if (livedbg::forced(33)) {  // Live Debugger: fired from the editor
-      livedbg::hit(33);
-      livedbg::hit(34);
-      ctx.dynTextRequest[1] = 1;
-      ctx.dynTextDuration[1] = 3.0F;
-      flowSetDynText(ctx, 1, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
+    if (livedbg::forced(41)) {  // Live Debugger: fired from the editor
+      livedbg::hit(41);
+      livedbg::hit(42);
+      ctx.dynTextRequest[5] = 1;
+      ctx.dynTextDuration[5] = 3.0F;
+      flowSetDynText(ctx, 5, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
     }
     if (factWas3 != factNum[1]) {  // "world.power.state"
       const float was = factWas3;
       factWas3 = factNum[1];
-      livedbg::hit(33);
-      livedbg::hit(34);
-      ctx.dynTextRequest[1] = 1;
-      ctx.dynTextDuration[1] = 3.0F;
-      flowSetDynText(ctx, 1, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
+      livedbg::hit(41);
+      livedbg::hit(42);
+      ctx.dynTextRequest[5] = 1;
+      ctx.dynTextDuration[5] = 3.0F;
+      flowSetDynText(ctx, 5, std::string("Plant: ") + flowEnumText(factNum[1], factEnum1, 3));
     }
-    if (livedbg::forced(35)) {  // Live Debugger: fired from the editor
-      livedbg::hit(35);
+    if (livedbg::forced(43)) {  // Live Debugger: fired from the editor
+      livedbg::hit(43);
     }
     if (factWas6 != factNum[3]) {  // "world.alarm.ringing"
       const float was = factWas6;
       factWas6 = factNum[3];
-      livedbg::hit(35);
+      livedbg::hit(43);
       if (factNum[3] != 0.0F && was == 0.0F) {
-        livedbg::hit(36);
+        livedbg::hit(44);
         ctx.objects[8].data.color[0] = 1.0F;
         ctx.objects[8].data.color[1] = 0.15F;
         ctx.objects[8].data.color[2] = 0.15F;
         ctx.objects[8].dirty = true;
-        livedbg::hit(37);
-        ctx.dynTextRequest[2] = 1;
-        ctx.dynTextDuration[2] = 4.0F;
-        flowSetDynText(ctx, 2, std::string("ALARM - plant overloaded"));
+        livedbg::hit(45);
+        ctx.dynTextRequest[6] = 1;
+        ctx.dynTextDuration[6] = 4.0F;
+        flowSetDynText(ctx, 6, std::string("ALARM - plant overloaded"));
       }
       if (factNum[3] == 0.0F && was != 0.0F) {
-        livedbg::hit(38);
+        livedbg::hit(46);
         ctx.objects[8].data.color[0] = 0.3F;
         ctx.objects[8].data.color[1] = 1.0F;
         ctx.objects[8].data.color[2] = 0.4F;
@@ -1055,39 +1172,109 @@ class FlowGraphScript_0_9 : public Script {
       }
       ctx.objects[9].dirty = true;
     }
-    if (ctx.dynTextOn && ctx.dynTextOn[3])
-      flowSetDynText(ctx, 3, std::string("The basement door unlocks."));
-    if (livedbg::forced(39)) {  // Live Debugger: fired from the editor
-      livedbg::hit(39);
-      livedbg::hit(40);
+    if (ctx.dynTextOn && ctx.dynTextOn[7])
+      flowSetDynText(ctx, 7, std::string("The basement door unlocks."));
+    if (ctx.dynTextOn && ctx.dynTextOn[8])
+      flowSetDynText(ctx, 8, std::string("Down into the basement."));
+    if (ctx.dynTextOn && ctx.dynTextOn[9])
+      flowSetDynText(ctx, 9, std::string("Locked: the plant is dead and Marta does not vouch for you."));
+    if (ctx.dynTextOn && ctx.dynTextOn[10])
+      flowSetDynText(ctx, 10, std::string("Locked: it needs the basement key."));
+    if (livedbg::forced(47)) {  // Live Debugger: fired from the editor
+      livedbg::hit(47);
+      livedbg::hit(48);
       {  // Sequence output 1
-        livedbg::hit(41);
+        livedbg::hit(49);
         move4 = true;
       }
       {  // Sequence output 2
-        livedbg::hit(42);
-        ctx.dynTextRequest[3] = 1;
-        ctx.dynTextDuration[3] = 3.0F;
-        flowSetDynText(ctx, 3, std::string("The basement door unlocks."));
+        livedbg::hit(50);
+        ctx.dynTextRequest[7] = 1;
+        ctx.dynTextDuration[7] = 3.0F;
+        flowSetDynText(ctx, 7, std::string("The basement door unlocks."));
       }
     }
     {
       const bool c = (factQuery2());
       if (c && !cond2) {
-      livedbg::hit(39);
-      livedbg::hit(40);
+      livedbg::hit(47);
+      livedbg::hit(48);
       {  // Sequence output 1
-        livedbg::hit(41);
+        livedbg::hit(49);
         move4 = true;
       }
       {  // Sequence output 2
-        livedbg::hit(42);
-        ctx.dynTextRequest[3] = 1;
-        ctx.dynTextDuration[3] = 3.0F;
-        flowSetDynText(ctx, 3, std::string("The basement door unlocks."));
+        livedbg::hit(50);
+        ctx.dynTextRequest[7] = 1;
+        ctx.dynTextDuration[7] = 3.0F;
+        flowSetDynText(ctx, 7, std::string("The basement door unlocks."));
       }
       }
       cond2 = c;
+    }
+    if (livedbg::forced(51)) {  // Live Debugger: fired from the editor
+      livedbg::hit(51);
+      livedbg::hit(52);
+      if ((factQuery2())) {
+        livedbg::hit(53);
+        {  // Sequence output 1
+          livedbg::hit(54);
+          ctx.dynTextRequest[8] = 1;
+          ctx.dynTextDuration[8] = 2.0F;
+          flowSetDynText(ctx, 8, std::string("Down into the basement."));
+        }
+        {  // Sequence output 2
+          livedbg::hit(55);
+          ctx.requestScene = 1;  // "basement"
+        }
+      }
+      else {
+        livedbg::hit(56);
+        if (((factNum[6] != 0.0F))) {
+          livedbg::hit(57);
+          ctx.dynTextRequest[9] = 1;
+          ctx.dynTextDuration[9] = 4.0F;
+          flowSetDynText(ctx, 9, std::string("Locked: the plant is dead and Marta does not vouch for you."));
+        }
+        else {
+          livedbg::hit(58);
+          ctx.dynTextRequest[10] = 1;
+          ctx.dynTextDuration[10] = 4.0F;
+          flowSetDynText(ctx, 10, std::string("Locked: it needs the basement key."));
+        }
+      }
+    }
+    if (ctx.usedObject == 9) {
+      livedbg::hit(51);
+      livedbg::hit(52);
+      if ((factQuery2())) {
+        livedbg::hit(53);
+        {  // Sequence output 1
+          livedbg::hit(54);
+          ctx.dynTextRequest[8] = 1;
+          ctx.dynTextDuration[8] = 2.0F;
+          flowSetDynText(ctx, 8, std::string("Down into the basement."));
+        }
+        {  // Sequence output 2
+          livedbg::hit(55);
+          ctx.requestScene = 1;  // "basement"
+        }
+      }
+      else {
+        livedbg::hit(56);
+        if (((factNum[6] != 0.0F))) {
+          livedbg::hit(57);
+          ctx.dynTextRequest[9] = 1;
+          ctx.dynTextDuration[9] = 4.0F;
+          flowSetDynText(ctx, 9, std::string("Locked: the plant is dead and Marta does not vouch for you."));
+        }
+        else {
+          livedbg::hit(58);
+          ctx.dynTextRequest[10] = 1;
+          ctx.dynTextDuration[10] = 4.0F;
+          flowSetDynText(ctx, 10, std::string("Locked: it needs the basement key."));
+        }
+      }
     }
   }
 
@@ -1143,13 +1330,13 @@ class FlowGraphScript_0_10 : public Script {
       cool2 -= g_frameDt;
       if (cool2 < 0.0F) cool2 = 0.0F;
     }
-    if (livedbg::forced(43)) {  // Live Debugger: fired from the editor
-      livedbg::hit(43);
-      livedbg::hit(44);
+    if (livedbg::forced(59)) {  // Live Debugger: fired from the editor
+      livedbg::hit(59);
+      livedbg::hit(60);
       if (cool2 <= 0.0F) {
         cool2 = 5.0F;
-        livedbg::hit(45);
-        factWritePos(0, ctx.playerPosition.x, ctx.playerPosition.y, ctx.playerPosition.z, 45);  // "player.lastCheckpoint"
+        livedbg::hit(61);
+        factWritePos(0, ctx.playerPosition.x, ctx.playerPosition.y, ctx.playerPosition.z, 61);  // "player.lastCheckpoint"
       }
     }
     {
@@ -1157,12 +1344,12 @@ class FlowGraphScript_0_10 : public Script {
       const float dz = ctx.playerPosition.z - ctx.objects[10].data.position[2];
       const bool isNear = dx * dx + dz * dz < 4.0F;
       if (isNear && !near1) {
-      livedbg::hit(43);
-      livedbg::hit(44);
+      livedbg::hit(59);
+      livedbg::hit(60);
       if (cool2 <= 0.0F) {
         cool2 = 5.0F;
-        livedbg::hit(45);
-        factWritePos(0, ctx.playerPosition.x, ctx.playerPosition.y, ctx.playerPosition.z, 45);  // "player.lastCheckpoint"
+        livedbg::hit(61);
+        factWritePos(0, ctx.playerPosition.x, ctx.playerPosition.y, ctx.playerPosition.z, 61);  // "player.lastCheckpoint"
       }
       }
       near1 = isNear;
@@ -1216,34 +1403,34 @@ class FlowGraphScript_0_11 : public Script {
       factWas3 = factNum[0];
     }
     frame++;
-    if (ctx.dynTextOn && ctx.dynTextOn[4])
-      flowSetDynText(ctx, 4, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
-    if (livedbg::forced(46)) {  // Live Debugger: fired from the editor
-      livedbg::hit(46);
-      livedbg::hit(47);
-      factWrite(7, (float)lroundf(factNum[7] + (1.0F)), 47);  // "profile.timesPlayed"
+    if (ctx.dynTextOn && ctx.dynTextOn[11])
+      flowSetDynText(ctx, 11, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
+    if (livedbg::forced(62)) {  // Live Debugger: fired from the editor
+      livedbg::hit(62);
+      livedbg::hit(63);
+      factWrite(8, (float)lroundf(factNum[8] + (1.0F)), 63);  // "profile.timesPlayed"
     }
     if (!started) {
       started = true;
-      livedbg::hit(46);
-      livedbg::hit(47);
-      factWrite(7, (float)lroundf(factNum[7] + (1.0F)), 47);  // "profile.timesPlayed"
+      livedbg::hit(62);
+      livedbg::hit(63);
+      factWrite(8, (float)lroundf(factNum[8] + (1.0F)), 63);  // "profile.timesPlayed"
     }
-    if (livedbg::forced(48)) {  // Live Debugger: fired from the editor
-      livedbg::hit(48);
-      livedbg::hit(49);
-      ctx.dynTextRequest[4] = 1;
-      ctx.dynTextDuration[4] = 3.0F;
-      flowSetDynText(ctx, 4, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
+    if (livedbg::forced(64)) {  // Live Debugger: fired from the editor
+      livedbg::hit(64);
+      livedbg::hit(65);
+      ctx.dynTextRequest[11] = 1;
+      ctx.dynTextDuration[11] = 3.0F;
+      flowSetDynText(ctx, 11, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
     }
     if (factWas3 != factNum[0]) {  // "world.generator.parts"
       const float was = factWas3;
       factWas3 = factNum[0];
-      livedbg::hit(48);
-      livedbg::hit(49);
-      ctx.dynTextRequest[4] = 1;
-      ctx.dynTextDuration[4] = 3.0F;
-      flowSetDynText(ctx, 4, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
+      livedbg::hit(64);
+      livedbg::hit(65);
+      ctx.dynTextRequest[11] = 1;
+      ctx.dynTextDuration[11] = 3.0F;
+      flowSetDynText(ctx, 11, std::string("Parts fitted: ") + std::to_string((long)lroundf(factNum[0])));
     }
   }
 
@@ -1269,6 +1456,303 @@ class FlowGraphScript_0_11 : public Script {
   bool started = false;
   float factWas3 = 0.0F;
 };
+class FlowGraphScript_1_2;
+FlowGraphScript_1_2* g_time_FlowGraphScript_1_2 = nullptr;
+
+// Scene "basement": graph of "arrival-logic" (object 2)
+class FlowGraphScript_1_2 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 2)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (ctx.dynTextOn && ctx.dynTextOn[12])
+      flowSetDynText(ctx, 12, std::string("Basement. The plant is: ") + flowEnumText(factNum[1], factEnum1, 3));
+    if (ctx.dynTextOn && ctx.dynTextOn[13])
+      flowSetDynText(ctx, 13, std::string("Alarm down here (scene-scoped): ") + std::string(((factNum[3] != 0.0F)) ? "true" : "false"));
+    if (livedbg::forced(66)) {  // Live Debugger: fired from the editor
+      livedbg::hit(66);
+      livedbg::hit(67);
+      {  // Sequence output 1
+        livedbg::hit(68);
+        factWrite(7, (float)lroundf(factNum[7] + (1.0F)), 68);  // "world.basementVisits"
+      }
+      {  // Sequence output 2
+        livedbg::hit(69);
+        ctx.dynTextRequest[12] = 1;
+        ctx.dynTextDuration[12] = 5.0F;
+        flowSetDynText(ctx, 12, std::string("Basement. The plant is: ") + flowEnumText(factNum[1], factEnum1, 3));
+      }
+      {  // Sequence output 3
+        livedbg::hit(70);
+        ctx.dynTextRequest[13] = 1;
+        ctx.dynTextDuration[13] = 5.0F;
+        flowSetDynText(ctx, 13, std::string("Alarm down here (scene-scoped): ") + std::string(((factNum[3] != 0.0F)) ? "true" : "false"));
+      }
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(66);
+      livedbg::hit(67);
+      {  // Sequence output 1
+        livedbg::hit(68);
+        factWrite(7, (float)lroundf(factNum[7] + (1.0F)), 68);  // "world.basementVisits"
+      }
+      {  // Sequence output 2
+        livedbg::hit(69);
+        ctx.dynTextRequest[12] = 1;
+        ctx.dynTextDuration[12] = 5.0F;
+        flowSetDynText(ctx, 12, std::string("Basement. The plant is: ") + flowEnumText(factNum[1], factEnum1, 3));
+      }
+      {  // Sequence output 3
+        livedbg::hit(70);
+        ctx.dynTextRequest[13] = 1;
+        ctx.dynTextDuration[13] = 5.0F;
+        flowSetDynText(ctx, 13, std::string("Alarm down here (scene-scoped): ") + std::string(((factNum[3] != 0.0F)) ? "true" : "false"));
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_2() { g_time_FlowGraphScript_1_2 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_1_3;
+FlowGraphScript_1_3* g_time_FlowGraphScript_1_3 = nullptr;
+
+// Scene "basement": graph of "ledger" (object 3)
+class FlowGraphScript_1_3 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 3)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (ctx.dynTextOn && ctx.dynTextOn[14])
+      flowSetDynText(ctx, 14, std::string("This save has been here: ") + std::to_string((long)lroundf(factNum[7])));
+    if (ctx.dynTextOn && ctx.dynTextOn[15])
+      flowSetDynText(ctx, 15, std::string("This card has booted the game: ") + std::to_string((long)lroundf(factNum[8])));
+    if (livedbg::forced(71)) {  // Live Debugger: fired from the editor
+      livedbg::hit(71);
+      livedbg::hit(72);
+      {  // Sequence output 1
+        livedbg::hit(73);
+        ctx.dynTextRequest[14] = 1;
+        ctx.dynTextDuration[14] = 5.0F;
+        flowSetDynText(ctx, 14, std::string("This save has been here: ") + std::to_string((long)lroundf(factNum[7])));
+      }
+      {  // Sequence output 2
+        livedbg::hit(74);
+        ctx.dynTextRequest[15] = 1;
+        ctx.dynTextDuration[15] = 5.0F;
+        flowSetDynText(ctx, 15, std::string("This card has booted the game: ") + std::to_string((long)lroundf(factNum[8])));
+      }
+    }
+    if (ctx.usedObject == 3) {
+      livedbg::hit(71);
+      livedbg::hit(72);
+      {  // Sequence output 1
+        livedbg::hit(73);
+        ctx.dynTextRequest[14] = 1;
+        ctx.dynTextDuration[14] = 5.0F;
+        flowSetDynText(ctx, 14, std::string("This save has been here: ") + std::to_string((long)lroundf(factNum[7])));
+      }
+      {  // Sequence output 2
+        livedbg::hit(74);
+        ctx.dynTextRequest[15] = 1;
+        ctx.dynTextDuration[15] = 5.0F;
+        flowSetDynText(ctx, 15, std::string("This card has booted the game: ") + std::to_string((long)lroundf(factNum[8])));
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_3() { g_time_FlowGraphScript_1_3 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_1_4;
+FlowGraphScript_1_4* g_time_FlowGraphScript_1_4 = nullptr;
+
+// Scene "basement": graph of "save-point" (object 4)
+class FlowGraphScript_1_4 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 4)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (ctx.dynTextOn && ctx.dynTextOn[16])
+      flowSetDynText(ctx, 16, std::string("Saved to slot 1 - facts included."));
+    if (livedbg::forced(75)) {  // Live Debugger: fired from the editor
+      livedbg::hit(75);
+      livedbg::hit(76);
+      {  // Sequence output 1
+        livedbg::hit(77);
+        ctx.saveCheckpoint = true;
+      }
+      {  // Sequence output 2
+        livedbg::hit(78);
+        ctx.commitCheckpoint = 0;
+      }
+      {  // Sequence output 3
+        livedbg::hit(79);
+        ctx.dynTextRequest[16] = 1;
+        ctx.dynTextDuration[16] = 4.0F;
+        flowSetDynText(ctx, 16, std::string("Saved to slot 1 - facts included."));
+      }
+    }
+    if (ctx.usedObject == 4) {
+      livedbg::hit(75);
+      livedbg::hit(76);
+      {  // Sequence output 1
+        livedbg::hit(77);
+        ctx.saveCheckpoint = true;
+      }
+      {  // Sequence output 2
+        livedbg::hit(78);
+        ctx.commitCheckpoint = 0;
+      }
+      {  // Sequence output 3
+        livedbg::hit(79);
+        ctx.dynTextRequest[16] = 1;
+        ctx.dynTextDuration[16] = 4.0F;
+        flowSetDynText(ctx, 16, std::string("Saved to slot 1 - facts included."));
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_4() { g_time_FlowGraphScript_1_4 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_1_5;
+FlowGraphScript_1_5* g_time_FlowGraphScript_1_5 = nullptr;
+
+// Scene "basement": graph of "stairs-up" (object 5)
+class FlowGraphScript_1_5 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 5)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(80)) {  // Live Debugger: fired from the editor
+      livedbg::hit(80);
+      livedbg::hit(81);
+      ctx.requestScene = 0;  // "main"
+    }
+    if (ctx.usedObject == 5) {
+      livedbg::hit(80);
+      livedbg::hit(81);
+      ctx.requestScene = 0;  // "main"
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_5() { g_time_FlowGraphScript_1_5 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
 
 // Live Debugger watch table (docs/live-debugger.md): the flow variables
 // in one shared order - ints, then bools, then positions.
@@ -1290,7 +1774,11 @@ unsigned int flowTimeScriptBytes() {
          FlowGraphScript_0_8::kTimeBytes +
          FlowGraphScript_0_9::kTimeBytes +
          FlowGraphScript_0_10::kTimeBytes +
-         FlowGraphScript_0_11::kTimeBytes;
+         FlowGraphScript_0_11::kTimeBytes +
+         FlowGraphScript_1_2::kTimeBytes +
+         FlowGraphScript_1_3::kTimeBytes +
+         FlowGraphScript_1_4::kTimeBytes +
+         FlowGraphScript_1_5::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
   if (g_time_FlowGraphScript_0_1) g_time_FlowGraphScript_0_1->timeCapture(p);
@@ -1315,6 +1803,14 @@ void flowTimeScriptCapture(unsigned char* p) {
   p += FlowGraphScript_0_10::kTimeBytes;
   if (g_time_FlowGraphScript_0_11) g_time_FlowGraphScript_0_11->timeCapture(p);
   p += FlowGraphScript_0_11::kTimeBytes;
+  if (g_time_FlowGraphScript_1_2) g_time_FlowGraphScript_1_2->timeCapture(p);
+  p += FlowGraphScript_1_2::kTimeBytes;
+  if (g_time_FlowGraphScript_1_3) g_time_FlowGraphScript_1_3->timeCapture(p);
+  p += FlowGraphScript_1_3::kTimeBytes;
+  if (g_time_FlowGraphScript_1_4) g_time_FlowGraphScript_1_4->timeCapture(p);
+  p += FlowGraphScript_1_4::kTimeBytes;
+  if (g_time_FlowGraphScript_1_5) g_time_FlowGraphScript_1_5->timeCapture(p);
+  p += FlowGraphScript_1_5::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
   if (g_time_FlowGraphScript_0_1) g_time_FlowGraphScript_0_1->timeRestore(p);
@@ -1339,10 +1835,18 @@ void flowTimeScriptRestore(const unsigned char* p) {
   p += FlowGraphScript_0_10::kTimeBytes;
   if (g_time_FlowGraphScript_0_11) g_time_FlowGraphScript_0_11->timeRestore(p);
   p += FlowGraphScript_0_11::kTimeBytes;
+  if (g_time_FlowGraphScript_1_2) g_time_FlowGraphScript_1_2->timeRestore(p);
+  p += FlowGraphScript_1_2::kTimeBytes;
+  if (g_time_FlowGraphScript_1_3) g_time_FlowGraphScript_1_3->timeRestore(p);
+  p += FlowGraphScript_1_3::kTimeBytes;
+  if (g_time_FlowGraphScript_1_4) g_time_FlowGraphScript_1_4->timeRestore(p);
+  p += FlowGraphScript_1_4::kTimeBytes;
+  if (g_time_FlowGraphScript_1_5) g_time_FlowGraphScript_1_5->timeRestore(p);
+  p += FlowGraphScript_1_5::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
-int flowTimeVarCount() { return 11; }
+int flowTimeVarCount() { return 12; }
 void flowTimeRead(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;
   switch (index) {
@@ -1360,7 +1864,8 @@ void flowTimeRead(int index, float* out3) {
     case 7: out3[0] = factNum[5]; break;
     case 8: out3[0] = factNum[6]; break;
     case 9: out3[0] = factNum[7]; break;
-    case 10:
+    case 10: out3[0] = factNum[8]; break;
+    case 11:
       out3[0] = factPos[0][0]; out3[1] = factPos[0][1]; out3[2] = factPos[0][2];
       break;
     default: break;
@@ -1382,7 +1887,8 @@ void flowTimeWrite(int index, const float* in3) {
     case 7: factNum[5] = in3[0]; break;
     case 8: factNum[6] = in3[0]; break;
     case 9: factNum[7] = in3[0]; break;
-    case 10:
+    case 10: factNum[8] = in3[0]; break;
+    case 11:
       factPos[0][0] = in3[0]; factPos[0][1] = in3[1]; factPos[0][2] = in3[2];
       break;
     default: break;
@@ -1428,3 +1934,7 @@ TYRA_SCRIPT(World_facts::FlowGraphScript_0_8);
 TYRA_SCRIPT(World_facts::FlowGraphScript_0_9);
 TYRA_SCRIPT(World_facts::FlowGraphScript_0_10);
 TYRA_SCRIPT(World_facts::FlowGraphScript_0_11);
+TYRA_SCRIPT(World_facts::FlowGraphScript_1_2);
+TYRA_SCRIPT(World_facts::FlowGraphScript_1_3);
+TYRA_SCRIPT(World_facts::FlowGraphScript_1_4);
+TYRA_SCRIPT(World_facts::FlowGraphScript_1_5);

@@ -136,14 +136,26 @@ struct DynTextData {
   float size;   // glyph height in pixels
 };
 
-constexpr int DYN_TEXT_COUNT = 5;
+constexpr int DYN_TEXT_COUNT = 17;
 constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
 inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1] = {
-    {0, 0.5F, 0.18F, 16.0F},  // scene 0, object 5, node 5
+    {0, 0.5F, 0.18F, 16.0F},  // scene 0, object 5, node 6
+    {0, 0.5F, 0.18F, 16.0F},  // scene 0, object 5, node 15
+    {0, 0.5F, 0.18F, 16.0F},  // scene 0, object 5, node 18
+    {0, 0.5F, 0.1F, 16.0F},  // scene 0, object 6, node 4
+    {0, 0.5F, 0.16F, 16.0F},  // scene 0, object 6, node 6
     {0, 0.5F, 0.1F, 16.0F},  // scene 0, object 8, node 4
     {0, 0.5F, 0.34F, 18.0F},  // scene 0, object 8, node 8
     {0, 0.5F, 0.26F, 16.0F},  // scene 0, object 9, node 5
+    {0, 0.5F, 0.26F, 16.0F},  // scene 0, object 9, node 14
+    {0, 0.5F, 0.26F, 16.0F},  // scene 0, object 9, node 18
+    {0, 0.5F, 0.26F, 16.0F},  // scene 0, object 9, node 19
     {0, 0.5F, 0.02F, 16.0F},  // scene 0, object 11, node 4
+    {0, 0.5F, 0.08F, 16.0F},  // scene 1, object 2, node 4
+    {0, 0.5F, 0.14F, 16.0F},  // scene 1, object 2, node 6
+    {0, 0.5F, 0.2F, 16.0F},  // scene 1, object 3, node 3
+    {0, 0.5F, 0.26F, 16.0F},  // scene 1, object 3, node 5
+    {0, 0.5F, 0.32F, 16.0F},  // scene 1, object 4, node 5
 };
 
 }  // namespace World_facts

@@ -1,0 +1,1 @@
+{"id": "fac71100000000a0", "name": "player-2", "type": "player", "position": [0, 1, 8], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.15, 0.9, 0.9], "physics": false, "player": {"mode": "walk", "walkSpeed": 0.1, "lookSpeed": 1, "eyeHeight": 1.8, "jumpSpeed": 4.5, "canJump": true}}
