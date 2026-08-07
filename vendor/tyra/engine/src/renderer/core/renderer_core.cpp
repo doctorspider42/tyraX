@@ -52,6 +52,10 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   // wiring, and the re-place after a display-mode VRAM reset (see
   // setDisplayOutput below).
   blss.init(&settings, &gs, &sync, &path1, &renderer3D);
+  // ... and how configure() asks for the permanent region to be laid out
+  // again, because turning BLSS on shrinks the z buffer to the raster size
+  // and the z buffer was allocated three lines into gs.init().
+  blss.setVramRebuild(&RendererCore::rebuildPermanentBuffersThunk, this);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
@@ -60,6 +64,26 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
 }
 
 void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
+
+// Modified by TyraX (BLSS): see the header. Deliberately NOT gs.reinit() -
+// the display geometry has not changed, and reinit()'s programDisplay() would
+// reset the GS and blank the output in the middle of a game's init().
+void RendererCore::rebuildPermanentBuffers() {
+  texture.evictAll();
+  gs.reallocateBuffers();
+  postFx.init(&settings, &gs);
+  envMap.init(&settings, &gs, &sync, &path1);
+  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  camFeed.init(&settings, &gs, &sync, &path1);
+  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+  TYRA_LOG("Permanent GS buffers re-placed (raster scale ",
+           settings.getRasterScaleX(), "x", settings.getRasterScaleY(),
+           "), texture heap free MB: ", gs.vram.getFreeSpaceInMB());
+}
+
+void RendererCore::rebuildPermanentBuffersThunk(void* user) {
+  static_cast<RendererCore*>(user)->rebuildPermanentBuffers();
+}
 
 // Modified by TyraX: runtime video output switch - see the header.
 void RendererCore::setDisplayOutput(const DisplayMode& mode,

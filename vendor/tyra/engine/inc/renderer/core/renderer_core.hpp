@@ -262,6 +262,20 @@ class RendererCore {
   Path3* getPath3() { return &path3; }
 
  private:
+  /**
+   * Modified by TyraX (BLSS): lay the permanent GS VRAM region out again, in
+   * the same relative order as init(), because the z buffer's SIZE changed.
+   *
+   * The body is setDisplayOutput's mode-change branch minus the mode: the
+   * frame buffers come back at the same addresses (they are allocated first),
+   * the z buffer at the raster size, and every permanent buffer above them has
+   * to be re-placed or it would still point at the old layout. Called by
+   * RendererCoreBlss::configure() through the hook below, which is why the
+   * blss re-place is NOT here - it allocates its own target right after.
+   */
+  void rebuildPermanentBuffers();
+  static void rebuildPermanentBuffersThunk(void* user);
+
   bool isFrameLimitOn;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier

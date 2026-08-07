@@ -49,8 +49,10 @@ namespace Tyra {
  *   renderer.endFrame();
  *
  * Costs, when enabled: one lowW x lowH PSMCT32 VRAM target (224 KB at
- * 512x448 / 2x2) and one EE packet. Nothing at all when it is off - VRAM and
- * the packet are allocated by configure().
+ * 512x448 / 2x2) and one EE packet - and it PAYS FOR ITSELF, because the z
+ * buffer shrinks to the raster size at the same time (672 KB back at 2x2, see
+ * RendererCoreGS::allocateVramBuffers). Nothing at all when it is off - VRAM
+ * and the packet are allocated by configure().
  */
 class RendererCoreBlss {
  public:
@@ -77,6 +79,24 @@ class RendererCoreBlss {
    * target after a display-mode switch (which resets the whole VRAM map). */
   void init(RendererSettings* settings, RendererCoreGS* gs,
             RendererCoreSync* sync, Path1* path1, RendererCore3D* core3D);
+
+  /**
+   * How configure() asks the renderer to lay the permanent GS VRAM region out
+   * again (RendererCore wires this to its own rebuildPermanentBuffers).
+   *
+   * It exists because the z buffer's SIZE follows the raster scale - with BLSS
+   * on the scene never rasterises at display resolution, so a 512x448 z
+   * reserves 672 KB nobody addresses - and the z buffer is the third thing
+   * RendererCoreGS allocates, long before a generated game's init() gets to
+   * call configure(). A plain function pointer rather than an owning pointer
+   * back to RendererCore: RendererCore holds this object BY VALUE, so the
+   * include would be circular, and this keeps the dependency one-way.
+   */
+  using VramRebuildFn = void (*)(void* user);
+  void setVramRebuild(VramRebuildFn fn, void* user) {
+    vramRebuild = fn;
+    vramRebuildUser = user;
+  }
 
   /**
    * Build-time config from the generated game's init(). scaleX/scaleY are
@@ -109,10 +129,17 @@ class RendererCoreBlss {
    * (2048 - lowW/2, 2048 - lowH/2) PLUS this frame's +-4/16 jitter, then
    * FRAME/SCISSOR/ZBUF for the low-res target and a clear sprite. No-op when
    * BLSS is off.
+   *
+   * It also PUBLISHES the redirect on the GS (redirectRasterTo) and unmasks
+   * z writes, which is what makes the env-map / camera-feed / shadow-map
+   * brackets inside the scene nest instead of cancelling it - see
+   * RendererCoreGS::RasterTarget.
    */
   void beginScene(const Color& clearColor);
 
-  /** Restore FRAME/SCISSOR/ZBUF/XYOFFSET for the display buffer. */
+  /** Close the redirect: FRAME/SCISSOR/ZBUF/XYOFFSET back to the display
+   * buffer, and z writes masked again (the z buffer only covers the low-res
+   * raster, so nothing after this may write scene depth). */
   void endScene();
 
   /** The 1..5 Gouraud grid passes into the display buffer (docs section 6).
@@ -183,6 +210,8 @@ class RendererCoreBlss {
   RendererCoreSync* sync = nullptr;
   Path1* path1 = nullptr;
   RendererCore3D* core3D = nullptr;
+  VramRebuildFn vramRebuild = nullptr;
+  void* vramRebuildUser = nullptr;
 
   bool enabled = false;
   bool allocated = false;

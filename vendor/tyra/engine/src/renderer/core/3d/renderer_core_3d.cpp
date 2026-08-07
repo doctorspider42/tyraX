@@ -84,6 +84,7 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   projection = M4x4::perspective(envFov, size, size,
                                  settings->getProjectionScale(), 1.0F,
                                  settings->getNear(), settings->getFar());
@@ -103,6 +104,7 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   Vec4 pos = position;
   Vec4 look = lookAt;
   M4x4::lookAt(&view, pos, look);
@@ -111,6 +113,7 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   view = savedView;
   projection = savedProjection;
   viewProj = savedViewProj;

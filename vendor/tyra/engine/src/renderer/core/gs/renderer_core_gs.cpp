@@ -59,6 +59,24 @@ void RendererCoreGS::initChannels() {
 }
 
 void RendererCoreGS::allocateBuffers() {
+  allocateVramBuffers();
+
+  // Resolve Auto to the console's actual region so games can read the real
+  // refresh rate back from RendererSettings (TyraX fork).
+  if (settings->getVideoMode() == VideoMode::Auto) {
+    settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
+                               ? VideoMode::PAL
+                               : VideoMode::NTSC);
+  }
+
+  programDisplay();
+
+  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+}
+
+// Modified by TyraX: split out of allocateBuffers so the permanent region can
+// be laid out again WITHOUT re-programming the display (reallocateBuffers).
+void RendererCoreGS::allocateVramBuffers() {
   // Modified by TyraX: physical buffer height - half the logical height in
   // the InterlacedField mode (true field rendering).
   frameBuffers[0].width = static_cast<unsigned int>(settings->getWidth());
@@ -79,20 +97,42 @@ void RendererCoreGS::allocateBuffers() {
   zBuffer.mask = 0;
   zBuffer.method = ZTEST_METHOD_GREATER_EQUAL;
   zBuffer.zsm = GS_ZBUF_32;
-  zBuffer.address = vram.allocateBuffer(frameBuffers[0].width,
-                                        frameBuffers[0].height, zBuffer.zsm);
+  // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
+  // RASTER, not the display buffer. With the raster scale on, nothing ever
+  // renders 3D at display resolution - the whole scene is bracketed into the
+  // low-res target and the composite that blows it back up masks z writes - so
+  // a 512x448 z reserves 172 032 words nobody addresses. At 2x2 that is
+  // 57 344 words instead of 229 376: 672 KB back, three times what the low-res
+  // colour target costs, which is what makes the feature VRAM-positive.
+  //
+  // The invariant it rides on (and that RendererCoreBlss::beginScene/endScene
+  // maintain): zBuffer.mask is 0 only INSIDE the low-res bracket. Every
+  // draw_enable_tests / draw_setup_environment in the engine reads that field,
+  // so the 2D/HUD/post-fx half of the frame - which draws full-screen sprites
+  // at z = 0xFFFFFFFF and would otherwise stamp 448 rows at a 512 stride -
+  // cannot reach past the smaller allocation.
+  zRasterScaleX = settings->getRasterScaleX();
+  zRasterScaleY = settings->getRasterScaleY();
+  const int zWidth = static_cast<int>(settings->getRasterWidthUI());
+  const int zHeight = static_cast<int>(settings->getRasterHeightUI());
+  zBuffer.address = vram.allocateBuffer(zWidth, zHeight, zBuffer.zsm);
 
-  // Resolve Auto to the console's actual region so games can read the real
-  // refresh rate back from RendererSettings (TyraX fork).
-  if (settings->getVideoMode() == VideoMode::Auto) {
-    settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
-                               ? VideoMode::PAL
-                               : VideoMode::NTSC);
-  }
+  TYRA_LOG("GS buffers: frame ", static_cast<int>(frameBuffers[0].width), "x",
+           static_cast<int>(frameBuffers[0].height), " x2, z ", zWidth, "x",
+           zHeight, " at ", static_cast<int>(zBuffer.address));
+}
 
-  programDisplay();
+bool RendererCoreGS::needsBufferRealloc() const {
+  return zRasterScaleX != settings->getRasterScaleX() ||
+         zRasterScaleY != settings->getRasterScaleY();
+}
 
-  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+// Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video
+// mode. See the header for why programDisplay() is deliberately not called.
+void RendererCoreGS::reallocateBuffers() {
+  vram.reset();
+  allocateVramBuffers();
+  initDrawingEnvironment();
 }
 
 // Modified by TyraX: video mode + display window + scan-out, split
@@ -321,6 +361,83 @@ void RendererCoreGS::initDrawingEnvironment() {
 int RendererCoreGS::getFieldYOffset16() const {
   if (!settings->isFieldRendering()) return 0;
   return currentField == GRAPH_FIELD_ODD ? 8 : 0;
+}
+
+// Modified by TyraX: the nesting raster target - see the header for why this
+// exists at all.
+RendererCoreGS::RasterTarget RendererCoreGS::getRasterTarget() const {
+  if (rasterRedirected) return redirect;
+
+  RasterTarget t;
+  const int w = static_cast<int>(settings->getWidth());
+  // The PHYSICAL buffer height (half the logical one in InterlacedField).
+  const int h = static_cast<int>(settings->getRenderHeightF());
+  t.frameAddress = static_cast<int>(frameBuffers[context].address);
+  t.frameWidth = static_cast<int>(frameBuffers[context].width);
+  t.scissorX0 = 0;
+  t.scissorX1 = w - 1;
+  t.scissorY0 = 0;
+  t.scissorY1 = h - 1;
+  t.offsetX16 = static_cast<int>((screenCenter - w / 2.0F) * 16.0F);
+  t.offsetY16 =
+      static_cast<int>((screenCenter - h / 2.0F) * 16.0F) + getFieldYOffset16();
+  return t;
+}
+
+void RendererCoreGS::redirectRasterTo(const RasterTarget& target) {
+  redirect = target;
+  rasterRedirected = true;
+}
+
+void RendererCoreGS::endRasterRedirect() { rasterRedirected = false; }
+
+qword_t* RendererCoreGS::emitRasterRestore(qword_t* q, bool texFlush) {
+  const RasterTarget t = getRasterTarget();
+
+  // NLOOP counts every register row below - an undercount stalls the GIF
+  // forever (the stray qword parses as a new giftag with a garbage NLOOP).
+  const int nloop = texFlush ? 4 : 3;
+  PACK_GIFTAG(q, GIF_SET_TAG(nloop, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  if (texFlush) {
+    // The bracket just rendered into VRAM the scene is about to sample as a
+    // texture - drop any stale texels of it from the GS texture cache.
+    PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
+    q++;
+  }
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, GS_PSM_32,
+                           0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_SCISSOR(t.scissorX0, t.scissorX1, t.scissorY0,
+                             t.scissorY1),
+              GS_REG_SCISSOR_1);
+  q++;
+  // Raw, not draw_primitive_xyoffset: the offset carries BLSS' sub-pixel
+  // jitter and the per-field bias in exact 1/16 units.
+  PACK_GIFTAG(q, GS_SET_XYOFFSET(t.offsetX16, t.offsetY16), GS_REG_XYOFFSET_1);
+  q++;
+  // The drawing environment's alpha/depth test.
+  q = draw_enable_tests(q, 0, &zBuffer);
+  // ZBUF written EXPLICITLY and LAST, not left to draw_enable_tests. Every
+  // bracket that gets here pointed ZBUF at its OWN depth buffer (the env map's
+  // 128x128, the shadow map's 64x64), so "restore" has to include putting the
+  // scene z back - and this must not depend on what a ps2sdk helper happens to
+  // pack. It cost a debugging session: the shadow-map bracket came back with
+  // ZBUF still on the 64x64 silhouette buffer, so every projected-shadow
+  // receiver patch failed GEQUAL against the caster's own light-space depth
+  // and no shadow was drawn at all. The mask is bracket-scoped (0 only inside
+  // the BLSS low-res bracket - see allocateVramBuffers).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_ZBUF(static_cast<int>(zBuffer.address) >> 11,
+                          static_cast<int>(zBuffer.zsm), zBuffer.mask),
+              GS_REG_ZBUF_1);
+  q++;
+  return q;
 }
 
 qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,

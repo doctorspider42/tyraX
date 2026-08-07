@@ -152,6 +152,42 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // The projection's raster scale changed; the world-space frustum planes did
   // not (they come from fov + aspectRatio) - see RendererCore3D::setProjection.
   if (core3D != nullptr) core3D->setFov(core3D->getFov());
+
+  // The z buffer is sized for the RASTER, and the raster scale only becomes
+  // known here - RendererCoreGS allocated it third, before this object existed
+  // in the init order. So the permanent VRAM region is laid out again, exactly
+  // the way a display-mode switch does it: textures evicted, frame/z buffers
+  // rebuilt (the frame buffers land at the same addresses, z at the smaller
+  // one), then every permanent buffer above them re-placed in the same
+  // relative order. Only when the size actually changes - a project with BLSS
+  // off never reaches this, and calling configure() twice with the same scale
+  // is free.
+  //
+  // Safe HERE and nowhere later: generated games call configure() at the top
+  // of init(), before buildScene() loads a single asset, so the eviction the
+  // rebuild performs has nothing to evict and docs/gs-vram.md's "permanent
+  // buffers before any texture" invariant holds.
+  if (gs != nullptr) {
+    // Mask scene-depth writes for everything OUTSIDE the low-res bracket, and
+    // do it before the rebuild - reallocateBuffers() re-sends the drawing
+    // environment, which is what puts the new mask on the GS. Every
+    // draw_enable_tests / draw_setup_environment in the engine reads this one
+    // field, so one assignment covers the frame clear, post fx, the 2D path
+    // and the env-map / shadow-map restores.
+    gs->zBuffer.mask = enabled ? 1 : 0;
+    if (gs->needsBufferRealloc()) {
+      if (vramRebuild != nullptr) {
+        vramRebuild(vramRebuildUser);
+        allocated = false;  // vram.reset() forgot our target
+      } else {
+        // No hook (an embedder driving RendererCoreBlss directly). An
+        // oversized z buffer is merely wasteful, never wrong, so carry on.
+        TYRA_WARN("BLSS: no VRAM rebuild hook - the z buffer keeps its "
+                  "display-resolution size.");
+      }
+    }
+  }
+
   if (!enabled) return;
 
   updateGeometry();
@@ -301,6 +337,12 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
                                     const float& texelArea,
                                     const float& luma) {
   if (!enabled || !inScene) return;
+  // A reflection probe / camera feed / shadow caster re-submits the SAME bags
+  // through a foreign camera, inside this bracket (that is what the nesting
+  // fix made actually happen). Their screen bboxes would be computed with that
+  // camera's view-projection and land in tiles they have nothing to do with,
+  // so the feature grid must not see them.
+  if (core3D->isForeignViewActive()) return;
 
   const Vec4 clip = core3D->getViewProj() * worldCenter;
   // Behind (or on) the near plane: no usable screen footprint.
@@ -623,6 +665,26 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
 
+  // PUBLISH the redirect before the packet is built. Two things read it:
+  // every nested bracket's end() (the env map, the camera feed, the shadow
+  // map - all of which run inside the generated renderScene() and used to
+  // restore the DISPLAY buffer here, silently cancelling BLSS), and
+  // draw_enable_tests through zBuffer.mask, which is unmasked for exactly the
+  // duration of this bracket because the z buffer only covers the low-res
+  // raster. The offsets carry the jitter, so a nested restore puts back THIS
+  // frame's sub-pixel offset and not a jitter-free one.
+  RendererCoreGS::RasterTarget target;
+  target.frameAddress = lowVram;
+  target.frameWidth = lowBufW;
+  target.scissorX0 = 0;
+  target.scissorX1 = lowW - 1;
+  target.scissorY0 = 0;
+  target.scissorY1 = lowH - 1;
+  target.offsetX16 = offX16;
+  target.offsetY16 = offY16;
+  gs->redirectRasterTo(target);
+  gs->zBuffer.mask = 0;
+
   packet2_reset(beginPacket, false);
   qword_t* q = beginPacket->base;
   // NLOOP = 9: XYOFFSET, FRAME, SCISSOR, ZBUF, TEST, RGBAQ, PRIM and the clear
@@ -686,36 +748,17 @@ void RendererCoreBlss::endScene() {
   // Drain the low-res scene itself before the raster moves back out.
   if (path1->isVU1Configured()) sync->align3D();
 
-  const auto* fb = gs->getCurrentFrameBuffer();
-  const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
-  const int zsm = static_cast<int>(gs->zBuffer.zsm);
-  const int offX16 = static_cast<int>((2048.0F - outW / 2.0F) * 16.0F);
-  const int offY16 =
-      static_cast<int>((2048.0F - outH / 2.0F) * 16.0F) +
-      gs->getFieldYOffset16();
+  // Close the redirect FIRST, so the restore below asks the GS for the display
+  // buffer, and mask scene-depth writes again: the z buffer only covers the
+  // low-res raster now, and everything that follows (composite, post fx, the
+  // HUD) draws full-screen. Both are read by emitRasterRestore.
+  gs->endRasterRedirect();
+  gs->zBuffer.mask = 1;
 
   packet2_reset(endPacket, false);
-  qword_t* q = endPacket->base;
-  // NLOOP = 5: TEXFLUSH, FRAME, SCISSOR, ZBUF, XYOFFSET.
-  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  // The low-res target was just rendered - drop stale texels of it from the GS
-  // texture cache before composite() samples it.
-  PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
-  q++;
-  PACK_GIFTAG(q,
-              GS_SET_FRAME(static_cast<int>(fb->address) >> 11,
-                           static_cast<int>(fb->width) >> 6, GS_PSM_32, 0),
-              GS_REG_FRAME_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_SCISSOR(0, outW - 1, 0, outH - 1), GS_REG_SCISSOR_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
-  q++;
-  // Raw again (not draw_primitive_xyoffset) to keep the per-field bias.
-  PACK_GIFTAG(q, GS_SET_XYOFFSET(offX16, offY16), GS_REG_XYOFFSET_1);
-  q++;
-  q = draw_enable_tests(q, 0, &gs->zBuffer);
+  // TEXFLUSH: the low-res target was just rendered and composite() is about to
+  // sample it as a texture.
+  qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
@@ -968,11 +1011,6 @@ void RendererCoreBlss::composite() {
   const auto* hist = gs->getPreviousFrameBuffer();
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
-  const auto* fb = gs->getCurrentFrameBuffer();
-  const int fbVram = static_cast<int>(fb->address);
-  const int fbBufW = static_cast<int>(fb->width);
-  const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
-  const int zsm = static_cast<int>(gs->zBuffer.zsm);
 
   packet2_reset(packet, false);
   qword_t* q = packet->base;
@@ -1024,16 +1062,13 @@ void RendererCoreBlss::composite() {
     q = emitGrid(q, 5);
   }
 
-  // Restore everything the rest of the frame machinery expects (mirrors the
-  // post fx restore block, plus the two registers only BLSS touches).
-  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
-              GS_REG_FRAME_1);
+  // Restore the TEXTURE / BLEND state only these passes touch (the raster
+  // registers come from emitRasterRestore below, which is also what puts the
+  // window-centred XYOFFSET the VU1 3D pipeline expects back - with the
+  // per-field bias, in one place).
+  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
   q++;
@@ -1047,19 +1082,7 @@ void RendererCoreBlss::composite() {
   q++;
   PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_MASK), GS_REG_COLCLAMP);
   q++;
-  q = draw_enable_tests(q, 0, &gs->zBuffer);
-
-  // Back to the window-centred offset the VU1 3D pipeline expects (raw, so the
-  // per-field bias survives - see RendererCoreGS::getFieldYOffset16).
-  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  PACK_GIFTAG(q,
-              GS_SET_XYOFFSET(
-                  static_cast<int>((2048.0F - outW / 2.0F) * 16.0F),
-                  static_cast<int>((2048.0F - outH / 2.0F) * 16.0F) +
-                      gs->getFieldYOffset16()),
-              GS_REG_XYOFFSET_1);
-  q++;
+  q = gs->emitRasterRestore(q, false);
 
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
