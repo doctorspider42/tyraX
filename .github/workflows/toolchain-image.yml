@@ -6,7 +6,8 @@
 #                        docs is measured against. amd64 only.
 #   tyrax-toolchain-src  docker/Dockerfile.fromsource - the official ps2dev base
 #                        with openvcl, vclpp and bin2s built from source. No
-#                        unlicensed binary, and multi-arch.
+#                        unlicensed binary. amd64 by default, arm64 on request
+#                        via the `platforms` input.
 #
 # Publishing target is GHCR, ghcr.io/<owner>/tyrax-toolchain, because it needs no
 # secrets: GITHUB_TOKEN can push packages of its own repo. The package inherits
@@ -29,7 +30,7 @@ on:
         type: boolean
         default: true
       platforms:
-        description: 'Target platforms (empty = per-image default; the from-source one is amd64+arm64)'
+        description: 'Target platforms (empty = amd64; the from-source image also builds linux/amd64,linux/arm64)'
         default: ''
   push:
     branches: [main]
@@ -65,8 +66,12 @@ jobs:
     #                pinned toolchain layer has no arm64 manifest, and the i386
     #                runtime it carries exists solely to run that binary.
     #   fromsource - the official ps2dev base with openvcl, vclpp and bin2s
-    #                built from source. No unlicensed binary, and multi-arch
-    #                because nothing in it is x86-only.
+    #                built from source. No unlicensed binary, and nothing in it
+    #                is x86-only - so arm64 is BUILDABLE, but not built by
+    #                default: every developer here is on x64, it doubles the
+    #                job (qemu-emulated, so more than doubles the minutes), and
+    #                the checks below cannot run it anyway. Ask for it with the
+    #                `platforms` input when someone actually needs it.
     #
     # fail-fast off: one flavour breaking is a fact worth having about the other.
     strategy:
@@ -81,16 +86,17 @@ jobs:
           - flavour: fromsource
             file: docker/Dockerfile.fromsource
             package: tyrax-toolchain-src
-            platforms: linux/amd64,linux/arm64
+            platforms: linux/amd64
             impl: openvcl
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # Only the from-source flavour has an arm64 manifest to build against; the
-      # manual `platforms` input overrides either, which is how you ask for a
-      # single-arch push when arm64 emulation is the slow part.
+      # Both flavours publish amd64. The manual `platforms` input is how you ask
+      # the from-source one for `linux/amd64,linux/arm64` - the inherited one
+      # cannot do it at all (its pinned toolchain layer has no arm64 manifest),
+      # so asking would fail the build rather than silently produce one arch.
       - name: Resolve platforms
         id: plat
         run: echo "value=${{ inputs.platforms || matrix.platforms }}" >> "$GITHUB_OUTPUT"

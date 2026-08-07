@@ -1,7 +1,13 @@
 # BuildKit reads <dockerfile>.dockerignore in preference to a context-root
 # .dockerignore, which is why this sits next to the Dockerfile instead of at the
 # repo root: the context IS the repo root (vendor/, build/, examples/ - gigabytes
-# of it), and the image build needs exactly one file out of it.
+# of it), and the image build needs a handful of files out of it.
 *
 !tools/ps2link/tyrax.patch
 !docker/openvcl-tyrax.patch
+# The audsrv fork's EE half is COMPILED into this image: its libaudsrv.a has to
+# come from this image's own toolchain (the committed one carries the stock
+# image's LTO bytecode). bin/audsrv.irx is copied in as it is - an IOP module
+# is embedded as data, never linked by the EE compiler.
+!vendor/tyra/audsrv/ee
+!vendor/tyra/audsrv/bin/audsrv.irx

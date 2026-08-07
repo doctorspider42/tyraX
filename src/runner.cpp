@@ -841,40 +841,34 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // shared volume: when the vendored IRX changes, libtyra has to
                            // be relinked so the new one gets re-embedded.
                            // ...and it is skipped on an image whose toolchain
-                           // cannot USE the vendored library. `bin/libaudsrv.a`
+                           // cannot USE the vendored library, because forcing it
+                           // there fails the link instead of the copy, and the
+                           // error names LTO rather than audsrv. `bin/libaudsrv.a`
                            // is built by vendor/tyra/audsrv/build.* with the
-                           // stock image's compiler and carries its LTO
-                           // bytecode, which a different GCC refuses outright
-                           // ("bytecode stream in file ... generated with LTO
-                           // version 11.3"). One committed artifact cannot serve
-                           // two toolchains, so ASK by trying the link rather
-                           // than guessing from a version string - the probe is
-                           // one empty main() and costs a few hundred ms once
-                           // per container.
+                           // stock image's compiler and carries its LTO bytecode;
+                           // a current GCC refuses it outright.
                            //
-                           // Skipping is a real loss, not a tidy fallback: the
+                           // Ask by trying the link rather than guessing from a
+                           // version string - and force --whole-archive, or the
+                           // probe is worthless: a main() referencing nothing
+                           // from the library never makes the linker OPEN its
+                           // members, so the bad bytecode is never read.
+                           // Measured - without it, an image that cannot build
+                           // the game reported success.
+                           //
+                           // Skipping is a real loss and is reported as one: the
                            // fork is what puts ADPCM voices on both SPU2 cores,
-                           // and without it the second reverb unit is
-                           // unreachable and reverb zones stop cross-fading
-                           // (docs/reverb.md). So say so loudly. The way out is
-                           // to build the fork against that image - its
-                           // build.sh already takes one - or to build it without
-                           // LTO so a single artifact links anywhere; both are
+                           // so without it the second reverb unit is unreachable
+                           // and reverb zones stop cross-fading (docs/reverb.md).
+                           // Building the fork against such an image is a PORT,
+                           // not packaging - its sources call ps2sdk's SIF RPC by
+                           // the old unprefixed names and a current ps2sdk only
+                           // exports the sce-prefixed ones (ten symbols). That is
                            // in docs/backlog.md.
-                           // --whole-archive is the whole point of the probe: a
-                           // main() that references nothing from the library
-                           // never makes the linker OPEN its members, so the
-                           // bad bytecode is never read and the probe passes on
-                           // an image that cannot actually build the game.
-                           // Measured - without it both images said "links".
-                           "printf 'int main(){return 0;}' > /tmp/audsrv-probe.c; "
-                           "if ! mips64r5900el-ps2-elf-gcc /tmp/audsrv-probe.c "
-                           "-Wl,--whole-archive /engine-src/audsrv/bin/libaudsrv.a "
-                           "-Wl,--no-whole-archive -o /tmp/audsrv-probe.elf "
-                           ">/dev/null 2>&1; then "
-                           "  echo '[editor] WARNING: this image cannot link the vendored "
-                           "audsrv (built for another toolchain) - skipping the overlay. "
-                           "Positional audio and the second SPU2 reverb unit are OFF.'; "
+                           "if grep -q AUDSRV_ADPCM_CH_CORE "
+                           "/usr/local/ps2dev/ps2sdk/ee/include/audsrv.h 2>/dev/null; then "
+                           "  echo '[editor] Image already carries the TyraX audsrv "
+                           "- skipping the overlay.'; "
                            "else "
                            "md5sum /engine-src/audsrv/bin/audsrv.irx "
                            "/engine-src/audsrv/bin/libaudsrv.a "

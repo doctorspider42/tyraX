@@ -68,6 +68,48 @@ RUN git clone --quiet --filter=blob:none https://github.com/ps2dev/ps2sdk.git /s
     && gcc -O2 -o /out/bin/bin2s /src/ps2sdk/tools/bin2s/src/bin2s.c \
     && chmod 0755 /out/bin/bin2s
 
+# ------------------------------------------------------------------- audsrv --
+# The TyraX audsrv fork (vendor/tyra/audsrv) is a dependency, not decoration:
+# the engine calls AUDSRV_ADPCM_CH_CORE / _CH_VOICE / _CHANNELS / _FORCE, none
+# of which exist in a stock audsrv, so without the fork the engine does not
+# COMPILE - never mind losing the second SPU2 reverb unit (docs/reverb.md).
+#
+# Its committed bin/libaudsrv.a cannot be reused here: it carries the stock
+# image's LTO bytecode and this toolchain refuses it. So the EE half is compiled
+# here, from the same sources, by the compiler that will link it. What makes
+# that possible across both SDKs is ee/src/sif-compat.h - upstream renamed ten
+# SIF RPC entry points to sce-prefixed ones and the two SDKs export disjoint
+# sets, so the sources keep the old names and the header aliases them when
+# TYRAX_PS2SDK_SCE_SIF says the new SDK is in play. That switch is set HERE and
+# nowhere else, because this file is the one place that knows which ps2sdk the
+# result will be linked against - the compile itself cannot tell (the sources
+# are always built against the pinned OLD tree; see the header for the trap).
+#
+# Only the EE half. audsrv.irx is an IOP module the engine EMBEDS as data
+# (bin2s -> a blob in libtyra); no EE compiler links it, so the committed one is
+# toolchain-agnostic. That also sidesteps the IOP compiler having been renamed
+# (mipsel-ps2-irx-gcc here, mipsel-none-elf-gcc on a current base).
+FROM ${PS2DEV_BASE} AS audsrv-build
+
+# Keep equal to PS2SDK_COMMIT in vendor/tyra/audsrv/build.sh: the last ps2sdk
+# that carries upstream positional audio and still builds without srxfixup.
+ARG AUDSRV_PS2SDK_COMMIT=e78a9cb2ea816a72a7466000c51558fd2b57f5a7
+
+RUN apk add --no-cache git make
+
+COPY vendor/tyra/audsrv/ee /fork/ee
+
+RUN git init -q /w \
+    && git -C /w fetch -q --depth 1 https://github.com/ps2dev/ps2sdk.git "${AUDSRV_PS2SDK_COMMIT}" \
+    && git -C /w checkout -q FETCH_HEAD \
+    && rm -rf /w/ee/rpc/audsrv \
+    && mkdir -p /w/ee/rpc/audsrv \
+    && cp -r /fork/ee/. /w/ee/rpc/audsrv/ \
+    && TYRAX_PS2SDK_SCE_SIF=1 PS2SDKSRC=/w make -C /w/ee/rpc/audsrv CC=gcc \
+    && install -D -m 0644 /w/ee/rpc/audsrv/lib/libaudsrv.a /out/lib/libaudsrv.a \
+    && install -D -m 0644 /w/ee/rpc/audsrv/include/audsrv.h /out/include/audsrv.h \
+    && grep -q AUDSRV_ADPCM_CH_CORE /out/include/audsrv.h
+
 # ---------------------------------------------------------------- ps2link --
 FROM ${PS2DEV_IMAGE} AS ps2link-build
 
@@ -99,6 +141,14 @@ ARG VCL_FLAGS="--schedule-flag-readers --fmac-interlock --sce-latencies --emit-d
 RUN apk add --no-cache make rsync libstdc++ gmp mpfr4 mpc1
 
 COPY --from=ps2link-build /out/ /usr/local/share/tyrax/ps2link/
+
+# The TyraX audsrv over the base's stock one. src/runner.cpp sees the fork-only
+# AUDSRV_ADPCM_CH_CORE in this header and skips its own overlay, which would
+# otherwise put the other toolchain's artifacts back.
+COPY --from=audsrv-build /out/lib/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a
+COPY --from=audsrv-build /out/include/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h
+COPY vendor/tyra/audsrv/bin/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx
+
 COPY --from=vu-tools /out/bin/openvcl /usr/local/bin/openvcl
 COPY --from=vu-tools /out/bin/vclpp /usr/local/bin/vclpp
 # Makefile.base spells this one out as $(PS2SDK)/bin/bin2s, so it goes back

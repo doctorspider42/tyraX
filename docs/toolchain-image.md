@@ -2045,8 +2045,17 @@ The old image is `linux/amd64` only, and so is ours — it inherits that layer. 
 is the one thing an Apple Silicon or arm64-CI user pays for the decision above:
 the toolchain runs under emulation there. Both pieces that block a native arm64
 image are the same piece — the i386 `vcl` and the amd64-only base — so arm64
-arrives with the `openvcl` migration, not before. The workflow already takes a
-`platforms` input for the day that lands.
+arrives with the `openvcl` migration, not before.
+
+**It has now landed, and is still not built by default.** The from-source image
+below has nothing x86-only in it and its base carries an arm64 manifest, so
+`platforms: linux/amd64,linux/arm64` works. The workflow publishes amd64 anyway
+and takes arm64 through its manual `platforms` input, for three reasons worth
+writing down rather than re-deciding: nobody here is on arm64, the second arch
+is qemu-emulated on a GitHub runner so it more than doubles the job, and the
+image checks cannot run it — `load: true` refuses a multi-arch result, so the
+arm64 half would be built and never started. An unused, unexercised arch in
+every push is a slower CI and a weaker signal at once.
 
 ## Pinning, and why `:latest` was the actual bug
 
@@ -2269,7 +2278,7 @@ compiler with `apt-get`, which Alpine does not have - and the failure surfaced a
 "A VU source failed to build", sending the reader into their own C++. It asks the
 image now.
 
-**Real engine bugs the old image was hiding** (two), and these are the argument
+**Real engine bugs the old image was hiding** (three), and these are the argument
 for doing this at all:
 
 * `renderer_3d_pipeline.hpp` used `std::function` without including
@@ -2282,13 +2291,53 @@ for doing this at all:
   at a missing slash. The game could open no file at all, including its own log.
   `getCwd()` also ignored `getcwd()`'s return value, handing callers stack
   garbage on failure.
+* `RendererCoreTexture::unregisterAllocation` searched for a texture id and, if
+  it was not registered, erased at an **uninitialised** index - a corrupted
+  vector or a crash from a caller that merely asked twice. GCC 11 did not see
+  it; GCC 15 does, and `-Werror` turns that into a build failure. It now erases
+  inside the loop and warns instead.
 
-And one thing **removed**: the vendored `audsrv` panning overlay
-(`vendor/tyra/audsrv-pan`) is unnecessary on a current base, because upstream
-ps2sdk has carried `audsrv_adpcm_set_volume_and_pan` since 2023. Worse than
-unnecessary - its prebuilt `libaudsrv.a` carries GCC 11.3 LTO bytecode that a
-newer toolchain refuses to link. The Runner now asks the image whether its own
-audsrv has the API and skips the overlay when it does.
+### audsrv: the one dependency that had to be ported, not copied
+
+The image cannot just carry the committed `vendor/tyra/audsrv/bin/libaudsrv.a`.
+It is built by the stock image's GCC 11.3 and carries that compiler's LTO
+bytecode, which GCC 15.2 refuses outright - and one committed artifact cannot
+serve two toolchains. Nor can the fork simply be dropped: the engine calls
+`AUDSRV_ADPCM_CH_CORE`, `_CH_VOICE`, `_CHANNELS` and `_FORCE`, none of which
+exist in a stock audsrv, so without it the engine does not **compile** - never
+mind losing positional audio and the second SPU2 reverb unit (`docs/reverb.md`).
+
+So the EE half is compiled inside the image, from the same sources, by the
+compiler that will link it. What made that a port rather than a copy is a
+rename: upstream moved ten EE-side SIF RPC entry points to `sce`-prefixed names,
+and the two SDKs export **disjoint** sets - measured, not assumed.
+
+| | `SifCallRpc` | `sceSifCallRpc` |
+|---|---|---|
+| `h4570/tyra`'s ps2sdk (2022) | in `libkernel.a` | absent |
+| a current ps2dev ps2sdk | absent | in `libkernel.a` |
+
+`vendor/tyra/audsrv/ee/src/sif-compat.h` aliases the ten, gated on
+`TYRAX_PS2SDK_SCE_SIF`. The switch has to come from **outside** the compile and
+that is not laziness: the module is always built against the pinned old ps2sdk
+source tree, so every header the preprocessor can see is the old one whichever
+image is building - only the link target differs. (`__has_include(<sifrpc-common.h>)`
+was tried and is exactly that trap: the file is present in a current image and
+still invisible to this compile, so it silently chose the old names and the game
+failed to link.) `Dockerfile.fromsource` sets the variable because it is the one
+place that knows which ps2sdk the result will be linked against; the inherited
+image sets nothing and gets the old names, unchanged.
+
+Only the EE half is rebuilt. `audsrv.irx` is an IOP module the engine **embeds
+as data** (`bin2s` → a blob in `libtyra`), so no EE compiler links it and the
+committed one is toolchain-agnostic - which also sidesteps the IOP compiler
+having been renamed (`mipsel-ps2-irx-gcc` here, `mipsel-none-elf-gcc` on a
+current base). That last prebuilt artifact is the open item in `docs/backlog.md`.
+
+The Runner's overlay is now skipped by asking the image whether it already
+carries the fork (`grep AUDSRV_ADPCM_CH_CORE` in its `audsrv.h`) rather than by
+probing whether the committed library links - otherwise it would put the other
+toolchain's artifacts straight back over the ones the image built.
 
 ### Verified
 
@@ -2300,6 +2349,19 @@ audsrv has the API and skips the overlay when it does.
 | microcode, all 70 | - | **byte-identical to the inherited build** |
 | `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
 | VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |
+| audsrv | committed `bin/`, overlaid at container start | **EE half compiled in the image, `sce`-prefixed, fork intact** |
+
+The audsrv row is checked, not assumed. `audsrv_init()` sits under a
+`TYRA_ASSERT` and is one of the calls the compat header rewrites, so a game that
+reaches its render loop has already completed the EE→IOP RPC handshake with the
+fork's own IRX - a mismatch halts on-screen instead. `vu-lab` boots to the scene
+with 0 assertions, and the log shows the Runner reporting *"Image already carries
+the TyraX audsrv - skipping the overlay."* Both spellings were verified in both
+directions: without the define the build emits `SifCallRpc`/`SifSetDma` and links
+on the old SDK, with it `sceSifCallRpc`/`sceSifSetDma` and links on the current
+one. `SifAllocIopHeap`/`FreeIopHeap`/`InitIopHeap` kept their names upstream and
+resolve from `libkernel.a` either way, which is why the header lists ten and not
+thirteen.
 
 ## Still open
 
@@ -2308,8 +2370,10 @@ audsrv has the API and skips the overlay when it does.
 - **The toolchain jump is unexplored.** GCC 11.3 → 15.2 on a glibc base is the
   interesting experiment (it needs the from-source ps2dev build above), and it is
   independent of the `openvcl` question.
-- **`vendor/tyra`'s audsrv overlay is still applied at container start** by the
-  Runner rather than baked into the image, because `vendor/` is fetched by
-  `deps.*` and is not in the image's build context. Baking it in would remove one
-  first-build step; the stamping logic in `src/runner.cpp` explains why it is
-  cheap as it stands.
+- **`vendor/tyra`'s audsrv overlay is still applied at container start** on the
+  *inherited* image, by the Runner rather than baked in, because `vendor/` is
+  fetched by `deps.*` and is not in that image's build context. The from-source
+  image bakes it (its `.dockerignore` lets exactly those paths through) and the
+  Runner detects that and skips. Baking it into the inherited image too would
+  remove one first-build step; the stamping logic in `src/runner.cpp` explains
+  why it is cheap as it stands.

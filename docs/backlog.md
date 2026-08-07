@@ -108,17 +108,17 @@ the verification, and any fact worth reusing belongs in the relevant
   the same run on a physical PS2 (PCSX2's COP2 timing is not the console's), and
   a measurement of what `run()` actually costs in EE time per batch size - the
   docs say "32 elements is microseconds" from reasoning, not from a stopwatch.
-- **One audsrv artifact cannot serve two toolchains.** `vendor/tyra/audsrv/bin/`
-  is committed as built by the stock image's compiler, and it carries that
-  compiler's LTO bytecode - so the from-source image (GCC 15.2) refuses it
-  outright and the Runner skips the overlay with a warning, which costs
-  positional audio and the second SPU2 reverb unit on that image. Two ways
-  out, both small: build the fork **without LTO**, so one artifact links
-  under any GCC of the same ABI (check what it costs in size and speed), or
-  commit a second set per toolchain and pick by probe (more files, no
-  thinking required). The first is better if the numbers allow it. Until
-  then the from-source image is fine for graphics work and wrong for audio
-  work, which is a sharp enough edge to be worth removing.
+- **The audsrv fork's IOP half is not rebuilt from source on a modern base.**
+  The EE half is (docker/Dockerfile.fromsource compiles it with the image's own
+  toolchain, which is what makes libaudsrv.a linkable there), but `audsrv.irx`
+  is copied in as the committed binary. That is SOUND - an IOP module is
+  embedded as data and no EE compiler touches it - and it is still a prebuilt
+  artifact in an image whose whole point is not having any. Rebuilding it needs
+  the IOP toolchain rename handled: this ps2sdk calls it `mipsel-ps2-irx-gcc`
+  and a current image ships `mipsel-none-elf-gcc`, so either the old Rules.make
+  gets the prefix passed in, or the fork moves to a newer ps2sdk pin (which is
+  the one that needs srxfixup - present on the new base, absent on the old, so
+  that road forks the sources per image).
 - **openvcl: a minimal reproducer for the loop-liveness bail-out.** The bug is
   closed by `--loop-liveness-always` (measured: without it, three of the five
   `as_is_*` programs clobber a register carried across the back edge), and the
