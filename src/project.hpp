@@ -1036,6 +1036,12 @@ struct ProjectSettings {
     // is exactly why "why did the layer not unload / why is that not
     // reflecting" is hard to see - this puts the volume back on screen.
     bool showAreas = false;
+    // Debug profile only: draw every collider's COLLISION BOX in the game as a
+    // red wireframe (docs/collision-boxes.md). What the walker and the
+    // third-person camera boom test is that box, not the mesh - so a prop that
+    // blocks short of its surface, or a camera that pulls in early, cannot be
+    // explained by what is on screen until the box is too.
+    bool showCollision = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
@@ -1377,6 +1383,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
+           a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&

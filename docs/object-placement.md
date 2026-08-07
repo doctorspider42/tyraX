@@ -52,6 +52,12 @@ ground and not half-buried. Terrain is sampled at the footprint's corners and
 center (inset slightly, so a prop overhanging a cliff edge isn't lifted by the
 cliff). Footprints that merely touch edge to edge do not stack.
 
+Finding *which* surface the cursor is over (a dragged model, a staged paste)
+uses the same bounds a click does — the object's drawn shape, not a unit cube
+— so what you aim at is what you land on. Areas and procedural volumes are
+skipped there: they are wireframe authoring regions with nothing to rest on,
+and a map-sized box would otherwise catch the drop in mid-air.
+
 There is no swept collision and no penetration solver — this is "drop it on
 the floor", extended to props resting on other props. Moving an object with
 the gizmo is still completely free; snapping happens when an object is

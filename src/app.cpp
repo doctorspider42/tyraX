@@ -1340,6 +1340,17 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                                hasProject_))
+                showCollisionBoxes_ = !showCollisionBoxes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the box the GAME blocks the player and the "
+                    "third-person\ncamera with (red). A model collides as its "
+                    "bounding box, not its\nmesh, so this is what explains a "
+                    "prop you cannot walk up to or a\ncamera that pulls in "
+                    "early. The running game can draw the same\nboxes - "
+                    "Preferences > Build > Show collision boxes.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -2505,6 +2516,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        viewport_.setCollisionOverlay(showCollisionBoxes_);
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -3098,18 +3110,25 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
+        // Clicking the same spot again walks the stack under it (viewportPick).
         if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
-            const int hit = viewport_.pick(u, v, project_.objects());
+            bool cycled = false;
+            const int hit = viewportPick(u, v, io.MousePos, &cycled);
             if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
             }
+            // A cycle click is hunting through a stack, not a new framing:
+            // leave the orbit pivot where it is (the block below re-snaps it
+            // to the selection otherwise), or the camera walks away under the
+            // cursor while you are still clicking the same spot.
+            if (cycled) navFocusedIndex_ = selectedObject_;
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -5518,6 +5537,39 @@ void App::redo() {
     statusMessage_ = "Redo";
 }
 
+// One viewport click -> one object index (-1 for empty space). Clicking the
+// same spot AGAIN steps to the next object stacked under the cursor and wraps
+// at the end, so props standing inside each other - and the areas and
+// procedural volumes enclosing them, which the pick order deliberately ranks
+// last - can all be reached without leaving the viewport. Any click a few
+// pixels away starts a fresh cycle at the frontmost hit.
+int App::viewportPick(float u, float v, ImVec2 mouse, bool* cycled) {
+    if (cycled) *cycled = false;
+    const float kSameSpot = 4.0f;  // a click, not a nudge of the mouse
+    const bool sameSpot = std::fabs(mouse.x - pickCyclePos_.x) < kSameSpot &&
+                          std::fabs(mouse.y - pickCyclePos_.y) < kSameSpot;
+    const int n = (int)project_.objects().size();
+    if (sameSpot && pickCycle_.size() > 1) {
+        for (size_t k = 0; k < pickCycle_.size(); ++k) {
+            if (pickCycle_[k] != pickCycleLast_) continue;
+            // Next still-existing candidate, wrapping (an undo or a delete may
+            // have shortened the scene since the cycle started).
+            for (size_t s = 1; s <= pickCycle_.size(); ++s) {
+                const int cand = pickCycle_[(k + s) % pickCycle_.size()];
+                if (cand < 0 || cand >= n) continue;
+                pickCycleLast_ = cand;
+                if (cycled) *cycled = true;
+                return cand;
+            }
+            break;
+        }
+    }
+    viewport_.pickAll(u, v, project_.objects(), pickCycle_);
+    pickCyclePos_ = mouse;
+    pickCycleLast_ = pickCycle_.empty() ? -1 : pickCycle_[0];
+    return pickCycleLast_;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
@@ -5586,10 +5638,14 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
         const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
         float oMinX = 1e30f, oMinY = 1e30f, oMaxX = -1e30f, oMaxY = -1e30f;
         bool anyFront = false;
+        // The box the object DRAWS as, scale folded in - the same bounds a
+        // click tests, so a marquee over a model's upper half catches it.
+        float bmn[3], bmx[3];
+        viewport_.pickBounds(o, bmn, bmx);
         for (int s = 0; s < 8; ++s) {
-            const float lx = ((s & 1) ? 0.5f : -0.5f) * o.scale[0];
-            const float ly = ((s & 2) ? 0.5f : -0.5f) * o.scale[1];
-            const float lz = ((s & 4) ? 0.5f : -0.5f) * o.scale[2];
+            const float lx = (s & 1) ? bmx[0] : bmn[0];
+            const float ly = (s & 2) ? bmx[1] : bmn[1];
+            const float lz = (s & 4) ? bmx[2] : bmn[2];
             const float y1 = ly * cx - lz * sx, z1 = ly * sx + lz * cx, x1 = lx;  // Rx
             const float x2 = x1 * cy + z1 * sy, z2 = -x1 * sy + z1 * cy, y2 = y1;  // Ry
             const float x3 = x2 * cz - y2 * sz, y3 = x2 * sz + y2 * cz, z3 = z2;  // Rz
@@ -13297,6 +13353,18 @@ void App::drawPreferencesModal() {
         "the console by design, which is exactly why \"why did that layer not\n"
         "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
         "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();

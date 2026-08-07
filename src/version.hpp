@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 5
+#define TYRAX_VERSION_MINOR 7
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -58,6 +58,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // loudness alone - no migration step. (The Play Sound node's matching
 // Priority parameter is a flow-node param and rides the existing num array,
 // which needs no format bump of its own.)
-inline constexpr int kFormatVersion = 5;
+// v6 (collision-box overlay, docs/collision-boxes.md):
+// ProjectSettings::showCollision - the debug-profile preference that draws
+// every collider's box in the running game, next to showAreas. Purely additive
+// and it defaults to false, which is what every older file gets and what the
+// game did before, so no migration step.
+inline constexpr int kFormatVersion = 6;
 
 }  // namespace version
