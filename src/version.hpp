@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 6
+#define TYRAX_VERSION_MINOR 8
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -58,14 +58,21 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // loudness alone - no migration step. (The Play Sound node's matching
 // Priority parameter is a flow-node param and rides the existing num array,
 // which needs no format bump of its own.)
-// v6 (World Facts, docs/world-facts.md): the "facts" section - the declared
+// v6 (collision-box overlay, docs/collision-boxes.md):
+// ProjectSettings::showCollision - the debug-profile preference that draws
+// every collider's box in the running game, next to showAreas. Purely additive
+// and it defaults to false, which is what every older file gets and what the
+// game did before, so no migration step.
+// v7 (World Facts, docs/world-facts.md): the "facts" section - the declared
 // fact catalog, the named queries over it, the reaction rules and the saved
 // test scenarios. Purely additive: a project with no facts writes no section
 // and behaves exactly as it did, so no migration step. A fact's `id` is
 // stamped by project::ensureFactIds on load, which is what lets a player's
-// save survive renames and reordering later. (Authored as v4 on its own
-// branch and renumbered on the merge - the reverb and sound-priority bumps
-// took 4 and 5 first.)
-inline constexpr int kFormatVersion = 6;
+// save survive renames and reordering later. (Authored as v4 on its own branch
+// and renumbered TWICE on the way in - the reverb and sound-priority bumps took
+// 4 and 5, then the collision-box overlay landed on main and took 6. A branch
+// that lives a while renumbers rather than argues; the number means "what the
+// file may contain", and only main gets to say which is which.)
+inline constexpr int kFormatVersion = 7;
 
 }  // namespace version
