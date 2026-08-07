@@ -12,15 +12,13 @@ BLSS is the other half of DLSS — **the part that picks and blends
 reconstruction kernels** — done honestly, on hardware that has a 147 MHz
 rasteriser and no pixel shaders at all.
 
-> Status: **proof of concept**, off by default, and **not yet worth enabling**.
-> The network is real, trained and measured: on the training corpus it beats
-> every fixed kernel by 1.10 dB and captures 70 % of the headroom a perfect
-> per-tile decision would have. On held-out shots it loses to plain bilinear,
-> for a reason we can name — see [Measured](#measured). The engine half
-> **compiles** (`libtyra.a` and an example ELF both build) but has **never run
-> in PCSX2 or on hardware**, so every number here is the host twin's: faithful
-> to the GS's arithmetic, silent about milliseconds. See
-> [Limitations](#limitations).
+> Status: **proof of concept**, off by default. The network is real, trained and
+> measured, and it now beats every fixed kernel on both image quality and
+> temporal stability, in and out of distribution. It **boots and runs in PCSX2**
+> (50 FPS, no assert). Frame timings are not measured, it has not run on real
+> hardware, and there are two known correctness issues in
+> [Limitations](#limitations) — one of which silently disables the whole feature
+> around env maps and projected shadows. See [Measured](#measured).
 
 ## Why this can work at all on a PS2
 
@@ -241,52 +239,69 @@ asset.
 ## Measured
 
 `--blss-eval`, 84 corpus frames over 7 shots, 512x448 output from a 256x224
-render, PSNR against a 4x supersampled ground truth. Shots are held out whole
-(neighbouring frames of one camera move are near-duplicates, so a random frame
-split would leak) and the split strides the bestiary rather than taking the tail
-— see the note in `isHeldOut`.
+render. **PSNR** is against a 4x supersampled ground truth; **flicker** is the
+mean per-pixel change between consecutive frames of one shot, which exists
+because per-frame PSNR is structurally blind to temporal instability — see
+below. Shots are held out whole and the split strides the bestiary.
 
-| | training shots (60) | held-out shots (24) |
-|---|---|---|
-| native full-res, 1 sample | 30.56 | 24.80 |
-| half-res + point | 25.57 | 20.57 |
-| half-res + bilinear | 28.45 | 23.26 |
-| half-res + temporal | 28.98 | 19.52 |
-| half-res + sharpen | 26.45 | 21.37 |
-| **half-res + BLSS (trained)** | **29.54** | **21.03** |
-| half-res + oracle weights | 30.01 | 24.05 |
+| | training PSNR | flicker | held-out PSNR | flicker |
+|---|---|---|---|---|
+| native full-res, 1 sample | 30.56 | 21.98 | 24.80 | 29.96 |
+| half-res + point | 25.57 | 24.80 | 20.57 | 30.54 |
+| half-res + bilinear | 28.45 | 23.41 | 23.26 | 28.40 |
+| half-res + temporal | 25.69 | 12.35 | 15.69 | 21.38 |
+| half-res + sharpen | 26.45 | 25.30 | 21.37 | 33.46 |
+| **half-res + BLSS (trained)** | **29.54** | **21.56** | **23.43** | **27.11** |
+| half-res + oracle weights | 30.36 | 19.94 | 24.09 | 25.63 |
 
-Read it like this:
-
-- **In distribution the method works.** BLSS beats every fixed kernel — by
-  1.10 dB over bilinear — and captures **70 %** of the headroom that exists at
-  all (the oracle is what a perfect per-tile decision would score). It wins on
-  all five training shots.
-- **Out of distribution it does not, and we know why.** BLSS is 2.23 dB *below*
-  bilinear on the held-out shots while the oracle is 0.79 dB above: the
-  information is there, the network is not finding it from features that
-  transfer. See the next point — this number is the price of an honest feature.
-- **The `texDetail` channel is deliberately weaker than it could be, and that
-  is what costs the generalisation.** The corpus originally folded the UV span
-  into it, which makes it an excellent aliasing predictor — and a quantity the
-  console cannot compute, because `stapip_core.cpp` can only hand BLSS
-  `texW * texH` and has no idea how many times a material tiles. Trained that
-  way, a floor tiling 100x learns at `texDetail = 1.0` and runs at `~0.03`.
-  That version measured **23.24 dB held-out** (parity with bilinear) — a
-  flattering number for a network the hardware cannot run. Cutting it back to
-  the raw texture area put both sides on the same quantity and cost 2.2 dB.
-  **So "bake a per-material UV-repeat constant" is not a nice-to-have upgrade;
-  it is the thing standing between this and a feature worth enabling.**
-- **`native` is not a ceiling.** The reference is supersampled, so a good
+- **It beats every fixed kernel on both axes.** +1.09 dB over bilinear in
+  distribution, +0.18 dB out of it, and *less* flicker than bilinear in both —
+  in fact less flicker than a full-resolution native render (21.56 against
+  21.98), which is what the temporal pass is for.
+- **The flicker column exists because a bug got past PSNR.** The temporal pass
+  originally capped at a flat 50 % mix of the previous frame. The history is the
+  previous frame's own composite, so that is an exponential accumulator with a
+  time constant of about one frame — against a jitter that alternates every
+  frame it *tracks* the alternation instead of averaging it out, and settles
+  into a stationary sub-pixel oscillation that looks exactly like bob
+  deinterlacing on a television. Per-frame PSNR **rewarded** it: the mix of two
+  jitter phases is genuinely closer to the supersampled truth than either phase.
+  It was caught by a human watching the emulator, not by the metric. Raising the
+  cap to ~0.9 retention (`kTemporalMax`) fixed it and improved PSNR too.
+- **Empty tiles are no longer the network's business.** The oracle's importance
+  weighting gives "tiles where every kernel is identical" no vote, so the net
+  was never supervised on sky and happily asked for full temporal reconstruction
+  of it — free in PSNR, ghosting on a camera turn. Both twins now force tiles
+  below `kMinCoverage` to zero.
+- Those two fixes together moved the held-out row from **2.23 dB below**
+  bilinear to **0.18 dB above** it.
+- **`native` is not a ceiling** — the reference is supersampled, so a good
   temporal reconstruction can in principle beat a 1-sample full-resolution
-  render. `temporal` alone nearly does on the training shots (28.98 vs 28.45
-  bilinear) before falling apart on the high-motion held-out ones.
+  render.
 
-**Console timings are not measured.** The engine half compiles (`libtyra.a` and
-an `examples/cube` ELF both build in the Docker toolchain) but has never been run
-in PCSX2 or on hardware, so the numbers above are the host twin's. The twin is
-faithful to the GS's arithmetic; it says nothing about milliseconds. Treat the
-fill-cost discussion above as arithmetic, not measurement.
+### On the console
+
+Booted in PCSX2 from a scratch `fpp` project (512x512 interlaced, 2 640+ frames,
+50 FPS, 100 % speed, no assert, no texture eviction, one 256x256 low-res target
+at 224 KB). Frame-to-frame change of the *displayed* picture on a static camera,
+same emulator settings for both:
+
+| | on-screen change per frame |
+|---|---|
+| BLSS off | **0.000 %** |
+| BLSS on | 0.02 – 0.16 % |
+
+So the reconstruction is stable but not perfectly still: the accumulator's tail
+is visible as ~800 changed pixels out of 645 000. **Watch out for interlaced
+output.** With PCSX2's deinterlacer *off*, the picture visibly bobs — BLSS adds
+a half-scanline vertical jitter on top of a signal whose fields are already a
+line apart, and the two appear to compound. Turning the deinterlacer on removes
+it. Which of the two is the dominant term has not been isolated (the BLSS-off /
+deinterlacer-off corner was never measured), and locking the jitter phase to the
+field parity is the obvious fix — it is in [the backlog](backlog.md).
+
+**Frame timings are still not measured** — no profiling pass has been run, so
+the fill-cost discussion above remains arithmetic, not measurement.
 
 ## Limitations
 

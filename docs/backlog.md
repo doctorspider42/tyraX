@@ -43,6 +43,16 @@ the verification, and any fact worth reusing belongs in the relevant
     bracket is open: the three `end()` implementations then restore the right
     thing and none of them changes. Cheap, but it moves an accessor that
     shipping features depend on, so it wants a hardware pass.
+  - **Lock the jitter phase to the field parity on interlaced output.** With
+    PCSX2's deinterlacer off the picture visibly bobs: BLSS adds a half-scanline
+    vertical jitter on top of a signal whose two fields are already a line apart,
+    and they appear to compound. Measured with the deinterlacer ON, a static
+    camera changes 0.000% of pixels with BLSS off and 0.02-0.16% with it on, so
+    the reconstruction itself is nearly still - the interaction is with the scan
+    mode. Which term dominates was never isolated (nobody measured BLSS-off with
+    the deinterlacer off). Deriving the phase from `CSR.FIELD` the way
+    `flipBuffers` already does for `InterlacedField`, or simply dropping the
+    vertical jitter in interlaced modes, should settle it.
   - **Shrink the z-buffer.** With BLSS on nothing ever renders 3D at display
     resolution, so a 256x224 z instead of 512x448 hands back 172 032 words
     (672 KB) - more than three times what the feature costs. It is allocated in

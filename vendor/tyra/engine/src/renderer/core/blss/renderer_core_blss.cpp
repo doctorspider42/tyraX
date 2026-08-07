@@ -500,6 +500,19 @@ void RendererCoreBlss::buildFeatures() {
 void RendererCoreBlss::runNet() {
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
+    // An empty tile is not a decision the network is entitled to make. The
+    // oracle's importance weighting gives "tiles where every kernel is
+    // identical" no vote during training, so the net's output there is
+    // unsupervised noise - and it came out asking for full temporal
+    // reconstruction of the SKY, which costs nothing in PSNR (a flat colour
+    // blends with itself) and ghosts as soon as the camera turns.
+    // kMinCoverage, twinned with src/blss.hpp.
+    if (feat[i][5] < 0.02F) {
+      outW_A[i] = 0.0F;
+      outW_C[i] = 0.0F;
+      outW_D[i] = 0.0F;
+      continue;
+    }
     float h[kHidden];
     for (int k = 0; k < kHidden; k++) {
       float s = b1[k];
@@ -717,8 +730,12 @@ u8 RendererCoreBlss::cornerAlpha(int pass, int corner) const {
   switch (pass) {
     case 1:  // point / nearest:      aA = wA * 128
       return static_cast<u8>(clamp01(cornerA[corner]) * 128.0F);
-    case 2:  // temporal:             aC = wC * 128 * 0.5
-      return static_cast<u8>(clamp01(cornerC[corner]) * 64.0F);
+    case 2:  // temporal: aC = wC * kTemporalMax (an accumulator's retention,
+             // NOT a two-frame average - see src/blss.hpp). At the old 64 the
+             // accumulator's time constant is about one frame, so it TRACKS the
+             // alternating jitter instead of averaging it out and the picture
+             // visibly bobs. 115 is ~0.9 retention.
+      return static_cast<u8>(clamp01(cornerC[corner]) * 115.0F);
     case 3:  // sharpen, additive:    aD = wD * sharpen * 128
     case 4:  // sharpen, subtractive: same byte
       return static_cast<u8>(clamp01(cornerD[corner]) * sharpen * 128.0F);

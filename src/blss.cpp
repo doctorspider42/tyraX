@@ -602,9 +602,18 @@ inline void blend(const Taps& t, int aA, int aC, int aD, int out[3]) {
 
 inline void alphaBytes(const float w[kOutputs], float sharpen, int& aA, int& aC, int& aD) {
     aA = static_cast<int>(clamp01(w[0]) * 128.0f);
-    // The temporal pass expresses a lerp toward 0.5*cur + 0.5*prev, which is a
-    // lerp toward prev at half the weight - see docs/blss-reconstruction.md.
-    aC = static_cast<int>(clamp01(w[1]) * 64.0f);
+    // The temporal pass is an EXPONENTIAL ACCUMULATOR, not a two-frame average:
+    // the history is the previous frame's own composite, so wC = 1 means "keep
+    // kTemporalMax/128 of everything that came before".
+    //
+    // It used to cap at 64 (a flat 50% mix), which is where the visible bob came
+    // from. A 50% accumulator has a time constant of about one frame, so against
+    // a jitter that alternates every frame it TRACKS the alternation instead of
+    // averaging it out, and settles into a stationary +-1/3 pixel oscillation -
+    // exactly what bob deinterlacing looks like. Per-frame PSNR cannot see it
+    // (the mix of two phases is genuinely closer to the truth than either), which
+    // is why the flicker metric in --blss-eval now exists.
+    aC = static_cast<int>(clamp01(w[1]) * kTemporalMax);
     aD = static_cast<int>(clamp01(w[2]) * clamp01(sharpen) * 128.0f);
 }
 
@@ -918,6 +927,11 @@ WeightField netField(const Net& net, const Frame& fr) {
     WeightField wf;
     wf.resize(fr.cols, fr.rows);
     for (size_t k = 0; k < wf.tile.size() && k < fr.features.size(); ++k) {
+        // An empty tile is not a decision the network is entitled to make - see
+        // kMinCoverage. Without this the net happily asked for full temporal
+        // reconstruction of the sky, which is free in PSNR (a flat colour blends
+        // with itself) and ghosts the moment the camera turns.
+        if (fr.features[k].coverage() < kMinCoverage) continue;
         float o[kOutputs];
         net.forward(fr.features[k], o);
         for (int m = 0; m < kOutputs; ++m) wf.tile[k][m] = o[m];
@@ -937,13 +951,16 @@ using Method = std::function<WeightField(const Frame&, const Image& truth)>;
 // cases the network helps and which it should have left alone.
 double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool wantHeldOut,
                      float sharpen, const Method& weights, const std::string& dumpDir,
-                     const char* dumpName, std::vector<double>* perShot) {
+                     const char* dumpName, std::vector<double>* perShot,
+                     double* flicker) {
     double sum = 0.0;
     int n = 0;
     std::vector<double> shotSum(shotCount, 0.0);
     std::vector<int> shotN(shotCount, 0);
     Image prevOut, out;
     int prevShot = -1;
+    double flickSum = 0.0;
+    int flickN = 0;
     for (const CorpusFrame& cf : corpus) {
         if (isHeldOut(cf.shot, shotCount) != wantHeldOut) continue;
         Frame fr = cf.frame;
@@ -956,6 +973,26 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
             shotSum[cf.shot] += p;
             ++shotN[cf.shot];
         }
+        // FLICKER: mean per-pixel change between consecutive frames of one
+        // shot. This exists because per-frame PSNR is blind to temporal
+        // instability - averaging two jitter phases is genuinely closer to the
+        // truth than either, so a reconstruction that OSCILLATES between them
+        // scores well and looks like bob deinterlacing on a television. That is
+        // exactly how the 50% temporal cap shipped. Compare a method's flicker
+        // against the `native` row, which is the honest floor for a given
+        // camera move.
+        if (cf.shot == prevShot && prevOut.w == out.w && prevOut.h == out.h) {
+            double d = 0.0;
+            for (int y = 0; y < out.h; ++y)
+                for (int x = 0; x < out.w; ++x) {
+                    const uint8_t* a = out.at(x, y);
+                    const uint8_t* b = prevOut.at(x, y);
+                    for (int c = 0; c < 3; ++c)
+                        d += std::fabs(static_cast<double>(a[c]) - b[c]);
+                }
+            flickSum += d / (static_cast<double>(out.w) * out.h * 3.0);
+            ++flickN;
+        }
         prevOut = out;
         prevShot = cf.shot;
         if (!dumpDir.empty() && n == 1 && dumpName)
@@ -966,6 +1003,7 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, bool
         for (int s = 0; s < shotCount; ++s)
             (*perShot)[s] = shotN[s] ? shotSum[s] / shotN[s] : 0.0;
     }
+    if (flicker) *flicker = flickN ? flickSum / flickN : 0.0;
     return n ? sum / n : 0.0;
 }
 
@@ -1077,13 +1115,31 @@ int evalMain(int argc, char** argv) {
     // Native = the scene rendered at full resolution, one sample. The honest
     // "no BLSS" reference, and NOT a ceiling: the ground truth is supersampled,
     // so a good temporal reconstruction can beat a 1-sample native render.
-    const auto nativeOf = [&](bool heldOut, std::vector<double>* perShot) {
+    const auto nativeOf = [&](bool heldOut, std::vector<double>* perShot, double* flicker) {
         double sum = 0.0;
         int n = 0;
         std::vector<double> ss(shots, 0.0);
         std::vector<int> sn(shots, 0);
+        double flickSum = 0.0;
+        int flickN = 0;
+        int prevShot = -1;
+        const Image* prevNative = nullptr;
         for (const CorpusFrame& cf : corpus) {
             if (isHeldOut(cf.shot, shots) != heldOut) continue;
+            if (prevNative && cf.shot == prevShot && prevNative->w == cf.native.w) {
+                double d = 0.0;
+                for (int y = 0; y < cf.native.h; ++y)
+                    for (int x = 0; x < cf.native.w; ++x) {
+                        const uint8_t* a = cf.native.at(x, y);
+                        const uint8_t* b = prevNative->at(x, y);
+                        for (int c = 0; c < 3; ++c)
+                            d += std::fabs(static_cast<double>(a[c]) - b[c]);
+                    }
+                flickSum += d / (static_cast<double>(cf.native.w) * cf.native.h * 3.0);
+                ++flickN;
+            }
+            prevNative = &cf.native;
+            prevShot = cf.shot;
             const double p = psnr(cf.native, cf.truth);
             sum += p;
             ++n;
@@ -1098,6 +1154,7 @@ int evalMain(int argc, char** argv) {
             perShot->assign(shots, 0.0);
             for (int s = 0; s < shots; ++s) (*perShot)[s] = sn[s] ? ss[s] / sn[s] : 0.0;
         }
+        if (flicker) *flicker = flickN ? flickSum / flickN : 0.0;
         return n ? sum / n : 0.0;
     };
 
@@ -1114,20 +1171,21 @@ int evalMain(int argc, char** argv) {
 
         std::printf("\n  %s shots %s- %d frame(s), PSNR vs supersampled truth\n",
                     heldOut ? "HELD-OUT" : "training", "", frames);
-        std::printf("  %-22s %9s ", "", "overall");
+        std::printf("  %-22s %9s %8s ", "", "overall", "flicker");
         for (int s : ids) std::printf("  shot%-2d", s);
-        std::printf("\n  %s\n", std::string(24 + 10 + ids.size() * 8, '-').c_str());
+        std::printf("\n  %s\n", std::string(24 + 19 + ids.size() * 8, '-').c_str());
 
         std::vector<double> ps;
-        const double nat = nativeOf(heldOut, &ps);
-        std::printf("  %-22s %8.3f  ", "native full-res", nat);
+        double fl = 0.0;
+        const double nat = nativeOf(heldOut, &ps, &fl);
+        std::printf("  %-22s %8.3f %8.2f  ", "native full-res", nat, fl);
         for (int s : ids) std::printf("%8.3f", ps[s]);
         std::printf("\n");
 
         for (const Row& r : rows) {
             const double p = evalRecurrent(corpus, shots, heldOut, o.sharpen, r.m, o.dumpDir,
-                                           heldOut ? r.dump : nullptr, &ps);
-            std::printf("  half-res + %-11s %8.3f  ", r.name, p);
+                                           heldOut ? r.dump : nullptr, &ps, &fl);
+            std::printf("  half-res + %-11s %8.3f %8.2f  ", r.name, p, fl);
             for (int s : ids) std::printf("%8.3f", ps[s]);
             std::printf("%s\n", std::strcmp(r.name, "BLSS (trained)") == 0 ? "   <-- the network"
                                                                            : "");

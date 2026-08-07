@@ -93,6 +93,20 @@ extern const char* const kOutputNames[kOutputs];
 // reads as depth 1.0. Shared so the trainer and the runtime agree.
 constexpr float kDepthRef = 8.0f;
 
+// The temporal pass's ceiling, as a GS alpha byte (128 = keep all of the
+// history). The history is the previous frame's own composite, so this is the
+// retention of an exponential accumulator, and its time constant is what damps
+// the alternating sub-pixel jitter. At 64 (a flat 50% mix) the accumulator
+// tracks the alternation instead of averaging it, and the image visibly bobs;
+// 115 is ~0.9 retention, about a 10-frame constant. Twinned with the engine.
+constexpr float kTemporalMax = 115.0f;
+
+// A tile with no geometry has nothing to reconstruct: whatever the network says
+// about it is unsupervised noise, because the oracle's importance weighting
+// gives "tiles where every kernel is identical" no vote during training. Both
+// twins force such tiles to zero rather than trusting the net there.
+constexpr float kMinCoverage = 0.02f;
+
 // ONE SUBMITTED DRAW, AS THE EE SEES IT. This struct is the honesty contract of
 // the whole feature pipeline: the PS2 runtime never reads the framebuffer back,
 // so it knows a frame only as a list of bags with a screen bounding box, a
