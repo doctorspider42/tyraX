@@ -89,8 +89,19 @@ Two things make that visible instead of mysterious:
 ### The panel
 
 - **Watch** — every flow variable in the project (Set/Get Int, Bool, Position
-  nodes) plus every save value, with live values. Rewinding the timeline shows
-  the values as of that frame.
+  nodes), every save value and every [World Fact](world-facts.md), with live
+  values. Rewinding the timeline shows the values as of that frame.
+
+  A **search box** filters it on the name and the kind together, so `marta`
+  narrows to a character and `bool` or `save` to a column's worth; the count
+  beside it reads *N of M* while a filter is on. A catalog-driven project puts
+  its whole catalog in this table, which is what the box is for.
+
+  Values are printed the way the thing is **declared**, not the way the console
+  stores it: a position is three coordinates rather than the float that happens
+  to be its X, a yes/no fact is `true`/`false`, and a one-of-several fact is its
+  option's name. The *Kind* column names the source — `int`, `bool`,
+  `position`, `save value`, `fact`, `fact (position)`.
 - **Timeline** — the rewind. One column per frame that had a fire, newest on the
   right, bar height = how many nodes fired; hover for the list, click (or drag
   the slider) to inspect that frame. While rewound, the **graph overlay replays

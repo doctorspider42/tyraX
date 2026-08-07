@@ -75,6 +75,59 @@ void inputText(const char* id, std::string& value, bool* changed,
     if (ImGui::IsItemDeactivatedAfterEdit() && changed) *changed = true;
 }
 
+// ImGui's own std::string bridge (vendor/imgui/misc/cpp/imgui_stdlib.cpp is
+// not in the build): the widget writes into the string's own buffer and asks
+// for a bigger one through this callback, so the field has no length limit.
+int growString(ImGuiInputTextCallbackData* d) {
+    if (d->EventFlag != ImGuiInputTextFlags_CallbackResize) return 0;
+    auto* s = static_cast<std::string*>(d->UserData);
+    s->resize((size_t)d->BufTextLen);
+    d->Buf = s->data();
+    return 0;
+}
+
+// A PROSE field: one row high while the text is one row, taller as it wraps or
+// gains newlines, up to a cap it starts scrolling at. For the descriptions -
+// which are the one thing in this window written in sentences.
+//
+// Two things the single-line helper above gets wrong for a paragraph. Its
+// buffer is a fixed 256 bytes, and a catalog written by hand or by an example's
+// build script has entries several times that, so opening the field would have
+// silently truncated one - hence the resize callback. And prose WRAPS, which a
+// single-line field answers by scrolling sideways, one word visible at a time.
+//
+// The wrap width is measured a shade narrow on purpose. ImGui wraps against
+// the inner width of the child window the widget builds, which depends on
+// whether a scrollbar is up; guessing narrow costs at most one spare row, and
+// guessing wide would leave the last row clipped below the box.
+void inputTextProse(const char* id, std::string& value, bool* changed,
+                    int maxRows = 12) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float rowH = ImGui::GetTextLineHeight();
+    const float wrap = std::max(
+        ImGui::GetFontSize() * 2.0f,
+        ImGui::CalcItemWidth() - st.FramePadding.x * 2.0f - st.ScrollbarSize -
+            2.0f);
+    float textH = value.empty()
+                      ? rowH
+                      : ImGui::CalcTextSize(value.c_str(), nullptr, false, wrap).y;
+    // A trailing newline draws no glyphs, so the measurement misses the row the
+    // caret is sitting on - the one case where the box would otherwise grow
+    // only after the NEXT character is typed.
+    if (!value.empty() && value.back() == '\n') textH += rowH;
+    int rows = (int)(textH / rowH + 0.5f);
+    if (rows < 1) rows = 1;
+    if (rows > maxRows) rows = maxRows;
+
+    const ImVec2 size(0.0f, rows * rowH + st.FramePadding.y * 2.0f);
+    const bool edited = ImGui::InputTextMultiline(
+        id, value.data(), value.capacity() + 1, size,
+        ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackResize,
+        growString, &value);
+    (void)edited;
+    if (ImGui::IsItemDeactivatedAfterEdit() && changed) *changed = true;
+}
+
 // Everything the InputText callback needs. The highlight lives in the App so
 // it survives between frames; the callback only nudges it, because Up/Down
 // reach the FIELD (which has the keyboard) and never the list.
@@ -907,7 +960,7 @@ void App::drawFactCatalogTab() {
     }
 
     ImGui::SetNextItemWidth(scaled(280));
-    inputText("What it means", f.desc, nullptr);
+    inputTextProse("What it means", f.desc, nullptr);
     prefHelp(
         "Shown when picking this fact anywhere in the editor. Worth "
         "writing: a catalog is read far more often than it is edited.");
@@ -1029,7 +1082,7 @@ void App::drawFactQueriesTab() {
         factQueryRenameFrom_.clear();
     }
     ImGui::SetNextItemWidth(scaled(280));
-    inputText("What it means", q.desc, nullptr);
+    inputTextProse("What it means", q.desc, nullptr);
 
     ImGui::SeparatorText("Condition");
     drawFactCondition(q.root, 0, "qroot");
@@ -1117,7 +1170,7 @@ void App::drawFactRulesTab() {
     ImGui::SameLine();
     ImGui::Checkbox("Enabled", &r.enabled);
     ImGui::SetNextItemWidth(scaled(280));
-    inputText("What it does", r.desc, nullptr);
+    inputTextProse("What it does", r.desc, nullptr);
 
     ImGui::SetNextItemWidth(scaled(280));
     {
@@ -1284,7 +1337,7 @@ void App::drawFactScenariosTab() {
     ImGui::SetNextItemWidth(scaled(280));
     inputText("Name", s.name, nullptr);
     ImGui::SetNextItemWidth(scaled(280));
-    inputText("What it sets up", s.desc, nullptr);
+    inputTextProse("What it sets up", s.desc, nullptr);
 
     ImGui::BeginDisabled(!live);
     if (ImGui::Button("Apply to the running game")) {

@@ -1338,50 +1338,146 @@ void App::drawDebuggerWindow() {
         if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() &&
             !frames[dbgScrub_].vars.empty())
             vals = &frames[dbgScrub_].vars;
+        // What a row's Kind column says - and one of the two things the search
+        // below matches against, so it stays in one place.
+        //
+        // Four sources share this table and the symbol file distinguishes all
+        // of them: the Variables nodes ('i'/'b'/'p'), save values ('s') and
+        // World Facts, which come in scalar ('f') and POSITION ('F') flavours.
+        // Everything but the first three used to fall through to "save value"
+        // and one %g - which is why a position fact read as a lone float that
+        // happened to be its X.
+        auto kindOf = [](char k) {
+            switch (k) {
+                case 'i': return "int";
+                case 'b': return "bool";
+                case 'p': return "position";
+                case 'f': return "fact";
+                case 'F': return "fact (position)";
+                default: return "save value";
+            }
+        };
+        // A scalar fact is one float in the game and a TYPE in the catalog, so
+        // the editor can print it the way the catalog means it - true/false,
+        // an enum's option name - instead of the number the console stores.
+        // The blackboard already does this; the watch had no reason not to.
+        auto factNamed = [&](const std::string& n) -> const facts::Fact* {
+            for (const facts::Fact& f : project_.facts)
+                if (f.name == n) return &f;
+            return nullptr;
+        };
+        auto lower = [](std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            return s;
+        };
+        const std::string needle = lower(dbgWatchFilter_);
+        auto matches = [&](const livedbg::VarSym& v) {
+            if (needle.empty()) return true;
+            return lower(v.name + " " + kindOf(v.kind)).find(needle) !=
+                   std::string::npos;
+        };
+
         if (dbgSyms_.vars.empty()) {
             ImGui::TextDisabled(
                 "This project has no flow variables and no save values.");
             ImGui::TextWrapped(
                 "Variables nodes (Set/Get Int, Bool, Position) and Save values "
                 "show up here automatically.");
-        } else if (ImGui::BeginTable("##watch", 3,
-                                     ImGuiTableFlags_RowBg |
-                                         ImGuiTableFlags_SizingStretchProp |
-                                         ImGuiTableFlags_ScrollY)) {
+        } else {
+        // A search box, because a fact catalog puts EVERY declared fact in
+        // here: past a dozen rows the panel is a list to scroll rather than a
+        // reading. It matches the name and the Kind text together, so "marta"
+        // narrows to a character and "bool" or "save" narrows to a column's
+        // worth - one field instead of a filter row of checkboxes.
+        {
+            char fbuf[128];
+            std::snprintf(fbuf, sizeof(fbuf), "%s", dbgWatchFilter_.c_str());
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::InputTextWithHint("##watchfilter", "Filter...", fbuf,
+                                         sizeof(fbuf)))
+                dbgWatchFilter_ = fbuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Matches the name and the kind: \"marta\", \"bool\", "
+                    "\"save\".");
+            int shown = 0;
+            for (const livedbg::VarSym& v : dbgSyms_.vars)
+                if (matches(v)) ++shown;
+            ImGui::SameLine();
+            if (dbgWatchFilter_.empty()) {
+                ImGui::TextDisabled("%d row(s)", (int)dbgSyms_.vars.size());
+            } else {
+                if (ImGui::SmallButton("Clear##watchfilter"))
+                    dbgWatchFilter_.clear();
+                ImGui::SameLine();
+                ImGui::TextDisabled("%d of %d", shown,
+                                    (int)dbgSyms_.vars.size());
+            }
+            // Say so rather than showing an empty table, which reads as "the
+            // game stopped reporting" - the one thing this panel must never be
+            // ambiguous about.
+            if (shown == 0)
+                ImGui::TextDisabled("Nothing matches \"%s\".",
+                                    dbgWatchFilter_.c_str());
+        }
+
+        if (ImGui::BeginTable("##watch", 3,
+                              ImGuiTableFlags_RowBg |
+                                  ImGuiTableFlags_SizingStretchProp |
+                                  ImGuiTableFlags_ScrollY)) {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.5f);
             ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.2f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.3f);
             ImGui::TableHeadersRow();
             for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
                 const livedbg::VarSym& v = dbgSyms_.vars[i];
+                // The VALUE index is the row's position in the symbol table,
+                // not its position on screen - filtering hides rows, it does
+                // not renumber them.
+                if (!matches(v)) continue;
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextUnformatted(v.name.c_str());
                 ImGui::TableSetColumnIndex(1);
-                const char* kind = v.kind == 'i'   ? "int"
-                                   : v.kind == 'b' ? "bool"
-                                   : v.kind == 'p' ? "position"
-                                                   : "save value";
-                ImGui::TextDisabled("%s", kind);
+                ImGui::TextDisabled("%s", kindOf(v.kind));
                 ImGui::TableSetColumnIndex(2);
                 const size_t o = i * 3;
+                const ImVec4 kTrue(0.45f, 0.85f, 0.5f, 1.0f);
+                const ImVec4 kFalse(0.6f, 0.6f, 0.6f, 1.0f);
+                const facts::Fact* fact =
+                    (v.kind == 'f' || v.kind == 'F') ? factNamed(v.name)
+                                                     : nullptr;
                 if (o + 2 >= vals->size()) {
                     ImGui::TextDisabled("-");
                 } else if (v.kind == 'b') {
-                    ImGui::TextColored((*vals)[o] != 0.0f
-                                           ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
-                                           : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                                       "%s", (*vals)[o] != 0.0f ? "true" : "false");
-                } else if (v.kind == 'p') {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (v.kind == 'p' || v.kind == 'F') {
+                    // Three floats, which is what a position IS. It reaches the
+                    // editor as three slots of the same row, so printing one of
+                    // them was printing X and calling it the position.
                     ImGui::Text("%.2f, %.2f, %.2f", (*vals)[o], (*vals)[o + 1],
                                 (*vals)[o + 2]);
                 } else if (v.kind == 'i') {
                     ImGui::Text("%d", (int)(*vals)[o]);
+                } else if (fact && fact->type == facts::Type::Bool) {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (fact && fact->type == facts::Type::Enum) {
+                    const int idx = (int)lroundf((*vals)[o]);
+                    if (idx >= 0 && idx < (int)fact->options.size())
+                        ImGui::Text("%s", fact->options[(size_t)idx].c_str());
+                    else  // out of range: say WHICH number, not "?"
+                        ImGui::TextDisabled("%d (no option)", idx);
+                } else if (fact && fact->type == facts::Type::Int) {
+                    ImGui::Text("%d", (int)lroundf((*vals)[o]));
                 } else {
                     ImGui::Text("%g", (*vals)[o]);
                 }
             }
             ImGui::EndTable();
+        }
         }
         ImGui::EndTabItem();
     }
