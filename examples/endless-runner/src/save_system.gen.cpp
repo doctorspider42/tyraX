@@ -184,6 +184,80 @@ bool saveWrite(int slot, const SaveGameData& data) {
   return written == sizeof(data);
 }
 
+// --- Asynchronous write (docs/save-editor.md) --------------------------------
+// Every libmc call is asynchronous already - the blocking saveWrite above just
+// answers each one with mcSync(MC_WAIT). Here the same open/write/close chain
+// is driven ONE STEP PER FRAME with mcSync(MC_NOWAIT), whose contract is:
+// 0 = still executing, 1 = finished (result written out), -1 = nothing
+// registered. The game keeps running in between.
+//
+// The payload is copied into asyncData up front, so nothing the player does
+// during the transfer can change the bytes being written.
+static SaveGameData asyncData;
+static int asyncStage = 0;  // 0 idle, 1 open, 2 write, 3 close, 4 host one-shot
+static int asyncSlot = -1, asyncFd = -1;
+static bool asyncOk = false;
+
+bool saveWriteBusy() { return asyncStage != 0; }
+
+bool saveWriteBegin(int slot, const SaveGameData& data) {
+  if (asyncStage != 0) return false;  // one transfer at a time
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  asyncData = data;
+  asyncSlot = slot;
+  asyncOk = false;
+  asyncFd = -1;
+  if (!mcReady) {
+    // The host fallback is a plain fwrite next to the ELF - microseconds, and
+    // there is no libmc chain to step through. Finish it on the next poll so
+    // both paths look identical to the caller.
+    asyncStage = 4;
+    return true;
+  }
+  mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+  asyncStage = 1;
+  return true;
+}
+
+bool saveWritePoll(bool* okOut) {
+  if (asyncStage == 0) return true;
+  if (asyncStage == 4) {  // host fallback
+    asyncOk = saveWrite(asyncSlot, asyncData);
+    asyncStage = 0;
+    if (okOut) *okOut = asyncOk;
+    return true;
+  }
+  int cmd = 0, res = -1;
+  const int sync = mcSync(MC_NOWAIT, &cmd, &res);
+  if (sync == 0) return false;  // still executing - come back next frame
+  if (sync < 0) {               // nothing registered: the chain is broken
+    asyncStage = 0;
+    if (okOut) *okOut = false;
+    return true;
+  }
+  if (asyncStage == 1) {
+    asyncFd = res;
+    if (asyncFd < 0) {
+      asyncStage = 0;
+      if (okOut) *okOut = false;
+      return true;
+    }
+    mcWrite(asyncFd, &asyncData, sizeof(asyncData));
+    asyncStage = 2;
+    return false;
+  }
+  if (asyncStage == 2) {
+    asyncOk = res == (int)sizeof(asyncData);
+    mcClose(asyncFd);
+    asyncStage = 3;
+    return false;
+  }
+  // stage 3: the close landed, so the slot is on the card
+  asyncStage = 0;
+  if (okOut) *okOut = asyncOk;
+  return true;
+}
+
 bool saveRead(int slot, SaveGameData& out) {
   if (slot < 0 || slot >= SAVE_SLOTS) return false;
   int got = -1;

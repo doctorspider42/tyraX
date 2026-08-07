@@ -5,14 +5,16 @@
       "includePath": [
         "${workspaceFolder}/inc",
         "${workspaceFolder}/src",
-        "F:/Projects/tyra-editor/vendor/tyra/engine/inc",
-        "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/ee/include",
-        "C:/Users/pawel/AppData/Local/tyra-editor/ps2sdk/common/include"
+        "/home/spider/Projects/tyra-editor/vendor/tyra/engine/inc",
+        "/home/spider/.config/tyra-editor/ps2sdk/ee/include",
+        "/home/spider/.config/tyra-editor/ps2sdk/common/include",
+        "/home/spider/.config/tyra-editor/ps2sdk/ports/include"
       ],
       "defines": ["_EE"],
+      "compilerPath": "/usr/bin/g++",
       "cStandard": "c11",
       "cppStandard": "c++20",
-      "intelliSenseMode": "linux-gcc-x86"
+      "intelliSenseMode": "linux-gcc-x64"
     }
   ],
   "version": 4

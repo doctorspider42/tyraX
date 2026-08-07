@@ -60,9 +60,14 @@ vendor/tyra/*
 # restored, so this copy is recovered verbatim from h4570/tyra@68eb496 - the
 # last commit that had it. See THIRD-PARTY-LICENSES.md.
 !vendor/tyra/LICENSE
-# Prebuilt audsrv with L/R panning, overlaid onto the container's PS2SDK at
-# build time (see vendor/tyra/audsrv-pan/README.md).
-!vendor/tyra/audsrv-pan/
+# ...and the audsrv fork, which is maintained in-tree the same way: sources
+# plus the built module that gets overlaid onto the container's PS2SDK at build
+# time (LGPL v2 - see vendor/tyra/audsrv/README.md).
+!vendor/tyra/audsrv/
+# ...but not its build work tree: a pinned ps2sdk clone the build script
+# overlays our sources onto. The sources and the built module are committed;
+# that scratch clone is not.
+vendor/tyra/audsrv/.work/
 vendor/tyra/engine/obj/
 vendor/tyra/engine/bin/
 

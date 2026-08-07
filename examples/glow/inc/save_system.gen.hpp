@@ -54,6 +54,14 @@ bool saveSlotUsed(int slot);
 bool saveWrite(int slot, const SaveGameData& data);
 bool saveRead(int slot, SaveGameData& out);
 
+// Asynchronous write: Begin copies the payload and starts the
+// libmc chain, Poll drives it one step per frame and returns true
+// the frame it is finished (*okOut = whether the slot was
+// written). Busy is the guard against starting a second one.
+bool saveWriteBegin(int slot, const SaveGameData& data);
+bool saveWritePoll(bool* okOut);
+bool saveWriteBusy();
+
 // Copies the editor-baked save icon (save/icon.sys + list.icn,
 // shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser
 // shows the game's title and icon. Runs once per boot when the
@@ -63,5 +71,42 @@ void saveEnsureIcons();
 // hud/save-busy.png sprite size ("checking memory card" warning)
 constexpr int SAVE_BUSY_W = 512;
 constexpr int SAVE_BUSY_H = 128;
+
+// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu
+// writes the last checkpoint instead of a live snapshot.
+// SAVE_ASYNC: writes are stepped one libmc call per frame while
+// the game keeps running, with the spinner instead of the
+// "checking memory card" overlay (loads stay blocking).
+constexpr bool SAVE_MENU_CHECKPOINT = false;
+constexpr bool SAVE_ASYNC = false;
+constexpr bool SAVE_SPINNER = true;
+constexpr int SAVE_SPINNER_FRAMES = 8;
+constexpr int SAVE_SPINNER_CELL_W = 32;
+constexpr int SAVE_SPINNER_CELL_H = 32;
+// The sheet the game loads, cwd-relative (the Makefile copies
+// res/ into bin/). A picked image that failed validation is not
+// here - spinnerInfo falls back to the built-in.
+constexpr const char* SAVE_SPINNER_TEX = "hud/save-spinner.png";
+// Frames each cell is held for - the sheet is walked at 50/HOLD
+// cells a second, which is a calm spin rather than a blur.
+constexpr int SAVE_SPINNER_HOLD = 4;
+constexpr int SAVE_SPINNER_CORNER = 3;  // 0 TL, 1 TR, 2 BL, 3 BR
+constexpr float SAVE_SPINNER_MARGIN = 20.0F;
+constexpr float SAVE_SPINNER_SCALE = 1.0F;
+
+// The slot Commit Checkpoint's "autosave" mode writes, and the
+// one its "next free slot" mode never picks. -1 = none set, in
+// which case an autosave commit does nothing at all.
+constexpr int SAVE_AUTOSAVE_SLOT = -1;
+// The save menu is a GameMenu (Tools > Menu Editor), so its panel,
+// font, colours and placement come from MENUS[SAVE_MENU_INDEX].
+// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE
+// blank rows and the game draws the labels, which is what lets a
+// project have more slots than fit on one screen.
+constexpr int SAVE_MENU_INDEX = 0;
+constexpr int SAVE_SLOTS_PER_PAGE = 3;
+constexpr int SAVE_PAGES = 1;
+// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:
+// the flow graph writes them and does not include this header.)
 
 }  // namespace Glow

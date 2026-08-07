@@ -704,7 +704,12 @@ std::string objectJson(const SceneObject& o) {
                 "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
                 ", \"range\": " + fmtFloat(o.soundRange) +
                 ", \"interval\": " + fmtFloat(o.soundInterval) +
-                ", \"onPlayer\": " + (o.soundOnPlayer ? "true" : "false") + " }";
+                ", \"onPlayer\": " + (o.soundOnPlayer ? "true" : "false") +
+                ", \"reverb\": " + (o.soundReverb ? "true" : "false") +
+                (o.soundPriority != 0
+                     ? ", \"priority\": " + std::to_string(o.soundPriority)
+                     : std::string()) +
+                " }";
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
@@ -728,6 +733,15 @@ std::string objectJson(const SceneObject& o) {
     if (!o.catchArea.empty()) {
         json += ", \"catchArea\": \"" + jsonEscape(o.catchArea) + "\"";
         if (o.catchAreaLive) json += ", \"catchAreaLive\": true";
+    }
+    // Reverb zone (Area only); omitted entirely unless the box is one, so an
+    // ordinary area's file does not change shape.
+    if (o.type == PrimitiveType::Area && o.reverbZone) {
+        json += ", \"reverb\": { \"preset\": " + std::to_string(o.reverbPreset) +
+                ", \"amount\": " + fmtFloat(o.reverbAmount) +
+                ", \"delay\": " + std::to_string(o.reverbDelay) +
+                ", \"feedback\": " + std::to_string(o.reverbFeedback) +
+                ", \"priority\": " + std::to_string(o.reverbPriority) + " }";
     }
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
@@ -4113,6 +4127,31 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.soundInterval < 0.0f) o.soundInterval = 0.0f;
             if (const auto* v = sn->find("onPlayer"))
                 o.soundOnPlayer = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = sn->find("reverb"))
+                o.soundReverb = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = sn->find("priority"))
+                o.soundPriority = (int)v->numberOr(0.0);
+        }
+        // Reverb zone (Area). The key only exists on a zone, so its presence
+        // IS the flag - an area saved before this feature simply isn't one.
+        if (const auto* rv = jo.find("reverb");
+            rv && rv->type == json::Value::Type::Object) {
+            o.reverbZone = true;
+            if (const auto* v = rv->find("preset")) o.reverbPreset = (int)v->numberOr(1.0);
+            if (o.reverbPreset < 0 || o.reverbPreset > 9) o.reverbPreset = 1;
+            if (const auto* v = rv->find("amount"))
+                o.reverbAmount = (float)v->numberOr(0.5);
+            if (o.reverbAmount < 0.0f) o.reverbAmount = 0.0f;
+            if (o.reverbAmount > 1.0f) o.reverbAmount = 1.0f;
+            if (const auto* v = rv->find("delay")) o.reverbDelay = (int)v->numberOr(64.0);
+            if (o.reverbDelay < 0) o.reverbDelay = 0;
+            if (o.reverbDelay > 127) o.reverbDelay = 127;
+            if (const auto* v = rv->find("feedback"))
+                o.reverbFeedback = (int)v->numberOr(64.0);
+            if (o.reverbFeedback < 0) o.reverbFeedback = 0;
+            if (o.reverbFeedback > 127) o.reverbFeedback = 127;
+            if (const auto* v = rv->find("priority"))
+                o.reverbPriority = (int)v->numberOr(0.0);
         }
         if (const auto* lt = jo.find("light")) {
             if (const auto* v = lt->find("brightness"))
@@ -6198,8 +6237,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.emitterLife), fnvMixF(h, o.emitterGrow);
     fnvMixF(h, o.emitterOpacity);
     fnvMixS(h, o.soundPath);
-    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
+    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0) |
+                  (o.soundReverb ? 4 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
+    fnvMix(h, (unsigned)o.soundPriority);
     fnvMixF(h, o.cameraFov);
     // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
@@ -6209,6 +6250,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // live one additionally bakes its candidate list and an area index.
     fnvMixS(h, o.catchArea);
     fnvMix(h, o.catchAreaLive ? 1 : 0);
+    // A reverb zone bakes into REVERB_ZONES at build time - the box itself
+    // moves live (it is read from the object table), but changing the preset
+    // or the amount needs a rebuild.
+    fnvMix(h, (o.reverbZone ? 1 : 0) | ((uint64_t)o.reverbPreset << 1));
+    fnvMixF(h, o.reverbAmount);
+    fnvMix(h, (uint64_t)o.reverbDelay | ((uint64_t)o.reverbFeedback << 8) |
+                  ((uint64_t)(o.reverbPriority & 0xFFFF) << 16));
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);

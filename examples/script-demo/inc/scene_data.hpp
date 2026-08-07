@@ -55,6 +55,12 @@ struct SceneObjectData {
   float sndInterval; // sound emitters: retrigger period (s), 0 = loop
   int sndOnPlayer;   // sound emitters: 1 = centered on the player
                      // (plain stereo, full volume, no distance/pan)
+  int sndReverb;     // sound emitters: 1 = heard through the reverb
+                     // zone the player is in (REVERB_ZONES below);
+                     // 0 = always dry
+  int sndPriority;   // sound emitters: who keeps a channel when more
+                     // are audible than there are voices - higher
+                     // wins, equals go to the loudest (docs/sound.md)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
   int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
@@ -89,6 +95,13 @@ struct SceneObjectData {
   int batchStatic; // 1 = may merge into a combined static batch bag
                    // (build-time verdict: non-moving primitive with
                    // no physics/logic/graph refs/save-state/layer)
+  float vuParams[4]; // the four numbers this mesh hands to the
+                   // project's own VU1 microprogram, if it has one
+                   // (docs/vu-authoring.md). All zero = no effect,
+                   // which every stage is required to render
+                   // bit-identically to the untouched program.
+                   // Uploaded per BAG, so batched objects share one
+                   // set - one bag is one sendObjectData.
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -197,8 +210,8 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[2] = {
-    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // spawn-1
-    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1},  // box-1
+    {4, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // spawn-1
+    {0, {0.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {2.0F, 2.0F, 2.0F}, {0.8F, 0.35F, 0.25F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}},  // box-1
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {2};
@@ -270,6 +283,28 @@ constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0, 0, 64, -1, 0, 0}
 };
 constexpr int MIRROR_TARGETS[1] = {-1};
+
+// A room for the sound effects. While the player stands inside
+// the area, the SPU2's reverb unit runs `preset` at `amount`.
+// There is ONE such unit on the console, so zones never mix:
+// the highest `priority` inside wins, and the game ramps the
+// amount rather than cutting (see TerrainGame::updateReverb).
+struct ReverbZoneData {
+  int scene;     // scene index
+  int object;    // the area's index in its scene table
+  int preset;    // 0 off, 1 room, 2-4 studio, 5 hall,
+                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                 // (these ARE libsd's SD_EFFECT_MODE_*)
+  int amount;    // wet level, 0..100
+  int delay;     // 0..127, echo/delay presets only
+  int feedback;  // 0..127, echo/delay presets only
+  int priority;  // overlapping zones: the highest wins
+};
+constexpr int REVERB_ZONE_COUNT = 0;
+constexpr bool REVERB_HAS_NODE = false;
+constexpr ReverbZoneData REVERB_ZONES[1] = {
+    {0, -1, 0, 0, 0, 0, 0}
+};
 
 // Raytraced-mirror model proxies: decimated triangle lists
 // in MODEL LOCAL space, 15 floats per triangle (pos + uv
@@ -543,6 +578,10 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_GAINS[index], GRADING_LIFTS[index],
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
+
+// Commit Checkpoint slot modes decided at runtime (-1 = no request)
+constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+constexpr int SAVE_COMMIT_NEXT = -3;
 
 constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};

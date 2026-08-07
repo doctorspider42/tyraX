@@ -1,7 +1,7 @@
 {
   "name": "world-facts",
-  "formatVersion": 4,
-  "editorVersion": "1.4.0",
+  "formatVersion": 6,
+  "editorVersion": "1.6.0",
   "template": "fpp",
   "projectId": "74214fd3e0c69d8a",
   "settings": {

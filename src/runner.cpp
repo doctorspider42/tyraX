@@ -788,10 +788,12 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                           "mkdir -p /tyra/engine && "
                            "cmp -s /engine-src/Makefile.base /tyra/Makefile.base || "
                            "cp /engine-src/Makefile.base /tyra/Makefile.base; "
-                           // Overlay the custom audsrv (per-channel L/R panning for sound
-                           // emitters) over the image's PS2SDK copies, so the engine embeds
-                           // this IRX, links this EE lib and compiles against this header
-                           // (see vendor/tyra/audsrv-pan/README.md).
+                           // Overlay the TyraX audsrv fork (per-channel L/R panning for
+                           // sound emitters) over the image's PS2SDK copies, so the engine
+                           // embeds this IRX, links this EE lib and compiles against this
+                           // header. These are BUILT ARTIFACTS of the sources vendored
+                           // beside them - rebuilt by vendor/tyra/audsrv/build.sh, never by
+                           // this pipeline (see that directory's README.md).
                            //
                            // Both copies are STAMPED, and that is load-bearing rather than
                            // tidy: `cp` sets the destination's mtime to now, PS2SDK headers
@@ -808,14 +810,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            // the overlay. The /tyra one guards the compiled ENGINE in the
                            // shared volume: when the vendored IRX changes, libtyra has to
                            // be relinked so the new one gets re-embedded.
-                           "md5sum /engine-src/audsrv-pan/audsrv.irx "
-                           "/engine-src/audsrv-pan/libaudsrv.a "
-                           "/engine-src/audsrv-pan/audsrv.h > /tmp/audsrv.stamp; "
+                           "md5sum /engine-src/audsrv/bin/audsrv.irx "
+                           "/engine-src/audsrv/bin/libaudsrv.a "
+                           "/engine-src/audsrv/bin/audsrv.h > /tmp/audsrv.stamp; "
                            "if ! cmp -s /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp 2>/dev/null; then "
                            "echo '[editor] Applying the vendored audsrv overlay...' && "
-                           "cp /engine-src/audsrv-pan/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
-                           "cp /engine-src/audsrv-pan/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
-                           "cp /engine-src/audsrv-pan/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
+                           "cp /engine-src/audsrv/bin/audsrv.irx /usr/local/ps2dev/ps2sdk/iop/irx/audsrv.irx && "
+                           "cp /engine-src/audsrv/bin/libaudsrv.a /usr/local/ps2dev/ps2sdk/ee/lib/libaudsrv.a && "
+                           "cp /engine-src/audsrv/bin/audsrv.h /usr/local/ps2dev/ps2sdk/ee/include/audsrv.h && "
                            "cp /tmp/audsrv.stamp /usr/local/ps2dev/.audsrv-stamp; fi; "
                            "if ! cmp -s /tmp/audsrv.stamp /tyra/.audsrv-stamp 2>/dev/null; then "
                            // obj/irx/audsrv.o must go too: the .irx-em make rule depends only

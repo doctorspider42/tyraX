@@ -154,7 +154,10 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
-void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
+// __attribute__((unused)): the EE crash handler is opt-in (Preferences >
+// Build), and with it off nothing references this - it sits in an anonymous
+// namespace so the compiler drops it, but it would warn on the way past.
+void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
