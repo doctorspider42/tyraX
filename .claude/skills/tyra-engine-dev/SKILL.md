@@ -216,7 +216,14 @@ PAL - so UI authored in one logical space must be drawn into a differently
 proportioned rect per mode. Neither existing field could express that: `scale`
 is one float, and in `MODE_REPEAT` `size` is the SOURCE rect, so changing it
 would sample different texels. Used by the generated menu compositor -
-docs/menu-styles.md "Resolutions"), the **scene dynamic lights** registry
+docs/menu-styles.md "Resolutions"), **`RendererSettings::getWindowAspect()`**
+(the PHYSICAL shape of the display window on the TV - 4:3, 16:9 when widescreen
+is on, the pillarboxed 1792/1920 window in widescreen 1080i. `updateGeometry`
+already computed it to derive the projection aspect; it is exposed because 2D
+needs it too. Widescreen is ANAMORPHIC, so a sprite gets stretched a third wider
+with nothing to widen it back - anything that must keep its authored proportions
+divides its horizontal scale by this over 4:3, which is what the generated menu
+compositor and the cutscene letterbox masks do), the **scene dynamic lights** registry
 (`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
 `pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
 `StaPipCore::render` picks the strongest contributor - flashlight or point

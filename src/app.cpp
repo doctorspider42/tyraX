@@ -2555,7 +2555,11 @@ void App::drawViewportWindow() {
             const ImU32 black = IM_COL32(0, 0, 0, 255);
             if (seqBarsNow_ > 0.0f) {
                 float ft, fb, fl, fr;
-                seqBarsFractions(seqBarsStyleNow_, ft, fb, fl, fr);
+                // A letterbox is measured against the picture the console
+                // outputs, so a widescreen project gets thinner Cinema bars and
+                // no Wide ones at all - exactly what the game will composite.
+                seqBarsFractions(seqBarsStyleNow_, ps2ViewportOutput().tvAspect,
+                                 ft, fb, fl, fr);
                 const float t = ft * seqBarsNow_ * avail.y;
                 const float b = fb * seqBarsNow_ * avail.y;
                 const float l = fl * seqBarsNow_ * avail.x;

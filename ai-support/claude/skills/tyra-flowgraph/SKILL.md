@@ -149,7 +149,9 @@ over guessing from this file.
   applies to whatever camera is in force. **Set Screen Fade** and **Set
   Letterbox Bars** take a 0..1 amount - wire a **Tween** into either for a real
   fade or slide-in, and use the Tween's `finished` output to switch scenes at
-  full black. **Set Player Visible** drops the third-person avatar for a
+  full black. A letterbox is measured inside the picture the console outputs, so
+  on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
+  thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
   free-flying camera move. **On Sequence Finished** fires when a cutscene stops
   for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing

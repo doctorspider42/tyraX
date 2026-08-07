@@ -276,6 +276,48 @@ can end up in. It is a declaration the **editor** reads:
 Menus scale to whatever mode the player picks either way; ticking the boxes is
 how the editor knows which ones to check.
 
+## Widescreen
+
+*Preferences > Widescreen* is **anamorphic**: the framebuffer keeps its shape
+and the TV stretches the same signal across a 16:9 raster. The 3D projection is
+widened to match, but a 2D sprite has no projection — so a panel drawn with the
+resolution scale alone would come out **a third wider** than it was baked, text
+fattened to match and round corners turned into ovals.
+
+So the horizontal factor divides that stretch back out:
+`(width/512) * (4:3 / windowAspect)`. In 4:3 the ratio is exactly 1 and nothing
+moves; in 16:9 it is 0.75, and in the pillarboxed widescreen 1080i window 0.80.
+The panel then keeps the **physical size and proportions it was authored at** on
+every output — what changes is how much of the screen it covers, because the
+screen got wider. `RendererSettings::getWindowAspect()` is where that shape
+comes from; the panel's runtime text (a key-rebind row's live binding) is
+squeezed with the same factor, or it would not fit the row it sits in.
+
+**Still nothing is baked twice, and it could not be**: widescreen is not a build
+setting. *Set Widescreen* and the DISPLAY menu's widescreen row flip it while
+the game runs, so a second set of panels would have to be swapped in VRAM mid-
+game — the compensation costs one multiply instead.
+
+The Menu Editor's **Aspect** control (next to *Preview in*) forces 4:3 or 16:9
+over the project's setting, the way the safe-area overlay's does
+([safe-areas.md](safe-areas.md)) — the panel looks the same in both, the frame
+around it does not.
+
+The **cutscene letterbox masks** (Cutscene Director, and the *Set Letterbox
+Bars* flow node) follow from the same fact and go the other way: a mask
+letterboxes *inside* the picture, so on a 16:9 output *Wide 16:9* covers nothing
+and *Cinema 2.39:1* is thinner than it is on 4:3. Their coverage is therefore
+the one cutscene number that is **not** baked — `seqBarsFractions`
+(`src/sequence.hpp`) has a runtime twin in `src/gen/sequences.gen.cpp` and the
+sequence table carries the style.
+
+**What is not compensated**: the HUD, loading screens, the credits roll and the
+save menu still stretch with the picture. They are laid out in fractions of the
+screen rather than baked into one panel, so "keep the authored proportions" is
+not the same question there — a HUD bar pinned to the left edge is arguably
+*meant* to follow the wider frame. Text drawn by `drawFontText` outside a menu
+panel does stretch.
+
 ## What a menu ships
 
 | File | Contents | When |
