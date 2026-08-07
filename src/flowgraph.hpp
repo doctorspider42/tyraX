@@ -1756,10 +1756,22 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strKind = FlowParamKind::FactName,
          .strTip = "The fact to watch. Fires on the frame its value differs "
                    "from the frame before - whoever wrote it, graph or rule.",
+         .execOutCount = 3,
+         .execOutLabels = {"changed", "became true", "became false"},
          .desc = "Trigger: the fact changed. The reactive door into a graph - "
                  "no polling, no On Condition that has to describe the state "
-                 "you are already storing. A position fact fires when any of "
-                 "its three numbers moves."},
+                 "you are already storing.\n"
+                 "Three outputs off ONE node rather than three node types: "
+                 "\"changed\" fires on any move, \"became true\" on the "
+                 "0 -> non-zero edge and \"became false\" on the way back, so "
+                 "\"when the generator is repaired\" needs no Fact Is True "
+                 "and no On Condition beside it. A POSITION fact only has "
+                 "\"changed\" - three coordinates have no truth to cross - "
+                 "and the other two outputs are left unwired for one.\n"
+                 "For anything more than a yes/no edge (a threshold, several "
+                 "facts at once) reach for a Query wired into On Condition "
+                 "instead: the condition is then authored once in the World "
+                 "Facts window rather than restated in every graph."},
 
         // The number plane. Sources (Number, Get Int, Get Save Value) feed
         // these, they feed each other, and a consumer's num[0] gives way to
@@ -2456,9 +2468,13 @@ inline int flowExecOutIndex(int slot) {
 // two different questions.
 inline int flowExecOutCount(const FlowNodeType& t) {
     if (t.pure) return 0;
-    if (t.trigger) return 1;
+    // A TRIGGER may declare several outputs too (On Fact Changed's changed /
+    // became true / became false). It used to be capped at one, which is why
+    // output 0 keeps the plain "then" slot: a trigger that grows outputs later
+    // does not move the pin every existing graph is already linked to.
     if (t.execOutCount > 0)
         return t.execOutCount > kFlowMaxExecOut ? kFlowMaxExecOut : t.execOutCount;
+    if (t.trigger) return 1;
     return t.execThrough ? 1 : 0;
 }
 

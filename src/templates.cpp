@@ -28180,8 +28180,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
+            // Output 0 is the trigger's own "then" and stays what `body`
+            // means for every trigger that has only one. A trigger with more
+            // (On Fact Changed) still has to answer "is ANYTHING wired" over
+            // all of them, or a graph using only its "became true" branch
+            // would be skipped here as if it were empty.
+            auto pinChain = [&](int pin, const char* pad) {
+                std::vector<int> vis;
+                return emitExec(n.id, pin, pad, vis);
+            };
             const std::string chain = linkedActions(n.id, "      ");
-            if (chain.empty()) continue;
+            std::string anyChain = chain;
+            for (int p = 1; p < flowExecOutCount(*t); ++p)
+                anyChain += pinChain(p, "      ");
+            if (anyChain.empty()) continue;
             const std::string body = dbgHit(n, "      ") + chain;
 
             // Debugger "Fire": the trigger's whole branch, reachable on demand
@@ -28404,6 +28416,23 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                            << "'\n";
                     continue;
                 }
+                // The three outputs, emitted from ONE comparison: "changed"
+                // is the edge itself, "became true" / "became false" are the
+                // crossings of zero either way. Two extra `if`s on a float
+                // already in a register - the whole cost of the node.
+                auto edges =
+                    [&](const std::string& cur, const std::string& prev) {
+                        std::string e;
+                        const std::string t1 = pinChain(1, "        ");
+                        const std::string t2 = pinChain(2, "        ");
+                        if (!t1.empty())
+                            e += "      if (" + cur + " != 0.0F && " + prev +
+                                 " == 0.0F) {\n" + t1 + "      }\n";
+                        if (!t2.empty())
+                            e += "      if (" + cur + " == 0.0F && " + prev +
+                                 " != 0.0F) {\n" + t2 + "      }\n";
+                        return e;
+                    };
                 if (f->isComputed()) {
                     // A computed fact has no storage, so there is nothing to
                     // latch against except the query's own answer - which is
@@ -28413,8 +28442,9 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     flagResets << "      " << flag << " = -1.0F;\n";
                     clsOut << "    {\n      const float v = " << factReadExpr(n.str)
                            << ";\n      if (v != " << flag << ") {\n"
+                           << "        const float was = " << flag << ";\n"
                            << "        " << flag << " = v;\n" << body
-                           << "      }\n    }\n";
+                           << edges("v", "was") << "      }\n    }\n";
                     continue;
                 }
                 if (ps_ >= 0) {
@@ -28428,7 +28458,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     clsOut << "    if (" << flag << "[0] != factPos[" << ps_
                            << "][0] || " << flag << "[1] != factPos[" << ps_
                            << "][1] ||\n        " << flag << "[2] != factPos["
-                           << ps_ << "][2]) {\n"
+                           << ps_ << "][2]) {  // only \"changed\" - three\n"
+                           << "      // coordinates have no truth to cross.\n"
                            << "      for (int a = 0; a < 3; ++a) " << flag
                            << "[a] = factPos[" << ps_ << "][a];\n" << body
                            << "    }\n";
@@ -28437,10 +28468,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string flag = "factWas" + std::to_string(n.id);
                 addMember("float", flag, "0.0F", 'f', 1);
                 flagResets << "      " << flag << " = factNum[" << ns_ << "];\n";
-                clsOut << "    if (" << flag << " != factNum[" << ns_
-                       << "]) {  // \"" << n.str << "\"\n"
-                       << "      " << flag << " = factNum[" << ns_ << "];\n"
-                       << body << "    }\n";
+                const std::string cur = "factNum[" + std::to_string(ns_) + "]";
+                clsOut << "    if (" << flag << " != " << cur << ") {  // \""
+                       << n.str << "\"\n"
+                       << "      const float was = " << flag << ";\n"
+                       << "      " << flag << " = " << cur << ";\n"
+                       << body << edges(cur, "was") << "    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);

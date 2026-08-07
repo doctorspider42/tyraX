@@ -117,8 +117,11 @@ over guessing from this file.
   restores the CATALOG's default rather than a retyped number, **Fact Is True /
   Fact At Least / At Most / Is** are the pure comparisons, **Get Fact As Text**
   prints a one-of-several fact by NAME, and **On Fact Changed** is the reactive
-  trigger - it fires whoever wrote the fact, a graph or a rule, so it beats
-  polling with On Condition. **Query** evaluates a named condition authored once
+  trigger, with THREE exec outputs - `changed` on any move, `became true` on
+  the 0 -> non-zero edge, `became false` on the way back - so "when X is
+  repaired" is one node and needs no Fact Is True + On Condition beside it
+  (a position fact only has `changed`). It fires whoever wrote the fact, a
+  graph or a rule, so it beats polling. **Query** evaluates a named condition authored once
   in the Facts window; prefer it over restating the same ALL/ANY of comparisons
   in five graphs. Never invent a fact name: a node whose fact is not in the
   catalog compiles to nothing.

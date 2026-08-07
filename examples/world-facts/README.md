@@ -21,7 +21,7 @@ on one page.
 | **Nested queries** | `CanEnterBasement` names `MartaIsAlly` |
 | All three **rule policies** | becomes-true (`PowerRestored`), every-frame (`AlarmWhileOverloaded`), once-per-run (`RescueEarnsTrust`) |
 | A rule that **sends an event** | `PowerRestored` → `power-on` → the status lamp's graph |
-| **On Fact Changed** | the lamp and the HUD both react without polling |
+| **On Fact Changed**, all three outputs | the lamp's HUD line hangs off *changed*; the alarm's *became true* / *became false* are raised by a RULE and lowered by a graph's Clear Fact, and the lamp does not care which |
 | **Get Fact As Text** | the plant's state prints as *Broken / Powered / Overloaded*, not as a number |
 | **Scenarios** | *Endgame*, *Locked out*, *Overloaded* |
 

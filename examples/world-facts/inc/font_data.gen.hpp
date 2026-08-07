@@ -136,11 +136,12 @@ struct DynTextData {
   float size;   // glyph height in pixels
 };
 
-constexpr int DYN_TEXT_COUNT = 4;
+constexpr int DYN_TEXT_COUNT = 5;
 constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
 inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1] = {
     {0, 0.5F, 0.18F, 16.0F},  // scene 0, object 5, node 5
     {0, 0.5F, 0.1F, 16.0F},  // scene 0, object 8, node 4
+    {0, 0.5F, 0.34F, 18.0F},  // scene 0, object 8, node 8
     {0, 0.5F, 0.26F, 16.0F},  // scene 0, object 9, node 5
     {0, 0.5F, 0.02F, 16.0F},  // scene 0, object 11, node 4
 };

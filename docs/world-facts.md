@@ -99,6 +99,21 @@ The *Facts* node category:
 | **Query** | Pure bool: a named condition (below). |
 | **On Fact Changed** | Trigger: the fact's value differs from the frame before — whoever wrote it, graph or rule. The reactive door in, with no polling and no *On Condition* restating state you are already storing. |
 
+*On Fact Changed* carries **three exec outputs** rather than being three node
+types: **changed** fires on any move, **became true** on the `0 → non-zero`
+edge and **became false** on the way back. So *"when the generator is
+repaired"* is one node, with no *Fact Is True* and no *On Condition* beside it.
+
+It costs one float comparison plus two `if`s per frame per node — the same
+order as *On Condition*, which is to say nothing at all next to a draw submit.
+A **position** fact only has *changed*: three coordinates have no truth to
+cross, and the other two outputs are left unwired for one.
+
+Reach past it for a **Query wired into On Condition** the moment the answer
+needs more than a yes/no edge — a threshold, several facts at once — because
+then the condition is authored once in this window instead of being restated in
+every graph that happens to need it.
+
 A fact is **picked from the catalog**, never typed. That is the difference that
 buys the rest: the editor knows the fact's type, so *Set Fact*'s Value is a
 checkbox for a yes/no and a list of option names for a one-of-several, and a

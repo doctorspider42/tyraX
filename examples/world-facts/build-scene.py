@@ -413,10 +413,19 @@ def key_graph():
 
 
 def lamp_graph():
-    """Reacts to the rule's EVENT, and to the fact changing.
+    """Every reactive door into a graph, on one object.
 
-    Two doors into the same room on purpose: On Event is what a rule can reach
-    directly, On Fact Changed is what needs no rule at all.
+    On Event is what a RULE can reach directly. On Fact Changed needs no rule
+    at all, and its three outputs are the point: "changed" fires on any move
+    (the HUD line), while "became true" / "became false" are the crossings of
+    zero - which is what "the alarm started" and "the alarm stopped" actually
+    are. The alarm is the honest demonstration because the two edges have
+    different authors: the AlarmWhileOverloaded RULE raises it, the reset
+    switch's Clear Fact lowers it, and this graph does not care which.
+
+    Note that two actions can hang off ONE trigger output directly - a trigger
+    fans out, unlike an action, which is why only the action-to-action cases
+    below need a Sequence.
     """
     g = G()
     on = g.n("OnEvent", 0, 0, str_="power-on")
@@ -425,9 +434,18 @@ def lamp_graph():
     show = g.n("DisplayText", 1, 1, str_="", str2="Plant: ",
                num=[0.5, 0.10, 16, 3])
     text = g.n("GetFactText", 0, 2, str_="world.power.state")
+    alarm = g.n("OnFactChanged", 0, 3, str_="world.alarm.ringing")
+    red = g.n("SetObjectColor", 1, 3, num=[1.0, 0.15, 0.15, 0])
+    shout = g.n("DisplayText", 2, 3, str_="", str2="ALARM - plant overloaded",
+                num=[0.5, 0.34, 18, 4])
+    calm = g.n("SetObjectColor", 1, 4, num=[0.3, 1.0, 0.4, 0])
     g.link(on, green)
     g.link(changed, show)
     g.link(text, show, kind="text")
+    # exec output 1 = "became true", 2 = "became false"
+    g.link(alarm, red, fpin=1)
+    g.link(alarm, shout, fpin=1)
+    g.link(alarm, calm, fpin=2)
     return g.out()
 
 
