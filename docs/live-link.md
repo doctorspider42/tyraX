@@ -59,7 +59,8 @@ Live:
 Needs a build — the chip flips to amber instead of applying something wrong:
 
 - changing a built object's **recipe**: its type, model / material assignment,
-  primitive detail, physics (the flag and, while it is on, the mass /
+  primitive detail (and a cylinder's *Vertical rings*, which is the same
+  geometry decision), physics (the flag and, while it is on, the mass /
   bounciness / friction / tumble material) / collision, layer membership,
   emitter / sound / player / animation parameters…
 - adding an object with **no matching template** in the built scene (nothing

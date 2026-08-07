@@ -324,13 +324,13 @@ bool contributesToBake(const SceneObject& o) {
     }
 }
 
-std::vector<float> primitiveMesh(PrimitiveType type, int detail) {
+std::vector<float> primitiveMesh(PrimitiveType type, int detail, bool rings) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint: return primmesh::unitBox(d);
         case PrimitiveType::Sphere: return primmesh::unitSphere(d);
-        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d);
+        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d, rings);
         case PrimitiveType::Cone: return primmesh::unitCone(d);
         case PrimitiveType::Plane: return primmesh::unitPlane();
         default: return {};
@@ -515,7 +515,8 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
             s.lights.push_back(pl);
             continue;
         }
-        const std::vector<float> mesh = primitiveMesh(o.type, o.primDetail);
+        const std::vector<float> mesh =
+            primitiveMesh(o.type, o.primDetail, o.primRings);
         if (mesh.empty()) continue;  // markers, decals, mirrors, portals, areas
         appendMesh(s, mesh, o.position, o.rotation, o.scale, albedo, emission);
     }
@@ -974,6 +975,7 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
         mix64(h, o.bakedLighting ? 1 : 0);
         mix64(h, o.dynamicLighting ? 1 : 0);
         mix64(h, o.primDetail);
+        mix64(h, o.primRings ? 1 : 0);
         mix64(h, o.physics ? 1 : 0);
         mix64(h, o.pickable ? 1 : 0);
         mix64(h, o.saveState ? 1 : 0);

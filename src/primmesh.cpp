@@ -96,10 +96,10 @@ std::vector<float> unitSphere(int detail) {
     return v;
 }
 
-std::vector<float> unitCylinder(int detail) {
+std::vector<float> unitCylinder(int detail, bool axialRings) {
     std::vector<float> v;
     const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
-    const int rings = primCylinderStacks(seg);
+    const int rings = primCylinderStacks(seg, axialRings);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;

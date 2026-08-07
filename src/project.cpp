@@ -614,6 +614,11 @@ std::string objectJson(const SceneObject& o) {
           o.primDetail != defaultPrimDetail(o.type))
              ? ", \"detail\": " + std::to_string(o.primDetail)
              : "") +
+        // cylinders only, and only when ON - a project that never asked for
+        // axial rings round-trips byte-identically to how it always did
+        ((o.type == PrimitiveType::Cylinder && o.primRings)
+             ? ", \"rings\": true"
+             : "") +
         // 0 = unlimited (default) stays implicit
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
@@ -3580,6 +3585,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         o.primDetail = defaultPrimDetail(o.type);
         if (const auto* v = jo.find("detail"))
             o.primDetail = clampPrimDetail(o.type, (int)v->numberOr(o.primDetail));
+        // No key = off, which is what every project written before axial rings
+        // existed means: the classic single-quad cylinder side.
+        if (const auto* v = jo.find("rings")) o.primRings = v->boolOr(false);
         if (const auto* v = jo.find("drawDistance")) {
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
@@ -5749,6 +5757,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
+    fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.

@@ -281,7 +281,7 @@ std::vector<float> unitMeshFor(const SceneObject& o) {
     const int d = clampPrimDetail(o.type, o.primDetail);
     switch (o.type) {
         case PrimitiveType::Sphere: return primmesh::unitSphere(d);
-        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d);
+        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d, o.primRings);
         case PrimitiveType::Cone: return primmesh::unitCone(d);
         case PrimitiveType::Plane: return primmesh::unitPlane();
         default: return primmesh::unitBox(d);
