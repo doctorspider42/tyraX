@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 3
+#define TYRAX_VERSION_MINOR 4
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -45,6 +45,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive with safe defaults - an empty `style` IS the old look, byte
 // for byte (checked by diffing the baked panels of every example against the
 // previous baker), so no migration step.
-inline constexpr int kFormatVersion = 3;
+// v4 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
+// blssEnabled / blssScale / blssSharpen / blssTemporal / blssDebugView, the
+// project-wide BLSS group. Purely additive - blssEnabled defaults to false, so
+// an older file opens as "no upscaler", which is exactly what it was, and the
+// codegen is byte-identical while the flag is off. No migration step.
+inline constexpr int kFormatVersion = 4;
 
 }  // namespace version

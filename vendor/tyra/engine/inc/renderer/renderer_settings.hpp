@@ -102,6 +102,50 @@ class RendererSettings {
   unsigned int getRenderHeightUI() const {
     return static_cast<unsigned int>(getRenderHeightF());
   }
+
+  /**
+   * Modified by TyraX (BLSS neural upscaler, docs/neural-upscaler.md):
+   * the 3D pass' RASTER scale divisor. 1,1 (the default) means the 3D scene
+   * rasterises straight into the display buffer; 2,2 or 1,2 means it
+   * rasterises into RendererCoreBlss' low-res target and the reconstruction
+   * passes blow it back up.
+   *
+   * It composes with the field-rendering split above: the raster height is
+   * getRenderHeightF() / sy, so InterlacedField's already-halved buffer is
+   * halved again rather than fought with.
+   *
+   * ONLY the projection's raster scale reads these (see
+   * RendererCore3D::setProjection). The world-space frustum planes come from
+   * fov + aspectRatio and are deliberately untouched - exactly the invariant
+   * InterlacedField already relies on. Everything that sizes or addresses the
+   * DISPLAY buffer (clears, 2D/HUD, post fx, env-map/shadow-map restores)
+   * keeps getWidth()/getRenderHeightF(); getting that split wrong draws half
+   * the frame off-screen.
+   */
+  void setRasterScale(const int& sx, const int& sy) {
+    rasterScaleX = sx < 1 ? 1 : sx;
+    rasterScaleY = sy < 1 ? 1 : sy;
+  }
+  const int& getRasterScaleX() const { return rasterScaleX; }
+  const int& getRasterScaleY() const { return rasterScaleY; }
+  bool isRasterScaled() const {
+    return rasterScaleX != 1 || rasterScaleY != 1;
+  }
+  /** Width of the raster the 3D projection is built for (TyraX fork). */
+  float getRasterWidthF() const {
+    return width / static_cast<float>(rasterScaleX);
+  }
+  /** Height of the raster the 3D projection is built for (TyraX fork) -
+   * the physical render height divided by the raster scale. */
+  float getRasterHeightF() const {
+    return getRenderHeightF() / static_cast<float>(rasterScaleY);
+  }
+  unsigned int getRasterWidthUI() const {
+    return static_cast<unsigned int>(getRasterWidthF());
+  }
+  unsigned int getRasterHeightUI() const {
+    return static_cast<unsigned int>(getRasterHeightF());
+  }
   const float& getNear() const { return near; }
   const float& getFar() const { return far; }
   const float& getProjectionScale() const { return projectionScale; }
@@ -124,6 +168,9 @@ class RendererSettings {
   VideoMode videoMode;
   DisplayMode displayMode;
   bool widescreen = false;
+  // Modified by TyraX: BLSS raster scale (1,1 = off - no project pays for it).
+  int rasterScaleX = 1;
+  int rasterScaleY = 1;
 
   /** Framebuffer size per scan mode + projection aspect (TyraX fork).
    * The projection aspect keeps the stock 512/448 value as the 4:3 baseline

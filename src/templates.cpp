@@ -18,6 +18,7 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
@@ -3021,7 +3022,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
-#include <math.h>
+{{BLSS_INCLUDE}}#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -4792,7 +4793,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -5283,8 +5284,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -17219,7 +17219,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -17777,8 +17777,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -22317,6 +22316,29 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // The neural upscaler (docs/neural-upscaler.md). Project-wide, like the
+    // blob shadows above and unlike the POSTFX_* arrays: there is no per-scene
+    // override and no flow node, so these are plain constants and not
+    // per-scene tables.
+    //
+    // Emitted only while it is ON, like the rest of the feature. A project with
+    // the upscaler off must generate the header it generated before BLSS
+    // existed, byte for byte - and nothing references these constants there,
+    // because the init block and the frame bracket are equally absent.
+    if (p.settings.blssEnabled) {
+        const blss::Scale sc =
+            p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
+        out << "constexpr int BLSS_ENABLED = " << (p.settings.blssEnabled ? 1 : 0)
+            << ";\n"
+            << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
+            << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
+            << "constexpr float BLSS_SHARPEN = "
+            << floatLit(p.settings.blssSharpen) << ";\n"
+            << "constexpr int BLSS_TEMPORAL = "
+            << (p.settings.blssTemporal ? 1 : 0) << ";\n"
+            << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
+            << ";\n";
+    }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
     {
@@ -22851,6 +22873,121 @@ static std::string screenFxSource(const Project& p) {
     return out.str();
 }
 
+// ---------------------------------------------------------- BLSS upscaler ---
+// The neural upscaler (docs/neural-upscaler.md) is project-wide and baked at
+// build time, so every piece of it is a pure function of the Project - which is
+// what lets fillTemplate (a pure function too) decide whether the boot log has
+// to admit the network is untrained.
+//
+// Everything below emits NOTHING while settings.blssEnabled is false. That is
+// the contract for the whole feature: a project with the upscaler off must
+// generate byte-for-byte the sources it generated before BLSS existed.
+
+// The trained net, plus whether it IS trained. A missing <projectDir>/blss.net
+// is never a build failure: the header is emitted with random weights and the
+// generated init says so out loud, because a silent random net looks exactly
+// like a broken upscaler.
+struct BlssBake {
+    blss::Net net;
+    bool trained = false;
+};
+
+static BlssBake blssBake(const Project& p) {
+    BlssBake b;
+    const std::string path =
+        (std::filesystem::path(p.dir) / "blss.net").string();
+    b.trained = blss::load(b.net, path, nullptr);
+    // The trainer's own starting seed, so an untrained bake is exactly the net
+    // --blss-train begins from rather than a second arbitrary constant.
+    if (!b.trained) b.net.randomize(blss::TrainConfig{}.seed);
+    return b;
+}
+
+// inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
+// twin of the host forward pass, so reimplementing the table here would be a
+// second thing to keep in sync). Only the untrained banner is added.
+static std::string blssNetHeader(const Project& p) {
+    const BlssBake b = blssBake(p);
+    std::string s;
+    if (!b.trained) {
+        s += "// ==========================================================="
+             "===========\n"
+             "// WARNING: THIS NETWORK IS UNTRAINED. There is no blss.net in\n"
+             "// this project directory, so the weights below are the random\n"
+             "// initialisation the trainer STARTS from - the upscaler will\n"
+             "// composite, but its per-tile choices are noise.\n"
+             "//\n"
+             "//     tyrax-editor --blss-train        (writes blss.net)\n"
+             "//     tyrax-editor --blss-eval         (the PSNR table)\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n"
+             "// ==========================================================="
+             "===========\n";
+    }
+    s += blss::emitGeneratedSource(b.net);
+    return s;
+}
+
+// The prolog's include line for the baked net.
+static std::string blssInclude(const Project& p) {
+    if (!p.settings.blssEnabled) return "";
+    return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
+           "(--blss-train)\n";
+}
+
+// TerrainGame::init(): configure the low-res target and hand over the net.
+static std::string blssInit(const Project& p) {
+    if (!p.settings.blssEnabled) return "";
+    std::string s =
+        "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
+        "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
+        "  // the low-res render target and the reconstruction knobs, setNet()\n"
+        "  // hands over the MLP that picks the per-tile blend weights.\n"
+        "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+        "BLSS_SHARPEN,\n"
+        "                                       BLSS_TEMPORAL, "
+        "BLSS_DEBUG_VIEW);\n"
+        "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
+        "BLSS_NET_W2,\n"
+        "                                    BLSS_NET_B2);\n";
+    if (!blssBake(p).trained) {
+        // Said in the boot log and not only in a comment: the person who will
+        // wonder why the picture looks wrong is looking at bin/log.txt, not at
+        // a generated header.
+        s +=
+            "  // No blss.net in the project: the weights above are random.\n"
+            "  TYRA_LOG(\n"
+            "      \"BLSS: the baked network is UNTRAINED (random weights) - "
+            "run\"\n"
+            "      \" 'tyrax-editor --blss-train' in the project directory and "
+            "rebuild.\");\n";
+    }
+    return s;
+}
+
+// The frame loop's 3D bracket. Off = the plain call the loop always had, byte
+// for byte. On = the raster redirect around it plus the composite, which MUST
+// run before applyPostFx and before any 2D: the HUD, the menus and every post
+// effect keep drawing at display resolution.
+//
+// Only the non-split branch is ever bracketed - splitView.end() restores the
+// display raster, and split-screen is one of the three features BLSS cannot be
+// combined with anyway (the UI says so; see docs/blss-reconstruction.md §7).
+static std::string blssSceneRender(const Project& p) {
+    if (!p.settings.blssEnabled) return "      renderScene();\n";
+    return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+           "scene\n"
+           "      // renders into the low-res target, then the composite blows "
+           "it\n"
+           "      // back up into the display buffer - before the depth of "
+           "field,\n"
+           "      // the post effects and every 2D pass below.\n"
+           "      engine->renderer.core.blss.beginScene(scriptCtx.skyColor);\n"
+           "      renderScene();\n"
+           "      engine->renderer.core.blss.endScene();\n"
+           "      engine->renderer.core.blss.composite();\n";
+}
+
 static std::string fillTemplate(const Project& p, const char* tpl) {
     // docker compose project name: lowercase, must start with letter/digit,
     // and SUFFIXED WITH THE DIRECTORY.
@@ -22992,6 +23129,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // after it (topmost, layer -1).
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
+    // The neural upscaler (docs/neural-upscaler.md). Three slots, all empty
+    // while it is off - which is what keeps an existing project's generated
+    // sources byte-identical: the baked net's include, the init that configures
+    // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
+    // the plain renderScene() call the loop always had).
+    s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
+    s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
+    s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
     return s;
 }
 
@@ -35411,6 +35556,14 @@ std::vector<File> generate(const Project& p) {
         files.push_back(
             {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
     }
+    // The baked BLSS network (docs/neural-upscaler.md), and ONLY while the
+    // upscaler is on - a project with it off must generate exactly the file set
+    // it generated before the feature existed. The body comes from
+    // blss::emitGeneratedSource, the twin of the host forward pass; a missing
+    // <projectDir>/blss.net is not an error, it is random weights with a banner
+    // in the header and a TYRA_LOG line in the generated init.
+    if (p.settings.blssEnabled)
+        files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }

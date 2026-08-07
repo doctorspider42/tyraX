@@ -25,6 +25,7 @@
 #include "./envmap/renderer_core_envmap.hpp"
 #include "./shadowmap/renderer_core_shadow_map.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
+#include "./blss/renderer_core_blss.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
@@ -108,6 +109,15 @@ class RendererCore {
 
   /** Split-screen viewports for two-player games (TyraX fork). */
   RendererCoreSplitView splitView;
+
+  /**
+   * BLSS, the neural upscaler (TyraX fork, docs/neural-upscaler.md): renders
+   * the 3D scene at reduced resolution and reconstructs it with a baked MLP
+   * driving Gouraud-shaded blend fields. Off until the generated game's init()
+   * calls configure(); VRAM is allocated lazily there, so a project without
+   * BLSS pays nothing.
+   */
+  RendererCoreBlss blss;
 
   /** EE <-> VU1 synchronization */
   RendererCoreSync sync;

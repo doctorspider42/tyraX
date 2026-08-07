@@ -45,6 +45,13 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   camFeed.init(&settings, &gs, &sync, &path1);
   camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
                                         TextureWrap::Clamp);
+  // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
+  // in the same permanent region, in the same relative order - but it is only
+  // taken when the generated game's init() calls blss.configure(), so a
+  // project with BLSS off costs zero VRAM words. This call is dependency
+  // wiring, and the re-place after a display-mode VRAM reset (see
+  // setDisplayOutput below).
+  blss.init(&settings, &gs, &sync, &path1, &renderer3D);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
@@ -76,6 +83,9 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     envMap.init(&settings, &gs, &sync, &path1);
     shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
+    // Same for the BLSS low-res target: vram.reset() forgot it, and its size
+    // follows the new framebuffer geometry (re-places only if configured).
+    blss.init(&settings, &gs, &sync, &path1, &renderer3D);
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).

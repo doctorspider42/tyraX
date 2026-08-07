@@ -13557,6 +13557,111 @@ void App::drawPreferencesModal() {
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
+    // The neural upscaler (docs/neural-upscaler.md). Project-wide and baked at
+    // build time, like custom screen effects: no per-scene override, no flow
+    // node. Off by default and honest about the trade in every tooltip.
+    ImGui::SeparatorText("Neural upscaler (BLSS)");
+    // What it cannot be combined with, checked against the STAGED settings for
+    // the project-wide half and the live scenes for the per-scene overrides.
+    // Said next to the checkbox rather than left for the build to discover:
+    // all three read or write real GS depth at DISPLAY resolution, which a
+    // low-res z-buffer cannot give, so the frame comes out broken.
+    const bool blssSplit = prefSettings_.multiplayer == "split";
+    bool blssDof = prefSettings_.dofAmount > 0.0f;
+    bool blssPortals = false;
+    if (hasProject_) {
+        for (const SceneData& sc : project_.scenes) {
+            // The scene's own resolved DoF (a scene may override the postfx
+            // group, so the project-wide value above is not the whole answer).
+            if (project::resolvedSettings(project_, sc).dofAmount > 0.0f)
+                blssDof = true;
+            for (const SceneObject& o : sc.objects)
+                if (o.type == PrimitiveType::Portal) blssPortals = true;
+        }
+    }
+    ImGui::Checkbox("Reconstruct from a reduced-resolution render",
+                    &prefSettings_.blssEnabled);
+    prefHelp(
+        "Renders the 3D SCENE at reduced resolution into its own GS target,\n"
+        "then reconstructs the display buffer from it: a small neural network\n"
+        "trained on the host picks, per 32x32 screen tile, how much crisp\n"
+        "point sampling, previous frame and sharpening to blend. The HUD,\n"
+        "the menus, the text and every post effect still draw at FULL\n"
+        "resolution, so 2D stays crisp.\n"
+        "The trade: less 3D fill and a smaller z-buffer, paid back as up to\n"
+        "five full-screen composite passes - measure it on a scene that was\n"
+        "not fill-bound before. Incompatible with depth of field, portals\n"
+        "and split-screen (all three need real GS depth at display\n"
+        "resolution). Train the network with 'tyrax-editor --blss-train' in\n"
+        "the project directory; without a blss.net the game is built with\n"
+        "random weights and says so in its boot log.");
+    if (blssDof || blssPortals || blssSplit) {
+        std::string clash;
+        const auto add = [&clash](const char* what) {
+            if (!clash.empty()) clash += ", ";
+            clash += what;
+        };
+        if (blssDof) add("depth of field");
+        if (blssPortals) add("portals");
+        if (blssSplit) add("split-screen");
+        ImGui::TextColored(
+            ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+            "    Clashes with this project's %s: real GS depth at display\n"
+            "    resolution is not available in a reduced render, so the\n"
+            "    upscaled frame will be wrong. Leave one of the two off.",
+            clash.c_str());
+    }
+    ImGui::BeginDisabled(!prefSettings_.blssEnabled);
+    {
+        int blssScale = prefSettings_.blssScale == 1 ? 1 : 0;
+        const char* blssScaleNames[] = {
+            "2x2 - quarter the pixels (256x224 of a PAL 512x448 frame)",
+            "1x2 - half height only (keeps horizontal detail; cheaper to "
+            "reconstruct)"};
+        ImGui::SetNextItemWidth(scaled(420));
+        if (ImGui::Combo("Render scale", &blssScale, blssScaleNames, 2))
+            prefSettings_.blssScale = blssScale;
+        prefHelp(
+            "How much of the frame the GS actually rasterises. 2x2 quarters\n"
+            "the 3D fill and the z-buffer; 1x2 halves only the height, which\n"
+            "is what the PS2's own interlaced-field mode already does to the\n"
+            "raster - softer vertically, untouched horizontally.");
+
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::DragFloat("Sharpen strength", &prefSettings_.blssSharpen, 0.01f,
+                         0.0f, 1.0f, "%.2f");
+        prefSettings_.blssSharpen =
+            std::clamp(prefSettings_.blssSharpen, 0.0f, 1.0f);
+        prefHelp(
+            "The k of the unsharp mask that recovers detail the reduced\n"
+            "render lost. The network decides WHERE to sharpen; this decides\n"
+            "how hard. 0 = never sharpen (the two extra composite passes are\n"
+            "then skipped everywhere, which is also the cheapest setting).");
+
+        ImGui::Checkbox("Temporal reuse (reproject the previous frame)",
+                        &prefSettings_.blssTemporal);
+        prefHelp(
+            "Lets the network blend in the previously presented frame,\n"
+            "reprojected per grid vertex. This is where the anti-aliasing\n"
+            "comes from - two sub-pixel jitter phases averaged is a real 2x\n"
+            "supersample, and the GS has no MSAA to offer instead. Off =\n"
+            "spatial only: no ghosting on fast motion, and no AA either.");
+
+        int blssDebug = prefSettings_.blssDebugView == 1 ? 1 : 0;
+        const char* blssDebugNames[] = {
+            "Off", "Tint by winning kernel (red = point, green = temporal, "
+                   "blue = sharpen)"};
+        ImGui::SetNextItemWidth(scaled(420));
+        if (ImGui::Combo("Debug view", &blssDebug, blssDebugNames, 2))
+            prefSettings_.blssDebugView = blssDebug;
+        prefHelp(
+            "Paints each tile by the reconstruction the network chose there -\n"
+            "the fastest way to see whether it is making sensible decisions\n"
+            "on your content. Ships in the build, so turn it off before you\n"
+            "hand the game to anyone.");
+    }
+    ImGui::EndDisabled();
+
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
                      16.0f, "%.2f units");

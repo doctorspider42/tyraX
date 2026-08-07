@@ -59,12 +59,17 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
-  // Modified by TyraX: the height passed here only sets the RASTER scale of
-  // the projection (the world-space frustum comes from fov + aspectRatio),
+  // Modified by TyraX: the width/height passed here only set the RASTER scale
+  // of the projection (the world-space frustum comes from fov + aspectRatio),
   // so field rendering (InterlacedField) squeezes the scene into the
-  // half-height buffer by building the projection at the render height.
+  // half-height buffer by building the projection at the render height - and
+  // the BLSS neural upscaler squeezes it further into its low-res target by
+  // dividing again with the raster scale (RendererSettings::setRasterScale;
+  // 1,1 when BLSS is off, so this is bit-identical to the old call then).
+  // Everything else - clears, 2D/HUD, post fx, the env-map/shadow-map
+  // restores - keeps the DISPLAY-sized accessors.
   projection = M4x4::perspective(
-      fov, settings->getWidth(), settings->getRenderHeightF(),
+      fov, settings->getRasterWidthF(), settings->getRasterHeightF(),
       settings->getProjectionScale(), settings->getAspectRatio(),
       settings->getNear(), settings->getFar());
 }

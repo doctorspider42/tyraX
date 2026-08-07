@@ -173,6 +173,8 @@ add_executable(tyrax-editor
     src/app.cpp
     src/audiopreview.cpp
     src/assetbrowser.cpp
+    src/blss.cpp
+    src/blsscorpus.cpp
     src/camtake.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp

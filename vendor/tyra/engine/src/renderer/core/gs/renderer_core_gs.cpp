@@ -314,6 +314,15 @@ void RendererCoreGS::initDrawingEnvironment() {
   TYRA_LOG("Drawing environment initialized!");
 }
 
+// Modified by TyraX: the same per-field bias setXYOffset applies, exposed so
+// the raster brackets that write XYOFFSET raw (BLSS's low-res redirect and its
+// composite passes need exact 1/16 units for the sub-pixel jitter) do not
+// silently drop it.
+int RendererCoreGS::getFieldYOffset16() const {
+  if (!settings->isFieldRendering()) return 0;
+  return currentField == GRAPH_FIELD_ODD ? 8 : 0;
+}
+
 qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
                                      const float& x, const float& y) {
   PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);

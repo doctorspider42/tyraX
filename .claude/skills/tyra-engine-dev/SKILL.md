@@ -333,6 +333,65 @@ follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
 missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
 — fine, generated games don't use them.
 
+## `RendererCoreBlss` — the neural upscaler's console half
+
+`renderer/core/blss/` (docs/neural-upscaler.md; the arithmetic is
+docs/blss-reconstruction.md). The 3D scene renders into a half-resolution VRAM
+target and a per-tile MLP decides how to reconstruct it. Reached as
+`engine->renderer.core.blss`; generated games call `configure()` + `setNet()` in
+`init()` and bracket their scene with `beginScene()` / `endScene()` /
+`composite()`. Inert and zero-VRAM when a project has it off.
+
+**It is one half of a TWIN.** `src/blss.cpp` in the editor is the other, and
+`docs/blss-reconstruction.md` is the contract: the same sampling (12.4 UV
+quantisation, bilinear taps at UV − half a texel with 4-bit weights combined
+`>>8`), the same blend chain in 8-bit with the GS's `(A−B)*C>>7` truncation and
+0..255 clamps, the same `accumulate`/`buildReproj`/`buildFeatures`/forward pass.
+That is not tidiness: the network's training labels are fitted against this
+formula by an oracle running on the host, so a divergence trains the network for
+a machine that does not exist. `tyrax-editor --blss-eval` is the regression test
+(a parity break shows as the trained row falling well below the oracle row).
+Change one side, change the doc and the other side.
+
+Five things here that were paid for, and that any edit must keep:
+
+- **The raster redirect is the env-map bracket** (`RendererCoreEnvMap::begin/end`),
+  including its two traps: `XYOFFSET` is written BEFORE the clear sprite, and the
+  3D path wants a **window-centred** offset (`2048 - lowW/2`) while the
+  composite's 2D-style passes want the **screen-origin** one (`2048, 2048`).
+  The jitter is added to that offset as raw 1/16 units — `XYOFFSET` is 12.4, so
+  ±4 is exactly ±¼ pixel and the host can reproduce it bit-for-bit.
+- **The low-res pass reuses the MAIN z buffer.** `FRAME` and `ZBUF` bases are
+  independent registers, so it just uses the top-left `lowW × lowH` corner. Only
+  the colour target is allocated (`allocateBuffer`, permanent region, re-placed
+  by `setDisplayOutput`'s `vram.reset()` like every other permanent buffer).
+  Shrinking z to the render size would return 172 032 words and is in the backlog.
+- **The history is `frameBuffers[1 - context]`** — the previously presented frame,
+  full resolution, free. That needed a new accessor on `RendererCoreGS` (the
+  stock one returns the buffer being drawn INTO).
+- **The composite writes GS state the engine never wrote before**: `TEXA`
+  (for the per-vertex-alpha trick: `TFX=MODULATE` + `TCC=0` + vertex RGB pinned
+  to 128 makes RGB the untouched texel and A the vertex alpha) and **`COLCLAMP`**
+  — the formula clamps and so does the host twin, and inheriting a `COLCLAMP` of
+  0 would make the GS wrap instead and silently break parity on every saturated
+  pixel. It also disables the **alpha test** for the duration: the weights ARE
+  vertex alpha, so `ATEST_METHOD_NOTEQUAL` would discard zero-weight corners
+  rather than blend them at zero (the post-fx path documents the same bug from
+  the other direction).
+- **It owns its own packet, sized for the worst case.** One tile row is a
+  34-vertex `TRIANGLE_STRIP` at 3 qwords per vertex, so passes 2..5 are ~5 700
+  qwords — the shared 768-qword post-fx packet would corrupt the GIF stream.
+  Sparsity reduces what a frame draws, never what a frame MAY draw, so never size
+  it off the typical case. And the strip's **vertex order is load-bearing**:
+  `(i,j) (i,j+1) (i+1,j) (i+1,j+1) …`, because the weight field is piecewise
+  linear over two triangles and the host models exactly that diagonal.
+
+Incompatible with **depth of field, portals and split view** — all three read or
+write real GS depth at display resolution, and only a low-res corner of z is
+filled. The editor warns and codegen does not emit them together. The HUD, 2D and
+every post effect still draw at full resolution, after the composite, which is
+the one property an upscaler must not spoil.
+
 ## Before you hand-edit a `.vclpp`: run it on the host first
 
 The editor carries a **VU1 simulator and a microprogram generator**

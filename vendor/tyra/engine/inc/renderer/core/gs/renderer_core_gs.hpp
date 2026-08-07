@@ -54,6 +54,24 @@ class RendererCoreGS {
   /** The buffer currently being drawn to (TyraX fork, for post fx). */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
 
+  /**
+   * The OTHER double-buffered frame buffer (TyraX fork, for BLSS): the frame
+   * presented last vsync, i.e. the previous composited image at full display
+   * resolution. RendererCoreBlss samples it as the temporal history, which is
+   * why BLSS allocates no history buffer of its own.
+   */
+  framebuffer_t* getPreviousFrameBuffer() { return &frameBuffers[context ^ 1]; }
+
+  /**
+   * The per-field XYOFFSET y bias in 1/16 px that true field rendering
+   * (DisplayMode::InterlacedField) needs - 8 on odd fields, 0 otherwise, and
+   * 0 in every other display mode (TyraX fork; see setXYOffset/flipBuffers).
+   * Any raster bracket that writes XYOFFSET itself instead of going through
+   * setXYOffset must add it, or static geometry bobs by a scan line at half
+   * the field rate.
+   */
+  int getFieldYOffset16() const;
+
  private:
   constexpr static float gsCenter = 4096.0F;
   constexpr static float screenCenter = gsCenter / 2.0F;

@@ -1387,6 +1387,15 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"godRays\": " << fmtFloat(p.settings.godRays) << ",\n"
          << "    \"blobShadows\": " << (p.settings.blobShadows ? "true" : "false")
          << ",\n"
+         // The neural upscaler (docs/neural-upscaler.md). Project-wide, always
+         // emitted like the fog/highlight groups next to it.
+         << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
+         << ",\n"
+         << "    \"blssScale\": " << p.settings.blssScale << ",\n"
+         << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
+         << "    \"blssTemporal\": "
+         << (p.settings.blssTemporal ? "true" : "false") << ",\n"
+         << "    \"blssDebugView\": " << p.settings.blssDebugView << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -4141,6 +4150,23 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.godRays = clamp01((float)v->numberOr(0.0));
         if (const auto* v = s->find("blobShadows"))
             st.blobShadows = v->type == json::Value::Type::Bool && v->boolean;
+        // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
+        // every project saved before it existed; blssTemporal defaults ON, so
+        // it reads like loadingScreen (absent means the default, not false).
+        if (const auto* v = s->find("blssEnabled"))
+            st.blssEnabled = v->type == json::Value::Type::Bool && v->boolean;
+        if (const auto* v = s->find("blssScale"))
+            st.blssScale = (int)v->numberOr(0.0);
+        if (st.blssScale < 0) st.blssScale = 0;
+        if (st.blssScale > 1) st.blssScale = 1;
+        if (const auto* v = s->find("blssSharpen"))
+            st.blssSharpen = clamp01((float)v->numberOr(0.5));
+        if (const auto* v = s->find("blssTemporal"))
+            st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = s->find("blssDebugView"))
+            st.blssDebugView = (int)v->numberOr(0.0);
+        if (st.blssDebugView < 0) st.blssDebugView = 0;
+        if (st.blssDebugView > 1) st.blssDebugView = 1;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -6167,6 +6193,12 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\texture_data.gen.hpp" ||
             f.relativePath == "inc\\decal_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
+            // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
+            // `generated` while the upscaler is enabled - but when it is there
+            // it MUST be rewritten, or a project that predates the feature (or
+            // that was just retrained with --blss-train) keeps compiling the
+            // untrained weights it was first scaffolded with.
+            f.relativePath == "inc\\blss_net.gen.hpp" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\prefab_data.gen.hpp" ||

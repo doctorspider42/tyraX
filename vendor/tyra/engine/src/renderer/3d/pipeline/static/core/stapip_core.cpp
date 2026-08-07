@@ -223,29 +223,68 @@ void StaPipCore::render(StaPipBag* bag) {
   // stands in with radius 0. Bags with dynLightPick = false (terrain
   // chunks, the sky dome) keep the global flashlight state - a per-chunk
   // pick shows a hard seam wherever neighbors pick different lights.
-  if (!bag->lighting && !bag->info->dynLightPick) {
-    qbufferRenderer.setBagLight(nullptr);
-  } else if (!bag->lighting) {
-    const M4x4& m = *bag->info->model;
-    Vec4 center(m.data[12], m.data[13], m.data[14], 1.0F);
-    float radius = 0.0F;
-    if (bbox) {
-      const auto* mb = bbox->getMainBBox();
-      const Vec4& lo = (*mb)[0];
-      const Vec4& hi = (*mb)[7];
-      const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
-                     (lo.z + hi.z) * 0.5F, 1.0F);
-      center = m * mid;
-      // Near-uniform scale assumed (same as the light's object-space
-      // transform in sendObjectData) - column 0 length is the scale.
-      const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
-                                m.data[2] * m.data[2]);
-      const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
-      radius = 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) * scale;
+  //
+  // Modified by TyraX: the SAME world bounding sphere also feeds the BLSS
+  // neural upscaler's per-tile features (docs/neural-upscaler.md), so it is
+  // computed once here and consumed by both. Everything below is inert -
+  // and the sphere is not computed at all - when neither consumer wants it.
+  const bool blssOn = rendererCore->blss.isEnabled();
+  const bool wantsLightPick = !bag->lighting && bag->info->dynLightPick;
+
+  const M4x4& m = *bag->info->model;
+  Vec4 worldCenter(m.data[12], m.data[13], m.data[14], 1.0F);
+  float worldRadius = 0.0F;
+  if ((wantsLightPick || blssOn) && bbox) {
+    const auto* mb = bbox->getMainBBox();
+    const Vec4& lo = (*mb)[0];
+    const Vec4& hi = (*mb)[7];
+    const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
+                   (lo.z + hi.z) * 0.5F, 1.0F);
+    worldCenter = m * mid;
+    // Near-uniform scale assumed (same as the light's object-space
+    // transform in sendObjectData) - column 0 length is the scale.
+    const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                              m.data[2] * m.data[2]);
+    const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
+    worldRadius = 0.5F * sqrtf(ex * ex + ey * ey + ez * ez) * scale;
+  }
+
+  const RendererCoreSpotLight* bagLight = nullptr;
+  if (wantsLightPick) {
+    bagLight = rendererCore->pickDynLight(worldCenter, worldRadius);
+  }
+  qbufferRenderer.setBagLight(bagLight);
+
+  // Modified by TyraX: the BLSS bag feed. One O(1) hook per submitted bag,
+  // completely inert when BLSS is off (and when it is on but we are not inside
+  // its beginScene/endScene bracket - addBagSphere checks). The upscaler never
+  // reads the framebuffer back, so a bag's screen bbox + w range + two
+  // material scalars is ALL the network ever learns about a frame; see
+  // docs/blss-reconstruction.md section 2.
+  if (blssOn) {
+    // texDetail is the minification proxy - texels per screen pixel - so BLSS
+    // gets the raw texel area and finishes the ratio once it knows the screen
+    // footprint it just computed. Untextured bags carry no texture aliasing.
+    float texelArea = 0.0F;
+    if (bag->texture && bag->texture->texture) {
+      texelArea =
+          static_cast<float>(bag->texture->texture->getWidth()) *
+          static_cast<float>(bag->texture->texture->getHeight());
     }
-    qbufferRenderer.setBagLight(rendererCore->pickDynLight(center, radius));
-  } else {
-    qbufferRenderer.setBagLight(nullptr);
+    // luma: the bag's own brightness plus whatever dynamic light was picked
+    // for it. A per-vertex-coloured bag has no cheap mean, so it reads as
+    // mid-grey - a proxy, exactly like every other feature.
+    float luma = 0.5F;
+    if (bag->color->single != nullptr) {
+      const Color& c = *bag->color->single;
+      luma = (c.r + c.g + c.b) * (1.0F / (3.0F * 255.0F));
+    }
+    if (bagLight != nullptr && bagLight->enabled) {
+      luma += (bagLight->color.r + bagLight->color.g + bagLight->color.b) *
+              (1.0F / (3.0F * 255.0F));
+    }
+    if (luma > 1.0F) luma = 1.0F;
+    rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea, luma);
   }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);

@@ -16,6 +16,7 @@
 #include "aichat.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
+#include "blss.hpp"  // the neural upscaler's headless trainer / eval / emitter
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
@@ -2628,6 +2629,15 @@ int main(int argc, char** argv) {
         return chatPromptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--search-docs") == 0)
         return searchDocsFromCli(argc, argv);
+    // The neural upscaler's host side (docs/neural-upscaler.md). Headless like
+    // --bake-gi: no display, no Project - the network is trained on a
+    // procedural corpus and baked into the game as a header.
+    if (argc > 1 && std::strcmp(argv[1], "--blss-train") == 0)
+        return blss::trainMain(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--blss-eval") == 0)
+        return blss::evalMain(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--blss-emit") == 0)
+        return blss::emitMain(argc, argv);
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
@@ -2658,6 +2668,17 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "Neural upscaler (docs/neural-upscaler.md):\n"
+            "  --blss-train [-o blss.net] [--frames N] [--epochs N] [--dump "
+            "<dir>]\n"
+            "                                          train the BLSS net on "
+            "the procedural corpus\n"
+            "  --blss-eval [-i blss.net] [--frames N] [--dump <dir>]\n"
+            "                                          PSNR table: the trained "
+            "net vs every fixed kernel\n"
+            "  --blss-emit [-i blss.net] [-o blss.gen.hpp]\n"
+            "                                          bake a net into the C++ "
+            "the game compiles\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

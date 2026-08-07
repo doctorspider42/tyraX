@@ -1264,6 +1264,21 @@ struct ProjectSettings {
     float dofFocus = 20.0f;  // sharp up to this camera distance
     float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
+    // The neural upscaler (docs/neural-upscaler.md). The 3D scene renders into
+    // a reduced-resolution GS target and a small MLP - trained on the host,
+    // baked into the game - decides per 32x32 screen tile how to blow it back
+    // up to the display buffer. Project-wide and baked at build time, like
+    // custom screen effects: no per-scene override and no flow-graph control.
+    //
+    // Off by default, and deliberately so: it is a proof of concept, and it is
+    // incompatible with depth of field, portals and split-screen (all three
+    // need real GS depth at display resolution, which a low-res z cannot give).
+    bool blssEnabled = false;
+    int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
+    float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
+    bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
+    int blssDebugView = 0;     // 0 = off, 1 = tint by winning kernel
+
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
     // GS (per-vertex coefficient computed on VU1). Match fogColor with the
@@ -1359,6 +1374,10 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
+           a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
+           a.blssSharpen == b.blssSharpen &&
+           a.blssTemporal == b.blssTemporal &&
+           a.blssDebugView == b.blssDebugView &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&

@@ -22,6 +22,71 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Neural upscaler (BLSS) follow-ups** (docs/neural-upscaler.md,
+  docs/blss-reconstruction.md). The proof of concept shipped: half-res 3D
+  render, sub-pixel `XYOFFSET` jitter, an 8-12-3 MLP trained on the host and
+  baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
+  the network's output. What it deliberately does not do yet, roughly in the
+  order it is worth doing:
+  - **Make the raster-redirect brackets nest.** THE ONE TO DO FIRST - it is a
+    silent correctness bug, not a missing feature. `RendererCoreEnvMap::end()`,
+    and the shadow-map and camera-feed equivalents, restore FRAME/SCISSOR/ZBUF/
+    XYOFFSET from `gs->getCurrentFrameBuffer()`, i.e. the display buffer
+    *unconditionally* rather than whatever was redirected before them. All three
+    run INSIDE the generated `renderScene()`, so the first one inside a BLSS
+    bracket cancels the redirect and the rest of the frame draws full-res into
+    the display buffer - no assert, no visual signature except that BLSS appears
+    to do nothing. It breaks dynamic-sky reflective materials, "show in
+    reflections" objects, `envProbeReflected`, camera feeds and every
+    `projShadow` caster, none of which the editor warns about. The minimal fix
+    is to have `getCurrentFrameBuffer()` return the BLSS target while the
+    bracket is open: the three `end()` implementations then restore the right
+    thing and none of them changes. Cheap, but it moves an accessor that
+    shipping features depend on, so it wants a hardware pass.
+  - **Shrink the z-buffer.** With BLSS on nothing ever renders 3D at display
+    resolution, so a 256x224 z instead of 512x448 hands back 172 032 words
+    (672 KB) - more than three times what the feature costs. It is allocated in
+    `RendererCoreGS::allocateBuffers` before BLSS exists in the init order, so
+    this is an ordering change, not a one-liner. **This is the single biggest
+    win left and it makes BLSS VRAM-positive.**
+  - **Train on the project, not on the procedural corpus.** `--blss-train
+    <projectDir>` is the shape; `src/blsscorpus.cpp` is already structured so
+    the scene source is swappable, and the features come from `BagProxy` lists
+    that a real scene walk can produce as easily as the rasteriser does.
+  - **Bake a per-material UV-repeat constant - this is what stands between BLSS
+    and being worth enabling.** `texDetail` is the texel-density proxy, and the
+    engine can only supply `texW * texH` (`stapip_core.cpp`): it does not know
+    how many times a material tiles over a surface. The corpus can, and folding
+    the UV span in makes the channel a far better aliasing predictor - MEASURED
+    at 23.24 dB held-out against 21.03 dB without it, i.e. the difference between
+    parity with bilinear and losing to it by 2.2 dB. But it is then a quantity
+    only one side computes (a floor tiling 100x trains at 1.0 and runs at 0.03),
+    so the corpus was cut back to the raw area for parity. Bake the repeat per
+    material, multiply it in on the engine side, and both sides get the strong
+    feature. Beyond that, the editor could measure actual high-frequency energy
+    per texture at bake time - a feature DLSS structurally cannot have, and the
+    one place this design could beat it rather than imitate it.
+  - **Unroll the temporal loop during label generation.** The oracle's labels
+    stand in the previous low-res render upscaled, because the true history
+    depends on the previous frame's weights. `--blss-eval` already closes the
+    loop for the *reported* numbers; closing it for the *labels* means either
+    iterating training to a fixed point or a short BPTT window.
+  - **Depth of field, portals and split-screen are mutually exclusive with it.**
+    All three want real GS depth at display resolution. DoF is the interesting
+    one: it would need an upscaled depth buffer, which the GS cannot produce in
+    a blend pass, so it probably means keeping a low-res depth *colour* target
+    and re-deriving z - a design, not a fix.
+  - **Close the UV-clamp parity gap.** The UV register's fields are 14 bits
+    unsigned, so the engine clamps grid-corner UVs to >= 0 and the host, which
+    evaluates `u(x)` analytically per pixel, does not need to. Across the first
+    tile column and row the two disagree by up to a quarter texel of UV
+    gradient (~13 % of tiles, sub-texel). The fix is for the host to interpolate
+    clamped CORNER UVs the way the rasteriser does - the same treatment the
+    weight field already gets - rather than evaluating the closed form.
+  - **No editor viewport preview** (the same position custom screen effects
+    take). The viewport already renders at PS2 resolution and presents through a
+    fragment shader, so a preview is reachable; it was left out rather than
+    shipping a preview that quietly disagreed with the console.
 - **AI Assistant follow-ups** (docs/ai-chat.md). The window, the tool table and
   the docs-as-skills prompt shipped; what was deliberately left out, roughly in
   the order it is worth adding:
