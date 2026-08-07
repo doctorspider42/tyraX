@@ -682,6 +682,10 @@ private:
     // so every place a fact is named offers the same list.
     bool factCombo(const char* id, std::string& value, bool positionsToo);
     bool factQueryCombo(const char* id, std::string& value);
+    // The catalog's Name field plus its completion dropdown - the whole
+    // widget in one place, because the popup and the field have to agree
+    // about focus and about which candidate is highlighted.
+    void drawFactNameField(facts::Fact& f);
     // The value widget for one fact, chosen from its declared type (a checkbox
     // for a yes/no, a combo of option names for a one-of-several). One
     // function so the catalog, the rules, the scenarios and the blackboard
@@ -1332,6 +1336,17 @@ private:
     // The name a rename is being typed over, so renameFactRefs can retarget
     // every reference when the field commits - the objRenameFrom_ idiom.
     std::string factRenameFrom_, factQueryRenameFrom_;
+    // Name-completion dropdown state. It lives here rather than in the draw
+    // function because every part of it is read a FRAME LATER than it is
+    // written: the InputText eats Enter itself, so the accept has to be
+    // decided before the field is submitted, from what was true last frame.
+    std::vector<std::string> factNameSuggest_;  // full strings to complete to
+    int factNameSuggestSel_ = -1;    // highlighted row, -1 = none
+    bool factNameSuggestOpen_ = false;
+    bool factNameSuggestHover_ = false;  // the list was hovered last frame
+    bool factNameActive_ = false;    // the field had keyboard focus last frame
+    bool factNameCaretEnd_ = false;  // put the caret past the accepted text
+    bool factNameRefocus_ = false;   // hand the keyboard back after an accept
     // Manual blackboard overrides, keyed by fact name. Held here rather than
     // in the Command so the list survives a game restart and can be edited
     // while nothing is running.

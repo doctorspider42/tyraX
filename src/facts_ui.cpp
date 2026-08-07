@@ -75,26 +75,28 @@ void inputText(const char* id, std::string& value, bool* changed,
     if (ImGui::IsItemDeactivatedAfterEdit() && changed) *changed = true;
 }
 
-// Tab-completion over the existing catalog, the shell's rule: complete to the
-// LONGEST COMMON PREFIX of everything that matches, which is predictable in a
-// way "cycle through the candidates" is not. The candidates themselves are
-// shown under the field, so a Tab that adds nothing is not a mystery.
-struct NameComplete {
-    const std::vector<facts::Fact>* facts;
-    int skip;  // the fact being renamed - it must not complete against itself
+// Everything the InputText callback needs. The highlight lives in the App so
+// it survives between frames; the callback only nudges it, because Up/Down
+// reach the FIELD (which has the keyboard) and never the list.
+struct NameEdit {
+    const std::vector<facts::Fact>* facts = nullptr;
+    int skip = -1;                                // never complete against self
+    const std::vector<std::string>* cands = nullptr;
+    int* sel = nullptr;
+    bool* caretEnd = nullptr;
 };
 
-int factNameCompletion(ImGuiInputTextCallbackData* data) {
-    if (data->EventFlag != ImGuiInputTextFlags_CallbackCompletion) return 0;
-    const NameComplete* nc = (const NameComplete*)data->UserData;
-    const std::string typed(data->Buf, (size_t)data->BufTextLen);
+// Longest common prefix of everything that matches - the shell's rule, and the
+// fallback when no row is highlighted. Predictable in a way "cycle through the
+// candidates" is not.
+std::string commonCompletion(const std::vector<facts::Fact>& facts,
+                             const std::string& typed, int skip) {
     std::string best;
     bool any = false;
-    for (size_t i = 0; i < nc->facts->size(); ++i) {
-        if ((int)i == nc->skip) continue;
-        const std::string& n = (*nc->facts)[i].name;
-        if (n.size() < typed.size() ||
-            n.compare(0, typed.size(), typed) != 0)
+    for (size_t i = 0; i < facts.size(); ++i) {
+        if ((int)i == skip) continue;
+        const std::string& n = facts[i].name;
+        if (n.size() < typed.size() || n.compare(0, typed.size(), typed) != 0)
             continue;
         if (!any) {
             best = n;
@@ -105,18 +107,60 @@ int factNameCompletion(ImGuiInputTextCallbackData* data) {
         while (k < best.size() && k < n.size() && best[k] == n[k]) ++k;
         best.resize(k);
     }
-    if (!any || best.size() <= typed.size()) return 0;
-    data->DeleteChars(0, data->BufTextLen);
-    data->InsertChars(0, best.c_str());
+    return (any && best.size() > typed.size()) ? best : std::string();
+}
+
+int factNameCallback(ImGuiInputTextCallbackData* data) {
+    NameEdit* e = (NameEdit*)data->UserData;
+    switch (data->EventFlag) {
+        case ImGuiInputTextFlags_CallbackAlways:
+            // Requested after an accept: drop the selection and put the caret
+            // past what was just inserted, so typing CONTINUES the name
+            // instead of replacing it (which is what a plain refocus does).
+            if (e->caretEnd && *e->caretEnd) {
+                *e->caretEnd = false;
+                data->CursorPos = data->BufTextLen;
+                data->SelectionStart = data->SelectionEnd = data->CursorPos;
+            }
+            break;
+        case ImGuiInputTextFlags_CallbackHistory: {
+            // Up/Down walk the dropdown. They reach here rather than the list
+            // because the FIELD holds the keyboard the whole time - which is
+            // the entire reason the list is not a focusable popup.
+            if (!e->cands || e->cands->empty() || !e->sel) break;
+            const int n = (int)e->cands->size();
+            if (data->EventKey == ImGuiKey_UpArrow)
+                *e->sel = *e->sel <= 0 ? n - 1 : *e->sel - 1;
+            else if (data->EventKey == ImGuiKey_DownArrow)
+                *e->sel = (*e->sel + 1) % n;
+            break;
+        }
+        case ImGuiInputTextFlags_CallbackCompletion: {
+            std::string to;
+            if (e->sel && *e->sel >= 0 && e->cands &&
+                *e->sel < (int)e->cands->size())
+                to = (*e->cands)[(size_t)*e->sel];
+            else
+                to = commonCompletion(*e->facts,
+                                      std::string(data->Buf,
+                                                  (size_t)data->BufTextLen),
+                                      e->skip);
+            if (to.empty()) break;
+            data->DeleteChars(0, data->BufTextLen);
+            data->InsertChars(0, to.c_str());
+            break;
+        }
+        default: break;
+    }
     return 0;
 }
 
-// What could come next after what has been typed: the distinct SEGMENTS that
-// follow it in existing names. Typing "world." offers generator / power /
-// alarm, which is the answer somebody wants - the full names would just repeat
-// what they already typed.
-std::vector<std::string> nextSegments(const std::vector<facts::Fact>& facts,
-                                      const std::string& typed, int skip) {
+// What could follow what has been typed: every existing name that starts with
+// it, cut at the next dot. Typing "world." offers world.generator. /
+// world.power. / world.alarm. - one step at a time, the way a namespace
+// browser walks, rather than a wall of full names.
+std::vector<std::string> completionsFor(const std::vector<facts::Fact>& facts,
+                                        const std::string& typed, int skip) {
     std::vector<std::string> out;
     if (typed.empty()) return out;
     for (size_t i = 0; i < facts.size(); ++i) {
@@ -125,13 +169,12 @@ std::vector<std::string> nextSegments(const std::vector<facts::Fact>& facts,
         if (n.size() <= typed.size() ||
             n.compare(0, typed.size(), typed) != 0)
             continue;
-        const std::string rest = n.substr(typed.size());
-        const size_t dot = rest.find('.');
-        std::string seg = dot == std::string::npos ? rest : rest.substr(0, dot);
-        if (dot != std::string::npos) seg += ".";
+        const size_t dot = n.find('.', typed.size());
+        const std::string cand =
+            dot == std::string::npos ? n : n.substr(0, dot + 1);
         bool seen = false;
-        for (const std::string& e : out) seen |= (e == seg);
-        if (!seen) out.push_back(seg);
+        for (const std::string& e : out) seen |= (e == cand);
+        if (!seen) out.push_back(cand);
     }
     return out;
 }
@@ -525,6 +568,147 @@ void App::drawWorldFactsWindow() {
     ImGui::End();
 }
 
+// ------------------------------------------------------- the name field ---
+
+void App::drawFactNameField(facts::Fact& f) {
+    // --- keys first, from LAST frame's state. The InputText consumes Enter
+    // itself, so an accept has to be decided before the field is submitted.
+    bool accept = false;
+    if (factNameSuggestOpen_ && factNameActive_) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            factNameSuggestOpen_ = false;
+            factNameSuggestSel_ = -1;
+        } else if (factNameSuggestSel_ >= 0 &&
+                   (ImGui::IsKeyPressed(ImGuiKey_Enter) ||
+                    ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) {
+            accept = true;
+        }
+    }
+    if (accept && factNameSuggestSel_ < (int)factNameSuggest_.size()) {
+        if (factRenameFrom_.empty()) factRenameFrom_ = f.name;
+        f.name = factNameSuggest_[(size_t)factNameSuggestSel_];
+        factNameSuggestSel_ = -1;
+        factNameCaretEnd_ = true;
+        // Enter also deactivated the field, so hand the keyboard back - the
+        // callback above then drops the select-all a refocus would otherwise
+        // leave behind.
+        factNameRefocus_ = true;
+    }
+
+    if (factNameRefocus_) {
+        factNameRefocus_ = false;
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetNextItemWidth(scaled(280));
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
+    NameEdit edit{&project_.facts, factSel_, &factNameSuggest_,
+                  &factNameSuggestSel_, &factNameCaretEnd_};
+    ImGui::InputText("Name", buf, sizeof(buf),
+                     ImGuiInputTextFlags_CallbackCompletion |
+                         ImGuiInputTextFlags_CallbackHistory |
+                         ImGuiInputTextFlags_CallbackAlways,
+                     factNameCallback, &edit);
+    const std::string typed = buf;
+    const bool active = ImGui::IsItemActive();
+    const ImVec2 fieldMin = ImGui::GetItemRectMin();
+    const ImVec2 fieldMax = ImGui::GetItemRectMax();
+
+    if (typed != f.name) {
+        if (factRenameFrom_.empty()) factRenameFrom_ = f.name;
+        f.name = typed;
+        // A fresh keystroke re-opens a list Escape had dismissed, and drops a
+        // highlight that no longer points at what it did.
+        factNameSuggestOpen_ = true;
+        factNameSuggestSel_ = -1;
+    }
+    // The rename dance: retarget every reference the moment the edit commits.
+    if (ImGui::IsItemDeactivatedAfterEdit() && !factRenameFrom_.empty() &&
+        factRenameFrom_ != f.name) {
+        const std::string to = f.name;
+        f.name = factRenameFrom_;  // rename FROM the old name, project-wide
+        project::renameFactRefs(project_, factRenameFrom_, to);
+        f.name = to;
+        factRenameFrom_.clear();
+    }
+    prefHelp(
+        "Dots make the hierarchy: characters.marta.trust groups under "
+        "characters.marta, and the list nests on them. Type a prefix and the "
+        "dropdown offers what already exists at that level - arrows to pick, "
+        "Tab or Enter to take it, Escape to dismiss. Renaming retargets every "
+        "graph node, query, rule and scenario that names this fact, and a "
+        "player's existing save survives it because the save is keyed by the "
+        "fact's id and not by its name.");
+
+    factNameSuggest_ = completionsFor(project_.facts, f.name, factSel_);
+    // What opens it: typing (handled above) and taking focus. What closes it:
+    // Escape (handled above) and losing focus. Anything else would make an
+    // Escape last only as long as the key is held.
+    if (active && !factNameActive_) factNameSuggestOpen_ = true;
+    if (!active && !factNameSuggestHover_) factNameSuggestOpen_ = false;
+    factNameActive_ = active;
+
+    const bool show = factNameSuggestOpen_ && !factNameSuggest_.empty() &&
+                      (active || factNameSuggestHover_);
+    if (!show) {
+        factNameSuggestHover_ = false;
+        if (!active) factNameSuggestSel_ = -1;
+        return;
+    }
+    if (factNameSuggestSel_ >= (int)factNameSuggest_.size())
+        factNameSuggestSel_ = -1;
+
+    // A floating window rather than a popup: a popup takes the keyboard, and
+    // the whole arrangement depends on the FIELD keeping it (that is what
+    // makes Up/Down/Tab arrive in the callback above). NoFocusOnAppearing
+    // keeps it from stealing focus when it opens, and it is kept alive for the
+    // frame of a CLICK by factNameSuggestHover_ - the InputText deactivates on
+    // mouse-down, so without that the row would vanish before its click
+    // registered.
+    const float rowH = ImGui::GetTextLineHeightWithSpacing();
+    const int rows = (int)factNameSuggest_.size();
+    const float h = std::min(rowH * (float)rows, scaled(200)) +
+                    ImGui::GetStyle().WindowPadding.y * 2.0f;
+    ImGui::SetNextWindowPos(ImVec2(fieldMin.x, fieldMax.y + scaled(2)));
+    ImGui::SetNextWindowSize(ImVec2(fieldMax.x - fieldMin.x, h));
+    ImGui::SetNextWindowBgAlpha(1.0f);
+    if (ImGui::Begin("##factnamesuggest", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoFocusOnAppearing |
+                         ImGuiWindowFlags_NoDocking |
+                         ImGuiWindowFlags_NoNavInputs)) {
+        for (int i = 0; i < rows; ++i) {
+            const std::string& c = factNameSuggest_[(size_t)i];
+            // Show the whole candidate but dim the part already typed, so the
+            // eye lands on what is being ADDED.
+            const std::string label = "##sg" + std::to_string(i);
+            if (ImGui::Selectable(label.c_str(), i == factNameSuggestSel_)) {
+                if (factRenameFrom_.empty()) factRenameFrom_ = f.name;
+                f.name = c;
+                factNameSuggestSel_ = -1;
+                factNameCaretEnd_ = true;
+                // SetKeyboardFocusHere is scoped to the CURRENT window, so it
+                // cannot reach the field from in here - ask for the focus on
+                // the next frame instead, where the field is submitted.
+                factNameRefocus_ = true;
+            }
+            ImGui::SameLine(0.0f, 0.0f);
+            const size_t typedLen = std::min(typed.size(), c.size());
+            ImGui::TextDisabled("%s", c.substr(0, typedLen).c_str());
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::TextUnformatted(c.c_str() + typedLen);
+            // A keyboard walk has to drag the view with it.
+            if (i == factNameSuggestSel_ && !ImGui::IsItemVisible())
+                ImGui::SetScrollHereY(0.5f);
+        }
+        factNameSuggestHover_ =
+            ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    }
+    ImGui::End();
+}
+
 // ---------------------------------------------------------------- catalog ---
 
 void App::drawFactCatalogTab() {
@@ -621,60 +805,7 @@ void App::drawFactCatalogTab() {
     }
     facts::Fact& f = project_.facts[(size_t)factSel_];
 
-    ImGui::SetNextItemWidth(scaled(280));
-    // The rename dance: remember what the name WAS while the field is being
-    // typed in, then retarget every reference when it commits. Same shape as
-    // objRenameFrom_ in the Properties panel, and for the same reason - the
-    // intermediate states of a typed edit are not renames. The "was" is
-    // latched on the first frame the text differs rather than from
-    // IsItemActivated(), which asks about the item submitted BEFORE it and so
-    // would report on whatever widget happened to precede this one.
-    std::string typed = f.name;
-    {
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), "%s", f.name.c_str());
-        NameComplete nc{&project_.facts, factSel_};
-        ImGui::InputText("Name", buf, sizeof(buf),
-                         ImGuiInputTextFlags_CallbackCompletion,
-                         factNameCompletion, &nc);
-        typed = buf;
-    }
-    const bool nameActive = ImGui::IsItemActive();
-    if (typed != f.name) {
-        if (factRenameFrom_.empty()) factRenameFrom_ = f.name;
-        f.name = typed;
-    }
-    if (ImGui::IsItemDeactivatedAfterEdit() && !factRenameFrom_.empty() &&
-        factRenameFrom_ != f.name) {
-        const std::string to = f.name;
-        f.name = factRenameFrom_;  // rename FROM the old name, project-wide
-        project::renameFactRefs(project_, factRenameFrom_, to);
-        f.name = to;
-        factRenameFrom_.clear();
-    }
-    prefHelp(
-        "Dots make the hierarchy: characters.marta.trust groups under "
-        "characters.marta. Renaming retargets every graph node, query, "
-        "rule and scenario that names this fact - and a player's existing "
-        "save survives it, because the save is keyed by the fact's id and "
-        "not by its name.");
-
-    // One line, ALWAYS submitted (empty when there is nothing to say), so the
-    // form below does not jump up and down while somebody types.
-    {
-        std::string hint;
-        if (nameActive) {
-            const std::vector<std::string> next =
-                nextSegments(project_.facts, f.name, factSel_);
-            if (!next.empty()) {
-                hint = "Tab completes - next: ";
-                for (size_t i = 0; i < next.size() && i < 6; ++i)
-                    hint += (i ? "   " : "") + next[i];
-                if (next.size() > 6) hint += " ...";
-            }
-        }
-        ImGui::TextDisabled("%s", hint.c_str());
-    }
+    drawFactNameField(f);
 
     ImGui::SetNextItemWidth(scaled(280));
     {

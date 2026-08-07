@@ -36,12 +36,18 @@ purely a view over the name — there is no folder field to keep in sync, a
 project that never uses dots simply sees one flat list, and renaming a fact
 moves it in the tree because the tree *is* the names.
 
-The Name field **completes against the catalog**: type `world.` and the line
-under it lists what already exists at that level (`generator.` `power.`
-`alarm.`), and **Tab** completes as far as the matches agree — the shell's
-rule, so it is predictable rather than a guess. It is the fastest way to keep a
-project's naming consistent, which is most of what makes a catalog readable a
-year later.
+The Name field **completes against the catalog**, the way an IDE does. Type
+`world.` and a dropdown lists what already exists at that level —
+`world.generator.` `world.power.` `world.alarm.`, one step at a time rather
+than a wall of full names, with the part you have already typed dimmed so the
+eye lands on what is being added. **Up/Down** walk it, **Tab** or **Enter**
+takes the highlighted row and leaves the caret past it so you keep typing,
+**Escape** dismisses it until the next keystroke, and clicking a row works too.
+With nothing highlighted, Tab completes as far as the matches agree — the
+shell's rule, predictable rather than a guess.
+
+It is the fastest way to keep a project's naming consistent, which is most of
+what makes a catalog readable a year later.
 
 **One-of-several** (an enum) is the type worth reaching for early. `power.state`
 with options *Broken / Powered / Overloaded* costs the console exactly what an
