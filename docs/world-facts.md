@@ -30,6 +30,15 @@ Every fact carries five things beyond its name.
 | **Owned by** | World (one value for the game) or Scene (reset on every scene load). |
 | **What it means** | Prose, shown wherever the fact is picked. Worth writing: a catalog is read far more often than it is edited. |
 
+Every **prose** field in this window — a fact's *What it means*, a query's, a
+rule's *What it does*, a scenario's *What it sets up* — is an auto-sizing box
+rather than a one-line field. It is one row high while the text is one row and
+grows as the text wraps, up to twelve rows, after which it scrolls. There is no
+length limit: the field writes into the string itself, so a paragraph pasted in
+or written by an example's build script survives being opened for editing (a
+fixed-size field would have truncated it silently, which is the worst way for a
+catalog to lose a sentence).
+
 Names are hierarchical by convention, and the catalog list **nests on the
 dots**: `characters.marta.trust` sits under `characters` > `marta`. That is
 purely a view over the name — there is no folder field to keep in sync, a
@@ -256,6 +265,16 @@ never returns.
 - **Rules write single numbers.** A position fact is written from a graph's *Set
   Fact Position*, not from a rule.
 - **A rule's "once per run" does not survive a restart.** See the policy table.
+- **Node state dies with the scene, and so does object state; a fact does
+  not.** *Do Once*, *Near Object*'s edge latch, *On Condition*'s edge flag and
+  every other per-node flag reset on every scene load — and so do an object's
+  visibility, colour and position. Anything that must hold once per SAVE or
+  once per RUN belongs in a fact instead. That is the difference between a door
+  that announces itself the first time and one that announces itself on every
+  walk back up the stairs, and between a pickup that stays taken and one that
+  respawns and can be collected twice. It is also what the session tier is
+  *for*: "has this run already done it" survives a scene switch and forgets on
+  relaunch.
 - Ceilings: 512 facts, 256 queries, 256 rules, 32 simultaneous overrides, 128
   changes in the history ring.
 
