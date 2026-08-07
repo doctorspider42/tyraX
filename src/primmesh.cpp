@@ -99,6 +99,7 @@ std::vector<float> unitSphere(int detail) {
 std::vector<float> unitCylinder(int detail) {
     std::vector<float> v;
     const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
+    const int rings = primCylinderStacks(seg);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
@@ -107,12 +108,19 @@ std::vector<float> unitCylinder(int detail) {
         const V3 n0 = {std::cos(a0), 0, std::sin(a0)};
         const V3 n1 = {std::cos(a1), 0, std::sin(a1)};
         const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
-        pushRaw(v, {x0, -h, z0}, n0, u0, 1);
-        pushRaw(v, {x0, h, z0}, n0, u0, 0);
-        pushRaw(v, {x1, h, z1}, n1, u1, 0);
-        pushRaw(v, {x0, -h, z0}, n0, u0, 1);
-        pushRaw(v, {x1, h, z1}, n1, u1, 0);
-        pushRaw(v, {x1, -h, z1}, n1, u1, 1);
+        // Side, ring by ring from the top rim down. v runs 0 at the top to 1
+        // at the bottom, as the single-quad side always did - rings == 1
+        // reproduces the old emission vertex for vertex.
+        for (int k = 0; k < rings; ++k) {
+            const float tt = (float)k / rings, tb = (float)(k + 1) / rings;
+            const float yt = h - 2 * h * tt, yb = h - 2 * h * tb;
+            pushRaw(v, {x0, yb, z0}, n0, u0, tb);
+            pushRaw(v, {x0, yt, z0}, n0, u0, tt);
+            pushRaw(v, {x1, yt, z1}, n1, u1, tt);
+            pushRaw(v, {x0, yb, z0}, n0, u0, tb);
+            pushRaw(v, {x1, yt, z1}, n1, u1, tt);
+            pushRaw(v, {x1, yb, z1}, n1, u1, tb);
+        }
         pushRaw(v, {0, h, 0}, {0, 1, 0}, 0.5f, 0.5f);
         pushRaw(v, {x1, h, z1}, {0, 1, 0}, x1 + 0.5f, z1 + 0.5f);
         pushRaw(v, {x0, h, z0}, {0, 1, 0}, x0 + 0.5f, z0 + 0.5f);

@@ -516,7 +516,8 @@ const std::vector<ObjectProp>& objectProps() {
         {"collision", "string", "\"box\" | \"mesh\" (models only) | \"none\""},
         {"detail", "number",
          "tessellation: radial segments (sphere/cylinder/cone) or subdivisions "
-         "per edge (box)"},
+         "per edge (box); a cylinder also gets one ring up its side per four "
+         "segments, so its baked lighting resolves vertically too"},
         {"drawDistance", "number", "not drawn past this distance; 0 = unlimited"},
         {"castShadow", "bool", "darkens nearby surfaces (baked contact shadow)"},
         {"bakedLighting", "bool", "may take a per-texel lightmap (off = relights "

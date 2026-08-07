@@ -265,6 +265,19 @@ For anything on the vertex path, raising the object's **Detail** (Properties >
 subdivisions) is the fallback: a Detail-5 box is 300 triangles instead of 12
 and the gradient smooths out.
 
+**It only works when the extra vertices land in the direction the light
+varies**, which is why a box behaves and the curved shapes need care. A box
+subdivides each face into a `d x d` grid, so both directions improve. A
+**cylinder** takes `d` radial segments *and* one ring up its side per four of
+them (`primCylinderStacks`), so a lamp overhead resolves vertically as well —
+before those rings existed, the side was one quad tall at any detail, and
+raising Detail 4 → 32 on a lit pillar only multiplied the full-height stripes
+(measured on the console: 0 → 15 brightness reversals across the silhouette,
+with the amplitude unchanged) instead of smoothing anything. The cost is real:
+Detail 16 is 160 triangles instead of 64, Detail 32 is 576 instead of 128.
+A **cone** still has none — its side is one triangle per segment, apex to base,
+so a vertical gradient on a cone is a flat ramp however high the Detail goes.
+
 #### The ground
 
 The **terrain** is where this matters most — it fills most of the frame in a

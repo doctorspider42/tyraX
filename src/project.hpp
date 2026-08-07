@@ -182,6 +182,20 @@ inline int primSphereStacks(int detail) {
     const int s = detail * 5 / 7;
     return s < 2 ? 2 : s;
 }
+// Cylinder rings ALONG THE AXIS, same idea. Without them the side is one quad
+// tall however high the detail goes, so anything that varies vertically - a
+// lamp above the pillar, the contact darkening at its foot, a probe gradient -
+// can only be a linear ramp between the top and bottom rims, and every segment
+// shows that ramp's diagonal seam as a full-height stripe. Measured on the
+// PS2: raising detail 4 -> 32 multiplied the stripes (0 -> 15 reversals across
+// the silhouette) without shrinking their amplitude at all, because the added
+// vertices all went AROUND the cylinder and none of them went up it.
+// One ring per four radial segments keeps a side quad roughly square at the
+// default 16 and leaves detail < 8 emitting exactly what it emitted before.
+inline int primCylinderStacks(int detail) {
+    const int s = detail / 4;
+    return s < 1 ? 1 : s;
+}
 // Triangles a primitive tessellates to at the given detail - for the UI
 // readout. Marker/geometry-less types report 0.
 inline int primTriangleCount(PrimitiveType type, int detail) {
@@ -191,7 +205,8 @@ inline int primTriangleCount(PrimitiveType type, int detail) {
         case PrimitiveType::SavePoint:
             return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
-        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        // side (2 per seg per ring) + 2 caps (1 per seg each)
+        case PrimitiveType::Cylinder: return d * 2 * (primCylinderStacks(d) + 1);
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
