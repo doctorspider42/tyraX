@@ -78,9 +78,10 @@ guides. What is queued is in [Backlog](backlog.md).
   produce without ever reading the framebuffer back, the free full-resolution
   history hiding in the other display buffer, the host-side trainer
   (`--blss-train` / `--blss-eval`), the three-term objective the oracle actually
-  minimises - accuracy, flicker and the fill the composite would cost - and the
+  minimises - accuracy, flicker and the fill the composite would cost - the
   four times this feature learned that anything absent from that objective does
-  not exist for the network.
+  not exist for the network, and why shrinking the z buffer to the reduced raster
+  makes it leave MORE texture VRAM than not using it at all.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why

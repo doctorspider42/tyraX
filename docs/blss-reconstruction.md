@@ -357,17 +357,45 @@ case regardless — see the packet budget above.
 
 ## 7. What does *not* have a twin
 
-- The **z-buffer**. The low-res 3D pass reuses the main full-size z buffer
-  (`ZBUF` carries a base but no width). Note what that means: the row stride
-  comes from `FRAME.FBW`, so the pass reinterprets the main z at the low-res
-  stride and overwrites a contiguous **prefix** of it — roughly the top 112
-  rows of the 512-stride display layout — not a top-left rectangle. Harmless
-  here because nothing else needs display-resolution z while BLSS is on, and
-  exactly the thing to know before trying to keep a z region alive alongside it.
-  Shrinking z to the render size would return 172 032 words — a follow-up.
+- The **z-buffer**. The low-res 3D pass shares the main z buffer (`ZBUF` carries
+  a base but no width), and **the main z buffer is now the size of the raster,
+  not of the display**: `RendererCoreGS::allocateVramBuffers` takes its
+  dimensions from `RendererSettings::getRasterWidthUI/HeightUI`, so at 2×2 it is
+  57 344 words instead of 229 376 (672 KB back at 512×448, 768 KB at 512×512).
+  That is what makes the feature VRAM-positive; the measurement is in
+  [the upscaler page](neural-upscaler.md#5-vram).
+
+  Note what the sharing means for addressing: the row stride comes from
+  `FRAME.FBW`, so the low-res pass writes a contiguous **prefix** of z at the
+  low-res stride, not a top-left rectangle of a wider layout.
+
+  **The safety invariant is one field: `zBuffer.mask` is 0 only INSIDE the
+  low-res bracket.** `configure()` sets it to 1 when BLSS is on,
+  `beginScene()`/`endScene()` open and close the window. Every
+  `draw_enable_tests` / `draw_setup_environment` in the engine reads that single
+  field, so the 2D/HUD/post-fx half of the frame — which draws full-screen
+  sprites at `z = 0xFFFFFFFF` and would otherwise stamp 448 rows at a 512 stride
+  — cannot write past the smaller allocation. Anything that adds a draw outside
+  the bracket inherits the protection for free; anything that clears or forces
+  `mask` locally defeats it.
 - **Depth of field, portals and split view** read or write real GS depth at
-  display resolution and are therefore incompatible with a low-res z. The
-  generated game does not emit them together with BLSS.
+  display resolution and are therefore incompatible with a raster-sized z — and
+  since the shrink, that depth is not merely unwritten, it is not allocated.
+  **This bullet used to end "the generated game does not emit them together with
+  BLSS", and that was never true.** Nothing in `src/templates.cpp` gates them on
+  `blssEnabled`; the editor's *Neural upscaler (BLSS)* block warns, and that is
+  the whole of the interlock. Two of the three have a second, independent
+  problem:
+  - **Portals** are the fourth copy of the raster-restore bug. `renderPortalView`
+    runs inside `renderScene()` and `RendererCorePostFx::portalMaskBegin/End`
+    still take `FRAME` from `gs->getCurrentFrameBuffer()` and write a
+    display-sized `SCISSOR` and `XYOFFSET` — i.e. they cancel the BLSS redirect
+    exactly the way the env map used to before it was converted to
+    `emitRasterRestore()`. Converting them fixes the redirect half and leaves the
+    depth half.
+  - **Split view** is never bracketed: codegen wraps only the single-view branch,
+    so a split frame renders at full resolution with scene depth writes still
+    masked.
 - The **HUD, 2D and every post effect** still draw at full resolution, after the
   composite. That is deliberate: text and sprites stay crisp, which is the one
   thing a real upscaler must not spoil.

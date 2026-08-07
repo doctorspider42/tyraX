@@ -343,19 +343,60 @@ a machine that does not exist. `tyrax-editor --blss-eval` is the regression test
 (a parity break shows as the trained row falling well below the oracle row).
 Change one side, change the doc and the other side.
 
-Five things here that were paid for, and that any edit must keep:
+Six things here that were paid for, and that any edit must keep:
 
-- **The raster redirect is the env-map bracket** (`RendererCoreEnvMap::begin/end`),
-  including its two traps: `XYOFFSET` is written BEFORE the clear sprite, and the
-  3D path wants a **window-centred** offset (`2048 - lowW/2`) while the
-  composite's 2D-style passes want the **screen-origin** one (`2048, 2048`).
-  The jitter is added to that offset as raw 1/16 units — `XYOFFSET` is 12.4, so
-  ±4 is exactly ±¼ pixel and the host can reproduce it bit-for-bit.
-- **The low-res pass reuses the MAIN z buffer.** `FRAME` and `ZBUF` bases are
-  independent registers, so it just uses the top-left `lowW × lowH` corner. Only
-  the colour target is allocated (`allocateBuffer`, permanent region, re-placed
-  by `setDisplayOutput`'s `vram.reset()` like every other permanent buffer).
-  Shrinking z to the render size would return 172 032 words and is in the backlog.
+- **The raster redirect is EXPLICIT STATE on `RendererCoreGS`, not a private
+  trick.** `RasterTarget` (frame address, `FBW`, scissor rect, `XYOFFSET` in
+  1/16 px) is published by `redirectRasterTo()` / `endRasterRedirect()`, read by
+  `getRasterTarget()`, and put back by the **shared `emitRasterRestore()`** that
+  the env map, the camera feed and the shadow map all call — so those brackets
+  **nest** inside BLSS' instead of cancelling it. They used to restore
+  `gs->getCurrentFrameBuffer()` + `settings->getWidth()/getRenderHeightF()`, i.e.
+  the display buffer unconditionally, from inside the generated `renderScene()`;
+  the first one silently turned the upscaler off for the rest of the frame.
+  **Do not "simplify" this back into making `getCurrentFrameBuffer()` return the
+  redirect target** — that was the prescribed fix and it is wrong: the restores
+  touch four registers and only `FRAME` comes from that accessor, so it would
+  leave a 512-wide `SCISSOR` over a 256-wide `FRAME` and a window-centred
+  `XYOFFSET` for the wrong window with the jitter dropped, and it would break the
+  accessor's four post-fx callers plus BLSS' own `endScene()`/`composite()`.
+  `getCurrentFrameBuffer()` means **the display buffer**.
+  Three traps inside the bracket itself: `XYOFFSET` is written BEFORE the clear
+  sprite; the 3D path wants a **window-centred** offset (`2048 - lowW/2`) while
+  the composite's 2D-style passes want the **screen-origin** one (`2048, 2048`);
+  and `emitRasterRestore()` writes `ZBUF` explicitly and **LAST** rather than
+  leaving it to ps2sdk's `draw_enable_tests` — every bracket points `ZBUF` at its
+  OWN depth buffer, and returning from the shadow map with `ZBUF` still on the
+  64×64 silhouette z made every projected-shadow receiver patch fail `GEQUAL`
+  (drawn, then discarded). The jitter is added to the offset as raw 1/16 units —
+  `XYOFFSET` is 12.4, so ±4 is exactly ±¼ pixel and the host reproduces it
+  bit-for-bit. The shared restore also fixed a latent `InterlacedField` bug none
+  of the three brackets had: the per-field `XYOFFSET` bias
+  (`RendererCoreGS::getFieldYOffset16`) was never re-applied.
+  **`RendererCorePostFx::portalMaskBegin/End` is the one bracket still NOT
+  converted** — it also runs inside `renderScene()` and still restores the
+  display buffer. Portals are independently incompatible with BLSS, so it is not
+  urgent, but it is the same bug a fourth time.
+- **The z buffer follows the RASTER, not the display buffer.**
+  `allocateVramBuffers()` sizes it from
+  `RendererSettings::getRasterWidthUI/HeightUI` — 57 344 words instead of
+  229 376 at 2×2, so 672 KB back at 512×448 and 768 KB at 512×512 against
+  224/256 KB for the low-res colour target. **BLSS leaves more texture VRAM than
+  not using it** (measured, `Pal576i` 512×512, `VRAMSTAT` at frame 240: 0.227 MB
+  free with BLSS off, 0.727 MB with it on and one eviction fewer). `FRAME` and
+  `ZBUF` bases are independent registers, so the low-res pass writes a contiguous
+  prefix of z at the low-res stride.
+  **The invariant that makes it safe is `zBuffer.mask == 0` only INSIDE the
+  low-res bracket** (`configure()` sets 1, `beginScene`/`endScene` open and close
+  it): every `draw_enable_tests` / `draw_setup_environment` in the engine reads
+  that one field, so the 2D/HUD/post-fx half of the frame — full-screen sprites
+  at `z = 0xFFFFFFFF` — cannot stamp past the smaller allocation. Sizing z needs
+  the scale, which only `blss.configure()` knows, and z is allocated third in
+  `gs.init()`: the ordering is resolved by re-laying the permanent region from
+  `configure()` through `RendererCore::rebuildPermanentBuffers()` (gated on
+  `needsBufferRealloc()`), which is `setDisplayOutput`'s mode-change branch minus
+  the mode. It deliberately does **not** call `gs.reinit()` — `programDisplay()`'s
+  `graph_set_mode` would reset the GS mid-init for nothing.
 - **The history is `frameBuffers[1 - context]`** — the previously presented frame,
   full resolution, free. That needed a new accessor on `RendererCoreGS` (the
   stock one returns the buffer being drawn INTO).
@@ -388,8 +429,12 @@ Five things here that were paid for, and that any edit must keep:
   on hardware.
 
 Incompatible with **depth of field, portals and split view** — all three read or
-write real GS depth at display resolution, and only a low-res corner of z is
-filled. The editor warns and codegen does not emit them together. The HUD, 2D and
+write real GS depth at display resolution, which since the z shrink is not merely
+unwritten but unallocated. **The editor warns and that is the whole interlock:
+codegen does NOT refuse the combination** (nothing in `src/templates.cpp` gates
+them on `blssEnabled`), so "codegen does not emit them together", which this
+paragraph and both docs used to claim, was never true. Env maps, camera feeds and
+projected shadows are **no longer on that list** — they nest now. The HUD, 2D and
 every post effect still draw at full resolution, after the composite, which is
 the one property an upscaler must not spoil.
 

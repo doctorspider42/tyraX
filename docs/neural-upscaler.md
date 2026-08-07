@@ -13,7 +13,11 @@ reconstruction kernels** — done honestly, on hardware that has a 147 MHz
 rasteriser and no pixel shaders at all.
 
 > Status: **proof of concept**, off by default. The network is real, trained and
-> measured on the host, where it beats every fixed kernel in distribution. The
+> measured on the host, where it beats every fixed kernel in distribution — and
+> **on shots it was not trained on it is about level with a plain bilinear
+> upscale** (≈ +0.1 dB averaged over four training seeds, one of the four
+> *below* bilinear; see [the seed table](#how-to-read-those-two-tables-and-what-not-to-read-into-them)).
+> The
 > last time a human watched it in PCSX2 **the picture visibly oscillated**; the
 > objective has since gained a fill term that culls the two passes which alternate
 > with the jitter, and the host's flicker metric improved with it — but **nobody
@@ -48,7 +52,7 @@ not have to be uploaded as a texture. It rides in on 255 vertex colours.
 ```
                     jitter XYOFFSET by -4/16 or +4/16 px
                                     |
-   3D scene  --->  low-res target  (256x224, PSMCT32, main z reused)
+   3D scene  --->  low-res target  (256x224, PSMCT32, z shrinks to match)
                                     |
    per-tile features (EE, no framebuffer readback)
         motion, depth, depth gradient, geometric edge density,
@@ -69,12 +73,62 @@ between the host trainer and the console.
 
 ### 1. Render low
 
-`RendererCoreBlss::begin()` opens the same kind of raster-redirect bracket the
-env map and the shadow map already use — `FRAME`/`ZBUF`/`SCISSOR`/`XYOFFSET`
-pointed at the low-res target — and `end()` restores the display buffer. The
+`RendererCoreBlss::beginScene()` opens the same kind of raster-redirect bracket
+the env map and the shadow map already use — `FRAME`/`ZBUF`/`SCISSOR`/`XYOFFSET`
+pointed at the low-res target — and `endScene()` restores the display buffer. The
 game-facing coordinate space does not change: the projection is built at the
 *render* height, exactly the way `DisplayMode::InterlacedField` already does it
 (see the `getRenderHeightF()` split in the engine skill).
+
+#### The bracket is explicit state now, and that is why the others nest
+
+The redirect is not private to BLSS. `RendererCoreGS` carries a **`RasterTarget`**
+— frame address, `FBW`, scissor rect, `XYOFFSET` in 1/16 px — published through
+`redirectRasterTo()` / `endRasterRedirect()` / `getRasterTarget()`, and every
+bracket in the engine puts the raster back with the shared
+`emitRasterRestore()`. The env map, the camera feed and the shadow map restore
+*whatever was redirected before them* without any of them knowing BLSS exists.
+
+They used to restore `gs->getCurrentFrameBuffer()` plus
+`settings->getWidth()`/`getRenderHeightF()` — the **display** buffer,
+unconditionally. All three run inside the generated `renderScene()`, which BLSS
+brackets, so the first one cancelled the redirect and the whole rest of the frame
+drew full-resolution into the display buffer, where the composite's opaque base
+pass then painted over it. No assert, no visual signature beyond "BLSS did
+nothing to that part of the frame".
+
+**The obvious fix was the wrong one, and checking that was the point.** This page
+and the backlog both used to prescribe the minimal version: make
+`getCurrentFrameBuffer()` return the BLSS target while the bracket is open, "so
+those three `end()` implementations restore the right thing and none of them
+changes". They restore **four** registers and only `FRAME` comes from that
+accessor. `SCISSOR` and `XYOFFSET` come from `RendererSettings`, so the
+accessor-only fix would have left a 512-wide scissor over a 256-wide `FRAME`
+(writes wrap into the next row) and a raster window centred on the wrong window,
+with the frame's sub-pixel jitter silently dropped — a *differently* broken
+frame, arrived at by a change that looks like it cannot be wrong. Moving the
+accessor would also have been wrong for its four post-fx callers and for BLSS'
+own `endScene()`/`composite()`, which genuinely do want the display buffer.
+`getCurrentFrameBuffer()` therefore keeps its old meaning and is documented as
+"the display buffer".
+
+#### Two latent bugs the shared restore uncovered, neither of them BLSS's
+
+Both predate the upscaler and both were live in any project using the affected
+feature, with or without it:
+
+- **None of the three restores carried the `InterlacedField` per-field
+  `XYOFFSET` bias** (`RendererCoreGS::getFieldYOffset16`). In that display mode
+  an env map, a camera feed or a shadow map handed the rest of the frame a raster
+  window half a scan line off. One implementation of the restore instead of three
+  is what fixed it.
+- **The shadow-map restore left `ZBUF` pointing at its own 64×64 silhouette
+  buffer.** It had been leaving that register to ps2sdk's `draw_enable_tests`;
+  every bracket points `ZBUF` at its *own* depth buffer, so coming back from the
+  shadow-map bracket meant every projected-shadow receiver patch was tested
+  against the caster's light-space depth and failed `GEQUAL` — shadows drawn,
+  then discarded. `emitRasterRestore()` writes `ZBUF` explicitly and **last**.
+  That one cost a debugging session.
 
 `XYOFFSET` gets the frame's jitter added inside the bracket: two phases,
 `-4/16` and `+4/16` of a low-res pixel, alternating every frame. For a 2×2
@@ -175,22 +229,57 @@ At 512×448 output, 256×224 render:
 | Region | Baseline words | BLSS words |
 |---|---|---|
 | Display buffers × 2 (512×448, 32bpp) | 458 752 | 458 752 |
-| Z buffer | 229 376 (512×448) | 229 376 (reused as-is) |
+| Z buffer | 229 376 (512×448) | 57 344 (256×224) |
 | Low-res colour target | — | 57 344 |
 | History buffer | — | 0 — the other display buffer |
-| **Total** | **688 128** | **745 472** |
+| **Total** | **688 128** | **573 440** |
 
-So BLSS costs **57 344 words (224 KB)** of the ~1.08 MB texture heap
-([GS VRAM residency](gs-vram.md)) — about what one 256×256 32-bit texture costs.
-One buffer, not three: the history is free, and the low-res pass points `ZBUF` at
-the existing full-size z buffer (`FRAME` and `ZBUF` bases are independent
-registers) and simply uses its top-left corner.
+**BLSS leaves more texture memory than not using it.** One buffer is added and
+one shrinks: the low-res colour target costs 57 344 words (224 KB) of the
+~1.08 MB texture heap ([GS VRAM residency](gs-vram.md)), and the z buffer —
+which follows the **raster** now, not the display buffer — hands back 172 032
+words (672 KB) at this output size. Net **114 688 words (448 KB) returned**. The
+history is still free: it is the other display buffer.
 
-**There is a 672 KB saving still on the table.** With BLSS on, nothing ever
-renders 3D at display resolution, so the z-buffer could shrink to 256×224 and
-hand back 172 032 words — more than paying for the feature three times over. It
-is allocated before BLSS exists in the init order, so that is a follow-up rather
-than a line of code.
+The z buffer can shrink because with BLSS on nothing ever renders 3D at display
+resolution. What makes that *safe* is one invariant, and it is the thing to keep
+if you edit any of this: **`zBuffer.mask` is 0 only inside the low-res bracket.**
+Every `draw_enable_tests` / `draw_setup_environment` in the engine reads that one
+field, so the 2D/HUD/post-fx half of the frame — which draws full-screen sprites
+at `z = 0xFFFFFFFF` and would otherwise stamp 448 rows at a 512 stride — cannot
+reach past the smaller allocation. The ordering problem (z is allocated third in
+`gs.init()`, long before a generated game's `init()` calls `blss.configure()`) is
+solved by laying the permanent VRAM region out again from `configure()`, through
+`RendererCore::rebuildPermanentBuffers()`.
+
+**Measured, and this is the one console number on this page that is current.**
+PCSX2 software renderer, scratch `fpp` project, `Pal576i` (512×512), from the
+game's own `VRAMSTAT` line at frame 240:
+
+| | free VRAM | evictions | largest free block |
+|---|---|---|---|
+| BLSS **off** | 0.227 MB | not recorded | not recorded |
+| BLSS on, **before** the z shrink | 0.234 MB | 1 | 232 KB |
+| BLSS on, **after** | **0.727 MB** | **0** | **744 KB** |
+
+The z buffer went 262 144 → 65 536 words in this mode, i.e. **768 KB back** (672
+KB is the 512×448 figure in the table above; 768 KB is this one, and the two are
+not interchangeable). Against a 256×256 low-res target costing 256 KB that is
+512 KB net — which is exactly the 0.227 → 0.727 MB the log shows, so the
+arithmetic and the measurement agree.
+
+Two things that table is easy to misread. The `0.234` in the middle row is *not*
+evidence that BLSS was nearly free before: it had to evict a texture to fit, and
+the eviction is what put the space back. That eviction is gone. And the largest
+free *block* is the number that matters for whether a big texture can be placed
+at all — a 256×256 32-bit texture wants 264 KB with its padding
+([GS VRAM residency](gs-vram.md)), which does not fit in 232 KB and does fit in
+744 KB.
+
+The page previously claimed this feature was VRAM-positive, then had to retract
+it because the saving was still hypothetical. It is measured now, in the display
+mode named above, and nowhere else: **no other display mode has been booted since
+the change.**
 
 ## Training
 
@@ -281,6 +370,16 @@ to stdout). The network is 147 floats, so it is a header, not an asset.
 | **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
 | **Debug view** | tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen) |
+
+Ticking **Enabled** also puts two notes under the checkbox, and both are there
+because a user should not have to discover them from a broken build: the standing
+one says the feature is a proof of concept that measures about level with plain
+bilinear on unseen content and has never been timed on hardware, and the
+conditional one lists whichever of **depth of field / portals / split-screen**
+*this project actually uses* — the pattern is "warn only about the conflict you
+really have", checked against the staged project settings plus every scene's
+resolved post-fx group and object list. Reflections, camera feeds and projected
+shadows are **not** on that list any more; they nest correctly now.
 
 ## Measured
 
@@ -400,9 +499,10 @@ says it honestly sits.
 ### On the console
 
 Booted in PCSX2 from a scratch `fpp` project (512x512 interlaced, 2 640+ frames,
-50 FPS, 100 % speed, no assert, no texture eviction, one 256x256 low-res target
-at 224 KB). Frame-to-frame change of the *displayed* picture on a static camera,
-same emulator settings for both:
+50 FPS, 100 % speed, no assert, one 256x256 low-res target at 256 KB — the
+224 KB figure this line used to carry is the 256×224 target of a 512×448 mode,
+not this one). Frame-to-frame change of the *displayed* picture on a static
+camera, same emulator settings for both:
 
 | | on-screen change per frame |
 |---|---|
@@ -426,6 +526,9 @@ Three things about that table, all of them limits rather than results:
   every performance statement on this page — including the pass counts, which are
   *fill* and not *milliseconds* — is arithmetic and host measurement, never a
   stopwatch on the console.
+- **Its VRAM line predates the z-buffer shrink.** The residency numbers that are
+  current are the `VRAMSTAT` table in [§5 VRAM](#5-vram), taken on a later boot
+  of the same kind of fixture.
 
 ### The oscillation
 
@@ -576,30 +679,47 @@ Occupancy is a count of grid cells, not a millisecond.
   weights would produce); `--blss-eval` then closes the loop and feeds each frame
   the genuine previous composite, so the *reported* numbers are recurrent even
   though the labels are not.
-- **It silently disables itself around env maps, camera feeds and projected
-  shadows — and this is the most important thing on this list.** Those brackets
-  live *inside* `renderScene()`, and `RendererCoreEnvMap::end()` (and its
-  siblings) restore `FRAME`/`SCISSOR`/`ZBUF`/`XYOFFSET` from
-  `gs->getCurrentFrameBuffer()` — the **display buffer, unconditionally**, not
-  "whatever was redirected before". So the first such pass inside a BLSS bracket
-  cancels the redirect, and the rest of the scene draws full-resolution into the
-  display buffer with no warning and no visual signature beyond "BLSS did
-  nothing". It affects reflective materials using the dynamic sky, "show in
-  reflections" objects, `envProbeReflected`, camera feeds, and every `projShadow`
-  caster. The editor does **not** warn about these, because the incompatibility
-  was found after the UI was written.
+- **FIXED — env maps, camera feeds and projected shadows used to switch it off
+  mid-frame.** This entry used to be the most important thing on the list: those
+  brackets live *inside* `renderScene()` and restored the display buffer
+  unconditionally, so the first one cancelled the redirect and everything after
+  it drew full-resolution into the display buffer, where the composite's opaque
+  base pass painted over it — silently, with no signature beyond "BLSS did
+  nothing". Reflective materials using the dynamic sky, "show in reflections"
+  objects, `envProbeReflected`, camera feeds and every `projShadow` caster were
+  all affected. They restore the previous **`RasterTarget`** now and nest
+  correctly; see
+  [the bracket is explicit state now](#the-bracket-is-explicit-state-now-and-that-is-why-the-others-nest),
+  which also records why the fix this page used to prescribe — "just make
+  `getCurrentFrameBuffer()` return the BLSS target" — was insufficient and would
+  have produced a differently broken frame. Verified in PCSX2 on a fixture with
+  three `projShadow` casters: before, no projected shadow was drawn at all;
+  after, the shadows are there and visibly soft-edged, i.e. produced inside the
+  low-res target and reconstructed by the composite.
+- **Still incompatible with depth of field, portals and split-screen**, and the
+  z-buffer shrink made the first two *harder*, not easier: the depth the display
+  resolution wants is not merely unfilled now, it is not allocated.
+  - **Depth of field** composites its blur through the GS depth test at display
+    resolution (`RendererCorePostFx`'s three z-tested layers), after the
+    composite. Making it work would mean upscaling depth, which the GS cannot do
+    in a blend pass.
+  - **Portals** want real display-resolution depth *and* have the fourth copy of
+    the bracket bug: `RendererCorePostFx::portalMaskBegin/End` still take `FRAME`
+    from `gs->getCurrentFrameBuffer()` and write a display-sized `SCISSOR` and
+    `XYOFFSET`, from inside `renderScene()`. They were not converted in the pass
+    that fixed the other three, so a portal cancels the redirect exactly the way
+    the env map used to. Converting them to `emitRasterRestore()` would fix the
+    *redirect* half and leave the depth half.
+  - **Split-screen** is never bracketed at all — codegen wraps only the
+    single-view branch — and with BLSS on the engine masks scene depth writes
+    outside the bracket, so a split frame would render full-resolution into a
+    depth buffer that is both smaller than the display and never written.
 
-  The fix is small and belongs in the engine: make `getCurrentFrameBuffer()`
-  return the BLSS target while the bracket is open, so those three `end()`
-  implementations restore the right thing without any of them changing. It is
-  the top follow-up in [the backlog](backlog.md); it was not done here because it
-  touches an accessor that shipping features depend on and nothing in this change
-  has been run on hardware.
-- **Incompatible with depth of field, portals and split-screen.** All three read
-  or write real GS depth at display resolution, and BLSS's z-buffer only has a
-  low-res corner filled in. The editor warns instead of generating a broken
-  frame; making DoF work would mean upscaling depth, which the GS cannot do in a
-  blend pass.
+  **The editor warns; codegen does not refuse.** Nothing in `src/templates.cpp`
+  gates DoF, portals or split-screen on `blssEnabled` — earlier drafts of this
+  page and of the math doc said the generated game "does not emit them together",
+  and that was never true. The warning in *Project Settings ▸ Rendering* is the
+  only thing standing between the two.
 - **The composite is not free, and it is now quantified.** The worst case is five
   full-screen passes, which is more fill than the half-res render saved — so the
   sparsity culling is a requirement, not an optimisation. The shipped net measures
@@ -620,8 +740,16 @@ Occupancy is a count of grid cells, not a millisecond.
   `--blss-eval`, `--blss-emit`.
 - Engine side: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
   (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The raster scale
-  it needs is `RendererSettings::setRasterScale` / `getRasterWidthF/HeightF`, and
-  the history tap is `RendererCoreGS::getPreviousFrameBuffer()`.
+  it needs is `RendererSettings::setRasterScale` / `getRasterWidthF/HeightF`
+  (`getRasterWidthUI/HeightUI` is what the z buffer is sized from), and the
+  history tap is `RendererCoreGS::getPreviousFrameBuffer()`.
+- The raster bracket every redirect in the engine shares:
+  `RendererCoreGS::RasterTarget` + `getRasterTarget()` / `redirectRasterTo()` /
+  `endRasterRedirect()` / `emitRasterRestore()`. `getCurrentFrameBuffer()`
+  deliberately still means **the display buffer**. The permanent-VRAM relayout
+  `configure()` triggers is `RendererCore::rebuildPermanentBuffers()`, gated on
+  `RendererCoreGS::needsBufferRealloc()`. `RendererCore3D::isForeignViewActive()`
+  keeps env/portal re-submissions out of BLSS' screen-space feature grid.
 - Project fields: `blssEnabled` / `blssScale` / `blssSharpen` / `blssTemporal` /
   `blssDebugView`, loose on `ProjectSettings` (`src/project.hpp`), serialised in
   `src/project.cpp`, format version 4 (additive, no migration step).

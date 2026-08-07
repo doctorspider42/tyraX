@@ -28,21 +28,53 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
-  - **Make the raster-redirect brackets nest.** THE ONE TO DO FIRST - it is a
-    silent correctness bug, not a missing feature. `RendererCoreEnvMap::end()`,
-    and the shadow-map and camera-feed equivalents, restore FRAME/SCISSOR/ZBUF/
-    XYOFFSET from `gs->getCurrentFrameBuffer()`, i.e. the display buffer
-    *unconditionally* rather than whatever was redirected before them. All three
-    run INSIDE the generated `renderScene()`, so the first one inside a BLSS
-    bracket cancels the redirect and the rest of the frame draws full-res into
-    the display buffer - no assert, no visual signature except that BLSS appears
-    to do nothing. It breaks dynamic-sky reflective materials, "show in
-    reflections" objects, `envProbeReflected`, camera feeds and every
-    `projShadow` caster, none of which the editor warns about. The minimal fix
-    is to have `getCurrentFrameBuffer()` return the BLSS target while the
-    bracket is open: the three `end()` implementations then restore the right
-    thing and none of them changes. Cheap, but it moves an accessor that
-    shipping features depend on, so it wants a hardware pass.
+  - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BEFORE IT WAS WRITTEN: make the
+    raster-redirect brackets nest.** `RendererCoreEnvMap::end()`, the camera
+    feed and `RendererCoreShadowMap::end()` restored FRAME/SCISSOR/ZBUF/XYOFFSET
+    from `gs->getCurrentFrameBuffer()` - the display buffer *unconditionally*
+    rather than whatever was redirected before them - from INSIDE the generated
+    `renderScene()`, so the first of them cancelled the BLSS redirect and the
+    rest of the frame drew full-res into the display buffer, where the
+    composite's opaque base pass painted over it. Silent: no assert, no
+    signature except "BLSS did nothing".
+
+    This entry used to prescribe the minimal fix - have
+    `getCurrentFrameBuffer()` return the BLSS target while the bracket is open,
+    "and none of the three `end()` implementations changes". **That is not
+    sufficient and would have shipped a differently broken frame.** Those
+    implementations restore FOUR registers and only FRAME comes from that
+    accessor: SCISSOR and XYOFFSET come from `RendererSettings`, so a nested
+    bracket would have left a 512-wide scissor over a 256-wide FRAME (writes
+    wrap into the next row) and a window-centred offset for the wrong window,
+    with the frame's sub-pixel jitter dropped. Moving the accessor would also
+    have been wrong for its four post-fx callers and for BLSS' own
+    `endScene()`/`composite()`, which genuinely want the display buffer.
+
+    What shipped instead is an explicit raster target on `RendererCoreGS`:
+    `RasterTarget` (frame address, FBW, scissor, XYOFFSET in 1/16 px) with
+    `getRasterTarget()` / `redirectRasterTo()` / `endRasterRedirect()` /
+    `emitRasterRestore()`. `getCurrentFrameBuffer()` keeps its old meaning and
+    is documented as "the display buffer". Verified in PCSX2 on a fixture with
+    three `projShadow` casters: before, no projected shadow was drawn at all;
+    after, they are there and visibly soft-edged, i.e. produced inside the
+    low-res target and reconstructed by the composite, at 50 FPS / 100 % speed.
+
+    **Two latent bugs came out with it, neither of them BLSS's** and both live
+    in any project using the feature, upscaler or not: none of the three
+    restores carried the `InterlacedField` per-field XYOFFSET bias
+    (`getFieldYOffset16`), so a bracket in that mode handed the rest of the
+    frame a raster window half a scan line off; and the shadow-map restore left
+    ZBUF on its own 64x64 silhouette buffer, so every projected-shadow receiver
+    patch failed GEQUAL - drawn, then discarded. `emitRasterRestore()` writes
+    ZBUF explicitly and LAST.
+
+    **STILL OPEN: the PORTAL bracket was not converted.**
+    `RendererCorePostFx::portalMaskBegin/End` also run inside `renderScene()`
+    and still take FRAME from `gs->getCurrentFrameBuffer()` plus a display-sized
+    SCISSOR and XYOFFSET - the same bug, a fourth time. It does not gate the
+    feature, because portals are independently incompatible with BLSS (they want
+    real display-resolution depth), but converting them to `emitRasterRestore()`
+    is what would leave "portals are incompatible" a depth argument only.
   - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BY ITS OWN MEASUREMENT: flicker
     in the ORACLE's objective.** This entry used to say "score a candidate over
     a PAIR of consecutive frames with a penalty on the difference". That was
@@ -116,12 +148,35 @@ the verification, and any fact worth reusing belongs in the relevant
     both cost debugging time. Worth doing properly: make the seed spread part of
     what `--blss-eval` reports, so the tool states its own error bar instead of
     each report having to remember to.
-  - **Shrink the z-buffer.** With BLSS on nothing ever renders 3D at display
-    resolution, so a 256x224 z instead of 512x448 hands back 172 032 words
-    (672 KB) - more than three times what the feature costs. It is allocated in
-    `RendererCoreGS::allocateBuffers` before BLSS exists in the init order, so
-    this is an ordering change, not a one-liner. **This is the single biggest
-    win left and it makes BLSS VRAM-positive.**
+  - **DONE: shrink the z-buffer, and BLSS is now measurably VRAM-POSITIVE.**
+    `RendererCoreGS::allocateVramBuffers` sizes z from
+    `RendererSettings::getRasterWidthUI/HeightUI` instead of the display buffer:
+    57 344 words instead of 229 376 at 2x2, i.e. 672 KB back at 512x448 and
+    768 KB at 512x512, against 224 / 256 KB for the low-res colour target. The
+    ordering problem (z is allocated third in `gs.init()`, long before a
+    generated game's `init()` calls `blss.configure()`) is solved by laying the
+    permanent VRAM region out again from `configure()`, through
+    `RendererCore::rebuildPermanentBuffers()` - `setDisplayOutput`'s mode-change
+    branch minus the mode, so `vram.reset()` keeps one implementation and the
+    frame buffers come back at the same addresses. It runs before `buildScene()`
+    loads any asset, so docs/gs-vram.md's "permanent buffers before any texture"
+    invariant holds.
+
+    What makes it safe is one invariant, and it is the thing to keep: **
+    `zBuffer.mask` is 0 only INSIDE the low-res bracket.** Every
+    `draw_enable_tests` / `draw_setup_environment` in the engine reads that one
+    field, so the 2D/HUD/post-fx half of the frame - full-screen sprites at
+    z = 0xFFFFFFFF, which would otherwise stamp 448 rows at a 512 stride -
+    cannot write past the smaller allocation.
+
+    Measured, PCSX2 software renderer, scratch `fpp` project, `Pal576i`
+    (512x512), the game's own VRAMSTAT line at frame 240: free VRAM **0.227 MB
+    with BLSS off, 0.234 MB with BLSS on before the change (and one eviction -
+    which is what put that space back), 0.727 MB after, with no eviction**;
+    largest free block 232 KB -> 744 KB; z 262 144 -> 65 536 words. So BLSS on
+    now leaves half a megabyte MORE texture VRAM than BLSS off, which is exactly
+    the 768 KB returned minus the 256 KB target. **Measured in that display mode
+    and no other.**
   - **Train on the project, not on the procedural corpus.** `--blss-train
     <projectDir>` is the shape; `src/blsscorpus.cpp` is already structured so
     the scene source is swappable, and the features come from `BagProxy` lists
@@ -151,11 +206,25 @@ the verification, and any fact worth reusing belongs in the relevant
     depends on the previous frame's weights. `--blss-eval` already closes the
     loop for the *reported* numbers; closing it for the *labels* means either
     iterating training to a fixed point or a short BPTT window.
-  - **Depth of field, portals and split-screen are mutually exclusive with it.**
-    All three want real GS depth at display resolution. DoF is the interesting
-    one: it would need an upscaled depth buffer, which the GS cannot produce in
-    a blend pass, so it probably means keeping a low-res depth *colour* target
-    and re-deriving z - a design, not a fix.
+  - **Depth of field, portals and split-screen are mutually exclusive with it,
+    and NOTHING BUT THE UI ENFORCES THAT.** All three want real GS depth at
+    display resolution, which since the z-buffer shrink is not merely unwritten
+    but unallocated. Two corrections to what this entry and the docs used to
+    say. **Codegen does not refuse the combination**: no path in
+    `src/templates.cpp` gates DoF, portals or split-screen on `blssEnabled`, so
+    "the generated game does not emit them together" - which appeared in
+    docs/neural-upscaler.md, docs/blss-reconstruction.md and the engine skill -
+    was always false; the *Neural upscaler (BLSS)* block of
+    `drawPreferencesModal` is the entire interlock, and it now names the reason
+    per feature. And two of the three fail for a second, independent reason:
+    portals cancel the raster redirect (see the nesting entry above), and split
+    frames are never bracketed at all - codegen wraps only the single-view
+    branch, so a split frame renders full-resolution with scene depth writes
+    still masked. DoF is the interesting one to actually fix: it would need an
+    upscaled depth buffer, which the GS cannot produce in a blend pass, so it
+    probably means keeping a low-res depth *colour* target and re-deriving z - a
+    design, not a fix. Making codegen refuse (or auto-disable, loudly) instead of
+    trusting a warning is the cheap half.
   - **Close the UV-clamp parity gap.** The UV register's fields are 14 bits
     unsigned, so the engine clamps grid-corner UVs to >= 0 and the host, which
     evaluates `u(x)` analytically per pixel, does not need to. Across the first

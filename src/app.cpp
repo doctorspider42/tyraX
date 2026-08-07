@@ -13563,9 +13563,19 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Neural upscaler (BLSS)");
     // What it cannot be combined with, checked against the STAGED settings for
     // the project-wide half and the live scenes for the per-scene overrides.
-    // Said next to the checkbox rather than left for the build to discover:
-    // all three read or write real GS depth at DISPLAY resolution, which a
-    // low-res z-buffer cannot give, so the frame comes out broken.
+    // Said next to the checkbox rather than left for the build to discover -
+    // NOTHING in codegen refuses the combination, this warning is the whole
+    // interlock (docs/neural-upscaler.md, Limitations).
+    //
+    // The list is SHORTER than it was when this block was written. Env maps,
+    // camera feeds and projected shadows used to restore the display buffer
+    // from inside renderScene() and so silently cancelled the redirect for the
+    // rest of the frame; they restore the previous RasterTarget now and nest
+    // correctly, so they are not warned about and must not be. What is left is
+    // the three features that want real GS depth at DISPLAY resolution, which
+    // the engine does not even allocate any more - the z buffer follows the
+    // reduced raster. Two of them fail a second way as well, and the warning
+    // says which, because "it will be wrong" sends nobody anywhere useful.
     const bool blssSplit = prefSettings_.multiplayer == "split";
     bool blssDof = prefSettings_.dofAmount > 0.0f;
     bool blssPortals = false;
@@ -13588,28 +13598,66 @@ void App::drawPreferencesModal() {
         "point sampling, previous frame and sharpening to blend. The HUD,\n"
         "the menus, the text and every post effect still draw at FULL\n"
         "resolution, so 2D stays crisp.\n"
-        "The trade: less 3D fill and a smaller z-buffer, paid back as up to\n"
-        "five full-screen composite passes - measure it on a scene that was\n"
-        "not fill-bound before. Incompatible with depth of field, portals\n"
-        "and split-screen (all three need real GS depth at display\n"
-        "resolution). Train the network with 'tyrax-editor --blss-train' in\n"
-        "the project directory; without a blss.net the game is built with\n"
-        "random weights and says so in its boot log.");
-    if (blssDof || blssPortals || blssSplit) {
-        std::string clash;
-        const auto add = [&clash](const char* what) {
-            if (!clash.empty()) clash += ", ";
-            clash += what;
-        };
-        if (blssDof) add("depth of field");
-        if (blssPortals) add("portals");
-        if (blssSplit) add("split-screen");
+        "\n"
+        "PROOF OF CONCEPT, and worth knowing BEFORE you turn it on: on shots\n"
+        "it was not trained on it measures about level with a plain bilinear\n"
+        "upscale - about +0.1 dB averaged over four training seeds, and one\n"
+        "of those four scored BELOW bilinear. The win on the training corpus\n"
+        "(+1.1 dB over the best fixed kernel) is the solid one. No BLSS frame\n"
+        "has ever been TIMED, in the emulator or on hardware, so whether it\n"
+        "is faster on your scene is genuinely unknown.\n"
+        "\n"
+        "VRAM it gives back: the z-buffer shrinks with the render, which\n"
+        "returns more than the reduced-resolution target costs (measured at\n"
+        "PAL 512x512: 0.227 MB of texture VRAM free with this off, 0.727 MB\n"
+        "with it on). Fill it costs: up to five full-screen composite passes,\n"
+        "which is more than the reduced render saves whenever the network\n"
+        "asks for every kernel everywhere.\n"
+        "\n"
+        "Reflections, camera feeds and projected shadows work with it - they\n"
+        "used to switch it off in the middle of the frame. Depth of field,\n"
+        "portals and split-screen do not, and nothing in the build refuses\n"
+        "the combination: the warning below is the only guard.\n"
+        "\n"
+        "Train the network with 'tyrax-editor --blss-train' in the project\n"
+        "directory, then check it with '--blss-eval'; without a blss.net the\n"
+        "game is built with random weights and says so in its boot log.");
+    if (prefSettings_.blssEnabled) {
         ImGui::TextColored(
-            ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-            "    Clashes with this project's %s: real GS depth at display\n"
-            "    resolution is not available in a reduced render, so the\n"
-            "    upscaled frame will be wrong. Leave one of the two off.",
-            clash.c_str());
+            ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
+            "    Proof of concept. On content it was not trained on it measures\n"
+            "    about level with a plain bilinear upscale (+0.1 dB averaged over\n"
+            "    four training seeds; one of the four came out below bilinear),\n"
+            "    and no frame of it has ever been timed on console or hardware.\n"
+            "    Run 'tyrax-editor --blss-eval' and look at the result in PCSX2\n"
+            "    before you ship a game with this on.");
+    }
+    if (prefSettings_.blssEnabled && (blssDof || blssPortals || blssSplit)) {
+        const ImVec4 warn(1.0f, 0.6f, 0.2f, 1.0f);
+        ImGui::TextColored(warn,
+                           "    Cannot be combined with what this project uses,\n"
+                           "    and the build will NOT stop you:");
+        if (blssDof)
+            ImGui::TextColored(
+                warn,
+                "      - Depth of field composites its blur through the GS depth\n"
+                "        test at display resolution, and with this on the depth\n"
+                "        buffer is only as big as the reduced render.");
+        if (blssPortals)
+            ImGui::TextColored(
+                warn,
+                "      - Portals want that same display-resolution depth, and\n"
+                "        their through-view points the raster back at the display\n"
+                "        buffer mid-scene, which cancels the reduction for the\n"
+                "        rest of the frame.");
+        if (blssSplit)
+            ImGui::TextColored(
+                warn,
+                "      - Split-screen frames are never reduced at all (only the\n"
+                "        single-view path is), and scene depth writes are masked\n"
+                "        outside the reduced pass - so both halves would render\n"
+                "        full-resolution with no working depth buffer.");
+        ImGui::TextColored(warn, "    Leave one of the two off.");
     }
     ImGui::BeginDisabled(!prefSettings_.blssEnabled);
     {
@@ -13623,9 +13671,15 @@ void App::drawPreferencesModal() {
             prefSettings_.blssScale = blssScale;
         prefHelp(
             "How much of the frame the GS actually rasterises. 2x2 quarters\n"
-            "the 3D fill and the z-buffer; 1x2 halves only the height, which\n"
-            "is what the PS2's own interlaced-field mode already does to the\n"
-            "raster - softer vertically, untouched horizontally.");
+            "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
+            "own interlaced-field mode already does to the raster - softer\n"
+            "vertically, untouched horizontally.\n"
+            "The z-buffer is allocated at THIS size, so on a 512x448 output\n"
+            "2x2 hands 672 KB of VRAM back and 1x2 hands back 448 KB.\n"
+            "Train the network at the scale you ship: 'tyrax-editor\n"
+            "--blss-train --scale-1x2' for the second option. A blss.net is\n"
+            "147 bare floats and records nothing about how it was trained, so\n"
+            "a mismatch here costs quality without saying anything.");
 
         ImGui::SetNextItemWidth(scaled(120));
         ImGui::DragFloat("Sharpen strength", &prefSettings_.blssSharpen, 0.01f,
@@ -13645,7 +13699,12 @@ void App::drawPreferencesModal() {
             "reprojected per grid vertex. This is where the anti-aliasing\n"
             "comes from - two sub-pixel jitter phases averaged is a real 2x\n"
             "supersample, and the GS has no MSAA to offer instead. Off =\n"
-            "spatial only: no ghosting on fast motion, and no AA either.");
+            "spatial only: no ghosting on fast motion, and no AA either.\n"
+            "It is also the switch to reach for if the picture SHAKES. A\n"
+            "visible sub-pixel bob was seen in the emulator before the\n"
+            "training objective was retuned; the host's stability metric\n"
+            "improved with the retune, but nobody has watched a television\n"
+            "since, so it is neither confirmed fixed nor confirmed present.");
 
         int blssDebug = prefSettings_.blssDebugView == 1 ? 1 : 0;
         const char* blssDebugNames[] = {

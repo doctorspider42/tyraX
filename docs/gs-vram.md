@@ -14,7 +14,7 @@ counts in words. A default project spends it like this:
 | Region | Words | Notes |
 |---|---|---|
 | Frame buffer × 2 (512×448, 32bpp) | 458 752 | halves in the `InterlacedField` scan mode |
-| Z buffer (512×448, 32bpp) | 229 376 | |
+| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [neural upscaler](neural-upscaler.md) shrinks it to 57 344 at 2×2 |
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
 | Env-map target + its z buffer (128×128) | 32 768 | reflective materials |
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
@@ -52,9 +52,20 @@ filling VRAM.
   `allocate()` takes a best-fit block; `free()` returns it in **any order** and
   merges it with its neighbours.
 
-The only thing that moves the floor between them is a display-mode switch,
-which calls `vram.reset()` after evicting every texture and then re-runs the
-whole init sequence (`RendererCore::setDisplayOutput`).
+Two things move the floor between them, and both work the same way — evict every
+texture, `vram.reset()`, re-run the allocation sequence:
+
+- a **display-mode switch** (`RendererCore::setDisplayOutput`), which re-runs the
+  whole init including the video mode;
+- **`blss.configure()`** turning the [neural upscaler](neural-upscaler.md) on,
+  through `RendererCore::rebuildPermanentBuffers()` — the same branch minus the
+  mode. The z buffer is sized from the raster and the raster scale is not known
+  until `configure()` runs, which is *after* z was allocated. Generated games
+  call it at the top of `init()`, before `buildScene()` loads a single asset, so
+  the eviction has nothing to evict and the "permanent buffers before any
+  texture" rule below still holds. **A new caller of it later in a frame would
+  break that rule**, which is why the hook is gated on
+  `RendererCoreGS::needsBufferRealloc()` and fires at most once.
 
 VRAM-*resident* textures — the dynamic env map and the camera feed, whose
 pixels are rendered into GS memory rather than uploaded — bind their own
