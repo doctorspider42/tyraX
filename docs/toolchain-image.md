@@ -63,13 +63,36 @@ ELFs non-empty). The build context is the repo root — `tools/ps2link/tyrax.pat
 has to be in it — and `docker/Dockerfile.dockerignore` keeps the rest of the repo
 (`vendor/`, `build/`, `examples/`) out.
 
-To point a project at an image, write one line into the **project** directory:
+## Choosing which image a build uses
+
+Two doors, and they are for different jobs.
+
+**In the editor: *Edit > Preferences > Build toolchain*.** A combo with the images
+worth naming - the project default, the original `h4570/tyra`, this repo's
+published one, a locally built one - plus a free-text field for anything else.
+It is a **machine-global** setting (`editor.ini`, next to the PCSX2 path and the
+ps2link IP), not project data: which images a PC has pulled is a property of that
+PC, and a value stored in a shared `.tyra` would name an image a teammate does not
+have. **Leaving it empty is a real choice** - the editor then exports nothing and
+the project's own `.env` decides, exactly as it did before the setting existed.
+That is also the *fall back to the original Tyra image* switch: pick it, build, and
+the game is compiled by Sony's `vcl` again.
+
+The Runner applies it as an environment variable on its `docker compose` commands
+rather than by writing `.env` - that file is the user's own override sheet and
+rewriting it from under them is not the editor's business. An exported variable
+outranks `.env`, so an explicit choice in the editor wins over one made there.
+One asymmetry worth knowing: **headless builds (`tyrax-editor --build`) do not read
+`editor.ini`** and therefore follow `.env`, the same way they auto-detect the
+emulator rather than using the configured path.
+
+**In a project: `.env`.** Write one line into the **project** directory:
 
 ```
 TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain:latest
 ```
 
-in `.env`. The generated `docker-compose.yml` reads
+The generated `docker-compose.yml` reads
 `image: ${TYRAX_IMAGE:-h4570/tyra}`, and `docker compose` interpolates it from
 `.env` (or from the environment, which wins over `.env`). This indirection exists
 because `docker-compose.yml` is **regenerated on every build** — an edit to that

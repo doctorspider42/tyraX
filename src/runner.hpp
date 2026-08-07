@@ -82,7 +82,12 @@ private:
     ResetResult resetPs2Link(const Project& p);
     // Runs a command through the platform shell in `cwd`, streams output to
     // log. Returns process exit code, or -1 on spawn failure.
-    int exec(const std::string& cmdline, const std::string& cwd);
+    int exec(const std::string& rawCmdline, const std::string& cwd);
+    // Latched from Project::toolchainImage when the worker starts; exec()
+    // exports it as TYRAX_IMAGE for `docker compose` commands. Empty = export
+    // nothing, so the compose file's own default (and the project's .env)
+    // decide, as they did before the setting existed.
+    std::string toolchainImage_;
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
     void killPs2Client();

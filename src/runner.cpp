@@ -179,8 +179,21 @@ void Runner::cancel() {
     if (execProc_) execProc_->kill();
 }
 
-int Runner::exec(const std::string& cmdline, const std::string& cwd) {
+int Runner::exec(const std::string& rawCmdline, const std::string& cwd) {
     if (cancelRequested_) return -1;
+
+    // The toolchain image is chosen in Edit > Preferences and reaches compose as
+    // an environment variable rather than by writing the project's .env: that
+    // file is the user's own per-machine override sheet, and rewriting it from
+    // under them is not ours to do. An exported variable also outranks .env, so
+    // an explicit choice in the editor wins - while an EMPTY choice exports
+    // nothing at all and the compose file's own default resolves exactly as it
+    // did before this setting existed. Applied here, in the single funnel every
+    // command goes through, so a compose call added later cannot forget it.
+    std::string cmdline = rawCmdline;
+    if (!toolchainImage_.empty() && cmdline.rfind("docker compose", 0) == 0)
+        cmdline = platform::envPrefix("TYRAX_IMAGE", toolchainImage_) + cmdline;
+
     appendLine("> " + cmdline);
 
     platform::Process::Options opts;
@@ -686,6 +699,11 @@ bool Runner::deployToPs2(const Project& p) {
 
 void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
     bool ok = true;
+    // exec() reads this to export TYRAX_IMAGE for the compose commands. Latched
+    // here rather than passed down: every compose call site would otherwise have
+    // to remember, and a new one added later would silently build in the wrong
+    // image (see Runner::exec).
+    toolchainImage_ = p.toolchainImage;
 
     if (build) {
         appendLine(rebuild ? "[editor] === Rebuild started: " + p.name + " ==="
