@@ -20584,6 +20584,11 @@ static bool staticBatchEligible(const SceneObject& o,
     return blocked.find(o.name) == blocked.end();
 }
 
+// The neural upscaler's build interlock, defined with the rest of the BLSS
+// codegen far below and emitted from here - see blssClashes() for why it is a
+// hard #error and why scene_data.hpp is the file it has to live in.
+static std::string blssInterlock(const Project& p);
+
 // inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
 static std::string sceneDataContent(const Project& p, const std::string& ns) {
     std::ostringstream out;
@@ -22326,6 +22331,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // existed, byte for byte - and nothing references these constants there,
     // because the init block and the frame bracket are equally absent.
     if (p.settings.blssEnabled) {
+        // First: refuse the build outright when the project also uses depth of
+        // field, a portal or split screen (blssClashes). "" when it does not,
+        // which is what keeps a clean BLSS project generating what it always
+        // did. The constants below are still emitted under the refusal, so the
+        // compiler reports the #error and not a page of "BLSS_SCALE_X was not
+        // declared in this scope".
+        out << blssInterlock(p);
         const blss::Scale sc =
             p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
         out << "constexpr int BLSS_ENABLED = " << (p.settings.blssEnabled ? 1 : 0)
@@ -22883,6 +22895,255 @@ static std::string screenFxSource(const Project& p) {
 // the contract for the whole feature: a project with the upscaler off must
 // generate byte-for-byte the sources it generated before BLSS existed.
 
+// --- The interlock ---------------------------------------------------------
+// BLSS cannot be combined with depth of field, portals or split screen: all
+// three read or write real GS depth at DISPLAY resolution, which since the z
+// buffer started following the raster is not merely unwritten but unallocated
+// (docs/neural-upscaler.md). Until this block existed nothing in codegen knew
+// that. Three documents claimed "the generated game does not emit them
+// together" and none of them was ever true; the preferences dialog warned, and
+// a user who went past the warning got an ELF that compiled, booted, and drew
+// the wrong picture. Split screen is the worst of the three: the frame bracket
+// wraps only the single-view branch and configure() leaves zBuffer.mask = 1
+// outside it, so a split frame renders at FULL resolution with scene depth
+// writes masked - a broken picture, not a degraded one.
+//
+// So the generated sources REFUSE TO COMPILE. The alternative shape - emit the
+// game with the upscaler quietly dropped and a loud warning - lost on three
+// counts:
+//
+//  - It makes the ELF disagree with the project. `blssEnabled` would still be
+//    true in the .tyra while the binary has no upscaler in it, so the boot log,
+//    the VRAM figures and any timing would describe a configuration the project
+//    does not. For a proof of concept whose whole purpose is being MEASURED,
+//    "the build succeeded, and quietly measured something else" is the worst
+//    outcome on the table.
+//  - A build warning is not loud. `--build` streams a Docker log and a line in
+//    it scrolls past; what people read is the reason a build stopped.
+//  - The build is not the first thing to see the clash. The editor's
+//    preferences dialog already enumerates the same features, per feature, live
+//    (App::drawPreferencesModal). This is the backstop for somebody who went
+//    past that, and a backstop that lets the build through is not one.
+//
+// The remedy is one click in every case, including the data-dependent ones
+// (a portal dropped into a scene), because BLSS is the newer, opt-in, off-by-
+// default half of every one of these pairs: turning the upscaler off always
+// resolves the clash, whichever feature tripped it. The message says so first
+// and names the clashing feature - and where it is - second.
+//
+// It lives in the generated SOURCE and not in the editor's build button,
+// because the button is not the only road to a wrong ELF: `docker compose up`
+// + `make` by hand in the project directory is one, and so is a CI job that
+// never runs the editor. Nothing that produces an ELF gets past a #error. The
+// BLSS_* constants and the init/composite calls are still emitted around it on
+// purpose - suppressing them would bury the one diagnostic that matters under
+// a page of "BLSS_SCALE_X was not declared in this scope".
+//
+// The FILE it goes in is inc/scene_data.hpp, not the prolog of
+// src/terrain_game.cpp where the rest of the BLSS wiring enters. The game cpp
+// carries the ownership marker ("Delete this line to take ownership of this
+// file") and stops regenerating the moment somebody takes it; scene_data.hpp
+// says "regenerated on every build" and means it. A guard a user can silently
+// switch off by editing an unrelated file is not a guard. The price is that
+// every translation unit including the header repeats the refusal (four of
+// them on a fresh project), which is the right way round for something that
+// must not be missed.
+
+// Text that is safe to put after a `#error`. The directive's operand is not
+// lexed as C++ tokens, but an unpaired apostrophe in it still draws a "missing
+// terminating ' character" warning out of GCC, and scene and object names are
+// user text. Anything outside a conservative printable set becomes '?'.
+static std::string errorSafe(const std::string& s) {
+    static const std::string kPunct = " .,:;()[]<>+-_=/*&#@!%?";
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') ||
+                        kPunct.find((char)c) != std::string::npos;
+        out += ok ? (char)c : '?';
+    }
+    return out;
+}
+
+// One line per feature this project uses that the upscaler cannot be combined
+// with; empty means the combination is buildable. Each condition mirrors the
+// one the GENERATED GAME will actually take, not the coarser one the
+// preferences dialog paints its warning from - a build that refuses more often
+// than the game would break is a build that blocks work for nothing.
+static std::vector<std::string> blssClashes(const Project& p) {
+    std::vector<std::string> out;
+    if (!p.settings.blssEnabled) return out;
+    // EVERY clashing feature is reported, but only the first place each one
+    // shows up: a project with a portal AND split screen should learn both in
+    // one build rather than fix one, rebuild, and be refused again - while
+    // eleven scenes with depth of field are eleven copies of one sentence.
+
+    auto sceneName = [&](size_t si) {
+        return errorSafe(p.scenes[si].name.empty()
+                             ? ("scene #" + std::to_string(si))
+                             : ("scene " + p.scenes[si].name));
+    };
+    // POSTFX_DOFS stores the amount in 1/128ths (the sceneInts fx128 above),
+    // and RendererCorePostFx::applyPostFx runs the pass only for
+    // `dof > 0 && dofFocus > 0` - so an amount under 1/128, or a zero focus
+    // distance, is depth of field that never draws and never clashes.
+    auto dofActive = [](float amount, float focus) {
+        const int fx = (int)(amount * 128.0f + 0.5f);
+        return fx > 0 && focus > 0.0f;
+    };
+    // A plain decimal, not floatLit: this ends up in a sentence somebody
+    // reads, and a C++ float suffix in the middle of one reads as a typo.
+    auto amountText = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f", (double)v);
+        return std::string(buf);
+    };
+
+    // 1. Depth of field. Per SCENE, not per project: the project value is only
+    //    the default and a scene can override the whole post-fx group
+    //    (SceneOverrides::postFx), which is exactly what the POSTFX_DOFS table
+    //    is a table of.
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const ProjectSettings rs = project::resolvedSettings(p, p.scenes[si]);
+        if (!dofActive(rs.dofAmount, rs.dofFocus)) continue;
+        out.push_back(
+            "BLSS x DEPTH OF FIELD: " + sceneName(si) +
+            " has a depth-of-field amount of " +
+            amountText(rs.dofAmount) +
+            ". Depth of field composites its blur through the GS depth test at "
+            "DISPLAY resolution, after the composite, and with the upscaler on "
+            "the z buffer is only as big as the reduced render. Set the amount "
+            "to 0 in Tools > UI Editor > [ Depth of field ] (or in the scene "
+            "post-effects override, Scene > Scene Preferences > Post effects), "
+            "or turn the upscaler off.");
+        break;
+    }
+    // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
+    //    in a project whose authored amount is 0 everywhere. Mode 1 turns depth
+    //    of field off and mode 2 restores the scene's authored value (caught by
+    //    the loop above when that value is non-zero); only mode 0 sets its own.
+    //    The amount is a literal in the emitted code - nothing can wire it - so
+    //    this reads the same numbers the emitter does.
+    if (out.empty()) {
+        bool found = false;
+        for (size_t si = 0; si < p.scenes.size() && !found; ++si)
+            for (const SceneObject& o : p.scenes[si].objects) {
+                const FlowNode* hit = nullptr;
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    if (n.type != "SetDof" || (int)n.num[3] != 0) continue;
+                    bool posWired = false;
+                    for (const FlowLink& l : o.flowGraph.links)
+                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                    // A wired position replaces Focus with the live
+                    // player-to-point distance, which is > 0.
+                    if (dofActive(n.num[2], posWired ? 1.0f : n.num[0])) {
+                        hit = &n;
+                        break;
+                    }
+                }
+                if (!hit) continue;
+                out.push_back(
+                    "BLSS x DEPTH OF FIELD: the flow graph of " +
+                    errorSafe(o.name) + " in " + sceneName(si) +
+                    " has a Set Depth Of Field node that turns depth of field "
+                    "ON at runtime (amount " + amountText(hit->num[2]) +
+                    "). Depth of field composites its blur through the GS depth "
+                    "test at DISPLAY resolution, and with the upscaler on the z "
+                    "buffer is only as big as the reduced render. Set that "
+                    "node's Mode to Off, or delete it, or turn the upscaler "
+                    "off.");
+                found = true;
+                break;
+            }
+    }
+    // 3. Portals. Objects in a scene, so this is data and not a preference -
+    //    and only a LINKED pair renders a through-view (renderPortalView skips
+    //    target < 0), so an unlinked portal is a tinted surface and no clash.
+    //    Same resolution rule as the PORTALS table: the target names another
+    //    Portal in the same scene.
+    bool portalFound = false;
+    for (size_t si = 0; si < p.scenes.size() && !portalFound; ++si) {
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi) {
+            const SceneObject& o = objs[oi];
+            if (o.type != PrimitiveType::Portal || o.portalTarget.empty())
+                continue;
+            const SceneObject* target = nullptr;
+            for (size_t ti = 0; ti < objs.size(); ++ti)
+                if (ti != oi && objs[ti].type == PrimitiveType::Portal &&
+                    objs[ti].name == o.portalTarget)
+                    target = &objs[ti];
+            if (!target) continue;
+            out.push_back(
+                "BLSS x PORTALS: " + sceneName(si) + " contains the linked "
+                "portal " + errorSafe(o.name) + " -> " +
+                errorSafe(target->name) +
+                ". A portal through-view wants real display-resolution depth, "
+                "and it carves its opening from inside renderScene() with a "
+                "display-sized raster window. Unlink or delete the portal, or "
+                "turn the upscaler off.");
+            portalFound = true;
+            break;
+        }
+    }
+    // 4. Split screen. A preference (MULTIPLAYER_MODE == 2) AND scene data: the
+    //    generated frame takes the split branch only when the active scene has
+    //    a SECOND Player object (PLAYER2_INDEXES), so a project set to split
+    //    with no player two anywhere never renders a split frame and is not a
+    //    clash. The preferences dialog does not make that distinction; this
+    //    does, because it is the one that stops the build.
+    if (p.settings.multiplayer == "split") {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            int players = 0;
+            for (const SceneObject& o : p.scenes[si].objects)
+                if (o.type == PrimitiveType::Player) ++players;
+            if (players < 2) continue;
+            out.push_back(
+                "BLSS x SPLIT SCREEN: Project > Preferences > Multiplayer is "
+                "set to split screen and " + sceneName(si) +
+                " has a second Player object. A split frame is never reduced "
+                "(only the single-view branch is bracketed) and scene depth "
+                "writes stay masked outside that bracket, so both halves would "
+                "render at full resolution into a depth buffer that is smaller "
+                "than the display and never written. Choose shared screen or "
+                "single player, or turn the upscaler off.");
+            break;
+        }
+    }
+    return out;
+}
+
+// The refusal as it lands in inc/scene_data.hpp. "" when the project is
+// clean, which is what keeps a BLSS-on project that clashes with nothing
+// byte-identical to what it generated before this existed.
+static std::string blssInterlock(const Project& p) {
+    const std::vector<std::string> clashes = blssClashes(p);
+    if (clashes.empty()) return "";
+    std::string s =
+        "// ==========================================================="
+        "===============\n"
+        "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
+        "//\n"
+        "// The neural upscaler (BLSS) is on and this project uses a feature it\n"
+        "// cannot be combined with. Both halves would compile and boot; the\n"
+        "// picture would be wrong, quietly, which is why this is an error and\n"
+        "// not a warning. Fix EITHER side - one click resolves it:\n"
+        "//\n"
+        "//   Project > Preferences > Neural upscaler (BLSS) >\n"
+        "//     \"Reconstruct from a reduced-resolution render\"   (turn it off)\n"
+        "//\n"
+        "// ...or remove the clashing feature named below, then rebuild.\n"
+        "// ==========================================================="
+        "===============\n"
+        "#error BLSS BUILD REFUSED: the neural upscaler is on and this project "
+        "uses a feature it cannot be combined with. Turn it off in Project > "
+        "Preferences > Neural upscaler (BLSS), or remove the feature named "
+        "below. Details: docs/neural-upscaler.md, Limitations.\n";
+    for (const std::string& c : clashes) s += "#error   " + c + "\n";
+    return s;
+}
+
 // The trained net, plus whether it IS trained. A missing <projectDir>/blss.net
 // is never a build failure: the header is emitted with random weights and the
 // generated init says so out loud, because a silent random net looks exactly
@@ -22971,8 +23232,11 @@ static std::string blssInit(const Project& p) {
 // effect keep drawing at display resolution.
 //
 // Only the non-split branch is ever bracketed - splitView.end() restores the
-// display raster, and split-screen is one of the three features BLSS cannot be
-// combined with anyway (the UI says so; see docs/blss-reconstruction.md §7).
+// display raster, and split screen is one of the three features BLSS cannot be
+// combined with anyway. That is not left to the docs and a warning any more:
+// blssClashes() above refuses the build when a project actually has both, so
+// this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
+// docs/blss-reconstruction.md section 7).
 static std::string blssSceneRender(const Project& p) {
     if (!p.settings.blssEnabled) return "      renderScene();\n";
     return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
@@ -35451,6 +35715,13 @@ std::vector<File> generate(const Project& p) {
     const VuBuild vuBuild = buildVuFiles(p);
     for (const std::string& w : vuBuild.warnings)
         std::printf("[vu] %s\n", w.c_str());
+    // The neural upscaler's interlock (blssClashes) says the same thing on the
+    // host, before Docker is even started, so `--refresh-gen` reports it too
+    // and `--build` does not make anyone wait for a compiler to reach the
+    // #error in inc/scene_data.hpp. The refusal itself stays in the generated
+    // source - this is the courtesy copy, not the guard.
+    for (const std::string& c : blssClashes(p))
+        std::printf("[blss] BUILD WILL BE REFUSED: %s\n", c.c_str());
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
