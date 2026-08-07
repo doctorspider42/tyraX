@@ -43,21 +43,79 @@ the verification, and any fact worth reusing belongs in the relevant
     bracket is open: the three `end()` implementations then restore the right
     thing and none of them changes. Cheap, but it moves an accessor that
     shipping features depend on, so it wants a hardware pass.
-  - **Put flicker into the ORACLE's objective, not just the report. THE ONE
-    THAT MATTERS - the feature visibly oscillates on a television without it.**
-    A probe settled the cause: with the jitter forced to zero the picture is
-    perfectly still, in progressive mode where no deinterlacer can be involved.
-    So the oscillation is the jittered sampling itself - which is *supposed* to
-    differ every frame, that is where the information comes from - and the
-    temporal accumulator is failing to fuse it. It fails because `wC` comes from
-    the network, the network learns from the oracle's labels, and the oracle
-    still scores a single frame's PSNR, in which asking for history is free.
-    Score a candidate over a PAIR of consecutive frames with a penalty on the
-    difference instead. The corpus already renders sequences, so this is a change
-    to `oracle()` and not to the data. Note the earlier "lock the jitter phase to
-    the field parity" theory is REFUTED: a blending deinterlacer was averaging
-    adjacent frames and hiding the effect, which is why enabling it looked like
-    a fix, and the bob survives into progressive 480p unchanged.
+  - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BY ITS OWN MEASUREMENT: flicker
+    in the ORACLE's objective.** This entry used to say "score a candidate over
+    a PAIR of consecutive frames with a penalty on the difference". That was
+    implemented, swept and **measured to be a bad trade**. It is
+    `--flicker-weight`, it defaults to **0**, and the knob and the term both
+    stay - a weight set to zero after measuring is not the same as a feature
+    deleted. Swept jointly with `--fill-weight` (84 frames, 600 epochs, 3-6
+    training seeds per point), at fill 6:
+
+    | `--flicker-weight` | 0.00 | 0.02 | 0.05 | 0.15 |
+    |---|---|---|---|---|
+    | held-out PSNR | 23.38 | 23.16 | 22.90 | 22.37 |
+    | training flicker | 21.01 | 20.86 | 20.80 | 20.20 |
+
+    (bilinear: 23.26 dB, 23.41 flicker.) Every non-zero setting pays 0.2-1.0 dB
+    of OUT-OF-DISTRIBUTION quality for a few percent of flicker, and 0.02 upwards
+    already scores below plain bilinear. **The form is wrong, not just the
+    weight**: MSE against the reprojected history is minimised by the picture
+    FREEZING, which is free on the near-static training shots and is ghosting on
+    the held-out orbit and dolly - it cannot tell "stable because the jitter got
+    fused" from "stable because nothing moved". If this is picked up again, gate
+    the penalty on reprojection confidence FIRST.
+
+    **What delivered the stability instead was the fill term** (next entry), by
+    culling the point and sharpen passes - which are exactly the two that
+    alternate with the jitter. At flicker 0, moving fill 0 -> 6 took flicker from
+    21.49 to 21.01 (training) and 27.12 to 26.62 (held out) at no quality cost.
+
+    The earlier **"lock the jitter phase to the field parity" theory stays
+    REFUTED**, and the reason is worth keeping: a blending deinterlacer was
+    averaging adjacent frames and hiding the symptom, which is exactly why
+    enabling it looked like a fix, and the bob survives into progressive 480p
+    unchanged. The real cause is that jittered sampling produces a different
+    frame every time - which is the POINT, it is where the extra information
+    comes from - and the temporal accumulator was not fusing it. Nothing about
+    interlacing or field parity is involved.
+
+    **STILL OPEN, and it is now the only open half of this item: nobody has
+    watched the emulator since the fill term landed.** Every console observation
+    on record was taken from a net trained by the old fill-blind objective. The
+    host's flicker metric improved with the retune; whether the picture is still
+    bobbing on a television is UNVERIFIED in both directions. That is a
+    twenty-minute PCSX2 boot and it gates the feature.
+  - **DONE: charge the oracle for the fill it asks for.** `--fill-weight`,
+    default 6, charged as a STEP on the quantised alpha byte (a weight rounding
+    to alpha 1 costs a whole pass and buys nothing, so a smooth penalty would
+    park there), mirroring the engine's own skip rule. `--blss-eval` gained the
+    occupancy columns so the effect is visible in the tool rather than in one
+    report. Measured: sharpen occupancy 79% -> 28% training and 93% -> 14% held
+    out; mean full-screen passes 4.25 -> ~3.4 against a 5.00 worst case and 1.00
+    for plain bilinear; quality unchanged in distribution. The knee is sharp -
+    at fill 7.5 the network stops generalising, and at 12 it scores a full
+    decibel BELOW plain bilinear.
+
+    **What this did NOT fix, and it is a live follow-up: point and temporal are
+    still drawn over most of the screen.** Measured on the shipped net, 59%/81%
+    of grid cells in distribution and **96%/99% out of it**, where the oracle
+    reaches better PSNR at 1.53-1.94 total passes against the network's
+    2.99-3.29. So roughly half the remaining fill is the network failing to
+    generalise the cost model, not a floor - and the doc claim that "passes 2..5
+    cover a minority of the screen" is true of the SHARPEN pass only. Occupancy
+    is also seed-sensitive (2.99-3.60 training, 3.29-4.27 held out over four
+    seeds) while PSNR barely moves, so it is not a number to put in a budget.
+  - **Held-out numbers in this feature are inside the seed noise, and every
+    write-up must say so.** The split is 2 shots out of 7 and held-out PSNR moves
+    +-0.4 dB on the seed alone. Re-running train+eval at four seeds: BLSS beats
+    bilinear out of distribution by +0.16, +0.26, **-0.23** and +0.22 dB, i.e. a
+    mean of **+0.10 dB and one loss in four**. The in-distribution win is the
+    solid one (+1.03 .. +1.15 over the same four). Two earlier write-ups quoted
+    "+0.18 dB" and "+0.24 dB" held-out from single runs; both were noise, and
+    both cost debugging time. Worth doing properly: make the seed spread part of
+    what `--blss-eval` reports, so the tool states its own error bar instead of
+    each report having to remember to.
   - **Shrink the z-buffer.** With BLSS on nothing ever renders 3D at display
     resolution, so a 256x224 z instead of 512x448 hands back 172 032 words
     (672 KB) - more than three times what the feature costs. It is allocated in
@@ -68,17 +126,24 @@ the verification, and any fact worth reusing belongs in the relevant
     <projectDir>` is the shape; `src/blsscorpus.cpp` is already structured so
     the scene source is swappable, and the features come from `BagProxy` lists
     that a real scene walk can produce as easily as the rasteriser does.
-  - **Bake a per-material UV-repeat constant - this is what stands between BLSS
-    and being worth enabling.** `texDetail` is the texel-density proxy, and the
-    engine can only supply `texW * texH` (`stapip_core.cpp`): it does not know
-    how many times a material tiles over a surface. The corpus can, and folding
-    the UV span in makes the channel a far better aliasing predictor - MEASURED
-    at 23.24 dB held-out against 21.03 dB without it, i.e. the difference between
-    parity with bilinear and losing to it by 2.2 dB. But it is then a quantity
-    only one side computes (a floor tiling 100x trains at 1.0 and runs at 0.03),
-    so the corpus was cut back to the raw area for parity. Bake the repeat per
-    material, multiply it in on the engine side, and both sides get the strong
-    feature. Beyond that, the editor could measure actual high-frequency energy
+  - **Bake a per-material UV-repeat constant.** `texDetail` is the texel-density
+    proxy, and the engine can only supply `texW * texH` (`stapip_core.cpp`): it
+    does not know how many times a material tiles over a surface. The corpus can,
+    and folding the UV span in makes the channel a better aliasing predictor. But
+    it is then a quantity only one side computes (a floor tiling 100x trains at
+    1.0 and runs at 0.03), so the corpus was cut back to the raw area for parity.
+    Bake the repeat per material, multiply it in on the engine side, and both
+    sides get the strong feature.
+
+    **Correction, because this entry's own headline is out of date.** It used to
+    read "this is what stands between BLSS and being worth enabling", on the
+    strength of 23.24 dB held-out with the UV span against 21.03 dB without it.
+    The 21.03 dB baseline no longer exists: the `kTemporalMax` accumulator fix
+    and the `kMinCoverage` sky fix have since taken the held-out row to ~23.4 dB
+    with the *raw-area* feature, i.e. most of the gap that number described was
+    two other bugs. What the UV span is now worth is **unmeasured against the
+    current baseline**, and given that held-out PSNR moves +-0.4 dB on the seed
+    alone, re-measuring it means a multi-seed run and not a single one. Beyond that, the editor could measure actual high-frequency energy
     per texture at bake time - a feature DLSS structurally cannot have, and the
     one place this design could beat it rather than imitate it.
   - **Unroll the temporal loop during label generation.** The oracle's labels

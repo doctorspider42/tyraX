@@ -76,8 +76,11 @@ guides. What is queued is in [Backlog](backlog.md).
   per 32x32 screen tile, how much point / temporal / sharpened reconstruction
   that tile wants: the sub-pixel `XYOFFSET` jitter, the features the EE can
   produce without ever reading the framebuffer back, the free full-resolution
-  history hiding in the other display buffer, and the host-side trainer
-  (`--blss-train` / `--blss-eval`).
+  history hiding in the other display buffer, the host-side trainer
+  (`--blss-train` / `--blss-eval`), the three-term objective the oracle actually
+  minimises - accuracy, flicker and the fill the composite would cost - and the
+  four times this feature learned that anything absent from that objective does
+  not exist for the network.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why

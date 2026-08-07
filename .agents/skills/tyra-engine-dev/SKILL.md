@@ -375,6 +375,17 @@ Five things here that were paid for, and that any edit must keep:
   it off the typical case. And the strip's **vertex order is load-bearing**:
   `(i,j) (i,j+1) (i+1,j) (i+1,j+1) …`, because the weight field is piecewise
   linear over two triangles and the host models exactly that diagonal.
+- **`emitGrid`'s skip rule is what the host's cost model is fitted to.** A cell is
+  drawn unless ALL FOUR of its corner alpha bytes are zero, so one tile asking for
+  a kernel lights up the nine cells around it. That rule is now inside the
+  oracle's objective on the host (`--fill-weight`, charged as a step on the
+  quantised byte), and `--blss-eval` reports occupancy through the same rule — so
+  changing when a cell is skipped changes what the network was trained to want,
+  even though the objective itself has no engine counterpart. Measured on the
+  shipped net: mean **2.99 full-screen passes in distribution, 3.29 out of it**,
+  against 1.00 for plain bilinear and 5.00 for the worst case — and those are
+  **fill counts, not timings; no BLSS frame has ever been profiled**, in PCSX2 or
+  on hardware.
 
 Incompatible with **depth of field, portals and split view** — all three read or
 write real GS depth at display resolution, and only a low-res corner of z is

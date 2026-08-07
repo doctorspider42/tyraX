@@ -11,9 +11,19 @@ truncating shifts, 8-bit clamps and all — so if the two implementations drift,
 the network is not merely inaccurate, it is optimising the wrong objective. Any
 change to one side is a change to this page and to the other side.
 
-`tyrax-editor --blss-eval` is the regression test: it prints PSNR for the
-trained net, the oracle and every fixed kernel. A parity break shows up as the
-trained net scoring below the oracle by more than the usual ~0.3 dB.
+`tyrax-editor --blss-eval` is the regression test: for the trained net, the
+oracle and every fixed kernel it prints PSNR, flicker and **occupancy** — what
+fraction of grid cells each pass draws and the mean full-screen passes per frame.
+A parity break shows up as the trained net scoring below the oracle by more than
+the usual ~0.3 dB.
+
+**What is NOT part of this contract: the oracle's objective.** The three terms it
+minimises (accuracy, `--flicker-weight`, `--fill-weight`) live entirely in
+`blss::oracle()`, which has no engine counterpart — the console only ever
+evaluates the network. Retuning the objective changes the *weights the network
+learns*, never the arithmetic below, so it moves nothing on this page. The
+arithmetic is what both sides execute; the objective is only what the host uses
+to decide what to teach.
 
 ## Symbols
 
@@ -304,9 +314,46 @@ fork adds a previous-buffer accessor alongside it.
 
 Every pass is emitted per grid cell as runs of `TRIANGLE_STRIP`, and a cell
 whose alpha byte rounds to 0 is skipped — a run break, not a transparent draw.
-So the network's confidence sets the frame's fill cost: passes 2..5 typically
-cover a minority of the screen. This is not an optimisation, it is what keeps
-the composite from costing more than the half-res render saved.
+So the network's confidence sets the frame's fill cost. This is not an
+optimisation, it is what keeps the composite from costing more than the half-res
+render saved.
+
+**The skip rule is a property of the CELL, not of the tile**, and the difference
+is fill: `emitGrid` breaks the strip only when *all four* corner alpha bytes of a
+cell are zero, so one tile asking for a kernel lights up the **nine** cells that
+touch its corners. That bleed is real and it is what the occupancy measure has to
+count.
+
+**How much it actually culls, measured.** `--blss-eval` prints the fraction of
+grid cells each pass draws and the resulting mean full-screen passes per frame
+(1.00 = plain bilinear, 5.00 = every kernel everywhere), through that same
+four-corner rule rather than through the raw weights. On the shipped net, at 84
+corpus frames:
+
+| | point | temporal | sharpen | mean passes |
+|---|---|---|---|---|
+| trained net, training shots | 59.1 % | 81.3 % | 29.3 % | 2.99 |
+| trained net, held-out shots | 95.7 % | 98.6 % | 17.1 % | 3.29 |
+| oracle, training shots | 19.7 % | 53.9 % | 10.0 % | 1.94 |
+| oracle, held-out shots | 10.0 % | 39.9 % | 1.5 % | 1.53 |
+
+**An earlier draft of this section claimed "passes 2..5 typically cover a minority
+of the screen". That was aspirational and it was false when written** — with a
+fill-blind objective the held-out mean was **4.85 of a possible 5.00 passes**,
+i.e. every kernel over essentially the whole screen. It is true today of the
+**sharpen** pass only (100 % → 17.1 % held out). Point and temporal are still
+drawn over most of the screen, and out of distribution over nearly all of it; the
+oracle rows show that a better
+answer exists at half the fill, so this is the network failing to generalise the
+cost model rather than a floor. Occupancy is also **seed-sensitive**: re-training
+at four different `--seed` values spans 2.99–3.60 mean passes in distribution and
+3.29–4.27 out of it, nearly all of it in the sharpen channel. Treat the table as
+one measurement of a noisy quantity, re-run `--blss-eval` rather than quoting it,
+and size anything that has to be *correct* off the worst case.
+
+None of this is a *timing*. Occupancy counts grid cells; **no frame time has ever
+been measured for BLSS**, in PCSX2 or on hardware. Size the packet for the worst
+case regardless — see the packet budget above.
 
 ## 7. What does *not* have a twin
 
