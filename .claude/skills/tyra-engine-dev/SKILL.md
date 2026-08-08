@@ -506,16 +506,32 @@ Eight things here that were paid for, and that any edit must keep:
   the same sweep - it under-reports GS fill by **76x**, so NO PCSX2 GS number
   about this feature is admissible. The first real A/B on hardware: BLSS cost
   **+9.83 ms per frame and saved nothing**, because the frame was EE-bound
-  (`drain` 0.02 ms, the `endScene` overhang 0.03 ms). 5.10 ms of that is the
+  (`drain` 0.02 ms, the `endScene` overhang 0.03 ms). **That number is
+  PROVISIONAL**: it was taken on a build carrying the z-mask defect above, so
+  the BLSS-on arm drew a frame with every palettised surface missing — the EE
+  half stands, the GS half understates whatever fill BLSS saves, and the A/B
+  needs retaking on hardware. 5.10 ms of that is the
   composite's EE half - reprojection + MLP + the ~5 700-qword packet build.
   The instrument is `inc/debug/frame_profile.hpp` (TYRA_FRAME_PROFILE, default
   0, so a shipped libtyra.a carries none of it) plus the FRAMETIME line in the
   generated drawDebugHud.
-- **The jitter still bobs, and there is a switch for it now.** The +-1/4-pixel
-  per-frame raster jitter in `beginScene` is the documented cause of the
-  period-2 "bob"; the fill term was supposed to have retired it and has not.
-  On a static camera with a project-trained net, **30.8 % of the picture
-  alternates between two images every frame**. `configure()`'s new trailing
+- **The bob is NET-dependent, and the per-field bias is NOT part of it.** The
+  +-1/4-pixel per-frame raster jitter in `beginScene` is the documented cause of
+  the period-2 "bob", and on a static camera with a **project-trained** net
+  whose fill term culls the temporal pass, **30.8 % of the picture alternates
+  between two images every frame**. Re-measured 2026-08-08 on the fixed engine,
+  neither shipped fixture reproduces it: `examples/upscaler-lab` and `blssbug`
+  give consecutive pictures that are **byte-identical below the HUD** with
+  jitter on — and so does the PRE-fix engine on the same fixtures, so the
+  z-mask defect was not the cause either. Quote 30.8 % as a property of that
+  net, not of the feature. Separately, `getFieldYOffset16()` is non-zero for
+  `DisplayMode::InterlacedField` **only**, so in the usual `Interlaced` mode it
+  contributes nothing; `beginScene` used to add it anyway, unscaled, inside a
+  raster whose row is `scaleY` physical rows, while `composite()` added the real
+  one on top — 1.5 physical rows of field bias at 2x2 instead of 0.5. It is
+  **removed** from `beginScene` now: the low-res target is an offscreen texture,
+  so the interleave belongs only to the pass that writes the buffer the CRT
+  scans. `configure()`'s new trailing
   `jitter` parameter (project field `blssJitter`, default true, no UI yet)
   pins the offset to 0 and the picture becomes indistinguishable from the
   BLSS-off control. The host twin in `src/blss.cpp` does NOT model the switch,

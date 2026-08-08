@@ -1039,8 +1039,29 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   // lowW/2 + s.
   const int offX16 =
       static_cast<int>((2048.0F - lowW / 2.0F) * 16.0F) + jitter16X;
-  const int offY16 = static_cast<int>((2048.0F - lowH / 2.0F) * 16.0F) +
-                     jitter16Y + gs->getFieldYOffset16();
+  // NO getFieldYOffset16() here, and that is a fix rather than an omission.
+  // The InterlacedField per-field bias is half a PHYSICAL BUFFER row, and it
+  // belongs to whichever pass writes the buffer the CRT actually scans - which
+  // under BLSS is composite(), at display resolution, where it is already
+  // applied. The low-res target is an offscreen texture; nothing scans it out.
+  // Adding it here was wrong twice over:
+  //   * scale - XYOFFSET is 1/16 of a raster pixel of the CURRENT FRAME, and
+  //     inside this bracket that is a LOW-RES row worth scaleY physical rows,
+  //     so the 8 units meant as half a physical row acted as 0.5*scaleY of
+  //     them (a whole physical row at 2x2, twice the intended bias);
+  //   * double application - composite() then adds the real one on top, so the
+  //     odd field ended up offset by 0.5*scaleY + 0.5 = 1.5 physical rows at
+  //     2x2 instead of 0.5, i.e. the two fields interleaved a whole line
+  //     apart. Measured on the blssbug fixture forced to interlaced-field,
+  //     PCSX2 software renderer, frozen camera, period-2 clustering: 0.20 % of
+  //     the picture alternating at amplitude 0.109/255 before, against a
+  //     0.10 %/0.013 within-cluster floor - small on a scene with few
+  //     horizontal edges, and pure misregistration on any scene with many.
+  // Keeping the low-res target field-INDEPENDENT is also what pass 3 wants:
+  // the temporal history is the other display buffer, so a scene that shifted
+  // every field would fight its own reprojection.
+  const int offY16 =
+      static_cast<int>((2048.0F - lowH / 2.0F) * 16.0F) + jitter16Y;
 
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);

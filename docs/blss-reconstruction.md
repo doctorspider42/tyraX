@@ -84,6 +84,55 @@ picture alternates between two images every frame** (amplitude 1.42/255) with
 jitter on, and **0.03/255 — the noise floor, identical to BLSS off** — with it
 off.
 
+**Two corrections to that paragraph, both measured 2026-08-08 on the fixed
+build** (the 30.8 % figure was taken on a build carrying the z-mask defect of
+[§6](#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on), so every
+earlier observation of this artefact was made through a frame that was missing
+surfaces):
+
+- **The bob is NET-dependent, and neither shipped fixture reproduces it.** With
+  the period-2 method on a frozen camera, PCSX2 software renderer, captures at a
+  non-frame-locked 0.29 s stride: `examples/upscaler-lab` (BLSS 2×2, jitter on,
+  its own shipped net) gives **byte-identical consecutive pictures** — every
+  differing pixel lies in the HUD text rows, none below them — and so does the
+  minimal `blssbug` fixture, where the only motion is the PCSX2 status bar.
+  Measured on the pre-fix engine too, same fixture, same net: **also
+  byte-identical.** So the z-mask defect was not the bob's cause either, and the
+  30.8 % belongs to the configuration it was measured in — a **project-trained**
+  net whose fill term culls the temporal pass, which is exactly the explanation
+  the table below gives. Do not quote 30.8 % as a property of the feature; it is
+  a property of a net that declines to fuse the phases.
+- **`getFieldYOffset16()` is identically 0 in every fixture that has ever shown
+  this artefact.** `RendererSettings::isFieldRendering()` is true for
+  `DisplayMode::InterlacedField` alone, and both fixtures are `"interlaced"` =
+  `DisplayMode::Interlaced`. The per-field bias therefore contributes nothing to
+  the bob, which is also why turning `blssJitter` off drops the alternation to
+  the noise floor — the two terms are independent and only one was ever
+  non-zero.
+
+**The field bias was still wrong, though, and is fixed now.** Inside the low-res
+bracket `XYOFFSET` is 1/16 of a raster pixel of the *current* `FRAME`, and that
+raster is the low-res target — one row of it is `scaleY` physical buffer rows.
+`beginScene()` added `getFieldYOffset16()` (8 = half a **physical** row
+everywhere else in the engine) unscaled, so it acted as `0.5·scaleY` physical
+rows; and `composite()` then added the real one on top at display resolution.
+The odd field ended up biased by `0.5·scaleY + 0.5` = **1.5 physical rows at
+2×2 instead of 0.5** — the two fields interleaved a whole line apart. The fix is
+not a rescale but a **removal**: the low-res target is an offscreen texture that
+nothing scans out, so the interleave belongs solely to the pass that writes the
+buffer the CRT reads, which is `composite()`. Keeping the low-res raster
+field-independent is also what pass 3 wants, since a scene that shifted every
+field would fight its own reprojection. Measured on `blssbug` forced to
+`interlaced-field`, BLSS 2×2, frozen camera: between-cluster amplitude
+**0.109/255 at 0.20 % of the picture before, 0.016/255 at 0.10 % after**, against
+a within-cluster floor that also fell (0.013 → 0.003). Small on a scene with few
+horizontal edges; pure field misregistration on any scene with many.
+
+**Twin implication:** the field bias never belonged in the low-res raster, so the
+host's sampler model is *not* incomplete — `±4` raw jitter units remain the whole
+of what `beginScene` contributes, exactly as this section documents, and
+`src/blss.cpp` needs no change for it. Had the term stayed, it would have.
+
 So both sides of the contract now have two configurations, and **they must be
 the same one.** The host twin is `blss::jitterEnabled()` /
 `blss::setJitter()`: `--blss-train <projectDir>` and `--blss-eval <projectDir>`

@@ -53,6 +53,23 @@ rasteriser and no pixel shaders at all.
 > ([profiling.md](profiling.md), "Timing a frame that BLSS is in"). Do not
 > enable this yet.
 >
+> **That +9.83 ms is PROVISIONAL and must not be quoted as final.** It was taken
+> on a build carrying the z-mask defect fixed on 2026-08-08
+> ([the math doc, §6](blss-reconstruction.md#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on)),
+> so the BLSS-on arm was rasterising a frame with **every palettised surface
+> missing**. The EE half of the bill is unaffected — reprojection, the MLP and
+> the packet build do not depend on what the GS drew — but the GS half was
+> measured against a frame short of surfaces and therefore **understates
+> whatever fill BLSS saves**. The A/B needs retaking on the fixed build; the
+> console is off the LAN at the time of writing, so it has not been.
+>
+> **And the oscillation figure below is net-dependent.** Re-measured on the
+> fixed build with the period-2 method, `examples/upscaler-lab` and the minimal
+> `blssbug` fixture both give **byte-identical consecutive pictures** with jitter
+> on — every differing pixel is HUD text. The 30.8 % stands for the
+> configuration it was measured in (a project-trained net whose fill term culls
+> the temporal pass), not for the feature.
+>
 > **The EE half of that bill has now been priced.** 5.10 ms of the 9.83 is
 > `composite()`'s inference and packet build, and the two changes that attack it
 > have been cross-validated: **the transcendental table is free** (0.01 dB against
@@ -1971,6 +1988,17 @@ phase every time.
 | BLSS off | 17 / 3 | 0.014 % | 0.053 % | 0.03/255 |
 | BLSS on, `blssJitter` **off** | 12 / 8 | 0.029 % | 0.046 % | 0.03/255 |
 | BLSS on, `blssJitter` **on** | **8 / 8** | 0.019 % | **30.8 %** | **1.42/255** |
+
+**Re-measured 2026-08-08 on the fixed build, and it does not reproduce on the
+shipped fixtures.** Same method, frozen camera, PCSX2 software renderer,
+captures at a non-frame-locked 0.29 s stride: `examples/upscaler-lab` (jitter
+**on**, its own net) and `blssbug` both give consecutive pictures that are
+**byte-identical below the HUD** - 0 differing pixels in the rendered image, the
+only motion being the HUD digits and the PCSX2 status bar. The same fixture on
+the *pre-fix* engine measures the same, so the z-mask defect was not the cause
+either. The table above therefore describes a **net**, not the feature: with a
+project-trained net whose fill term culls the temporal pass there is nothing
+fusing the two phases, and that is when it bobs.
 
 **30.8 % of the picture alternates between two images every frame**, on a net
 trained on the project's own scenes. Why the fill term did not save it: it culls
