@@ -50,16 +50,65 @@ to decide what to teach.
 | `lowW = outW/sx`, `lowH = outH/sy` | the low-res render target |
 | `kTile` | 32 — decision tile edge, in output pixels |
 | `cols = outW/kTile`, `rows = outH/kTile` | 16 × 14 |
+| `T[0..N]` | the shared activation table, §5 — **off on both twins today** |
 | `jx`, `jy` | this frame's jitter, in low-res pixels: ±0.25, i.e. ±4/16 exactly |
+
+**`kTile` is 32 on both sides and the host can sweep it.** `--tile N` moves
+`blss::tileSize()` for one run, which is how the 16 / 32 / 64 tables on
+[the upscaler page](neural-upscaler.md#the-tile-size-swept) were measured; the
+engine's `RendererCoreBlss::kTile` is a compile-time constant, so **any value
+but 32 is a measurement configuration and the host says so on stdout when you
+ask for one.** Moving it for real is a change to this line, to
+`renderer_core_blss.hpp` (`kTile`, and `kMaxCols`/`kMaxRows`, which are spelled
+`512/kTile` and `ceil(540/kTile)`), and to nothing else — every other use on both
+sides derives from it.
+
+**One display mode does not divide, at any tile size**, and it is worth knowing
+before reading `cols`/`rows` as exact: `HiDef1080i` is 448 × **540**, so at
+`kTile = 32` the engine ceils to 17 rows whose last is 12 px tall, and at 64 it
+ceils to 9 rows whose last is 28 px. The host **floors** (`outW/kTile` in
+`blsscorpus.cpp`) because the corpus only ever renders 512 × 448, where every
+supported tile divides exactly; at a size that does not divide it prints a
+warning naming both grids rather than quietly measuring a smaller frame than the
+console draws. The other four modes divide at 32 and at 64: 512 × 448, 448 × 448,
+512 × 512, and `InterlacedField`'s 512 × 448.
 
 ## 1. Jitter
 
-Two phases, alternating every frame:
+**Jitter is a MODE, not a constant, and that is the newest thing on this page.**
+The project setting is `blssJitter` (`ProjectSettings`, format v5, default true)
+and codegen bakes it into the generated game, because the bob this feature has
+been chasing since the beginning **is confirmed present on real hardware**: with
+a frozen camera, a project-trained net and the fill term in, **30.8 % of the
+picture alternates between two images every frame** (amplitude 1.42/255) with
+jitter on, and **0.03/255 — the noise floor, identical to BLSS off** — with it
+off.
+
+So both sides of the contract now have two configurations, and **they must be
+the same one.** The host twin is `blss::jitterEnabled()` /
+`blss::setJitter()`: `--blss-train <projectDir>` and `--blss-eval <projectDir>`
+**read the project's own `blssJitter`** and fit against the sampler that project
+will ship with, `--no-jitter` / `--jitter` force it either way, and the bestiary
+(which has no project to ask) keeps it on, because that is the configuration
+every fold table on [the upscaler page](neural-upscaler.md#measured) was measured
+with. The corpus prints a line when it is off.
+
+**A net fitted with jitter on and run in a jitter-off build is fitted out of
+distribution**, and `blss.net` records nothing that could detect it — the same
+shape as the whole-bag proxy and the animated models. With jitter off the two
+phases sample the same position, so `u(x)`/`v(y)` below undo nothing, the
+current frame and the history are no longer a quincunx pair, and the temporal
+pass is accumulating genuinely identical samples rather than fusing two.
+
+Two phases, alternating every frame (jitter **on**):
 
 ```
 phase 0: (jx, jy) = (-0.25, -0.25)
 phase 1: (jx, jy) = (+0.25, +0.25)
 ```
+
+and with jitter **off**, `(jx, jy) = (0, 0)` in both phases — on both twins, in
+the raster offset and in the sampling that undoes it.
 
 Applied by adding `jx`, `jy` to the low-res raster's `XYOFFSET`, which stores
 sixteenths of a pixel — so ±4 raw units, reproducible bit-exactly on the host.
@@ -295,6 +344,107 @@ MLP 6 → 12 → 3, `tanh` hidden, logistic outputs, 123 weights:
 h[k] = tanh( sum_i w1[k][i] * f[i] + b1[k] )
 o[m] = 1 / (1 + exp( -( sum_k w2[m][k] * h[k] + b2[m] ) ))
 ```
+
+A tile whose `coverage` is below `kMinCoverage` skips the whole evaluation on
+both sides, so the per-frame count below is the worst case rather than the
+typical one — the one console frame that has been instrumented had 159 of 196
+tiles covered.
+
+### The activation table — the contract, not yet the code
+
+**Nothing in this subsection is switched on.** The host implements it behind
+`--act-table N` and ships with `N = 0`, i.e. `std::tanh` and
+`1/(1+std::exp(-z))`, because a host that fits against a table while the console
+evaluates libm is exactly the twin drift this page exists to prevent. It is
+written down here first so that the engine half is a transcription rather than a
+design. The measurement that says it is free is
+[on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table).
+
+Why it is worth doing at all: the engine evaluates `12 tanhf + 3 expf + 3 fdiv`
+per tile (`renderer_core_blss.cpp`, the `logFeatureSpread` neighbourhood), in a
+build with **no `-ffast-math`** (`vendor/tyra/Makefile.base:19` is `-D_EE -Wall
+-O3`), so at 224 tiles that is **3 360 libm calls and 672 divides a frame** —
+and every result is then thrown away down to a byte by `cornerAlpha()` and the
+alpha-8 deadzone.
+
+**One table serves both**, because `logistic(z) = (1 + tanh(z/2)) / 2` exactly.
+So the divide disappears with the `expf`, and the whole activation budget becomes
+15 table lookups per tile.
+
+**Why a table and not a polynomial.** A minimax polynomial has to be *matched*
+between two compilers — same coefficients, same association order, same FMA
+contraction — and a mismatch is a silent drift in the objective the network was
+fitted against. A table of integers is the same integers on both sides or it is
+visibly not, and reconstruction from an integer is exact: an `int16 -> float`
+conversion and a multiply by `2^-15` are both exactly representable, so **the
+activation step contributes zero divergence between the twins**. The float MACs
+around it stay whatever the EE FPU makes of them, exactly as they already are —
+the table does not fix that and does not claim to.
+
+**The definition.** `N` is the number of intervals; the table has `N + 1`
+entries. `R = 4` is the domain half-width. `N` must be **even**, so the midpoint
+entry is exactly `tanh(0) = 0`.
+
+```
+step = 2*R / N
+T[i] = round_half_away_from_zero( tanh(-R + i*step) * 32768 ),   as int16
+       clamped to [-32768, 32767]
+```
+
+and the **lower half is the negation of the upper**, computed rather than
+evaluated (`T[i] = -T[N-i]` for `i < N/2`), so the two ends cannot round apart
+and the engine only has to store `N/2 + 1` entries — 257 `short`s, 514 bytes, at
+the measured `N = 512`.
+
+```
+tanh(a):
+    if a <= -R:  return T[0] * 2^-15
+    if a >=  R:  return T[N] * 2^-15
+    x = (a + R) * (N / (2*R))       // float; at N=512, R=4 that is (a + 4) * 64
+    i = (int)(x + 0.5f)             // NEAREST, via a truncating cast; 0 <= i <= N
+    return T[i] * 2^-15             // int16 -> float, then * 3.0517578125e-05
+
+logistic(z) = 0.5f + 0.5f * tanh(0.5f * z)
+```
+
+Five rules, each of which is a way the two sides could otherwise differ:
+
+- **Clamp first, index second.** `|a| >= R` returns the end entry, so the index
+  can never leave `[0, N]` and no bounds check is needed in the hot path.
+- **Nearest, not truncate, and no interpolation.** Rounding halves the worst-case
+  error for one add; *not* interpolating is what makes the result a table value
+  **exactly**, which is the whole bit-exactness argument. Interpolating would put
+  a float multiply back between the two twins for ~2e-5 of accuracy that a byte
+  cannot hold.
+- **`2^-15`, not `/32767`.** A power of two is exact; anything else re-introduces
+  a rounding difference.
+- **The logistic reuses the same table** and never gets one of its own. Its
+  argument is halved, so `|z| >= 8` saturates — `logistic(8) = 0.99966`, which is
+  alpha 127.96 against libm's 128, i.e. one byte at the extreme and nowhere else.
+- **`kActRange = 4`** because `tanh(4) = 0.99933`: clamping there costs at most
+  6.7e-4, well inside the ~4e-3 that a half-byte of output alpha is worth.
+
+**The checksum is how the two sides check rather than assume.** Both generate the
+table from the formula above; if two libms ever round one entry differently the
+tables differ by one Q15 step and nothing visible happens, which is precisely the
+kind of drift that goes unnoticed for eleven commits. So both sides take
+**FNV-1a** (offset basis `2166136261`, prime `16777619`) over all `N + 1` entries
+as little-endian `uint16` (low byte first) and compare it against the constant:
+
+| N | entries | stored (half) | FNV-1a |
+|---|---|---|---|
+| 512 | 513 | 257 × `short` = 514 B | **`0x47A59E3C`** |
+
+`tyrax-editor --blss-emit --act-table 512` prints the upper half as a C++ array
+with that hash in its header comment, so if the formula ever disagrees between
+two toolchains the argument ends by pasting the literals.
+
+**`kNetVersion` does not move for this.** The file format and the topology are
+untouched, the measured quality difference is 0.01 dB against a fold sd of 0.35,
+and a bump would refuse every existing `blss.net` to guard a difference no
+measurement can see. What the switch **must** do is land on both twins in one
+commit; there is nothing in `blss.net` that could ever record which activation
+fitted it, which is exactly why it cannot be turned on one side at a time.
 
 Outputs are `wA` (point), `wC` (temporal), `wD` (sharpen). The per-tile values
 are averaged onto the `(cols+1) × (rows+1)` grid corners — a corner is the mean

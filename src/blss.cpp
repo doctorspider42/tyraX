@@ -35,6 +35,111 @@ const char* const kFeatureNames[kFeatures] = {"motion",    "depth",    "depthGra
                                               "edgeDens", "texDetail", "coverage"};
 const char* const kOutputNames[kOutputs] = {"point", "temporal", "sharpen"};
 
+// ------------------------------------------------------- the two sweep knobs ---
+
+namespace detail {
+int gTile = kTile;
+int gActN = 0;
+const float* gActTab = nullptr;
+bool gJitter = true;
+}  // namespace detail
+
+void setJitter(bool on) { detail::gJitter = on; }
+
+bool setTileSize(int px) {
+    if (px <= 0 || (px & (px - 1)) != 0) return false;
+    detail::gTile = px;
+    return true;
+}
+
+namespace {
+// The table itself, in both forms. The int16 half IS the contract (it is what
+// the engine spells out as literals and what the hash is taken over); the float
+// half is the same numbers dequantised once, so the hot path does not convert
+// per lookup. Dequantisation is exact - an int16 is exactly representable and
+// 2^-15 is a power of two - so the two agree by construction rather than by
+// tolerance.
+std::vector<int16_t> gActQ;
+std::vector<float> gActF;
+
+// round-half-AWAY-FROM-ZERO of tanh(a) * 32768. Spelled out rather than left to
+// std::lround or a cast, because "which way does .5 go" is exactly the kind of
+// unstated rule that makes two implementations of a table differ in one entry.
+int16_t actEntry(double a) {
+    const double v = std::tanh(a) * static_cast<double>(kActScale);
+    const double r = v >= 0.0 ? std::floor(v + 0.5) : std::ceil(v - 0.5);
+    if (r > 32767.0) return 32767;
+    if (r < -32768.0) return -32768;
+    return static_cast<int16_t>(r);
+}
+}  // namespace
+
+bool setActTable(int n) {
+    if (n < 0) return false;
+    if (n == 0) {
+        detail::gActN = 0;
+        detail::gActTab = nullptr;
+        gActQ.clear();
+        gActF.clear();
+        return true;
+    }
+    if (n % 2 != 0) return false;  // the midpoint must land on tanh(0) = 0
+    gActQ.assign(static_cast<size_t>(n) + 1, 0);
+    gActF.assign(static_cast<size_t>(n) + 1, 0.0f);
+    const double step = 2.0 * static_cast<double>(kActRange) / static_cast<double>(n);
+    for (int i = 0; i <= n; ++i) {
+        // ODD SYMMETRY BY CONSTRUCTION, not by hoping the two ends round the
+        // same way: only the upper half is computed and the lower half is its
+        // negation, which is also how the engine's table is emitted (half the
+        // literals) and why the entry count must be even.
+        const int m = i >= n / 2 ? i : n - i;
+        const int16_t up = actEntry(-static_cast<double>(kActRange) + step * m);
+        gActQ[static_cast<size_t>(i)] = i >= n / 2 ? up : static_cast<int16_t>(-up);
+        gActF[static_cast<size_t>(i)] =
+            static_cast<float>(gActQ[static_cast<size_t>(i)]) / static_cast<float>(kActScale);
+    }
+    detail::gActN = n;
+    detail::gActTab = gActF.data();
+    return true;
+}
+
+uint32_t actTableHash() {
+    if (detail::gActN <= 0) return 0;
+    uint32_t h = 2166136261u;
+    for (int16_t q : gActQ) {
+        const uint16_t u = static_cast<uint16_t>(q);
+        h = (h ^ static_cast<uint32_t>(u & 0xFF)) * 16777619u;
+        h = (h ^ static_cast<uint32_t>((u >> 8) & 0xFF)) * 16777619u;
+    }
+    return h;
+}
+
+std::string emitActTable() {
+    std::string s;
+    if (detail::gActN <= 0) return s;
+    const int n = detail::gActN;
+    char buf[320];
+    std::snprintf(buf, sizeof(buf),
+                  "// BLSS activation table - docs/blss-reconstruction.md S5.\n"
+                  "// tanh over [-%g, +%g], %d intervals, Q15, odd-symmetric:\n"
+                  "// only the upper half is stored, T[i] = -T[n-i] below it.\n"
+                  "// FNV-1a over all %d int16 entries (LE): 0x%08X\n",
+                  static_cast<double>(kActRange), static_cast<double>(kActRange), n, n + 1,
+                  actTableHash());
+    s += buf;
+    std::snprintf(buf, sizeof(buf), "static const short kBlssTanhHalf[%d] = {\n", n / 2 + 1);
+    s += buf;
+    for (int i = n / 2; i <= n; ++i) {
+        if ((i - n / 2) % 12 == 0) s += "   ";
+        std::snprintf(buf, sizeof(buf), " %6d,", static_cast<int>(gActQ[static_cast<size_t>(i)]));
+        s += buf;
+        if ((i - n / 2) % 12 == 11) s += "\n";
+    }
+    if ((n / 2 + 1) % 12 != 0) s += "\n";
+    s += "};\n";
+    return s;
+}
+
 namespace {
 
 inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -128,6 +233,18 @@ bool readPng(Image& img, const std::string& path) {
     return true;
 }
 
+bool readPngMemory(Image& img, const unsigned char* data, size_t n) {
+    if (!data || n == 0) return false;
+    int w = 0, h = 0, comp = 0;
+    unsigned char* px = stbi_load_from_memory(data, static_cast<int>(n), &w, &h, &comp, 4);
+    if (!px) return false;
+    img.w = w;
+    img.h = h;
+    img.px.assign(px, px + static_cast<size_t>(w) * h * 4);
+    stbi_image_free(px);
+    return true;
+}
+
 bool writePng(const Image& img, const std::string& path) {
     if (img.w <= 0 || img.h <= 0) return false;
     return stbi_write_png(path.c_str(), img.w, img.h, 4, img.px.data(), img.w * 4) != 0;
@@ -197,7 +314,7 @@ void cornerOf(const WeightField& f, int i, int j, float out[kOutputs]) {
 std::array<float, kOutputs> WeightField::sample(float px, float py) const {
     std::array<float, kOutputs> out{};
     if (cols <= 0 || rows <= 0) return out;
-    const float gx = px / kTile, gy = py / kTile;
+    const float gx = px / tileSize(), gy = py / tileSize();
     const int i = clampi(static_cast<int>(std::floor(gx)), 0, cols - 1);
     const int j = clampi(static_cast<int>(std::floor(gy)), 0, rows - 1);
     float v00[kOutputs], v01[kOutputs], v10[kOutputs], v11[kOutputs];
@@ -222,7 +339,7 @@ void ReprojField::sample(float px, float py, int outW, int outH, float* outDu,
     if (cols <= 0 || rows <= 0) return;
     const float cx = std::min(std::max(px, 0.0f), static_cast<float>(outW));
     const float cy = std::min(std::max(py, 0.0f), static_cast<float>(outH));
-    const float gx = cx / kTile, gy = cy / kTile;
+    const float gx = cx / tileSize(), gy = cy / tileSize();
     const int i = clampi(static_cast<int>(std::floor(gx)), 0, cols - 1);
     const int j = clampi(static_cast<int>(std::floor(gy)), 0, rows - 1);
     const int stride = cols + 1;
@@ -256,19 +373,19 @@ std::vector<TileStats> accumulate(int cols, int rows, int outW, int outH,
         if (b.x1 <= b.x0 || b.y1 <= b.y0) continue;
         const float invNear = 1.0f / std::max(b.wNear, 1e-4f);
         const float invFar = 1.0f / std::max(b.wFar, 1e-4f);
-        const int cx0 = clampi(static_cast<int>(std::floor(b.x0 / kTile)), 0, cols - 1);
-        const int cx1 = clampi(static_cast<int>(std::floor((b.x1 - 1e-3f) / kTile)), 0, cols - 1);
-        const int cy0 = clampi(static_cast<int>(std::floor(b.y0 / kTile)), 0, rows - 1);
-        const int cy1 = clampi(static_cast<int>(std::floor((b.y1 - 1e-3f) / kTile)), 0, rows - 1);
+        const int cx0 = clampi(static_cast<int>(std::floor(b.x0 / tileSize())), 0, cols - 1);
+        const int cx1 = clampi(static_cast<int>(std::floor((b.x1 - 1e-3f) / tileSize())), 0, cols - 1);
+        const int cy0 = clampi(static_cast<int>(std::floor(b.y0 / tileSize())), 0, rows - 1);
+        const int cy1 = clampi(static_cast<int>(std::floor((b.y1 - 1e-3f) / tileSize())), 0, rows - 1);
         for (int cy = cy0; cy <= cy1; ++cy)
             for (int cx = cx0; cx <= cx1; ++cx) {
-                const float tx0 = static_cast<float>(cx * kTile), tx1 = tx0 + kTile;
-                const float ty0 = static_cast<float>(cy * kTile), ty1 = ty0 + kTile;
+                const float tx0 = static_cast<float>(cx * tileSize()), tx1 = tx0 + tileSize();
+                const float ty0 = static_cast<float>(cy * tileSize()), ty1 = ty0 + tileSize();
                 const float ox = overlap(b.x0, b.x1, tx0, tx1);
                 const float oy = overlap(b.y0, b.y1, ty0, ty1);
                 if (ox <= 0.0f || oy <= 0.0f) continue;
                 const size_t k = static_cast<size_t>(cy) * cols + cx;
-                const float a = (ox * oy) / (static_cast<float>(kTile) * kTile);
+                const float a = (ox * oy) / (static_cast<float>(tileSize()) * tileSize());
                 coverAcc[k] += a;
                 depthAcc[k] += a * invNear;
                 detAcc[k] += a * b.texDetail;
@@ -295,7 +412,7 @@ std::vector<TileStats> accumulate(int cols, int rows, int outW, int outH,
             s.depthMin = dmin[k] > 1e29f ? 0.0f : dmin[k];
             s.depthMax = dmax[k];
         }
-        s.edge = std::min(1.0f, edgeAcc[k] / (2.0f * kTile));
+        s.edge = std::min(1.0f, edgeAcc[k] / (2.0f * tileSize()));
     }
     return stats;
 }
@@ -325,8 +442,8 @@ ReprojField buildReproj(int cols, int rows, int outW, int outH, int lowW, int lo
             invW /= wsum;
             const float w = 1.0f / std::max(invW, 1e-6f);
 
-            const float px = static_cast<float>(std::min(i * kTile, outW));
-            const float py = static_cast<float>(std::min(j * kTile, outH));
+            const float px = static_cast<float>(std::min(i * tileSize(), outW));
+            const float py = static_cast<float>(std::min(j * tileSize(), outH));
             const float sX = (2.0f * px / outW - 1.0f) * cur.tanHalfFovX;
             const float sY = (1.0f - 2.0f * py / outH) * cur.tanHalfFovY;
             float world[3], rel[3];
@@ -377,7 +494,7 @@ std::vector<Features> buildFeatures(int cols, int rows,
                                    reproj.du[k11]) * 0.25f;
                 const float mdv = (reproj.dv[k00] + reproj.dv[k10] + reproj.dv[k01] +
                                    reproj.dv[k11]) * 0.25f;
-                f.motion() = clamp01(std::sqrt(mdu * mdu + mdv * mdv) / kTile);
+                f.motion() = clamp01(std::sqrt(mdu * mdu + mdv * mdv) / tileSize());
             }
             f.depth() = nd[k];
 
@@ -435,12 +552,12 @@ void Net::forward(const Features& f, float out[kOutputs]) const {
     for (int k = 0; k < kHidden; ++k) {
         float a = b1[k];
         for (int i = 0; i < kFeatures; ++i) a += w1[k][i] * f.v[i];
-        h[k] = std::tanh(a);
+        h[k] = actTanh(a);
     }
     for (int m = 0; m < kOutputs; ++m) {
         float a = b2[m];
         for (int k = 0; k < kHidden; ++k) a += w2[m][k] * h[k];
-        out[m] = 1.0f / (1.0f + std::exp(-a));
+        out[m] = actLogistic(a);
     }
 }
 
@@ -897,8 +1014,8 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
             for (int i = 0; i < cnx; ++i)
                 cornerOf(wf, cx0 + i, cy0 + j, cc[static_cast<size_t>(j) * cnx + i].data());
 
-        const int x0 = cx0 * kTile, x1 = std::min((cx1 + 1) * kTile, fr.outW);
-        const int y0 = cy0 * kTile, y1 = std::min((cy1 + 1) * kTile, fr.outH);
+        const int x0 = cx0 * tileSize(), x1 = std::min((cx1 + 1) * tileSize(), fr.outW);
+        const int y0 = cy0 * tileSize(), y1 = std::min((cy1 + 1) * tileSize(), fr.outH);
         double se = 0.0, seH = 0.0;
         // The flicker term ships at weight 0 (see kFlickerWeight); hoisting the
         // test keeps its samples out of the oracle's innermost loop.
@@ -907,7 +1024,7 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
         for (int sy = (y0 + kStep - 1) / kStep; sy * kStep < y1; ++sy)
             for (int sx = (x0 + kStep - 1) / kStep; sx * kStep < x1; ++sx) {
                 const int x = sx * kStep, y = sy * kStep;
-                const float gx = (x + 0.5f) / kTile, gy = (y + 0.5f) / kTile;
+                const float gx = (x + 0.5f) / tileSize(), gy = (y + 0.5f) / tileSize();
                 const int i = clampi(static_cast<int>(gx), 0, cols - 1);
                 const int j = clampi(static_cast<int>(gy), 0, rows - 1);
                 const int li = i - cx0, lj = j - cy0;
@@ -1127,12 +1244,21 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
                 for (int k = 0; k < kHidden; ++k) {
                     float a = net.b1[k];
                     for (int i = 0; i < kFeatures; ++i) a += net.w1[k][i] * x[i];
-                    h[k] = std::tanh(a);
+                    // THE TABLE REACHES TRAINING TOO, deliberately. The
+                    // console evaluates whatever activation this fits against,
+                    // so fitting on std::tanh and running on a table would be
+                    // the same train/run mismatch the corpus exists to avoid -
+                    // small here, but the gradients below (1 - h^2 and
+                    // o*(1-o)) stay the ANALYTIC ones either way, which is
+                    // correct: they are the derivative of the function being
+                    // approximated, and a step-function's true derivative is
+                    // zero almost everywhere.
+                    h[k] = actTanh(a);
                 }
                 for (int mo = 0; mo < kOutputs; ++mo) {
                     float a = net.b2[mo];
                     for (int k = 0; k < kHidden; ++k) a += net.w2[mo][k] * h[k];
-                    o[mo] = 1.0f / (1.0f + std::exp(-a));
+                    o[mo] = actLogistic(a);
                 }
 
                 // MSE on the oracle weights, weighted by how much this tile's
@@ -1216,6 +1342,15 @@ struct CliOpts {
     // package. Off is what the console does; on reproduces every fold table
     // published before the split existed. See CorpusConfig::packageSplit.
     bool packageSplit = true;
+    // `--no-anim`: leave animated models out of the project corpus, the way it
+    // worked before they were added. The console draws and describes them, so
+    // this is a reproduction switch, not a setting - see CorpusConfig::animated.
+    bool animated = true;
+    // `--no-jitter` / `--jitter`: -1 = follow the project's own blssJitter (and
+    // on for the bestiary). NOT a sweep knob like --tile: the console really can
+    // be built either way, and on hardware the jittered build is the one that
+    // still bobs, so a project with blssJitter off must be FITTED with it off.
+    int jitter = -1;
     // 12 frames per shot over the 13-shot bestiary. Frames are split evenly, so
     // this number and the shot count have to move together: at the old default of
     // 48 the tail shots got three frames each, and a shot with three frames
@@ -1281,6 +1416,17 @@ struct CliOpts {
     // difference between a sweep that takes twenty minutes and one that takes
     // two hours, which is the difference between sweeping it and guessing.
     std::vector<float> deadzoneSweep;
+    // --tile N: the decision tile edge, in output pixels (blss.hpp, tileSize()).
+    // A SWEEP KNOB, not a setting: the engine's kTile is a compile-time
+    // constant, so any value but 32 measures a configuration the console cannot
+    // currently run. It is here because 32 -> 64 is the largest EE saving
+    // available to this feature (224 tile inferences -> 56, 255 grid corners ->
+    // 72) and nobody had ever measured what it costs.
+    int tile = kTile;
+    // --act-table N: replace tanh/exp with an N-interval shared table
+    // (blss.hpp, actTanh). 0 = libm, which is what ships until the engine twin
+    // exists.
+    int actTable = 0;
 };
 
 CliOpts parseCli(int argc, char** argv) {
@@ -1355,8 +1501,13 @@ CliOpts parseCli(int argc, char** argv) {
         // scratch), and "on 999 thread(s)" would have been a lie.
         else if (a == "--threads")
             o.threads = std::clamp(std::atoi(next("0").c_str()), 0, 32);
+        else if (a == "--tile") o.tile = std::atoi(next("32").c_str());
+        else if (a == "--act-table") o.actTable = std::atoi(next("512").c_str());
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
         else if (a == "--no-package-split") o.packageSplit = false;
+        else if (a == "--no-anim") o.animated = false;
+        else if (a == "--no-jitter") o.jitter = 0;
+        else if (a == "--jitter") o.jitter = 1;
         // The only positional argument: the project to train on. Taken as the
         // FIRST bare word so `--blss-train ~/game --cv` reads the way it looks.
         else if (!a.empty() && a[0] != '-' && o.projectDir.empty()) o.projectDir = a;
@@ -1472,6 +1623,40 @@ TrainConfig trainConfigOf(const CliOpts& o) {
     return tc;
 }
 
+// THE TWO PROCESS-WIDE KNOBS, SET ONCE AND ANNOUNCED. Both are globals in
+// blss.hpp because they reach code with no config to thread them through, so
+// the one rule that keeps them honest is that they are written HERE, before any
+// corpus, oracle or net exists, and never again - no worker thread ever sees
+// them change. Announced because a table of decibels whose tile size is not on
+// the page is a table nobody can reproduce; this feature has published five
+// numbers measured on a configuration nobody wrote down.
+void applySweepKnobs(const CliOpts& o) {
+    if (o.tile != kTile) {
+        if (!setTileSize(o.tile)) {
+            std::printf("blss: --tile %d refused (must be a positive power of two)\n", o.tile);
+        } else {
+            std::printf(
+                "blss: TILE %d (shipped is %d) - a MEASUREMENT configuration: the "
+                "engine's RendererCoreBlss::kTile is a compile-time constant and "
+                "still %d.\n",
+                o.tile, kTile, kTile);
+        }
+    }
+    if (o.actTable > 0) {
+        if (!setActTable(o.actTable)) {
+            std::printf("blss: --act-table %d refused (must be a positive even count)\n",
+                        o.actTable);
+        } else {
+            std::printf(
+                "blss: activation TABLE, %d intervals over [-%g, +%g], Q15, nearest, "
+                "hash 0x%08X - tanh AND the logistic, no libm and no divide. The "
+                "engine twin does not have this yet.\n",
+                o.actTable, static_cast<double>(kActRange), static_cast<double>(kActRange),
+                actTableHash());
+        }
+    }
+}
+
 std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     CorpusConfig cc;
     cc.frames = o.frames;
@@ -1480,6 +1665,8 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.assetDir = o.assetDir;
     cc.projectDir = o.projectDir;
     cc.packageSplit = o.packageSplit;
+    cc.animated = o.animated;
+    cc.jitter = o.jitter;
     cc.threads = o.threads;
     if (o.threads > 0)
         std::printf("blss: rendering %d corpus frames at %dx%d on %d thread(s)\n", cc.frames,
@@ -2413,6 +2600,7 @@ int featureReport(const CliOpts& o) {
 
 int trainMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
+    applySweepKnobs(o);
     const std::string outPath = o.outPath.empty() ? o.netPath : o.outPath;
     // Cheap, and it fails here rather than three commands later inside a Docker
     // PS2 build: a net whose weights cannot be spelled as C++ literals is not a
@@ -2490,6 +2678,7 @@ int trainMain(int argc, char** argv) {
 
 int evalMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
+    applySweepKnobs(o);
     // Two diagnostics that train their OWN nets and therefore ignore -i: the
     // cross-validation table (which is the honest answer to "does this
     // generalise", the single split being one draw) and the input-channel
@@ -2791,11 +2980,36 @@ int evalMain(int argc, char** argv) {
 
 int emitMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
+    applySweepKnobs(o);
     std::string err;
     if (!selfTestEmitter(&err)) {
         std::printf("blss: %s - the generated header would not compile\n", err.c_str());
         return 1;
     }
+    // `--blss-emit --act-table N` emits the ACTIVATION TABLE instead of the
+    // net, because the table is the half of the contract the engine has to
+    // carry as literals. Generating it from a formula on both sides is what the
+    // math doc specifies and the hash is how that gets checked - but if two
+    // libms ever disagree about one entry's rounding, this is the escape hatch
+    // that ends the argument: paste these numbers.
+    if (o.actTable > 0) {
+        const std::string tab = emitActTable();
+        if (o.outPath.empty()) {
+            std::fputs(tab.c_str(), stdout);
+            return 0;
+        }
+        FILE* tf = std::fopen(o.outPath.c_str(), "wb");
+        if (!tf) {
+            std::printf("blss: cannot write %s\n", o.outPath.c_str());
+            return 1;
+        }
+        std::fwrite(tab.data(), 1, tab.size(), tf);
+        std::fclose(tf);
+        std::printf("blss: wrote %s (activation table, hash 0x%08X)\n", o.outPath.c_str(),
+                    actTableHash());
+        return 0;
+    }
+
     Net net;
     if (!load(net, o.netPath, &err)) {
         std::printf("blss: %s\n", err.c_str());

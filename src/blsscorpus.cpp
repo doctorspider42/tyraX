@@ -433,6 +433,30 @@ int projectTexture(Materials& m, const std::string& absPath, bool cutout) {
     return idx;
 }
 
+// ...and one whose PNG never existed as a file. An animated model's texture is
+// embedded in the .glb; the build writes it out next to the ELF, so the console
+// is textured and the corpus must be too - a part called untextured here would
+// report texDetail = 0 against a console twin that reports a real minification
+// ratio. Cached by (scene, index) rather than by path, since there is no path.
+int embeddedTexture(Materials& m, const ProjectScene& ps, int index, bool cutout) {
+    if (index < 0 || index >= (int)ps.embedded.size()) return -1;
+    char key[96];
+    std::snprintf(key, sizeof(key), "@glb:%p:%d", (const void*)&ps, index);
+    const auto it = m.byPath.find(key);
+    if (it != m.byPath.end()) return it->second;
+    Image img;
+    int idx = -1;
+    const std::vector<unsigned char>& png = ps.embedded[(size_t)index];
+    if (readPngMemory(img, png.data(), png.size()) && img.w >= 2 && img.h >= 2) {
+        Texture t = toTexture(img, cutout);
+        t.cutout = cutout;
+        idx = (int)m.tex.size();
+        m.tex.push_back(std::move(t));
+    }
+    m.byPath.emplace(key, idx);
+    return idx;
+}
+
 // ------------------------------------------------------------------ objects ---
 
 // A vertex, in WORLD space with the light already baked into rgb. Objects never
@@ -685,9 +709,16 @@ struct RVert {
 // position changes) and it is equally the knob a supersampling grid would turn.
 // `zb` is scratch owned by the caller: at 4x supersample it is 15 MB, which is
 // not worth reallocating 48 times.
+// `extra` is the frame's ANIMATED objects - the poses picked for this frame out
+// of the pre-built pose table. It is a pointer list rather than a second
+// std::vector<Object> because the poses live in per-part tables and gathering
+// them by value once per frame would copy a character's mesh for nothing.
+// Drawn in the SAME pass as the static set, after it: the z buffer sorts them,
+// and a second renderScene() call would clear the target.
 void renderScene(const std::vector<Object>& objs, const Materials& mats,
                  const Pinhole& cam, int rw, int rh, float offX, float offY,
-                 Image& img, std::vector<float>& zb) {
+                 Image& img, std::vector<float>& zb,
+                 const std::vector<const Object*>* extra = nullptr) {
     img.resize(rw, rh);
     // Clear one row, then replicate it: the supersampled target is 15 MB and a
     // pixel-at-a-time clear of it was a measurable slice of the whole corpus.
@@ -704,7 +735,14 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
     const float cx = 0.5f * (float)rw + offX;
     const float cy = 0.5f * (float)rh + offY;
 
-    for (const Object& o : objs) {
+    std::vector<const Object*> all;
+    all.reserve(objs.size() + (extra ? extra->size() : 0));
+    for (const Object& o : objs) all.push_back(&o);
+    if (extra)
+        for (const Object* o : *extra) all.push_back(o);
+
+    for (const Object* objPtr : all) {
+        const Object& o = *objPtr;
         // The console's own submission test: past its draw distance a bag is
         // not drawn, so it is not in the ground truth either (bagList applies
         // the same test to the proxy list - the two must agree).
@@ -940,11 +978,18 @@ bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
 }
 
 std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& mats,
-                              const Pinhole& cam, int outW, int outH) {
+                              const Pinhole& cam, int outW, int outH,
+                              const std::vector<const Object*>* extra = nullptr) {
     std::vector<BagProxy> out;
-    out.reserve(objs.size());
+    out.reserve(objs.size() + (extra ? extra->size() : 0));
     BagProxy b;
-    for (const Object& o : objs) {
+    std::vector<const Object*> all;
+    all.reserve(objs.size() + (extra ? extra->size() : 0));
+    for (const Object& o : objs) all.push_back(&o);
+    if (extra)
+        for (const Object* o : *extra) all.push_back(o);
+    for (const Object* objPtr : all) {
+        const Object& o = *objPtr;
         // A bag the console never submits describes nothing and is drawn by
         // nothing - see Object::proxy and Object::viewDist. Both tests are here
         // rather than at render time so the two lists cannot disagree; the
@@ -997,6 +1042,11 @@ struct Shot {
     // shots over ONE geometry set, and copying a 200 000-triangle scene six
     // times is minutes of wall clock and a gigabyte for nothing.
     const std::vector<Object>* shared = nullptr;
+    // ...and the scene's ANIMATED parts, one finished Object per part per
+    // console frame. Shared for the same reason and indexed per frame: the
+    // frame loop picks pose i and pose i-1 and hands them to renderScene and
+    // bagList, so the ground truth and the proxy list describe the same pose.
+    const std::vector<std::vector<Object>>* animShared = nullptr;
     std::vector<float> pathEye, pathLook;  // 3 per key
     float ease = 0.0f;                     // 1 = smoothstep in t (the whip)
     float fovDeg = 60.0f;
@@ -1553,33 +1603,64 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
 // here is a change of representation: no geometry is merged, split, culled or
 // re-lit, because every one of those would make the corpus describe a frame the
 // console does not draw.
+Object objectOf(const ProjectScene& ps, const SceneMesh& sm, Materials& mats,
+                bool packageSplit) {
+    Object o;
+    o.vert.reserve(sm.vert.size());
+    for (const SceneVert& sv : sm.vert) {
+        Vertex v;
+        v.p = {sv.p[0], sv.p[1], sv.p[2]};
+        v.u = sv.u, v.v = sv.v;
+        v.c = {sv.c[0], sv.c[1], sv.c[2]};
+        o.vert.push_back(v);
+    }
+    o.idx = sm.idx;
+    o.tex = sm.embeddedTex >= 0 && sm.embeddedTex < (int)ps.embedded.size()
+                ? embeddedTexture(mats, ps, sm.embeddedTex, sm.cutout)
+                : projectTexture(mats, sm.texture, sm.cutout);
+    o.bilinear = sm.bilinear;
+    o.cutout = sm.cutout;
+    o.proxy = sm.proxy;
+    o.viewDist = sm.viewDist;
+    finishObject(o, mats, packageSplit);
+    // finishObject recomputes the centre from the mesh; the scene walker's
+    // is the same box, so this is belt and braces rather than a fix.
+    o.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
+    return o;
+}
+
 std::vector<Object> objectsOf(const ProjectScene& ps, Materials& mats,
                               bool packageSplit) {
     std::vector<Object> objs;
     objs.reserve(ps.mesh.size());
-    for (const SceneMesh& sm : ps.mesh) {
-        Object o;
-        o.vert.reserve(sm.vert.size());
-        for (const SceneVert& sv : sm.vert) {
-            Vertex v;
-            v.p = {sv.p[0], sv.p[1], sv.p[2]};
-            v.u = sv.u, v.v = sv.v;
-            v.c = {sv.c[0], sv.c[1], sv.c[2]};
-            o.vert.push_back(v);
-        }
-        o.idx = sm.idx;
-        o.tex = projectTexture(mats, sm.texture, sm.cutout);
-        o.bilinear = sm.bilinear;
-        o.cutout = sm.cutout;
-        o.proxy = sm.proxy;
-        o.viewDist = sm.viewDist;
-        finishObject(o, mats, packageSplit);
-        // finishObject recomputes the centre from the mesh; the scene walker's
-        // is the same box, so this is belt and braces rather than a fix.
-        o.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
-        objs.push_back(std::move(o));
-    }
+    for (const SceneMesh& sm : ps.mesh)
+        objs.push_back(objectOf(ps, sm, mats, packageSplit));
     return objs;
+}
+
+// THE ANIMATED HALF, one finished Object per (part, console frame). Building
+// every pose up front rather than skinning inside the frame loop is what keeps
+// the loop a pure function of its frame index: a worker only ever INDEXES this
+// table, never writes to it, so `--threads 1` and `--threads 32` still produce
+// the same corpus. It costs a few MB per animated part and buys the whole
+// determinism contract back for free.
+//
+// The package split runs per pose, because the boxes the console cuts are cut
+// over the SKINNED vertices - `StaPipCore` recomputes a bag's package bboxes
+// whenever `bboxVersion` changes, which `updateAndRenderAnimObjects` bumps on
+// every re-skin. A single set of boxes taken from the bind pose would be the
+// whole-bag proxy problem again, one level down.
+std::vector<std::vector<Object>> animObjectsOf(const ProjectScene& ps, Materials& mats,
+                                               bool packageSplit) {
+    std::vector<std::vector<Object>> out;
+    out.reserve(ps.anim.size());
+    for (const AnimMesh& am : ps.anim) {
+        std::vector<Object> poses;
+        poses.reserve(am.pose.size());
+        for (const SceneMesh& sm : am.pose) poses.push_back(objectOf(ps, sm, mats, packageSplit));
+        out.push_back(std::move(poses));
+    }
+    return out;
 }
 
 // The project's scenes, as the corpus' shot table. `geometry` is filled first
@@ -1588,12 +1669,17 @@ std::vector<Object> objectsOf(const ProjectScene& ps, Materials& mats,
 // clock for nothing.
 std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
                                     std::vector<std::vector<Object>>& geometry,
+                                    std::vector<std::vector<std::vector<Object>>>& anim,
                                     const std::vector<ProjectScene>& scenes) {
     std::vector<Shot> shots;
     geometry.clear();
     geometry.reserve(scenes.size());
-    for (const ProjectScene& ps : scenes)
+    anim.clear();
+    anim.reserve(scenes.size());
+    for (const ProjectScene& ps : scenes) {
         geometry.push_back(objectsOf(ps, mats, cfg.packageSplit));
+        anim.push_back(animObjectsOf(ps, mats, cfg.packageSplit));
+    }
 
     for (size_t i = 0; i < scenes.size(); ++i) {
         const ProjectScene& ps = scenes[i];
@@ -1604,6 +1690,7 @@ std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
             s.moveName = ss.move;
             s.move = Move::Path;
             s.shared = &geometry[i];
+            s.animShared = &anim[i];
             s.pathEye = ss.eye;
             s.pathLook = ss.look;
             s.ease = ss.ease;
@@ -1682,7 +1769,22 @@ void parallelFrames(int n, int threads, const F& body) {
 std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     std::vector<CorpusFrame> out;
     const int outW = cfg.outW, outH = cfg.outH;
-    const int cols = outW / kTile, rows = outH / kTile;
+    // The tile grid. FLOOR, where the engine's configure() takes a CEILING
+    // ((outW + kTile - 1) / kTile) - identical at every size that divides, and
+    // the two shipping ones do (512/32 = 16, 448/32 = 14; 512/64 = 8,
+    // 448/64 = 7). At a size that does NOT divide, the corpus would build a
+    // smaller grid than the console and the last partial tile column would be
+    // described by nothing, so say so rather than silently measure a different
+    // frame - see docs/blss-reconstruction.md, "Symbols".
+    const int tile = tileSize();
+    const int cols = outW / tile, rows = outH / tile;
+    if (cfg.verbose && (outW % tile || outH % tile))
+        std::printf(
+            "[blss] WARNING: tile %d does not divide %dx%d - the corpus grid is "
+            "%dx%d, the engine's would be %dx%d. This configuration is NOT a "
+            "twin.\n",
+            tile, outW, outH, cols, rows, (outW + tile - 1) / tile,
+            (outH + tile - 1) / tile);
     if (cfg.frames <= 0 || cols <= 0 || rows <= 0) return out;
     const int ss = std::max(cfg.supersample, 1);
     const int sx = scaleX(cfg.scale), sy = scaleY(cfg.scale);
@@ -1696,11 +1798,13 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     // on whichever list of shots comes out of here, which is what makes a
     // project-trained net and a procedurally-trained one comparable.
     std::vector<std::vector<Object>> projectGeometry;  // outlives `shots`
+    std::vector<std::vector<std::vector<Object>>> projectAnim;  // ... and so does this
     std::vector<Shot> shots;
+    ProjectBlss pb;
     if (!cfg.projectDir.empty()) {
         std::string err;
         const std::vector<ProjectScene> scenes =
-            loadProject(cfg.projectDir, &err, cfg.verbose);
+            loadProject(cfg.projectDir, &err, cfg.verbose, cfg.animated, &pb);
         if (!err.empty())
             std::printf("[blss] project: %s\n", err.c_str());
         if (scenes.empty()) {
@@ -1711,7 +1815,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                 "procedural bestiary\n",
                 cfg.projectDir.c_str());
         } else {
-            shots = buildProjectShots(cfg, mats, projectGeometry, scenes);
+            shots = buildProjectShots(cfg, mats, projectGeometry, projectAnim, scenes);
         }
     }
     if (shots.empty()) {
@@ -1727,6 +1831,26 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                 }
     }
 
+    // THE SAMPLER THIS CORPUS WILL BE FITTED AGAINST, resolved here and never
+    // again: before the first frame is rendered, after the project (if any) has
+    // said how it will be built. `--no-jitter` wins over the project, the
+    // project wins over the default, and the bestiary - which has no project to
+    // ask - keeps jitter on, because that is the configuration every fold table
+    // on docs/neural-upscaler.md was measured with.
+    //
+    // It has to be said out loud for the same reason `--tile` does: two runs of
+    // this tool that differ only in the sampler produce two incomparable tables,
+    // and nothing in blss.net records which one it was.
+    const bool wantJitter =
+        cfg.jitter >= 0 ? cfg.jitter != 0 : (pb.found ? pb.jitter : true);
+    setJitter(wantJitter);
+    if (cfg.verbose && !wantJitter)
+        std::printf(
+            "[blss] sub-pixel jitter OFF%s - both phases sample the same "
+            "position, so the temporal pass sees a genuine still frame and the "
+            "quincunx supersample is gone.\n",
+            cfg.jitter >= 0 ? " (--no-jitter)" : " (the project's blssJitter)");
+
     // Frames spread round-robin over the shots, remainder to the first ones. A
     // shot that got a single frame would have no history at all and teach the
     // temporal channel nothing, so with fewer frames than shots the tail shots
@@ -1741,10 +1865,16 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     }
 
     if (cfg.verbose) {
-        size_t proxies = 0;
+        size_t proxies = 0, animParts = 0;
         for (const Shot& s : shots)
             for (const Object& o : s.geometry())
                 if (o.proxy) proxies += o.part.size();
+        for (const auto& scene : projectAnim)
+            for (const auto& poses : scene)
+                if (!poses.empty()) {
+                    animParts += 1;
+                    proxies += poses[0].part.size();
+                }
         std::printf(
             "[blss] corpus: %s, %d frame(s) over %d shot(s), %dx%d out, %dx%d low, "
             "%dx supersample, %dx%d tiles, seed 0x%X\n",
@@ -1759,6 +1889,15 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                                             : "the project's scenes",
                     cfg.packageSplit ? "one per VU1 package (the engine's split)"
                                      : "one per object (--no-package-split)");
+        // Said out loud because for its whole life this corpus rendered NEITHER
+        // the pixels nor the proxies of an animated model, while the console
+        // rendered both - so "0 animated part(s)" on a project that has them is
+        // the signature of that bug coming back.
+        if (!projectAnim.empty())
+            std::printf(
+                "[blss] %zu animated part(s), posed per console frame (their proxies "
+                "are in the count above)\n",
+                animParts);
     }
 
     // THE WORK LIST, in the order the serial loop produced it: shot 0's frames,
@@ -1796,6 +1935,23 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // console holds on a scene cut.
         const Pinhole prev = i > 0 ? cameraAt(shot, tPrev) : cur;
 
+        // THE FRAME'S POSE, and its predecessor's. Frame index IS console frame
+        // index (blssscene.hpp, kAnimFps), so this is a lookup and not an
+        // evaluation - which is what keeps the loop a pure function of j. Frame
+        // 0 reuses its own pose for the predecessor, the same way it reuses its
+        // own camera: on a scene cut the console's history is this frame.
+        std::vector<const Object*> animNow, animPrev;
+        if (shot.animShared) {
+            animNow.reserve(shot.animShared->size());
+            animPrev.reserve(shot.animShared->size());
+            for (const std::vector<Object>& poses : *shot.animShared) {
+                if (poses.empty()) continue;
+                const int last = (int)poses.size() - 1;
+                animNow.push_back(&poses[(size_t)std::min(i, last)]);
+                animPrev.push_back(&poses[(size_t)std::min(i > 0 ? i - 1 : 0, last)]);
+            }
+        }
+
         CorpusFrame& cf = out[(size_t)j];
         cf.shot = job.shot;
         cf.shotName = shot.name;
@@ -1811,28 +1967,28 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // a checkerboard at the horizon - but it is the same definition the
         // oracle and psnr() are measured against, and 16 samples per output
         // pixel is far past what the console will ever see.
-        renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, sc.big, sc.zb);
+        renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, sc.big, sc.zb, &animNow);
         cf.truth = ss > 1 ? boxDown(sc.big, ss) : sc.big;
         // The "no BLSS" baseline: full resolution, one sample, no jitter.
-        renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, sc.zb);
+        renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, sc.zb, &animNow);
         // What the console actually has: the jittered low-res target. The
         // jitter is in LOW-RES pixels and this render's pixels ARE low-res
         // pixels, so it goes straight in as the raster offset.
         renderScene(geo, mats, cur, lowW, lowH, jitterX(fr.phase), jitterY(fr.phase),
-                    fr.low, sc.zb);
+                    fr.low, sc.zb, &animNow);
         // ...and the predecessor's, RE-RENDERED rather than carried over from
         // the previous iteration - that carry is the only thing that made this
         // loop serial. Same camera, same jitter phase, same pure function, so
         // the same image: see the determinism note above.
         if (i > 0)
             renderScene(geo, mats, prev, lowW, lowH, jitterX((i - 1) % kJitterPhases),
-                        jitterY((i - 1) % kJitterPhases), fr.prevLow, sc.zb);
+                        jitterY((i - 1) % kJitterPhases), fr.prevLow, sc.zb, &animPrev);
         else
             fr.prevLow = fr.low;
 
         // ...and what the EE knows ABOUT it: one bag per drawn object, from
         // the unjittered display-resolution projection.
-        const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH);
+        const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH, &animNow);
         const std::vector<TileStats> stats = accumulate(cols, rows, outW, outH, bags);
         // History size is the DISPLAY size: the runtime's history is the other
         // display framebuffer (docs/blss-reconstruction.md section 6), so one

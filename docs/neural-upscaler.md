@@ -52,6 +52,16 @@ rasteriser and no pixel shaders at all.
 > nothing, because the frame was EE-bound and had no GS fill to trade
 > ([profiling.md](profiling.md), "Timing a frame that BLSS is in"). Do not
 > enable this yet.
+>
+> **The EE half of that bill has now been priced.** 5.10 ms of the 9.83 is
+> `composite()`'s inference and packet build, and the two changes that attack it
+> have been cross-validated: **the transcendental table is free** (0.01 dB against
+> a fold sd of 0.35, and it deletes every `tanhf`, `expf` and divide in the
+> inference), while **`kTile` 32 → 64 is a 4× cut that doubles the folds where
+> the net is worse than doing nothing**. Neither is switched on, both are twin
+> changes, and neither closes the gap alone — see
+> [the transcendentals](#the-transcendentals-as-a-table) and
+> [the tile size](#the-tile-size-swept).
 
 ## Why this can work at all on a PS2
 
@@ -459,6 +469,16 @@ shipped defaults (`0` and `16`) are the result of such a sweep, recorded with it
 numbers in `src/blss.hpp`. Changing either changes the *labels*, so a change is
 only meaningful after a re-train:
 
+Three more take a configuration the **console cannot currently run**, and each
+prints a line saying so, because a table of decibels whose configuration is not
+on the page is a table nobody can reproduce:
+
+| flag | what it measures | where its numbers are |
+|---|---|---|
+| `--tile N` | the decision tile edge; the engine's `kTile` is a compile-time constant | [The tile size, swept](#the-tile-size-swept) |
+| `--act-table N` | `tanh`/logistic from a shared table instead of libm, on the fit *and* the inference | [The transcendentals, as a table](#the-transcendentals-as-a-table) |
+| `--no-anim` | leaves the project's animated models out of the corpus, the way it worked before they were added | [The animated models the corpus was not drawing](#the-animated-models-the-corpus-was-not-drawing) |
+
 ```bash
 tyrax-editor --blss-train --frames 84 --fill-weight 4 -o try.net
 tyrax-editor --blss-eval  --frames 84 --fill-weight 4 -i try.net
@@ -692,10 +712,16 @@ terrain, walked / panned / orbited / whipped / pitched / strafed by six camera
 moves derived from the scene's bounds and its player start, plus any authored
 Cutscene Director camera track. `src/blssscene.cpp` walks a project into
 world-space triangles through the same three sources the GI bake uses
-(primitives, static `.obj`, terrain chunks); animated `.glb` is skipped
-*because* it goes down the dynamic pipeline, which does not feed BLSS at all. A
+(primitives, static `.obj`, terrain chunks) **plus its animated models, posed per
+console frame** — see [below](#the-animated-models-the-corpus-was-not-drawing). A
 project that will not load, or loads with nothing to draw, falls back to the
 bestiary and says so.
+
+> **That last clause used to read "animated `.glb` is skipped *because* it goes
+> down the dynamic pipeline, which does not feed BLSS at all". It was wrong**,
+> and it had the same shape as the whole-bag proxy: a sentence about the engine
+> that stopped being true, believed on both sides of a twin for as long as nobody
+> compared the two frames.
 
 **This is not a refinement, it is the difference between helping and hurting.**
 Measured on `examples/procedural` (39 meshes, 15 098 triangles, no textures at
@@ -1405,6 +1431,306 @@ could tell which.
   against 55.72) — the oracle is optimising accuracy **plus fill**, and on an
   empty screen it correctly refuses to pay for a decibel nobody can see.
 
+### The animated models the corpus was not drawing
+
+**A real train/run mismatch, host-only to fix, and the correctness argument is
+much stronger than the decibel.** `src/blssscene.cpp` built the project corpus
+from primitives, static `.obj` and terrain chunks and **skipped animated models
+outright**, with a comment saying they "go down the dynamic pipeline, which does
+not feed BLSS at all". Three files say otherwise, and all three were checked:
+
+- `src/templates.cpp` — `updateAndRenderAnimObjects` poses and skins on the EE
+  and then submits each part with **`stapip.core.render()`**; the header comment
+  at the `GameAnimModel` declaration says it outright, "the skinned arrays render
+  through the SAME static pipeline as the rest of the scene";
+- a generated game shows it: `examples/showcase/src/terrain_game.cpp` draws them
+  through the same call;
+- `stapip_core.cpp` submits a BLSS proxy for any bag whose
+  `PipelineInfoBag::blssProxy` is true, **which is the default** — animated bags
+  never opt out.
+
+So on the console a character is **drawn and described**, and in the corpus it
+was **neither**. The network was fitted on frames that did not contain it. That
+is the whole-bag-proxy bug's shape again, one layer up, and this half needs no
+engine change because **the console side is already right**.
+
+**What the corpus does now.** `blssscene.cpp` bakes each animated part's clip at
+**50 Hz — the console's frame rate — into a table of poses**, because two
+consecutive corpus frames *are* two consecutive console frames (the history is
+one frame deep, the phase alternates every frame, and `motion` is the
+reprojection between them), so the pose has to advance by exactly one console
+frame between them. The object's clip, `animSpeed`, loop and autoplay flags are
+folded in, so the frame loop only ever indexes by frame number — which is what
+keeps a frame a pure function of its index and the corpus bit-identical at any
+`--threads`. `.glb` and `.fbx` both go through `animimport::bake`, the same entry
+the editor's own preview and matbake use, so the replacement-UV sidecar the
+`.tskl` carries is applied here too. Each part becomes one bag, exactly as
+`setupAnimObject` makes one `StaPipBag` per material, and the **package split is
+recomputed per pose** because the boxes `StaPipCore` cuts are cut over the
+*skinned* vertices (`bboxVersion` is bumped on every re-skin).
+
+**The measurement, and the honest answer is "too small to resolve on any project
+in this tree".** `--no-anim` restores the old behaviour, and it is a clean A/B:
+the animated meshes still vote for the scene bounds and the triangle centroid, so
+**both arms shoot exactly the same six camera moves** and differ only in whether
+those frames contain the models. `--blss-eval --cv --cv-seeds 3`, 6 shots × 3
+seeds = 18 fold-runs:
+
+| `examples/upscaler-lab` | held-out margin | sd | below bilinear | passes |
+|---|---|---|---|---|
+| animated models in the corpus | **+0.69** | 0.50 | 0/18 | 1.74 |
+| `--no-anim` (the old behaviour) | +0.66 | 0.53 | 1/18 | 1.74 |
+
++0.03 dB against a fold sd of 0.50. **That is not a result, and the reason is
+worth more than the number**: two spiders are **48 of that project's 1 512 bag
+proxies (3.2 %)** and, in the frame the comparison run dumped, **154 of 229 376
+pixels — 0.07 % of the picture.** The input distribution barely moves with them:
+every channel mean is identical to three decimals except `texDetail`
+(0.444 against 0.446). A corpus cannot measure a difference that is three
+thousandths of the frame.
+
+The **mismatch itself** — a net fitted the old way and then run on the corpus
+that has the models, which is exactly what the console was doing — agrees, from
+a second direction: `--all-shots` nets, plain `--blss-eval` on the animated
+corpus, **+0.81 dB (47 % of the ceiling) fitted without them against +0.85 dB
+(49 %) fitted with them.** Same 0.04 dB, same conclusion.
+
+`examples/large-terrain` looked like the strong case — **80 animated parts** —
+and turned out to be a different kind of useless: it is a scene with nothing to
+reconstruct, where the trained net asks for **1.00 passes, i.e. plain bilinear,
+on every one of the six folds** and BLSS equals bilinear to two decimal places
+with or without the models. And those 80 parts are **0.04 % of its 213 676
+proxies**, so even a scene that *did* have a ceiling would not have shown them.
+`examples/showcase` is the same story for the same reason its oracle is +0.02 dB
+([above](#training-on-your-own-project)): +0.00 dB at 1.00 passes over 36
+fold-runs, animated or not.
+
+> **So all three example projects that contain animated models fail to resolve
+> this**, two because the animated share of the frame is a fraction of a percent
+> and one because the scene has no ceiling at all. That is a statement about the
+> examples in this tree, not about the change.
+
+**Land it anyway, and the reason is not the decibel.** The corpus' one job is to
+describe the frame the console draws; the price of doing that correctly here is
+zero (no engine change, no quality cost, no fill change, no `kNetVersion`) and
+the benefit scales with how much of a frame is animated. A project whose
+characters fill the screen — which is most games that have characters — is
+exactly the case the old corpus described worst, and the case none of the
+example projects in this tree happen to be. **What this section cannot claim is
+that it helps**: nothing here has measured a project where animated geometry is a
+significant share of the frame, and until something does, the argument is
+correctness and not quality.
+
+Three approximations remain, all recorded rather than hidden:
+
+- **No mesh or animation LOD.** The console renders a distant instance from a
+  decimated variant and refreshes its pose every 2nd or 4th frame
+  (`MESH_LOD_DISTANCE` / `ANIM_LOD_DISTANCE`); the corpus always draws tier 0 and
+  re-poses every frame. At the corpus' camera distances tier 0 is usually right,
+  and a coarser tier would only make the proxy boxes *less* precise.
+- **No pose sharing.** Two instances in the same pose share one skinned buffer on
+  the console; here they are skinned independently. That changes nothing about
+  what a proxy describes.
+- **The clip is sampled at 50 Hz and held past `kAnimPoses` (48 frames).** A shot
+  is a dozen-odd frames, so the hold is unreachable in every configuration this
+  page measures.
+
+### The tile size, swept
+
+**`kTile` had never been moved, and it is the largest EE saving this feature has
+on the table.** The grid is 16 × 14 = 224 tiles at 512 × 448, and every tile costs
+108 MACs plus 15 libm calls; the composite's weight field is 17 × 15 = 255 grid
+corners of packet. At `kTile = 64` that is **56 tiles and 72 corners** — a
+quarter of the inference and 3.5× less packet build — and the obvious worry is
+fill: a lit cell becomes 64 × 64 instead of 32 × 32, and `emitGrid`'s
+four-corner rule lights the nine cells around any tile that asks for a kernel, so
+one decision now costs four times the pixels.
+
+`--tile N` sweeps it on the host (`blss::tileSize()`); the engine's
+`RendererCoreBlss::kTile` is a compile-time constant, so the tool prints a line
+saying the run is a measurement configuration. Leave-one-shot-out
+cross-validation, 13 shots × 3 seeds = 39 fold-runs per row, 156 frames,
+everything else at the shipped defaults:
+
+| `--tile` | grid | inference | corners | held-out margin | sd | below bilinear | **passes** | point | temporal | in-dist |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 16 | 32 × 28 = 896 | 4× | 957 | +0.33 | 0.34 | 5/39 | **2.02** | 36.4 % | 66.0 % | +0.43 |
+| **32** (shipped) | 16 × 14 = 224 | 1× | 255 | **+0.42** | **0.35** | **3/39** | **1.80** | 10.3 % | 69.6 % | +0.50 |
+| 64 | 8 × 7 = 56 | ¼× | 72 | +0.46 | **0.49** | **6/39** | **1.77** | 0.0 % | 77.3 % | +0.61 |
+
+> **The occupancy columns are fractions of the SCREEN, not counts of cells**, so
+> they are directly comparable across tile sizes and they answer the fill worry
+> directly: **the frame does not draw more.** 1.80 → 1.77 passes. The point pass
+> disappears entirely (10.3 % → 0 %) and the temporal pass spreads (69.6 % →
+> 77.3 %), and those two almost exactly cancel.
+
+**And yet the recommendation is: do not do it.** Read the last four columns
+together rather than the margin alone:
+
+- The **mean is a draw.** +0.46 against +0.42 is 0.04 dB against a fold-to-fold
+  sd of 0.35–0.49. By this page's own rule that is not a difference.
+- The **spread grows by 40 %** (0.35 → 0.49) and the **folds where the network
+  is worse than doing nothing double** (3/39 → 6/39). A coarser grid is a
+  smaller, easier fitting problem — the `in-dist` control rises from +0.50 to
+  +0.61, i.e. it fits its own training shots *better* — while generalising less
+  reliably. That is the signature this page already has a section for: **the
+  network is variance-limited, and anything that makes the fit easier makes the
+  feature worse.** kTile 64 is `--standardise` again, with a real EE saving
+  attached to it this time.
+- The per-fold rows say where it goes: `poles` +0.81 → +1.31 and `pitch-sky`
+  +0.48 → +1.41 (a coarse grid suits a frame that is mostly one thing), against
+  `foliage-walk` +0.24 → **−0.11**, `strafe-field` +0.40 → +0.10 and
+  `sphere-field`'s **oracle** dropping 31.74 → 31.29 — at 64 the trained net
+  actually scores *above* the oracle on that fold, which means the oracle can no
+  longer express the answer either. The tile is now wider than the features being
+  separated.
+
+**16 is unambiguously worse** and settles the direction: +0.33 dB at **2.02
+passes**, i.e. it pays 0.22 of a full-screen pass more than 32 and 4× the
+inference to lose 0.09 dB. Finer is not better; the grid is not what limits this.
+
+On a project corpus — `examples/procedural`, 6 shots × 3 seeds = 18 fold-runs,
+and remember that a project's held-out decibel does not generalise
+([above](#training-on-your-own-project)), so read the **passes** column here and
+not the dB:
+
+| `--tile` | margin | sd | below bilinear | passes | point | temporal |
+|---|---|---|---|---|---|---|
+| 16 | +0.01 | 0.17 | 7/18 | 1.79 | 58.1 % | 20.9 % |
+| **32** | −0.03 | 0.34 | 9/18 | **1.35** | 3.8 % | 30.8 % |
+| 64 | +0.09 | 0.51 | 6/18 | **1.51** | 0.0 % | 51.4 % |
+
+**Here the fill worry is real**: 1.35 → 1.51 passes, +12 %, because the temporal
+occupancy jumps 30.8 % → 51.4 % and a coarse grid cannot decline as precisely.
+So the bestiary's "fill is flat" is a property of the bestiary, not of the
+change: on content where the correct answer is *sparse*, a coarser grid draws
+more.
+
+**What it would buy, in units an engine change can be checked against.** Per
+frame at 512 × 448, every quantity that scales with the grid:
+
+| per frame | `kTile` 32 | `kTile` 64 | |
+|---|---|---|---|
+| tiles inferred (`runNet`) | 224 | **56** | −75 % |
+| MACs | 24 192 | **6 048** | −75 % |
+| `tanhf` | 2 688 | **672** | −75 % |
+| `expf` + `fdiv` | 672 + 672 | **168 + 168** | −75 % |
+| grid corners (`buildReproj`, `cornerAlpha`) | 255 | **72** | −72 % |
+| strip vertices per full-screen pass (`emitGrid`) | 476 | **126** | −74 % |
+
+(The inference counts are the worst case: both twins skip a tile whose
+`coverage` is below `kMinCoverage`, and the one instrumented console frame had
+159 of 196 tiles covered, so scale by ~0.8.)
+
+> **That is aimed straight at the 5.10 ms.** The hardware measurement attributes
+> `composite()` at 5.41 ms of which **5.10 ms is EE** — inference plus packet
+> build — and this change is a 3–4× cut to *both* halves of it, which is the
+> largest single lever the feature has. **It still does not close the gap**: the
+> frame is 9.83 ms in the red and the other ~4.4 ms is extra scene submission
+> from the per-package bag proxies (~3.9 ms) plus `beginScene()` (0.45 ms),
+> neither of which the tile size touches.
+>
+> **The recommendation is still: do not flip the default on this evidence.** The
+> mean is a draw and the tail is worse — 6 of 39 fold-runs below bilinear against
+> 3, on a feature whose entire remaining defence is that it usually helps. But
+> this is now a genuine trade rather than a free lunch declined, and it is priced
+> on both sides: a **4× cheaper inference and packet build** against **twice the
+> rate at which a shot comes out worse than doing nothing**. If the choice is
+> made to take it, take it deliberately and re-measure everything on this page.
+>
+> It is a **twin change**:
+> `vendor/tyra/engine/inc/renderer/core/blss/renderer_core_blss.hpp` — `kTile`,
+> and `kMaxCols`/`kMaxRows`, which are written as `512/kTile` and
+> `ceil(540/kTile)` — plus `src/blss.hpp`'s `kTile`, in one commit, and every
+> table on this page re-measured. `HiDef1080i` (448 × 540) does not divide at 64
+> any more than it does at 32; see
+> [the math doc's Symbols](blss-reconstruction.md#symbols).
+
+### The transcendentals, as a table
+
+**This one is free, and it is the recommendation.** `runNet` evaluates
+`12 tanhf + 3 expf + 3 fdiv` per tile — **3 360 libm calls and 672 divides per
+frame** at 224 tiles — in a build with **no `-ffast-math`**
+(`vendor/tyra/Makefile.base:19` is `-D_EE -Wall -O3`). Every one of those results
+is then truncated to a byte by `cornerAlpha()` and snapped to zero below alpha 8.
+Full libm precision is computed and thrown away.
+
+A shared lookup table replaces all of it, and **one table serves both
+activations**, because `logistic(z) = (1 + tanh(z/2)) / 2` exactly — so the
+divide goes with the `expf`. The exact definition, index mapping, clamping,
+rounding rule, integer type and checksum are
+[§5 of the math doc](blss-reconstruction.md#the-activation-table--the-contract-not-yet-the-code);
+that page is the contract, this one is the measurement.
+
+**Why a table rather than a polynomial**: an approximation has to be *matched*
+between two compilers and a table does not. `int16 -> float` and `× 2^-15` are
+both exact, and the lookup is nearest-entry with no interpolation, so the
+activation step is **bit-identical on the two twins by construction** rather than
+by tolerance. (The float MACs around it stay whatever the EE FPU makes of them.
+The table does not fix that and does not claim to.)
+
+Measured the same way as everything else — `--blss-eval --cv --cv-seeds 3`,
+39 fold-runs per row, `--act-table N` on both the fit and the inference:
+
+| activation | stored | held-out margin | sd | below bilinear | passes | point | temporal |
+|---|---|---|---|---|---|---|---|
+| `std::tanh` / `std::exp` (shipped) | — | **+0.42** | 0.35 | **3/39** | **1.80** | 10.3 % | 69.6 % |
+| table, N = 512 (**recommended**) | 514 B | +0.41 | 0.34 | 3/39 | 1.79 | 10.8 % | 68.2 % |
+| table, N = 256 | 258 B | +0.41 | 0.34 | 3/39 | 1.80 | 11.5 % | 68.5 % |
+| table, N = 128 | 130 B | +0.43 | 0.36 | 3/39 | 1.80 | 10.7 % | 69.3 % |
+| table, N = 64 | 66 B | +0.41 | 0.34 | 3/39 | 1.77 | 7.3 % | 69.2 % |
+| table, N = 32 | 34 B | +0.41 | 0.34 | **5/39** | **1.84** | 10.1 % | 74.1 % |
+
+> **The delta is 0.01 dB against a fold sd of 0.35** — one thirty-fifth of the
+> noise, and *smaller than the 0.02 dB `--drop-feature edgeDens` control this page
+> uses to decide whether an effect is resolvable at all*. It is not that the table
+> is cheap; it is that this instrument cannot tell it apart from libm. Occupancy,
+> the pass count and the number of losing folds are all unchanged.
+>
+> **The size at which it stops being free is 32, not 512.** Every row from 64 up
+> reproduces the shipped one; at N = 32 — where nearest-entry lookup can be
+> 0.125 out in `tanh` — the losing folds go 3 → 5 and the frame pays 0.04 of a
+> pass more, which is the first thing on this table that moves at all. That is a
+> 4× margin between "measurably fine" and the recommendation.
+>
+> **Ship 512 anyway.** The whole table is 514 bytes of `.data` against a 224-tile
+> grid whose own accumulators are 30 KB, so there is nothing to buy by shaving it,
+> and a comfortable margin over the point where the answer starts to wobble is
+> worth more than 448 bytes. Reporting the small rows is the useful half: it says
+> the result is not balanced on a knife edge.
+
+**What it saves, per frame, at the shipped `kTile = 32`:**
+
+| per frame | libm | table |
+|---|---|---|
+| `tanhf` | 2 688 | **0** |
+| `expf` | 672 | **0** |
+| `fdiv` (the logistic's `1/(1+e)`) | 672 | **0** |
+| table lookups (clamp, multiply, add, convert, load) | — | 3 360 |
+| MACs | 24 192 | 24 192, unchanged |
+
+(Worst case; a tile below `kMinCoverage` skips the evaluation on both twins, so
+scale by the covered fraction — ~0.8 in the one instrumented console frame.
+**With `kTile = 64` as well it is 840 lookups and 6 048 MACs.**)
+
+Against the hardware measurement — `composite()` 5.41 ms of which **5.10 ms is
+EE**, in a frame that is 9.83 ms slower with BLSS on and whose GS overhang is
+0.02 ms in *both* arms — this is the part of the inference that is not MACs, and
+it is the only change on this page that costs nothing at all. It does **not**
+close the gap on its own: the packet build is untouched, and so are the ~3.9 ms
+of extra scene submission from the per-package proxies and the 0.45 ms of
+`beginScene()`.
+
+**It is not switched on.** `--act-table` defaults to 0, i.e. libm, because
+**`blss.net` records nothing about which activation fitted it**, so a host that
+trains against a table while the console evaluates libm is a silent twin
+divergence with no file to detect it. Land it on the engine
+(`renderer_core_blss.cpp`'s `tanhf`/`expf` in `runNet`) and flip the host default
+in the same commit, or not at all.
+
+**No `kNetVersion` bump.** The topology and the file format are untouched, and
+bumping it would refuse every existing net to guard a difference of 0.01 dB.
+
 ### Two channels the network lost, and the measurements that took them
 
 The input vector was eight channels and is six. **Neither deletion was a
@@ -1659,11 +1985,39 @@ offset to 0: pure spatial upscale, no temporal supersampling, stable by
 construction — a known quality cost for a known cure, and the A/B that proves
 the jitter is the cause on any given build. It reaches the engine as
 `BLSS_JITTER` → `RendererCoreBlss::configure(..., jitter)`; the parameter is
-defaulted to `true` so previously generated games are unchanged. **The host twin
-in `src/blss.cpp` does not know about it**: the oracle and the corpus always
-model the jittered sampler, so a net trained today and run with `blssJitter:
-false` is being run slightly out of distribution. Wiring the flag through the
-trainer is the obvious next step and has not been done.
+defaulted to `true` so previously generated games are unchanged.
+
+**FIXED — the host twin knows about it now.** That paragraph used to end "the
+oracle and the corpus always model the jittered sampler, so a net trained today
+and run with `blssJitter: false` is being run slightly out of distribution", and
+it was right to flag it: a net fitted against a sampler the generated game does
+not use is fitted out of distribution, and `blss.net` records nothing that could
+detect it — the same shape as the whole-bag proxy and the animated models.
+`blss::jitterEnabled()` / `setJitter()` are the twin, `jitterX`/`jitterY` return
+0 in both phases when it is off, and **`--blss-train <projectDir>` /
+`--blss-eval <projectDir>` read the project's own `blssJitter` and fit against
+the sampler that project will ship with.** `--no-jitter` / `--jitter` force it
+either way, the bestiary keeps it on because that is what every fold table here
+was measured with, and the corpus prints a line when it is off. The contract is
+[§1 of the math doc](blss-reconstruction.md#1-jitter), which is why that section
+now opens by saying jitter is a mode rather than a constant.
+
+**And the switch has a price, which is what the twin was for.** Both arms fitted
+and measured with the same sampler, `--blss-eval --cv --cv-seeds 3` on
+`examples/upscaler-lab`, 6 shots × 3 seeds = 18 fold-runs:
+
+| `examples/upscaler-lab` | held-out margin | sd | below bilinear | passes | temporal |
+|---|---|---|---|---|---|
+| `blssJitter` on | **+0.69** | 0.50 | 0/18 | 1.74 | 73.7 % |
+| `blssJitter` off | **+0.26** | 0.29 | 3/18 | 1.66 | 65.8 % |
+
+**0.43 dB — the one number on this page bigger than its own fold sd.** The
+scene's *ceiling* moves with it too: the oracle's headroom over bilinear falls
+from +0.84 dB to +0.27 on the same shots, which is the honest statement of what
+is lost. Without jitter the current frame and the history are the same sample,
+so the temporal pass stops being a supersample and becomes plain accumulation,
+and what BLSS has left is spatial kernel selection. That is a real cure for a
+real bob, and it costs most of the reason to run the feature.
 
 ### "Measured is not optimised", six times
 
@@ -1836,11 +2190,29 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
 
 ### What is still open
 
-- **Nobody has watched the emulator since the fill term landed.** The host says
-  the picture is more stable; whether the bob is gone from a television is
-  **unverified**. The honest workaround until someone looks is unchanged: run with
-  the jitter disabled, which gives up the temporal supersampling and keeps only
-  the spatial kernel selection.
+- **TWO TWIN CHANGES ARE MEASURED AND WAITING ON THE ENGINE, and this is the top
+  of the list now that the frame has been timed.** Both attack the 5.10 ms of EE
+  inside `composite()`; both are switched off on the host until their engine half
+  exists, because `blss.net` cannot record which configuration fitted it.
+  - **The transcendental table — do it.**
+    [Free](#the-transcendentals-as-a-table): 0.01 dB against a fold sd of 0.35,
+    no change in occupancy or passes. Deletes 2 688 `tanhf`, 672 `expf` and 672
+    divides per frame. The engine side is `runNet` in `renderer_core_blss.cpp`
+    and the definition is
+    [§5 of the math doc](blss-reconstruction.md#the-activation-table--the-contract-not-yet-the-code).
+  - **`kTile` 32 → 64 — do NOT do it on this evidence, but the price is now
+    known.** [4× less inference and 3.5× less packet build](#the-tile-size-swept)
+    for a mean that is a draw (+0.46 against +0.42) and a tail that is worse:
+    6 of 39 fold-runs below bilinear against 3, at 40 % more fold-to-fold spread.
+  - **Neither closes the gap.** 5.10 ms of the 9.83 is what they share; the other
+    ~4.4 ms is scene submission through the per-package proxies and
+    `beginScene()`, and nothing on this page addresses it.
+- **DONE — the bob was watched, and it is measured rather than watched now.** This
+  bullet used to say "nobody has watched the emulator since the fill term landed"
+  and prescribe disabling the jitter as a workaround. Both halves are answered:
+  the bob is **still there on hardware** (30.8 % of the picture alternating,
+  1.42/255) and `blssJitter` is that workaround as a real project setting, with
+  a host twin so the net is fitted to whichever sampler the build uses.
 - **Fix the depth channel's saturation.** This is the most promising item left
   and it has a measurement behind it: `depth` is a clamped `1/w` against
   `kDepthRef = 8`, **58.8 % of all corpus tiles read it at exactly 1.0**, and the
@@ -2013,6 +2385,21 @@ Occupancy is a count of grid cells, not a millisecond.
   folded in serially in corpus order afterwards, because a parallel reduction
   would have moved the table by a ULP or two and a table that moves with the core
   count is worthless.
+- **Four process-wide switches, all in `blss.hpp`, all set once by
+  `applySweepKnobs()` (or by `generate()`, for the jitter) before any corpus
+  exists and never written again** — they reach `WeightField::sample()`, the
+  oracle's innermost loop and `Net::forward()`, none of which has a config to
+  thread a parameter through, and a per-call version would be a second place for
+  the two producers to disagree. No worker thread ever writes one, which is what
+  keeps `--threads` a wall-clock knob:
+  `tileSize()` / `setTileSize()` (`--tile`), `actTanh()` / `actLogistic()` /
+  `setActTable()` / `actTableHash()` / `emitActTable()` (`--act-table`, and
+  `--blss-emit --act-table N` prints the engine's literals),
+  `jitterEnabled()` / `setJitter()` (`--jitter` / `--no-jitter`, and the
+  project's own `blssJitter`), and `CorpusConfig::animated` (`--no-anim`).
+  The animated corpus itself is `AnimMesh` + `appendAnimObject()` in
+  `blssscene.{hpp,cpp}` and `animObjectsOf()` in `blsscorpus.cpp`; it goes
+  through `animimport::bake` so `.glb` and `.fbx` behave identically.
 - Engine side: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
   (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The proxy
   producers are `addBagBox()` / `addBagSphere()`, fed from `StaPipCore` one box

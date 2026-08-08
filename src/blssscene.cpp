@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#include <memory>
+
+#include "fbxparser.hpp"
+#include "glbparser.hpp"
 #include "objparser.hpp"
 #include "primmesh.hpp"
 #include "project.hpp"
@@ -223,13 +227,27 @@ bool drawsGeometry(const SceneObject& o) {
         case PrimitiveType::Plane:
         case PrimitiveType::Decal: return true;
         case PrimitiveType::Model:
-            // Animated .glb goes down the DYNAMIC pipeline, which does not feed
-            // BLSS at all (only StaPipCore calls addBag). Drawing it would put
-            // pixels in the ground truth that no proxy describes - the exact
-            // dishonesty this corpus exists to avoid.
+            // STATIC models only; the animated ones go through appendAnimObject
+            // instead, because their geometry is a function of the frame.
+            //
+            // This used to return false for an animated model and say that
+            // animated .glb "goes down the dynamic pipeline, which does not feed
+            // BLSS at all". That was wrong about THIS engine.
+            // `updateAndRenderAnimObjects` skins on the EE and submits the
+            // skinned arrays through `stapip.core.render()`, so a spider is one
+            // more static bag as far as StaPipCore is concerned, `blssProxy`
+            // defaults to true, and the console's feature grid sees it. See
+            // AnimMesh in blssscene.hpp.
             return !o.modelPath.empty() && !isAnimatedModelPath(o.modelPath);
         default: return false;
     }
+}
+
+// Does this object draw an ANIMATED model? Same list of exclusions as above -
+// the type must be Model and the path must be one the editor bakes to .tskl.
+bool drawsAnimated(const SceneObject& o) {
+    return o.type == PrimitiveType::Model && !o.modelPath.empty() &&
+           isAnimatedModelPath(o.modelPath);
 }
 
 // --- the objects -------------------------------------------------------------
@@ -286,6 +304,145 @@ void appendObject(std::vector<SceneMesh>& out, const Project& p,
     const float uv[2] = {1.0f, 1.0f};
     appendSoup(mesh, soup, o.position, o.rotation, o.scale, tint, light, uv);
     out.push_back(std::move(mesh));
+}
+
+// --- the animated models -----------------------------------------------------
+
+// THE CORPUS' FRAME RATE, and it is not a free parameter. Two consecutive
+// corpus frames ARE two consecutive console frames - the history is one frame
+// deep, the jitter phase alternates every frame, and `motion` is the
+// reprojection between them - so the pose has to advance by exactly one console
+// frame between them or the corpus teaches the temporal channel a slower world
+// than it will run in. PAL is 50 Hz, which is what every generated project this
+// feature has been measured on runs at.
+constexpr float kAnimFps = 50.0f;
+
+// One .glb baked once and shared by every instance of it in the project. The
+// bake is the expensive part (it CPU-skins every clip at kAnimFps), the poses
+// are identical for two spiders of the same model, and only the transform
+// differs - which is applied per instance below.
+using BakeCache = std::map<std::string, std::shared_ptr<glbparser::Baked>>;
+
+// The content-forward correction, around the model's OWN Y, applied between the
+// scale and the authored rotation. Twinned with updateAndRenderAnimObjects'
+// `preYaw` lambda; folding it into `rotation.y` instead would only agree when
+// the X and Z rotations are zero, which is not something a scene promises.
+void preYaw(float v[3], float deg) {
+    if (deg == 0.0f) return;
+    const float a = deg * kPi / 180.0f;
+    const float c = std::cos(a), s = std::sin(a);
+    const float x = v[0] * c + v[2] * s;
+    const float z = -v[0] * s + v[2] * c;
+    v[0] = x, v[2] = z;
+}
+
+void appendAnimObject(std::vector<AnimMesh>& out,
+                      std::vector<std::vector<unsigned char>>& embedded,
+                      const Project& p, const SceneObject& o, const Light& light,
+                      BakeCache& cache) {
+    const std::string abs = p.filePath(o.modelPath);
+    auto it = cache.find(abs);
+    if (it == cache.end()) {
+        auto b = std::make_shared<glbparser::Baked>();
+        std::string err;
+        // animimport::bake, not glbparser::bake: an "animated model" here is
+        // .glb OR .fbx (project.hpp isAnimatedModelPath), and this is the one
+        // entry the editor's own import, preview and matbake all go through -
+        // including the replacement-UV sidecar, which the game's .tskl carries
+        // and a corpus without it would texture differently.
+        if (!animimport::bake(abs, kAnimFps, *b, err)) b->parts.clear();
+        it = cache.emplace(abs, std::move(b)).first;
+    }
+    const glbparser::Baked& baked = *it->second;
+    if (baked.parts.empty() || baked.frameCount <= 0) return;
+
+    // Which clip is playing. The generated game starts `animClip` (or the
+    // file's first) at scene start; `animAutoplay` off holds the first pose.
+    int first = 0, count = baked.frameCount;
+    if (!baked.clips.empty()) {
+        const glbparser::Clip* pick = &baked.clips.front();
+        if (!o.animClip.empty())
+            for (const glbparser::Clip& c : baked.clips)
+                if (c.name == o.animClip) { pick = &c; break; }
+        first = pick->firstFrame;
+        count = pick->frameCount > 0 ? pick->frameCount : 1;
+    }
+    const float speed = o.animSpeed > 0.0f ? o.animSpeed : 0.0f;
+
+    // Which baked frame console frame `f` shows. Truncating rather than
+    // rounding is what `SkelInstance::advance` plus a keyframe lookup does to a
+    // clip sampled at a fixed rate, and truncation is the choice that cannot
+    // depend on how a rounding mode is spelled.
+    const auto frameAt = [&](int f) {
+        if (!o.animAutoplay || speed <= 0.0f) return first;
+        const int adv = static_cast<int>(static_cast<float>(f) * speed);
+        return first + (o.animLoop ? adv % count : std::min(adv, count - 1));
+    };
+
+    for (const glbparser::Part& part : baked.parts) {
+        if (part.vertexCount <= 0) continue;
+        // ONE PART IS ONE BAG, exactly as `setupAnimObject` makes one
+        // StaPipBag per .glb material - so a two-material character is two
+        // proxies here and two on the console.
+        AnimMesh am;
+        am.pose.resize(kAnimPoses);
+
+        int tex = -1;
+        if (part.image >= 0 && part.image < static_cast<int>(baked.images.size()) &&
+            !baked.images[static_cast<size_t>(part.image)].png.empty()) {
+            tex = static_cast<int>(embedded.size());
+            embedded.push_back(baked.images[static_cast<size_t>(part.image)].png);
+        }
+
+        for (int f = 0; f < kAnimPoses; ++f) {
+            SceneMesh& mesh = am.pose[static_cast<size_t>(f)];
+            mesh.embeddedTex = tex;
+            for (int k = 0; k < 3; ++k) mesh.tint[k] = part.baseColor[k];
+            mesh.viewDist = o.drawDistance;
+            const size_t base =
+                static_cast<size_t>(frameAt(f)) * static_cast<size_t>(part.vertexCount) * 3;
+            if (base + static_cast<size_t>(part.vertexCount) * 3 > part.positions.size())
+                continue;
+            mesh.vert.resize(static_cast<size_t>(part.vertexCount));
+            mesh.idx.resize(static_cast<size_t>(part.vertexCount));
+            float lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+            for (int i = 0; i < part.vertexCount; ++i) {
+                SceneVert& sv = mesh.vert[static_cast<size_t>(i)];
+                float lp[3] = {part.positions[base + i * 3 + 0] * o.scale[0],
+                               part.positions[base + i * 3 + 1] * o.scale[1],
+                               part.positions[base + i * 3 + 2] * o.scale[2]};
+                preYaw(lp, o.modelYawOffset);
+                rotate3(lp, o.rotation, sv.p);
+                for (int k = 0; k < 3; ++k) sv.p[k] += o.position[k];
+                float ln[3] = {part.normals[base + i * 3 + 0] / (o.scale[0] != 0 ? o.scale[0] : 1.0f),
+                               part.normals[base + i * 3 + 1] / (o.scale[1] != 0 ? o.scale[1] : 1.0f),
+                               part.normals[base + i * 3 + 2] / (o.scale[2] != 0 ? o.scale[2] : 1.0f)};
+                preYaw(ln, o.modelYawOffset);
+                float wn[3];
+                rotate3(ln, o.rotation, wn);
+                const float l = std::sqrt(wn[0] * wn[0] + wn[1] * wn[1] + wn[2] * wn[2]);
+                if (l > 1e-6f)
+                    for (int k = 0; k < 3; ++k) wn[k] /= l;
+                float sh[3];
+                light.shade(wn, sh);
+                // The albedo is the glTF baseColorFactor and NOT the object's
+                // colour: the lit VU1 program folds `parts[m].color` into the
+                // light colours and never reads the object tint for an animated
+                // mesh (templates.cpp setupAnimObject).
+                for (int k = 0; k < 3; ++k) sv.c[k] = clampf(part.baseColor[k] * sh[k], 0.0f, 1.0f);
+                sv.u = part.uvs[static_cast<size_t>(i) * 2 + 0];
+                sv.v = part.uvs[static_cast<size_t>(i) * 2 + 1];
+                mesh.idx[static_cast<size_t>(i)] = i;
+                for (int k = 0; k < 3; ++k) {
+                    if (i == 0) lo[k] = hi[k] = sv.p[k];
+                    lo[k] = std::min(lo[k], sv.p[k]);
+                    hi[k] = std::max(hi[k], sv.p[k]);
+                }
+            }
+            for (int k = 0; k < 3; ++k) mesh.centre[k] = 0.5f * (lo[k] + hi[k]);
+        }
+        if (!am.pose.empty() && !am.pose[0].vert.empty()) out.push_back(std::move(am));
+    }
 }
 
 // --- the terrain -------------------------------------------------------------
@@ -456,12 +613,19 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     {
         double ax = 0.0, az = 0.0;
         size_t n = 0;
-        for (const SceneMesh& m : ps.mesh)
+        const auto add = [&](const SceneMesh& m) {
             for (const SceneVert& v : m.vert) {
                 ax += v.p[0];
                 az += v.p[2];
                 ++n;
             }
+        };
+        for (const SceneMesh& m : ps.mesh) add(m);
+        // Animated models vote too - a scene whose only interesting content is
+        // two spiders on a plain floor would otherwise frame the floor. Pose 0
+        // only, for the reason the bounds use pose 0.
+        for (const AnimMesh& a : ps.anim)
+            if (!a.pose.empty()) add(a.pose[0]);
         if (n) cx = (float)(ax / (double)n), cz = (float)(az / (double)n);
         cx = clampf(cx, -width * 0.4f, width * 0.4f);
         cz = clampf(cz, -depth * 0.4f, depth * 0.4f);
@@ -673,7 +837,8 @@ void authoredShots(std::vector<SceneShot>& out, const Project& p,
 // -------------------------------------------------------------------- entry ---
 
 std::vector<ProjectScene> loadProject(const std::string& projectDir,
-                                      std::string* err, bool verbose) {
+                                      std::string* err, bool verbose,
+                                      bool animated, ProjectBlss* blssOut) {
     std::vector<ProjectScene> out;
     Project p;
     const std::string e = project::load(p, projectDir);
@@ -681,11 +846,19 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
         if (err) *err = e;
         return out;
     }
+    // Read BEFORE the scene walk and independently of whether it produces
+    // anything: a project that loads has told us how it will be built, even if
+    // it turns out to have nothing drawable and the caller falls back.
+    if (blssOut) {
+        blssOut->found = true;
+        blssOut->jitter = p.settings.blssJitter;
+    }
     if (verbose)
         std::printf("[blss] project '%s' (%s), %zu scene(s)\n", p.name.c_str(),
                     p.gameTemplate.c_str(), p.scenes.size());
 
     MatCache cache;
+    BakeCache bakes;
     for (const SceneData& sc : p.scenes) {
         const ProjectSettings rs = project::resolvedSettings(p, sc);
         const Light light = lightOf(rs);
@@ -693,6 +866,18 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
         ps.name = sc.name.empty() ? "scene" : sc.name;
         appendTerrain(ps.mesh, p, sc, rs, light);
         for (const SceneObject& o : sc.objects) {
+            if (drawsAnimated(o)) {
+                // ALWAYS built, even under `--no-anim`. The bounds and the
+                // triangle centroid below decide where the six camera moves
+                // point, so dropping the spiders here as well would move the
+                // cameras and turn the A/B into two different experiments -
+                // exactly the confound that makes a before/after unreadable.
+                // `--no-anim` clears the list AFTER the shots are built, so the
+                // two runs shoot the same frames and differ only in whether
+                // those frames contain the animated models.
+                appendAnimObject(ps.anim, ps.embedded, p, o, light, bakes);
+                continue;
+            }
             if (!drawsGeometry(o)) continue;
             appendObject(ps.mesh, p, o, light, cache);
         }
@@ -714,15 +899,25 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
             kept.push_back(std::move(m));
         }
         ps.mesh = std::move(kept);
-        if (ps.mesh.empty()) continue;
+        if (ps.mesh.empty() && ps.anim.empty()) continue;
 
-        for (int k = 0; k < 3; ++k) ps.bmin[k] = ps.bmax[k] = ps.mesh[0].vert[0].p[k];
-        for (const SceneMesh& m : ps.mesh)
+        bool first = true;
+        const auto grow = [&](const SceneMesh& m) {
             for (const SceneVert& v : m.vert)
                 for (int k = 0; k < 3; ++k) {
+                    if (first) ps.bmin[k] = ps.bmax[k] = v.p[k];
                     ps.bmin[k] = std::min(ps.bmin[k], v.p[k]);
                     ps.bmax[k] = std::max(ps.bmax[k], v.p[k]);
                 }
+            if (!m.vert.empty()) first = false;
+        };
+        for (const SceneMesh& m : ps.mesh) grow(m);
+        // The animated meshes join the bounds through POSE 0 only. Every camera
+        // move is derived from these bounds, so letting all 48 poses vote would
+        // make the shot table depend on how far a walk cycle happens to swing an
+        // arm - a scene whose framing moved when someone retimed a clip.
+        for (const AnimMesh& a : ps.anim)
+            if (!a.pose.empty()) grow(a.pose[0]);
 
         // Authored first, automatic to fill: a take is the author saying which
         // frame matters, and the automatic set is what covers the rest.
@@ -730,10 +925,20 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
         autoShots(ps.shot, ps.name, ps, sc, rs, kShotsPerScene);
         if (ps.shot.empty()) continue;
 
+        // ...and only now does `--no-anim` take them away, so the shot table
+        // above is identical either way.
+        if (!animated) {
+            ps.anim.clear();
+            ps.embedded.clear();
+            if (ps.mesh.empty()) continue;
+        }
+
         if (verbose)
             std::printf(
-                "[blss]   scene '%s': %zu mesh(es), %zu triangle(s), %zu shot(s)\n",
-                ps.name.c_str(), ps.mesh.size(), ps.triangles(), ps.shot.size());
+                "[blss]   scene '%s': %zu mesh(es) + %zu animated part(s), %zu "
+                "triangle(s), %zu shot(s)\n",
+                ps.name.c_str(), ps.mesh.size(), ps.anim.size(), ps.triangles(),
+                ps.shot.size());
         out.push_back(std::move(ps));
     }
     return out;

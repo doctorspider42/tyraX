@@ -69,6 +69,22 @@ struct CorpusConfig {
     // the bestiary's hand-chunked floors and walls were its stand-in for. Kept
     // as `--no-package-split` so those tables stay reproducible.
     bool packageSplit = true;
+    // ANIMATED MODELS ARE PART OF THE FRAME. On the console a skinned mesh is
+    // submitted through StaPipCore like any other static bag, so it is drawn
+    // AND it describes tiles; this corpus used to do neither. `--no-anim`
+    // restores the old behaviour so a fold table measured before the change is
+    // still reproducible - it is not a shipping configuration.
+    bool animated = true;
+    // SUB-PIXEL JITTER: -1 follow the project's own `blssJitter` (and default ON
+    // for the bestiary, which has no project to ask), 0 force off, 1 force on.
+    //
+    // It is here rather than assumed because jitter stopped being a constant. On
+    // real hardware a frozen camera leaves 30.8% of the picture alternating
+    // between two images with jitter on and 0.03/255 - the noise floor - with it
+    // off, so a shipping project may well have it off; and a net fitted against
+    // the jittered sampler then runs on frames the console never draws.
+    // generate() resolves this into blss::setJitter() before the first frame.
+    int jitter = -1;
     // HOW MANY THREADS RENDER THE FRAMES. 0 = every core the machine has.
     //
     // It changes the WALL CLOCK AND NOTHING ELSE, and that is a requirement

@@ -49,6 +49,12 @@ struct SceneMesh {
     std::vector<SceneVert> vert;
     std::vector<int> idx;      // 3 per triangle
     std::string texture;       // ABSOLUTE path to a PNG, "" = untextured
+    // ...or an index into ProjectScene::embedded when the texture lives INSIDE
+    // a .glb and has no path on the host (>= 0 wins over `texture`). The build
+    // writes those images out next to the ELF, so the console is textured; a
+    // corpus that called the same part untextured would report texDetail = 0
+    // for a bag whose console twin reports a real minification ratio.
+    int embeddedTex = -1;
     float tint[3] = {1, 1, 1}; // object colour x material Kd, already in `c`
     bool cutout = false;       // alpha-tested (decals, foliage sheets)
     bool bilinear = true;
@@ -92,15 +98,53 @@ struct SceneShot {
     int keys() const { return static_cast<int>(eye.size() / 3); }
 };
 
+// ONE ANIMATED MODEL PART, POSED PER CONSOLE FRAME - and it is here because the
+// corpus was fitting a distribution the console does not run.
+//
+// This file used to SKIP animated models outright, on the stated grounds that
+// "animated .glb goes down the dynamic pipeline, which does not feed BLSS at
+// all". That was true of the engine this fork started from and is not true of
+// this one: `updateAndRenderAnimObjects` skins on the EE and then submits the
+// skinned arrays through `stapip.core.render()` like any other static bag
+// (templates.cpp), `PipelineInfoBag::blssProxy` defaults to true, and
+// `StaPipCore` therefore hands RendererCoreBlss one box per VU1 package for
+// every animated part on screen. So on the console a spider is drawn AND
+// described; in the corpus it was neither. Same class of bug as the whole-bag
+// proxy, and the same instrument found it: compare what the frame contains.
+//
+// `pose[f]` is the mesh as it stands at console frame f of the shot, with the
+// object's clip, its `animSpeed`, its loop flag and its autoplay flag already
+// folded in, so the consumer only ever indexes by frame number. Triangles,
+// material and vertex count are identical across poses - only positions,
+// normals (hence the baked vertex colour) and the bounding boxes move.
+struct AnimMesh {
+    std::vector<SceneMesh> pose;  // >= 1
+};
+
+// How many console frames of pose are baked. The corpus splits its frame budget
+// over the shots, so a shot is a dozen-odd frames; 48 is generous enough that
+// the pose never has to be held past the end and small enough that a 2 000-vertex
+// character costs ~3 MB. Frames past it clamp to the last pose.
+constexpr int kAnimPoses = 48;
+
 // One scene of the project, drawn and shot.
 struct ProjectScene {
     std::string name;
     std::vector<SceneMesh> mesh;
+    // One entry per animated model PART on screen (a two-material character is
+    // two, exactly as it is two bags on the console).
+    std::vector<AnimMesh> anim;
+    // PNG blobs lifted out of .glb files, referenced by SceneMesh::embeddedTex.
+    // Stored once per scene rather than per pose: a pose list is 48 copies of
+    // the same mesh and would have been 48 copies of the texture with it.
+    std::vector<std::vector<unsigned char>> embedded;
     std::vector<SceneShot> shot;
     float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};
     size_t triangles() const {
         size_t n = 0;
         for (const SceneMesh& m : mesh) n += m.idx.size() / 3;
+        for (const AnimMesh& a : anim)
+            if (!a.pose.empty()) n += a.pose[0].idx.size() / 3;
         return n;
     }
 };
@@ -115,7 +159,24 @@ constexpr int kShotsPerScene = 6;
 // Empty (with `err` set) when the directory is not a project; empty with no
 // `err` when the project loads but has nothing to draw - which is the case the
 // caller must fall back to the procedural bestiary for.
+// WHAT THE PROJECT SAYS ABOUT BLSS, so the corpus can fit the build that will
+// actually ship rather than a default. Only the settings that change what a
+// FRAME looks like belong here - a net fitted against a sampler the generated
+// game does not use is fitted out of distribution, which is the mistake this
+// whole file exists to stop making.
+struct ProjectBlss {
+    bool found = false;   // false: not a loadable project, so nothing was read
+    bool jitter = true;   // ProjectSettings::blssJitter (format v5)
+};
+
+// `animated` false leaves the animated models out entirely - no pose table, no
+// pixels, no proxies - which is how this corpus behaved for its whole life
+// before AnimMesh existed. It is `--no-package-split`'s sibling and exists for
+// the same one reason: to reproduce a fold table measured before the change,
+// not to ship.
 std::vector<ProjectScene> loadProject(const std::string& projectDir,
-                                      std::string* err, bool verbose);
+                                      std::string* err, bool verbose,
+                                      bool animated = true,
+                                      ProjectBlss* blss = nullptr);
 
 }  // namespace blss

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -32,7 +33,37 @@ struct ReprojField;  // defined below, referenced by the feature builders
 // 512x448: coarse enough that the per-tile MLP is free (224 evaluations) and
 // the Gouraud weight field is smooth over 32 px, fine enough to separate a
 // foliage silhouette from the sky next to it.
+//
+// THIS IS THE SHIPPED VALUE AND THE ONLY ONE THE ENGINE CAN RUN. It is a
+// compile-time constant on the twin (RendererCoreBlss::kTile), so anything
+// other than 32 here is a MEASUREMENT configuration, not a shipping one -
+// changing it for real means changing both sides in one commit.
 constexpr int kTile = 32;
+
+// ...and the value THIS RUN uses, so `--tile N` can sweep it without a rebuild.
+//
+// It is a global rather than a parameter because kTile reaches WeightField::
+// sample(), ReprojField::sample() and the oracle's innermost loop, none of
+// which has a config to thread it through, and because a per-call tile size
+// would be a second place for the two producers to disagree. Set it ONCE, from
+// the CLI, before any corpus is built; nothing below reads it lazily and no
+// worker thread ever writes it.
+//
+// SWEPT, AND 32 STAYS - the measurement is in docs/neural-upscaler.md
+// ("The tile size, swept"). 64 quarters the inference (224 tiles -> 56) and the
+// packet build (255 corners -> 72) and costs more quality than the fold spread
+// can absorb, while making the frame draw MORE fill, not less: a lit cell is
+// four times the area, so the same decision buys four times the pixels.
+namespace detail {
+extern int gTile;
+}
+inline int tileSize() { return detail::gTile; }
+// Rejects anything that is not a positive power of two (the grid, the corner
+// averaging and the engine's 12.4 UV arithmetic all assume the tile divides
+// the frame; a non-power-of-two that happens to divide 512x448 would still be
+// a size the console cannot be configured to). Returns false and leaves the
+// tile alone when it refuses.
+bool setTileSize(int px);
 
 // The upscale factors the runtime supports. Scale2x2 quarters the 3D fill;
 // Scale1x2 halves only the height, which keeps horizontal detail (and matches
@@ -48,9 +79,38 @@ inline int scaleY(Scale) { return 2; }
 // pair, not an approximation. Quantised to sixteenths because that is what the
 // GS XYOFFSET register stores (12.4 fixed point), so the console can reproduce
 // these offsets bit-exactly: -4/16 and +4/16.
+//
+// JITTER IS A MODE NOW, NOT A CONSTANT, and the reason is a hardware
+// measurement rather than a preference: with jitter on, a frozen camera on real
+// PS2 hardware leaves 30.8% of the picture alternating between two images every
+// frame (amplitude 1.42/255), and with it off that falls to the noise floor
+// (0.03/255, identical to BLSS off). The project setting is `blssJitter`
+// (ProjectSettings, format v5, default true) and codegen bakes it into the
+// generated game.
+//
+// This is the host twin of it. A net fitted against the jittered sampler and
+// run in a jitter-off build is fitted to a distribution the console does not
+// produce - the same class of mismatch as the whole-bag proxy and the animated
+// models - so `--blss-train <projectDir>` follows the PROJECT's own setting and
+// `--no-jitter` forces it off for the bestiary. With it off both phases are the
+// same zero offset, so the corpus renders one image per camera position, the
+// composite's sampling undoes nothing, and the temporal pass sees a genuine
+// still frame instead of a two-phase alternation.
+//
+// Set ONCE, before any corpus is rendered, and never afterwards - see gTile.
+namespace detail {
+extern bool gJitter;
+}
+inline bool jitterEnabled() { return detail::gJitter; }
+void setJitter(bool on);
+
 constexpr int kJitterPhases = 2;
-inline float jitterX(int phase) { return phase == 0 ? -0.25f : 0.25f; }
-inline float jitterY(int phase) { return phase == 0 ? -0.25f : 0.25f; }
+inline float jitterX(int phase) {
+    return detail::gJitter ? (phase == 0 ? -0.25f : 0.25f) : 0.0f;
+}
+inline float jitterY(int phase) {
+    return detail::gJitter ? (phase == 0 ? -0.25f : 0.25f) : 0.0f;
+}
 
 // ---------------------------------------------------------------- features ---
 
@@ -479,6 +539,84 @@ std::vector<Features> buildFeatures(int cols, int rows,
                                     const std::vector<TileStats>& stats,
                                     const ReprojField& reproj);
 
+// ------------------------------------------------------------- activations ---
+
+// THE TRANSCENDENTALS, AND WHY THEY ARE A TABLE.
+//
+// The net evaluates 12 tanh + 3 logistic per tile, and the engine builds with
+// no -ffast-math (vendor/tyra/Makefile.base), so on the console that is
+// 12 tanhf + 3 expf + 3 fdiv per tile - 3 360 libm calls per frame at 224
+// tiles. Every one of those results is then thrown away down to a BYTE:
+// cornerAlpha() truncates the output to 0..128 and the deadzone snaps anything
+// at or below alpha 8 to zero. Full libm precision is computed and discarded.
+//
+// ONE TABLE SERVES BOTH, because logistic(z) == (1 + tanh(z/2)) / 2 exactly.
+// So the whole activation budget is 15 table lookups: no libm, and no divide
+// either - the logistic's `1 / (1 + e)` is gone, not merely cheapened.
+//
+// A TABLE IS THE RIGHT SHAPE FOR A TWIN, and that is the argument for it over
+// a polynomial. A minimax polynomial has to be *matched* between two compilers
+// - same coefficients, same association order, same FMA contraction decisions -
+// and any mismatch is a silent drift in the objective the network was fitted
+// against. A table of integers is the same integers on both sides or it is
+// visibly not, and the reconstruction from an integer is exact: an int16 -> float
+// conversion and a multiply by 2^-15 are both exactly representable, so the
+// activation step contributes ZERO divergence between the twins. (The MACs
+// around it are float and remain subject to whatever the EE FPU does, exactly
+// as they already are - the table does not fix that and does not claim to.)
+//
+// The exact definition, index mapping, clamping and rounding rule are written
+// down in docs/blss-reconstruction.md section 5, which is the contract the
+// engine implements against. Do not paraphrase it here; change it there.
+//
+// OFF BY DEFAULT AFTER MEASURING, and the measurement is on the upscaler page:
+// at 512 entries the cross-validated held-out margin is indistinguishable from
+// libm's, so the table costs nothing. It ships off because the ENGINE TWIN DOES
+// NOT EXIST YET - a host that fits against a table while the console evaluates
+// libm is the twin drift this whole file is arranged to prevent. Turn it on in
+// the same commit as RendererCoreBlss's copy, never before.
+constexpr float kActRange = 4.0f;   // table domain: a is clamped to [-4, +4]
+constexpr int kActScale = 32768;    // entries are round(tanh(a) * 32768), Q15
+
+namespace detail {
+extern int gActN;              // 0 = libm; otherwise the table has gActN+1 entries
+extern const float* gActTab;   // gActN+1 dequantised entries, or null
+}
+
+// Build (or drop) the table. `n` is the number of INTERVALS - the table holds
+// n+1 entries, both endpoints included - and 0 restores std::tanh / std::exp.
+// Must be a positive even number so the midpoint entry is exactly tanh(0) = 0
+// and the table is odd-symmetric; returns false and changes nothing otherwise.
+bool setActTable(int n);
+// FNV-1a over the table's int16 entries, little-endian. THE CONTRACT'S
+// CHECKSUM: both twins generate the table from the formula in the math doc, and
+// this is how they check that their two libms rounded every entry the same way
+// rather than assuming it. 0 when the table is off.
+uint32_t actTableHash();
+// The table as C++ the engine can paste (`--blss-emit-table`), exploiting
+// tanh's odd symmetry so only the upper half is spelled out.
+std::string emitActTable();
+
+// tanh and the logistic, through the table when one is built. Both twins call
+// exactly these two.
+inline float actTanh(float a) {
+    const int n = detail::gActN;
+    if (n <= 0) return std::tanh(a);
+    if (a <= -kActRange) return detail::gActTab[0];
+    if (a >= kActRange) return detail::gActTab[n];
+    // Nearest entry, no interpolation: the reconstruction is then a table value
+    // EXACTLY, which is what makes the activation step twin-identical. Rounding
+    // (rather than truncating) the index halves the worst-case error for free.
+    const float x = (a + kActRange) * (static_cast<float>(n) / (2.0f * kActRange));
+    return detail::gActTab[static_cast<int>(x + 0.5f)];
+}
+inline float actLogistic(float z) {
+    if (detail::gActN <= 0) return 1.0f / (1.0f + std::exp(-z));
+    // logistic(z) = (1 + tanh(z/2)) / 2, exactly. Both constants are powers of
+    // two, so this costs one multiply and one multiply-add and loses nothing.
+    return 0.5f + 0.5f * actTanh(0.5f * z);
+}
+
 // ----------------------------------------------------------------- network ---
 
 // MLP kFeatures -> kHidden -> kOutputs, tanh hidden, logistic outputs. At the
@@ -534,6 +672,10 @@ struct Image {
 
 bool writePng(const Image&, const std::string& path);
 bool readPng(Image&, const std::string& path);
+// ...and from memory, because an animated model's texture is EMBEDDED in the
+// .glb and never exists as a file on the host. The build writes it out next to
+// the ELF; the corpus decodes the same bytes without a temp file.
+bool readPngMemory(Image&, const unsigned char* data, size_t n);
 
 // Box-downsample by an integer factor - how the supersampled ground truth is
 // resolved, and the only place in this file that is allowed to be prettier than
