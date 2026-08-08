@@ -2424,6 +2424,59 @@ content. Both halves are true, and the size half is the one the migration needed
 micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs said "smaller
 and faster", and that was a row count talking.
 
+### It was a miscompile of ours, not the price of the assembler
+
+**openvcl deleted four of the seven `clipw` in every clip program, and had been doing so since
+`--drop-dead-writes` landed.** Source has 7, SCE emits 7, the shipped build emitted 3 - in all
+five `stapip_clip_*`, verifiable with `grep -c clipw` on any dump in this repo's history.
+
+`implicitWriteIsObservable()` treats an implicit write as unobservable when a forward walk meets
+another writer of that resource before a reader. That is right for MAC. **It is wrong for CLIP,
+which is a 24-bit shift register of the last four 6-bit judgements** - a later `clipw` does not
+overwrite the earlier one, it shifts it up one entry, where `fcand VI01,0x3CA3CA` (which names
+all four entries positionally) still reads it. So every `clipw` followed by another `clipw`
+before the next `fcand` was deleted: exactly 4 of 7 per clip program, plus the `fcset 0` in 20
+more programs.
+
+The consequence is that `ibeq triOr, vi00, fanStart` - *"this triangle is entirely inside, skip
+clipping"* - reads stale bits from the previous triangle and essentially never fires. Every
+triangle goes through all six planes. **And the picture is pixel-identical either way**, because
+Sutherland-Hodgman on a fully-inside polygon is a no-op, which is why every pixel comparison and
+every GIF-packet comparison in this migration passed. A silent ~5x cost on clip-routed geometry.
+
+It also answers a measurement that sat unexplained in this file since the `clip_c` hunt: **42
+plane tests against SCE's 12**, i.e. 7x6, every triangle through every plane. That was this bug,
+seen from the other end.
+
+`--clip-window-liveness` is the fix: a CLIP push no longer kills an earlier CLIP write (only the
+fourth subsequent push retires it, while `FCSET` still kills at once), and CLIP writers are
+chained in program order in `addPreciseImplicitFlagDependencies()` - needed because once the
+four `clipw` came back, nothing ordered two writers of one flag and the scheduler transposed
+them, putting the `0xF`/`0xA` masks on the wrong judgements.
+
+**Measured on the console, alternated, control and fix built from the same binary differing by
+one flag** - so the A/B has exactly one variable:
+
+| | FRAME | SCENE (EE) | rest | frame counter |
+|---|---:|---:|---:|---:|
+| shipped (control) | 12.76 / 12.77 ms | 7.70 | 5.06 / 5.07 | ~78 FPS |
+| **+ fix** | **10.03 / 9.83** | 7.70 | **2.33 / 2.13** | **99.14 / 99.92** |
+| Sony `vcl` | 9.90 / 9.96 | 7.70 | 2.20 / 2.25 | 100.75 / 100.06 |
+
+**Parity.** Two independent instruments agree: the VU1 drain goes from 5.06 ms to 2.1-2.3
+against Sony's 2.2-2.25, and the frame counter puts openvcl within 0.9% of Sony where it was 21%
+behind. Words move +18 / +22 / +14 (resident 1986, engine 3890, generated 9204), still 42 / 92 /
+60 under SCE and 56 under the hardware ceiling - all three re-measured here from `nm` on the
+real engine build, with `clipw` back to 7 in all five programs.
+
+**Three things this says about everything above it.** The model could not have found it: the fix
+makes modelled corpus cycles *worse* (21133 → 21199, +0.31%), because the model counts a block
+once and this is a branch that makes a block run six times less often. The correctness checks
+could not have found it: they compare pixels and GIF packets, and this bug changes neither. And
+the target was wrong: `cull_d vertexLoop` was named here as the immovable block to attack, but
+`cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
+programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
+
 ### The frame time is entirely VU1, and the EE never notices - measured
 
 Twenty-two flags were tuned against a static cycle model before anyone asked the console

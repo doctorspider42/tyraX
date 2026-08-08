@@ -755,10 +755,10 @@ index 1845035..d05414a 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..756dc55 100644
+index e6a6dea..029a9cd 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,30 @@ CommandLine::CommandLine()
+@@ -75,6 +75,31 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -780,6 +780,7 @@ index e6a6dea..756dc55 100644
 +	m_sinkLoadsPastBranches = false;
 +	m_sinkLoadsBestOf = false;
 +	m_dropDeadWrites = false;
++	m_clipWindowLiveness = false;
 +	m_exemptFullClipMasks = false;
 +	m_clipExemptionBestOf = false;
 +	m_showPairMisses = false;
@@ -789,7 +790,7 @@ index e6a6dea..756dc55 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +149,30 @@ CommandLine::CommandLine()
+@@ -125,6 +150,31 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -811,6 +812,7 @@ index e6a6dea..756dc55 100644
 +	m_options.push_back(Option(0,"sink-loads-past-branches",SINK_LOADS_PAST_BRANCHES,false));
 +	m_options.push_back(Option(0,"sink-loads-best-of",SINK_LOADS_BEST_OF,false));
 +	m_options.push_back(Option(0,"drop-dead-writes",DROP_DEAD_WRITES,false));
++	m_options.push_back(Option(0,"clip-window-liveness",CLIP_WINDOW_LIVENESS,false));
 +	m_options.push_back(Option(0,"exempt-full-clip-masks",EXEMPT_FULL_CLIP_MASKS,false));
 +	m_options.push_back(Option(0,"clip-exemption-best-of",CLIP_EXEMPTION_BEST_OF,false));
 +	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
@@ -820,7 +822,7 @@ index e6a6dea..756dc55 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +287,30 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +289,31 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -842,6 +844,7 @@ index e6a6dea..756dc55 100644
 +				case SINK_LOADS_PAST_BRANCHES: m_sinkLoadsPastBranches = true; break;
 +				case SINK_LOADS_BEST_OF: m_sinkLoadsBestOf = true; break;
 +				case DROP_DEAD_WRITES: m_dropDeadWrites = true; break;
++				case CLIP_WINDOW_LIVENESS: m_clipWindowLiveness = true; break;
 +				case EXEMPT_FULL_CLIP_MASKS: m_exemptFullClipMasks = true; break;
 +				case CLIP_EXEMPTION_BEST_OF: m_clipExemptionBestOf = true; break;
 +				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
@@ -851,7 +854,7 @@ index e6a6dea..756dc55 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +402,10 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +405,10 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -863,10 +866,10 @@ index e6a6dea..756dc55 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..0688b79 100644
+index f5e4b3d..eeec0eb 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,30 @@ public:
+@@ -56,6 +56,31 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -888,6 +891,7 @@ index f5e4b3d..0688b79 100644
 +	bool sinkLoadsPastBranches() const;
 +	bool sinkLoadsBestOf() const;
 +	bool dropDeadWrites() const;
++	bool clipWindowLiveness() const;
 +	bool exemptFullClipMasks() const;
 +	bool clipExemptionBestOf() const;
 +	bool showPairMisses() const;
@@ -897,7 +901,7 @@ index f5e4b3d..0688b79 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +154,30 @@ private:
+@@ -130,6 +155,31 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -919,6 +923,7 @@ index f5e4b3d..0688b79 100644
 +		SINK_LOADS_PAST_BRANCHES,
 +		SINK_LOADS_BEST_OF,
 +		DROP_DEAD_WRITES,
++		CLIP_WINDOW_LIVENESS,
 +		EXEMPT_FULL_CLIP_MASKS,
 +		CLIP_EXEMPTION_BEST_OF,
 +		SHOW_PAIR_MISSES,
@@ -928,7 +933,7 @@ index f5e4b3d..0688b79 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +233,30 @@ private:
+@@ -185,6 +235,31 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -950,6 +955,7 @@ index f5e4b3d..0688b79 100644
 +	bool m_sinkLoadsPastBranches;
 +	bool m_sinkLoadsBestOf;
 +	bool m_dropDeadWrites;
++	bool m_clipWindowLiveness;
 +	bool m_exemptFullClipMasks;
 +	bool m_clipExemptionBestOf;
 +	bool m_showPairMisses;
@@ -960,10 +966,10 @@ index f5e4b3d..0688b79 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..e596b8e 100644
+index 5500026..d2ad8a9 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,174 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,181 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1093,6 +1099,13 @@ index 5500026..e596b8e 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
++inline bool CommandLine::clipWindowLiveness() const
++{
++	return m_clipWindowLiveness;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
 +inline bool CommandLine::exemptFullClipMasks() const
 +{
 +	return m_exemptFullClipMasks;
@@ -1209,7 +1222,7 @@ index a9a3c8e..7458bcf 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..463202c 100644
+index b8b1946..73bcbe3 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1229,7 +1242,7 @@ index b8b1946..463202c 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -2045,6 +2048,39 @@ bool Parser::tokenize()
+@@ -2045,6 +2048,40 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1259,6 +1272,7 @@ index b8b1946..463202c 100644
 +	setVuSinkLoadsIntoLoopsEnabled( m_cmdLine.sinkLoadsIntoLoops() );
 +	setVuSinkLoadsPastBranchesEnabled( m_cmdLine.sinkLoadsPastBranches() );
 +	setVuDropDeadWritesEnabled( m_cmdLine.dropDeadWrites() );
++	setVuClipWindowLivenessEnabled( m_cmdLine.clipWindowLiveness() );
 +	setVuExemptFullClipMasksEnabled( m_cmdLine.exemptFullClipMasks() );
 +	setVuClipExemptionBestOfEnabled( m_cmdLine.clipExemptionBestOf() );
 +	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
@@ -1269,7 +1283,7 @@ index b8b1946..463202c 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2063,34 +2099,324 @@ bool Parser::tokenize()
+@@ -2063,34 +2100,324 @@ bool Parser::tokenize()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1605,7 +1619,7 @@ index b8b1946..463202c 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2452,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2453,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {
@@ -1657,7 +1671,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..4f5634b 100644
+index cf6d79b..d4efbee 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -1668,7 +1682,15 @@ index cf6d79b..4f5634b 100644
  #include "BranchState.h"
  #include "Error.h"
  #include "VuTokenResourceAccess.h"
-@@ -26,6 +27,17 @@
+@@ -19,6 +20,7 @@
+ #include <set>
+ #include <vector>
+ #include <stdlib.h>
++#include <ctype.h>
+ #include <assert.h>
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -26,6 +28,17 @@
  namespace vcl
  {
  
@@ -1686,7 +1708,7 @@ index cf6d79b..4f5634b 100644
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
  RegisterAllocator::RegisterAllocator()
-@@ -48,6 +60,8 @@ RegisterAllocator::RegisterAllocator()
+@@ -48,6 +61,8 @@ RegisterAllocator::RegisterAllocator()
  
  	m_dynamicThreshold = 16;
  	m_showRegisterInfo = false;
@@ -1695,7 +1717,7 @@ index cf6d79b..4f5634b 100644
  	m_currState = OUTSIDE;
  }
  
-@@ -59,6 +73,33 @@ RegisterAllocator::~RegisterAllocator()
+@@ -59,6 +74,33 @@ RegisterAllocator::~RegisterAllocator()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1729,7 +1751,7 @@ index cf6d79b..4f5634b 100644
  void RegisterAllocator::setAvailableFloats( unsigned int floats )
  {
  	for( unsigned int i = 1; i < 32; i++ )
-@@ -79,6 +120,35 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -79,6 +121,35 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  {
  	BranchState* branchState = NULL;
  
@@ -1765,7 +1787,7 @@ index cf6d79b..4f5634b 100644
  	if( !collectLabels( tokens.begin(), tokens.end() ) )
  		return false;
  
-@@ -262,14 +332,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -262,14 +333,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  			return false;
  	}
  
@@ -1822,7 +1844,7 @@ index cf6d79b..4f5634b 100644
  		{
  			Error::Display( Error( "Register allocation ran out of registers" ) );
  			return false;
-@@ -610,7 +721,9 @@ bool RegisterAllocator::processAliases()
+@@ -610,7 +722,9 @@ bool RegisterAllocator::processAliases()
  		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
  		{
  			Alias* alias = i->first;
@@ -1833,7 +1855,7 @@ index cf6d79b..4f5634b 100644
  			if( alias->allocatedRegister() )
  				std::cerr << "[prealloc: " << alias->allocatedRegister()->name() << "] ";
  			alias->printRanges( std::cerr );
-@@ -659,6 +772,25 @@ bool RegisterAllocator::processAliases()
+@@ -659,6 +773,25 @@ bool RegisterAllocator::processAliases()
  		}
  
  		unsigned int maxLimit = root->type() == Alias::FLOAT ? 32 : 16;
@@ -1859,7 +1881,7 @@ index cf6d79b..4f5634b 100644
  		for( unsigned int j = 0; j < maxLimit; ++j )
  		{
  			const Register* candidate = (root->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
-@@ -692,11 +824,22 @@ bool RegisterAllocator::processAliases()
+@@ -692,11 +825,22 @@ bool RegisterAllocator::processAliases()
  
  			if( !conflict )
  			{
@@ -1885,7 +1907,7 @@ index cf6d79b..4f5634b 100644
  	}
  
  	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
-@@ -757,6 +900,16 @@ bool RegisterAllocator::processAliases()
+@@ -757,6 +901,16 @@ bool RegisterAllocator::processAliases()
  			}
  		}
  
@@ -1902,7 +1924,7 @@ index cf6d79b..4f5634b 100644
  		for( unsigned int j = 0; j < maxLimit; ++j )
  		{
  			const Register* candidate = (dest->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
-@@ -786,23 +939,50 @@ bool RegisterAllocator::processAliases()
+@@ -786,23 +940,50 @@ bool RegisterAllocator::processAliases()
  
  			if( candidate )
  			{
@@ -1956,7 +1978,7 @@ index cf6d79b..4f5634b 100644
  	return true;
  }
  
-@@ -905,44 +1085,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1086,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -2124,7 +2146,7 @@ index cf6d79b..4f5634b 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1269,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1270,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -2140,7 +2162,7 @@ index cf6d79b..4f5634b 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1519,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1520,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -2154,7 +2176,7 @@ index cf6d79b..4f5634b 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1630,1364 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1631,1402 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -2428,6 +2450,27 @@ index cf6d79b..4f5634b 100644
 +		return true;
 +	}
 +
++	// Is this token a CLIP *push* rather than a CLIP overwrite? CLIP/CLIPw/CLIPLw
++	// shift six new judgement bits into a 24-bit window and move the previous
++	// three entries up; FCSET replaces the whole register. Matched on the
++	// mnemonic because that is what survives to this point - the opcode table has
++	// no "is a shift" bit and adding one would touch every entry.
++	bool tokenIsClipPush( const Token& token )
++	{
++		if( !token.operand() )
++			return false;
++		std::string name = token.operand()->name();
++		if( name.size() < 4 )
++			return false;
++		for( std::string::size_type i = 0; i < 4; ++i )
++			name[i] = static_cast<char>( tolower( static_cast<unsigned char>( name[i] ) ) );
++		return name.compare( 0, 4, "clip" ) == 0;
++	}
++
++	// The CLIP window is four 6-bit entries deep, so a judgement pushed here is
++	// still readable through the next three pushes and gone after the fourth.
++	const unsigned int VU_CLIP_WINDOW_ENTRIES = 4;
++
 +	// Does anything observe this token's write to `resources`? Walks forward from
 +	// it: a reader says yes, another writer of the same resource says no, and
 +	// anything the walk cannot follow - a label, a branch, a preprocessor
@@ -2438,11 +2481,20 @@ index cf6d79b..4f5634b 100644
 +	// all, which is what makes this useful: in a program with no MAC reader every
 +	// FMAC's flag write drops out before the walk starts, and the walk only has
 +	// to be right about the resources somebody really does read.
++	//
++	// CLIP is the one resource where "another writer says no" is WRONG, and
++	// --clip-window-liveness is what fixes it: a `clipw` does not overwrite the
++	// previous judgement, it shifts it up one 6-bit entry, where a positional
++	// reader (`fcand VI01,0x3CA3CA` names all four entries) still sees it. Only
++	// the fourth subsequent push retires it; anything else that writes CLIP
++	// (FCSET) really does replace the register and kills it at once.
 +	bool implicitWriteIsObservable( std::list<Token>::const_iterator token,
 +	                                std::list<Token>::const_iterator end,
 +	                                unsigned int resources )
 +	{
++		const bool clipShifts = vuClipWindowLivenessEnabled();
 +		unsigned int pending = resources;
++		unsigned int clipPushes = 0;
 +		for( ++token; token != end && pending != VU_RESOURCE_NONE; ++token )
 +		{
 +			if( !token->operand() )
@@ -2460,7 +2512,15 @@ index cf6d79b..4f5634b 100644
 +			if( token->operand()->unit() == Operand::BRU )
 +				return true;
 +
-+			pending &= ~access.implicitWrites;
++			unsigned int kills = access.implicitWrites;
++			if( clipShifts && (kills & VU_RESOURCE_CLIP) && tokenIsClipPush( *token ) )
++			{
++				// A push only retires the entry once it has shifted out of the
++				// window; until then the old judgement is still readable.
++				if( ++clipPushes < VU_CLIP_WINDOW_ENTRIES )
++					kills &= ~VU_RESOURCE_CLIP;
++			}
++			pending &= ~kills;
 +		}
 +		return pending != VU_RESOURCE_NONE;
 +	}
@@ -3937,7 +3997,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..bd850ae 100644
+index 3260370..3f4ba60 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -3954,7 +4014,68 @@ index 3260370..bd850ae 100644
  	bool containsKey( const std::list<std::string>& keys, const std::string& key )
  	{
  		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
-@@ -124,13 +131,85 @@ namespace
+@@ -53,11 +60,30 @@ namespace
+ 		edges.push_back( VuDependencyEdge( before, after, kind ) );
+ 	}
+ 
++	// `chainWriters` is the difference between a flag register and a flag SHIFT
++	// register. MAC is a register: only the newest write is visible to a reader,
++	// so the writers before it may run in any order as long as they all precede
++	// it - which is what the writer->finalWriter fan-in expresses. CLIP is a
++	// 24-bit window of the last FOUR judgements, and a positional reader
++	// (`fcand VI01,0x3CA3CA` names all four entries) sees which push landed in
++	// which entry, so the writers must keep their program order among themselves
++	// as well. Chaining is what says that.
+ 	void addImplicitFlagWriterBarrierEdges( std::vector<VuDependencyEdge>& edges,
+ 	                                        const std::vector<unsigned int>& writers,
+-	                                        bool preserveFinalWriter )
++	                                        bool preserveFinalWriter,
++	                                        bool chainWriters )
+ 	{
+-		if( !preserveFinalWriter || writers.size() < 2 )
++		if( writers.size() < 2 )
++			return;
++
++		if( chainWriters )
++		{
++			for( unsigned int i = 1; i < writers.size(); ++i )
++				addEdge( edges, writers[i - 1], writers[i], VU_DEPENDENCY_RESOURCE_WAW );
++			return;
++		}
++
++		if( !preserveFinalWriter )
+ 			return;
+ 
+ 		const unsigned int finalWriter = writers.back();
+@@ -76,6 +102,9 @@ namespace
+ 	{
+ 		std::vector<unsigned int> pendingWriters;
+ 		const bool preserveLiveOutWriter = (ignoredImplicitWawResources & resource) == 0;
++		// Only CLIP shifts; every other implicit resource here is a plain register.
++		const bool chainWriters =
++			vuClipWindowLivenessEnabled() && resource == VU_RESOURCE_CLIP;
+ 
+ 		for( unsigned int index = 0; index < accesses.size(); ++index )
+ 		{
+@@ -86,7 +115,7 @@ namespace
+ 			{
+ 				if( !pendingWriters.empty() )
+ 				{
+-					addImplicitFlagWriterBarrierEdges( edges, pendingWriters, true );
++					addImplicitFlagWriterBarrierEdges( edges, pendingWriters, true, chainWriters );
+ 					addEdge( edges, pendingWriters.back(), index, VU_DEPENDENCY_RESOURCE_RAW );
+ 				}
+ 				pendingWriters.clear();
+@@ -96,7 +125,7 @@ namespace
+ 				pendingWriters.push_back( index );
+ 		}
+ 
+-		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter );
++		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter, chainWriters );
+ 	}
+ 
+ 	bool memoryOrderRequiresDependency( const VuTokenResourceAccess& beforeAccess,
+@@ -124,13 +153,85 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -4041,7 +4162,7 @@ index 3260370..bd850ae 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +217,7 @@ namespace
+@@ -138,7 +239,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -4050,7 +4171,7 @@ index 3260370..bd850ae 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +225,7 @@ namespace
+@@ -146,7 +247,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4059,7 +4180,7 @@ index 3260370..bd850ae 100644
  
  		return score;
  	}
-@@ -208,7 +287,8 @@ namespace
+@@ -208,7 +309,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4069,7 +4190,7 @@ index 3260370..bd850ae 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +297,8 @@ namespace
+@@ -217,7 +319,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -4079,7 +4200,7 @@ index 3260370..bd850ae 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +313,11 @@ namespace
+@@ -232,9 +335,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4094,7 +4215,7 @@ index 3260370..bd850ae 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +326,10 @@ namespace
+@@ -243,8 +348,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4107,7 +4228,7 @@ index 3260370..bd850ae 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +339,69 @@ namespace
+@@ -254,6 +361,69 @@ namespace
  		return best;
  	}
  
@@ -4177,7 +4298,7 @@ index 3260370..bd850ae 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +497,36 @@ namespace
+@@ -349,6 +519,36 @@ namespace
  		return 1;
  	}
  
@@ -4214,7 +4335,7 @@ index 3260370..bd850ae 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +546,28 @@ namespace
+@@ -368,9 +568,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4246,7 +4367,7 @@ index 3260370..bd850ae 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +756,7 @@ namespace
+@@ -559,6 +778,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4254,7 +4375,7 @@ index 3260370..bd850ae 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +803,8 @@ namespace
+@@ -605,7 +825,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4264,7 +4385,7 @@ index 3260370..bd850ae 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +822,9 @@ namespace
+@@ -623,7 +844,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4275,7 +4396,7 @@ index 3260370..bd850ae 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +882,7 @@ namespace
+@@ -681,6 +904,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4283,7 +4404,7 @@ index 3260370..bd850ae 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +917,8 @@ namespace
+@@ -715,7 +939,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4293,7 +4414,7 @@ index 3260370..bd850ae 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +947,58 @@ namespace
+@@ -744,7 +969,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4353,7 +4474,7 @@ index 3260370..bd850ae 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1133,188 @@ namespace
+@@ -879,6 +1155,188 @@ namespace
  		return liveness;
  	}
  
@@ -4542,7 +4663,7 @@ index 3260370..bd850ae 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1322,64 @@ namespace
+@@ -886,12 +1344,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -4608,7 +4729,7 @@ index 3260370..bd850ae 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1392,7 @@ namespace
+@@ -904,6 +1414,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -4616,7 +4737,7 @@ index 3260370..bd850ae 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1402,32 @@ namespace
+@@ -913,45 +1424,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -4684,7 +4805,7 @@ index 3260370..bd850ae 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1440,7 @@ namespace
+@@ -964,7 +1462,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -4693,7 +4814,7 @@ index 3260370..bd850ae 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1469,9 @@ namespace
+@@ -993,6 +1491,9 @@ namespace
  			}
  		}
  
@@ -4703,7 +4824,7 @@ index 3260370..bd850ae 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6161,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6183,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -4711,7 +4832,7 @@ index 3260370..bd850ae 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -6114,6 +6594,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6616,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -4759,7 +4880,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..c250808 100644
+index c28ec6d..ef81b80 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -4779,7 +4900,7 @@ index c28ec6d..c250808 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,413 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,432 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -4831,6 +4952,7 @@ index c28ec6d..c250808 100644
 +	bool g_sinkLoadsIntoLoops = false;
 +	bool g_sinkLoadsPastBranches = false;
 +	bool g_dropDeadWrites = false;
++	bool g_clipWindowLiveness = false;
 +	bool g_showPairMisses = false;
 +	bool g_pairBestOfTwo = false;
 +	bool g_pairBestOfMany = false;
@@ -5143,6 +5265,24 @@ index c28ec6d..c250808 100644
 +	return g_dropDeadWrites;
 +}
 +
++// --clip-window-liveness: teach --drop-dead-writes that CLIP is a SHIFT
++// register, not a register. A `clipw` pushes its six judgement bits into the
++// bottom of a 24-bit window and shifts the previous three entries up; a later
++// `clipw` therefore does NOT kill an earlier one, it merely moves it, and a
++// positional reader (`fcand VI01,0x3CA3CA` reads all four entries at once) still
++// sees it three pushes later. Without this the dead-write walk treats the next
++// CLIP writer as an overwrite and deletes four of the seven `clipw` in every
++// stapip_clip_* program, leaving the four-entry mask reading stale bits.
++void setVuClipWindowLivenessEnabled( bool enabled )
++{
++	g_clipWindowLiveness = enabled;
++}
++
++bool vuClipWindowLivenessEnabled()
++{
++	return g_clipWindowLiveness;
++}
++
 +// Diagnostics only: report why a row went out with one slot used.
 +void setVuShowPairMissesEnabled( bool enabled )
 +{
@@ -5195,10 +5335,10 @@ index c28ec6d..c250808 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..db498c1 100644
+index 8188099..ba6e130 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,311 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,317 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -5496,6 +5636,12 @@ index 8188099..db498c1 100644
 +// author named by number may be an interface with the outside world.
 +void setVuDropDeadWritesEnabled( bool enabled );
 +bool vuDropDeadWritesEnabled();
++// CLIP is a 24-bit shift register of four 6-bit judgements, so one CLIP write
++// does not kill the previous one - it survives three more pushes, and a
++// positional mask still reads it. Makes --drop-dead-writes model that instead
++// of treating the next CLIP writer as an overwrite.
++void setVuClipWindowLivenessEnabled( bool enabled );
++bool vuClipWindowLivenessEnabled();
 +void setVuShowPairMissesEnabled( bool enabled );
 +bool vuShowPairMissesEnabled();
 +void setVuPairBestOfTwoEnabled( bool enabled );
