@@ -849,7 +849,7 @@ void RendererCoreBlss::logFeatureSpread() {
   TYRA_LOG(line);
 
   // min/mean/max per channel. A channel whose three numbers are equal is a
-  // channel the 147 weights cannot use - that is the whole point of printing
+  // channel the 123 weights cannot use - that is the whole point of printing
   // the SPREAD rather than one sampled tile.
   int at = 0;
   at = snprintf(line, sizeof(line), "BLSSFEAT");
