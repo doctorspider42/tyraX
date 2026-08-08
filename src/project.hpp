@@ -1278,18 +1278,33 @@ struct ProjectSettings {
     float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
     bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
     // The +-1/4-pixel raster jitter that alternates every frame (the temporal
-    // supersampling half of the feature). ON is the historical behaviour and
-    // stays the default; OFF is the KILL SWITCH for the documented "the
-    // picture shook, and it is not the interlacing" bob
-    // (docs/neural-upscaler.md, "The oscillation"): jittered sampling is
-    // SUPPOSED to produce a different image every frame, and the only thing
-    // entitled to fuse the two phases back together is the temporal
-    // accumulator. When the fill term culls the temporal pass - which is what
-    // --blss-eval measures on real project scenes - nothing fuses them and the
-    // alternation reaches the screen as a period-2 bob. Off = a pure spatial
-    // upscale: a known quality cost for a known cure, and the A/B that proves
-    // whether the jitter is the cause on any given build.
-    bool blssJitter = true;
+    // supersampling half of the feature).
+    //
+    // OFF BY DEFAULT since 2026-08-08, and the reason is the only kind that
+    // settles this question: a human looked at three builds of
+    // examples/upscaler-lab that differed in nothing else (docs/
+    // neural-upscaler.md, "The oscillation"). BLSS off - steady. BLSS on with
+    // jitter on - "like an earthquake". BLSS on with jitter off - steady. The
+    // jitter is the cause and turning it off is the cure.
+    //
+    // Why it happens: jittered sampling is SUPPOSED to produce a different
+    // image every frame, and the only thing entitled to fuse the two phases
+    // back together is the temporal accumulator. It does not - measured, on a
+    // net that puts 72-78% of its weight on the temporal pass. So the
+    // alternation reaches the screen as a period-2 flicker on every textured
+    // surface, at the field rate.
+    //
+    // The price of the default is measured and real: on examples/upscaler-lab
+    // it takes the trained margin from +0.69 to +0.26 dB and the scene's own
+    // oracle ceiling from +0.84 to +0.27 - roughly two thirds of the available
+    // reconstruction, given up for a picture a user can look at. That is the
+    // right trade for a default and the wrong one to force, which is why the
+    // setting stays: a project that has judged the shake acceptable (or whose
+    // content does not show it) turns it back on and gets the samples back.
+    // Note that the host trainer reads this field, so a net is fitted for the
+    // sampler its project will ship with - flipping it on an existing project
+    // means retraining that project's blss.net.
+    bool blssJitter = false;
     // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
     // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
     // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).

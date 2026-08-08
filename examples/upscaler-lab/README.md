@@ -176,9 +176,19 @@ The picture alternates between exactly two images differing in **1.71-1.76 %** o
 pixels, and takes no other value; when the sampling phase happens to align, lag-1
 falls to 0.05 % and lag-2 rises to 1.75 % — the two states swapping roles, which
 is the definition of period 2. That is ~33x the still-picture floor. The cause is
-the hardcoded sub-pixel jitter (`renderer_core_blss.cpp:896-898`); a
-`blssJitter` kill switch is landing separately and this fixture is what it should
-be tested against.
+the sub-pixel jitter (`renderer_core_blss.cpp`), and the `blssJitter` kill switch
+has since landed and been tested against exactly this fixture.
+
+**Settled 2026-08-08, by a person rather than a metric.** Three builds of this
+scene differing in nothing but two flags were handed to someone and they called
+them steady (BLSS off) / **"like an earthquake"** (jitter on) / steady (jitter
+off). `blssJitter` now defaults to **false** repo-wide — but **this project sets
+it explicitly to `true`**, on purpose: the committed `blss.net` here was fitted
+with the jittered sampler, and `--blss-train`/`--blss-eval` read the project's
+own flag, so flipping it would leave the example running a net fitted for a
+sampler it no longer uses. So this fixture stays the jitter-**on** reference,
+and it is the one that shakes. Set `"blssJitter": false` in the `.tyra` to see
+the cure (and retrain if you intend to measure decibels afterwards).
 
 Worth noting against the documented case: on **this** scene the trained net puts
 **72-78 % of its weight on the temporal pass** and 0 % on point and sharpen — so

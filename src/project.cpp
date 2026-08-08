@@ -4165,11 +4165,18 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.blssSharpen = clamp01((float)v->numberOr(0.5));
         if (const auto* v = s->find("blssTemporal"))
             st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
-        // Same "absent means the default" rule: the jitter has always been on,
-        // so a project saved before this key existed must keep behaving that
-        // way. Off is the kill switch for the period-2 bob - see project.hpp.
+        // NOT the "absent means what it always did" rule the keys around it
+        // use, and the difference is deliberate. The jitter is the confirmed
+        // cause of the screen shake (project.hpp), so a project saved before
+        // this key existed - which is every project that ever shook - opens
+        // with it OFF rather than keeping the behaviour it was saved with.
+        // The one direction this can move a legacy project is "stops
+        // flickering"; there is no configuration it makes worse, and a project
+        // that wants the samples back says so explicitly and gets a rewritten
+        // key on the next save. A malformed value lands on the default too,
+        // for the same reason.
         if (const auto* v = s->find("blssJitter"))
-            st.blssJitter = !(v->type == json::Value::Type::Bool && !v->boolean);
+            st.blssJitter = (v->type == json::Value::Type::Bool && v->boolean);
         if (const auto* v = s->find("blssDebugView"))
             st.blssDebugView = (int)v->numberOr(0.0);
         if (st.blssDebugView < 0) st.blssDebugView = 0;

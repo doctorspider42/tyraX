@@ -76,7 +76,9 @@ console draws. The other four modes divide at 32 and at 64: 512 × 448, 448 × 4
 ## 1. Jitter
 
 **Jitter is a MODE, not a constant, and that is the newest thing on this page.**
-The project setting is `blssJitter` (`ProjectSettings`, format v5, default true)
+The project setting is `blssJitter` (`ProjectSettings`, format v5, **default
+false** since 2026-08-08 — a human watched a jitter-on build and called it "like
+an earthquake", so the default is now the configuration that can be looked at)
 and codegen bakes it into the generated game, because the bob this feature has
 been chasing since the beginning **is confirmed present on real hardware**: with
 a frozen camera, a project-trained net and the fill term in, **30.8 % of the
@@ -90,18 +92,23 @@ build** (the 30.8 % figure was taken on a build carrying the z-mask defect of
 earlier observation of this artefact was made through a frame that was missing
 surfaces):
 
-- **The bob is NET-dependent, and neither shipped fixture reproduces it.** With
-  the period-2 method on a frozen camera, PCSX2 software renderer, captures at a
-  non-frame-locked 0.29 s stride: `examples/upscaler-lab` (BLSS 2×2, jitter on,
-  its own shipped net) gives **byte-identical consecutive pictures** — every
-  differing pixel lies in the HUD text rows, none below them — and so does the
-  minimal `blssbug` fixture, where the only motion is the PCSX2 status bar.
-  Measured on the pre-fix engine too, same fixture, same net: **also
-  byte-identical.** So the z-mask defect was not the bob's cause either, and the
-  30.8 % belongs to the configuration it was measured in — a **project-trained**
-  net whose fill term culls the temporal pass, which is exactly the explanation
-  the table below gives. Do not quote 30.8 % as a property of the feature; it is
-  a property of a net that declines to fuse the phases.
+- ~~**The bob is NET-dependent, and neither shipped fixture reproduces it.**~~
+  **RETRACTED the same day.** That bullet said `examples/upscaler-lab` on its
+  shipped net gives byte-identical consecutive pictures, and concluded the
+  artefact belonged to one net rather than to the feature. It was measured on a
+  fixture whose particles were running (their motion is *larger* than the
+  artefact and buries the period-2 signature), reported as a pixel count, and
+  cross-checked against `blssbug` — an untextured box on flat ground, which
+  cannot exhibit a quarter-pixel resample at all. A human then looked at three
+  builds of `upscaler-lab` differing only in these two flags and called them
+  steady / **earthquake** / steady for BLSS-off / jitter-on / jitter-off. With
+  the emitters frozen the instrument agrees: 16.3 % of the picture below the HUD
+  alternates between two byte-identical phases with jitter on, and 0.00 % with
+  it off. The jitter is the cause, the shipped net does reproduce it, and
+  `blssJitter` now defaults to **false**. See
+  [neural-upscaler.md, "A/B/C"](neural-upscaler.md#abc-a-human-looked-at-three-builds-2026-08-08)
+  and [profiling.md's stability gate](profiling.md#the-stability-gate-period-2--the-bob)
+  for the rules that make the measurement able to see it.
 - **`getFieldYOffset16()` is identically 0 in every fixture that has ever shown
   this artefact.** `RendererSettings::isFieldRendering()` is true for
   `DisplayMode::InterlacedField` alone, and both fixtures are `"interlaced"` =

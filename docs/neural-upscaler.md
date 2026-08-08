@@ -63,12 +63,15 @@ rasteriser and no pixel shaders at all.
 > whatever fill BLSS saves**. The A/B needs retaking on the fixed build; the
 > console is off the LAN at the time of writing, so it has not been.
 >
-> **And the oscillation figure below is net-dependent.** Re-measured on the
-> fixed build with the period-2 method, `examples/upscaler-lab` and the minimal
-> `blssbug` fixture both give **byte-identical consecutive pictures** with jitter
-> on — every differing pixel is HUD text. The 30.8 % stands for the
-> configuration it was measured in (a project-trained net whose fill term culls
-> the temporal pass), not for the feature.
+> ~~**And the oscillation figure below is net-dependent.**~~ **RETRACTED the
+> same day.** A person was shown three builds of `examples/upscaler-lab` that
+> differed in nothing but these flags and called them steady / **"like an
+> earthquake"** / steady for BLSS-off / jitter-on / jitter-off. The shipped net
+> reproduces it, the fill term did not fix it, and the "byte-identical" reading
+> came from an instrument measuring a fixture that could not exhibit the
+> artefact and a scene whose own particles were louder than it. **`blssJitter`
+> now defaults to `false`** — see
+> [A/B/C](#abc-a-human-looked-at-three-builds-2026-08-08).
 >
 > **The EE half of that bill has now been priced.** 5.10 ms of the 9.83 is
 > `composite()`'s inference and packet build, and the two changes that attack it
@@ -1989,16 +1992,24 @@ phase every time.
 | BLSS on, `blssJitter` **off** | 12 / 8 | 0.029 % | 0.046 % | 0.03/255 |
 | BLSS on, `blssJitter` **on** | **8 / 8** | 0.019 % | **30.8 %** | **1.42/255** |
 
-**Re-measured 2026-08-08 on the fixed build, and it does not reproduce on the
-shipped fixtures.** Same method, frozen camera, PCSX2 software renderer,
-captures at a non-frame-locked 0.29 s stride: `examples/upscaler-lab` (jitter
-**on**, its own net) and `blssbug` both give consecutive pictures that are
-**byte-identical below the HUD** - 0 differing pixels in the rendered image, the
-only motion being the HUD digits and the PCSX2 status bar. The same fixture on
-the *pre-fix* engine measures the same, so the z-mask defect was not the cause
-either. The table above therefore describes a **net**, not the feature: with a
-project-trained net whose fill term culls the temporal pass there is nothing
-fusing the two phases, and that is when it bobs.
+**RETRACTED (2026-08-08, later the same day).** The paragraph below stood here
+for a few hours and every sentence in it is wrong. It is kept because it is the
+third time an instrument on this page reported a still picture at a shaking
+console, and the shape of the error is the transferable part:
+
+> ~~**Re-measured 2026-08-08 on the fixed build, and it does not reproduce on the
+> shipped fixtures.** Same method, frozen camera, PCSX2 software renderer,
+> captures at a non-frame-locked 0.29 s stride: `examples/upscaler-lab` (jitter
+> **on**, its own net) and `blssbug` both give consecutive pictures that are
+> **byte-identical below the HUD** - 0 differing pixels in the rendered image, the
+> only motion being the HUD digits and the PCSX2 status bar. The same fixture on
+> the *pre-fix* engine measures the same, so the z-mask defect was not the cause
+> either. The table above therefore describes a **net**, not the feature: with a
+> project-trained net whose fill term culls the temporal pass there is nothing
+> fusing the two phases, and that is when it bobs.~~
+
+`upscaler-lab` **does** reproduce it, on the shipped net, on the fixed build.
+See [the A/B/C below](#abc-a-human-looked-at-three-builds-2026-08-08).
 
 **30.8 % of the picture alternates between two images every frame**, on a net
 trained on the project's own scenes. Why the fill term did not save it: it culls
@@ -2008,12 +2019,64 @@ phases. The remaining bilinear base pass still reconstructs from a low-res
 render that sampled different scene points each phase. The shipping
 configuration was "jitter on, nothing fusing it".
 
-**The kill switch.** `blssJitter` (`ProjectSettings`, default **true**) pins the
-offset to 0: pure spatial upscale, no temporal supersampling, stable by
-construction — a known quality cost for a known cure, and the A/B that proves
-the jitter is the cause on any given build. It reaches the engine as
-`BLSS_JITTER` → `RendererCoreBlss::configure(..., jitter)`; the parameter is
-defaulted to `true` so previously generated games are unchanged.
+#### A/B/C: a human looked at three builds (2026-08-08)
+
+**This is the measurement that settles the section, and it is the cheapest one
+on the page.** Three builds of `examples/upscaler-lab` — real content, the
+shipped net, a camera frozen at the tour's haze vantage, differing in *nothing*
+but the two flags — handed to a person, who was asked which ones shake:
+
+| build | configuration | a human, watching | the instrument, below the HUD |
+|---|---|---|---|
+| **A** | `blssEnabled: false` | steady | 40 captures **byte-identical** |
+| **B** | `blssEnabled: true`, `blssJitter: true` | **"like an earthquake"** | **two clusters, 18/22, within 0.0000, between 1.15/255** |
+| **C** | `blssEnabled: true`, `blssJitter: false` | steady | 40 captures **byte-identical** |
+
+So, in order, what this retracts and what it establishes:
+
+- **The jitter is the cause and turning it off is the cure.** Not a theory any
+  more: B and C differ in one boolean and one of them shakes.
+- **The fill term did not fix it.** Row B is the current build, fill term and
+  z-mask fix included.
+- **Heavy temporal weighting does not fuse the phases.** `upscaler-lab`'s own
+  net puts 72–78 % of its weight on the temporal pass — the configuration this
+  page hoped would be self-fusing — and B still shakes. The temporal
+  accumulator being *asked for* is not the same as it converging.
+- **It is not net-dependent in the way the retracted paragraph claimed.** The
+  shipped net does it.
+- **It is not a displacement.** The instrument's integer cross-correlation lag
+  between consecutive captures is `(0,0)` and the sub-pixel row shift is
+  0.14 px: the picture does not move. What alternates is the *resample*, on
+  **16.3 % of the pixels below the HUD**, p99 13.8/255 and peak 40/255, and the
+  difference image lights up every textured edge in the frame — wall, cobbles,
+  fence rails, cottage — while the flat sky stays black. A period-2 change of
+  that extent at the field rate is what "the screen is shaking" looks like from
+  a chair.
+- **And that last point is why `blssbug` was never going to show it.** An
+  untextured box on flat ground has almost no surface that a quarter-pixel
+  resample can change. A fixture that cannot exhibit the artefact measures
+  clean, truthfully, about a case that is not the user's.
+
+**The kill switch, now the default.** `blssJitter` (`ProjectSettings`, default
+**false** since this measurement) pins the offset to 0: pure spatial upscale, no
+temporal supersampling, stable by construction. A feature that visibly shakes
+the screen is unshippable whatever its decibels, so the default is the
+configuration a person can look at — and the price is the 0.43 dB in the table
+below, which is roughly two thirds of the available reconstruction. It stays a
+setting because that trade is right to *default* and wrong to *force*: content
+that does not show the shake should be free to buy the samples back. It reaches
+the engine as `BLSS_JITTER` → `RendererCoreBlss::configure(..., jitter)`; the
+engine parameter still defaults to `true`, so previously generated games are
+unchanged.
+
+**A project saved before the key existed now opens with it off** — the one
+deliberate exception to this repo's "an older file opens byte-identical" rule
+(`src/version.hpp`), because the behaviour it declines to preserve is a
+flickering picture. `examples/upscaler-lab` keeps `"blssJitter": true` written
+out explicitly, and deliberately: its committed `blss.net` was fitted with the
+jittered sampler, and the trainer reads the project's own flag, so flipping it
+there would leave the example running a net fitted for a sampler it no longer
+uses. It is the page's jitter-on reference — and, now, build **B**.
 
 **FIXED — the host twin knows about it now.** That paragraph used to end "the
 oracle and the corpus always model the jittered sampler, so a net trained today

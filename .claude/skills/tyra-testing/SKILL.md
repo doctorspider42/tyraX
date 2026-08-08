@@ -980,18 +980,30 @@ Notes:
   debug build polls `livepad.bin` through HostFs every frame); and **run the
   page's GS fill calibration before quoting any PCSX2 number about GS cost** —
   measured, PCSX2 under-reports fill by **76x**.
-- **Testing whether a picture is STILL needs a period-2 test, not a diff.** A
-  reconstruction that alternates between two images every frame (the BLSS
-  jitter bob) is invisible to any sampler whose stride is even — every sample
-  lands on the same phase and the tool reports a perfectly still picture, which
-  is exactly how that bug survived a round of testing. Freeze the camera,
-  capture at an interval that is NOT frame-locked, and cluster the captures by
-  pairwise difference: two balanced clusters with near-zero within and large
-  between IS the alternation. And on Windows **select the PCSX2 instance by the
+- **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
+  **three** instruments in a row got this wrong before it stuck, so the full
+  rules live in docs/profiling.md, "The stability gate". The short form, each
+  clause paid for: freeze the camera **and every emitter** (on
+  `examples/upscaler-lab` the running particles change more between frames than
+  the artefact does, and they bury it); point it at **textured** content (a
+  quarter-pixel resample cannot change an untextured box, so a minimal fixture
+  measures clean and truthfully and tells you nothing); capture **back to back**
+  rather than on a stride (an even stride lands on the same phase forever);
+  **never `-Trim`** and take the crop once (trimming black borders re-registers
+  a shifted picture to an identical image, so a displacement becomes invisible
+  by construction); report a **cross-correlation lag** as well as a pixel count;
+  and cluster by pairwise difference — two balanced clusters, near-zero within
+  and large between, IS the alternation. Then check the verdict against a
+  labelled A/B/C where you already know the answer, rather than against a
+  threshold you chose.
+  And on Windows **select the PCSX2 instance by the
   project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
   -like "*<project>*"`) — `-ProcessName pcsx2-qt` takes the first one it finds,
   and with parallel worktrees running that silently captures somebody else's
-  game and looks exactly like a screenshot.
+  game and looks exactly like a screenshot. **A GDI grab reads the SCREEN**, so
+  an occluded PCSX2 captures as whatever is on top of it and yields a
+  plausible, entirely fictional "stable" table — diff frame 0 of one arm against
+  frame 0 of another before believing any of it.
 
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess

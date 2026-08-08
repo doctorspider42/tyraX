@@ -51,10 +51,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // an older file opens as "no upscaler", which is exactly what it was, and the
 // codegen is byte-identical while the flag is off. No migration step.
 // v5 (the upscaler's jitter kill switch): ProjectSettings gains blssJitter,
-// the +-1/4-pixel per-frame raster jitter that is the documented cause of the
-// period-2 "bob" (docs/neural-upscaler.md, "The oscillation"). Purely additive
-// and it defaults to TRUE, i.e. the behaviour every existing project already
-// had, so an older file opens byte-identical. No migration step.
+// the +-1/4-pixel per-frame raster jitter that is the confirmed cause of the
+// screen shake (docs/neural-upscaler.md, "The oscillation"). Purely additive,
+// and since 2026-08-08 it defaults to FALSE - so a file saved before the key
+// existed opens with the jitter OFF rather than with the behaviour it was
+// saved with. That is the one deliberate exception to "an older file opens
+// byte-identical" in this list, and it is deliberate because the behaviour it
+// declines to preserve is a visibly shaking picture. Nothing else about the
+// project changes and no migration step is needed: the codegen difference is
+// one constant, and a project that wants the samples back sets the key.
 inline constexpr int kFormatVersion = 5;
 
 }  // namespace version

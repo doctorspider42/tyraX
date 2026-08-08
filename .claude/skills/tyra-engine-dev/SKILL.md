@@ -515,16 +515,21 @@ Eight things here that were paid for, and that any edit must keep:
   The instrument is `inc/debug/frame_profile.hpp` (TYRA_FRAME_PROFILE, default
   0, so a shipped libtyra.a carries none of it) plus the FRAMETIME line in the
   generated drawDebugHud.
-- **The bob is NET-dependent, and the per-field bias is NOT part of it.** The
-  +-1/4-pixel per-frame raster jitter in `beginScene` is the documented cause of
-  the period-2 "bob", and on a static camera with a **project-trained** net
-  whose fill term culls the temporal pass, **30.8 % of the picture alternates
-  between two images every frame**. Re-measured 2026-08-08 on the fixed engine,
-  neither shipped fixture reproduces it: `examples/upscaler-lab` and `blssbug`
-  give consecutive pictures that are **byte-identical below the HUD** with
-  jitter on — and so does the PRE-fix engine on the same fixtures, so the
-  z-mask defect was not the cause either. Quote 30.8 % as a property of that
-  net, not of the feature. Separately, `getFieldYOffset16()` is non-zero for
+- **The bob is the JITTER, and the per-field bias is NOT part of it.** The
+  +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
+  person watched three builds of `examples/upscaler-lab` differing in nothing
+  else and called them steady (BLSS off) / **"like an earthquake"** (jitter on)
+  / steady (jitter off). `blssJitter` therefore defaults to **false** now. This
+  bullet previously claimed the bob was net-dependent and that neither shipped
+  fixture reproduced it; both are **retracted** — that reading came from an
+  instrument pointed at `blssbug` (untextured, so a quarter-pixel resample can
+  change nothing) and at `upscaler-lab` with its particles running (whose motion
+  is larger than the artefact). With the emitters frozen, 16.3 % of the picture
+  below the HUD alternates between two byte-identical phases. It is **not** a
+  displacement — cross-correlation lag `(0,0)` — but a resample alternation on
+  every textured edge, which is what a shake looks like from a chair. The rules
+  that make it measurable are in docs/profiling.md, "The stability gate".
+  Separately, `getFieldYOffset16()` is non-zero for
   `DisplayMode::InterlacedField` **only**, so in the usual `Interlaced` mode it
   contributes nothing; `beginScene` used to add it anyway, unscaled, inside a
   raster whose row is `scaleY` physical rows, while `composite()` added the real

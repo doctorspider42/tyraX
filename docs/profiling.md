@@ -318,18 +318,59 @@ here the generated games do not have the GS fill to trade.
 
 ### The stability gate (period-2 / the "bob")
 
-BLSS' ±¼-pixel raster jitter is the documented cause of a shaking picture
-(neural-upscaler.md, "The oscillation"), and nobody had looked since the fill
-term was added. The trap that hid it the first time is worth restating: a
-sampler taking one frame every 40 frames landed on the **same jitter phase every
-time** and reported a perfectly still picture. So:
+BLSS' ±¼-pixel raster jitter is the confirmed cause of a shaking picture
+(neural-upscaler.md, "The oscillation"). **Three instruments in a row reported a
+still picture at a console a person was watching shake**, each for a different
+reason, so the rules below are the residue of three failures rather than a
+recipe somebody liked:
 
-- freeze the camera completely (the fixture script holds its frame index),
-- capture at an interval that is **not** frame-locked, so the phases arrive at
-  random,
-- and test for the **period-2 signature**, not for "did it change": cluster the
-  captures by their pairwise difference. Two balanced clusters, near-zero within
-  and large between, *is* the bob. One cluster is a still picture.
+- **Freeze the camera — and everything else that moves.** Particles are the one
+  that bites, because they look like scenery. On `examples/upscaler-lab` the
+  running emitters contribute **1.04/255** of frame-to-frame change all by
+  themselves, which is *larger* than the 0.77/255 artefact underneath, and the
+  clustering degenerates into contiguous blocks of time (a drift, ratio 1.4×)
+  instead of an alternation. With the emitters off — `SetParticles`, one pad
+  press on that fixture — the same scene splits 18/22 with **0.0000** within.
+  An instrument whose noise floor is above the signal is not measuring the
+  signal.
+- **Use content that can show it.** A quarter-pixel resample changes nothing on
+  a flat surface. The minimal `blssbug` fixture (untextured box, flat ground)
+  measures **byte-identical, truthfully**, and says nothing at all about a
+  textured scene. Point the gate at real material.
+- **Capture as fast as the tool will go, never on a fixed stride.** The original
+  failure was one frame every 40 at 50 Hz — an even stride lands on the same
+  jitter phase forever. 40 GDI grabs back to back take ~1.7 s (≈24 Hz) and land
+  on both phases without any timing argument being required.
+- **Test for the period-2 signature, not for "did it change".** Cluster the
+  captures by pairwise difference. Two *balanced* clusters, near-zero within and
+  large between, **is** the alternation; the raw "% of pixels that changed
+  between consecutive captures" was only 0.40 % for a build a person called an
+  earthquake, which is exactly the number somebody dismisses.
+- **Never let the crop move with the picture.** Take the render child's client
+  rect once and reuse it; do **not** pass `-Trim`. Trimming removes black
+  borders, so a picture that slides down a line comes back with one more black
+  row on top and trims to an *identical* image — a whole-image displacement is
+  invisible by construction to any instrument that trims. (It was not the
+  mechanism here: the integer cross-correlation lag is `(0,0)` and the sub-pixel
+  row shift 0.14 px. It is still a real way to measure zero.)
+- **Report a displacement estimate as well as a pixel count.** A one-line shift
+  produces a huge per-pixel diff in some crops and none in others; the lag that
+  minimises SAD, plus a parabola-fitted row-profile shift, is honest in both.
+- **Prove the capture is the game.** A GDI grab reads the *screen*. One run of
+  the A/B/C below silently captured the editor's own chat window, produced a
+  perfectly plausible "stable" table, and would have been believed. Select PCSX2
+  by the project on its command line, and diff frame 0 against the other arm's
+  frame 0 before trusting a single number.
+
+**The acceptance test for any future version of this gate** is the labelled
+A/B/C set in neural-upscaler.md: it must flag B and must not flag A or C. That
+is worth far more than a tuned threshold, and it is what the current instrument
+passes with A and C **byte-identical across 40 captures** and B splitting into
+two clusters that are byte-identical *within* and 1.15/255 apart *between*. If a
+rebuilt instrument cannot flag B, say so and stop — "visible to a human,
+invisible to frame-buffer capture, because X" is a correct result. Tuning a
+threshold until B trips is manufacturing agreement with an answer you already
+had.
 
 Measured in PCSX2 (480p, static camera, HUD off, 16–20 captures each):
 
@@ -340,14 +381,27 @@ Measured in PCSX2 (480p, static camera, HUD off, 16–20 captures each):
 | BLSS on, `blssJitter` **on** | **8 / 8** | 0.019 % | **30.8 %** | **1.42/255** | **period-2 alternation** |
 
 **The bob is still there on the current build**, with the fill term in and the
-shipped net trained on the project's own scenes: 30.8 % of the picture alternates
-between two images every frame. `blssJitter: false` removes it completely — the
-numbers become indistinguishable from the BLSS-off control. Two notes on
-reading this table: the "clusters" column for the two stable rows is the
-clustering algorithm splitting pure noise, which is why the between/within
-*ratio* rather than the split is what decides it; and the BLSS-off row is also
-the check that the rig's own fairness fence does not disturb buffer flipping or
-field parity — it does not.
+shipped net trained on the project's own scenes. Two notes on reading this
+table: the "clusters" column for the two stable rows is the clustering algorithm
+splitting pure noise, which is why the between/within *ratio* rather than the
+split is what decides it; and the BLSS-off row is also the check that the rig's
+own fairness fence does not disturb buffer flipping or field parity — it does
+not.
+
+Re-measured with the rules above on `examples/upscaler-lab` — real content,
+frozen camera, emitters off, 40 back-to-back captures, rows below the HUD, no
+trim (2026-08-08):
+
+| build | consecutive mean\|Δ\| | changed > 16 | clusters | within | between | picture alternating |
+|---|---|---|---|---|---|---|
+| **A** BLSS off | **0.0000/255** | 0.000 % | 40 / 0 | — | — | 0.00 % |
+| **B** BLSS on, jitter **on** | **0.7695/255** | 0.395 % | **18 / 22** | **0.0000** | **1.1542/255** | **16.3 %** > 2/255, 3.9 % > 8/255 |
+| **C** BLSS on, jitter **off** | **0.0000/255** | 0.000 % | 40 / 0 | — | — | 0.00 % |
+
+A and C are *byte-identical* across the whole burst; B's two clusters are
+byte-identical within and differ by up to 40/255 between, on every textured edge
+in the frame. This is the run a human independently called steady / earthquake /
+steady, in that order. `blssJitter` now defaults to **false** because of it.
 
 Capturing this on Windows has one trap that will silently produce a wrong
 answer: `screenshot-window.ps1 -ProcessName pcsx2-qt` takes the **first** PCSX2
