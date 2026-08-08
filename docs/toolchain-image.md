@@ -2495,6 +2495,65 @@ On the console that is 3120 → 3360 frames, 77.98 → 83.98 FPS, the gap to Son
 -20%. The frame gap closes by less than the modelled one, which is what you expect when VU1
 is one stage of several.
 
+### The software pipeliner is the wrong tool, and that is now measured
+
+SCE interleaves three copies of a serial chain so each step sits three rows from its producer.
+That is what a software pipeliner does, upstream openvcl ships one, it is **on by default**
+(`--enable-generic-software-pipelining`), and nobody had ever checked whether it runs here. It
+was the largest unexplored door in this migration. It is now closed, with numbers.
+
+**It fires on none of the 70 programs.** Instrumented directly: 362 loop-opportunity records
+over 206 distinct loops in 61 programs, and **zero plans built**. So
+`--disable-generic-software-pipelining` is a no-op on this corpus. (The older "0 of 25 emit a
+`MAIN_LOOP` label" observation has a second, independent cause: those labels come only from
+`applyVuGenericKernelRewritePlans`, which sits behind the env var
+`OPENVCL_USE_GENERIC_KERNEL_REWRITE` *and* an eligibility test - unreachable twice over.)
+
+**The universal blocker is `not_simple_counted_loop`, on 206 of 206 loops**, and the reason is
+almost funny: `simpleCountedLoop` requires `hasLoopDirective`, which means the author wrote
+`--LoopCS` at the loop label. That directive appears in every ps2gl-derived upstream test
+fixture and in **zero of the 70 sources** this engine and editor generate. Its two immediates
+are stored and never read - it is a boolean marker, and nothing about trip count is derived
+from it.
+
+Lift that gate (measured behind a throwaway flag) and the hot loops still decline, for reasons
+that are properties of the loops rather than conservatism:
+
+| loop | remaining blockers |
+|---|---|
+| `cull_{c,tc,tce}` `vertexLoop` | `multiple_q_producers` (3 divides/iteration); multi-Q path adds `cyclic_prefix_side_effect`, `cyclic_prefix_or_main_label` |
+| `clip_*` `triLoop` | the same two lists (2 divides/iteration) |
+| `fanEmitLoop` | `requires_register_rotation`, three `multi_instruction_prefetch*`, `prefetch_clobbers_suffix` |
+| `planeLoop`, `edgeLoop` | the `multi_instruction_prefetch*` family |
+
+The multi-Q rewrite **clones the loop prefix**, and these prefixes contain `isw`/`sq` stores
+and real internal branch targets (`multiColor:`, `processing:`). Cloning them is wrong, not
+merely unproven.
+
+**And the decisive number: the resource this pipeliner exists to hide has no stalls here.**
+Measured independently by me over the engine's 25, both assemblers:
+
+| | FMAC RAW | FDIV issue | `waitq` |
+|---|---:|---:|---:|
+| SCE | 826 | 21 | 64 |
+| openvcl | **3616** | **0** | 179 |
+
+195 FDIV operations across the corpus and **zero** FDIV issue stalls. openvcl's `static_cycles`
+is already 181 *below* SCE's. The entire gap is FMAC **result** latency, which Q rotation
+cannot touch - and that also retires a planned line of work: the `waitq`/FDIV bucket was
+described in this file's own follow-up notes as the second-largest term, and it is 115 cycles
+against FMAC's 2790. A rounding error.
+
+Where the pipeliner does fire once the gate is lifted, it hurts every time: 16 programs get a
+plan, all 16 regress (+38 resident words, +314 engine, +208 generated, +5.9% cycles) and one
+stops building. Not shipped, and the probe is deliberately not carried in
+`docker/openvcl-tyrax.patch` - every line there is a line maintained against upstream, and the
+finding above is the durable part.
+
+**What this says about the remaining gap:** what SCE does on these blocks is FMAC-distance
+scheduling *within* one iteration, not cross-iteration Q rotation, and upstream ships no
+machinery for that. `--pair-best-of-cycles` is the only lever measured to move it.
+
 ### Two families, two different causes - the allocation story is only half of it
 
 Everything above about welded chains is true of the `vu_script*` family. **It is falsified for
