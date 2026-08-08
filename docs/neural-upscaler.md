@@ -22,7 +22,8 @@ rasteriser and no pixel shaders at all.
 > or the corpus switch in the window's header, which defaults to it; see
 > [Training on your own project](#training-on-your-own-project). And **some
 > scenes have no ceiling at all** — `--blss-eval <projectDir>` says so in one line
-> before you spend an afternoon on it.
+> before you spend an afternoon on it, and **needs no trained network to say it**
+> ([net-free evaluation](#training)).
 >
 > The network is real, trained and measured on the host, where it beats every
 > fixed kernel in distribution — and, **on the bestiary**, on content it was never
@@ -402,9 +403,25 @@ Python, no external framework, no GPU:
 ```bash
 tyrax-editor --blss-train            # train on the built-in corpus, write blss.net
 tyrax-editor --blss-eval             # the table below: PSNR, flicker, occupancy
+tyrax-editor --blss-eval <project>   # no net needed - see below
 ```
 
-Both take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
+**`--blss-eval` needs no network, and that is the point of the third line.** The
+row that answers *should this project have the upscaler on at all* is the
+**oracle** row — the best any per-tile weighting can reach under the exact GS
+composite — and nothing in it involves a trained net. Until this was fixed the
+tool loaded `blss.net` first and bailed with `cannot open blss.net`, so the first
+step this page and the settings panel both prescribe ("evaluate your project
+BEFORE turning this on") was impossible to perform on a fresh project. Now:
+
+- **no `-i`, and no `blss.net` where the tool is looking** → the table is printed
+  without the `half-res + BLSS (trained)` row, the verdict is printed, and the
+  exit code is 0;
+- **no `-i`, but a `blss.net` is there** → it is used, exactly as before;
+- **an explicit `-i <file>` that cannot be opened** → still an error. You asked
+  for that net.
+
+Both verbs take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
 `--scale-1x2`, `--weight-decay W`, `--standardise`, `--threads N`
 ([below](#--threads-n-and-the-determinism-that-pays-for-it)), and the two weights
 of the oracle's objective — `--flicker-weight` and `--fill-weight`. **Sweep those two as
@@ -426,10 +443,107 @@ look like over the corpus, and how each correlates with the oracle) with its
 `--probe` companion, and `--drop-feature <name>` (hold channels at zero — the
 instrument that retired two of them).
 
+### What `--blss-eval` prints for a machine to read
+
+Two lines exist so that a caller — the window's Evaluate tab, a CI job, a script
+— never has to guess at a table:
+
+```
+[blss] verdict headroom=+0.017 passes=1.00 bilinear=39.888 oracle=39.905 native=43.480
+[blss] fold 7 of 12
+```
+
+The **verdict line is printed by every `--blss-eval`**, net or no net, on its own
+line, after the human-readable verdict block. Every field is a quantity that
+exists without a network, which is what makes it the right summary for a project
+that has not trained one yet: `headroom` is the oracle's margin over plain
+bilinear (the scene's **ceiling** — under +0.10 dB means there is nothing to
+reconstruct), `passes` is what the oracle pays for it (1.00 *is* plain bilinear,
+5.00 is every kernel everywhere), and the three PSNRs are frame-weighted over
+both splits, the way `blssui::summarise()` computes them.
+
+The **fold line is printed by `--blss-eval --cv`** as each fold finishes. The
+fold loop turns the trainer's own verbosity off and prints nothing else until the
+table at the very end, so a progress bar driven off this tool's output used to go
+blank for minutes; the count is completion order, not fold index, because folds
+run in parallel and a bar wants a fraction rather than an identity.
+
+### Where the minutes go, and what was measured to move them
+
+`--blss-train` has printed a three-phase timing line since `7d3dbf67`;
+`--blss-eval` and `--blss-eval --cv` now print the same kind of line, because a
+speedup nobody can read is a speedup nobody can check:
+
+```
+blss: timing - corpus 2.8 s, eval 16.1 s (18.9 s total)              # --blss-eval
+blss: timing - corpus 2.6 s, oracle 7.4 s, folds 40.8 s (50.9 s total)   # --cv
+```
+
+**Measured** on `examples/showcase` (156 frames over 12 shots, 512×448 from
+256×224, shipped defaults), `--threads 8`, one machine, the two binaries run
+alternately — **minimum of the repeats**, because the box was not quiet and
+contention can only ever inflate a wall clock:
+
+| run | before | after | |
+|---|---|---|---|
+| `--blss-eval <project> -i net` | 89.8 s | **19.5 s** | **4.6×** |
+| `--blss-eval <project> --cv --cv-seeds 1` | 48.3 s | **39.3 s** | **1.23×** |
+
+(The spread over four repeats was 89.8–101.4 s / 19.5–20.2 s and 48.3–68.2 s /
+39.3–51.0 s, which is why the table is minima rather than means: the *same*
+binary measured minutes apart differed by 40 % on the `--cv` row. Only the
+minimum is a statement about the code; everything above it is a statement about
+what else the box was doing.)
+
+Three changes, and **all three are bit-exact**: the eval and fold tables come out
+character-identical to the runs above them, and `--threads 1` against
+`--threads 8` still writes a byte-identical `blss.net` — indeed the same md5 the
+pre-change binary wrote.
+
+1. **The per-method evaluation is parallel over shot runs.** `evalRecurrent` was
+   a serial frame loop and a plain `--blss-eval` was ~80 % one serial oracle. The
+   temporal chain resets wherever the shot id changes — that is the only place
+   `history` becomes null and the only place a flicker pair is dropped — so a
+   maximal run of consecutive frames of one shot is an independent unit. Workers
+   produce **per-frame** numbers and the six running sums are folded in
+   afterwards *in corpus order*, so every accumulator sees the same addends in
+   the same sequence and the floating-point answer cannot move. That is nearly
+   all of the 4.6×, and it puts `--blss-eval` under the same "wall clock and
+   nothing else" contract `--threads` already carried. **The shot count is the
+   ceiling on it**: the held-out split of a 12-shot corpus is four runs, so four
+   workers, whatever `--threads` says. More parallelism than that means splitting
+   a shot, which means breaking the temporal chain, which is the one thing this
+   must not do.
+2. **`--cv` computes the two bilinear rows once per corpus instead of once per
+   fold.** With an all-zero weight field `alphaBytes()` yields `aA = aC = aD = 0`
+   and `blend()` hands back the base tap untouched, so a bilinear composite never
+   reads the history: its PSNR is a per-frame constant, independent of the fold
+   and of which side of the split the frame is on. Every fold used to
+   re-composite its eleven *training* shots as well as its own to rediscover that
+   — *n* folds × *n* shots against *n* distinct answers. It is the whole of the
+   `--cv` row above, and only that row: **19 %** of the run, since neither of the
+   other two changes can fire inside `--cv` (the fold loop is already parallel,
+   so `evalRecurrent` deliberately runs serial in there, and the default sharpen
+   is 0.5).
+3. **The oracle does not sweep `wD` when `--sharpen` is 0.** `alphaScales()`
+   returns a third scale of `k · 128`, so at `k = 0` every one of the nine
+   candidates quantises to `aD = 0`: they score identically, the fill term
+   charges none of them, and a third of the oracle's `errRegion` calls were
+   spent proving it. Measured on its own, at `--threads 1` so change 1 is inert:
+   26 frames, `--sharpen 0`, **16.1 s → 14.0 s** wall, of which ~2.6 s is the
+   corpus render in both — so the evaluation itself, ~13.5 s → ~11.4 s, **about
+   16 %**. And **nothing at all** at the default `--sharpen 0.5`, which is why it
+   does not show in the table above.
+
+What did **not** move: `--blss-train`. It never called the evaluation loop, and
+the default sharpen is 0.5, so its phase table below is still a measurement of
+the code that is here — checked by the net's md5, which is unchanged.
+
 ### `--threads N`, and the determinism that pays for it
 
-`--threads N` bounds the two parallel phases — the corpus render and the oracle
-labelling. `0` (the default) means every core, and the count is clamped to **32**
+`--threads N` bounds the parallel phases — the corpus render, the oracle
+labelling, and (since the evaluation was threaded, above) `--blss-eval`'s
+per-method loop. `0` (the default) means every core, and the count is clamped to **32**
 at parse time, because a corpus worker owns ~30 MB of raster scratch and because
 printing "on 999 thread(s)" would have been a lie. The trainer itself is
 sequential and ignores it.
@@ -482,12 +596,22 @@ worth.
 > `--threads` cannot touch. It is also not worth a GPU. Six seconds is not the
 > problem, and an 18-second cycle is a workflow rather than a batch job.
 
-Two things the tool now prints that are worth reading. `--blss-train` ends with a
-three-phase line — `blss: timing - corpus X, oracle Y, fit Z (T total)` — because
-"the oracle is nearly all of it" stopped being true and the next person to
-optimise this should see which phase is actually slow. And the corpus header says
-which it is doing: `blss: rendering 156 corpus frames at 512x448 on 6 thread(s)`,
-or `… on every core` when `--threads` was not given.
+> **That table is `examples/procedural` on a 6-core machine and it predates the
+> evaluation work above**, which is fine, because none of that work touches
+> `--blss-train`: the trainer never calls the evaluation loop, and the oracle's
+> `--sharpen 0` shortcut cannot fire at the default 0.5. The check is the md5 —
+> the net this tree writes is byte-identical to the one the pre-change binary
+> wrote, at 1, 8 and auto threads. Do not re-measure this table on a different
+> machine to "refresh" it: the row that carries the argument is the comparison
+> against `7d3dbf67^`, and that comparison only exists at these conditions.
+
+Two things the tool now prints that are worth reading. **All three verbs end with
+a phase line** — `blss: timing - corpus X, oracle Y, fit Z (T total)` for
+`--blss-train`, `corpus X, eval Y` for `--blss-eval`, `corpus X, oracle Y, folds
+Z` for `--cv` — because "the oracle is nearly all of it" stopped being true and
+the next person to optimise this should see which phase is actually slow. And the
+corpus header says which it is doing: `blss: rendering 156 corpus frames at
+512x448 on 6 thread(s)`, or `… on every core` when `--threads` was not given.
 
 **The per-shot lines report cpu ms, not wall ms.** Wall clock stopped being a
 per-shot quantity the moment the shots overlapped, so
@@ -718,7 +842,7 @@ the **−0.40 dB** in the radio button's own subtitle.
 `--blss-eval` has always *contained* the answer to "will this scene benefit at
 all", and has always buried it in the sixth row of a table: **the oracle row is
 the scene's own ceiling**, because no network can beat the best per-tile
-weighting under the exact GS composite. The tab now states a verdict above the
+weighting under the exact GS composite. The tab states a verdict above the
 table, in one of three forms:
 
 | when | what it says |
@@ -732,6 +856,13 @@ call** — same reason the parsers live there: a pure function of the parsed tab
 is checkable from the host-only harness, and a draw call is not. It is
 frame-weighted over both splits, because the two splits partition one corpus and
 neither half alone is an answer about the scene.
+
+**The tool prints the same verdict itself**, in the same three forms and the same
+words, plus the `[blss] verdict …` line
+([above](#what---blss-eval-prints-for-a-machine-to-read)) — so a terminal, a CI
+log and the tab cannot disagree about what the table said. There is a fourth
+branch the tab cannot reach: **net-free**, where there is a ceiling but no
+network to compare against it, which says the ceiling and points at `-i`.
 
 #### Cross-validate says what it is measuring on a project
 
@@ -753,10 +884,11 @@ Three more details that are load-bearing rather than decorative:
   and because a project corpus only decides how many shots it has once it has
   loaded the scenes. The per-shot lines are a *summary* printed after the last
   frame, so they report the phase finished instead of winding the bar back to
-  shot 1. Cross-validation prints **nothing** for the whole fold loop (it turns the
-  trainer's verbosity off), so that stretch is an indeterminate bar and an elapsed
-  clock rather than an invented percentage. A run that finishes while the tab is
-  shut still lands — the poll runs every frame from the UI, not from the window
+  shot 1. Cross-validation used to print **nothing** for the whole fold loop — it
+  turns the trainer's verbosity off — so that stretch was an indeterminate bar and
+  an elapsed clock for minutes at a time; it now emits `[blss] fold k of n` as
+  each fold finishes, which is a real fraction. A run that finishes while the tab
+  is shut still lands — the poll runs every frame from the UI, not from the window
   body.
 - **Provenance lives in a sidecar, because the net has nowhere to put it.** A
   `blss.net` is a bare list of floats and records nothing about how it was made, so
@@ -1640,11 +1772,16 @@ Occupancy is a count of grid cells, not a millisecond.
   world-space triangles, so the corpus can be the user's own scenes). CLI in
   `src/main.cpp`: `--blss-train [<projectDir>]`, `--blss-eval [<projectDir>]`,
   `--blss-emit`. `blss.hpp` carries the measured tables for every constant it
-  defines — read it before changing one. The two parallel phases go through
-  `parallelFor` (`blss.cpp`, the oracle) and `parallelFrames` (`blsscorpus.cpp`,
-  the render), both bounded by `--threads` and both clamped to 32; **item *i* is
+  defines — read it before changing one. The parallel phases go through
+  `parallelFor` (`blss.cpp` — the oracle, the `--cv` fold loop, and
+  `evalRecurrent`'s shot runs) and `parallelFrames` (`blsscorpus.cpp`, the
+  render), all bounded by `--threads` and all clamped to 32; **item *i* is
   handed to a fixed worker that may touch only item *i*, and that is what
-  `--threads 1` against `--threads N` checks.**
+  `--threads 1` against `--threads N` checks.** `evalRecurrent` adds one rule to
+  that: its workers only ever produce **per-frame** values, and the sums are
+  folded in serially in corpus order afterwards, because a parallel reduction
+  would have moved the table by a ULP or two and a table that moves with the core
+  count is worthless.
 - Engine side: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
   (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The proxy
   producers are `addBagBox()` / `addBagSphere()`, fed from `StaPipCore` one box

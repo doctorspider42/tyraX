@@ -48,6 +48,39 @@ the verification, and any fact worth reusing belongs in the relevant
     (34%)** - each step reads the weights the previous one wrote, so `--threads`
     cannot touch it. Not worth a GPU at 6 seconds; if the cycle needs to be
     faster, the oracle's coordinate descent is still more than half of it.
+  - **DONE: `--blss-eval` is 4.6x faster, `--cv` 1.23x, and all of it is
+    BIT-EXACT.** That was the other half of the item above - the TRAIN cycle got
+    threaded, the EVALUATE cycle did not, and a plain `--blss-eval` was ~80% one
+    serial oracle. Three changes, `examples/showcase`, 156 frames, `--threads 8`,
+    minimum of alternating repeats: 89.8 -> 19.5 s and 48.3 -> 39.3 s. (1)
+    `evalRecurrent` runs in parallel over
+    **shot runs** - the temporal chain only ever resets where the shot id changes
+    - with the workers producing per-frame values and the sums folded in serially
+    in corpus order, so no accumulator sees a different sequence of addends. (2)
+    `--cv` computes its two bilinear rows **once per corpus**: an all-zero weight
+    field never reads the history, so a frame's bilinear PSNR is a constant, and
+    every fold used to re-composite eleven training shots as well as its own to
+    rediscover it - that is the whole of the `--cv` row, 19% of the run. (3) the
+    oracle stops sweeping `wD` at `--sharpen 0`, where all nine candidates
+    quantise to `aD = 0` - ~16% of such an evaluation (16.1 -> 14.0 s over 26
+    frames at `--threads 1`) and nothing at the default 0.5, which is why it does
+    not show in the two numbers above. Proven by diff: the eval and fold
+    tables are character-identical to the pre-change binary's, and `--threads 1`
+    vs `8` vs auto still write md5 `24cb12467edb034df24a7e66b505b384` on that
+    project, the same as before the change.
+
+    **Also DONE, and it is a bug fix rather than an optimisation: `--blss-eval`
+    runs NET-FREE.** The settings panel has told users to evaluate their project
+    "before turning this on" since it shipped, and that was impossible - the verb
+    loaded `blss.net` first and bailed with "cannot open blss.net", so a fresh
+    project could not perform its own documented first step. The load-bearing row
+    is the ORACLE, which involves no network at all. A missing DEFAULT net now
+    just drops the trained row (exit 0); only an explicit `-i` that cannot be
+    opened is still an error. `--blss-eval` also prints the verdict itself, in
+    the window's own words, plus `[blss] verdict headroom=… passes=… bilinear=…
+    oracle=… native=…` for a caller, and `--cv` prints `[blss] fold k of n` so a
+    progress bar over the fold loop can be a real fraction. All three verbs now
+    end with a `blss: timing` phase line.
   - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BEFORE IT WAS WRITTEN: make the
     raster-redirect brackets nest.** `RendererCoreEnvMap::end()`, the camera
     feed and `RendererCoreShadowMap::end()` restored FRAME/SCISSOR/ZBUF/XYOFFSET

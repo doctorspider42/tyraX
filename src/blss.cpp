@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -19,6 +20,7 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -974,13 +976,26 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
     // for a bound.
     static const float kCand[] = {0.0f,   0.125f, 0.25f, 0.375f, 0.5f,
                                   0.625f, 0.75f,  0.875f, 1.0f};
+
+    // A SHARPEN OF 0 MAKES THE THIRD OUTPUT UNOBSERVABLE, so it is not swept.
+    // alphaScales() (blss.hpp) returns a third scale of `k * 128`, so at k = 0
+    // every candidate wD quantises to aD = 0: blend() skips passes 4/5 for all
+    // nine of them and cellDrawn() charges none of them any fill. The sweep was
+    // therefore spending a THIRD of the oracle's errRegion calls proving that
+    // nine numbers score the same. Skipping it is bit-exact rather than an
+    // approximation: the tile keeps the 0 it was initialised with (which is the
+    // value the sweep would have kept - `best` starts at `t[m]` and only a
+    // STRICT improvement replaces it), and the importance max() would have seen
+    // worstE - bestE == 0, which never raises a maximum that starts at 0.
+    const int sweptOutputs = sharpen > 0.0f ? kOutputs : kOutputs - 1;
+
     for (int sweep = 0; sweep < 2; ++sweep)
         for (int cy = 0; cy < rows; ++cy)
             for (int cx = 0; cx < cols; ++cx) {
                 const int cx0 = std::max(0, cx - 1), cy0 = std::max(0, cy - 1);
                 const int cx1 = std::min(cols - 1, cx + 1), cy1 = std::min(rows - 1, cy + 1);
                 auto& t = wf.at(cx, cy);
-                for (int m = 0; m < kOutputs; ++m) {
+                for (int m = 0; m < sweptOutputs; ++m) {
                     float best = t[m];
                     double bestE = errRegion(cx0, cy0, cx1, cy1);
                     double worstE = bestE;
@@ -1181,6 +1196,13 @@ namespace {
 
 struct CliOpts {
     std::string netPath = "blss.net";
+    // Did the user actually ASK for that net? `--blss-eval` without `-i` is the
+    // first thing anyone runs on a fresh project - "is there anything here to
+    // reconstruct" - and the answer, the oracle row, does not involve a network
+    // at all. Refusing to run without a trained net made the documented first
+    // step impossible to perform, so a missing default is now a net-free
+    // evaluation and only an EXPLICIT `-i` that cannot be opened is an error.
+    bool netGiven = false;
     std::string outPath;
     std::string dumpDir;
     std::string assetDir = "examples";
@@ -1269,7 +1291,10 @@ CliOpts parseCli(int argc, char** argv) {
             return i + 1 < argc ? std::string(argv[++i]) : std::string(def);
         };
         if (a == "-o" || a == "--out") o.outPath = next("");
-        else if (a == "-i" || a == "--net") o.netPath = next("blss.net");
+        else if (a == "-i" || a == "--net") {
+            o.netPath = next("blss.net");
+            o.netGiven = true;
+        }
         else if (a == "--dump") o.dumpDir = next(".");
         else if (a == "--assets") o.assetDir = next("examples");
         else if (a == "--frames") o.frames = std::atoi(next("156").c_str());
@@ -1531,66 +1556,121 @@ using Method = std::function<WeightField(const Frame&, const Image& truth, size_
 // `perShot` (optional, indexed by shot id) receives per-shot means, because a
 // single average over a bestiary hides exactly the thing worth knowing - which
 // cases the network helps and which it should have left alone.
+//
+// PARALLEL OVER SHOT RUNS, WITH THE ACCUMULATION LEFT SERIAL - and the split is
+// what makes this a wall-clock change and nothing else.
+//
+// The temporal chain resets wherever `cf.shot` changes: that is the only place
+// `history` becomes null and the only place a flicker pair is dropped. So a
+// maximal RUN of consecutive masked frames carrying the same shot id is an
+// independent unit - independent by the code's own rule rather than by an
+// assumption about how the corpus was ordered, which is why the runs are found
+// here instead of trusting that frames come grouped by shot (they do; see the
+// work list in blsscorpus.cpp).
+//
+// The workers therefore produce PER-FRAME numbers and touch nothing shared, and
+// the six running sums are folded in afterwards in corpus order. Every
+// accumulator sees exactly the addends the serial loop gave it, in exactly the
+// same sequence, so the table is bit-identical at any thread count - the same
+// contract --threads already carries for the corpus and the oracle. That
+// matters here because a plain --blss-eval was ~80% one serial oracle.
 double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, const ShotMask& want,
                      float sharpen, const Method& weights, const std::string& dumpDir,
                      const char* dumpName, std::vector<double>* perShot,
-                     double* flicker, Occupancy* occ = nullptr) {
+                     double* flicker, Occupancy* occ = nullptr, int threads = 1) {
+    // The frames this pass looks at, in corpus order, cut into single-shot runs.
+    // `runStart` indexes `idxs` and carries a trailing end marker.
+    std::vector<size_t> idxs, runStart;
+    for (size_t i = 0; i < corpus.size(); ++i) {
+        if (!inMask(want, corpus[i].shot)) continue;
+        if (idxs.empty() || corpus[idxs.back()].shot != corpus[i].shot)
+            runStart.push_back(idxs.size());
+        idxs.push_back(i);
+    }
+    runStart.push_back(idxs.size());
+
+    // One frame's worth of everything the loop below sums. Nothing here is a
+    // running total, which is the point.
+    struct FrameEval {
+        double psnr = 0;
+        Occupancy occ;
+        double flick = 0;
+        bool hasFlick = false;
+    };
+    std::vector<FrameEval> fe(idxs.size());
+
+    parallelFor(static_cast<int>(runStart.size()) - 1, threads, [&](int r) {
+        Image prevOut, out;
+        bool havePrev = false;
+        for (size_t k = runStart[static_cast<size_t>(r)]; k < runStart[static_cast<size_t>(r) + 1];
+             ++k) {
+            const size_t idx = idxs[k];
+            const CorpusFrame& cf = corpus[idx];
+            Frame fr = cf.frame;
+            fr.history = (havePrev && prevOut.w == fr.outW) ? &prevOut : nullptr;
+            const WeightField wf = weights(fr, cf.truth, idx);
+            FrameEval& e = fe[k];
+            // OCCUPANCY: how much of the screen this method's weights actually
+            // make the GS draw. It belongs next to PSNR for the same reason
+            // flicker does - the whole performance case for BLSS is that passes
+            // 2..5 cover a minority of the frame, and until this was printed the
+            // network was quietly asking for all of them everywhere.
+            e.occ = occupancy(wf, sharpen);
+            composite(fr, wf, sharpen, out);
+            e.psnr = psnr(out, cf.truth);
+            // FLICKER: mean per-pixel change between consecutive frames of one
+            // shot. This exists because per-frame PSNR is blind to temporal
+            // instability - averaging two jitter phases is genuinely closer to
+            // the truth than either, so a reconstruction that OSCILLATES between
+            // them scores well and looks like bob deinterlacing on a television.
+            // That is exactly how the 50% temporal cap shipped. Compare a
+            // method's flicker against the `native` row, which is the honest
+            // floor for a given camera move.
+            if (havePrev && prevOut.w == out.w && prevOut.h == out.h) {
+                double d = 0.0;
+                for (int y = 0; y < out.h; ++y)
+                    for (int x = 0; x < out.w; ++x) {
+                        const uint8_t* a = out.at(x, y);
+                        const uint8_t* b = prevOut.at(x, y);
+                        for (int c = 0; c < 3; ++c)
+                            d += std::fabs(static_cast<double>(a[c]) - b[c]);
+                    }
+                e.flick = d / (static_cast<double>(out.w) * out.h * 3.0);
+                e.hasFlick = true;
+            }
+            // The dumped frame is the first one this pass accepts, which is the
+            // first frame of run 0 - the same image the serial loop wrote at
+            // `n == 1`, written by the worker that owns it.
+            if (!dumpDir.empty() && k == 0 && dumpName)
+                writePng(out, dumpDir + "/blss-" + dumpName + ".png");
+            prevOut = out;
+            havePrev = true;
+        }
+    });
+
     double sum = 0.0;
     int n = 0;
     double occA = 0.0, occC = 0.0, occD = 0.0;
     std::vector<double> shotSum(shotCount, 0.0);
     std::vector<int> shotN(shotCount, 0);
-    Image prevOut, out;
-    int prevShot = -1;
     double flickSum = 0.0;
     int flickN = 0;
-    for (size_t idx = 0; idx < corpus.size(); ++idx) {
-        const CorpusFrame& cf = corpus[idx];
-        if (!inMask(want, cf.shot)) continue;
-        Frame fr = cf.frame;
-        fr.history = (cf.shot == prevShot && prevOut.w == fr.outW) ? &prevOut : nullptr;
-        const WeightField wf = weights(fr, cf.truth, idx);
-        // OCCUPANCY: how much of the screen this method's weights actually make
-        // the GS draw. It belongs next to PSNR for the same reason flicker does
-        // - the whole performance case for BLSS is that passes 2..5 cover a
-        // minority of the frame, and until this was printed the network was
-        // quietly asking for all of them everywhere.
-        const Occupancy fo = occupancy(wf, sharpen);
-        occA += fo.point;
-        occC += fo.temporal;
-        occD += fo.sharpen;
-        composite(fr, wf, sharpen, out);
-        const double p = psnr(out, cf.truth);
-        sum += p;
+    for (size_t k = 0; k < idxs.size(); ++k) {
+        const CorpusFrame& cf = corpus[idxs[k]];
+        const FrameEval& e = fe[k];
+        occA += e.occ.point;
+        occC += e.occ.temporal;
+        occD += e.occ.sharpen;
+        sum += e.psnr;
         ++n;
         if (cf.shot < shotCount) {
-            shotSum[cf.shot] += p;
+            shotSum[cf.shot] += e.psnr;
             ++shotN[cf.shot];
         }
-        // FLICKER: mean per-pixel change between consecutive frames of one
-        // shot. This exists because per-frame PSNR is blind to temporal
-        // instability - averaging two jitter phases is genuinely closer to the
-        // truth than either, so a reconstruction that OSCILLATES between them
-        // scores well and looks like bob deinterlacing on a television. That is
-        // exactly how the 50% temporal cap shipped. Compare a method's flicker
-        // against the `native` row, which is the honest floor for a given
-        // camera move.
-        if (cf.shot == prevShot && prevOut.w == out.w && prevOut.h == out.h) {
-            double d = 0.0;
-            for (int y = 0; y < out.h; ++y)
-                for (int x = 0; x < out.w; ++x) {
-                    const uint8_t* a = out.at(x, y);
-                    const uint8_t* b = prevOut.at(x, y);
-                    for (int c = 0; c < 3; ++c)
-                        d += std::fabs(static_cast<double>(a[c]) - b[c]);
-                }
-            flickSum += d / (static_cast<double>(out.w) * out.h * 3.0);
+        if (e.hasFlick) {
+            flickSum += e.flick;
             ++flickN;
         }
-        prevOut = out;
-        prevShot = cf.shot;
-        if (!dumpDir.empty() && n == 1 && dumpName)
-            writePng(out, dumpDir + "/blss-" + dumpName + ".png");
     }
     if (perShot) {
         perShot->assign(shotCount, 0.0);
@@ -1737,10 +1817,55 @@ double nativePsnr(const std::vector<CorpusFrame>& corpus, const ShotMask& want) 
 // draw the shipped 2-of-7 split gives - and, more usefully, seven answers to
 // WHICH content it fails on.
 std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus, int shots,
-                                          const CliOpts& o, uint32_t seed) {
+                                          const CliOpts& o, uint32_t seed,
+                                          double* labelSeconds = nullptr,
+                                          double* foldSeconds = nullptr) {
+    const auto clock0 = std::chrono::steady_clock::now();
     const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, o.threads);
+    const auto clock1 = std::chrono::steady_clock::now();
+    if (labelSeconds) *labelSeconds += std::chrono::duration<double>(clock1 - clock0).count();
     const int nFolds = o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots;
+
+    // THE TWO BILINEAR ROWS ARE A PER-CORPUS CONSTANT, computed once here rather
+    // than once per fold. With an all-zero weight field alphaBytes() yields
+    // aA = aC = aD = 0 and blend() hands back `base` untouched, so a frame's
+    // bilinear composite does not read the history at all - which makes its PSNR
+    // independent of the shot chain, of the fold, and of which side of the split
+    // the frame landed on.
+    //
+    // Every fold used to re-composite its TWELVE training shots to rediscover
+    // that: 13 folds x 13 shots against 13 distinct answers, and it was ~44% of
+    // the evaluation work in a --cv run. Bit-exact, because the mean below sums
+    // the same per-frame values in the same corpus order evalRecurrent did.
+    std::vector<double> bilinearPsnr(corpus.size(), 0.0);
+    parallelFor(static_cast<int>(corpus.size()), o.threads, [&](int i) {
+        const CorpusFrame& cf = corpus[static_cast<size_t>(i)];
+        WeightField zero;
+        zero.resize(cf.frame.cols, cf.frame.rows);
+        Image out;
+        composite(cf.frame, zero, o.sharpen, out);
+        bilinearPsnr[static_cast<size_t>(i)] = psnr(out, cf.truth);
+    });
+    const auto meanBilinear = [&](const ShotMask& want) {
+        double sum = 0.0;
+        int n = 0;
+        for (size_t i = 0; i < corpus.size(); ++i)
+            if (inMask(want, corpus[i].shot)) {
+                sum += bilinearPsnr[i];
+                ++n;
+            }
+        return n ? sum / n : 0.0;
+    };
+
     std::vector<FoldResult> folds(static_cast<size_t>(nFolds));
+    // The fold loop used to print NOTHING - the trainer's verbosity is off in
+    // here (tc.verbose below) and a fold's rows only appear in the table at the
+    // very end - so a progress bar driving off this tool's output went blank for
+    // minutes. One line per completed fold is a real fraction. The count is
+    // completion order, not the fold index: folds run in parallel, a bar wants a
+    // fraction rather than an identity, and this line is not a measurement.
+    std::atomic<int> foldsDone{0};
+    std::mutex foldPrint;
     // Folds are independent, so they run in parallel; each writes only its own
     // slot and trains its own net from its own sample vector.
     parallelFor(nFolds, o.threads, [&](int f) {
@@ -1772,8 +1897,7 @@ std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus
         r.blss = r.dzBlss[0];
         r.occ = r.dzOcc[0];
         r.flicker = fl;
-        r.bilinear = evalRecurrent(corpus, shots, test, o.sharpen, fixedMethod(Kernel::Bilinear),
-                                   "", nullptr, nullptr, &fl);
+        r.bilinear = meanBilinear(test);
         r.oracleBound = evalRecurrent(corpus, shots, test, o.sharpen, labelMethod(labels), "",
                                       nullptr, nullptr, &fl);
         r.native = nativePsnr(corpus, test);
@@ -1782,9 +1906,16 @@ std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus
         r.inBlss = evalRecurrent(corpus, shots, train, o.sharpen,
                                  netMethod(net, o.sharpen, o.deadzone), "", nullptr,
                                  nullptr, &fl);
-        r.inBilinear = evalRecurrent(corpus, shots, train, o.sharpen,
-                                     fixedMethod(Kernel::Bilinear), "", nullptr, nullptr, &fl);
+        r.inBilinear = meanBilinear(train);
+        {
+            const int k = foldsDone.fetch_add(1) + 1;
+            std::lock_guard<std::mutex> lk(foldPrint);
+            std::printf("[blss] fold %d of %d\n", k, nFolds);
+        }
     });
+    if (foldSeconds)
+        *foldSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - clock1)
+                            .count();
     return folds;
 }
 
@@ -1814,11 +1945,21 @@ int crossValidate(const CliOpts& o) {
     std::vector<uint32_t> seeds;
     std::vector<std::string> shotNames;
     int shots = 0;
+    // The same three-phase accounting --blss-train prints, for the same reason:
+    // which phase dominates moves with the frame count, the fold count and the
+    // core count, and nobody can check a speedup that is not reported.
+    const auto tStart = std::chrono::steady_clock::now();
+    const auto since = [](std::chrono::steady_clock::time_point t) {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+    };
+    double tCorpus = 0.0, tLabel = 0.0, tFolds = 0.0;
     for (int si = 0; si < o.cvSeeds; ++si) {
         CliOpts so = o;
         so.seed = cvSeedAt(o.seed, si);
         seeds.push_back(so.seed);
+        const auto tCorpus0 = std::chrono::steady_clock::now();
         std::vector<CorpusFrame> corpus = buildCorpus(so);
+        tCorpus += since(tCorpus0);
         if (corpus.empty()) {
             std::printf("blss: the corpus generator produced no frames\n");
             return 1;
@@ -1829,7 +1970,7 @@ int crossValidate(const CliOpts& o) {
         std::printf("blss: seed 0x%X - labelling %zu frames, then %d fold(s) over %d shot(s)\n",
                     so.seed, corpus.size(), o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots,
                     shots);
-        all.push_back(crossValidateOnce(corpus, shots, so, so.seed));
+        all.push_back(crossValidateOnce(corpus, shots, so, so.seed, &tLabel, &tFolds));
     }
     if (all.empty() || shots <= 0 || all[0].empty()) return 1;
     // Folds may be fewer than shots (--cv-folds): the rows of the table are the
@@ -1951,6 +2092,8 @@ int crossValidate(const CliOpts& o) {
                         d == 0 ? "  <-- this build" : "");
         }
     }
+    std::printf("\nblss: timing - corpus %.1f s, oracle %.1f s, folds %.1f s (%.1f s total)\n",
+                tCorpus, tLabel, tFolds, since(tStart));
     std::printf("\n");
     return 0;
 }
@@ -2353,14 +2496,41 @@ int evalMain(int argc, char** argv) {
     // report (which is the honest answer to "can it, with these features").
     if (o.cv) return crossValidate(o);
     if (o.featureStats) return featureReport(o);
+
+    // NET-FREE EVALUATION, AND IT IS THE FIRST THING THIS TOOL SHOULD BE ABLE TO
+    // DO. "Will this scene benefit at all" is answered by the ORACLE row - the
+    // best any per-tile weighting can reach under the exact GS composite - and
+    // no part of that number involves a trained network. The settings panel has
+    // told users to "run the Evaluate tab on your project BEFORE turning this
+    // on" since the day it shipped, and until now that was impossible: this
+    // function loaded blss.net first and bailed, so a fresh project could not
+    // perform its own documented first step.
+    //
+    // So: an explicit `-i` that cannot be opened is still an error (you asked
+    // for that net, it is not there). A DEFAULT blss.net that is not there is
+    // not - the table simply omits the trained row and everything else, verdict
+    // included, is unchanged.
     Net net;
     std::string err;
-    if (!load(net, o.netPath, &err)) {
+    bool haveNet = load(net, o.netPath, &err);
+    if (!haveNet && o.netGiven) {
         std::printf("blss: %s\n  (run --blss-train first)\n", err.c_str());
         return 1;
     }
+    if (!haveNet)
+        std::printf("blss: no %s - evaluating NET-FREE. The oracle row is the scene's own"
+                    " ceiling and\n      needs no network; train one and pass -i to see how"
+                    " much of it a net captures.\n",
+                    o.netPath.c_str());
+
+    const auto tStart = std::chrono::steady_clock::now();
+    const auto since = [](std::chrono::steady_clock::time_point t) {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+    };
     std::vector<CorpusFrame> corpus = buildCorpus(o);
     if (corpus.empty()) return 1;
+    const double tCorpus = since(tStart);
+    const auto tEval0 = std::chrono::steady_clock::now();
     const int shots = shotCountOf(corpus);
     if (!o.dumpDir.empty()) {
         std::error_code ec;
@@ -2372,18 +2542,18 @@ int evalMain(int argc, char** argv) {
         Method m;
         const char* dump;
     };
-    const std::vector<Row> rows = {
+    std::vector<Row> rows = {
         {"point", fixedMethod(Kernel::Point), "point"},
         {"bilinear", fixedMethod(Kernel::Bilinear), "bilinear"},
         {"temporal", fixedMethod(Kernel::Temporal), "temporal"},
         {"sharpen", fixedMethod(Kernel::Sharpen), "sharpen"},
-        {"BLSS (trained)", netMethod(net, o.sharpen, o.deadzone), "net"},
-        {"oracle (upper bound)",
-         [&o](const Frame& fr, const Image& truth, size_t) {
-             return oracle(fr, truth, o.sharpen, nullptr, o.obj);
-         },
-         "oracle"},
     };
+    if (haveNet) rows.push_back({"BLSS (trained)", netMethod(net, o.sharpen, o.deadzone), "net"});
+    rows.push_back({"oracle (upper bound)",
+                    [&o](const Frame& fr, const Image& truth, size_t) {
+                        return oracle(fr, truth, o.sharpen, nullptr, o.obj);
+                    },
+                    "oracle"});
 
     // Native = the scene rendered at full resolution, one sample. The honest
     // "no BLSS" reference, and NOT a ceiling: the ground truth is supersampled,
@@ -2431,6 +2601,18 @@ int evalMain(int argc, char** argv) {
         return n ? sum / n : 0.0;
     };
 
+    // What the verdict below is computed from. Frame-weighted over BOTH splits,
+    // because the two partition one corpus and neither half on its own is an
+    // answer about the scene - the same arithmetic as blssui::summarise(), which
+    // the window has been doing on the parsed table.
+    struct SplitSum {
+        int frames = 0;
+        double native = 0, bilinear = 0, net = 0, oracle = 0;
+        double netPasses = 0, oraclePasses = 0;
+        bool haveNet = false, haveOracle = false;
+    };
+    std::vector<SplitSum> splitSums;
+
     const ShotMask held = heldOutMask(shots), trained = complementMask(held);
     for (int pass = 0; pass < 2; ++pass) {
         const bool heldOut = pass == 0;
@@ -2465,22 +2647,120 @@ int evalMain(int argc, char** argv) {
         for (int s : ids) std::printf("%8.3f", ps[s]);
         std::printf("\n");
 
+        SplitSum sum;
+        sum.frames = frames;
+        sum.native = nat;
         for (const Row& r : rows) {
             Occupancy occ;
             const double p = evalRecurrent(corpus, shots, want, o.sharpen, r.m, o.dumpDir,
-                                           heldOut ? r.dump : nullptr, &ps, &fl, &occ);
+                                           heldOut ? r.dump : nullptr, &ps, &fl, &occ, o.threads);
             std::printf("  half-res + %-11s %8.3f %8.2f %6.1f%% %6.1f%% %6.1f%% %7.2f  ", r.name, p,
                         fl, occ.point * 100.0f, occ.temporal * 100.0f, occ.sharpen * 100.0f,
                         occ.passes);
             for (int s : ids) std::printf("%8.3f", ps[s]);
             std::printf("%s\n", std::strcmp(r.name, "BLSS (trained)") == 0 ? "   <-- the network"
                                                                            : "");
+            if (std::strcmp(r.name, "bilinear") == 0) sum.bilinear = p;
+            if (std::strcmp(r.name, "BLSS (trained)") == 0) {
+                sum.net = p;
+                sum.netPasses = occ.passes;
+                sum.haveNet = true;
+            }
+            if (std::strcmp(r.name, "oracle (upper bound)") == 0) {
+                sum.oracle = p;
+                sum.oraclePasses = occ.passes;
+                sum.haveOracle = true;
+            }
+        }
+        splitSums.push_back(sum);
+    }
+
+    // ------------------------------------------------------------- the verdict
+    // WILL THIS SCENE BENEFIT AT ALL - the answer this table has always
+    // contained and always buried in its last row. The ORACLE row is the scene's
+    // own ceiling: no network can beat the best per-tile weighting under the
+    // exact GS composite, so a ceiling near zero is a fact about the content that
+    // no amount of training moves.
+    {
+        double w = 0, bil = 0, netP = 0, orc = 0, nat = 0, netPas = 0, orcPas = 0;
+        int frames = 0;
+        bool anyNet = false, anyOracle = false;
+        for (const SplitSum& s : splitSums) {
+            if (!s.haveOracle) continue;
+            const double sw = s.frames > 0 ? static_cast<double>(s.frames) : 1.0;
+            bil += sw * s.bilinear;
+            orc += sw * s.oracle;
+            nat += sw * s.native;
+            orcPas += sw * s.oraclePasses;
+            if (s.haveNet) {
+                netP += sw * s.net;
+                netPas += sw * s.netPasses;
+                anyNet = true;
+            }
+            anyOracle = true;
+            frames += s.frames;
+            w += sw;
+        }
+        if (anyOracle && w > 0.0) {
+            bil /= w;
+            orc /= w;
+            nat /= w;
+            orcPas /= w;
+            netP /= w;
+            netPas /= w;
+            const double ceiling = orc - bil, margin = netP - bil;
+            // Matches blssui's kNoHeadroomDb, and the wording matches the
+            // window's three branches, because there must be exactly one answer
+            // to "will this scene benefit" however you asked the question.
+            constexpr double kNoHeadroomDb = 0.10;
+            std::printf("\n  THE ANSWER - frame-weighted over both splits, %d frame(s)\n", frames);
+            if (ceiling < kNoHeadroomDb) {
+                std::printf("  THIS SCENE WILL NOT BENEFIT. Leave the upscaler off.\n");
+                std::printf("  The ORACLE - the best any per-tile weighting can do under the exact"
+                            " GS composite,\n  which no network can beat - scores %+.2f dB over"
+                            " plain bilinear here, at %.2f passes.\n"
+                            "  There is nothing to reconstruct: a half-resolution render of this"
+                            " content, blown up\n  bilinearly, is already as close to the"
+                            " supersampled truth as the composite can get.\n"
+                            "  That is a fact about the scene, and no amount of training moves"
+                            " it.\n",
+                            ceiling, orcPas);
+            } else if (anyNet && margin < 0.0) {
+                std::printf("  THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT: %+.2f dB.\n",
+                            margin);
+                std::printf("  It costs %.2f passes to score below the one pass plain bilinear"
+                            " costs. The scene\n  itself has room - the oracle reaches %+.2f dB -"
+                            " so this is the NET, not the content.\n",
+                            netPas, ceiling);
+            } else if (anyNet) {
+                std::printf("  %+.2f dB over plain bilinear, at %.2f passes.\n", margin, netPas);
+                std::printf("  The scene's own ceiling is %+.2f dB at %.2f passes (the oracle), so"
+                            " the network has\n  captured %.0f%% of what is there to capture."
+                            " 1.00 passes IS plain bilinear and 5.00\n  is every kernel everywhere,"
+                            " so read the two together.\n",
+                            ceiling, orcPas, ceiling > 0.0 ? 100.0 * margin / ceiling : 0.0);
+            } else {
+                std::printf("  THIS SCENE HAS ROOM: the oracle reaches %+.2f dB over plain"
+                            " bilinear, at %.2f passes.\n", ceiling, orcPas);
+                std::printf("  That is the CEILING, not a promise - it is what the best per-tile"
+                            " weighting can do\n  under the exact GS composite. Train a net on this"
+                            " corpus and re-run with -i to find\n  out how much of it a network"
+                            " actually captures.\n");
+            }
+            // ONE LINE, ALWAYS, PARSED WITHOUT HEURISTICS. Every field exists
+            // net-free, which is the point: headroom is the oracle's margin over
+            // bilinear and `passes` is what the oracle pays for it, so a caller
+            // can decide whether to bother training before any net exists.
+            std::printf("[blss] verdict headroom=%+.3f passes=%.2f bilinear=%.3f oracle=%.3f"
+                        " native=%.3f\n",
+                        ceiling, orcPas, bil, orc, nat);
         }
     }
 
     // What the network actually decided, as a picture: one pixel per tile,
-    // R = point, G = temporal, B = sharpen.
-    if (!o.dumpDir.empty()) {
+    // R = point, G = temporal, B = sharpen. Net-free there is no decision to
+    // draw, and the Compare tab simply has one image fewer.
+    if (!o.dumpDir.empty() && haveNet) {
         for (const CorpusFrame& cf : corpus)
             if (isHeldOut(cf.shot, shots)) {
                 const WeightField nf = netField(net, cf.frame, o.sharpen, o.deadzone);
@@ -2496,8 +2776,15 @@ int evalMain(int argc, char** argv) {
                 writePng(vis, o.dumpDir + "/blss-net-weights.png");
                 break;
             }
-        std::printf("\n  wrote comparison PNGs to %s\n", o.dumpDir.c_str());
     }
+    if (!o.dumpDir.empty()) std::printf("\n  wrote comparison PNGs to %s\n", o.dumpDir.c_str());
+    // The two phases, named, the way --blss-train reports its three. It is how
+    // anyone checks that the evaluation loop got faster, and which half to look
+    // at when it did not: the corpus render is threaded, and so, now, is the
+    // per-method evaluation (over shot runs - see evalRecurrent).
+    const double tEval = since(tEval0), tTotal = since(tStart);
+    std::printf("blss: timing - corpus %.1f s, eval %.1f s (%.1f s total)\n", tCorpus, tEval,
+                tTotal);
     std::printf("\n");
     return 0;
 }

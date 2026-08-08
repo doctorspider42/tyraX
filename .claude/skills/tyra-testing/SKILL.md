@@ -168,10 +168,11 @@ TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
 TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
 ```
 
-**Verify a change to either parallel phase with `--threads`, not by reading the
-code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render
-and the oracle, and it is a wall-clock knob and nothing else: the same `--seed`
-must write a byte-identical `blss.net` at any thread count. So the check is two
+**Verify a change to any parallel phase with `--threads`, not by reading the
+code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render,
+the oracle and `--blss-eval`'s per-method loop, and it is a wall-clock knob and
+nothing else: the same `--seed` must write a byte-identical `blss.net` **and a
+character-identical eval table** at any thread count. So the check is two
 runs and `md5sum` —
 
 ```bash
@@ -188,13 +189,21 @@ its `blss.net` matches too. Every measured table in `docs/neural-upscaler.md`
 came off a seeded run, so a thread-dependent result would silently unmake all of
 them. On 6 cores that run is ~68 s at `--threads 1` and ~18 s at auto; use
 `--frames 78 --epochs 200` for a faster smoke check (still deterministic, just a
-different net). `--blss-train` ends with `blss: timing - corpus X, oracle Y,
-fit Z`, and the per-shot corpus lines report **cpu ms, not wall ms** — summing
-them will not give you the wall clock of a threaded run.
+different net). **All three verbs end with a `blss: timing` phase line** —
+`corpus X, oracle Y, fit Z` for `--blss-train`, `corpus X, eval Y` for
+`--blss-eval`, `corpus X, oracle Y, folds Z` for `--cv` — and the per-shot corpus
+lines report **cpu ms, not wall ms**: summing them will not give you the wall
+clock of a threaded run.
 
 `--blss-eval <projectDir>` is also the "should this project have the feature on
 at all" check: the **oracle** row is the scene's ceiling, and on some scenes it
-is +0.00 dB. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
+is +0.00 dB. **It needs no trained net for that** — with no `-i` and no
+`blss.net` to find it runs net-free, drops the `BLSS (trained)` row and still
+prints the verdict, exit 0. (So `-i` IS required when you are checking twin
+parity, which is a claim about that row.) Two lines are printed for a caller
+rather than a reader: `[blss] verdict headroom=… passes=… bilinear=… oracle=…
+native=…` from every `--blss-eval`, and `[blss] fold k of n` from `--cv` as each
+fold lands. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
 
 VU1 microprogram work has its own layer, faster than everything below
 (`docs/vu-framework.md`):

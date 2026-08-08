@@ -721,19 +721,47 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 // per VU1 package - see CorpusConfig::packageSplit. It exists to reproduce the
 // fold tables measured before the split, not to ship.
 //
-// `--threads N` (0 = every core) bounds the two parallel phases: the corpus
-// renderer and the oracle. IT MOVES THE WALL CLOCK AND NOTHING ELSE - both hand
-// item i to a fixed worker that may touch only item i - and `--threads 1`
-// against `--threads N` producing byte-identical blss.net files is how that is
+// `--threads N` (0 = every core) bounds the parallel phases: the corpus
+// renderer, the oracle, and --blss-eval's per-method evaluation loop. IT MOVES
+// THE WALL CLOCK AND NOTHING ELSE - each hands item i to a fixed worker that may
+// touch only item i - and `--threads 1` against `--threads N` producing
+// byte-identical blss.net files and character-identical tables is how that is
 // checked rather than believed. The FIT is sequential SGD and ignores it, which
-// is why --blss-train now prints its three phases separately: on a project
+// is why --blss-train prints its three phases separately: on a project
 // corpus at the shipped defaults the fit is the largest of the three.
+// --blss-eval and --cv print the same kind of line, because that is how anyone
+// checks a claim that one of them got faster.
 //
 // --blss-train [<projectDir>] [-o blss.net] [--frames N] [--epochs N]
 //              [--weight-decay W] [--dump <dir>] [--all-shots] [--threads N]
 int trainMain(int argc, char** argv);
 // --blss-eval [<projectDir>] [-i blss.net] [--frames N] [--dump <dir>]
 //             [--deadzone A] [--deadzone-sweep a,b,c]
+//
+// `-i` IS OPTIONAL, AND THAT IS THE POINT OF THIS VERB. The row that answers
+// "should this project have the upscaler on at all" is the ORACLE row - the best
+// any per-tile weighting can reach under the exact GS composite - and no part of
+// it involves a trained network. This entry point used to load blss.net FIRST
+// and bail with "cannot open blss.net", which made the first step the settings
+// panel prescribes ("evaluate your project before turning this on") impossible
+// to perform on a fresh project. Now a missing DEFAULT net drops the
+// `half-res + BLSS (trained)` row and nothing else; only an EXPLICIT `-i` that
+// cannot be opened is an error.
+//
+// Two lines exist for a caller rather than a reader, and both are printed
+// unconditionally so nothing has to be inferred from the table's shape:
+//
+//   [blss] verdict headroom=<dB> passes=<f> bilinear=<dB> oracle=<dB> native=<dB>
+//       Every --blss-eval, net or not. `headroom` is the oracle's margin over
+//       plain bilinear - the scene's CEILING, under +0.10 dB meaning there is
+//       nothing to reconstruct - and `passes` is what the oracle pays for it.
+//       Frame-weighted over both splits, the same arithmetic blssui::summarise()
+//       does on the parsed table.
+//   [blss] fold <k> of <n>
+//       --cv only, as each fold finishes (completion order - folds run in
+//       parallel). The fold loop turns the trainer's verbosity off and otherwise
+//       prints nothing until the table at the end, so a progress bar driven off
+//       this tool used to go blank for minutes.
 //
 // `--deadzone A` overrides kDeadzoneAlpha for the run, and `--deadzone-sweep`
 // measures a whole list of them inside ONE --cv run. Both are cheap because the

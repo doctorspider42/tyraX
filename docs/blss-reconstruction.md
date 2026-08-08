@@ -20,6 +20,19 @@ the usual ~0.7 dB (24.49 against 25.19 on the shipped held-out split; it was
 a different question; for parity, the plain run is the one to watch, because the
 gap to the oracle is the quantity that moves when the twins drift.)
 
+**Pass `-i <net>` when you are checking parity.** `--blss-eval` runs *net-free*
+when there is no `blss.net` to load — it prints the oracle row and every fixed
+kernel, which is what answers "does this scene have anything to reconstruct", and
+omits the `half-res + BLSS (trained)` row entirely. That row is the one this page
+is a contract about, so a parity check without it silently measures nothing. See
+[the trainer section](neural-upscaler.md#training).
+
+The evaluation is threaded over shot runs and its numbers are **bit-exact at any
+thread count** — the workers produce per-frame values and the sums are folded in
+afterwards in corpus order. If a table ever moves with `--threads`, that is a
+real bug in this file, not a rounding artefact, and it invalidates every parity
+reading taken since.
+
 **What is NOT part of this contract: the oracle's objective.** The three terms it
 minimises (accuracy, `--flicker-weight`, `--fill-weight`) live entirely in
 `blss::oracle()`, which has no engine counterpart — the console only ever
