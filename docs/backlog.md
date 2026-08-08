@@ -423,6 +423,61 @@ the verification, and any fact worth reusing belongs in the relevant
     model the jittered sampler, so a net trained today and run with the jitter
     off is being run out of distribution - the flag has to reach the trainer
     before jitter-off is a supported configuration rather than an escape hatch.
+
+    **Re-confirmed independently on `examples/upscaler-lab`'s fixture** (a
+    static scene, frozen camera, no particles, no animation, sampled at an ODD
+    0.34 s = 17-frame stride): BLSS off gives mean lag-1 **0.018 %** / max
+    0.052 %; BLSS on gives mean lag-1 **1.443 %** / max **1.755 %**, and the
+    picture takes only those two values - when the sampling phase aligns, lag-1
+    drops to 0.05 % and lag-2 rises to 1.75 %, the two states swapping roles.
+    That is a clean period-2 alternation at ~33x the still-picture floor. Note
+    this scene's project-trained net puts **72-78 % of its weight on the
+    temporal pass** (and 0 % on point and sharpen), i.e. the accumulator that is
+    supposed to fuse the two phases is doing most of the work here - and it
+    bobs anyway, so "the fill term culled temporal" is not the whole story.
+  - **BLOCKER, found by `examples/upscaler-lab`: with BLSS on, every TEXTURED
+    primitive and the textured terrain disappear.** Reproduced in a minimal
+    control (a fresh `--new` fpp project, one plain-coloured box, one box with a
+    `map_Kd` material, terrain with and without a terrain material): plain box
+    draws, textured box gone, textured terrain gone, untextured terrain draws,
+    textured *models* (`.tmdl`/`.tskl`) draw. BLSS off, all of it draws.
+    Independent of `textureQuant` (`4bit` and `none` both fail), of static
+    batching, of baked AO, of fog and of `blssTemporal`. `VRAMSTAT` shows the
+    textures resident and bound thousands of times a frame with `evict=0`, so
+    the pass IS submitted and its texture IS bound and nothing reaches the
+    low-res target - which is what the GS alpha test rejecting every fragment
+    looks like (StaPip draws with the "pass only when alpha != 0" cutout rule,
+    and the composite is a PATH3 pass; see the GS post-fx rule about restoring
+    ALPHA/TEST/TEX1/XYOFFSET). Until this is fixed BLSS cannot be enabled on any
+    project with a textured floor, which is most of them, and no fill A/B on
+    real content means anything. `examples/upscaler-lab` is the fixture and its
+    README carries the table.
+  - **The corpus cannot see the fill.** `blssscene` walks primitives, static
+    `.obj` and terrain chunks only (`blssscene.cpp:216-231`), and on the console
+    particle bags contribute no BLSS proxy at all - `stapip_core.cpp:282-286`
+    gives them no bbox, so the sphere fallback has radius 0 and is rejected. On
+    a scene whose overdraw IS particles (the case the feature exists for) the
+    net is therefore fitted on the static half and run on a frame dominated by
+    haze it has never seen. Either give billboard bags a proxy box, or say in
+    the docs that particle fill is out of distribution.
+  - **`TPL_RES_GITIGNORE` only reaches one directory level.** The baked-model
+    rules are `/models/*.tmdl` / `*.tskl` / `*.tanm`, so a project that keeps a
+    model in a SUBFOLDER of `res/models/` (which the Asset Browser encourages,
+    and which a multi-file Wavefront asset with its own `.mtl` and texture
+    practically requires) commits its bake. Found on
+    `examples/upscaler-lab`: `res/models/cottage/Cottage_FREE__ovrb564.tmdl`,
+    411 KB of derived data, would have gone in. The example carries a local
+    top-up; the template and the append-if-missing block in `refreshGenerated`
+    want `/models/**/*.tmdl` instead.
+  - **A `fog` emitter's `opacity` is silently dropped on save.**
+    `project.cpp:690` serialises the custom physics block - `speed`, `spread`,
+    `gravity`, `weight`, `life`, `grow`, **`opacity`**, `dieOnGround` - only for
+    `kind == "custom"` (5), but the READER at `:3661-3692` accepts `opacity` for
+    every kind and `templates.cpp:7876` uses it for `kind == 2` (fog) as the
+    density knob. So a fog emitter's opacity can be authored, is used by the
+    game, and does not survive a round trip. Either serialise `opacity` for fog
+    too or stop reading it there; the emitter panel is the third place to keep
+    in step.
   - **Bake a per-material UV-repeat constant.** `texDetail` is the texel-density
     proxy, and the engine can only supply `texW * texH` (`stapip_core.cpp`): it
     does not know how many times a material tiles over a surface. The corpus can,

@@ -1,0 +1,73 @@
+THIRD-PARTY NOTICES
+===================
+
+This game is built with TyraX and runs on the Tyra engine. You may release it
+commercially and you may keep your source code closed - nothing here is a
+copyleft license, and none of it requires you to publish anything you wrote.
+
+What IS required is attribution: ship this file with your game (next to the ELF,
+in the package, or reproduced in an in-game credits screen - any of those works)
+and keep the notices below intact. That is the whole obligation.
+
+
+Tyra engine - Apache License 2.0
+--------------------------------
+Copyright Sandro Sobczynski (h4570) and the Tyra contributors.
+https://github.com/h4570/tyra
+
+This game links the Tyra engine, used under the Apache License 2.0. A copy of
+the license is at http://www.apache.org/licenses/LICENSE-2.0 and in the TyraX
+repository at vendor/tyra/LICENSE. The engine as shipped by TyraX is a modified
+fork; the modifications are marked "Modified by TyraX" in its sources.
+
+
+PS2SDK - Academic Free License v2.0
+-----------------------------------
+Copyright the ps2dev project contributors.
+https://github.com/ps2dev/ps2sdk
+
+This game links PS2SDK, used under the Academic Free License version 2.0
+(https://opensource.org/license/afl-2-0-php). If your project enables positional
+audio, it also includes a build of the PS2SDK audsrv module modified to support
+L/R panning.
+
+
+TyraX (the editor and its code templates)
+-----------------------------------------
+Copyright 2026 doctorspider42.
+https://github.com/doctorspider42/tyra-editor
+
+The generated C++ in this project came from TyraX's templates. TyraX grants
+those generated files to you with NO conditions attached - no attribution, no
+license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
+section is a courtesy credit, and you may delete it.
+
+
+Scene assets used by this example
+---------------------------------
+This example ships three third-party art assets. They are the example's content,
+not part of TyraX, and their terms are their authors'.
+
+  res/models/cottage/Cottage_FREE.obj
+  res/models/cottage/Cottage_FREE.mtl
+  res/models/cottage/Cottage_Clean_Base_Color512.png
+      "Cottage FREE", a free low-poly cottage distributed with its own licence
+      document (README.pdf in the original download). The .obj and .mtl are the
+      author's files; TyraX's only edit to the .mtl is the added map_Kd line and
+      Kd 1 1 1, both marked in the file itself. The PNG is the author's
+      Cottage_Clean base colour map downsampled to 512x512 for the PS2's texture
+      budget. REDISTRIBUTION TERMS NOT VERIFIED - the accompanying licence was
+      not machine-readable at the time this example was written. Before shipping
+      anything built from this example, read the original README.pdf and satisfy
+      yourself that redistribution is permitted, or replace the asset.
+
+  res/models/spider.fbx
+      A free rigged and animated spider (four clips: alert, default, stand,
+      walk). Same caveat: its terms were not verified here.
+
+Assets generated for this example
+---------------------------------
+  res/materials/gravel.png    256x256 cobblestone, generated procedurally
+  res/materials/puff.png      128x128 soft haze billboard, generated procedurally
+      Authored for this example (a deterministic Worley/value-noise generator),
+      not sourced from anywhere. No third-party terms apply to either.

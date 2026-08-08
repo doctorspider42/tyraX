@@ -1,0 +1,1 @@
+{ "id": "ulab-rain", "name": "rain", "type": "emitter", "position": [0, 14, 0], "rotation": [0, 0, 0], "scale": [24, 1, 24], "color": [0.62, 0.7, 0.85], "physics": false, "collision": "none", "emitter": { "kind": "rain", "count": 200, "size": 0.9, "enabled": true, "followPlayer": true } }
