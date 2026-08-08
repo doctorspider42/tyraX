@@ -24,7 +24,7 @@ the verification, and any fact worth reusing belongs in the relevant
 
 - **Neural upscaler (BLSS) follow-ups** (docs/neural-upscaler.md,
   docs/blss-reconstruction.md). The proof of concept shipped: half-res 3D
-  render, sub-pixel `XYOFFSET` jitter, an 8-12-3 MLP trained on the host and
+  render, sub-pixel `XYOFFSET` jitter, a 6-12-3 MLP trained on the host and
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
@@ -163,9 +163,9 @@ the verification, and any fact worth reusing belongs in the relevant
     **0.01 dB**. A single held-out split was a sample of size one, and this
     feature quoted one FIVE times.
 
-    The honest number is **+0.40 dB over plain bilinear** out of distribution
-    (13 shots x 3 seeds = 39 fold-runs, 5 below bilinear, 2.85 mean passes), or
-    **+0.23 dB** over the six shots that took no part in choosing the defaults.
+    The honest number is **+0.42 dB over plain bilinear** out of distribution
+    (13 shots x 3 seeds = 39 fold-runs, 3 below bilinear, 1.80 mean passes), or
+    **+0.26 dB** over the six shots that took no part in choosing the defaults.
     So the careful-sounding retraction "about parity, ~+0.1 dB" UNDERSTATED the
     feature. Two things had to be re-swept as a result: `kFillWeight`'s "sharp
     knee at 6" does not exist (12..24 is a plateau; it ships at **16**), and
@@ -174,14 +174,15 @@ the verification, and any fact worth reusing belongs in the relevant
     it ships at zero. The corpus grew from 7 shots to **13** in the same pass,
     with shots 0..6 rendering bit-identically so the before/after is a comparison.
 
-    The cleanest illustration, and worth keeping: at today's defaults the shipped
-    2-of-13 split reads **-0.02 dB** while the 13-fold mean reads **+0.40**,
-    because that split contains `corridor` - the one shot the net loses on.
+    The cleanest illustration, and worth keeping: when this was written the
+    shipped 2-of-13 split read **-0.02 dB** while the 13-fold mean read **+0.40**,
+    because that split contains `corridor` - the shot the net loses on. (It reads
+    +0.17 against +0.42 today; same lesson, smaller gap, no more trustworthy.)
 
-    **Still open from this item:** the network loses on `corridor` (-0.52 dB)
+    **Still open from this item:** the network loses on `corridor` (-0.15 dB)
     because `depth` is a clamped 1/w against `kDepthRef = 8` that spends the shot
-    pinned at 1.0, and `--blss-eval --features` says 58.8% of ALL corpus tiles
-    read it at exactly 1.0 (`depthGrad` 61.6%, `coverage` 71.7%). A saturated
+    pinned at 1.0, and `--blss-eval --features` says 58.6% of ALL corpus tiles
+    read it at exactly 1.0 (`depthGrad` 61.5%, `coverage` 71.9%). A saturated
     feature is a feature the network does not have. A log or reciprocal mapping
     is a `buildFeatures()` change on BOTH twins, i.e. a contract change. Also
     measured and worth not repeating: **input standardisation fitted the training
@@ -217,10 +218,70 @@ the verification, and any fact worth reusing belongs in the relevant
     now leaves half a megabyte MORE texture VRAM than BLSS off, which is exactly
     the 768 KB returned minus the 256 KB target. **Measured in that display mode
     and no other.**
-  - **Train on the project, not on the procedural corpus.** `--blss-train
-    <projectDir>` is the shape; `src/blsscorpus.cpp` is already structured so
-    the scene source is swappable, and the features come from `BagProxy` lists
-    that a real scene walk can produce as easily as the rasteriser does.
+  - **DONE, AND IT IS THE DIFFERENCE BETWEEN HELPING AND HURTING: train on the
+    project.** `--blss-train <projectDir>` / `--blss-eval <projectDir>` build the
+    corpus from the project's own scenes - `src/blssscene.cpp` walks primitives,
+    static .obj and terrain chunks (the three sources `gibake::build()` uses)
+    into world-space triangles, with six camera moves per scene derived from the
+    bounds and the player start, plus any authored Cutscene Director track.
+    Animated .glb is skipped BECAUSE it goes down the dynamic pipeline, which
+    does not feed BLSS at all.
+
+    Measured on `examples/procedural`, 72 frames, both nets fitted `--all-shots`:
+    the **bestiary-trained net scores -0.40 dB, i.e. WORSE THAN DOING NOTHING**,
+    at 1.72 passes; a project-trained one scores +0.06 dB at 1.19; the oracle
+    bounds it at +0.77 / 1.20. The mechanism is out-of-range inputs, not
+    over-fitting: `texDetail` is identically zero over that untextured project
+    and is the bestiary's channel most correlated with the temporal weight, so
+    the bestiary net asks for 62-93% temporal occupancy where the oracle asks
+    7-30%. So: **fit the project with `--all-shots` and ship that net**, and do
+    NOT quote a project corpus' held-out decibel - leave-one-shot-out over six
+    camera moves of one scene reads -0.17 dB, 9 of 18 fold-runs below bilinear.
+    Some projects have nothing to win: on `examples/showcase` the ORACLE itself
+    scores +0.00 dB, which `--blss-eval <projectDir>` is now how you find out.
+
+    **Still open from this item:** the *Tools > Neural Upscaler (BLSS)* window's
+    Train tab does not take a project directory - it always trains on the
+    bestiary, i.e. on the configuration nobody should ship. It also hard-codes
+    13 shots in its progress heuristic, which a six-move project corpus is not.
+  - **DONE: describe the frame to the network instead of handing it a constant,
+    and keep the instrument this time.** `StaPipCore` was handing BLSS the bag's
+    bounding SPHERE, once per bag: `wNear = w - radius` collapses to the near
+    clamp, so a generated game's whole frame was TWO proxies and every tile read
+    `depth = 1 depthGrad = 1 coverage = 1`. Fixed on both twins - an object-space
+    AABB near-clipped along its twelve edges (`addBagBox()` <-> the corpus'
+    `bagOf()`), one proxy per VU1 package instead of one per bag, a
+    threshold-free rule dropping a box that straddles the eye and still fills the
+    frame, and `PipelineInfoBag::blssProxy` so codegen can opt the sky dome, star
+    field and sun/moon discs out entirely (a shell's AABB describes nothing and
+    only the submitter knows it is a shell). Console, debug view 2, before ->
+    after: 2 -> 41 proxies, 196/196 -> 159/196 tiles covered, 5.00 -> 1.96 passes.
+
+    The instrument is the durable half and it is PERMANENT now: engine debug view
+    2 logs `BLSSGRID`/`BLSSWORST`/`BLSSFEAT`/`BLSSOUT`/`BLSSFILL` to the game's
+    `bin/log.txt`, and `--blss-eval --probe "<BLSSFEAT line>"` places that vector
+    inside the corpus distribution. An earlier round added exactly this, read it
+    once and DELETED it - after which the net was fitted to one distribution and
+    run on another for eleven commits with nobody able to compare them.
+
+    **Still open from this item:** the editor's Debug view combo offers only 0
+    and 1, so reaching view 2 means hand-editing `"blssDebugView": 2` into the
+    `.tyra`; and the sky-dome opt-out has never been booted (the session that
+    wrote it lost its compositor), so it is verified at compile level only.
+  - **DONE: two input channels measured and deleted.** `histAge` (the recurrent
+    one) was letting the net memorise "this shot has been still a while" - it hurt
+    most on the shot with the HIGHEST histAge - and taking it out removed the
+    whole recurrent path, including the twin contract's most drift-prone rule.
+    `luma` was a channel the EE CANNOT produce: `stapip_core` can only fill it
+    from `color->single`, so every per-vertex-lit mesh read a constant 0.5 while
+    the corpus spread it over 0..0.48 - fitted on a feature, run on a constant,
+    and the constant was OUT of the corpus' range. `kFeatures` 8 -> 6, 147 -> 123
+    weights, `kNetVersion` 3. Both were settled by `--cv --cv-seeds 3
+    --drop-feature <name>` **against `edgeDens` as a CONTROL**, which is the only
+    thing that makes a 0.02-0.03 dB difference mean anything; tables in
+    `src/blss.hpp` and docs/neural-upscaler.md. If a photometric channel is ever
+    wanted back, the honest form is an EDITOR BAKE into the bag, not a run-time
+    sample.
   - **Bake a per-material UV-repeat constant.** `texDetail` is the texel-density
     proxy, and the engine can only supply `texW * texH` (`stapip_core.cpp`): it
     does not know how many times a material tiles over a surface. The corpus can,

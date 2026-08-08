@@ -45,7 +45,12 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
    `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
    by every project built from the same checkout — parallel worktrees get their
-   own, or they would rsync diverging engines over each other forever.
+   own, or they would rsync diverging engines over each other forever. Because
+   it is shared it is declared **`external: true`** in the generated
+   `docker-compose.yml` and created by the Runner (`docker volume create`,
+   idempotent) rather than by compose: a volume compose creates is labelled with
+   whichever project got there first, and every other project then warns on
+   every `up` that it "already exists but was created for project X".
 3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
    it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
@@ -72,7 +77,12 @@ again from source.
 game, so an edit there moves both. TyraX changes in it: single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+`src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
+programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
+by the container's g++, and handing them to the PS2 compiler fails on the very
+first include. A new host-code directory has to be added to that `find`
+exclusion or its first file breaks every build that has one. Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 
@@ -343,7 +353,7 @@ a machine that does not exist. `tyrax-editor --blss-eval` is the regression test
 (a parity break shows as the trained row falling well below the oracle row).
 Change one side, change the doc and the other side.
 
-Six things here that were paid for, and that any edit must keep:
+Eight things here that were paid for, and that any edit must keep:
 
 - **The raster redirect is EXPLICIT STATE on `RendererCoreGS`, not a private
   trick.** `RasterTarget` (frame address, `FBW`, scissor rect, `XYOFFSET` in
@@ -403,6 +413,44 @@ Six things here that were paid for, and that any edit must keep:
 - **The history is `frameBuffers[1 - context]`** — the previously presented frame,
   full resolution, free. That needed a new accessor on `RendererCoreGS` (the
   stock one returns the buffer being drawn INTO).
+- **How a bag is DESCRIBED to the network, which was wrong for eleven commits and
+  is the most expensive mistake in this feature's history.** `StaPipCore` used to
+  hand BLSS the bag's bounding SPHERE, once per bag. For a floor or a terrain mesh
+  that is grotesque — `wNear = w − radius` collapses to the near clamp and the
+  screen box covers the frame — so **every tile read `depth = 1`, `depthGrad = 1`,
+  `coverage = 1`**, i.e. the network was handed a constant and a generated game's
+  entire frame was described by TWO proxies. Four rules replaced it, and every one
+  of them is TWINNED with `blsscorpus.cpp` (`bagOf()`, `kProxyVerts = 24`):
+  `addBagBox()` projects an object-space AABB through the MVP and near-clips it
+  along its **twelve edges** (clip space is affine in the box's parametric
+  coordinates, so eight corners cost one matrix-vector product plus three scaled
+  columns); `StaPipCore` submits **one box per VU1 package** from the
+  `StaPipBagPackagesBBox` it already caches for frustum classification, capped at
+  `kMaxProxiesPerBag = 32` with consecutive parts merged above that (merging can
+  only enlarge a box, so the worst case degrades toward the old whole-bag proxy);
+  a box that **straddles the eye AND still fills the frame after clipping is
+  dropped**, threshold-free, because its bbox is the frame by construction and its
+  `wNear` is the clip constant; and a bag may opt out entirely via
+  **`PipelineInfoBag::blssProxy`**, which codegen clears for the sky dome, the star
+  field and the sun/moon discs — the straddle rule cannot catch a dome CAP, and
+  only the submitter knows a mesh is a shell. `addBagSphere()` survives as the
+  fallback for a bag with no package bbox. Measured on a booted `fpp` fixture,
+  debug view 2, before → after: **2 → 41 proxies, 196/196 → 159/196 tiles covered,
+  `depth` 1/1/1 → 0/.737/1, and 5.00 → 1.96 mean passes.**
+- **The instrument is PERMANENT, and deleting it is how this went unseen.**
+  `logFeatureSpread()` under `blssDebugView = 2` logs one group a second into the
+  game's `bin/log.txt`: `BLSSGRID` (tile/proxy counts), **`BLSSWORST`** (the widest
+  single proxy — the line that named the sky dome in one shot), `BLSSFEAT` and
+  `BLSSOUT` (min/mean/max per channel and per output) and `BLSSFILL` (occupancy
+  through `emitGrid`'s own four-corner rule). Channel names and order are EXACTLY
+  `blss::kFeatureNames`, because the host half is
+  `tyrax-editor --blss-eval --probe "<BLSSFEAT line>"`, which places that vector
+  inside the corpus distribution. A previous round added this measurement, read it
+  once and removed it — after which the network was fitted to one distribution and
+  run on another with nobody able to compare them. Two gotchas: it is inside
+  `#ifndef NDEBUG` (so a `make release` build has no `TYRA_LOG`), and the editor's
+  Debug view combo only offers 0 and 1, so reaching view 2 means editing
+  `"blssDebugView": 2` into the `.tyra` by hand.
 - **The composite writes GS state the engine never wrote before**: `TEXA`
   (for the per-vertex-alpha trick: `TFX=MODULATE` + `TCC=0` + vertex RGB pinned
   to 128 makes RGB the untouched texel and A the vertex alpha) and **`COLCLAMP`**
@@ -426,13 +474,15 @@ Six things here that were paid for, and that any edit must keep:
   quantised byte), and `--blss-eval` reports occupancy through the same rule — so
   changing when a cell is skipped changes what the network was trained to want,
   even though the objective itself has no engine counterpart. Measured on the
-  shipped net: mean **2.90 full-screen passes on held-out shots and 2.91 in
+  shipped net: mean **1.87 full-screen passes on held-out shots and 1.67 in
   distribution**, against 1.00 for plain bilinear and 5.00 for the worst case,
-  while the oracle reaches a *better* PSNR at 1.36–1.56 — so about half the
-  remaining fill is the network failing to generalise the cost model. Occupancy
-  is noisy (sd 0.61 over 39 cross-validation fold-runs, one fold at 4.33), and
-  these are **fill counts, not timings; no BLSS frame has ever been profiled**,
-  in PCSX2 or on hardware.
+  while the oracle reaches a *better* PSNR at 1.36 — so about half a pass of the
+  remaining fill is the network failing to generalise the cost model. At the
+  shipped inference deadzone the point and sharpen passes are culled COMPLETELY
+  (0 %) and only temporal is drawn over most of the screen. Occupancy is noisy
+  (sd 0.30 over 39 cross-validation fold-runs, one fold at 2.12), and these are
+  **fill counts, not timings; no BLSS frame has ever been profiled**, in PCSX2 or
+  on hardware.
 
 Incompatible with **depth of field, portals and split view** — all three read or
 write real GS depth at display resolution, which since the z shrink is not merely
@@ -454,8 +504,12 @@ upscaler must not spoil.
 (leave-one-shot-out cross-validation), never a plain `--blss-eval`'s held-out
 columns. A single split is a sample of size one, this feature quoted one five
 times, and the ±0.4 dB it blamed on the training seed was **which shot got held
-out** (per-seed fold-mean sd: 0.01 dB). The current answer is **+0.40 dB over
-plain bilinear**, 39 fold-runs, 5 of them below bilinear.
+out** (per-seed fold-mean sd: 0.04 dB against 0.35 fold to fold). The current
+answer on the built-in corpus is **+0.42 dB over plain bilinear**, 39 fold-runs,
+3 of them below bilinear, 1.80 mean passes. **That net is not the one to ship into
+a game**: on a real project's own scenes a bestiary-trained net measures −0.40 dB,
+i.e. worse than doing nothing, because the channels its temporal gate leans on are
+out of range there. `--blss-train <projectDir>` fits the project instead.
 
 ## Before you hand-edit a `.vclpp`: run it on the host first
 
@@ -481,11 +535,15 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
   registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
   is not authoritatively simulated).
-- The five `as_is` programs also have C++ descriptions that generate them; a
+- **All fifteen StaPip programs** (five `as_is` + five `cull` + the five
+  Sutherland-Hodgman `clip`) also have C++ descriptions that generate them; a
   generated program is proven **bit-identical** to the handwritten one by
-  simulating both on randomized input. If you change one of those five by hand,
-  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
-  the two have genuinely diverged and you should say which is right.
+  simulating both on randomized input, and each emits the same instruction COUNT
+  as its handwritten file. If you change one of those fifteen by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
+  two have genuinely diverged and you should say which is right. (Only the
+  `as_is` five are *adopted* so far: the files in `vendor/tyra` ARE the generated
+  ones. The `cull` and `clip` families are still the handwritten originals.)
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
@@ -689,7 +747,11 @@ banner both, so a previously built ELF still reports.
   (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
   headroom; measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
-  after ANY edit there.
+  after ANY edit there. **And the clip family now has a C++ description**
+  (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
+  has to be made in BOTH places or `--vu-check` fails — which is the point:
+  the ceiling above is exactly the kind of change that used to be applied to
+  `clip_c` and forgotten on `clip_tc`.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

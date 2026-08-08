@@ -15,15 +15,20 @@ rasteriser and no pixel shaders at all.
 > Status: **proof of concept**, off by default. The network is real, trained and
 > measured on the host, where it beats every fixed kernel in distribution —
 > **and, on content it was never trained on, beats a plain bilinear upscale by
-> +0.40 dB** (leave-one-shot-out cross-validation over 13 shots × 3 seeds = 39
-> fold-runs, sd 0.40, 5 of 39 below bilinear; **+0.23 dB** over the six folds
-> that took no part in choosing the defaults). See
+> +0.42 dB** (leave-one-shot-out cross-validation over 13 shots × 3 seeds = 39
+> fold-runs, sd 0.35, 3 of 39 below bilinear, 1.80 mean full-screen passes;
+> **+0.26 dB** over the six folds that took no part in choosing the defaults). See
 > [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something).
+>
+> **That is the bestiary net, and you should not ship it.** A net fitted to the
+> built-in procedural corpus measured **−0.40 dB — worse than doing nothing** — on
+> a real project's own scenes. `--blss-train <projectDir>` fits the project
+> instead; see [Training on your own project](#training-on-your-own-project).
 >
 > **This page said "≈+0.1 dB, statistically a draw" until the measurement was
 > done properly, and that was wrong in the pessimistic direction** — the ±0.4 dB
 > it blamed on the training seed turned out to be which *shot* you held out. The
-> methodology is [the fifth entry](#measured-is-not-optimised-five-times) and it
+> methodology is [the fifth entry](#measured-is-not-optimised-six-times) and it
 > is the most transferable thing here.
 >
 > What is still not known: the last time a human watched it in PCSX2 **the
@@ -65,9 +70,9 @@ not have to be uploaded as a texture. It rides in on 255 vertex colours.
                                     |
    per-tile features (EE, no framebuffer readback)
         motion, depth, depth gradient, geometric edge density,
-        texel density, coverage, luma, history age
+        texel density, coverage
                                     v
-              MLP  8 -> 12 -> 3   (per tile, 224 tiles)
+              MLP  6 -> 12 -> 3   (per tile, 224 tiles)
                                     v
         wA (point)   wC (temporal)   wD (sharpen)
                                     v
@@ -161,33 +166,115 @@ from data the EE already holds while it is submitting the frame:
 | `edgeDens` | how much of each submitted bag's **screen bounding box outline** crosses the tile |
 | `texDetail` | **texel density** — texels per screen pixel, from the bag's texture dimensions against its screen area. Minification is *the* predictor of texture aliasing, and the engine already holds both numbers |
 | `coverage` | fraction of the tile covered by geometry at all (sky and empty tiles want nothing done to them) |
-| `luma` | mean material brightness × light contribution of the bags in the tile |
-| `histAge` | how many frames this tile has been temporally stable — the one recurrent input |
 
-A bag's screen bbox comes from the world bounding sphere the renderer *already*
-computes for the dynamic-light pick, so the feature pass costs one projection per
-bag and one pass over 224 tiles. Nothing is read back, nothing stalls.
+Six, and it was eight. Both deletions were measurements rather than tidying, and
+they are the most transferable thing in this section:
+[the two channels the network lost](#two-channels-the-network-lost-and-the-measurements-that-took-them).
 
-The obvious upgrade is to have the editor **bake** real high-frequency energy per
-material at build time — it owns the content, so it can measure how much detail a
-texture actually carries, which is a feature DLSS cannot have. That is a
-follow-up; the texel-density proxy is what ships here.
+#### Where a bag's screen box comes from, and why that was the bug
+
+This paragraph used to read "a bag's screen bbox comes from the world bounding
+**sphere** the renderer already computes for the dynamic-light pick". That was
+true, cheap, and **it fed the network a constant**. For a floor or a terrain mesh
+a bounding sphere is grotesque: `wNear = w − radius` collapses to the near-plane
+clamp and the sphere's screen box covers the frame, so every tile reads
+`depth = 1`, `depthGrad = 1`, `coverage = 1`. A generated game's whole frame was
+being described by **two** proxies.
+
+Nothing on the host could see it. The corpus could always describe its own
+distribution (`--blss-eval --features`) and the console could describe nothing, so
+for eleven commits the network was fitted to one distribution and run on another
+with no way to compare them. Three changes fixed the description and one
+instrument makes it checkable; the arithmetic for all of them is
+[§2 of the math doc](blss-reconstruction.md),
+and they are a **twin contract**, so each exists on the engine and in the corpus:
+
+- **an object-space AABB through the MVP**, near-clipped along its twelve edges,
+  instead of a sphere (`RendererCoreBlss::addBagBox()` ↔ the corpus' `bagOf()`).
+  The sphere path survives only as the fallback for a bag with no package bbox;
+- **one proxy per VU1 package** instead of one per bag. `StaPipBagPackagesBBox`
+  already holds a box per `maxVertCount/3` vertices, cached, computed for frustum
+  classification whether BLSS is on or not — so the granularity was already paid
+  for. Capped at 32 per bag, consecutive parts merged above that;
+- **a box that straddles the eye and still fills the frame after clipping is
+  dropped**, threshold-free, by both producers — its bbox is the frame by
+  construction and its `wNear` is the clip constant, not a measurement;
+- **and a bag may opt out entirely** (`PipelineInfoBag::blssProxy`), which codegen
+  sets for the sky dome, the star field and the sun/moon discs. A dome *cap*
+  covering the top band of the frame is a perfectly well-formed box that still
+  describes nothing, and only the submitter knows a mesh is a shell.
+
+**Measured on the console**, scratch `fpp` project in PCSX2, software renderer,
+448×448, BLSS 2×2, debug view 2 — the same instrument on two builds of the same
+fixture (`6a4cbead`):
+
+| | proxies | tiles covered | `depth` min/mean/max | `coverage` | mean passes |
+|---|---|---|---|---|---|
+| bounding spheres, one per bag | 2 | 196 of 196 | 1 / 1 / 1 | 1 / 1 / 1 | **5.00** |
+| boxes, one per package | 41 | 159 of 196 | 0 / .737 / 1 | 0 / .724 / 1 | **1.96** |
+
+The saturated constant is gone, the temporal weight varies 0–0.466 instead of
+sitting at one value, the sky is no longer temporally reconstructed, and the frame
+pays 1.96 passes against the worst case 5.00 it was paying — finally the same
+order as the corpus' own. Re-probed against the corpus, that vector reads **0
+channels out of range** against 1 before, and a `band` of 42–84 % against 0.0 %.
+Those are *fill* counts read out of the game's log, not timings; nothing here has
+been profiled. **The sky-dome opt-out landed one commit later and its console
+numbers are not in that table** — it was verified at compile level (engine and ELF
+built in Docker) and never booted, because the machine it was written on had no
+working compositor.
+
+#### The instrument that found it, and it stays this time
+
+An earlier round added exactly this measurement, read it once and removed it.
+Both halves are permanent now, and together they are how the twins get checked
+against real content rather than against each other:
+
+| | what it answers |
+|---|---|
+| engine **debug view 2** → `BLSSGRID` / `BLSSWORST` / `BLSSFEAT` / `BLSSOUT` / `BLSSFILL` in the game's `bin/log.txt` | what the console's own frame looks like: proxy count, the single widest proxy, min/mean/max per channel and per output, and the fill the frame paid |
+| `--blss-eval --probe "<BLSSFEAT line>"` | where that vector sits **inside the corpus distribution** — spread, percentile, how much corpus lies within ±0.05, how much of the corpus the frame's band reaches, and a verdict per channel |
+| `--blss-eval --cv --drop-feature <name>` | whether a channel earns its keep, in one run, without editing `kFeatures` on both twins |
+
+`BLSSWORST` is the line that pays for itself: it names the widest single proxy,
+which is the one that decides whether the grid describes anything, and it
+identified the sky dome in one line. The channel names and their order are exactly
+`blss::kFeatureNames`, so a `BLSSFEAT` line sits next to a row of
+`--blss-eval --features`.
+
+Two caveats on reaching it. `logFeatureSpread()` is inside `#ifndef NDEBUG`, so it
+is compiled out of a `make release` build (the editor's own game build is not one).
+And **the Debug view combo in the editor only offers 0 and 1** — reaching view 2
+means editing `"blssDebugView": 2` into the `.tyra` by hand; the project loader
+accepts it, the UI cannot select it and displays it as "Off".
+
+The obvious upgrade to `texDetail` is still to have the editor **bake** real
+high-frequency energy per material at build time — it owns the content, so it can
+measure how much detail a texture actually carries, which is a feature DLSS cannot
+have. That is a follow-up; the texel-density proxy is what ships here.
 
 ### 3. The network
 
-A plain MLP, **8 → 12 → 3**, tanh hidden layer, sigmoid outputs — 147 weights and
-**132 MACs per tile**, so ~29 600 MACs plus ~3 400 transcendentals for a whole
+A plain MLP, **6 → 12 → 3**, tanh hidden layer, sigmoid outputs — 123 weights and
+**108 MACs per tile**, so ~24 200 MACs plus ~3 400 transcendentals for a whole
 512×448 frame's 224 tiles. It runs on the EE FPU in the frame's setup phase.
 There is no VU1 microcode involved and no micro memory spent: the clip program
 family has none left (see the engine skill), and this net is far too small to be
 worth a DMA round trip.
 
-> Two caveats on that number. It is recomputed here from the topology
-> (`12×8 + 3×12` per tile × `16×14` tiles); `src/blss.hpp`'s comment says "1 812
-> MACs for the whole frame", which does not follow from 8 → 12 → 3 over 224 tiles
-> and appears to be an arithmetic slip. And **neither figure has been timed**:
-> nothing has profiled the EE cost of the inference pass, in PCSX2 or on
-> hardware. "Far too small to matter" is a design argument, not a measurement.
+> Both figures are recomputed from the topology — `(kFeatures + kOutputs + 1) ×
+> kHidden + kOutputs` weights and `(kFeatures + kOutputs) × kHidden` MACs per
+> tile, the second over `16×14` tiles — so they follow the input count and it has
+> moved twice (8 → 7 → 6, and 147 → 135 → 123 weights). **Neither figure has ever
+> been timed**: nothing has profiled the EE cost of the inference pass, in PCSX2
+> or on hardware. "Far too small to matter" is arithmetic and a design argument,
+> not a measurement.
+>
+> `blss.net` carries the weights and **nothing else** — no topology, no date, no
+> settings — so a file written by a differently shaped net cannot be detected by
+> reading it. `kNetVersion` is the guard: it is **3** today, and a v1 or v2 file
+> is refused rather than loaded into a net of the wrong shape. Bump it with
+> `kFeatures` or `kHidden`, always.
 
 Outputs are the three blend fields:
 
@@ -223,9 +310,10 @@ blend equations the GS actually has.
 runs of triangle strips, and a cell whose weight rounds to zero is not drawn at
 all — so the network's own confidence decides how much fill the frame costs. The
 worst case is 5.00 full-screen passes and plain bilinear is 1.00; the trained net
-measures **2.85** on held-out content (`--blss-eval`'s `passes` column, sd 0.61
-over 39 fold-runs — [numbers below](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)).
-That is a *fill* count, not a millisecond: **nothing here has ever been timed.**
+measures **1.80** on held-out content (`--blss-eval`'s `passes` column, sd 0.30
+over 39 fold-runs — [numbers below](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)),
+and **1.96** in the one console frame that has been instrumented. That is a *fill*
+count, not a millisecond: **nothing here has ever been timed.**
 
 That is a knob only because the *objective* charges for it. Nothing did until
 `kFillWeight`, and while nothing did the network asked for every kernel
@@ -317,8 +405,10 @@ tyrax-editor --blss-eval  --frames 84 --fill-weight 4 -i try.net
 `--blss-train` additionally takes `--all-shots` (fit every shot — the net you
 would actually ship, after which `--blss-eval`'s held-out columns mean nothing);
 `--blss-eval` additionally takes `--cv` / `--cv-seeds N` / `--cv-folds N`
-(cross-validation, [below](#measured)) and `--features` (what the eight input
-channels look like over the corpus, and how each correlates with the oracle).
+(cross-validation, [below](#measured)), `--features` (what the six input channels
+look like over the corpus, and how each correlates with the oracle) with its
+`--probe` companion, and `--drop-feature <name>` (hold channels at zero — the
+instrument that retired two of them).
 
 `--blss-train` runs a self-contained software rasteriser (`src/blsscorpus.cpp`)
 over a **procedural corpus** of thirteen shots — the cases that actually alias on
@@ -344,6 +434,68 @@ a PS2, each with its own camera move:
 without the six that follow — the new ones are appended, never inserted, and draw
 their randomness from fresh `mix32` purposes. That is what makes a before/after
 fold table a comparison rather than two different experiments.
+
+The corpus describes each frame to the network through **one proxy per VU1
+package**, the same cut `StaPipCore` makes on the console (1 217 proxies over the
+bestiary). `--no-package-split` reverts it to one per object, which is how the
+fold tables measured before that change can still be reproduced; it is not a
+shipping configuration.
+
+### Training on your own project
+
+```bash
+tyrax-editor --blss-train <projectDir> --all-shots -o <projectDir>/blss.net
+tyrax-editor --blss-eval  <projectDir> -i <projectDir>/blss.net
+```
+
+Both entry points take an optional **positional project directory**, and with one
+the corpus is the project's own scenes — real geometry, real materials, real
+terrain, walked / panned / orbited / whipped / pitched / strafed by six camera
+moves derived from the scene's bounds and its player start, plus any authored
+Cutscene Director camera track. `src/blssscene.cpp` walks a project into
+world-space triangles through the same three sources the GI bake uses
+(primitives, static `.obj`, terrain chunks); animated `.glb` is skipped
+*because* it goes down the dynamic pipeline, which does not feed BLSS at all. A
+project that will not load, or loads with nothing to draw, falls back to the
+bestiary and says so.
+
+**This is not a refinement, it is the difference between helping and hurting.**
+Measured on `examples/procedural` (39 meshes, 15 098 triangles, no textures at
+all), 72 frames over six shots, both nets fitted with `--all-shots`:
+
+| over all 72 project frames | margin over bilinear | passes |
+|---|---|---|
+| bestiary-trained net | **−0.40 dB** | 1.72 |
+| project-trained net | **+0.06 dB** | 1.19 |
+| oracle (upper bound) | +0.77 dB | 1.20 |
+
+A net trained on the built-in corpus is **worse than doing nothing** on that
+project, by four tenths of a decibel, while paying half a pass more for the
+privilege. The mechanism is in `--features` and it is not subtle: `texDetail` is
+identically zero over all 16 128 project tiles (the scene is untextured) and it is
+the bestiary's channel most correlated with the temporal weight (r = +0.251);
+`edgeDens`, the next one (+0.186), saturates at 1.0 in 63 % of project tiles
+against 29 % of bestiary tiles. The bestiary net's temporal gate is therefore
+driven by inputs that are out of range, and it asks for 62–93 % temporal occupancy
+where the oracle asks for 7–30 %.
+
+Two rules follow, and they pull in opposite directions on purpose:
+
+- **Fit the project with `--all-shots` and ship that net.** The console runs the
+  frames it was fitted on, so in-distribution is the right question for the net
+  you ship.
+- **Do not quote a project corpus' held-out decibel.** Leave-one-shot-out over six
+  camera moves of one scene reads **−0.17 dB, 9 of 18 fold-runs below bilinear**.
+  Six moves over one scene do not generalise to a seventh — the same wall the
+  bestiary hit at five shots (+0.10 dB) before it grew to thirteen.
+
+**And not every project has anything to win.** On `examples/showcase` the *oracle*
+itself scores +0.00 dB over bilinear at 1.00 passes: soft ground texture, low-poly
+props, nothing that aliases. `--blss-eval <projectDir>` is how you find that out
+before shipping BLSS on it.
+
+> The window's Train tab does **not** take a project directory yet — it always
+> trains on the bestiary. Use the CLI for a project-trained net.
 
 The corpus was the binding constraint, not the trainer. Measured on the original
 seven when they were all there was (`1b9c7a74`, and **not re-run since** — the
@@ -398,7 +550,7 @@ different and more useful.
 `--blss-emit` bakes the trained weights into the C++ the game compiles — the
 generated project carries them as **`inc/blss_net.gen.hpp`** (codegen writes it;
 `--blss-emit -o <file>` writes the same body by hand, and with no `-o` prints it
-to stdout). The network is 147 floats, so it is a header, not an asset.
+to stdout). The network is 123 floats, so it is a header, not an asset.
 
 > **The emitter used to produce a header that did not compile, and the path it
 > broke was the documented one.** `%.9g` renders `0.0f` as `"0"`, so a weight of
@@ -418,7 +570,78 @@ to stdout). The network is 147 floats, so it is a header, not an asset.
 
 ## Using it
 
-*Project ▸ Preferences ▸ Neural upscaler (BLSS)* — off by default.
+**Everything below is reachable from *Tools ▸ Neural Upscaler (BLSS)*** — training,
+evaluation, cross-validation, the comparison renders, the channel report and the
+emit step, none of which used to exist outside a terminal. The five project
+settings live there too, on a *Project settings* tab, and are mirrored in
+*Project ▸ Preferences ▸ Neural upscaler (BLSS)*. Off by default.
+
+### The window
+
+**It runs the editor's own binary and parses its output, deliberately.** Every
+driver behind `--blss-eval` is file-static in `blss.cpp`, so a window that called
+"the public API" would have had to re-implement them — and a re-implemented driver
+is a second answer to *what does `--blss-eval` measure*, from a feature that has
+already published five numbers measured on the wrong thing. So the window spawns
+`tyrax-editor --blss-<verb>` on a worker thread and turns the printed tables back
+into numbers, and **the tool's raw output sits on screen under every table**. That
+is what makes a parsed number falsifiable instead of trusted: if a table looks
+wrong, the text that produced it is one glance away. A parser that finds nothing
+says so; it never invents a row.
+
+| Tab | What it is for |
+|---|---|
+| **Train** | the training parameters as real controls, each tooltip carrying its measured trade, on a background worker that leaves the editor usable |
+| **Evaluate** | the PSNR / flicker / occupancy table as a table |
+| **Cross-validate** | the fold table with its per-seed columns, its spread, its in-distribution control and the deadzone sweep |
+| **Compare** | the dumped PNGs with an **A/B wipe**, defaulting to bilinear against BLSS, because "is it actually better" is a question about pixels. The weight field is one pixel per tile and is magnified with NEAREST |
+| **Inputs** | the per-channel distribution with saturation coloured — the diagnostic that explains the shot the network loses on |
+| **Project settings** | the five settings below, and the build-interlock warning |
+
+Three details that are load-bearing rather than decorative:
+
+- **Progress is the tool's own milestones**, and it is honest where it cannot know
+  one. Corpus shot *N* of 13, labelling, epoch *N* of *M* are real fractions;
+  cross-validation prints **nothing** for the whole fold loop (it turns the
+  trainer's verbosity off), so that stretch is an indeterminate bar and an elapsed
+  clock rather than an invented percentage. A run that finishes while the tab is
+  shut still lands — the poll runs every frame from the UI, not from the window
+  body.
+- **Provenance lives in a sidecar, because the net has nowhere to put it.** A
+  `blss.net` is a bare list of floats and records nothing about how it was made, so
+  the editor writes the exact command line to **`blss.net.args`** next to a net it
+  trained. A net **newer** than its sidecar reports "unknown" rather than a stale
+  answer, and a net with no sidecar says it was trained outside this editor. A
+  project with the upscaler on and **no** net says in red that the game will be
+  built with random weights.
+- **The conflict warning is now one mirror, not two.** `blssClashes()` in
+  `src/templates.cpp` is the source of truth; the settings block and its warning
+  are drawn from one place and called by both this window and the Preferences
+  dialog. Leaving the warning inlined in the dialog would have made this window a
+  second mirror of an interlock that must not drift.
+
+Also, `--blss-*` now writes stdout **unbuffered**. A C `stdout` on a pipe is
+block-buffered, so `--blss-train | tee`, a CI log and this window all saw nothing
+until the process exited and then the whole run at once. Piping one now streams.
+
+Two things the window does **not** have, and both are deliberate: `--probe` and
+`--drop-feature`, which belong to the instrument above and would have been
+controls nobody could stand behind at the time. A third gap is not deliberate —
+**the Train tab always trains on the built-in corpus.** `--blss-train <projectDir>`
+(below) landed after the window and has no control yet, which matters because
+training on the project is the configuration you should ship.
+
+> **What was and was not seen on screen.** The window was verified by driving it
+> with `--ui-script` through idle, a training run mid-corpus and mid-labelling, a
+> finished one with the provenance line filled in, a running evaluation and its
+> parsed table, the A/B wipe, the channel report with three channels flagged
+> against their clamp, and a cross-validation in its silent fold loop. **Two states
+> have never been looked at: the finished cross-validation results table, and the
+> error state** (a failed run's red banner and `parseErrors` output). They are
+> unverified visually — the parsers behind them were checked against captured
+> output by a harness, which is a different claim.
+
+### The project settings
 
 | Setting | Meaning |
 |---|---|
@@ -432,8 +655,12 @@ Ticking **Enabled** also puts two notes under the checkbox, and both are there
 because a user should not have to discover them from a broken build.
 
 The **standing** one says the feature is a proof of concept that beats bilinear
-by +0.40 dB on unseen content (13-shot cross-validation, 39 fold-runs, 5 of them
-below bilinear) and has never been timed on console or hardware.
+on unseen content by a cross-validated margin, names how many folds still came out
+*below* bilinear, and says it has never been timed on console or hardware. It
+currently quotes **+0.40 dB / 5 of 39**, which is one re-run behind the
+[+0.42 dB / 3 of 39](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
+this page measures — a string in `drawBlssSettings`, not a computed value, so it
+has to be edited whenever the fold table is.
 
 The **conditional** one lists whichever of **depth of field / portals /
 split-screen** *this project actually uses* — the pattern is "warn only about the
@@ -466,7 +693,7 @@ its own net trained on the other twelve, `--cv-seeds N` independent corpora on
 top. It ignores `-i` — it trains what it measures. That is the number to act on,
 because a single held-out split is a sample of **size one**, and this feature
 quoted one five times before anybody checked (see
-[the fifth entry](#measured-is-not-optimised-five-times)).
+[the fifth entry](#measured-is-not-optimised-six-times)).
 
 13 shots × 3 seeds = **39 fold-runs**, 156 frames, 512×448 from 256×224, shipped
 defaults (`--epochs 400`, `--seed 0xB1557`, `--flicker-weight 0`,
@@ -474,28 +701,28 @@ defaults (`--epochs 400`, `--seed 0xB1557`, `--flicker-weight 0`,
 
 | held-out shot | seed `B1557` | seed `CCD704ED` | seed `8814F396` | mean | sd |
 |---|---|---|---|---|---|
-| 0 `floor-horizon` dolly-in | +0.30 | +0.35 | +0.40 | **+0.35** | 0.04 |
-| 1 `boxes-sphere` orbit | +0.64 | +0.70 | +0.69 | **+0.68** | 0.02 |
-| 2 `poles` pan | +1.05 | +0.97 | +1.04 | **+1.02** | 0.04 |
-| 3 `foliage` static | +0.64 | +0.76 | +0.47 | **+0.62** | 0.12 |
-| 4 `grazing-wall` dolly-along | −0.07 | −0.04 | +0.13 | **+0.01** | 0.09 |
-| 5 `flat` slow pan | +0.97 | +0.70 | +1.04 | **+0.90** | 0.14 |
-| 6 `whip` whip pan | +0.29 | +0.27 | +0.20 | **+0.25** | 0.04 |
-| 7 `corridor` dolly-down | −0.67 | −0.39 | −0.52 | **−0.52** | 0.12 |
-| 8 `strafe-field` lateral | +0.59 | +0.52 | +0.61 | **+0.57** | 0.04 |
-| 9 `pitch-sky` pitch-up | +0.78 | +0.73 | +0.35 | **+0.62** | 0.19 |
-| 10 `distant-plain` slow dolly | +0.38 | +0.36 | +0.37 | **+0.37** | 0.01 |
-| 11 `sphere-field` orbit-wide | +0.16 | +0.03 | +0.18 | **+0.12** | 0.06 |
-| 12 `foliage-walk` dolly-through | +0.27 | +0.21 | +0.15 | **+0.21** | 0.05 |
-| **mean over folds** | **+0.41** | **+0.40** | **+0.39** | **+0.40** | **0.01** |
+| 0 `floor-horizon` dolly-in | +0.35 | +0.20 | +0.48 | **+0.34** | 0.12 |
+| 1 `boxes-sphere` orbit | +0.58 | +0.61 | +0.53 | **+0.57** | 0.03 |
+| 2 `poles` pan | +0.86 | +0.63 | +0.94 | **+0.81** | 0.13 |
+| 3 `foliage` static | +0.90 | +0.68 | +1.04 | **+0.87** | 0.15 |
+| 4 `grazing-wall` dolly-along | −0.13 | +0.05 | +0.07 | **−0.00** | 0.09 |
+| 5 `flat` slow pan | +1.11 | +0.97 | +1.06 | **+1.05** | 0.06 |
+| 6 `whip` whip pan | +0.23 | +0.16 | +0.17 | **+0.19** | 0.03 |
+| 7 `corridor` dolly-down | −0.19 | +0.02 | −0.28 | **−0.15** | 0.13 |
+| 8 `strafe-field` lateral | +0.41 | +0.36 | +0.43 | **+0.40** | 0.03 |
+| 9 `pitch-sky` pitch-up | +0.82 | +0.27 | +0.34 | **+0.48** | 0.24 |
+| 10 `distant-plain` slow dolly | +0.43 | +0.17 | +0.21 | **+0.27** | 0.11 |
+| 11 `sphere-field` orbit-wide | +0.04 | +0.30 | +0.64 | **+0.33** | 0.25 |
+| 12 `foliage-walk` dolly-through | +0.31 | +0.22 | +0.21 | **+0.25** | 0.05 |
+| **mean over folds** | **+0.44** | **+0.36** | **+0.45** | **+0.42** | **0.04** |
 
-> **BLSS beats plain bilinear out of distribution by +0.40 dB**, sd 0.40 over 39
-> fold-runs, **5 of 39 below bilinear**, at **2.85 mean full-screen passes**
-> (sd 0.61) against 1.00 for bilinear.
+> **BLSS beats plain bilinear out of distribution by +0.42 dB**, sd 0.35 over 39
+> fold-runs, **3 of 39 below bilinear**, at **1.80 mean full-screen passes**
+> (sd 0.30) against 1.00 for bilinear.
 
-**The conservative figure is +0.23 dB.** Shots 7–12 are the six that were added
+**The conservative figure is +0.26 dB.** Shots 7–12 are the six that were added
 *after* the defaults were chosen and took no part in choosing them; their fold
-means are −0.52, +0.57, +0.62, +0.37, +0.12, +0.21. Quote that one when the
+means are −0.15, +0.40, +0.48, +0.27, +0.33, +0.25. Quote that one when the
 question is "will it help on content nobody tuned for".
 
 Per fold, mean over the three seeds — `in-dist` is the same margin on that fold's
@@ -504,41 +731,53 @@ twelve **training** shots, i.e. the control that says the fold trained at all
 
 | held-out shot | native | bilinear | BLSS | oracle | passes | flicker | in-dist |
 |---|---|---|---|---|---|---|---|
-| 0 `floor-horizon` | 19.57 | 18.88 | 19.23 | 20.28 | 2.25 | 33.27 | +0.56 |
-| 1 `boxes-sphere` | 20.26 | 18.95 | 19.62 | 19.86 | 3.03 | 44.85 | +0.53 |
-| 2 `poles` | 22.11 | 21.07 | 22.09 | 23.13 | 2.63 | 28.72 | +0.52 |
-| 3 `foliage` | 28.13 | 25.61 | 26.23 | 27.78 | 2.72 | 6.50 | +0.44 |
-| 4 `grazing-wall` | 29.31 | 27.55 | 27.55 | 28.01 | 2.93 | 7.80 | +0.60 |
-| 5 `flat` | 58.30 | 54.67 | 55.57 | 54.67 | 4.33 | 0.04 | +0.61 |
-| 6 `whip` | 25.48 | 22.58 | 22.84 | 23.62 | 3.10 | 41.61 | +0.58 |
-| 7 `corridor` | 31.80 | 27.42 | 26.90 | 27.59 | 3.33 | 17.57 | +0.59 |
-| 8 `strafe-field` | 22.58 | 21.67 | 22.24 | 22.77 | 2.51 | 20.50 | +0.54 |
-| 9 `pitch-sky` | 22.86 | 22.15 | 22.77 | 24.40 | 2.40 | 38.08 | +0.55 |
-| 10 `distant-plain` | 22.71 | 23.39 | 23.76 | 24.83 | 2.33 | 12.67 | +0.55 |
-| 11 `sphere-field` | 32.76 | 31.06 | 31.19 | 31.74 | 2.87 | 14.30 | +0.59 |
-| 12 `foliage-walk` | 29.32 | 27.40 | 27.61 | 27.82 | 2.61 | 14.31 | +0.57 |
+| 0 `floor-horizon` | 19.57 | 18.88 | 19.22 | 20.28 | 1.49 | 33.98 | +0.49 |
+| 1 `boxes-sphere` | 20.26 | 18.95 | 19.52 | 19.85 | 2.07 | 45.85 | +0.47 |
+| 2 `poles` | 22.11 | 21.07 | 21.88 | 23.13 | 1.48 | 29.08 | +0.41 |
+| 3 `foliage` | 28.13 | 25.61 | 26.48 | 27.78 | 1.85 | 6.13 | +0.42 |
+| 4 `grazing-wall` | 29.31 | 27.55 | 27.54 | 28.01 | 1.87 | 7.82 | +0.55 |
+| 5 `flat` | 58.30 | 54.67 | 55.72 | 54.67 | 2.12 | 0.04 | +0.52 |
+| 6 `whip` | 25.48 | 22.58 | 22.77 | 23.62 | 1.96 | 41.93 | +0.56 |
+| 7 `corridor` | 31.80 | 27.42 | 27.28 | 27.59 | 2.11 | 17.68 | +0.55 |
+| 8 `strafe-field` | 22.58 | 21.67 | 22.07 | 22.79 | 1.81 | 21.11 | +0.49 |
+| 9 `pitch-sky` | 22.86 | 22.15 | 22.62 | 24.40 | 1.53 | 38.19 | +0.51 |
+| 10 `distant-plain` | 22.71 | 23.39 | 23.66 | 24.83 | 1.49 | 12.90 | +0.49 |
+| 11 `sphere-field` | 32.76 | 31.06 | 31.39 | 31.74 | 1.90 | 14.66 | +0.54 |
+| 12 `foliage-walk` | 29.32 | 27.40 | 27.64 | 27.82 | 1.77 | 14.22 | +0.55 |
 
-**The one shot it loses on is `corridor` (−0.52), and the reason is a feature the
-network effectively does not have there.** `depth` is `1/w` normalised against
-`kDepthRef = 8` and clamped, so it reads 1.0 for anything closer than eight
-units. `--blss-eval --features` prints the per-shot mean of each channel, and
-`corridor`'s `depth` is **0.972** — the highest of the thirteen, against a corpus
-mean of 0.713. A corridor is a few units wide; that channel spends the shot
-against its clamp. **A saturated feature is a feature the network does not
-have**, so on `corridor` it is deciding from seven inputs, and it decides worse
-than not deciding.
+> **These numbers were re-run for this page, not copied.** They moved, and mostly
+> in the right direction: the mean is +0.42 against the +0.40 this page used to
+> print, the folds below bilinear dropped from 5 to 3, and the pass count fell
+> from 2.85 to **1.80** — the deadzone and the proxy fix between them took a whole
+> full-screen pass out of the frame. Two numbers got *worse* and are worth naming:
+> the sd of the per-seed fold mean is **0.04** rather than 0.01, and two folds
+> (`pitch-sky`, `sphere-field`) now spread 0.24–0.25 dB across seeds. The seed
+> still moves the answer far less than the fold does, but by four times less
+> margin than this page claimed.
+
+**The one shot it still loses on is `corridor` (−0.15), and the reason is a
+feature the network effectively does not have there.** `depth` is `1/w`
+normalised against `kDepthRef = 8` and clamped, so it reads 1.0 for anything
+closer than eight units. `--blss-eval --features` prints the per-shot mean of each
+channel, and `corridor`'s `depth` is **0.972** — the highest of the thirteen,
+against a corpus mean of 0.713. A corridor is a few units wide; that channel
+spends the shot against its clamp. **A saturated feature is a feature the network
+does not have**, so on `corridor` it is deciding from five inputs, and it decides
+slightly worse than not deciding. `grazing-wall` (−0.00) is the other fold that
+buys nothing.
 
 That is a *feature-scaling* problem with a name and a fix (a log or reciprocal
 depth mapping), not an inherent limit — and it is not confined to one shot:
-**58.8 % of all tiles in the corpus read `depth` at exactly 1.0**, and
-`depthGrad` (61.6 %) and `coverage` (71.7 %) are worse. Add
+**58.6 % of all tiles in the corpus read `depth` at exactly 1.0**, and
+`depthGrad` (61.5 %) and `coverage` (71.9 %) are worse. Add
 `--features` to any investigation of "why does it not help here" before touching
 the topology; the channel statistics are the first place to look.
 
-`flat` is worth a second look for the opposite reason: 55.57 dB against
-bilinear's 54.67 on a screen with nothing in it, at **4.33 passes**. The network
-happily spends four full-screen passes buying a decibel on a picture where no
-decibel is visible. That, not the mean, is where the remaining fill lives.
+`flat` is worth a second look for the opposite reason: 55.72 dB against
+bilinear's 54.67 on a screen with nothing in it, at **2.12 passes** — the highest
+pass count of the thirteen folds, on the one shot where no decibel is visible.
+The old reading of this fold was 4.33 passes and it has come down a long way, but
+it is still where the remaining fill lives.
 
 ### Against every fixed kernel
 
@@ -568,10 +807,9 @@ Training shots (108 frames, the 9 shots with `shot % 3 != 1`):
 | native full-res, 1 sample | 28.81 | 22.39 | — | — | — | — |
 | half-res + point | 24.31 | 24.48 | 100 % | 0 % | 0 % | 2.00 |
 | half-res + bilinear | 27.11 | 22.91 | 0 % | 0 % | 0 % | 1.00 |
-| half-res + temporal | 23.06 | 13.64 | 0 % | 100 % | 0 % | 2.00 |
+| half-res + temporal | 23.07 | 13.65 | 0 % | 100 % | 0 % | 2.00 |
 | half-res + sharpen | 24.85 | 25.34 | 0 % | 0 % | 100 % | 3.00 |
-| **half-res + BLSS (trained)** | **27.92** | **21.05** | 80.1 % | 81.3 % | 14.9 % | **2.91** |
-| half-res + oracle weights | 28.70 | 20.01 | 7.5 % | 43.4 % | 2.4 % | 1.56 |
+| **half-res + BLSS (trained)** | **27.81** | **21.43** | 0 % | 66.7 % | 0 % | **1.67** |
 
 Held-out shots (48 frames — `boxes-sphere`, `grazing-wall`, `corridor`,
 `distant-plain`):
@@ -581,60 +819,79 @@ Held-out shots (48 frames — `boxes-sphere`, `grazing-wall`, `corridor`,
 | native full-res, 1 sample | 26.02 | 24.86 | — | — | — | — |
 | half-res + point | 21.63 | 25.05 | 100 % | 0 % | 0 % | 2.00 |
 | half-res + bilinear | 24.32 | 22.47 | 0 % | 0 % | 0 % | 1.00 |
-| half-res + temporal | 17.21 | 15.68 | 0 % | 100 % | 0 % | 2.00 |
+| half-res + temporal | 17.25 | 15.74 | 0 % | 100 % | 0 % | 2.00 |
 | half-res + sharpen | 22.34 | 26.96 | 0 % | 0 % | 100 % | 3.00 |
-| **half-res + BLSS (trained)** | **24.30** | **21.03** | 90.2 % | 90.6 % | 4.8 % | **2.90** |
-| half-res + oracle weights | 25.20 | 19.96 | 3.0 % | 32.7 % | 0.0 % | 1.36 |
+| **half-res + BLSS (trained)** | **24.49** | **21.17** | 0 % | 86.6 % | 0 % | **1.87** |
+| half-res + oracle weights | 25.19 | 19.96 | 3.0 % | 33.0 % | 0.0 % | 1.36 |
 
-**In distribution the win is +0.80 dB over the best fixed kernel** (27.92 against
-bilinear's 27.11), at less flicker than a full-resolution native render (21.05
+(The tool prints the oracle row for the held-out split only, which is why the
+first table has no upper bound in it.)
+
+**In distribution the win is +0.70 dB over the best fixed kernel** (27.81 against
+bilinear's 27.11), at less flicker than a full-resolution native render (21.43
 against 22.39) — which is what the temporal pass is for. That row has never been
 the problem.
 
-**The held-out row of that second table is −0.02 dB, and it is the best
+**The occupancy columns are the ones that changed most, and they changed the
+conclusion.** This page used to report 80–90 % point occupancy and read it as "the
+network fails to generalise the cost model". At the shipped deadzone the point and
+sharpen passes are now culled **completely** — 0 % on both splits — and only the
+temporal pass is drawn over most of the screen (66.7 % / 86.6 %). The net spends
+1.67–1.87 passes where the oracle reaches a better PSNR at 1.36, so the headroom
+that remains is roughly **half a pass**, not one and a half. The diagnosis is the
+same in kind and much smaller in size.
+
+**The held-out row of that second table is +0.17 dB, and it is still the best
 illustration on this page of why you should not quote it.** The same net,
-measured properly by holding out each shot in turn, is **+0.40 dB**. Nothing
+measured properly by holding out each shot in turn, is **+0.42 dB**. Nothing
 changed but the question: this split contains `corridor`, the one shot of
 thirteen the network loses on, so a quarter of its held-out frames come from the
-single worst case. A single split can be wrong in either direction, and until
-`--cv` existed nobody could tell which.
+single worst case. (When this page was first written that same split read
+**−0.02 dB** against a 13-fold mean of +0.40 — the split has caught up as the
+`corridor` loss shrank, which is luck rather than a reason to start trusting it.)
+A single split can be wrong in either direction, and until `--cv` existed nobody
+could tell which.
 
 ### How to read these tables, and what NOT to read into them
 
 - **In distribution the win is solid** and always has been — every fold's
-  `in-dist` column above sits between +0.44 and +0.61 dB against bilinear on its
+  `in-dist` column above sits between +0.41 and +0.56 dB against bilinear on its
   own twelve training shots, and against the best *fixed kernel* the margin on
   the shipped split is the one in the table above. That win has never been in
   question and is not what this page kept having to retract.
 - **The ±0.4 dB this page used to blame on the training seed is
   SPLIT-SELECTION variance, not seed variance.** The 39-fold table separates the
-  two, and they are two orders of magnitude apart:
+  two, and they are an order of magnitude apart:
 
   | source of spread | sd |
   |---|---|
-  | which shot you hold out (fold to fold) | **0.40 dB** |
-  | which seed you train at (per-seed fold **mean**) | **0.01 dB** |
+  | which shot you hold out (fold to fold) | **0.35 dB** |
+  | which seed you train at (per-seed fold **mean**) | **0.04 dB** |
 
-  The per-fold sd across the three seeds runs 0.01–0.19 dB, so the seed does move
-  an individual fold a little — but the *answer to the question* barely moves at
-  all. Four earlier runs at four `--seed` values read −0.23 to +0.26 dB and this
-  page called that seed noise. It was not. It was four draws from a distribution
-  whose spread comes almost entirely from **which two shots the split happened to
-  contain**, and the seed was along for the ride.
+  The per-fold sd across the three seeds runs 0.03–0.25 dB, so the seed does move
+  an individual fold — on `pitch-sky` and `sphere-field` by a quarter of a decibel
+  — but the *answer to the question* moves an order of magnitude less. Four earlier
+  runs at four `--seed` values read −0.23 to +0.26 dB and this page called that
+  seed noise. It was not. It was four draws from a distribution whose spread comes
+  mostly from **which two shots the split happened to contain**, and the seed was
+  along for the ride. (This page previously put the per-seed sd at 0.01 dB. It is
+  0.04 on a re-run, so the gap is a factor of nine rather than forty; the
+  conclusion survives the correction and the arithmetic did not.)
 - **A single held-out split is a sample of size one, and quoting one was the
   mistake.** Earlier drafts quoted "+0.18 dB", "+0.24 dB", then "≈+0.1 dB, one
   loss in four seeds, statistically a draw". All three were one draw dressed as
-  an estimate, and the last of them **understated a real +0.40 dB win**. Use
-  `--cv`. The cost is a few minutes of CPU.
-- **Sparsity is still only half-working, and the occupancy columns are what say
-  so.** Sharpen is genuinely culled — 100 % → 14.9 % in distribution and **4.8 %**
-  out of it — which is what the fill term bought. **Point and temporal are not**:
-  80 % / 81 % in distribution and 90 % / 91 % out of it, i.e. the net asks for
-  both over most of the screen. The oracle shows the headroom, reaching a *better*
-  PSNR at **1.36–1.56 passes** where the net spends 2.90–2.91, so this is the
-  network failing to generalise the cost model, not the cost model being wrong.
-  Anything on this page or in the math doc that says passes 2..5 "cover a minority
-  of the screen" is describing the **sharpen** pass only.
+  an estimate, and the last of them **understated a real win** that measures
+  +0.42 dB today. Use `--cv`. The cost is a few minutes of CPU.
+- **Sparsity is close to working now, and it took three separate changes.** All
+  three occupancy columns have collapsed since this section was written: the fill
+  term culled sharpen (100 % → 14.9 %), the inference deadzone then took sharpen
+  and **point** to 0 %, and the proxy fix stopped the net being handed a constant.
+  What is left is the temporal pass at 66.7 % / 86.6 % and 1.67–1.87 mean passes
+  against the oracle's 1.36 — so the network still fails to generalise the cost
+  model, by about **half a pass** rather than the one and a half this page used to
+  describe. Anything on this page or in the math doc that says passes 2..5 "cover
+  a minority of the screen" is now true of point and sharpen and **not** of
+  temporal.
 - **`native` is not a ceiling** — the reference is supersampled, so a good
   temporal reconstruction can in principle beat a 1-sample full-resolution
   render, and on several folds above it does not, while on the training side it
@@ -642,17 +899,93 @@ single worst case. A single split can be wrong in either direction, and until
 - **The oracle column is the regression test.** A parity break between the host
   twin and the engine shows up as the BLSS column falling well below the oracle
   column. Note that on `flat` the oracle scores *below* the trained net (54.67
-  against 55.57) — the oracle is optimising accuracy **plus fill**, and on an
+  against 55.72) — the oracle is optimising accuracy **plus fill**, and on an
   empty screen it correctly refuses to pay for a decibel nobody can see.
+
+### Two channels the network lost, and the measurements that took them
+
+The input vector was eight channels and is six. **Neither deletion was a
+simplification** — both were negative results, both were found by the same
+instrument, and this is the entry on this page most worth reading before adding a
+channel to anything.
+
+The instrument is `--blss-eval --cv --drop-feature <name>`, which holds a channel
+at zero over the whole corpus (training, labelling and evaluation), i.e. does to a
+trained net exactly what deleting the channel would. **It only means anything with
+a CONTROL**, and `edgeDens` — a channel that is demonstrably pulling its weight —
+is that control: dropping it says how large a difference the instrument can
+resolve at all.
+
+**`histAge` — frames since this tile last changed.** It was designed as the
+recurrent channel: the network's own memory of which tiles have been stable.
+Measured at `kFeatures = 8`, 39 fold-runs per row:
+
+| held at zero | (nothing) | `histAge` | `edgeDens` (control) |
+|---|---|---|---|
+| held-out margin | +0.38 | **+0.41** | +0.36 dB over bilinear |
+| mean passes | 1.85 | 1.84 | 1.76 |
+| folds below bilinear | 4/39 | 5/39 | 4/39 |
+
+Dropping the control costs 0.02 dB, so the instrument resolves that; `histAge` is
+0.03 dB on the *other* side of it. **The channel was not neutral, it was harmful.**
+And the fold that gained most is the one that indicts it: `foliage static`
+(+0.46 → +0.77) — the shot with the **highest** `histAge` in the corpus. The
+channel was hurting hardest exactly where it existed to help, which is the
+signature of a network memorising "this shot has been still a while" instead of
+learning anything about reconstruction.
+
+Deleting it took the **entire recurrent path** with it: the per-tile counters,
+`prevDepth`/`prevCover`, `updateHistAge()`, and the ordering rule between building
+features and ageing tiles — which was the twin contract's most drift-prone rule,
+and had already drifted once (the two sides implemented different thresholds for
+it, feeding the network a training-time channel the console would never
+reproduce). `buildFeatures()` became a **pure function of one frame** on both
+twins.
+
+**`luma` — the tile's mean brightness.** It went one commit later, and for a
+reason the console instrument had already flagged: **the EE cannot produce it.** A
+bag hands BLSS one scalar for its brightness and `stapip_core` can only fill it
+when the bag has a *single* colour. A per-vertex-lit mesh — which is every static
+mesh a generated game submits — has no cheap mean, so the channel read a constant
+**0.5** on the console while the corpus spread it over 0–0.48. Fitted on a
+photometric feature, run on a constant, and the constant was **out of the corpus'
+range**. Measured the same way at `kFeatures = 7`:
+
+| held at zero | (nothing) | `luma` | `edgeDens` (control) |
+|---|---|---|---|
+| held-out margin | +0.41 | **+0.43** | +0.35 dB over bilinear |
+| mean passes | 1.83 | 1.80 | 1.75 |
+| folds below bilinear | 5/39 | 5/39 | 4/39 |
+
+Same shape: the control costs 0.06 dB, `luma` is 0.02 dB the other way. Deleting it
+removed the last quantity the two sides computed **differently** — `BagProxy::luma`,
+`TileStats::luma`, the EE's per-bag colour average, one engine accumulator and the
+corpus' `measureLuma()`.
+
+Three things to take from this rather than the decibels, which are small:
+
+1. **A channel the two producers compute differently is worse than no channel.**
+   Both deletions were of exactly that, and in both cases the host's own numbers
+   looked fine while it was happening.
+2. **A negative result needs a control or it is not a result.** 0.02–0.03 dB
+   means nothing until something known-useful has been dropped for comparison.
+3. **The tables above are kept, not the channels.** If you want a photometric
+   feature back, the honest form is a per-mesh mean brightness **baked by the
+   editor** into the bag, not sampled at run time — the same shape as the
+   `texDetail` follow-up. Re-running these two experiments is minutes; finding out
+   they were run is what this section is for.
+
+What is left is six channels that are all geometric, all cheap, and all computed
+the same way on both twins.
 
 ### The network is variance-limited, not optimisation-limited
 
 **Anything that makes the fit easier makes the feature worse.** The clearest
-demonstration is `--standardise`, which fixes a real defect: the eight input
-channels have wildly different scales, and standardising them (mean 0, unit
-variance, folded back into `w1`/`b1` so the engine still sees raw features and
-the twin contract is untouched) fits the *training* shots better. Cross-validated
-on the same 39 fold-runs, it generalises **worse**:
+demonstration is `--standardise`, which fixes a real defect: the input channels
+have wildly different scales, and standardising them (mean 0, unit variance,
+folded back into `w1`/`b1` so the engine still sees raw features and the twin
+contract is untouched) fits the *training* shots better. Cross-validated on the
+same 39 fold-runs, it generalises **worse**:
 
 | | raw inputs (shipped) | `--standardise` |
 |---|---|---|
@@ -661,11 +994,17 @@ on the same 39 fold-runs, it generalises **worse**:
 | folds below bilinear | 5 / 39 | **9 / 39** |
 | mean passes | 2.85 | 2.94 |
 
-It is worse on ten of the thirteen folds, turns `floor-horizon` (+0.35 → −0.20)
-and `sphere-field` (+0.12 → −0.10) into losses, and makes the one existing loss
+It was worse on ten of the thirteen folds, turned `floor-horizon` (+0.35 → −0.20)
+and `sphere-field` (+0.12 → −0.10) into losses, and made the one existing loss
 deeper (`corridor` −0.52 → −0.88). The same experiment on the old seven-shot
 corpus moved +0.31 dB to −0.15 (`1b9c7a74`'s own run; that corpus no longer
 exists, but the direction is the same and larger).
+
+> **That table was measured at `kFeatures = 8` and has NOT been re-run since the
+> vector shrank to six.** Its raw-input column reads +0.40 / 2.85 passes where
+> today's is +0.42 / 1.80, so both columns would move; what is being claimed here
+> is the *direction*, which two independent corpora agree on. Re-run it with
+> `--blss-eval --cv --cv-seeds 3 --standardise` before quoting either number.
 
 So the search went to **regularisation** instead, and that is where the win came
 from: weight decay `1e-5` → **`1e-4`**, measured at `1b9c7a74` as worth +0.19 dB
@@ -674,7 +1013,7 @@ as `--flicker-weight`: **a knob measured and set to zero is not the same as a
 knob deleted**, and the next person to notice the input scales should find this
 table instead of re-running it.
 
-The moral generalises past this feature: an 8→12→3 MLP with 147 weights fitted to
+The moral generalises past this feature: a 6→12→3 MLP with 123 weights fitted to
 24 000 tiles is not short of capacity or short of optimisation. Every measurement
 in this section says the same thing — the corpus was the binding constraint, more
 regularisation helped, and easier fitting hurt.
@@ -701,8 +1040,9 @@ metric in this repo, and both moved the numbers a long way:
 
 Together those two moved the held-out row from **2.23 dB below** bilinear to
 about parity with it. Everything since — six more corpus shots, weight decay
-`1e-5` → `1e-4`, fill 6 → 16 — took it from parity to the **+0.40 dB** at the top
-of this section, and cross-validation is what showed that the "parity" reading
+`1e-5` → `1e-4`, fill 6 → 16, an inference deadzone and a proxy fix that stopped
+the console being handed a constant — took it from parity to the **+0.42 dB** at
+the top of this section, and cross-validation is what showed that the "parity" reading
 was itself one draw.
 
 ### On the console
@@ -723,14 +1063,25 @@ is visible as ~800 changed pixels out of 645 000.
 
 Three things about that table, all of them limits rather than results:
 
-- **It predates the fill term, and by now two retunes on top of that.** Every
-  console figure on this page was taken from a net trained by the old fill-blind
-  objective, which asked for four to five full-screen passes; the shipped net has
-  since changed corpus (7 shots → 13), fill weight (6 → 16) and weight decay
-  (`1e-5` → `1e-4`). A later boot exists — the interlock commit booted a BLSS
-  `fpp` project to frame 360 with no assert — but that was a *does it run* check,
-  not a picture measurement, and it predates the retune too. So the emulator half
-  of this feature is **stale, not wrong**, and it is stale by more than it was.
+- **It predates the fill term, and by now several retunes on top of that.** That
+  stability table was taken from a net trained by the old fill-blind objective,
+  which asked for four to five full-screen passes; the shipped net has since
+  changed corpus (7 shots → 13), fill weight (6 → 16), weight decay
+  (`1e-5` → `1e-4`), gained an inference deadzone and lost two input channels. So
+  the *picture* half of this feature is **stale, not wrong**, and it is stale by
+  more than it was.
+- **One console measurement on this page is current, and it is the instrument's,
+  not the picture's.** The `BLSSGRID`/`BLSSFEAT`/`BLSSFILL` figures in
+  [§2](#where-a-bags-screen-box-comes-from-and-why-that-was-the-bug) — 2 → 41
+  proxies, 5.00 → 1.96 passes, the channels unpinned — were read out of the game's
+  own log on a booted `fpp` fixture at `6a4cbead`, and they are numbers about
+  *what the network sees and what fill it asks for*, not about how the frame
+  looks or how long it takes. **The sky-dome opt-out that landed after them has
+  never been booted at all**: the machine it was written on lost its compositor
+  mid-session and PCSX2 would not open a GS window, so that change is verified at
+  compile level (engine and ELF built in Docker) and nowhere else. Re-run debug
+  view 2 on a live session before quoting any on-console number past that
+  commit.
 - **The bob it describes was later re-measured and re-explained** — the
   interlacing story in the paragraph that used to sit here was refuted. See
   [The oscillation](#the-oscillation).
@@ -771,13 +1122,15 @@ The only thing entitled to fuse it back into a stable picture is the temporal
 accumulator — and it was not converging hard enough, because nothing in the
 objective asked it to.
 
-### "Measured is not optimised", five times
+### "Measured is not optimised", six times
 
-**This is the most useful thing on this page.** The same mistake was made five
+**This is the most useful thing on this page.** The same mistake was made six
 times, each time one level further up, and each time it cost a debugging session.
 The first four are one sentence: *anything absent from the objective does not
 exist for the network.* The fifth is the same sentence about the **measurement**
-rather than the objective, and it is the one that produced the most wrong text.
+rather than the objective, and it produced the most wrong text. The sixth is the
+same sentence about **what was being measured on**, and it is the one that had
+been running longest.
 
 1. **per-frame PSNR could not see flicker.** It is a still-image metric; a
    reconstruction that oscillates between two jitter phases scores *better* than
@@ -801,15 +1154,15 @@ rather than the objective, and it is the one that produced the most wrong text.
    `isHeldOut(shot) = shot % 3 == 1` and never varied. Re-running the cycle at
    four `--seed` values moved the answer from −0.23 to +0.26 dB, and this page
    wrote that down as **seed noise**, five times, in five places. It is not:
-   under cross-validation the sd of the per-seed *fold mean* is **0.01 dB**,
-   while the sd from fold to fold is **0.40 dB**. The spread was the split.
+   under cross-validation the sd of the per-seed *fold mean* is **0.04 dB**,
+   while the sd from fold to fold is **0.35 dB**. The spread was the split.
 
    What that cost, in order of how wrong each one was:
 
    - the honest-sounding retraction — "≈+0.1 dB, one loss in four seeds,
-     statistically a draw" — **understated a +0.40 dB win** and was the summary
-     printed in the README, the preferences dialog, the engine skill and the
-     backlog;
+     statistically a draw" — **understated a win that measures +0.42 dB today**
+     and was the summary printed in the README, the preferences dialog, the
+     engine skill and the backlog;
    - `kFillWeight`'s "**sharp knee at 6**", including "12 is a full decibel below
      plain bilinear", was an artefact of that one split. Over 21 fold-runs per
      point the shape is a **plateau from 12 to 24**, not a cliff, and the fill
@@ -821,15 +1174,37 @@ rather than the objective, and it is the one that produced the most wrong text.
      useful to know.
 
    The clean illustration is that a single split can be *wrong in either
-   direction and you cannot tell which*: at today's defaults the shipped split
-   reads about **zero** while the 13-fold mean reads **+0.40**, because the
-   split happens to contain `corridor` — the one shot of thirteen the network
-   loses on. Nothing about the network changed between those two numbers. Only
-   the question did.
+   direction and you cannot tell which*: when this was written the shipped split
+   read about **zero** while the 13-fold mean read **+0.40**, because the split
+   happens to contain `corridor` — the shot the network loses on. Nothing about
+   the network changed between those two numbers. Only the question did. (The
+   same split reads +0.17 against +0.42 today, which is the same lesson with a
+   smaller gap and no more trustworthy for it.)
 
    The rule that follows: **`--blss-eval --cv` for anything you intend to act
    on.** A plain `--blss-eval` is a fast look at one split, and its held-out
    columns are worth exactly what one draw is worth.
+
+6. **the network was fitted to one distribution and run on another, and for
+   eleven commits nobody could see it.** `--blss-eval --features` could always
+   describe the *corpus'* inputs. Nothing described the **console's**. An earlier
+   round added exactly that probe, read it once and deleted it — so every channel
+   statistic, every saturation percentage and every "this feature is doing
+   nothing here" diagnosis on this page was a statement about the training set
+   being read as a statement about the game.
+
+   What it was hiding, once the instrument was permanent: a generated game's
+   whole frame described by **two** bounding spheres, `depth`, `depthGrad` and
+   `coverage` pinned at 1.0 in every tile, the network emitting a constant, and
+   the composite paying **5.00 of a possible 5.00 passes**. None of that is
+   visible in a host number, because the host's own frames were fine. And the
+   `luma` channel was worse than pinned: it read a constant **outside** the range
+   the corpus had taught.
+
+   The rule that follows: **an instrument that only one side of a twin can run is
+   not an instrument.** Both halves ship permanently now — engine debug view 2
+   and `--blss-eval --probe` — and they are the pair to reach for before
+   believing anything on this page about what the console sees.
 
 ### What was tried for (3), and what it cost
 
@@ -934,16 +1309,22 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
   so it is a contract change, not a tweak — and `--blss-eval --cv` is what says
   whether it worked.
 - **The network spends fill where nothing is visible.** On `flat` — a slow pan
-  over an empty untextured area — it draws **4.33 full-screen passes** to buy
-  0.9 dB that no eye can see, while the oracle scores *below* it because the
-  oracle is charged for the fill and correctly declines. That single fold is
-  where the mean pass count goes, and "learn when the answer does not matter" is
-  a training-weight question, not a topology one.
-- **Occupancy is noisier than PSNR.** Mean passes over the 39 fold-runs is 2.85
-  with sd **0.61**, i.e. a fifth of the whole budget, against a PSNR sd of 0.40 dB
-  on a much smaller scale. So "≈3 passes" is the right order of magnitude and the
-  wrong number to put in a fill budget — size anything that has to be *correct*
-  off the 5.00 worst case.
+  over an empty untextured area — it draws **2.12 full-screen passes**, the most
+  of any fold, to buy 1.05 dB that no eye can see, while the oracle scores *below*
+  it because the oracle is charged for the fill and correctly declines. This fold
+  read 4.33 passes before the deadzone and the proxy fix, so it has come a long
+  way and is still the outlier. "Learn when the answer does not matter" is a
+  training-weight question, not a topology one.
+- **Occupancy is noisier than PSNR.** Mean passes over the 39 fold-runs is 1.80
+  with sd **0.30**, i.e. a sixth of the whole budget, against a PSNR sd of 0.35 dB
+  on a much smaller scale. So "≈1.8 passes" is the right order of magnitude and
+  the wrong number to put in a fill budget — size anything that has to be
+  *correct* off the 5.00 worst case.
+- **Give the Debug view combo its third entry.** The engine's feature/output
+  instrument is debug view **2**, the project loader accepts it, and the editor's
+  combo offers only 0 and 1 — so reaching the one measurement that says what the
+  console's network actually sees means hand-editing the `.tyra`, and the combo
+  displays such a project as "Off".
 
 **Frame timings are still not measured, and real hardware has never run this
 at all.** No profiling pass exists in the emulator and no PS2 has booted it, so
@@ -962,9 +1343,12 @@ Occupancy is a count of grid cells, not a millisecond.
   rather than fixing it.
 - **No per-scene overrides and no flow-graph control** — project-wide, baked at
   build time, like [custom screen effects](custom-screen-effects.md).
-- **Trained on a procedural corpus, not on your project.** Training against the
-  actual project's geometry is the obvious next step (`--blss-train
-  <projectDir>`), and the corpus generator is already structured for it.
+- **FIXED — it can be trained on your project now**, and it turns out to matter
+  more than anything else on this list: `--blss-train <projectDir>` walks the
+  project's own scenes, and a bestiary-trained net measured **worse than doing
+  nothing** on a real project. See
+  [Training on your own project](#training-on-your-own-project). What is *not*
+  fixed is the window, which still trains on the bestiary only.
 - **The labels do not see the real history.** The true history is the previous
   frame's composite, which depends on the previous frame's weights, which depend
   on the net being trained — unrolling that is out of scope for a PoC. Label
@@ -1051,11 +1435,11 @@ Occupancy is a count of grid cells, not a millisecond.
 - **The composite is not free, and it is now quantified.** The worst case is five
   full-screen passes, which is more fill than the half-res render saved — so the
   sparsity culling is a requirement, not an optimisation. The shipped net measures
-  **2.91 passes in distribution and 2.90 out of it** (`--blss-eval`'s `passes`
-  column; **2.85 with sd 0.61** over 39 cross-validation fold-runs) against 1.00
-  for plain bilinear, and the oracle reaches better quality at 1.36–1.56 — so
-  roughly **half the remaining fill is the network failing to generalise the cost
-  model**, not a floor.
+  **1.67 passes in distribution and 1.87 out of it** (`--blss-eval`'s `passes`
+  column; **1.80 with sd 0.30** over 39 cross-validation fold-runs) against 1.00
+  for plain bilinear, and the oracle reaches better quality at 1.36 — so roughly
+  **half a pass of the remaining fill is the network failing to generalise the
+  cost model**, not a floor.
   Everything here is a pass count. Whether it is a *win* on a given scene is a
   millisecond question, and **no frame timing has ever been measured**, in the
   emulator or on hardware. Measure before shipping it on a scene that was never
@@ -1063,12 +1447,18 @@ Occupancy is a count of grid cells, not a millisecond.
 
 ## Reference
 
-- Host side: `src/blss.hpp` / `src/blss.cpp` (features, MLP, experts, oracle,
-  trainer, emitter) and `src/blsscorpus.{hpp,cpp}` (the software rasteriser that
-  manufactures training frames). CLI in `src/main.cpp`: `--blss-train`,
-  `--blss-eval`, `--blss-emit`.
+- Host side: `src/blss.hpp` / `src/blss.cpp` (features, MLP, oracle, trainer,
+  emitter), `src/blsscorpus.{hpp,cpp}` (the software rasteriser that manufactures
+  training frames) and `src/blssscene.{hpp,cpp}` (walking a real project into
+  world-space triangles, so the corpus can be the user's own scenes). CLI in
+  `src/main.cpp`: `--blss-train [<projectDir>]`, `--blss-eval [<projectDir>]`,
+  `--blss-emit`. `blss.hpp` carries the measured tables for every constant it
+  defines — read it before changing one.
 - Engine side: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
-  (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The raster scale
+  (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The proxy
+  producers are `addBagBox()` / `addBagSphere()`, fed from `StaPipCore` one box
+  per VU1 package and gated on `PipelineInfoBag::blssProxy`; the instrument is
+  `logFeatureSpread()` under debug view 2. The raster scale
   it needs is `RendererSettings::setRasterScale` / `getRasterWidthF/HeightF`
   (`getRasterWidthUI/HeightUI` is what the z buffer is sized from), and the
   history tap is `RendererCoreGS::getPreviousFrameBuffer()`.
@@ -1082,9 +1472,15 @@ Occupancy is a count of grid cells, not a millisecond.
 - Project fields: `blssEnabled` / `blssScale` / `blssSharpen` / `blssTemporal` /
   `blssDebugView`, loose on `ProjectSettings` (`src/project.hpp`), serialised in
   `src/project.cpp`, format version 4 (additive, no migration step).
-- UI: the *Neural upscaler (BLSS)* block of `App::drawPreferencesModal`
-  (`src/app.cpp`). Its conflict warning **mirrors `blssClashes()`** condition for
-  condition; edit the two together or the dialog drifts away from the build again.
+- UI: `src/blss_window.cpp` (*Tools ▸ Neural Upscaler (BLSS)*) and
+  `src/blss_ui.{hpp,cpp}` (the job that runs the editor's own CLI, and the parsers
+  that read its tables back — host-only, no ImGui, no `App`, so they stay testable
+  from a harness). The window **runs `tyrax-editor --blss-<verb>` as a subprocess
+  and parses stdout**; do not give it a second implementation of anything in
+  `blss.cpp`. `drawBlssSettings` / `blssClashesFor` / `drawBlssClashWarning` live
+  there too and are drawn by **both** the window and `App::drawPreferencesModal`,
+  so the conflict warning is one mirror of `blssClashes()`; edit the two together
+  or the editor drifts away from the build again.
 - Code generation: `blssInclude` / `blssInit` / `blssSceneRender` /
   `blssNetHeader` in `src/templates.cpp`, reaching both the orbit and FPP
   templates through the `{{BLSS_INCLUDE}}` / `{{BLSS_INIT}}` /

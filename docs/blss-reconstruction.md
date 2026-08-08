@@ -15,7 +15,8 @@ change to one side is a change to this page and to the other side.
 oracle and every fixed kernel it prints PSNR, flicker and **occupancy** — what
 fraction of grid cells each pass draws and the mean full-screen passes per frame.
 A parity break shows up as the trained net scoring below the oracle by more than
-the usual ~0.8–0.9 dB. (`--blss-eval --cv` is the *generalisation* measurement and
+the usual ~0.7 dB (24.49 against 25.19 on the shipped held-out split; it was
+0.8–0.9 dB before the proxy fix and the deadzone). (`--blss-eval --cv` is the *generalisation* measurement and
 a different question; for parity, the plain run is the one to watch, because the
 gap to the oracle is the quantity that moves when the twins drift.)
 
@@ -66,13 +67,12 @@ The engine expresses this as a constant `+jx*16`, `+jy*16` offset on the grid's
 ## 2. Bag proxies -> tile stats  (`accumulate()`)
 
 The EE knows a frame as a list of `BagProxy` — a screen bbox, a `w` range, and
-two material scalars. For every tile the accumulator sums, over every bag,
+one material scalar. For every tile the accumulator sums, over every bag,
 `a = overlapX * overlapY / kTile²`:
 
 ```
 coverAcc += a
 depthAcc += a / max(wNear, 1e-4)
-lumaAcc  += a * luma
 detAcc   += a * texDetail
 dmin      = min(dmin, 1 / max(wFar,  1e-4))
 dmax      = max(dmax, 1 / max(wNear, 1e-4))
@@ -86,7 +86,6 @@ then
 ```
 cover     = min(1, coverAcc)
 depthMean = depthAcc / max(coverAcc, 1e-6)
-luma      = lumaAcc  / max(coverAcc, 1e-6)
 texDetail = detAcc   / max(coverAcc, 1e-6)
 depthMin  = dmin,  depthMax = dmax        (0 when nothing covered)
 edge      = min(1, edgeAcc / (2 * kTile))
@@ -95,8 +94,114 @@ edge      = min(1, edgeAcc / (2 * kTile))
 `texDetail` on the PS2 side is **not** an editor bake (that is a follow-up): it
 is the minification ratio the engine can compute for free from what it already
 holds — texels per screen pixel, `clamp(sqrt(texelArea / screenArea) / 4, 0, 1)`,
-which is the direct predictor of texture aliasing. The corpus computes the same
-ratio from its own materials.
+computed off the **clamped** bbox so a proxy running off the side of the screen
+reports the detail of what is on screen. The corpus computes the same ratio from
+its own materials.
+
+### Where a proxy comes from, and the three rules that make it describe anything
+
+This half of the contract used to be one sentence — "the bag's world bounding
+sphere, which the renderer already computes for the dynamic-light pick". It was
+wrong in a way no host measurement could see, because the corpus never had the
+problem: `--blss-eval --features` described the corpus' distribution and nothing
+described the console's, so for eleven commits the network was fitted to one and
+run on the other. §2a below is the instrument that closed that; these are the
+three rules it found.
+
+**A proxy is an object-space AABB through the MVP, not a bounding sphere.**
+`RendererCoreBlss::addBagBox()` and the corpus' `bagOf()` are twins: eight
+corners (clip space is affine in the box's parametric coordinates, so it is one
+matrix-vector product plus three scaled columns), near-clipped along the box's
+**twelve edges** so an edge that crosses the near plane contributes its
+intersection, then reduced to a screen bbox and a `w` range. A sphere is
+grotesque for a floor or a terrain mesh: `wNear = w − radius` collapses to the
+near clamp and the screen box covers the frame, so **every tile reads
+`depth = 1`, `depthGrad = 1`, `coverage = 1`** — a constant, which is a network
+making no per-tile decision at all. `addBagSphere()` survives as the fallback for
+a bag with no package bbox.
+
+**One proxy per VU1 package, not one per bag.** `StaPipCore` feeds BLSS one box
+per run of `maxVertCount/3` consecutive vertices — `StaPipBagPackagesBBox`
+already holds them, cached, computed for frustum classification whether BLSS is
+on or not, so the granularity is already paid for. The corpus cuts the same way:
+`kProxyVerts = 24` is derived from `StaPipVU1Program::getMaxVertCount` for the
+Cull-TC class (the finest of the three, so it cannot flatter the corpus). Both
+cap at **32 proxies per bag** and merge consecutive parts above that; merging by
+vertex range can only *enlarge* a box, so the worst case degrades toward the old
+whole-bag proxy rather than lying about where geometry is.
+`--blss-train --no-package-split` reverts the corpus to one proxy per object,
+which exists to reproduce the fold tables measured before the split.
+
+**A box that straddles the eye AND still fills the frame after clipping is
+dropped, by both producers.** Its bbox is the frame by construction and its
+`wNear` is the clip constant, not a measurement, so it hands every tile it
+touches "fully covered, at the nearest representable depth". The condition is
+threshold-free on purpose:
+
+```
+eyeInside  = wNear <= near * 1.0001
+fillsFrame = x0 <= 0 && y0 <= 0 && x1 >= outW && y1 >= outH
+if (eyeInside && fillsFrame) drop the proxy
+```
+
+It is a **no-op on the corpus by construction rather than by luck** — nothing
+there encloses the camera (the floors are zero-thickness quads under the eye, the
+walls zero-thickness in x) — which is what keeps a fold table comparable across
+the change.
+
+**And one rule that only the bag can state: `PipelineInfoBag::blssProxy`.** The
+straddle rule cannot catch a dome *cap*, because a box covering only the top band
+of the frame is perfectly well formed and still describes nothing — it is a shell
+patch, and no AABB of a shell describes where its surface is. Only the submitter
+knows a mesh is a shell, so codegen sets `blssProxy = false` for the sky dome, the
+star field and the sun/moon discs, and `StaPipCore` then submits no proxy for
+them at all. `SceneMesh::proxy` is its corpus-side twin. It costs the network
+nothing: those tiles read `coverage = 0`, which `kMinCoverage` already treats as
+"do nothing here".
+
+The corpus also honours what the console does **not** submit — a bag past its
+`drawDistance`, or a terrain chunk past the streaming view distance, is neither
+drawn into the ground truth nor described by a proxy.
+
+## 2a. The instrument, and it is permanent this time
+
+Nothing on this page is checkable against real content without a way to read the
+console's own feature vector, and the one previous attempt at that was added,
+read once and deleted. Both halves are permanent now, and this pair is how the
+twins get checked:
+
+- **Engine, BLSS debug view 2** (`RendererCoreBlss::logFeatureSpread()`). One
+  line group a second into the game's `bin/log.txt`, picture untouched:
+
+  | line | what it carries |
+  |---|---|
+  | `BLSSGRID` | tile counts, how many tiles are covered, **how many proxies described the frame**, the scale |
+  | `BLSSWORST` | the single widest proxy — tiles touched, bbox, `w` range, the near plane. This is the line that names the culprit when the grid describes nothing |
+  | `BLSSFEAT` | min/mean/max of all six inputs over the tile grid |
+  | `BLSSOUT` | min/mean/max of the three outputs |
+  | `BLSSFILL` | occupancy per pass and the frame's mean passes, through `emitGrid`'s own four-corner skip rule — the same quantity `blss::occupancy()` reports on the host |
+
+  The channel names and their order are **exactly `blss::kFeatureNames`**, so a
+  line here sits next to a row of `--blss-eval --features`. It is compiled out of
+  an `NDEBUG` build (`TYRA_LOG`), which the editor's own game build is not.
+  Reaching it needs `"blssDebugView": 2` edited into the `.tyra` by hand — see
+  the caveat in [the upscaler page](neural-upscaler.md#using-it).
+
+- **Host, `--blss-eval --probe "<BLSSFEAT line>"`.** Paste that line back and it
+  places the console's vector *inside the corpus distribution*: per channel the
+  spread, the percentile, how much corpus lies within ±0.05 (which is what
+  decides interpolation vs extrapolation — a percentile alone reads the same at
+  both ends), how much of the corpus the frame's own band reaches, and a verdict.
+  It accepts the retired `luma=` and `histAge=` spellings and ignores them, so
+  vectors recorded in older commit messages stay placeable.
+
+- **Host, `--blss-eval --cv --drop-feature <name>`** holds a channel at zero over
+  the whole corpus — training, labelling and evaluation — which is what deleting
+  it from the vector would do. "Does this channel earn its keep" is then one
+  `--cv` run instead of an edit to `kFeatures` on both twins. Both channels this
+  network has lost were retired on that measurement; the tables are in
+  `src/blss.hpp` and
+  [the upscaler page](neural-upscaler.md#two-channels-the-network-lost-and-the-measurements-that-took-them).
 
 ## 3. Reprojection  (`buildReproj()`)
 
@@ -142,8 +247,6 @@ depthGrad = clamp(max(  max over 4-neighbours |depthN - depth|,
 edgeDens  = edge
 texDetail = texDetail
 coverage  = cover
-luma      = luma
-histAge   = min(histAge / 8, 1)
 ```
 
 **`motion` is the length of the MEAN of the four corner offsets, not the field
@@ -151,25 +254,25 @@ sampled at the tile centre.** Once the field is piecewise linear those differ �
 `triLerp` at (0.5, 0.5) weights only two of the four corners — so an unstated
 choice here is a guaranteed drift. Both sides take the mean.
 
-`histAge` is the one recurrent channel, and **its update rule is part of this
-contract**. It was left to "the caller" in an earlier draft and the two sides
-promptly implemented different thresholds, feeding the network a channel at
-training time that the console would never reproduce. Run it AFTER the features
-are built, from the normalised values:
-
-```
-changed = |depth - prevDepth| > 0.02
-       or |cover - prevCover| > 0.05
-       or motion > 0.25
-histAge = changed ? 0 : min(histAge + 1, 255)
-prevDepth = depth ;  prevCover = cover
-```
-
-and reset the whole grid to 0 on a scene cut (the first frame of a shot).
+**`buildFeatures()` is a PURE function of one frame, on both twins**, and that is
+now a property worth defending rather than an accident. This section used to
+carry a ninth line, `histAge = min(histAge / 8, 1)`, plus an update rule with
+three thresholds, an ordering requirement ("run it AFTER the features are built")
+and a reset-on-scene-cut clause — the most drift-prone paragraph on this page, and
+it had already drifted once (an earlier draft left the update to "the caller" and
+the two sides promptly implemented different thresholds, feeding the network a
+channel at training time that the console would never reproduce). The channel was
+measured and deleted, which took the whole recurrent path with it: no per-tile
+counters, no `prevDepth`/`prevCover`, no ordering hazard. `luma` went the same way
+one commit later. The measurements are
+[on the upscaler page](neural-upscaler.md#two-channels-the-network-lost-and-the-measurements-that-took-them);
+the consequence here is that **no per-tile state survives a frame on either
+side**, so there is nothing in this section for the two implementations to
+sequence differently.
 
 ## 5. The network
 
-MLP 8 → 12 → 3, `tanh` hidden, logistic outputs, 147 weights:
+MLP 6 → 12 → 3, `tanh` hidden, logistic outputs, 123 weights:
 
 ```
 h[k] = tanh( sum_i w1[k][i] * f[i] + b1[k] )
@@ -334,23 +437,25 @@ corpus frames over 13 shots:
 
 | | point | temporal | sharpen | mean passes |
 |---|---|---|---|---|
-| trained net, training shots | 80.1 % | 81.3 % | 14.9 % | 2.91 |
-| trained net, held-out shots | 90.2 % | 90.6 % | 4.8 % | 2.90 |
-| oracle, training shots | 7.5 % | 43.4 % | 2.4 % | 1.56 |
-| oracle, held-out shots | 3.0 % | 32.7 % | 0.0 % | 1.36 |
+| trained net, training shots | 0.0 % | 66.7 % | 0.0 % | 1.67 |
+| trained net, held-out shots | 0.0 % | 86.6 % | 0.0 % | 1.87 |
+| oracle, held-out shots | 3.0 % | 33.0 % | 0.0 % | 1.36 |
+
+(The tool prints the oracle row for the held-out split only.)
 
 **An earlier draft of this section claimed "passes 2..5 typically cover a minority
 of the screen". That was aspirational and it was false when written** — with a
 fill-blind objective the held-out mean was **4.85 of a possible 5.00 passes**,
-i.e. every kernel over essentially the whole screen. It is true today of the
-**sharpen** pass only (100 % → 4.8 % held out). Point and temporal are still
-drawn over most of the screen; the oracle rows show that a *better* answer exists
-at half the fill, so this is the network failing to generalise the cost model
-rather than a floor.
+i.e. every kernel over essentially the whole screen. It is true today of **point
+and sharpen**, which the inference deadzone culls completely, and **not** of
+temporal, which is still drawn over most of the screen. The oracle row shows the
+headroom that remains: a *better* PSNR at 1.36 against the net's 1.87, i.e. about
+half a pass, so this is still the network failing to generalise the cost model
+rather than a floor — by a third of what it used to be.
 
 Occupancy is **noisier than PSNR**: over 39 leave-one-shot-out fold-runs the mean
-is 2.85 passes with an sd of **0.61**, and one fold (`flat`, an empty untextured
-pan) reaches 4.33 on its own. Treat the table as one measurement of a noisy
+is 1.80 passes with an sd of **0.30**, and one fold (`flat`, an empty untextured
+pan) reaches 2.12 on its own. Treat the table as one measurement of a noisy
 quantity, re-run `--blss-eval --cv` rather than quoting it, and size anything that
 has to be *correct* off the worst case.
 
@@ -390,7 +495,10 @@ case regardless — see the packet budget above.
   `blssInterlock()` in `src/templates.cpp` emit `#error` lines into
   `inc/scene_data.hpp`, so the pair does not *build* rather than not being
   emitted. The editor's *Neural upscaler (BLSS)* block warns about the same four
-  conditions live, and is now the early warning rather than the whole interlock.
+  conditions live, and is now the early warning rather than the whole interlock —
+  drawn from **one** place (`drawBlssSettings` / `blssClashesFor` /
+  `drawBlssClashWarning`) and called by both *Tools ▸ Neural Upscaler (BLSS)* and
+  *Project ▸ Preferences*, so there is one mirror of `blssClashes()` and not two.
   One of the three had a second, independent problem and no longer does:
   - **Portals** were the fourth copy of the raster-restore bug.
     `renderPortalView` runs inside `renderScene()` and
