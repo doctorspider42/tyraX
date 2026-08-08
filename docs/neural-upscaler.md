@@ -512,7 +512,8 @@ BEFORE turning this on") was impossible to perform on a fresh project. Now:
 Both verbs take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
 `--scale-1x2`, `--weight-decay W`, `--standardise`, `--threads N`
 ([below](#--threads-n-and-the-determinism-that-pays-for-it)), and the two weights
-of the oracle's objective — `--flicker-weight` and `--fill-weight`. **Sweep those two as
+of the oracle's objective — `--flicker-weight` (with `--flicker-form lag1|period2`,
+which picks *what* that weight charges for) and `--fill-weight`. **Sweep those two as
 a pair**, because they trade against each other and against sharpness; the
 shipped defaults (`0` and `16`) are the result of such a sweep, recorded with its
 numbers in `src/blss.hpp`. Changing either changes the *labels*, so a change is
@@ -565,6 +566,15 @@ fold loop turns the trainer's own verbosity off and prints nothing else until th
 table at the very end, so a progress bar driven off this tool's output used to go
 blank for minutes; the count is completion order, not fold index, because folds
 run in parallel and a bar wants a fraction rather than an identity.
+
+**The period-2 alternation table is printed UNDER the PSNR table, never as a
+column in it, and that is a compatibility rule rather than a layout preference.**
+`blssui::parseEval` and `parseCv` (`src/blss_ui.cpp`) read those tables **by
+column position** — a new column in the middle of them is not a parse error, it
+is a silently misread table, which is the worst failure mode a parser has. The
+same rule bounds the rows: every alternation row is short enough that the
+parsers' own shape check rejects it, and the `--cv` block sits where its
+four-number rows fall under the seven-number guard.
 
 ### Where the minutes go, and what was measured to move them
 
@@ -845,8 +855,19 @@ four times (see [The oscillation](#the-oscillation)):
 | Term | Weight | What it buys |
 |---|---|---|
 | MSE against the supersampled truth | 1 | sharpness / accuracy |
-| MSE against the reprojected history | `--flicker-weight`, **default 0** | temporal stability — **measured to be a bad trade, see below** |
-| the fill the candidate would make the GS draw | `--fill-weight`, **default 16** | sparsity, and stability as a side effect |
+| the stability term | `--flicker-weight`, **default 0** | temporal stability — **measured to be a bad trade in both forms, see below** |
+| the fill the candidate would make the GS draw | `--fill-weight`, **default 16** | sparsity |
+
+The stability term has **two forms**, selected by `--flicker-form`, and the
+distinction is the whole term rather than a variant:
+
+| `--flicker-form` | what it charges for | |
+|---|---|---|
+| `period2` (**default**) | the stationary period-2 alternation the candidate weights would leave, clamped, derived in closed form from the alpha bytes | cannot be paid by freezing |
+| `lag1` | MSE against the reprojected history — the original | minimised by the picture freezing, and blind to a period-2 artefact |
+
+Both ship at weight 0. [The trade curve](#the-trade-curve) is why, and it is the
+reason to reach for the table rather than the knob.
 
 The fill term is charged as a **step on the quantised alpha byte**, not as a
 smooth function of the weight, because the byte is what the engine's skip test
@@ -2149,6 +2170,13 @@ and measured with the same sampler, `--blss-eval --cv --cv-seeds 3` on
 | `blssJitter` on | **+0.69** | 0.50 | 0/18 | 1.74 | 73.7 % |
 | `blssJitter` off | **+0.26** | 0.29 | 3/18 | 1.66 | 65.8 % |
 
+**Replicated 2026-08-09 at a bigger N, and it held**: 5 seeds × 6 folds =
+**30 fold-runs**, 120 frames, same objective, reads **+0.61** (sd 0.51, 1/30
+below bilinear, 1.73 passes) with the jitter on against **+0.33** (sd 0.34, 2/30,
+1.65 passes) with it off. Same ordering, same ~0.3 dB gap, same fill. Two
+independent draws agreeing at this feature's noise level is worth writing down,
+because most of the numbers this page has retracted were single draws.
+
 **0.43 dB — the one number on this page bigger than its own fold sd.** The
 scene's *ceiling* moves with it too: the oracle's headroom over bilinear falls
 from +0.84 dB to +0.27 on the same shots, which is the honest statement of what
@@ -2157,15 +2185,17 @@ so the temporal pass stops being a supersample and becomes plain accumulation,
 and what BLSS has left is spatial kernel selection. That is a real cure for a
 real bob, and it costs most of the reason to run the feature.
 
-### "Measured is not optimised", six times
+### "Measured is not optimised", seven times
 
-**This is the most useful thing on this page.** The same mistake was made six
+**This is the most useful thing on this page.** The same mistake was made seven
 times, each time one level further up, and each time it cost a debugging session.
 The first four are one sentence: *anything absent from the objective does not
 exist for the network.* The fifth is the same sentence about the **measurement**
 rather than the objective, and it produced the most wrong text. The sixth is the
 same sentence about **what was being measured on**, and it is the one that had
-been running longest.
+been running longest. The seventh is the same sentence about **the instrument
+built to catch the other six**, which is the strongest argument on this page that
+the rule is structural rather than a run of bad luck.
 
 1. **per-frame PSNR could not see flicker.** It is a still-image metric; a
    reconstruction that oscillates between two jitter phases scores *better* than
@@ -2241,6 +2271,27 @@ been running longest.
    and `--blss-eval --probe` — and they are the pair to reach for before
    believing anything on this page about what the console sees.
 
+7. **the replacement metric could not see the artefact either, twice, and it was
+   written specifically to avoid this mistake.** `period2Alternation()` is the
+   motion-compensated second difference that `flicker` structurally cannot be —
+   and its first build read a **3.56-level floor** under a 1.42-level artefact,
+   because motion compensation has its own error and this reprojection field is
+   255 UVs for a whole frame. Gated on warp length it read a clean floor and then
+   turned out to be measuring the **animated models**, which a camera-derived
+   reprojection never compensates.
+
+   Both were caught the same way, and it is the only reason this entry is a note
+   rather than a retraction: **the metric was validated against two known cases
+   before anything was optimised against it** — `examples/upscaler-lab` with the
+   jitter on, which a human calls shaking, and the same scene with it off, which
+   the console captures byte-identical. A metric that scores those two the same
+   is not measuring the artefact, whatever its derivation says.
+
+   The rule that follows, and it is the general form of all seven: **a new
+   instrument is not evidence until it has separated two cases whose answer you
+   already know.** Deriving it correctly is not enough — entries 1, 2, 3 and this
+   one were all derived correctly and all measured the wrong thing.
+
 ### What was tried for (3), and what it cost
 
 The fix this page used to prescribe — **score the oracle over a PAIR of
@@ -2275,20 +2326,237 @@ output and the reprojected history, and that quantity is minimised by
 `out == history` — by the picture **FREEZING**. Freezing is free on the corpus's
 near-static training shots and is *ghosting* on the held-out orbit and dolly. The
 term cannot tell "stable because the jitter got fused" from "stable because
-nothing moved". If the console still oscillates, this knob is available and the
-table above is its price — but **fix the form first**: gate the penalty on
-reprojection confidence so it cannot be paid by freezing.
+nothing moved". And it is blind on top of that: a **lag-1** difference is equally
+large for a picture alternating between two images and for a smooth pan, so it
+cannot see a period-2 artefact at all.
 
 The knob, the term and the CLI flag all stay. **Setting a weight to zero after
 measuring it is not the same as deleting it**, and the next person to have this
-idea should find the measurement instead of re-running it.
+idea should find the measurement instead of re-running it. It is reachable as
+`--flicker-form lag1`.
+
+This section used to end "**fix the form first**: gate the penalty on
+reprojection confidence so it cannot be paid by freezing." That was done. The
+next section is what it measured.
+
+### Fixing the form: the period-2 objective, swept
+
+**The form was fixed, the metric was rebuilt twice to be able to judge it, and
+the answer is that the objective cannot buy the stability at a price worth
+paying.** Jitter-off is now the *measured* answer rather than a retreat, and this
+section exists so nobody runs this again.
+
+#### The new term, and why freezing is not expressible in it
+
+`--flicker-form period2` charges for the **stationary alternation the candidate
+weights would leave**, derived rather than sampled so it can live in the oracle's
+innermost loop (`altAmplitude()` in `blss.cpp`). The console alternates two jitter
+phases forever, so with `c = aC/128` the temporal blend, `P_p` the base+point
+result of phase `p` and `A_p` the unsharp mask — which lands *after* the
+accumulator and so is never fed back through it:
+
+```
+out_t = S_p( (1-c) * P_p + c * out_{t-1} )
+out_0 - out_1 = [ (1-c) * (P_0 - P_1)  +  (A_0 - A_1) ] / (1 + c)
+```
+
+Three things fall out of that one line and all three are load-bearing:
+
+- the base and point passes' phase difference **is** damped by the accumulator,
+  by `(1-c)/(1+c)` — 1.00 at `c = 0`, 0.73 at alpha 20, 0.054 at the
+  `kTemporalMax` ceiling. Temporal weight is the only cure for it, so **a fill
+  term that culls the temporal pass makes the bob worse, not better**;
+- the sharpen pass's phase difference is **not damped at all**. The only way to
+  remove it is `aD = 0`;
+- nothing in it is a difference against the history, so **freezing is not
+  expressible**. The only ways down are fusing the phases (raising `c`) and not
+  amplifying them (lowering `aA`/`aD`), and both are real cures.
+
+**The gate that was designed for it was measured wrong before it was ever swept,
+and that is worth more than the sweep.** The first version multiplied the charge
+by `(1 - motion) * (1 - depthGrad)`, reasoning that `motion` at 1.0 puts the
+history a whole tile away and `depthGrad` at 1.0 is a silhouette. Both readings
+are right about what the channels *mean* and wrong about what they *contain*: on
+`examples/upscaler-lab`, `--blss-eval --features` over 5376 tiles reads `motion`
+at **exactly 1.0 on 49.1 %** of them and `depthGrad` on **41.0 %**. That product
+is zero on most of the frame, and zero specifically on the moving, geometrically
+busy part — which is exactly where the console's difference image lights up. It
+would have swept as "buys nothing", which is the same non-answer `--flicker-weight`
+already gave twice. **A gate built out of saturated channels is a gate that is
+always shut.** Outliers are handled where they belong instead: the charge itself
+is clamped at `kAltClamp = 8` levels, which bounds a disocclusion *and* flattens
+its gradient, so an outlier costs a constant and therefore buys nothing.
+
+#### The metric, and the two things that had to be fixed before it could judge anything
+
+`flicker` is a lag-1 difference and cannot see a period-2 artefact. The
+replacement is the **motion-compensated second difference**,
+`|O(t) - 2*O(t-1) + O(t-2)| / 4` — exactly zero for anything moving at a constant
+rate, and the alternation amplitude for a bob. Both predecessors are warped into
+frame `t` first. It is printed under the `--blss-eval` table and as a per-fold
+column in `--cv`, always with a **native full-res row as its own floor**, because
+a metric without its own residual printed next to it is a number nobody can read.
+
+It did not work the first time, and it did not work the second time. Both
+failures are the same shape as everything else on this page — *the instrument
+measured something other than the artefact* — and both were caught by validating
+against the two known cases before optimising against it, which is the only
+reason this section is not another retraction.
+
+**(1) Motion compensation has its own error, and ungated it is larger than the
+artefact.** 36 frames, held-out split, shipped net, the fixture a human called
+"like an earthquake" with jitter on and "steady" — byte-identical on hardware —
+with it off:
+
+| ungated | jitter ON | jitter OFF |
+|---|---|---|
+| native full-res | 3.564 | 3.564 |
+| half-res + bilinear | 3.346 | 2.964 |
+| half-res + BLSS | 2.687 | 2.398 |
+
+A floor of 3.56 levels under an artefact the console measured at 1.42, and the
+**known-still arm reading 2.40 where the console captured zero**. The floor is
+the warp: this reprojection field is per tile *corner* (255 UVs for the whole
+frame), half these tiles move a full tile per frame, and a second difference
+warps twice. So a pixel now counts only when **both** of its warps are under a
+gate length, which is the honest twin of the console experiment — what a frozen
+camera is, on footage that moves, is the pixels whose warp is short enough to
+trust. Every gate is accumulated in one pass and the whole sweep is printed,
+because a gated number whose gate is not shown is a magic constant.
+
+**(2) The gate exposed a second contaminant: the animated models.** The
+reprojection field is built from camera matrices, so geometry that moves *on its
+own* is never compensated, and at a short camera warp its pixels sail through the
+gate carrying a large difference. Same 120-frame corpus, `<=1px` gate, with and
+without the four animated parts:
+
+| `<=1px` gate | with animation | `--no-anim` |
+|---|---|---|
+| native full-res (the floor) | 2.614 | **0.075** |
+| half-res + bilinear, jitter ON | 2.779 | 0.136 |
+| half-res + bilinear, jitter OFF | 2.388 | **0.065** |
+
+With the animation out, the metric behaves exactly as it should: the jitter-off
+arm sits **at or below the native floor** — the byte-identical result the console
+captured — and the jitter-on arm sits about **2x above it**. With the animation
+in, the floor is 35x larger and swallows the artefact whole. **`--no-anim` is the
+configuration in which this metric discriminates**, and the animated corpus is
+the one the network must be trained on, so the two cannot be the same run. That
+is a limitation of the instrument, stated here rather than discovered later.
+
+For the sweep below the readable statistic is therefore not the mean level but
+the **fraction of gated pixels alternating by at least 2/255** — the same
+threshold and the same convention the console capture reported its 16.3 %
+against. It pins jitter-off to the native floor on the animated corpus too, which
+the mean does not.
+
+#### The trade curve
+
+`examples/upscaler-lab`, `--blss-eval --cv --cv-seeds 5`, 120 frames over 6
+shots, 400 epochs, decay `1e-4`, fill 16, deadzone 8 — **30 fold-runs per row**.
+Jitter **ON** except the last row. "alternating" is the fraction of gated pixels
+at or above 2/255; the native floor for that column is **12.4 %**.
+
+| `--flicker-weight` (period2) | held-out margin | sd | folds below bilinear | passes | alternating |
+|---|---|---|---|---|---|
+| 0 | **+0.61** | 0.51 | 1/30 | 1.73 | 14.8 % |
+| 0.05 | +0.62 | 0.52 | 1/30 | 1.73 | 14.8 % |
+| 0.2 | +0.63 | 0.53 | 0/30 | 1.73 | 14.9 % |
+| 0.5 | +0.61 | 0.55 | 0/30 | 1.72 | 14.9 % |
+| 1.5 | +0.55 | 0.85 | 6/30 | 1.73 | 14.9 % |
+| 2 | +0.48 | 1.01 | 6/30 | 1.74 | 14.9 % |
+| 3 | +0.44 | 1.13 | 12/30 | 1.74 | 14.4 % |
+| 4 | +0.35 | 1.32 | 15/30 | 1.75 | 13.0 % |
+| 5 | +0.29 | 1.40 | 15/30 | 1.75 | **12.4 %** |
+| `--flicker-form lag1` 0.2 | +0.59 | 0.75 | 11/30 | 1.78 | 14.8 % |
+| **jitter OFF**, weight 0 | **+0.33** | 0.34 | 2/30 | 1.65 | **12.3 %** |
+
+**The answer, in one line: the alternation only reaches the jitter-off floor at
+weight 5, and at weight 5 the margin is +0.29 — *below* the +0.33 that turning
+the jitter off buys for free.** There is no point on this curve where jitter-on
+is both as stable as jitter-off and worth more.
+
+What the curve says on the way there, and none of it is a near miss:
+
+- **It is not a fill trade.** Mean passes moves 1.73 → 1.75 across the entire
+  sweep. The feature's EE bill and its ~13-coverage break-even are untouched, so
+  nothing here was bought or lost at the fill. What moves is generalisation.
+- **The variance is the real price.** Fold-to-fold sd goes 0.51 → 1.40 and the
+  number of folds that lose to plain bilinear goes **1/30 → 15/30**. At the
+  weight that fixes the bob, *half the content is worse off than not running the
+  feature at all*. A mean of +0.29 with that spread is not a feature.
+- **Everything below weight 1.5 is free and useless.** 0.05 through 0.5 move the
+  margin by less than the sd of its own mean (0.09 dB) and move the alternating
+  fraction by 0.1 point. The knob has no cheap setting: it does nothing until it
+  does damage.
+- **The form change was still worth making, and this is the evidence.** At the
+  same weight 0.2, `lag1` loses 11 folds of 30 to bilinear and period2 loses
+  **none**, at the same margin. The old term was hurting generalisation without
+  buying stability; the new one at least does nothing harmlessly. That is the
+  narrow sense in which "fix the form first" was right — and it did not change
+  the verdict.
+- **It is not the deadzone or the net capacity.** Nothing else in the
+  configuration moved between rows; the only difference is one scalar in the
+  oracle's objective.
+
+#### The second project could not confirm it, and says so
+
+`examples/procedural` was the intended replication and **it cannot discriminate
+anything at this configuration**, which has to be stated rather than quietly
+dropped. Same harness, same 30 fold-runs:
+
+| `examples/procedural` | margin | sd | below bilinear | passes | alternating |
+|---|---|---|---|---|---|
+| jitter ON, weight 0 | −0.04 | 0.28 | 15/30 | 1.30 | 0.5 % |
+| jitter ON, weight 3 | +0.00 | 0.36 | 15/30 | 1.41 | 0.5 % |
+| jitter OFF, weight 0 | −0.04 | 0.09 | 15/30 | 1.16 | 0.3 % |
+
+**Half its folds lose to plain bilinear whatever you do**, and the alternating
+fraction is 0.5 % against a 0.3 % floor — there is almost no bob in it to remove
+and no margin to trade. It joins `examples/showcase` on the list of fixtures that
+[cannot answer this kind of question](#how-to-read-these-tables-and-what-not-to-read-into-them).
+
+**And this contradicts a number already on this page**, which said `procedural`
+scores +0.77 with the jitter on and +0.33 without it. That figure and this one
+are not the same measurement — this is 5-seed leave-one-shot-out over 120 frames
+with the objective and deadzone above — but the gap is far too large to be a
+configuration detail, and one of the two is wrong. **The old number is the one
+without a stated fold sd**, which on this page has been the losing side of that
+argument every previous time. Flagged rather than resolved: nothing in this
+section depends on `procedural`, and the conclusion above rests entirely on
+`upscaler-lab`.
+
+**So the default stays `--flicker-weight 0`, and `blssJitter` stays off.** The
+knob, both forms, the metric and this table all ship, because the whole reason
+this measurement exists is that the same idea was proposed three times.
+
+
 
 ### What actually delivered the stability
 
-**The fill term (4), by accident of what it culls.** Charging for kernels culls
-the point and sharpen passes — which are exactly the two that alternate with the
-jitter — so stability falls out of the cost model for free. At flicker weight 0,
-moving fill from 0 to 6:
+**RETRACTED (2026-08-09): nothing in this subsection delivered stability, and the
+mechanism it proposed is backwards.** It is kept because the numbers in it are
+real and because the error is the instructive part — the flicker column it reads
+improvements off is a **lag-1** quantity, which cannot see a period-2 artefact,
+so "flicker fell from 21.49 to 21.01" was never evidence about the bob.
+
+The mechanism, from [the derivation](#the-new-term-and-why-freezing-is-not-expressible-in-it):
+the accumulator is the **only** thing that damps the base and point passes' phase
+difference, by `(1-c)/(1+c)`. The fill term culls the temporal pass along with the
+others, so on a real project's scenes **it removes the one pass that was fusing
+the phases** — it makes the bob worse, not better. The console agrees: with the
+fill term in and a project-trained net, 30.8 % of a frozen frame alternated at
+1.42/255, and the A/B/C above is a human calling that build "like an earthquake".
+The sharpen pass is worse still: it is applied *after* the accumulator, so no
+amount of temporal weight damps it at all and only `aD = 0` removes it.
+
+What actually delivered the stability is **turning the jitter off**, which is why
+that is the default. The fill term's own numbers below stand as a fill
+measurement; they are simply not a stability one.
+
+**The fill term (4), and what it culls.** Charging for kernels culls the point
+and sharpen passes — which are two of the three that alternate with the jitter.
+At flicker weight 0, moving fill from 0 to 6:
 
 | | flicker before | flicker after |
 |---|---|---|
@@ -2296,7 +2564,9 @@ moving fill from 0 to 6:
 | held-out | 27.12 | 26.62 |
 
 and sharpen occupancy collapses from 79 % to 28 % in distribution and 93 % to
-14 % out of it, at **no cost in distribution and a small gain out of it**.
+14 % out of it, at **no cost in distribution and a small gain out of it**. Read
+that as what it is — a fill result with a flicker column alongside it that was
+not measuring the artefact.
 
 **The fill weight's own sweep was the loudest casualty of the one-split
 measurement.** It used to read like this, off a single 2-of-7 held-out split:
@@ -2371,6 +2641,29 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
   the bob is **still there on hardware** (30.8 % of the picture alternating,
   1.42/255) and `blssJitter` is that workaround as a real project setting, with
   a host twin so the net is fitted to whichever sampler the build uses.
+- **CLOSED (2026-08-09): the objective cannot buy the jitter back.** The form was
+  fixed as this page prescribed — a motion-compensated period-2 penalty that
+  freezing cannot pay — and
+  [swept over nine weights at 30 fold-runs each](#the-trade-curve). The
+  alternation only reaches the jitter-off floor at weight 5, where the margin is
+  **+0.29 against the +0.33 that turning the jitter off buys for free**, and
+  where 15 folds of 30 lose to plain bilinear. Below weight 1.5 the knob does
+  nothing at all. **Do not re-run this**; `--flicker-weight 0` and `blssJitter`
+  off are measured answers now, not a retreat. The remaining route to that 0.3 dB
+  is a *different* one — something that fuses the two phases without asking the
+  oracle to pay for it, e.g. a jitter pattern the composite can undo exactly, or
+  a temporal pass the fill term is not allowed to cull.
+- **The stability metric has a fixture problem, and it is the honest limit of
+  everything above.** `period2Alternation()` discriminates jitter on from jitter
+  off only under `--no-anim`: the reprojection field is camera-derived, so the
+  four animated parts of `examples/upscaler-lab` are never compensated and their
+  pixels raise the metric's own floor from **0.075 to 2.614** levels. The network
+  must be trained on the animated corpus, so the two cannot be the same run, and
+  every stability number here is therefore read off the *fraction* of gated
+  pixels above 2/255 rather than the mean level. The clean fix is a **still
+  fixture** — one pose rendered at both jitter phases, which is a change to
+  `blss::generate()` in `blsscorpus.cpp` and would make the host twin of the
+  console's frozen-camera experiment exact instead of approximate.
 - **Fix the depth channel's saturation.** This is the most promising item left
   and it has a measurement behind it: `depth` is a clamped `1/w` against
   `kDepthRef = 8`, **58.8 % of all corpus tiles read it at exactly 1.0**, and the

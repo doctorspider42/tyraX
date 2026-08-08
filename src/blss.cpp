@@ -514,6 +514,36 @@ std::vector<Features> buildFeatures(int cols, int rows,
     return out;
 }
 
+// WHETHER THE REPROJECTED HISTORY CAN BE BELIEVED IN THIS TILE. The contract is
+// in blss.hpp above the declaration.
+//
+// THIS USED TO BE A PRODUCT OF TWO FEATURE CHANNELS AND THAT WAS MEASURED WRONG
+// BEFORE IT WAS EVER SWEPT. The first version returned
+//
+//     coverage < kMinCoverage ? 0 : (1 - motion) * (1 - depthGrad)
+//
+// on the reasoning that `motion` at 1.0 puts the history a whole tile away and
+// `depthGrad` at 1.0 is a silhouette. Both readings are correct about what the
+// channels MEAN and wrong about what they CONTAIN: on examples/upscaler-lab
+// (`--blss-eval --features`, 5376 tiles) `motion` reads exactly 1.0 on 49.1% of
+// tiles and `depthGrad` on 41.0%, so that product is exactly ZERO on most of the
+// frame - and zero specifically on the moving, geometrically busy part, which is
+// where the console's difference image lights up. A gate that switches the term
+// off wherever the artefact is would have swept as "buys nothing", which is the
+// same non-answer `--flicker-weight` gave twice.
+//
+// So the only per-tile test left is the one that is not a saturated channel:
+// a tile with no geometry in it has no history to reproject. Outlier
+// reprojections are handled where they belong, by the CLAMP on the charge
+// itself (kAltClamp) rather than by a multiplier built out of proxies for them.
+//
+// HOST-ONLY. There is no engine twin of this and there must not be: it exists
+// to gate the OBJECTIVE, which the console never evaluates
+// (docs/blss-reconstruction.md, "What is NOT part of this contract").
+float reprojConfidence(const Features& f) {
+    return f.coverage() < kMinCoverage ? 0.0f : 1.0f;
+}
+
 // ----------------------------------------------------------------- network ---
 
 namespace {
@@ -812,9 +842,26 @@ struct Taps {
     int point[3];
     int hist[3];
     int blur[3];
+    // THE OTHER JITTER PHASE OF THE SAME CONTENT, motion-compensated: the three
+    // low-res taps again, taken from the PREVIOUS frame's render at the
+    // reprojected position. Only filled when the caller asks (the period-2
+    // flicker term), because they are three extra samples per pixel and every
+    // other consumer of this struct is the composite, which does not need them.
+    //
+    // They come from fr.prevLow ALWAYS, never from fr.history, and that is
+    // deliberate: the period-2 model is about the two phases the LOW-RES SAMPLER
+    // produces, and fr.history is the previous frame's finished composite in
+    // --blss-eval and the upscaled prevLow only during labelling. Reading
+    // prevLow directly makes the term mean the same thing in both.
+    int pbase[3];
+    int ppoint[3];
+    int pblur[3];
+    // How much that pair can be believed - 0 disables the term for this sample.
+    // See reprojConfidence(); the per-sample half is the on-screen test.
+    float conf = 0.0f;
 };
 
-void gatherTaps(const Frame& fr, int x, int y, Taps& t) {
+void gatherTaps(const Frame& fr, int x, int y, Taps& t, bool wantPhasePair = false) {
     const int sx = scaleX(fr.scale), sy = scaleY(fr.scale);
     const float jx = jitterX(fr.phase), jy = jitterY(fr.phase);
     // Sampling undoes the jitter: content drawn at p + j is stored at p + j.
@@ -826,16 +873,96 @@ void gatherTaps(const Frame& fr, int x, int y, Taps& t) {
 
     float du = 0.0f, dv = 0.0f;
     fr.reproj.sample(x + 0.5f, y + 0.5f, fr.outW, fr.outH, &du, &dv);
+    const float pjx = jitterX(1 - fr.phase), pjy = jitterY(1 - fr.phase);
     if (fr.history) {
         sampleBilinear(*fr.history, x + 0.5f + du, y + 0.5f + dv, t.hist);
     } else {
         // No real history (training): stand in with the previous low-res render
         // upscaled, i.e. what the composite would have produced at all-zero
         // weights. Its own jitter phase is the other one.
-        const float pjx = jitterX(1 - fr.phase), pjy = jitterY(1 - fr.phase);
         sampleBilinear(fr.prevLow, (x + 0.5f + du) / sx + pjx, (y + 0.5f + dv) / sy + pjy,
                        t.hist);
     }
+
+    if (!wantPhasePair) return;
+    const float px = x + 0.5f + du, py = y + 0.5f + dv;
+    const float pu = px / sx + pjx, pv = py / sy + pjy;
+    sampleBilinear(fr.prevLow, pu, pv, t.pbase);
+    sampleNearest(fr.prevLow, pu, pv, t.ppoint);
+    sampleBilinear(fr.prevLow, pu + 0.5f, pv + 0.5f, t.pblur);
+    // Off the edge of the previous frame there is no history to have fused, so
+    // there is nothing to charge for. sampleBilinear would clamp and invent a
+    // difference out of the border row.
+    if (px < 0.0f || py < 0.0f || px >= static_cast<float>(fr.outW) ||
+        py >= static_cast<float>(fr.outH)) {
+        t.conf = 0.0f;
+        return;
+    }
+    const int ti = clampi(x / tileSize(), 0, std::max(fr.cols - 1, 0));
+    const int tj = clampi(y / tileSize(), 0, std::max(fr.rows - 1, 0));
+    const size_t k = static_cast<size_t>(tj) * fr.cols + ti;
+    t.conf = k < fr.features.size() ? reprojConfidence(fr.features[k]) : 0.0f;
+}
+
+// THE PERIOD-2 ALTERNATION THIS CANDIDATE WOULD LEAVE, per channel, in 8-bit
+// levels. Derived rather than sampled, which is what makes it usable inside the
+// oracle's innermost loop and what makes it a statement about the ARTEFACT
+// instead of about a frame-to-frame difference.
+//
+// THE DERIVATION. The console alternates two jitter phases forever. Write the
+// composite of one frame as
+//
+//      out_t = S_p( (1-c) * P_p + c * out_{t-1} ),   p = t mod 2
+//
+// where c = aC/128 is the temporal blend factor the GS applies, P_p is the
+// base+point result of phase p (passes 1 and 2), and S_p(v) = v + A_p is the
+// unsharp mask (passes 4 and 5), which is applied AFTER the accumulator and is
+// therefore never fed back through it. Solving the two-frame steady state:
+//
+//      out_0 - out_1 = [ (1-c) * (P_0 - P_1)  +  (A_0 - A_1) ] / (1 + c)
+//
+// Three things fall out of that one line, and all three are load-bearing:
+//
+//  - the base and point passes' phase difference IS damped by the accumulator,
+//    by (1-c)/(1+c) - 1.00 at c = 0, 0.73 at alpha 20, 0.054 at the kTemporalMax
+//    ceiling. So temporal weight is the only cure for it, and a fill term that
+//    culls the temporal pass makes the bob WORSE, not better. That is the
+//    mechanism the "the fill term fixed it" belief missed;
+//  - the sharpen pass's phase difference is NOT damped at all - it is divided by
+//    (1+c) and no more, because it lands after the feedback. The only way to
+//    remove it is aD = 0;
+//  - nothing in it is a difference against the history, so nothing in it is
+//    minimised by out == history. FREEZING IS NOT EXPRESSIBLE HERE. The two ways
+//    down are raising c (fusing the phases, which is the cure) and lowering
+//    aA/aD (not amplifying them), and both are real.
+//
+// It is a LINEARISED estimate: the GS clamps every pass to 0..255 and this does
+// not, because the derivation is only valid while the recursion is affine. At a
+// saturated pixel it overstates the alternation, which is the safe direction for
+// a penalty.
+//
+// HOW BIG AN ALTERNATION IS STILL AN ALTERNATION, in 8-bit levels. Above this
+// the charge is a constant, so the oracle cannot buy anything by moving it - see
+// the "why a clamp and not a gate" note in errRegion(). The scale is set by the
+// artefact: the console measured 1.42/255 mean and 13.8 at p99 with a frozen
+// camera, and on this corpus the jitter-on/jitter-off gap in the lag-1 column is
+// 1.4-2.4 levels. 8 is comfortably above every one of those and far below what a
+// disocclusion produces, which is tens.
+constexpr double kAltClamp = 8.0;
+
+inline float altAmplitude(const Taps& t, int aA, int aC, int aD, int ch) {
+    const float c = static_cast<float>(aC) * (1.0f / 128.0f);
+    const auto pointPass = [&](int base, int pt) {
+        return aA > 0 ? base + (((pt - base) * aA) >> 7) : base;
+    };
+    const auto sharpenPass = [&](int base, int blur) {
+        return aD > 0 ? ((base * aD) >> 7) - ((blur * aD) >> 7) : 0;
+    };
+    const float dP = static_cast<float>(pointPass(t.base[ch], t.point[ch]) -
+                                        pointPass(t.pbase[ch], t.ppoint[ch]));
+    const float dA = static_cast<float>(sharpenPass(t.base[ch], t.blur[ch]) -
+                                        sharpenPass(t.pbase[ch], t.pblur[ch]));
+    return ((1.0f - c) * dP + dA) / (1.0f + c);
 }
 
 // The five GS passes, in 8-bit, on already-gathered taps.
@@ -994,10 +1121,16 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
     constexpr int kStep = 3;
     const int sw = (fr.outW + kStep - 1) / kStep;
     const int sh = (fr.outH + kStep - 1) / kStep;
+    // The period-2 term needs the other jitter phase of every sample, which is
+    // three more taps each. Gathered only when the term is switched on, so the
+    // shipped fill-only objective pays nothing for it.
+    const bool wantFlicker = obj.flicker > 0.0f;
+    const bool wantPeriod2 = wantFlicker && obj.flickerForm == FlickerForm::Period2;
     std::vector<Taps> taps(static_cast<size_t>(sw) * sh);
     for (int sy = 0; sy < sh; ++sy)
         for (int sx = 0; sx < sw; ++sx)
-            gatherTaps(fr, sx * kStep, sy * kStep, taps[static_cast<size_t>(sy) * sw + sx]);
+            gatherTaps(fr, sx * kStep, sy * kStep, taps[static_cast<size_t>(sy) * sw + sx],
+                       wantPeriod2);
 
     // Error over a rectangle of tiles, measured through the field the GS
     // ACTUALLY rasterises: tile weights -> corner means -> triangle
@@ -1017,9 +1150,6 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
         const int x0 = cx0 * tileSize(), x1 = std::min((cx1 + 1) * tileSize(), fr.outW);
         const int y0 = cy0 * tileSize(), y1 = std::min((cy1 + 1) * tileSize(), fr.outH);
         double se = 0.0, seH = 0.0;
-        // The flicker term ships at weight 0 (see kFlickerWeight); hoisting the
-        // test keeps its samples out of the oracle's innermost loop.
-        const bool wantFlicker = obj.flicker > 0.0f;
         long n = 0;
         for (int sy = (y0 + kStep - 1) / kStep; sy * kStep < y1; ++sy)
             for (int sx = (x0 + kStep - 1) / kStep; sx * kStep < x1; ++sx) {
@@ -1043,11 +1173,40 @@ WeightField oracle(const Frame& fr, const Image& truth, float sharpen,
                 for (int c = 0; c < 3; ++c) {
                     const double d = static_cast<double>(rgb[c]) - t[c];
                     se += d * d;
-                    // The flicker term: how far this pixel lands from where the
-                    // PREVIOUS frame put the same content. `tp.hist` is the
-                    // reprojected history the composite already sampled, so
-                    // camera motion is not penalised - only instability is.
-                    if (wantFlicker) {
+                    if (!wantFlicker) continue;
+                    if (wantPeriod2) {
+                        // THE PERIOD-2 TERM. altAmplitude() is the stationary
+                        // alternation these alpha bytes would leave, in 8-bit
+                        // levels; `conf` is 0 where there is no geometry to have
+                        // a history for, and the CLAMP is what keeps a
+                        // disocclusion from being read as a bob.
+                        //
+                        // WHY A CLAMP AND NOT A GATE. The phase pair comes from
+                        // the previous low-res render at the reprojected
+                        // position, so where the reprojection fails the two taps
+                        // are different CONTENT and their difference is tens of
+                        // levels, not the ~1.4 a quarter-pixel resample can
+                        // produce. Squaring that would let a handful of
+                        // disoccluded samples outvote the whole frame, and the
+                        // only way the oracle could pay it is temporal weight
+                        // where temporal weight GHOSTS - the old term's failure
+                        // mode arriving by a new route. Clamping bounds the
+                        // charge AND flattens its gradient there, so an outlier
+                        // costs a constant and therefore buys nothing. Below the
+                        // clamp it is still quadratic, so it carries the same
+                        // units as the accuracy term above and
+                        // --flicker-weight reads the same way in both forms.
+                        if (tp.conf > 0.0f) {
+                            const double a = std::min(
+                                static_cast<double>(std::fabs(altAmplitude(tp, aA, aC, aD, c))),
+                                kAltClamp);
+                            seH += a * a;
+                        }
+                    } else {
+                        // FlickerForm::Lag1, the original: how far this pixel
+                        // lands from where the previous frame put the same
+                        // content. Reachable, measured, and minimised by
+                        // FREEZING - see FlickerForm in blss.hpp.
                         const double dh = static_cast<double>(rgb[c]) - tp.hist[c];
                         seH += dh * dh;
                     }
@@ -1450,6 +1609,15 @@ CliOpts parseCli(int argc, char** argv) {
         else if (a == "--sharpen") o.sharpen = static_cast<float>(std::atof(next("0.5").c_str()));
         else if (a == "--flicker-weight")
             o.obj.flicker = static_cast<float>(std::atof(next("0.15").c_str()));
+        // WHICH stability quantity that weight buys. `lag1` is the original term
+        // - kept reachable because its sweep is recorded in blss.hpp and setting
+        // a weight to zero is not the same as deleting the measurement.
+        else if (a == "--flicker-form") {
+            const std::string f = next("period2");
+            if (f == "lag1") o.obj.flickerForm = FlickerForm::Lag1;
+            else if (f == "period2") o.obj.flickerForm = FlickerForm::Period2;
+            else std::printf("blss: --flicker-form: no form '%s' (lag1 | period2)\n", f.c_str());
+        }
         else if (a == "--fill-weight")
             o.obj.fill = static_cast<float>(std::atof(next("16").c_str()));
         else if (a == "--deadzone")
@@ -1733,6 +1901,143 @@ WeightField netField(const Net& net, const Frame& fr, float sharpen, float deadA
     return wf;
 }
 
+// PERIOD-2 ALTERNATION, MEASURED ON THE PICTURE - the metric the flicker column
+// could never be, and the reason this feature reported an improvement while the
+// television bobbed.
+//
+// A LAG-1 DIFFERENCE CANNOT SEE THE ARTEFACT. `flicker` above is
+// mean |O_t - O_{t-1}|, and that number is large for a picture alternating
+// between two images AND large for a picture panning smoothly. It has no way to
+// separate them, so it moves with the camera move and not with the bug - which
+// is why `--flicker-weight` could be swept twice and read "buys nothing" while
+// 30.8% of a real PS2's frame alternated every frame.
+//
+// A SECOND DIFFERENCE CAN. For a signal that returns to where it was two frames
+// ago - which IS the bob - O_t - 2*O_{t-1} + O_{t-2} = 2*(P - Q), four times the
+// alternation amplitude; for anything moving at a constant rate it is exactly
+// zero, and for smooth motion it is the curvature, which is small. So this
+// returns |O_t - 2*O_{t-1} + O_{t-2}| / 4: the amplitude of the period-2
+// component, in 8-bit levels.
+//
+// MOTION-COMPENSATED, or it measures the camera instead. Every corpus shot moves,
+// so the three frames are three different views and a raw second difference is
+// dominated by parallax. Both predecessors are warped into frame t first: O_{t-1}
+// through frame t's own reprojection field, O_{t-2} through that and then frame
+// t-1's, composed by sampling the second field at the position the first landed
+// on. What is left after that is alternation the camera motion does not explain.
+//
+// AND MOTION COMPENSATION IS NOT FREE, WHICH IS THE MEASUREMENT THAT SHAPED THIS
+// FUNCTION. The first build of it gated on nothing but on-screen-ness, and it
+// could not tell the two known cases apart on examples/upscaler-lab - the fixture
+// a human called "like an earthquake" with jitter on and "steady", byte-identical
+// on hardware, with it off:
+//
+//   ungated, 36 frames, held-out split, shipped net
+//                    jitter ON   jitter OFF
+//     native full-res    3.564        3.564     <- the floor, and it is the whole number
+//     bilinear           3.346        2.964
+//     BLSS               2.687        2.398
+//
+// A floor of 3.56 levels under an artefact of 1.42 (what the console measured),
+// and the KNOWN-STILL arm reading 2.40 rather than the ~0 the console captured.
+// The floor is the warp's own error: this reprojection field is per tile CORNER
+// (255 UVs for the frame, blss.hpp), half these tiles move a full tile per frame,
+// and a SECOND difference warps twice, so both predecessors contribute. The
+// artefact was riding on top of an error an order of magnitude larger than
+// itself, which is the fifth entry of "Measured is not optimised" arriving again
+// - this time in a metric written specifically to avoid it.
+//
+// SO THE GATE IS ON THE WARP, and it is the honest twin of the console
+// experiment: the bob was measured with a FROZEN camera, and what a frozen camera
+// is, on footage that moves, is the pixels whose warp is short enough to trust.
+// A pixel counts when BOTH of its warps are under `kP2Gate` output pixels. That
+// is not a fudge factor - the whole point of the number is to compare the same
+// content across frames, and past a pixel or two of per-tile-corner warp it is
+// not the same content. Every bucket is accumulated in one pass so the table can
+// print the gate's own sweep: a gated number whose gate is not shown is a magic
+// constant, and this page has been burned by those.
+//
+// THE SAMPLING TRAP THIS AVOIDS BY CONSTRUCTION: an even-strided sampler always
+// lands on the same jitter phase and reports a perfectly still picture (it hid
+// this artefact once already, at 40 frames on a 50 Hz console). Three
+// CONSECUTIVE frames cannot do that - the stride is 1.
+constexpr int kP2Gates = 4;
+// Output pixels of warp, per predecessor. The last is "no gate", i.e. the
+// ungated number the table above was measured with, kept so the sweep always
+// carries its own null result.
+constexpr float kP2Gate[kP2Gates] = {1.0f, 2.0f, 4.0f, 1e9f};
+// WHICH BUCKET IS "THE" NUMBER - the one the cross-validation column reports and
+// the one any claim on docs/neural-upscaler.md is made with. Chosen by the
+// validation sweep printed under the --blss-eval table: it is the tightest gate
+// that still speaks for a usable slice of the frame.
+constexpr int kP2Report = 0;
+// "This pixel visibly alternates", in 8-bit levels of amplitude. 2/255 is the
+// threshold the console capture reported its 16.3% against, so the two numbers
+// mean the same thing.
+constexpr double kP2Hot = 2.0;
+
+struct Period2 {
+    double sum[kP2Gates] = {};
+    long n[kP2Gates] = {};
+    long hot[kP2Gates] = {};
+
+    double mean(int g) const { return n[g] ? sum[g] / static_cast<double>(n[g]) : 0.0; }
+    // What fraction of the on-screen frame this gate's number speaks for.
+    double coverage(int g) const {
+        return n[kP2Gates - 1] ? static_cast<double>(n[g]) / n[kP2Gates - 1] : 0.0;
+    }
+    double hotFraction(int g) const {
+        return n[g] ? static_cast<double>(hot[g]) / n[g] : 0.0;
+    }
+    void add(const Period2& o) {
+        for (int g = 0; g < kP2Gates; ++g) {
+            sum[g] += o.sum[g];
+            n[g] += o.n[g];
+            hot[g] += o.hot[g];
+        }
+    }
+};
+
+void period2Alternation(const Image& cur, const Image& prev, const Image& prev2,
+                        const ReprojField& toPrev, const ReprojField& prevToPrev2, int outW,
+                        int outH, Period2& acc) {
+    if (cur.w != prev.w || cur.h != prev.h || cur.w != prev2.w || cur.h != prev2.h) return;
+    const auto onScreen = [&](float px, float py) {
+        return px >= 0.0f && py >= 0.0f && px < static_cast<float>(outW) &&
+               py < static_cast<float>(outH);
+    };
+    for (int y = 0; y < cur.h; ++y)
+        for (int x = 0; x < cur.w; ++x) {
+            float du1 = 0.0f, dv1 = 0.0f;
+            toPrev.sample(x + 0.5f, y + 0.5f, outW, outH, &du1, &dv1);
+            const float px = x + 0.5f + du1, py = y + 0.5f + dv1;
+            if (!onScreen(px, py)) continue;
+            float du2 = 0.0f, dv2 = 0.0f;
+            prevToPrev2.sample(px, py, outW, outH, &du2, &dv2);
+            const float qx = px + du2, qy = py + dv2;
+            if (!onScreen(qx, qy)) continue;
+            // The longer of the two hops is what the gate tests: a short first
+            // warp followed by a long second one is still two different views.
+            const float w1len = std::sqrt(du1 * du1 + dv1 * dv1);
+            const float w2len = std::sqrt(du2 * du2 + dv2 * dv2);
+            const float warp = std::max(w1len, w2len);
+            int w1[3], w2[3];
+            sampleBilinear(prev, px, py, w1);
+            sampleBilinear(prev2, qx, qy, w2);
+            const uint8_t* c = cur.at(x, y);
+            for (int ch = 0; ch < 3; ++ch) {
+                const double a =
+                    std::fabs(static_cast<double>(c[ch]) - 2.0 * w1[ch] + w2[ch]) * 0.25;
+                for (int g = 0; g < kP2Gates; ++g) {
+                    if (warp > kP2Gate[g]) continue;
+                    acc.sum[g] += a;
+                    ++acc.n[g];
+                    if (a >= kP2Hot) ++acc.hot[g];
+                }
+            }
+        }
+}
+
 // A reconstruction method: tile weights for one frame. `truth` is passed so the
 // oracle can be measured through the exact same loop as every fixed kernel -
 // it ignores nothing else, and the oracle ignores nothing at all. `idx` is the
@@ -1766,7 +2071,8 @@ using Method = std::function<WeightField(const Frame&, const Image& truth, size_
 double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, const ShotMask& want,
                      float sharpen, const Method& weights, const std::string& dumpDir,
                      const char* dumpName, std::vector<double>* perShot,
-                     double* flicker, Occupancy* occ = nullptr, int threads = 1) {
+                     double* flicker, Occupancy* occ = nullptr, int threads = 1,
+                     Period2* alternation = nullptr) {
     // The frames this pass looks at, in corpus order, cut into single-shot runs.
     // `runStart` indexes `idxs` and carries a trailing end marker.
     std::vector<size_t> idxs, runStart;
@@ -1785,14 +2091,20 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, cons
         Occupancy occ;
         double flick = 0;
         bool hasFlick = false;
+        // The period-2 amplitude needs THREE consecutive frames, so it starts
+        // one frame later than the lag-1 column and is dropped one extra time
+        // per shot. Accumulated per frame and summed below, so the reduction
+        // is pixel-weighted rather than frame-weighted - which matters here,
+        // because the warp gate counts a different number of pixels per frame.
+        Period2 alt;
     };
     std::vector<FrameEval> fe(idxs.size());
 
     parallelFor(static_cast<int>(runStart.size()) - 1, threads, [&](int r) {
-        Image prevOut, out;
+        Image prevOut, prevOut2, out;
         bool havePrev = false;
-        for (size_t k = runStart[static_cast<size_t>(r)]; k < runStart[static_cast<size_t>(r) + 1];
-             ++k) {
+        const size_t runBegin = runStart[static_cast<size_t>(r)];
+        for (size_t k = runBegin; k < runStart[static_cast<size_t>(r) + 1]; ++k) {
             const size_t idx = idxs[k];
             const CorpusFrame& cf = corpus[idx];
             Frame fr = cf.frame;
@@ -1827,12 +2139,23 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, cons
                 e.flick = d / (static_cast<double>(out.w) * out.h * 3.0);
                 e.hasFlick = true;
             }
+            // PERIOD-2: the one that can actually see the bob. Needs the two
+            // predecessors AND the reprojection field of the previous frame, so
+            // that O_{t-2} can be warped all the way into this view; k-1 is the
+            // previous frame of THIS shot by construction (a run never spans a
+            // shot change).
+            if (alternation && k >= runBegin + 2)
+                period2Alternation(out, prevOut, prevOut2, fr.reproj,
+                                   corpus[idxs[k - 1]].frame.reproj, fr.outW, fr.outH, e.alt);
             // The dumped frame is the first one this pass accepts, which is the
             // first frame of run 0 - the same image the serial loop wrote at
             // `n == 1`, written by the worker that owns it.
             if (!dumpDir.empty() && k == 0 && dumpName)
                 writePng(out, dumpDir + "/blss-" + dumpName + ".png");
-            prevOut = out;
+            // Rotate rather than copy: `out` is fully overwritten by the next
+            // composite(), so its old content is free to be thrown away here.
+            std::swap(prevOut2, prevOut);
+            std::swap(prevOut, out);
             havePrev = true;
         }
     });
@@ -1844,6 +2167,7 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, cons
     std::vector<int> shotN(shotCount, 0);
     double flickSum = 0.0;
     int flickN = 0;
+    Period2 altAcc;
     for (size_t k = 0; k < idxs.size(); ++k) {
         const CorpusFrame& cf = corpus[idxs[k]];
         const FrameEval& e = fe[k];
@@ -1860,6 +2184,7 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, cons
             flickSum += e.flick;
             ++flickN;
         }
+        altAcc.add(e.alt);
     }
     if (perShot) {
         perShot->assign(shotCount, 0.0);
@@ -1867,6 +2192,7 @@ double evalRecurrent(const std::vector<CorpusFrame>& corpus, int shotCount, cons
             (*perShot)[s] = shotN[s] ? shotSum[s] / shotN[s] : 0.0;
     }
     if (flicker) *flicker = flickN ? flickSum / flickN : 0.0;
+    if (alternation) *alternation = altAcc;
     if (occ) {
         const double inv = n ? 1.0 / n : 0.0;
         occ->point = static_cast<float>(occA * inv);
@@ -1970,6 +2296,11 @@ struct FoldResult {
     double blss = 0, bilinear = 0, oracleBound = 0, native = 0;  // held-out shot, dB
     double inBlss = 0, inBilinear = 0;                           // the trained-on shots
     double flicker = 0;
+    // PERIOD-2 ALTERNATION on the held-out shot, and the same quantity for the
+    // native render, which is this metric's own floor. The margin column cannot
+    // see the bob and neither can `flicker`; these two are what a stability
+    // change has to move. See period2Alternation().
+    Period2 alt, nativeAlt, bilinearAlt;
     Occupancy occ;
     // The same net, evaluated at each swept deadzone (index 0 is the run's own
     // --deadzone, so `blss`/`occ` above are dzBlss[0]/dzOcc[0]). One training
@@ -1988,6 +2319,26 @@ std::vector<float> deadzonesOf(const CliOpts& o) {
     for (float d : o.deadzoneSweep)
         if (d != o.deadzone) v.push_back(d);
     return v;
+}
+
+// The period-2 metric's own floor over a set of shots: the same measurement on
+// the NATIVE render, which is full-resolution, one sample and unjittered and
+// therefore has no alternation to have. What it reports is bilinear resampling
+// error in the two warps plus the real curvature of the camera move, so a
+// reconstruction is only bobbing to the extent it sits above this.
+Period2 nativeAlternation(const std::vector<CorpusFrame>& corpus, const ShotMask& want) {
+    Period2 acc;
+    const CorpusFrame* prev1 = nullptr;
+    const CorpusFrame* prev2 = nullptr;
+    for (const CorpusFrame& cf : corpus) {
+        if (!inMask(want, cf.shot)) continue;
+        if (prev1 && prev2 && prev1->shot == cf.shot && prev2->shot == cf.shot)
+            period2Alternation(cf.native, prev1->native, prev2->native, cf.frame.reproj,
+                               prev1->frame.reproj, cf.frame.outW, cf.frame.outH, acc);
+        prev2 = prev1;
+        prev1 = &cf;
+    }
+    return acc;
 }
 
 double nativePsnr(const std::vector<CorpusFrame>& corpus, const ShotMask& want) {
@@ -2078,14 +2429,25 @@ std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus
         r.dzOcc.resize(dz.size());
         for (size_t d = 0; d < dz.size(); ++d) {
             double dfl = 0.0;
+            Period2 dalt;
             r.dzBlss[d] = evalRecurrent(corpus, shots, test, o.sharpen,
                                         netMethod(net, o.sharpen, dz[d]), "", nullptr, nullptr,
-                                        &dfl, &r.dzOcc[d]);
-            if (d == 0) fl = dfl;
+                                        &dfl, &r.dzOcc[d], 1, &dalt);
+            if (d == 0) {
+                fl = dfl;
+                r.alt = dalt;
+            }
         }
         r.blss = r.dzBlss[0];
         r.occ = r.dzOcc[0];
         r.flicker = fl;
+        // The two controls the alternation column is read against: the plain
+        // half-res upscale (which alternates because the LOW-RES RENDER does,
+        // with nothing fusing it - the honest "how much bob is there to remove"
+        // number) and the native render (the metric's own residual).
+        evalRecurrent(corpus, shots, test, o.sharpen, fixedMethod(Kernel::Bilinear), "", nullptr,
+                      nullptr, &fl, nullptr, 1, &r.bilinearAlt);
+        r.nativeAlt = nativeAlternation(corpus, test);
         r.bilinear = meanBilinear(test);
         r.oracleBound = evalRecurrent(corpus, shots, test, o.sharpen, labelMethod(labels), "",
                                       nullptr, nullptr, &fl);
@@ -2124,10 +2486,12 @@ int crossValidate(const CliOpts& o) {
     std::printf(
         "\nblss: leave-one-shot-out cross-validation, %d seed(s) x every shot held out in turn\n"
         "      %d frames, %d epochs, decay %.0e, %s inputs, %d hidden unit(s)\n"
-        "      objective: flicker %.3f, fill %.2f, sharpen %.2f; inference deadzone %.1f alpha\n",
+        "      objective: flicker %.3f (%s), fill %.2f, sharpen %.2f;"
+        " inference deadzone %.1f alpha\n",
         o.cvSeeds, o.frames, o.epochs,
         static_cast<double>(trainConfigOf(o).weightDecay),
-        o.standardise ? "standardised" : "raw", kHidden, o.obj.flicker, o.obj.fill, o.sharpen,
+        o.standardise ? "standardised" : "raw", kHidden, o.obj.flicker,
+        o.obj.flickerForm == FlickerForm::Period2 ? "period2" : "lag1", o.obj.fill, o.sharpen,
         o.deadzone);
 
     std::vector<std::vector<FoldResult>> all;  // [seed][fold]
@@ -2245,6 +2609,56 @@ int crossValidate(const CliOpts& o) {
     std::printf("\n  in-dist is BLSS - bilinear on that fold's TRAINING shots: the control"
                 " that says\n  the fold trained at all. A held-out number under a collapsed"
                 " in-dist number means nothing.\n");
+
+    // --- PERIOD-2 ALTERNATION, per fold. This is the column a stability change
+    // has to move, and none of the tables above it can see the artefact: the
+    // margin is a still-image metric (a reconstruction that OSCILLATES between
+    // the two jitter phases scores BETTER than one that fuses them, because the
+    // average of two phases is genuinely closer to the truth than either) and
+    // `flicker` is a lag-1 difference, which reads the camera move rather than
+    // the bug. See period2Alternation().
+    //
+    // Three numbers per fold, and the two controls are what make the first one
+    // mean anything: `native` is the metric's own residual on an unjittered
+    // one-sample render, and `bilinear` is the plain half-res upscale with
+    // nothing fusing the phases - i.e. how much bob there is to remove.
+    {
+        Period2 tn, tb, tk;
+        std::printf("\n  PERIOD-2 ALTERNATION on the held-out shot, 8-bit levels, warp gate"
+                    " %.0f px (jitter is %s)\n",
+                    static_cast<double>(kP2Gate[kP2Report]), jitterEnabled() ? "ON" : "OFF");
+        std::printf("  %-27s %10s %10s %10s %10s\n", "held-out shot", "native", "bilinear", "BLSS",
+                    "BLSS/native");
+        std::printf("  %s\n", std::string(29 + 44, '-').c_str());
+        for (int f = 0; f < nFolds; ++f) {
+            Period2 na, ba, ka;
+            for (const auto& seedRun : all) {
+                const FoldResult& r = seedRun[static_cast<size_t>(f)];
+                na.add(r.nativeAlt);
+                ba.add(r.bilinearAlt);
+                ka.add(r.alt);
+            }
+            tn.add(na);
+            tb.add(ba);
+            tk.add(ka);
+            const double nm = na.mean(kP2Report);
+            std::printf("  %-2d %-24s %10.3f %10.3f %10.3f %10.2f\n", f,
+                        shotNames[static_cast<size_t>(f)].c_str(), nm, ba.mean(kP2Report),
+                        ka.mean(kP2Report), nm > 1e-9 ? ka.mean(kP2Report) / nm : 0.0);
+        }
+        const double tnm = tn.mean(kP2Report);
+        std::printf("  %s\n", std::string(29 + 44, '-').c_str());
+        std::printf("  %-27s %10.3f %10.3f %10.3f %10.2f\n", "mean over folds", tnm,
+                    tb.mean(kP2Report), tk.mean(kP2Report),
+                    tnm > 1e-9 ? tk.mean(kP2Report) / tnm : 0.0);
+        // What the gate kept, and the same "how much of the picture" number the
+        // console capture reported - without these the mean above is a magic
+        // constant applied to an unstated fraction of the frame.
+        std::printf("  gate keeps %.1f%% of the on-screen frame; pixels at or above %.0f/255:"
+                    " BLSS %.1f%%, bilinear %.1f%%, native %.1f%%\n",
+                    100.0 * tk.coverage(kP2Report), kP2Hot, 100.0 * tk.hotFraction(kP2Report),
+                    100.0 * tb.hotFraction(kP2Report), 100.0 * tn.hotFraction(kP2Report));
+    }
 
     // --- the inference deadzone, over the SAME nets. Nothing here was
     // re-trained: the deadzone is applied to the network's answer, so every row
@@ -2749,17 +3163,30 @@ int evalMain(int argc, char** argv) {
     // Native = the scene rendered at full resolution, one sample. The honest
     // "no BLSS" reference, and NOT a ceiling: the ground truth is supersampled,
     // so a good temporal reconstruction can beat a 1-sample native render.
-    const auto nativeOf = [&](bool heldOut, std::vector<double>* perShot, double* flicker) {
+    const auto nativeOf = [&](bool heldOut, std::vector<double>* perShot, double* flicker,
+                              Period2* alternation = nullptr) {
         double sum = 0.0;
         int n = 0;
         std::vector<double> ss(shots, 0.0);
         std::vector<int> sn(shots, 0);
         double flickSum = 0.0;
         int flickN = 0;
+        // THE FLOOR FOR THE PERIOD-2 COLUMN, and the row that makes the rest of
+        // it readable. `native` is a full-resolution, ONE-SAMPLE, UNJITTERED
+        // render, so it has no alternation to have: whatever this measures is
+        // the metric's own residual - bilinear resampling error in the two warps
+        // plus the real curvature of the camera move. Every other row is only
+        // bobbing to the extent that it sits above this.
+        Period2 altAcc;
         int prevShot = -1;
-        const Image* prevNative = nullptr;
+        const CorpusFrame* prev1 = nullptr;
+        const CorpusFrame* prev2 = nullptr;
         for (const CorpusFrame& cf : corpus) {
             if (isHeldOut(cf.shot, shots) != heldOut) continue;
+            const Image* prevNative = prev1 ? &prev1->native : nullptr;
+            if (alternation && prev1 && prev2 && cf.shot == prevShot && prev2->shot == prevShot)
+                period2Alternation(cf.native, prev1->native, prev2->native, cf.frame.reproj,
+                                   prev1->frame.reproj, cf.frame.outW, cf.frame.outH, altAcc);
             if (prevNative && cf.shot == prevShot && prevNative->w == cf.native.w) {
                 double d = 0.0;
                 for (int y = 0; y < cf.native.h; ++y)
@@ -2772,7 +3199,8 @@ int evalMain(int argc, char** argv) {
                 flickSum += d / (static_cast<double>(cf.native.w) * cf.native.h * 3.0);
                 ++flickN;
             }
-            prevNative = &cf.native;
+            prev2 = prev1;
+            prev1 = &cf;
             prevShot = cf.shot;
             const double p = psnr(cf.native, cf.truth);
             sum += p;
@@ -2789,6 +3217,7 @@ int evalMain(int argc, char** argv) {
             for (int s = 0; s < shots; ++s) (*perShot)[s] = sn[s] ? ss[s] / sn[s] : 0.0;
         }
         if (flicker) *flicker = flickN ? flickSum / flickN : 0.0;
+        if (alternation) *alternation = altAcc;
         return n ? sum / n : 0.0;
     };
 
@@ -2832,7 +3261,12 @@ int evalMain(int argc, char** argv) {
 
         std::vector<double> ps;
         double fl = 0.0;
-        const double nat = nativeOf(heldOut, &ps, &fl);
+        // Collected next to the table and printed UNDER it rather than as a
+        // column: the window parses these rows by position (blss_ui.cpp), and a
+        // new column in the middle of them is a silently misread table.
+        std::vector<std::pair<std::string, Period2>> altRows;
+        Period2 natAlt;
+        const double nat = nativeOf(heldOut, &ps, &fl, &natAlt);
         std::printf("  %-22s %8.3f %8.2f %7s %7s %7s %7s  ", "native full-res", nat, fl, "-", "-",
                     "-", "-");
         for (int s : ids) std::printf("%8.3f", ps[s]);
@@ -2843,8 +3277,11 @@ int evalMain(int argc, char** argv) {
         sum.native = nat;
         for (const Row& r : rows) {
             Occupancy occ;
+            Period2 alt;
             const double p = evalRecurrent(corpus, shots, want, o.sharpen, r.m, o.dumpDir,
-                                           heldOut ? r.dump : nullptr, &ps, &fl, &occ, o.threads);
+                                           heldOut ? r.dump : nullptr, &ps, &fl, &occ, o.threads,
+                                           &alt);
+            altRows.emplace_back(r.name, alt);
             std::printf("  half-res + %-11s %8.3f %8.2f %6.1f%% %6.1f%% %6.1f%% %7.2f  ", r.name, p,
                         fl, occ.point * 100.0f, occ.temporal * 100.0f, occ.sharpen * 100.0f,
                         occ.passes);
@@ -2864,6 +3301,46 @@ int evalMain(int argc, char** argv) {
             }
         }
         splitSums.push_back(sum);
+
+        // --- PERIOD-2 ALTERNATION. The `flicker` column above is a lag-1
+        // difference and is structurally unable to tell a picture alternating
+        // between two images from a picture panning smoothly; this one is the
+        // motion-compensated second difference, which is zero for anything
+        // moving at a constant rate and four times the amplitude for a bob.
+        // See period2Alternation().
+        //
+        // EVERY COLUMN IS A DIFFERENT WARP GATE, and printing the whole sweep is
+        // the point rather than clutter: motion compensation has its own error,
+        // that error is what the `native` row measures, and at the loosest gate
+        // it is LARGER THAN THE ARTEFACT. A single gated number would be a magic
+        // constant; the sweep shows the reader where it stops mattering.
+        std::printf("\n  period-2 alternation, %s split - motion-compensated"
+                    " |O(t) - 2*O(t-1) + O(t-2)| / 4, in 8-bit levels\n",
+                    heldOut ? "held-out" : "training");
+        std::printf("  a pixel counts when BOTH of its warps are under the column's length;"
+                    " `any` is ungated\n");
+        std::printf("  %-22s", "");
+        for (int g = 0; g < kP2Gates; ++g) {
+            char h[16];
+            if (g + 1 == kP2Gates) std::snprintf(h, sizeof h, "any");
+            else std::snprintf(h, sizeof h, "<=%gpx", static_cast<double>(kP2Gate[g]));
+            std::printf(" %9s", h);
+        }
+        std::printf("\n  %s\n", std::string(24 + 10 * kP2Gates, '-').c_str());
+        std::printf("  %-22s", "native full-res");
+        for (int g = 0; g < kP2Gates; ++g) std::printf(" %9.3f", natAlt.mean(g));
+        std::printf("   <-- the floor: no jitter, one sample, so this is the metric's"
+                    " own residual\n");
+        for (const auto& ar : altRows) {
+            std::printf("  half-res + %-11s", ar.first.c_str());
+            for (int g = 0; g < kP2Gates; ++g) std::printf(" %9.3f", ar.second.mean(g));
+            std::printf("\n");
+        }
+        std::printf("  %s\n", std::string(24 + 10 * kP2Gates, '-').c_str());
+        std::printf("  %-22s", "gate keeps, % of frame");
+        for (int g = 0; g < kP2Gates; ++g)
+            std::printf(" %8.1f%%", 100.0 * natAlt.coverage(g));
+        std::printf("\n  jitter is %s\n", jitterEnabled() ? "ON" : "OFF");
     }
 
     // ------------------------------------------------------------- the verdict

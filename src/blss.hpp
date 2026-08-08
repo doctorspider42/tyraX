@@ -341,6 +341,38 @@ inline void applyDeadzone(float w[kOutputs], float sharpen,
     }
 }
 
+// WHICH QUANTITY THE FLICKER PENALTY CHARGES FOR. Two forms, and the second
+// exists because the first was measured to be unfixable in its own terms - see
+// kFlickerWeight below for the measurement and docs/neural-upscaler.md
+// ("The oscillation") for the hardware numbers that forced the rewrite.
+enum class FlickerForm {
+    // MSE between the output and the reprojected history. THE ORIGINAL, AND IT
+    // IS MINIMISED BY out == history - by the picture FREEZING, which is free on
+    // near-static training shots and is ghosting on an orbit or a dolly. Kept
+    // reachable (`--flicker-form lag1`) because its sweep is recorded below and
+    // setting a weight to zero is not the same as deleting the term.
+    //
+    // It is also structurally blind to the artefact: a lag-1 difference cannot
+    // tell "alternating between two images" from "moving smoothly", and the
+    // measured artefact is period 2.
+    Lag1,
+    // The PERIOD-2 ALTERNATION AMPLITUDE the candidate weights would leave in a
+    // steady state, gated on reprojection confidence. Derived in blss.cpp above
+    // altAmplitude(); the short version is that the temporal pass is an
+    // exponential accumulator over two alternating jitter phases, so its
+    // stationary alternation has a closed form in the candidate's own alpha
+    // bytes and the phase pair the frame already holds. It charges for the bob
+    // and for nothing else, it cannot be paid by freezing (freezing is not
+    // expressible - the only ways down are fusing the phases or not amplifying
+    // them), and it is switched off wherever the history is not trustworthy.
+    Period2,
+};
+
+// The shipped form. Period2 is the default because Lag1 was measured to buy no
+// stability at any weight (kFlickerWeight, measurement (b)) while the console
+// went on bobbing.
+constexpr FlickerForm kFlickerForm = FlickerForm::Period2;
+
 // How hard the oracle is penalised for a frame that differs from the previous
 // one, relative to how hard it is penalised for differing from the truth.
 //
@@ -381,16 +413,109 @@ inline void applyDeadzone(float w[kOutputs], float sharpen,
 // against the reprojected history, which is minimised by out == history, i.e. by
 // FREEZING - free on near-static shots, ghosting on an orbit or a dolly. It does
 // not distinguish "stable because the jitter got fused" from "stable because
-// nothing moved".
+// nothing moved". AND IT IS BLIND TO THE ARTEFACT ON TOP OF THAT: a lag-1
+// quantity cannot separate "alternating between two images" from "moving
+// smoothly", and the bob is period 2. That is the most likely reason the old
+// flicker column reported an improvement while the television bobbed.
 //
-// What replaced it is the fill term: charging for kernels culls the point and
-// sharpen passes, which are exactly the two that alternate with the jitter, so
-// stability now comes out of the cost model for free (flicker 21.49 -> 21.01
-// training, 27.12 -> 26.62 held-out, at fill 0 -> 6 with this weight at zero).
-// If the console still oscillates, `--flicker-weight` is the knob and the
-// numbers above are its price - but fix the FORM first: gate the penalty on
-// reprojection confidence so it cannot be paid by freezing.
+// TWO BELIEFS THAT WERE HELD HERE AND ARE NOW DISPROVEN ON HARDWARE. Both used
+// to be written down as the reason the term could stay at zero:
+//
+//   (i) "the fill term replaced it - charging for kernels culls the point and
+//       sharpen passes, which are exactly the two that alternate with the
+//       jitter, so stability comes out of the cost model for free". IT DID NOT.
+//       With the fill term in and a project-trained net, a frozen camera on real
+//       PS2 hardware leaves 30.8% of the picture alternating every frame at
+//       1.42/255, against a 0.03/255 floor with the jitter off. The mechanism
+//       the belief missed is in altAmplitude() (blss.cpp): the accumulator is
+//       the ONLY thing that damps the base pass's own phase difference, the fill
+//       term culls the accumulator too, and the sharpen pass is applied AFTER
+//       the accumulator so no amount of temporal weight damps it at all.
+//
+//  (ii) "it bobs because the trained net puts 0% weight on temporal, so nothing
+//       fuses the two phases". ALSO WRONG: examples/upscaler-lab's net puts
+//       73.7% temporal occupancy on the screen and bobs at the same magnitude.
+//       Occupancy is not retention - a cell drawn at alpha 20 is drawn, and
+//       (1-c)/(1+c) at c = 20/128 is 0.73, i.e. it removes a quarter of the
+//       alternation and keeps three.
+//
+// So the form was fixed rather than the weight, and FlickerForm::Period2 is what
+// `--flicker-weight` charges for now. `--flicker-form lag1` still reaches the
+// term measured above.
+//
+// (c) AND THE NEW FORM WAS SWEPT TOO, AND IT IS ALSO A BAD TRADE - which is the
+// measurement that closes this question rather than moving it. Full account in
+// docs/neural-upscaler.md ("The trade curve"); the summary is that the weight
+// which restores stability costs more than the cure it is competing with.
+// examples/upscaler-lab, --cv --cv-seeds 5, 120 frames, 400 epochs, decay 1e-4,
+// fill 16, deadzone 8, jitter ON except the last row - 30 fold-runs per row.
+// "alt" is the fraction of gated pixels alternating by >= 2/255; its floor (the
+// native render, which has no alternation to have) is 12.4%:
+//
+//     weight    0    0.05   0.2   0.5   1.5     2     3     4     5   | OFF, 0
+//     margin +0.61  +0.62 +0.63 +0.61 +0.55 +0.48 +0.44 +0.35 +0.29   |  +0.33
+//     sd      0.51   0.52  0.53  0.55  0.85  1.01  1.13  1.32  1.40   |   0.34
+//     below   1/30   1/30  0/30  0/30  6/30  6/30 12/30 15/30 15/30   |   2/30
+//     passes  1.73   1.73  1.73  1.72  1.73  1.74  1.74  1.75  1.75   |   1.65
+//     alt    14.8%  14.8% 14.9% 14.9% 14.9% 14.9% 14.4% 13.0% 12.4%   |  12.3%
+//
+// Read it in this order. The alternation reaches the jitter-off floor ONLY at
+// weight 5, and at weight 5 the margin is +0.29 against the +0.33 that turning
+// the jitter off buys for nothing. Mean passes never moves (1.73 -> 1.75), so
+// none of this is a fill trade. What moves is the SPREAD: sd 0.51 -> 1.40 and
+// folds below plain bilinear 1/30 -> 15/30, i.e. at the setting that fixes the
+// bob, half the content is worse off than not running the feature. And below
+// 1.5 the knob does nothing at all - it has no cheap setting.
+//
+// The form change was still worth making and this is its evidence: at the same
+// weight 0.2, lag1 loses 11 folds of 30 to bilinear and period2 loses none, at
+// the same margin. It did not change the verdict.
 constexpr float kFlickerWeight = 0.0f;
+
+// WHETHER THE HISTORY EXISTS AT ALL in this tile - the only per-tile test the
+// period-2 term still applies, and the story of why it is not more than that is
+// the useful half.
+//
+// The period-2 model reads the previous frame's low-res render, reprojected, as
+// "the same content at the other jitter phase". That reading is true exactly
+// when the reprojection is: on a disocclusion, on a silhouette, or under a
+// reprojection long enough that the tile's single depth cannot describe it, the
+// two samples are different CONTENT and their difference is not an alternation
+// amplitude at all. Charging for it there would teach the oracle to buy temporal
+// weight where temporal weight ghosts - the old term's failure mode arriving by
+// a new route. So a gate was designed, and it read:
+//
+//   conf = coverage >= kMinCoverage ? (1 - motion) * (1 - depthGrad) : 0
+//
+// on the reasoning that `motion` at 1.0 puts the history a whole tile away and
+// `depthGrad` at 1.0 is a full-range depth step, i.e. a silhouette. Both
+// readings are correct about what the channels MEAN and wrong about what they
+// CONTAIN. On examples/upscaler-lab (`--blss-eval --features`, 5376 tiles):
+//
+//     motion     49.1% of tiles at EXACTLY 1.0
+//     depthGrad  41.0% at exactly 1.0
+//     coverage   66.8% at 1.0
+//
+// so that product is ZERO on most of the frame - and zero specifically on the
+// moving, geometrically busy part, which is where the console's difference image
+// lights up and the flat sky stays black. A gate built out of saturated channels
+// is a gate that is always shut, and the term would have swept as "buys
+// nothing", which is the same non-answer --flicker-weight already gave twice.
+// (It is the same defect as the open `depth` item in docs/neural-upscaler.md:
+// these channels are clamped ratios and they spend most of their time at the
+// clamp.)
+//
+// What remains here is the one test that is not a proxy for something else: a
+// tile with no geometry in it has no history to reproject. Outliers are handled
+// where they belong instead - kAltClamp (blss.cpp) bounds the charge AND
+// flattens its gradient, so a disocclusion costs a constant and therefore buys
+// the oracle nothing. A per-SAMPLE test on top of this drops any pixel whose
+// reprojected position leaves the frame, where there is no history to have
+// fused.
+//
+// This is host-only arithmetic: the objective has no engine twin (see
+// docs/blss-reconstruction.md, "What is NOT part of this contract").
+float reprojConfidence(const Features& f);
 
 // What one full-screen composite pass costs the oracle, in the same units as
 // the error it is trading against: mean squared 8-bit level over the region.
@@ -457,7 +582,10 @@ constexpr float kFillWeight = 16.0f;
 // `--flicker-weight` and `--fill-weight` so the two can be swept jointly
 // without a rebuild; the defaults are the swept-and-chosen configuration.
 struct Objective {
-    float flicker = kFlickerWeight;  // vs the reprojected history: stability
+    float flicker = kFlickerWeight;  // the stability term's weight
+    // WHICH stability quantity that weight buys - and the distinction is the
+    // whole term, not a variant. See FlickerForm.
+    FlickerForm flickerForm = kFlickerForm;
     float fill = kFillWeight;        // per full-screen pass drawn: cost
 };
 
@@ -776,6 +904,25 @@ struct Occupancy {
 };
 Occupancy occupancy(const WeightField&, float sharpen);
 
+// ------------------------------------------------------------------- the bob ---
+
+// THE FROZEN-CAMERA PROBE IS NOT HERE, and the reason is worth a paragraph
+// because it is the first thing the next person will reach for.
+//
+// The hardware experiment that found the bob froze the camera and compared
+// consecutive fields, so the obvious host twin is a Frame holding BOTH jitter
+// phases of ONE pose. The corpus cannot supply that: it renders frame N at
+// phase N&1 from camera N, so the only "other phase" any Frame owns is
+// `prevLow`, which is a different pose as well as a different phase. Adding the
+// second render is a change to blss::generate() (blsscorpus.cpp), not to this
+// file.
+//
+// What stands in for it is MOTION COMPENSATION - period2Alternation() below
+// warps the two predecessors into the current view before differencing, which
+// removes the camera and leaves the phase. That is a weaker instrument than
+// freezing (it carries the warp's own resampling error), and the `native` row of
+// its table is exactly that residual, printed so every other row can be read
+// against it.
 // ------------------------------------------------------------------ oracle ---
 
 // Per tile, the (wA, wC, wD) that minimise MSE against `truth` under

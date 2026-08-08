@@ -230,13 +230,34 @@ the verification, and any fact worth reusing belongs in the relevant
     just the weight**: MSE against the reprojected history is minimised by the picture
     FREEZING, which is free on the near-static training shots and is ghosting on
     the held-out orbit and dolly - it cannot tell "stable because the jitter got
-    fused" from "stable because nothing moved". If this is picked up again, gate
-    the penalty on reprojection confidence FIRST.
+    fused" from "stable because nothing moved".
 
-    **What delivered the stability instead was the fill term** (next entry), by
-    culling the point and sharpen passes - which are exactly the two that
-    alternate with the jitter. At flicker 0, moving fill 0 -> 6 took flicker from
-    21.49 to 21.01 (training) and 27.12 to 26.62 (held out) at no quality cost.
+    **CLOSED 2026-08-09: the form was fixed as prescribed, swept, and it is
+    ALSO a bad trade - so do not pick this up a fourth time.**
+    `--flicker-form period2` charges for the stationary period-2 alternation the
+    candidate weights would leave, derived in closed form, which freezing cannot
+    pay for. Nine weights x 30 fold-runs on `examples/upscaler-lab` with the
+    jitter ON: the alternation reaches the jitter-off floor only at weight 5,
+    where the margin is **+0.29 against the +0.33 that turning the jitter off
+    buys for free**, and where **15 folds of 30 lose to plain bilinear**
+    (sd 0.51 -> 1.40). Mean passes never moves (1.73 -> 1.75), so it is not a fill
+    trade - what it costs is generalisation. Below weight 1.5 the knob does
+    nothing at all. Curve, metric and the two ways the metric had to be fixed
+    before it could judge anything: docs/neural-upscaler.md ("The trade curve").
+
+    **The prescribed gate was itself wrong, and that is the transferable part:**
+    `(1 - motion) * (1 - depthGrad)` looks threshold-free and is exactly ZERO on
+    most of the frame, because `motion` reads 1.0 on 49.1% of `upscaler-lab`'s
+    tiles and `depthGrad` on 41.0%. A gate built out of saturated channels is a
+    gate that is always shut. Outliers are clamped instead.
+
+    **RETRACTED: "what delivered the stability instead was the fill term"** (it
+    used to say so here, by culling the point and sharpen passes). The fill term
+    culls the TEMPORAL pass too, and the accumulator is the only thing that damps
+    the phase difference at all - so it makes the bob worse, not better. The
+    flicker numbers it was read off (21.49 -> 21.01 training, 27.12 -> 26.62 held
+    out) are a lag-1 metric, which cannot see a period-2 artefact. What delivered
+    the stability is turning the jitter off.
 
     The earlier **"lock the jitter phase to the field parity" theory stays
     REFUTED**, and the reason is worth keeping: a blending deinterlacer was
@@ -247,12 +268,21 @@ the verification, and any fact worth reusing belongs in the relevant
     comes from - and the temporal accumulator was not fusing it. Nothing about
     interlacing or field parity is involved.
 
-    **STILL OPEN, and it is now the only open half of this item: nobody has
-    watched the emulator since the fill term landed.** Every console observation
-    on record was taken from a net trained by the old fill-blind objective. The
-    host's flicker metric improved with the retune; whether the picture is still
-    bobbing on a television is UNVERIFIED in both directions. That is a
-    twenty-minute PCSX2 boot and it gates the feature.
+    **The "nobody has watched the emulator" half is ANSWERED**: a human was shown
+    three builds and called the jitter-on one "like an earthquake" while the other
+    two were byte-identical over 40 captures. The bob is real, the jitter is the
+    cause, and turning it off is the cure.
+
+    **What is still open here is the INSTRUMENT, not the objective.**
+    `period2Alternation()` only separates jitter on from jitter off under
+    `--no-anim`: the reprojection field is camera-derived, so animated geometry is
+    never compensated and raises the metric's own floor from 0.075 to 2.614
+    levels on the animated corpus. The clean fix is a **still fixture** - one pose
+    rendered at BOTH jitter phases, which is a change to `blss::generate()` in
+    `src/blsscorpus.cpp` and would make the host twin of the console's
+    frozen-camera experiment exact instead of approximate. Until then, read the
+    *fraction* of gated pixels above 2/255 rather than the mean level; that
+    statistic does pin jitter-off to the native floor on both corpora.
   - **DONE: charge the oracle for the fill it asks for.** `--fill-weight`,
     now **16**, charged as a STEP on the quantised alpha byte (a weight rounding
     to alpha 1 costs a whole pass and buys nothing, so a smooth penalty would
