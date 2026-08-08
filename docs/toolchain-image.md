@@ -2479,6 +2479,61 @@ the target was wrong: `cull_d vertexLoop` was named here as the immovable block 
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
 
+### The fourth: a full-window clip test that reads before the newest judgement lands
+
+The detector's remaining 23 findings were a different mechanism from the flush bug, and they
+were live. In **14 programs** a `fcand VI01,0x3FFFF` issues **one row after** its `clipw` - CLIP
+needs four - so the landed window is `{v2, v1, v3 of the PREVIOUS triangle}` instead of
+`{v3, v2, v1}`. SCE does this zero times.
+
+**The per-site answer is three-way, not two-way**, which is why it was worth asking rather than
+assuming. Every site is Tyra's per-triangle frustum cull: `clipw` → `fcand 0x3FFFF` → `iaddiu` →
+`isw` of the vertex's **ADC bit**. Three vertices per iteration, three such triples. And these
+pipelines set `PRIM_TRIANGLE` - an independent triangle **list** - so the GS kicks only on the
+*third* vertex of each group:
+
+* **18 of 23 are inert.** They compute the ADC bit of vertex 1 or 2 - a wrong value in a field
+  the GS never consults. Not conservative; simply not read.
+* **3 of 23 are wrong on screen**, all at the kicking vertex with a one-row gap and nothing in
+  between: `eng_stapip_cull_tce_vu1` (**resident**), `gen_vu_script3_d`, `gen_vu_script3_tce`.
+  Triangle T is drawn iff `!(v1 out || v2 out || v3 of T-1 out)`. That is **not conservative in
+  either direction** - a triangle whose third vertex is outside is drawn unclipped when the
+  previous triangle's third was inside (the smeared-triangle failure `docs/vu1-clipping-plan.md`
+  names), and a fully-inside triangle is dropped when the previous one's third was outside. Along
+  a frustum silhouette both happen.
+* **2 of 23 are load-bearing and survive by luck.** Their gap is two rows and the row between is
+  `mulq | waitq` on a `div` issued above the `clipw`; DIV latency is 7, so the stall carries the
+  reader past its push. Correct, and nothing in openvcl was aiming for it - reschedule and it
+  stops being true.
+
+**Why upstream's own test suite cannot catch it.** Without `--exempt-full-clip-masks` the latency
+tracker holds the reader on its own - and that is exactly the configuration upstream's
+`test_flag_latency` "clipw followed by fcand" case runs in. The test passes because it exercises
+the path on which the emitter half of the bug is inactive.
+
+The fix is unconditional in both halves: `padForClipFlagWindow` pads *every* CLIP reader, and the
+latency tracker makes every reader wait, with the mask now choosing only *how long* rather than
+*whether*. `--exempt-full-clip-masks` and `--clip-exemption-best-of` become **inert** as a result
+(verified byte-identical with and without them) and are kept rather than deleted, since the two
+latencies are separately calibrated and not required to stay equal.
+
+| | resident 10 | engine 25 | generated 45 |
+|---|---:|---:|---:|
+| SCE | 2028 | 3982 | 9264 |
+| before | 1992 | 3900 | 9216 |
+| **after** | **1998** | **3908** | **9242** |
+
+40 words, still under SCE on all three and 44 under the ceiling. The detector's `LAND` count goes
+**23 → 0** with SCE still clean, and the independent `p6-window.py` goes 16 → 2 (both residuals
+are sites where openvcl is *stricter* than SCE, i.e. conservative).
+
+**Not demonstrated on screen, and that is worth stating plainly.** The three wrong sites need a
+scene where those particular programs' kicking vertex judges a triangle on the frustum silhouette;
+`examples/reflections` renders byte-identically before and after, so the visual consequence here
+is inferred from the mechanism and the detector rather than observed. PCSX2's hardware renderer
+masks this class outright (`docs/vu1-clipping-plan.md`), so any attempt needs the software
+renderer - which is what the screenshots above use - and a scene built for it.
+
 ### A third one, and this time the detector came first
 
 Two bugs of the same family had been found by accident - one while chasing frames, one while

@@ -312,7 +312,30 @@ Fix: do not clear the list at a reader; keep contributors edged into every subse
 until an actual kill. One deleted statement, plus a counter to keep the fan-in incremental rather
 than quadratic. Zero words on a 70-program corpus, three programs reordered.
 
-## 9. Twenty-one flags, all off by default
+## 9. `padForClipFlagWindow` exempts full-window masks, which reads a stale window
+
+`clipReadIsPositional()` exempts a reader whose mask covers the whole CLIP window (`0x3FFFF`,
+`0xFFFFFF`) from the emitter's padding, on the reasoning that such a mask asks *is anything
+outside* and therefore does not care **which entry** a judgement sits in.
+
+That is true and insufficient. It does not cover **whether the newest judgement has arrived at
+all** — and `0x3FFFF` is three entries wide, so reading a row early shifts the whole window by a
+vertex. The reader then judges the previous primitive.
+
+In TyraX this put a `fcand VI01,0x3FFFF` one row after its `clipw` in 14 programs. Most of those
+sites write an ADC bit the GS never consults (triangle *list*: only the third vertex kicks), but
+three are at the kicking vertex, and there the test becomes `!(v1 out || v2 out || v3 of the
+PREVIOUS triangle out)` — which draws an outside triangle unclipped in one case and drops a
+fully-inside one in another.
+
+Fix: pad every CLIP reader; let the mask choose the *latency*, not whether to wait at all.
+
+**Why the existing suite does not catch it.** `test_flag_latency`'s "clipw followed by fcand"
+case runs without the emitter exemption in play, so the latency tracker holds the reader on its
+own and the test passes. The emitter half is only reachable when the tracker's wait is not the
+binding constraint.
+
+## 10. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's
