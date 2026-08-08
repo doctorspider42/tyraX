@@ -253,7 +253,46 @@ under the current pairwise builder would put a WAW edge between every pair of FM
 every schedule. What this needs is an **accumulating-resource** class: writes commute, so no WAW,
 only RAW and WAR against readers and against `fsset`. Reproducer `status_sticky.vcl`.
 
-## 7. Twenty-one flags, all off by default
+**Implemented here, and the shape is worth copying.** `FSSET` is declared **read-and-write**;
+that single declaration makes it a hard barrier under the RAW/WAR tests that already exist, so
+nothing has to learn what a "clear" is — the same construction that fixes `RNEXT`/`RXOR` above.
+The dependency pass edges every contributor since the last clear into every reader and never
+flushes its list at a reader, and emits no writer-to-writer edge at all. The non-sticky half
+(Z/S/U/O/I/D) is handled by reading the reader's own immediate: a mask naming only sticky bits
+pins nothing, a mask naming a non-sticky bit pins the last contributor. Measured on a synthetic
+corpus: zero extra rows when nothing reads status, one row when something does.
+
+Deliberately not modelled: a trailing live-out barrier for an accumulating resource. Two upstream
+tests assert that dead MAC/CLIP WAW edges may be dropped, and they are right — for a value that
+is "every contributor OR-ed" there is no single writer producing the value that leaves the block,
+so any order satisfies the contract. `out_hw_status` names one register with two halves, and
+"the flags of whichever instruction happens to be last" is not a contract a scheduler can keep.
+
+## 7. `--drop-dead-writes` deletes an ACC write that a later write does not cover
+
+ACC is per-field; the observability walk carries one resource bit. So
+
+```
+	add.xy	acc, vf00, envConsts[w]
+	add.z	acc, vf00, envConsts[z]
+	madd.x	stq1, envConsts, dotR[x]
+```
+
+loses the `.xy` write — the walk sees "another ACC writer" and never checks that `.z` does not
+cover `.xy`. Whatever the previous iteration left in `ACC.xy` is then accumulated into. In TyraX
+this deleted the seed of the environment-mapping S/T accumulation in 8 programs, 3 instructions
+each, and **environment mapping stopped rendering entirely** — visible, not subtle.
+
+Fix: carry a pending field mask alongside the resource and retire only the lanes the later write
+names. Reproducers `acc_fields.vcl` (fails before, passes after) and `acc_fields_covered.vcl`
+(control: a genuinely covering write must still kill).
+
+A note for anyone writing a scanner for this: VCL lets the **destination operand** select the
+accumulator form, so `add.xy acc, …` is an ACC writer while matching none of
+`adda|mula|madda|msuba`. An audit that greps for the accumulator mnemonics reports zero
+occurrences and is wrong.
+
+## 8. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's

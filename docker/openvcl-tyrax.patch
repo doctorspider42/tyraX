@@ -1,270 +1,3 @@
-diff --git a/NOTICE-TYRAX.md b/NOTICE-TYRAX.md
-new file mode 100644
-index 0000000..c180973
---- /dev/null
-+++ b/NOTICE-TYRAX.md
-@@ -0,0 +1,221 @@
-+# This is a MODIFIED copy of OpenVCL
-+
-+**This repository is not OpenVCL.** It is a derivative work, maintained for
-+[TyraX](https://github.com/doctorspider42/tyra-editor), and it carries changes the
-+upstream project has neither seen nor accepted. Do not report problems with it to
-+upstream, and do not assume its behaviour matches theirs.
-+
-+This notice exists to satisfy section 6 (*Attribution Rights*) of the Academic Free
-+License v2.0, under which OpenVCL is licensed: every copyright, patent and trademark
-+notice from the original source is retained, and this file is the prominent notice
-+that the Original Work has been modified.
-+
-+## Upstream
-+
-+* Project: **OpenVCL** — <https://github.com/ps2dev/openvcl>
-+* Forked at commit `a5867c3daf03828806ee966aca4116622da3f671` (v0.4.0)
-+* Originally written by **Jesper Svennevid** and **Daniel Collin**
-+* Current upstream maintainer: **Francisco Javier Trujillo Mata**
-+* Licence: **Academic Free License v2.0** — see [`LICENSE`](LICENSE), unchanged
-+
-+The names above are recorded as attribution, as the licence requires. Per section 4
-+(*Exclusions From License Grant*) they do **not** endorse this copy, and nothing here
-+should be read as their approval.
-+
-+## What was changed, and why
-+
-+TyraX compiles a PS2 engine's 25 VU1/VU0 microprograms. It needs an assembler it can
-+ship, because the alternative — Sony's `vcl` — comes with no licence at all, which is
-+what makes a publishable toolchain image impossible. Getting there took one
-+correctness fix and a set of density flags; the full measurements, including the ones
-+that failed, live in the TyraX repo under `docs/toolchain-image.md`.
-+
-+**Correctness**
-+
-+* `CLIPw` with an implied `w` component is accepted instead of rejected. Upstream
-+  rejects the operand *and still writes a complete output file* with the `clipw`
-+  missing and the `fcand` that reads its clip flags kept — silently emitting a program
-+  that tests clip flags nobody set.
-+
-+**Density — six flags, every one off by default**
-+
-+| flag | effect |
-+|---|---|
-+| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
-+| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
-+| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
-+| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
-+| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
-+| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
-+
-+Every latency constant is calibrated against the minimum distances Sony's `vcl`
-+demonstrates in its own output over those 25 programs — black-box observation of a
-+known-good reference, no disassembly of anything. With all six, the engine's resident
-+VU1 program set needs **2040** instructions against Sony's 2042, and the rendered
-+frame is pixel-identical in PCSX2.
-+
-+**Register allocation — six more flags, every one off by default**
-+
-+The six above make the code denser; these make it fit. TyraX's VU authoring layer
-+generates 45 microprograms and Sony's `vcl` compiles all 45; this copy compiled 23,
-+every failure being *Register allocation ran out of registers*.
-+
-+| flag | effect |
-+|---|---|
-+| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
-+| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
-+| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
-+| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
-+| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
-+| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, so a value read only past a two-arm block stops being live across it |
-+
-+With all six on top of the six above, **all 45** compile and assemble, all clean
-+under TyraX's loop-carry checker, and the engine's resident VU1 set needs **2008**
-+instructions against Sony's 2028 for the same ten programs.
-+
-+The last of the 45, `vu_script3_tce_cl`, is what the sixth flag exists for. Five
-+GIF-tag quadwords are loaded in its preamble and read only by the `sq`s that build
-+the packet header, but a two-arm branch picking the destination address sits in
-+between, so their live ranges spanned the whole program and the peak was 33
-+simultaneously live float ranges against 31 registers. Both arms rejoin at
-+`setDestAddr:` before the first of those `sq`s, which is a point every path
-+reaches, and landing the loads there takes the peak to 28. The post-dominance that
-+licenses the move is tested during the sink pass's own forward walk, from one
-+count of how many branches name each label, rather than from a control-flow graph
-+the allocator does not build.
-+
-+Carrying a load over a branch reorders the block it lands in, and over the 45 it
-+was worth about two words in either direction in programs that had registers to
-+spare and gained nothing for it. So the flag is not applied speculatively: the
-+allocation runs first exactly as it would with the flag off, and the flag only
-+gets its turn when that runs out of registers. All 44 programs that compiled
-+without it are byte-identical with it on, as are the engine's 25.
-+
-+**Dead code — one more flag, off by default**
-+
-+The twelve above made the generated programs *fit* and made them *dense*, and they
-+were still bigger than Sony's: 9506 instructions against 9264 over the 45, larger
-+in 34 of them. The first thing measured was whether the six allocator flags had
-+caused it. They had not. Over the 23 programs that compile with and without them,
-+the ten density flags alone come to 4064 and all sixteen come to 4064 — the same
-+number. (The four sink flags cost 30 on their own and `--trim-uncarried-ranges`
-+with `--coalesce-float-writes` buys 8 back, so the six net to zero.) The gap was
-+there before any of that work.
-+
-+Counting rows and slots says where it was. Over the 45, Sony's output is 9240
-+instruction rows holding 10910 non-`nop` slots; this copy's was 9486 rows holding
-+**11222**. Both fit 1.18 real operations in a row. This copy was not
-+scheduling worse — it was scheduling 312 instructions Sony's `vcl` never emitted,
-+and the histogram named them: 93 more `loi`, 65 more `lq`, and the `muli`/`addi`/
-+`mulw`/`addw` that consume them.
-+
-+They are dead. TyraX's VU authoring layer emits a whole four-component constant
-+vector when the body reads two of its components, and an `lq` for every quadword
-+the description names whether the body touches it or not. Sony's `vcl` deletes
-+both. `--drop-dead-writes` does the same:
-+
-+| flag | effect |
-+|---|---|
-+| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either |
-+
-+The liveness in it is the weakest one that finds them: a value is live if *any*
-+token anywhere reads that component, with no control flow in the analysis at all.
-+Nothing here deletes a write that is dead on one path and live on another — that
-+needs dominance the register allocator does not build. Only aliases are
-+candidates; a literal `VF05` an author named by number may be an interface with
-+something this compiler cannot see. A name any `in_vf`/`out_vf`/`--exitm`
-+directive mentions is live by declaration, as is a hardware resource any
-+`out_hw_*` names. Stores, `xgkick`, the auto-incrementing loads, branches,
-+anything with a delay slot, and any token carrying a label are never candidates.
-+
-+The flag writes are what make it worth having. Every FMAC instruction writes the
-+MAC flags, so a dead `add.z` is only deletable if that write is unobserved; the
-+test is global first (a program with no flag reader at all cannot observe any of
-+them) and positional second (walk forward: a reader says live, another writer says
-+dead, and a label, a branch, a directive or the end of the program says live,
-+because a wrong answer here is a miscompile). It iterates to a fixed point:
-+deleting `add.z k0, vf00, i` is what makes the `loi` above it dead.
-+
-+"Another writer says dead" is true of MAC and false of CLIP, and that is not a
-+tuning knob — it is the difference between a register and a shift register. The
-+CLIP register is a 24-bit window of the last **four** 6-bit judgements: `clipw`
-+pushes six bits in at the bottom and moves the previous three entries up, so a
-+later `clipw` does not overwrite an earlier one, and a positional reader — `fcand
-+VI01,0x3CA3CA` names all four entries at once — still sees the older judgement
-+three pushes later. Only the fourth subsequent push retires it. `fcset`, which
-+really does replace the whole register, kills it at once. The same fact is why
-+the dependency builder chains CLIP writers to each other instead of only to the
-+final writer: which push landed in which entry is observable, so their program
-+order is too. Both are unconditional; neither is behind a flag. Getting this
-+wrong deletes four of the seven `clipw` in every `stapip_clip_*` program and
-+leaves the "entirely inside, skip clipping" branch reading the previous
-+triangle's bits — pixel-identical output, because Sutherland-Hodgman on a
-+fully-inside polygon is a no-op, and five times the clipping work.
-+
-+With it on top of the twelve, over the 45 generated programs:
-+
-+| | Sony `vcl` | this copy, sixteen flags | plus `--drop-dead-writes` |
-+|---|---|---|---|
-+| instructions | 9264 | 9506 (+242) | **9308** (+44) |
-+| smaller / larger / equal | — | 4 / 34 / 7 | 17 / 24 / 4 |
-+
-+and the engine's resident VU1 set drops from 2008 to **1988** against Sony's 2028.
-+Not one of the 70 programs gets bigger: 42 of the 45 shrink and 3 are unchanged,
-+6 of the 10 resident ones shrink and 4 are unchanged. All 45 still compile and
-+assemble, all 25 engine programs still compile, both corpora are clean under
-+TyraX's loop-carry checker, the multiset of stores and `xgkick`s each of the 70
-+emits is unchanged to the offset, and with the flag off every one of them is
-+byte-identical to what this copy emitted before it — no flags, the ten, and all
-+sixteen.
-+
-+**What is left, and its shape.** With the dead code gone this copy emits *fewer*
-+real operations than Sony's — 10864 non-`nop` slots against 10910 — in *more*
-+rows: 9283 against 9240. None of the remaining 43 rows is work. All of it is `nop nop` in
-+front of a CLIP reader: 91 words of it here against Sony's 48, and +43 is exactly
-+the row gap. Every other padding bucket nets out.
-+
-+It is one shape, in the `_cl` programs' clip chain, and it is not a tuning
-+constant. Sony pays the window exactly once in each of the sixteen `_cl` programs
-+— three words, in the fan block where there is genuinely nothing else to do — and
-+this copy pays it three to eleven times. The difference is how many `clip`s are
-+allowed to be in flight at once. Over the 45:
-+
-+| | Sony `vcl` | this copy |
-+|---|---|---|
-+| `clip` sharing a row with a CLIP reader | 12 | **0** |
-+| `clip`-to-`clip` distance 2, 3 or 4 rows | 10 / 10 / 13 | **0 / 0 / 0** |
-+| `clip`-to-`clip` distance exactly 5 rows | 3 | 37 |
-+
-+Sony runs two or three `clip`s ahead of their readers and puts a reader in the
-+lower slot of a row whose upper is the *next* `clip`; this copy issues one `clip`,
-+waits out its window, reads it, and only then issues the next — five rows per
-+vertex where Sony takes one or two. Sony's same-row reader is not reading the
-+`clip` beside it; it is reading one from several rows back, which is the only way
-+that output and the four-word window are both true. Two rules keep this copy from
-+doing the same. The pair-legality test refuses a `clip` and a CLIP reader on one
-+row outright, in both directions, and the window is enforced against the *nearest
-+preceding* `clip` rather than against the one whose bits the mask selects.
-+
-+Both are about the same thing: the CLIP register is a 24-bit shift register, four
-+entries of six bits, and neither the scheduler nor the emitter models the shift.
-+They model "a `clip` happened N rows ago". Under that model a second `clip` in
-+flight is indistinguishable from clobbering the first, so refusing it is the only
-+safe answer, and the serialisation follows. Overlapping the chains needs the
-+positions modelled — which entry each mask selects, and how many pushes have
-+happened since — through the dependency graph, the pair test, the latency tracker
-+and `emittedRowsSinceClipWrite`. That is the redesign, and it is the whole 43.
-+
-+It is also the part of this compiler with the worst track record. Three commits
-+here — `ff1bc4a`, `09f8557`, `68d27df` — are all corrections to the positional
-+CLIP window, and `stapip_clip_c` is still on the defect list below. Forty-three
-+words out of 9264 do not justify reopening it without hardware to check against.
-+
-+## Known defects in this copy
-+
-+* `stapip_as_is_c`-style programs: a value loaded above a batch loop can be reused
-+  inside it (TyraX works around it in its own sources). The obvious explanation —
-+  liveness ignoring the back edge — is **wrong**: narrow the register pool and this
-+  copy refuses cleanly instead of clobbering. No minimal reproducer yet.
-+* One TyraX microprogram, `stapip_clip_c`, is still miscompiled by this copy.
-+
-+Upstream's own test suite (419 tests) passes unmodified.
-diff --git a/README.md b/README.md
-index 14667b8..2f64009 100644
---- a/README.md
-+++ b/README.md
-@@ -106,12 +106,35 @@ Useful options:
- | `--dump-instruction-info-json` | print the VU instruction metadata table as JSON |
- | `--dump-schedule-info` | print generic ready-scheduler issue slots |
- | `--dump-schedule-info-json` | print generic ready-scheduler issue slots as JSON |
-+| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
-+| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
-+| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
-+| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
-+| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
-+| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
-+| `--loop-liveness-always` | never skip extending a live range across a loop's back edge |
-+| `--upper-move-with-w` | promote a full-width `move` into the upper pipe, where it can pair |
-+| `--pair-best-of-two` | schedule each segment both ways and keep the shorter |
-+| `--pair-best-of-many` | schedule each segment under seven ready-list heuristics and keep the shortest |
-+| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
-+| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
-+| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
-+| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
-+| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
-+| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, and only after an allocation has already run out of registers |
-+| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either — CLIP being a four-entry shift register, not a register, so a later `clipw` does not kill an earlier one |
-+| `--exempt-full-clip-masks` | let the scheduler make the exemption the emitter already makes: a CLIP-flag reader whose mask covers the whole window does not have to wait for its own six bits |
-+| `--clip-exemption-best-of` | schedule each program both with and without that exemption and keep the shorter, so the exemption is taken only where it pays for the schedule it changes downstream |
- | `--enable-generic-software-pipelining` | enable safe generic software-pipeline rewrites, currently the default |
- | `--disable-generic-software-pipelining` | disable generic software-pipeline rewrites for comparison/debugging |
- | `--strict-schedule-slots` | emit from the typed scheduler slot model without legacy lookahead pairing |
- 
- `-M`, `-P`, and `-Z` are accepted for VCL command-line compatibility.
- 
-+The nineteen density, register-allocation and dead-code options are additions
-+this fork makes to OpenVCL, and every one of them is off by default. What each is
-+for and what it measured are in [`NOTICE-TYRAX.md`](NOTICE-TYRAX.md).
-+
- ## VSM Cost Analysis
- 
- OpenVCL can also analyze already scheduled `.vsm` files. This works for both
 diff --git a/src/Alias.cpp b/src/Alias.cpp
 index a29122a..85588f0 100644
 --- a/src/Alias.cpp
@@ -421,7 +154,7 @@ index 5bec71c..739b634 100644
  		if( state.dependency() )
  			newDependency->depend( state.dependency() );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..dd54143 100644
+index 699abe7..4181b5b 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -947,6 +947,7 @@ CodeGenerator::CodeGenerator()
@@ -432,7 +165,21 @@ index 699abe7..dd54143 100644
  	m_enableUpperMoves = false;
  	m_ignoredImplicitWawResources = VU_RESOURCE_NONE;
  }
-@@ -1475,6 +1476,21 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
+@@ -1049,7 +1050,12 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
+ 	}
+ 	if( !appliedGenericSoftwarePipeline )
+ 		fillPreIncrementStoreBranchDelaySlots(workTokens);
+-	const bool macFlagsDead = !vuTokenListReadsMac(workTokens);
++	// An upper move is emitted as an FMAC (maxx), which produces flags a plain move
++	// does not - so it is only free when nothing reads them. The status register is
++	// as much "them" as MAC is, and the two used to be one test only because
++	// isVuMacReader() listed the fs* readers.
++	const bool macFlagsDead = !vuTokenListReadsMac(workTokens)
++	                       && !vuTokenListReadsStatus(workTokens);
+ 	m_enableUpperMoves = macFlagsDead;
+ 	m_ignoredImplicitWawResources = VU_RESOURCE_NONE;
+ 
+@@ -1475,6 +1481,21 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -454,7 +201,7 @@ index 699abe7..dd54143 100644
  void CodeGenerator::addNopLine()
  {
  	m_codeLines.push_back( formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) );
-@@ -1536,11 +1552,85 @@ bool CodeGenerator::branchNeedsPreBubble( const Token& token ) const
+@@ -1536,11 +1557,85 @@ bool CodeGenerator::branchNeedsPreBubble( const Token& token ) const
  	return !(access.instructionFlags & VU_INSTR_UNCONDITIONAL_BRANCH);
  }
  
@@ -503,7 +250,7 @@ index 699abe7..dd54143 100644
 +			if( vuBranchInterlockEnabled()
 +			    && ( isVuPlainMemoryLoad( *tokens[t] )
 +			         || isVuClipReader( lowerVuTokenName( *tokens[t] ) )
-+			         || isVuMacReader( lowerVuTokenName( *tokens[t] ) ) ) )
++			         || isVuMacOrStatusReader( lowerVuTokenName( *tokens[t] ) ) ) )
 +				continue;
 +			std::list<std::string> writes;
 +			collectVuRegisterWriteKeys( *tokens[t], writes );
@@ -540,7 +287,7 @@ index 699abe7..dd54143 100644
  	if( m_codeLines.empty()
  	    || m_codeLines.back() != formatRawPairedInstructionLine( vuInstr(VU_OP_NOP), vuInstr(VU_OP_NOP) ) )
  	{
-@@ -1549,6 +1639,158 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
+@@ -1549,6 +1644,158 @@ void CodeGenerator::padForBranchPreBubble( const Token& token )
  	}
  }
  
@@ -699,7 +446,7 @@ index 699abe7..dd54143 100644
  void CodeGenerator::emitSingleToken( const Token& token )
  {
  	std::string instruction = generateInstruction(token);
-@@ -1592,6 +1834,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
+@@ -1592,6 +1839,8 @@ void CodeGenerator::emitSingleToken( const Token& token )
  		}
  	}
  
@@ -708,7 +455,7 @@ index 699abe7..dd54143 100644
  	const unsigned int branchDelaySlots = vuTokenBranchDelaySlots( token );
  	if( branchDelaySlots > 0 )
  	{
-@@ -1701,6 +1945,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
+@@ -1701,6 +1950,7 @@ void CodeGenerator::emitPairedTokens( const Token& a, const Token& b )
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -716,7 +463,7 @@ index 699abe7..dd54143 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -1724,6 +1969,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
+@@ -1724,6 +1974,7 @@ void CodeGenerator::emitPairedBranchWithDelayFiller( const Token& a, const Token
  		pairedLine = formatPairedLine(b, a);
  	else
  		pairedLine = formatPairedLine(a, b);
@@ -724,7 +471,7 @@ index 699abe7..dd54143 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2285,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2290,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -746,7 +493,7 @@ index 699abe7..dd54143 100644
  			break;
  		}
  
-@@ -2053,9 +2303,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2053,9 +2308,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  	}
  }
  
@@ -814,7 +561,7 @@ index 699abe7..dd54143 100644
  	std::vector<const VuScheduledIssueSlot*> slots;
  	for( std::vector<VuScheduledBasicBlock>::const_iterator block = program.blocks.begin();
  	     block != program.blocks.end();
-@@ -2230,6 +2537,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2542,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -824,7 +571,7 @@ index 699abe7..dd54143 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2547,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2552,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -869,7 +616,7 @@ index 699abe7..dd54143 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +2745,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +2750,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -917,7 +664,7 @@ index 699abe7..dd54143 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +3053,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +3058,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -936,7 +683,7 @@ index 699abe7..dd54143 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +3074,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +3079,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -954,7 +701,7 @@ index 699abe7..dd54143 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
-@@ -9833,6 +10236,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+@@ -9833,6 +10241,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
  		if(token.fields() & (1<<t))
  			fields += fieldnames[t];
  	}
@@ -1924,7 +1671,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..beda6fc 100644
+index cf6d79b..1962e22 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -2429,7 +2176,7 @@ index cf6d79b..beda6fc 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1631,1407 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1631,1442 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -2653,24 +2400,6 @@ index cf6d79b..beda6fc 100644
 +		}
 +	}
 +
-+	// The hardware resource an `out_hw_*`/`in_hw_*` directive names. Those are
-+	// the program's contract with whatever runs next, so a resource one of them
-+	// mentions is read even when no instruction reads it.
-+	unsigned int declaredHardwareResource( const Token& token )
-+	{
-+		if( !token.operand() )
-+			return VU_RESOURCE_NONE;
-+		const std::string& n = token.operand()->name();
-+		if( n == "out_hw_acc" || n == "in_hw_acc" )       return VU_RESOURCE_ACC;
-+		if( n == "out_hw_i" || n == "in_hw_i" )           return VU_RESOURCE_I;
-+		if( n == "out_hw_q" || n == "in_hw_q" )           return VU_RESOURCE_Q;
-+		if( n == "out_hw_p" || n == "in_hw_p" )           return VU_RESOURCE_P;
-+		if( n == "out_hw_r" || n == "in_hw_r" )           return VU_RESOURCE_R;
-+		if( n == "out_hw_clip" || n == "in_hw_clip" )     return VU_RESOURCE_CLIP;
-+		if( n == "out_hw_status" || n == "in_hw_status" ) return VU_RESOURCE_MAC;
-+		return VU_RESOURCE_NONE;
-+	}
-+
 +	// Can this token be considered for deletion at all? Everything with an effect
 +	// the destination register does not describe is out: stores and xgkick, the
 +	// auto-incrementing loads, branches and anything with a delay slot, a token
@@ -2724,6 +2453,32 @@ index cf6d79b..beda6fc 100644
 +	// still readable through the next three pushes and gone after the fourth.
 +	const unsigned int VU_CLIP_WINDOW_ENTRIES = 4;
 +
++	// Which fields of ACC a token writes. ACC is four independent 32-bit lanes and
++	// an FMAC destination mask selects among them, so `mula.x acc` and
++	// `mula.yzw acc` write disjoint halves of it and neither retires the other.
++	// vuWriteFieldMask() cannot answer this: it reports the whole register for
++	// anything that is not a FLOAT_REGISTER argument, and ACC is its own argument
++	// type. Same precedence it uses - the token's destination mask first, then the
++	// argument's own, then all four.
++	unsigned int accumulatorWriteFieldMask( const Token& token )
++	{
++		unsigned int fields = token.fields();
++		if( fields == 0 )
++		{
++			for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
++			     a != token.arguments().end(); ++a )
++			{
++				if( a->type() != Token::Argument::ACCUMULATOR )
++					continue;
++				if( !(a->flags() & Token::Argument::WRITE) )
++					continue;
++				fields = a->fields();
++				break;
++			}
++		}
++		return fields == 0 ? ALL_FIELDS : fields;
++	}
++
 +	// Does anything observe this token's write to `resources`? Walks forward from
 +	// it: a reader says yes, another writer of the same resource says no, and
 +	// anything the walk cannot follow - a label, a branch, a preprocessor
@@ -2747,11 +2502,22 @@ index cf6d79b..beda6fc 100644
 +	// seven `clipw` in every stapip_clip_* program, and the "entirely inside,
 +	// skip clipping" branch then reads the previous triangle's judgements - a
 +	// miscompile no pixel or GIF-packet comparison can see.
++	//
++	// ACC is the third resource where "another writer says no" needs a
++	// qualification, and it is a narrower one than CLIP's: ACC really is replaced
++	// by a later write, but only in the FIELDS that write names. `mula.x acc`
++	// followed by `mula.yzw acc` and then one `madd` reading all four had the FIRST
++	// deleted, because the walk saw an ACC writer and never asked which lanes it
++	// covered. `pendingAccFields` is that question - the kill only counts once the
++	// later writes between here and the next reader cover every field this one
++	// wrote.
 +	bool implicitWriteIsObservable( std::list<Token>::const_iterator token,
 +	                                std::list<Token>::const_iterator end,
-+	                                unsigned int resources )
++	                                unsigned int resources,
++	                                unsigned int accFields )
 +	{
 +		unsigned int pending = resources;
++		unsigned int pendingAccFields = accFields;
 +		unsigned int clipPushes = 0;
 +		for( ++token; token != end && pending != VU_RESOURCE_NONE; ++token )
 +		{
@@ -2771,12 +2537,27 @@ index cf6d79b..beda6fc 100644
 +				return true;
 +
 +			unsigned int kills = access.implicitWrites;
++			// An ACCUMULATING write never retires an earlier one: two FMACs both OR
++			// into the status register's sticky half, so the first one's contribution
++			// is still there for a reader after the second. The only thing that does
++			// retire it is FSSET, and FSSET is declared as READING the resource too,
++			// so the `implicitReads & pending` test above has already returned true
++			// for it by the time control gets here.
++			kills &= ~static_cast<unsigned int>( VU_RESOURCE_ACCUMULATING );
 +			if( (kills & VU_RESOURCE_CLIP) && tokenIsClipPush( *token ) )
 +			{
 +				// A push only retires the entry once it has shifted out of the
 +				// window; until then the old judgement is still readable.
 +				if( ++clipPushes < VU_CLIP_WINDOW_ENTRIES )
 +					kills &= ~VU_RESOURCE_CLIP;
++			}
++			if( kills & VU_RESOURCE_ACC )
++			{
++				// Only the lanes this write covers are retired. What is left over is
++				// still the earlier write's, and still readable.
++				pendingAccFields &= ~accumulatorWriteFieldMask( *token );
++				if( pendingAccFields != 0 )
++					kills &= ~VU_RESOURCE_ACC;
 +			}
 +			pending &= ~kills;
 +		}
@@ -2823,7 +2604,7 @@ index cf6d79b..beda6fc 100644
 +			// immediate whose spelling is the alias name, not a register operand.
 +			if( t->operand()->flags() & Operand::PREPROCESSOR )
 +			{
-+				resourcesRead |= declaredHardwareResource( *t );
++				resourcesRead |= vuDeclaredHardwareResource( *t );
 +				for( std::list<Token::Argument>::const_iterator a = t->arguments().begin();
 +				     a != t->arguments().end(); ++a )
 +				{
@@ -2887,7 +2668,8 @@ index cf6d79b..beda6fc 100644
 +			{
 +				const unsigned int live = access.implicitWrites & resourcesRead;
 +				if( live != VU_RESOURCE_NONE
-+				    && implicitWriteIsObservable( t, tokens.end(), live ) )
++				    && implicitWriteIsObservable( t, tokens.end(), live,
++				                                  accumulatorWriteFieldMask( *t ) ) )
 +					dead = false;
 +			}
 +
@@ -4055,10 +3837,102 @@ index daf0965..01ad208 100644
  {
  	m_text = text;
 diff --git a/src/VuInstructionInfo.cpp b/src/VuInstructionInfo.cpp
-index 6f36f6d..655fb8f 100644
+index 6f36f6d..ac8ee12 100644
 --- a/src/VuInstructionInfo.cpp
 +++ b/src/VuInstructionInfo.cpp
-@@ -283,10 +283,28 @@ namespace
+@@ -141,40 +141,40 @@ namespace
+ 	{ mn, vuInstructionMnemonic(mn), name, args, opFlags, pattern, opUnit, pipe, unit, thr, lat, flags, reads, writes, memKind, memFlags, delay, bypass }
+ 
+ #define VU_UPPER_DEST(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_UPPER_BC(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_UPPER_DEST_READS(mn, name, args, pattern, reads) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, reads, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, reads, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_UPPER_DEST_ACC_READ(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_UPPER_DEST_ACC_READS(mn, name, args, pattern, reads) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC|reads, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC|reads, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_UPPER_BC_ACC_READ(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_DEST(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_BC(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_READS(mn, name, args, pattern, reads) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, reads, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, reads, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_ACC_READ(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_ACC_READS(mn, name, args, pattern, reads) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC|reads, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::DEST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC|reads, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ #define VU_ACC_BC_ACC_READ(mn, name, args, pattern) \
+-	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
++	VU_INFO(mn, name, args, Operand::UPPER|Operand::BROADCAST, pattern, Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE)
+ 
+ 	const VuInstructionInfo kInstructions[] =
+ 	{
+@@ -235,26 +235,26 @@ namespace
+ 		VU_UPPER_DEST_READS(VU_OP_MINII, "MINIi", 3, "vf:dest:write,vf:dest,i", VU_RESOURCE_I),
+ 		VU_UPPER_BC(VU_OP_MINI, "MINI", 3, "vf:dest:write,vf:dest,vf:bc"),
+ 
+-		VU_INFO(VU_OP_OPMULA, "OPMULA", 3, Operand::UPPER|Operand::XYZ, "acc:dest:write,vf:dest,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_OPMSUB, "OPMSUB", 3, Operand::UPPER|Operand::XYZ, "vf:dest:write,vf:dest,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_OPMULA, "OPMULA", 3, Operand::UPPER|Operand::XYZ, "acc:dest:write,vf:dest,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_ACC|VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_OPMSUB, "OPMSUB", 3, Operand::UPPER|Operand::XYZ, "vf:dest:write,vf:dest,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_ACC, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 
+-		VU_INFO(VU_OP_FTOI0, "FTOI0", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
+-		VU_INFO(VU_OP_FTOI4, "FTOI4", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
+-		VU_INFO(VU_OP_FTOI12, "FTOI12", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
+-		VU_INFO(VU_OP_FTOI15, "FTOI15", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
++		VU_INFO(VU_OP_FTOI0, "FTOI0", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
++		VU_INFO(VU_OP_FTOI4, "FTOI4", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
++		VU_INFO(VU_OP_FTOI12, "FTOI12", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
++		VU_INFO(VU_OP_FTOI15, "FTOI15", 2, Operand::UPPER|Operand::DEST, "vf:dest:write,vf:dest", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_FTOI_TO_MTIR),
+ 		VU_UPPER_DEST(VU_OP_ITOF0, "ITOF0", 2, "vf:dest:write,vf:dest"),
+ 		VU_UPPER_DEST(VU_OP_ITOF4, "ITOF4", 2, "vf:dest:write,vf:dest"),
+ 		VU_UPPER_DEST(VU_OP_ITOF12, "ITOF12", 2, "vf:dest:write,vf:dest"),
+ 		VU_UPPER_DEST(VU_OP_ITOF15, "ITOF15", 2, "vf:dest:write,vf:dest"),
+ 
+ 		// CLIP reads its first VF operand; it writes only MAC/CLIP flags.
+-		VU_INFO(VU_OP_CLIP, "CLIP", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_CLIPW, "CLIPw", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_CLIPLW, "CLIPLw", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_CLIP, "CLIP", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_CLIPW, "CLIPw", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_CLIPLW, "CLIPLw", 2, Operand::UPPER|Operand::XYZ, "vf:dest,vf:wcomp", Operand::FMAC, VU_PIPE_UPPER, VU_EXEC_FMAC, 1, 3, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_MAC|VU_RESOURCE_CLIP|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 
+-		VU_INFO(VU_OP_DIV, "DIV", 3, Operand::LOWER, "q:write,vf:flag,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 7, 7, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_SQRT, "SQRT", 2, Operand::LOWER, "q:write,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 7, 7, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_RSQRT, "RSQRT", 3, Operand::LOWER, "q:write,vf:flag,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 13, 13, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_DIV, "DIV", 3, Operand::LOWER, "q:write,vf:flag,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 7, 7, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_SQRT, "SQRT", 2, Operand::LOWER, "q:write,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 7, 7, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_RSQRT, "RSQRT", 3, Operand::LOWER, "q:write,vf:flag,vf:flag", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 13, 13, VU_INSTR_WRITES_Q, VU_RESOURCE_NONE, VU_RESOURCE_Q|VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_WAITQ, "WAITQ", 0, Operand::LOWER, "", Operand::FDIV, VU_PIPE_LOWER, VU_EXEC_FDIV, 1, 1, VU_INSTR_WAIT_Q, VU_RESOURCE_Q, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 
+ 		VU_INFO(VU_OP_IADD, "IADD", 3, Operand::LOWER, "vi:write,vi,vi", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+@@ -283,15 +283,46 @@ namespace
  
  		VU_INFO(VU_OP_LOI, "LOI", 1, Operand::LOWER|Operand::IWRITE, "imm:evaluate:raw", Operand::LSU, VU_PIPE_LOWER, VU_EXEC_LSU, 1, 1, VU_INSTR_WRITES_I, VU_RESOURCE_NONE, VU_RESOURCE_I, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
  
@@ -4084,13 +3958,93 @@ index 6f36f6d..655fb8f 100644
  		VU_INFO(VU_OP_RGET, "RGET", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
 -		VU_INFO(VU_OP_RNEXT, "RNEXT", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
 -		VU_INFO(VU_OP_RXOR, "RXOR", 2, Operand::LOWER, "r:write,vf:flag", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-
+-		VU_INFO(VU_OP_FSAND, "FSAND", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_FSEQ, "FSEQ", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_FSOR, "FSOR", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_FSSET, "FSSET", 1, Operand::LOWER, "imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
 +		VU_INFO(VU_OP_RNEXT, "RNEXT", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
 +		VU_INFO(VU_OP_RXOR, "RXOR", 2, Operand::LOWER, "r:write,vf:flag", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++
++		// The status register was declared as neither read nor written by anything,
++		// so an `fsand` had no edge to the FMAC whose flags it exists to read and a
++		// dead-code pass deleted that FMAC outright. FSAND/FSEQ/FSOR read it.
++		//
++		// FSSET is declared read-AND-write on purpose. It CLEARS the sticky bits,
++		// which is the one thing that retires an accumulated contribution, so it has
++		// to be a hard barrier: no contributor may sink past it and none may be
++		// hoisted above it. Declaring it a reader as well as a writer says exactly
++		// that in terms every existing pairwise test already understands (RAW from
++		// contributors into it, WAR from it out to later contributors) without any
++		// of them having to learn what a "clear" is - the same construction that
++		// makes RNEXT/RXOR correct. It is also literally true of the register: the
++		// non-sticky half survives an FSSET, so the result depends on the old value.
++		VU_INFO(VU_OP_FSAND, "FSAND", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_STATUS, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_FSEQ, "FSEQ", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_STATUS, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_FSOR, "FSOR", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_STATUS, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_FSSET, "FSSET", 1, Operand::LOWER, "imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_STATUS, VU_RESOURCE_STATUS, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_FMAND, "FMAND", 2, Operand::LOWER, "vi:write,vi", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_MAC, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_FMEQ, "FMEQ", 2, Operand::LOWER, "vi:write,vi", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_MAC, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_FMOR, "FMOR", 2, Operand::LOWER, "vi:write,vi", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_MAC, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+diff --git a/src/VuInstructionInfo.h b/src/VuInstructionInfo.h
+index 2e3face..001fe5d 100644
+--- a/src/VuInstructionInfo.h
++++ b/src/VuInstructionInfo.h
+@@ -52,14 +52,44 @@ enum VuInstructionFlags
  
- 		VU_INFO(VU_OP_FSAND, "FSAND", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
- 		VU_INFO(VU_OP_FSEQ, "FSEQ", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ enum VuResourceFlags
+ {
+-	VU_RESOURCE_NONE  = 0,
+-	VU_RESOURCE_ACC   = 1 << 0,
+-	VU_RESOURCE_I     = 1 << 1,
+-	VU_RESOURCE_Q     = 1 << 2,
+-	VU_RESOURCE_P     = 1 << 3,
+-	VU_RESOURCE_R     = 1 << 4,
+-	VU_RESOURCE_MAC   = 1 << 5,
+-	VU_RESOURCE_CLIP  = 1 << 6
++	VU_RESOURCE_NONE   = 0,
++	VU_RESOURCE_ACC    = 1 << 0,
++	VU_RESOURCE_I      = 1 << 1,
++	VU_RESOURCE_Q      = 1 << 2,
++	VU_RESOURCE_P      = 1 << 3,
++	VU_RESOURCE_R      = 1 << 4,
++	VU_RESOURCE_MAC    = 1 << 5,
++	VU_RESOURCE_CLIP   = 1 << 6,
++	VU_RESOURCE_STATUS = 1 << 7
++};
++
++// Resources whose writes ACCUMULATE instead of replacing: a second write does not
++// retire the first, it merges with it, so two writers commute and there is no
++// write-after-write hazard between them at all.
++//
++// The status register is the one. Its sticky half (ZS/SS/US/OS/IS/DS, bits 6..11)
++// is OR-ed into by every FMAC and by DIV/SQRT/RSQRT, and only FSSET clears it - so
++// modelling status as an ordinary register would be wrong in the expensive
++// direction (an FMAC's contribution deleted or hoisted past a reader) AND in the
++// cheap one (a WAW edge between every pair of FMACs, which under the pairwise
++// dependency builder would serialise every program that contains one `fsand`).
++//
++// Two things still order accumulating writes, and they are NOT WAW:
++//   * every contributor since the last clear must precede a reader (RAW), and a
++//     reader must precede every later contributor (WAR) - both pairwise tests
++//     already cover this once the table declares the reads and writes;
++//   * FSSET clears, so it is declared read-AND-write of the resource. That single
++//     declaration turns it into a hard barrier under the same RAW/WAR tests,
++//     without any test having to know what a "clear" is - the same trick that
++//     makes RNEXT/RXOR correct.
++//
++// The non-sticky half (Z/S/U/O/I/D, bits 0..5) IS last-writer-wins, and that is
++// modelled where instructions actually get reordered wholesale - see
++// addAccumulatingImplicitFlagDependencies() in VuSchedulerAnalysis.cpp, which pins
++// the last contributor before a reader whose mask names one of those bits.
++enum VuAccumulatingResourceFlags
++{
++	VU_RESOURCE_ACCUMULATING = VU_RESOURCE_STATUS
+ };
+ 
+ enum VuMemoryKind
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
-index 71ee7cb..7b43dae 100644
+index 71ee7cb..d6fd429 100644
 --- a/src/VuLatencyTracker.cpp
 +++ b/src/VuLatencyTracker.cpp
 @@ -26,6 +26,21 @@ namespace
@@ -4115,7 +4069,15 @@ index 71ee7cb..7b43dae 100644
  	int bypassLatencyReduction( const std::string& mnemonic, int fallback )
  	{
  		const VuInstructionInfo* info = findVuInstructionInfo( mnemonic );
-@@ -51,6 +66,44 @@ void VuLatencyTracker::reset()
+@@ -43,6 +58,7 @@ void VuLatencyTracker::reset()
+ 	m_qReadyCycle = -10;
+ 	m_pReadyCycle = -10;
+ 	m_lastFMACCycle = -10;
++	m_lastStatusCycle = -10;
+ 	m_lastClipwCycle = -10;
+ 	m_registerReadyCycle.clear();
+ 	m_registerProducerMnemonic.clear();
+@@ -51,6 +67,44 @@ void VuLatencyTracker::reset()
  int VuLatencyTracker::readHazardDelay( const Token& token,
                                         const Token* partner,
                                         int currentCycle ) const
@@ -4143,7 +4105,7 @@ index 71ee7cb..7b43dae 100644
 +		return mnemonic.compare( 0, 3, "ilw" ) == 0
 +		    || mnemonic.compare( 0, 2, "lq" ) == 0
 +		    || isVuClipReader( mnemonic )
-+		    || isVuMacReader( mnemonic );
++		    || isVuMacOrStatusReader( mnemonic );
 +	}
 +	bool isFloatRegisterKey( const std::string& key )
 +	{
@@ -4160,7 +4122,7 @@ index 71ee7cb..7b43dae 100644
  {
  	std::list<std::string> reads;
  	collectVuRegisterReadKeys( token, reads );
-@@ -68,6 +121,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -68,6 +122,23 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  	int needed = 0;
  	for( std::list<std::string>::const_iterator i = reads.begin(); i != reads.end(); ++i )
  	{
@@ -4184,16 +4146,18 @@ index 71ee7cb..7b43dae 100644
  		std::map<std::string, int>::const_iterator ready = m_registerReadyCycle.find( *i );
  		if( ready == m_registerReadyCycle.end() )
  			continue;
-@@ -113,25 +183,33 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
+@@ -113,25 +184,44 @@ int VuLatencyTracker::readHazardDelay( const Token& token,
  
  	const int flagCycle = currentCycle + needed;
  	bool readsMac = tokenReadsImplicitResource( token, VU_RESOURCE_MAC );
 -	bool readsClip = tokenReadsImplicitResource( token, VU_RESOURCE_CLIP );
++	bool readsStatus = tokenReadsImplicitResource( token, VU_RESOURCE_STATUS );
 +	bool readsClip = tokenReadsClipPositionally( token );
  	if( partner && partner->operand() )
  	{
  		readsMac = readsMac || tokenReadsImplicitResource( *partner, VU_RESOURCE_MAC );
 -		readsClip = readsClip || tokenReadsImplicitResource( *partner, VU_RESOURCE_CLIP );
++		readsStatus = readsStatus || tokenReadsImplicitResource( *partner, VU_RESOURCE_STATUS );
 +		readsClip = readsClip || tokenReadsClipPositionally( *partner );
  	}
  
@@ -4210,6 +4174,15 @@ index 71ee7cb..7b43dae 100644
 -			flagDelay = 4 - gap;
 +		if( flagLatency - gap > flagDelay )
 +			flagDelay = flagLatency - gap;
++	}
++	// The status flags become visible on the same schedule as the MAC flags, and
++	// they have a producer of their own: DIV/SQRT/RSQRT set the D and I bits without
++	// touching MAC, so m_lastFMACCycle is not the cycle to measure from.
++	if( readsStatus )
++	{
++		const int gap = flagCycle - m_lastStatusCycle;
++		if( flagLatency - gap > flagDelay )
++			flagDelay = flagLatency - gap;
  	}
  	if( readsClip )
  	{
@@ -4224,7 +4197,15 @@ index 71ee7cb..7b43dae 100644
  	}
  	if( flagDelay > 0 )
  		needed += flagDelay;
-@@ -149,7 +227,27 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+@@ -143,13 +233,35 @@ void VuLatencyTracker::recordWrites( const Token& token, int issueCycle, bool fo
+ {
+ 	if( forceMacFlagWrite || tokenWritesImplicitResource( token, VU_RESOURCE_MAC ) )
+ 		m_lastFMACCycle = issueCycle;
++	if( forceMacFlagWrite || tokenWritesImplicitResource( token, VU_RESOURCE_STATUS ) )
++		m_lastStatusCycle = issueCycle;
+ 	if( tokenWritesImplicitResource( token, VU_RESOURCE_CLIP ) )
+ 		m_lastClipwCycle = issueCycle;
+ 
  	if( !token.operand() || token.operand()->latency() <= 1 )
  		return;
  
@@ -4254,10 +4235,10 @@ index 71ee7cb..7b43dae 100644
  	collectVuRegisterWriteKeys( token, writes );
  	for( std::list<std::string>::const_iterator i = writes.begin(); i != writes.end(); ++i )
 diff --git a/src/VuLatencyTracker.h b/src/VuLatencyTracker.h
-index 2c14ff6..f0502c8 100644
+index 2c14ff6..c791db3 100644
 --- a/src/VuLatencyTracker.h
 +++ b/src/VuLatencyTracker.h
-@@ -22,12 +22,31 @@ public:
+@@ -22,15 +22,35 @@ public:
  
  	void reset();
  	int readHazardDelay( const Token& token, const Token* partner, int currentCycle ) const;
@@ -4289,8 +4270,12 @@ index 2c14ff6..f0502c8 100644
  	int m_qReadyCycle;
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
++	int m_lastStatusCycle;
+ 	int m_lastClipwCycle;
+ 	std::map<std::string, int> m_registerReadyCycle;
+ 	std::map<std::string, std::string> m_registerProducerMnemonic;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..01ad685 100644
+index 3260370..c218ea5 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -4340,7 +4325,105 @@ index 3260370..01ad685 100644
  			return;
  
  		const unsigned int finalWriter = writers.back();
-@@ -76,6 +102,10 @@ namespace
+@@ -69,6 +95,97 @@ namespace
+ 		}
+ 	}
+ 
++	// An ACCUMULATING resource: writes merge instead of replacing, so there is no
++	// write-after-write hazard between two of them and nothing for a later write to
++	// kill. The status register is the one - every FMAC and every DIV/SQRT/RSQRT
++	// OR-s into its sticky half, and only FSSET clears it.
++	//
++	// This is deliberately NOT addPreciseImplicitFlagDependencies with a flag. That
++	// one models a register: it edges the writers into the LAST writer and only the
++	// last writer into the reader, and it FLUSHES its writer list at every reader,
++	// both of which are right for a value that gets replaced and wrong for one that
++	// gets merged. Here:
++	//
++	//   * every contributor since the last clear is edged into every reader, because
++	//     every one of them is part of the answer the reader gets;
++	//   * a reader does not retire anything, so a second reader is still ordered
++	//     behind the first reader's contributors;
++	//   * there is no writer-to-writer edge at all, which is the whole point - the
++	//     alternative under the pairwise builder is a WAW edge between every pair of
++	//     FMACs, which would serialise every program containing one `fsand`;
++	//   * except that the register's non-sticky half (Z/S/U/O/I/D) IS
++	//     last-writer-wins, so a reader whose mask names one of those bits pins the
++	//     last contributor as the last one. `fsand VI01,0x0C00` - only sticky bits -
++	//     pays nothing for that; `fsand VI01,0x0002` pays exactly what a MAC reader
++	//     pays today. The mask is in the source, so the cost is the program's own.
++	//
++	// FSSET is a hard barrier and needs no case of its own: it is declared reading
++	// AND writing the resource, so the reader branch below edges every contributor
++	// into it, the WAR test in the pairwise builder edges every earlier READER into
++	// it, and the explicit clear->contributor edges here keep later contributors
++	// below it.
++	void addAccumulatingImplicitFlagDependencies( std::vector<VuDependencyEdge>& edges,
++	                                              const std::vector<VuTokenResourceAccess>& accesses,
++	                                              const std::vector<const Token*>& tokens,
++	                                              unsigned int resource )
++	{
++		std::vector<unsigned int> contributors;
++		bool hasClear = false;
++		unsigned int clearIndex = 0;
++
++		for( unsigned int index = 0; index < accesses.size(); ++index )
++		{
++			const bool readsResource = (accesses[index].implicitReads & resource) != 0;
++			const bool writesResource = (accesses[index].implicitWrites & resource) != 0;
++			const bool clearsResource = readsResource && writesResource;
++
++			if( readsResource )
++			{
++				for( std::vector<unsigned int>::const_iterator c = contributors.begin();
++				     c != contributors.end(); ++c )
++					addEdge( edges, *c, index, VU_DEPENDENCY_RESOURCE_RAW );
++
++				if( !clearsResource
++				    && contributors.size() > 1
++				    && resource == VU_RESOURCE_STATUS
++				    && vuStatusReadNeedsLastWriter( *tokens[index] ) )
++					addImplicitFlagWriterBarrierEdges( edges, contributors, true, false );
++			}
++
++			if( clearsResource )
++			{
++				contributors.clear();
++				hasClear = true;
++				clearIndex = index;
++				continue;
++			}
++
++			if( writesResource )
++			{
++				if( hasClear )
++					addEdge( edges, clearIndex, index, VU_DEPENDENCY_RESOURCE_WAW );
++				contributors.push_back( index );
++			}
++		}
++
++		// And there is deliberately NO trailing live-out barrier, which is where an
++		// accumulating resource stops resembling a register. For MAC or CLIP the last
++		// writer in the block produces the value that leaves it, so when the resource
++		// is live out that writer has to stay last. An accumulating resource has no
++		// such writer: the value leaving the block is every contributor since the last
++		// clear, OR-ed, and OR does not care what order it ran in. The sticky bits are
++		// the half of the status register that exists to be read later - that is what
++		// makes them sticky - and any order of contributors hands the successor the
++		// same ones.
++		//
++		// The non-sticky half is not covered by that argument and is not modelled
++		// across the block boundary. It cannot usefully be: `out_hw_status` names one
++		// register with two halves, and "the flags of whichever instruction happens to
++		// be last" is not a contract any scheduler can keep. Inside the block, where
++		// the question IS answerable - the reader's own mask says which half it wants -
++		// it is answered, above.
++	}
++
+ 	void addPreciseImplicitFlagDependencies( std::vector<VuDependencyEdge>& edges,
+ 	                                         const std::vector<VuTokenResourceAccess>& accesses,
+ 	                                         unsigned int resource,
+@@ -76,6 +193,10 @@ namespace
  	{
  		std::vector<unsigned int> pendingWriters;
  		const bool preserveLiveOutWriter = (ignoredImplicitWawResources & resource) == 0;
@@ -4351,7 +4434,7 @@ index 3260370..01ad685 100644
  
  		for( unsigned int index = 0; index < accesses.size(); ++index )
  		{
-@@ -86,7 +116,7 @@ namespace
+@@ -86,7 +207,7 @@ namespace
  			{
  				if( !pendingWriters.empty() )
  				{
@@ -4360,7 +4443,7 @@ index 3260370..01ad685 100644
  					addEdge( edges, pendingWriters.back(), index, VU_DEPENDENCY_RESOURCE_RAW );
  				}
  				pendingWriters.clear();
-@@ -96,7 +126,12 @@ namespace
+@@ -96,7 +217,12 @@ namespace
  				pendingWriters.push_back( index );
  		}
  
@@ -4374,7 +4457,7 @@ index 3260370..01ad685 100644
  	}
  
  	bool memoryOrderRequiresDependency( const VuTokenResourceAccess& beforeAccess,
-@@ -124,13 +159,85 @@ namespace
+@@ -124,13 +250,85 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -4461,7 +4544,7 @@ index 3260370..01ad685 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +245,7 @@ namespace
+@@ -138,7 +336,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -4470,7 +4553,7 @@ index 3260370..01ad685 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +253,7 @@ namespace
+@@ -146,7 +344,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4479,7 +4562,7 @@ index 3260370..01ad685 100644
  
  		return score;
  	}
-@@ -208,7 +315,8 @@ namespace
+@@ -208,7 +406,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4489,7 +4572,7 @@ index 3260370..01ad685 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +325,8 @@ namespace
+@@ -217,7 +416,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -4499,7 +4582,7 @@ index 3260370..01ad685 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +341,11 @@ namespace
+@@ -232,9 +432,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4514,7 +4597,7 @@ index 3260370..01ad685 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +354,10 @@ namespace
+@@ -243,8 +445,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4527,7 +4610,7 @@ index 3260370..01ad685 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +367,69 @@ namespace
+@@ -254,6 +458,69 @@ namespace
  		return best;
  	}
  
@@ -4597,7 +4680,7 @@ index 3260370..01ad685 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +525,36 @@ namespace
+@@ -349,6 +616,36 @@ namespace
  		return 1;
  	}
  
@@ -4634,7 +4717,7 @@ index 3260370..01ad685 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +574,28 @@ namespace
+@@ -368,9 +665,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4666,7 +4749,7 @@ index 3260370..01ad685 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +784,7 @@ namespace
+@@ -559,6 +875,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4674,7 +4757,7 @@ index 3260370..01ad685 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +831,8 @@ namespace
+@@ -605,7 +922,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4684,7 +4767,7 @@ index 3260370..01ad685 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +850,9 @@ namespace
+@@ -623,7 +941,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4695,7 +4778,7 @@ index 3260370..01ad685 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +910,7 @@ namespace
+@@ -681,6 +1001,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4703,7 +4786,7 @@ index 3260370..01ad685 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +945,8 @@ namespace
+@@ -715,7 +1036,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4713,7 +4796,7 @@ index 3260370..01ad685 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +975,58 @@ namespace
+@@ -744,7 +1066,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4773,7 +4856,62 @@ index 3260370..01ad685 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1161,188 @@ namespace
+@@ -837,10 +1210,14 @@ namespace
+ 		{
+ 			lastMacReader = -1;
+ 			lastClipReader = -1;
++			lastStatusReader = -1;
++			declaredLiveResources = VU_RESOURCE_NONE;
+ 		}
+ 
+ 		int lastMacReader;
+ 		int lastClipReader;
++		int lastStatusReader;
++		unsigned int declaredLiveResources;
+ 	};
+ 
+ 	bool tokenReadsMac( const Token& token )
+@@ -853,16 +1230,30 @@ namespace
+ 		return token.operand() && isVuClipReader( token.operand()->name() );
+ 	}
+ 
++	bool tokenReadsStatus( const Token& token )
++	{
++		return token.operand() && isVuStatusReader( token.operand()->name() );
++	}
++
+ 	unsigned int ignoredFlagWawMaskForIndex( unsigned int index,
+ 	                                         int lastMacReader,
+-	                                         int lastClipReader )
++	                                         int lastClipReader,
++	                                         int lastStatusReader,
++	                                         unsigned int declaredLiveResources )
+ 	{
+ 		unsigned int mask = VU_RESOURCE_NONE;
+ 		if( lastMacReader < 0 || index > static_cast<unsigned int>( lastMacReader ) )
+ 			mask |= VU_RESOURCE_MAC;
+ 		if( lastClipReader < 0 || index > static_cast<unsigned int>( lastClipReader ) )
+ 			mask |= VU_RESOURCE_CLIP;
+-		return mask;
++		if( lastStatusReader < 0 || index > static_cast<unsigned int>( lastStatusReader ) )
++			mask |= VU_RESOURCE_STATUS;
++		// A resource the program DECLARES as its contract with whatever runs next is
++		// never dead, whatever the readers say. The dead-write pass has honoured
++		// out_hw_clip since it was written; this is the half that did not, which is
++		// how a `clipw` the dead-write pass correctly kept could still be permuted
++		// out of the window position its successor reads it in.
++		return mask & ~declaredLiveResources;
+ 	}
+ 
+ 	VuFlagLiveness analyzeFlagLiveness( const std::list<Token>& tokens )
+@@ -875,10 +1266,195 @@ namespace
+ 				liveness.lastMacReader = static_cast<int>( index );
+ 			if( tokenReadsClip( *i ) )
+ 				liveness.lastClipReader = static_cast<int>( index );
++			if( tokenReadsStatus( *i ) )
++				liveness.lastStatusReader = static_cast<int>( index );
++			liveness.declaredLiveResources |= vuDeclaredHardwareResource( *i );
+ 		}
  		return liveness;
  	}
  
@@ -4962,7 +5100,7 @@ index 3260370..01ad685 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1350,64 @@ namespace
+@@ -886,12 +1462,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -5028,7 +5166,7 @@ index 3260370..01ad685 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1420,7 @@ namespace
+@@ -904,6 +1532,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -5036,7 +5174,7 @@ index 3260370..01ad685 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1430,32 @@ namespace
+@@ -913,45 +1542,34 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -5100,11 +5238,13 @@ index 3260370..01ad685 100644
  
 +			segmentMask = ignoredFlagWawMaskForIndex( segmentLastIndex,
 +			                                          liveness.lastMacReader,
-+			                                          liveness.lastClipReader );
++			                                          liveness.lastClipReader,
++			                                          liveness.lastStatusReader,
++			                                          liveness.declaredLiveResources );
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1468,7 @@ namespace
+@@ -964,7 +1582,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -5113,17 +5253,19 @@ index 3260370..01ad685 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1497,9 @@ namespace
+@@ -993,6 +1611,11 @@ namespace
  			}
  		}
  
 +		segmentMask = ignoredFlagWawMaskForIndex( segmentLastIndex,
 +		                                          liveness.lastMacReader,
-+		                                          liveness.lastClipReader );
++		                                          liveness.lastClipReader,
++		                                          liveness.lastStatusReader,
++		                                          liveness.declaredLiveResources );
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6189,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6305,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -5131,7 +5273,33 @@ index 3260370..01ad685 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -6114,6 +6622,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -5875,7 +6499,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+ 		{
+ 			const VuTokenResourceAccess& a = accesses[before];
+ 			const VuTokenResourceAccess& b = accesses[after];
+-			const unsigned int preciseImplicitResources = VU_RESOURCE_ACC | VU_RESOURCE_MAC | VU_RESOURCE_CLIP;
++			// STATUS is here for the same reason ACC/MAC/CLIP are, and more urgently:
++			// left in the pairwise set its WAW test would fire between every pair of
++			// FMACs in the block. addAccumulatingImplicitFlagDependencies models it.
++			// The WAR test below is deliberately NOT masked - it is what keeps a flag
++			// reader in front of the writers that follow it, for every resource.
++			const unsigned int preciseImplicitResources =
++				VU_RESOURCE_ACC | VU_RESOURCE_MAC | VU_RESOURCE_CLIP | VU_RESOURCE_STATUS;
+ 			const unsigned int pairwiseImplicitResources = ~preciseImplicitResources;
+ 
+ 			if( intersects( a.registerWrites, b.registerReads ) )
+@@ -5913,6 +6543,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+ 	                                    accesses,
+ 	                                    VU_RESOURCE_CLIP,
+ 	                                    ignoredImplicitWawResources );
++	addAccumulatingImplicitFlagDependencies( edges,
++	                                         accesses,
++	                                         block.tokens,
++	                                         VU_RESOURCE_STATUS );
+ 
+ 	return edges;
+ }
+@@ -6114,6 +6748,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -5147,6 +5315,36 @@ index 3260370..01ad685 100644
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
  {
  	std::list<Token> scheduled;
+@@ -6130,10 +6773,14 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+ {
+ 	bool readsMac = false;
+ 	bool readsClip = false;
++	bool readsStatus = false;
++	unsigned int declared = VU_RESOURCE_NONE;
+ 	for( std::list<Token>::const_iterator i = begin; i != end; ++i )
+ 	{
+ 		readsMac = readsMac || tokenReadsMac( *i );
+ 		readsClip = readsClip || tokenReadsClip( *i );
++		readsStatus = readsStatus || tokenReadsStatus( *i );
++		declared |= vuDeclaredHardwareResource( *i );
+ 	}
+ 
+ 	unsigned int mask = VU_RESOURCE_NONE;
+@@ -6141,7 +6788,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+ 		mask |= VU_RESOURCE_MAC;
+ 	if( !readsClip )
+ 		mask |= VU_RESOURCE_CLIP;
+-	return mask;
++	if( !readsStatus )
++		mask |= VU_RESOURCE_STATUS;
++	// An out_hw_*/in_hw_* declaration keeps its resource live past every reader, and
++	// past the end of the program - that is what the declaration is for. The
++	// dead-write pass has always honoured it and this did not, so the two disagreed
++	// about whether CLIP was dead in exactly the programs that say it is not.
++	return mask & ~declared;
+ }
+ 
+ std::vector<VuLoopCandidate> findVuLoopCandidates( const std::list<Token>& tokens )
 diff --git a/src/VuSchedulerAnalysis.h b/src/VuSchedulerAnalysis.h
 index e51b7f2..386308c 100644
 --- a/src/VuSchedulerAnalysis.h
@@ -5179,7 +5377,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..c250808 100644
+index c28ec6d..26d5ff3 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -5190,7 +5388,60 @@ index c28ec6d..c250808 100644
  #include <sstream>
  
  namespace vcl
-@@ -404,7 +405,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
+@@ -75,10 +76,17 @@ namespace
+ 		implicitResources( earlier, earlierReads, earlierWrites );
+ 		implicitResources( later, laterReads, laterWrites );
+ 
+-		if( earlierWrites & (laterReads | laterWrites) )
++		if( earlierWrites & laterReads )
+ 			return true;
+ 
+-		if( laterWrites & earlierWrites )
++		// Two writes of an ACCUMULATING resource are not a hazard: they merge, so
++		// there is no order between them to preserve. Without this the status
++		// declarations alone would refuse to pair `mul` with `div` - both contribute
++		// to the status register - and refuse every other upper/lower row whose two
++		// halves happen to touch it. Everything that DOES order accumulating writes
++		// goes through a read: a reader on either side is caught by the RAW and WAR
++		// tests around this one, and FSSET is declared a reader for that reason.
++		if( laterWrites & earlierWrites & ~static_cast<unsigned int>( VU_RESOURCE_ACCUMULATING ) )
+ 			return true;
+ 
+ 		return (laterWrites & earlierReads) != 0;
+@@ -307,14 +315,30 @@ bool isVuLoadToMiniiBypassProducer( const std::string& name )
+ 	return info && (info->bypassFlags & VU_BYPASS_LOAD_TO_MINII) != 0;
+ }
+ 
++// The MAC flag register and the status register are two different registers, and
++// this used to answer for both: `fsand`/`fseq`/`fsor` were listed here as MAC
++// readers while the instruction table declared them as reading nothing at all, so
++// the compiler gave two different answers to "does this read MAC?" depending on
++// which of the two it asked - and VuLatencyTracker asked the table, the one that
++// said no. The table now declares VU_RESOURCE_STATUS and this list answers only
++// about MAC; every caller that wanted "is this a flag reader" asks both.
+ bool isVuMacReader( const std::string& name )
+ {
+ 	return name == "fmand" || name == "fmeq" || name == "fmor"
+-	    || name == "fsand" || name == "fseq" || name == "fsor"
+-	    || name == "FMAND" || name == "FMEQ" || name == "FMOR"
++	    || name == "FMAND" || name == "FMEQ" || name == "FMOR";
++}
++
++bool isVuStatusReader( const std::string& name )
++{
++	return name == "fsand" || name == "fseq" || name == "fsor"
+ 	    || name == "FSAND" || name == "FSEQ" || name == "FSOR";
+ }
+ 
++bool isVuMacOrStatusReader( const std::string& name )
++{
++	return isVuMacReader( name ) || isVuStatusReader( name );
++}
++
+ bool isVuClipReader( const std::string& name )
+ {
+ 	return name == "fcand" || name == "fceq" || name == "fcor" || name == "fcget"
+@@ -404,7 +428,7 @@ bool isVuMoveAsUpperMaxCandidate( const Token& token )
  		return false;
  
  	unsigned int fields = token.fields();
@@ -5199,7 +5450,43 @@ index c28ec6d..c250808 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,413 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -445,6 +469,35 @@ bool vuTokenListReadsMac( const std::list<Token>& tokens )
+ 	return false;
+ }
+ 
++bool vuTokenListReadsStatus( const std::list<Token>& tokens )
++{
++	for( std::list<Token>::const_iterator i = tokens.begin(); i != tokens.end(); ++i )
++	{
++		if( i->operand() && isVuStatusReader(i->operand()->name()) )
++			return true;
++	}
++	return false;
++}
++
++unsigned int vuDeclaredHardwareResource( const Token& token )
++{
++	if( !token.operand() )
++		return VU_RESOURCE_NONE;
++	if( !(token.operand()->flags() & Operand::PREPROCESSOR) )
++		return VU_RESOURCE_NONE;
++	const std::string& n = token.operand()->name();
++	if( n == "out_hw_acc" || n == "in_hw_acc" )       return VU_RESOURCE_ACC;
++	if( n == "out_hw_i" || n == "in_hw_i" )           return VU_RESOURCE_I;
++	if( n == "out_hw_q" || n == "in_hw_q" )           return VU_RESOURCE_Q;
++	if( n == "out_hw_p" || n == "in_hw_p" )           return VU_RESOURCE_P;
++	if( n == "out_hw_r" || n == "in_hw_r" )           return VU_RESOURCE_R;
++	if( n == "out_hw_clip" || n == "in_hw_clip" )     return VU_RESOURCE_CLIP;
++	// This used to answer VU_RESOURCE_MAC, which was the third copy of the
++	// status/MAC conflation: the status register is its own resource now.
++	if( n == "out_hw_status" || n == "in_hw_status" ) return VU_RESOURCE_STATUS;
++	return VU_RESOURCE_NONE;
++}
++
+ bool vuTokenListReadsClip( const std::list<Token>& tokens )
+ {
+ 	for( std::list<Token>::const_iterator i = tokens.begin(); i != tokens.end(); ++i )
+@@ -547,12 +600,449 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -5220,7 +5507,8 @@ index c28ec6d..c250808 100644
 +	// known-loop-optimisation path decides: with a cheaper unpipelined estimate,
 +	// that path stops software-pipelining the loops its own tests pin down. Off by
 +	// default, nothing moves for anyone who does not ask.
-+	if( !vuScheduleFlagReadersEnabled() && (access.implicitReads & (VU_RESOURCE_MAC | VU_RESOURCE_CLIP)) )
++	if( !vuScheduleFlagReadersEnabled()
++	    && (access.implicitReads & (VU_RESOURCE_MAC | VU_RESOURCE_CLIP | VU_RESOURCE_STATUS)) )
  		return false;
  
  	return true;
@@ -5353,6 +5641,41 @@ index c28ec6d..c250808 100644
 +		return mask == 0 || mask == 0x3FFFFul || mask == 0xFFFFFFul;
 +	}
 +	return false;      // no mask to judge by: assume the position matters
++}
++
++// Does this status reader depend on WHICH contributor ran last, or only on the set
++// of them? The status register is two registers in one: bits 0..5 (Z S U O I D)
++// describe the last operation and are replaced by every FMAC, bits 6..11
++// (ZS SS US OS IS DS) accumulate until FSSET clears them.
++//
++// A reader whose mask names only sticky bits - `fsand VI01,0x0C00` asks "did
++// anything divide by zero or go invalid since the last fsset" - gets the same
++// answer whatever order the contributors ran in, so it needs nothing but "all of
++// them are behind me". A reader that names a non-sticky bit is asking about the
++// instruction immediately in front of it and the last writer has to stay last.
++//
++// This is the same shape as vuClipReadIsFullWindow: a mask the source already
++// carries, telling the scheduler how much ordering the read actually needs. No
++// mask to judge by (or one that cannot be parsed) means the position matters.
++bool vuStatusReadNeedsLastWriter( const Token& token )
++{
++	const unsigned long VU_STATUS_NON_STICKY_BITS = 0x3Ful;
++
++	for( std::list<Token::Argument>::const_iterator a = token.arguments().begin();
++	     a != token.arguments().end(); ++a )
++	{
++		if( a->type() != Token::Argument::IMMEDIATE )
++			continue;
++		const std::string& text = a->immediate();
++		if( text.empty() )
++			continue;
++		char* endptr = NULL;
++		const unsigned long mask = std::strtoul( text.c_str(), &endptr, 0 );
++		if( endptr == text.c_str() || (endptr && *endptr != '\0') )
++			return true;                 // not a plain literal: assume it matters
++		return (mask & VU_STATUS_NON_STICKY_BITS) != 0;
++	}
++	return true;
 +}
 +
 +// --exempt-full-clip-masks. The emitter has exempted full-window reads from clip
@@ -5614,11 +5937,58 @@ index c28ec6d..c250808 100644
  bool isVuLowerPipe( const Token& token )
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
+@@ -604,7 +1094,12 @@ bool vuTokenCanMoveBefore( const Token& moved,
+ 		return false;
+ 	if( crossedWritesImplicit & movedReadsImplicit )
+ 		return false;
+-	if( (movedWritesImplicit & crossedWritesImplicit & ~ignoredImplicitWawResources) != 0 )
++	// Accumulating writes commute, so a WAW between two of them is not a barrier
++	// here either - see hasImplicitPairDependency. The reads are what order them,
++	// and both read tests are above this line.
++	if( (movedWritesImplicit & crossedWritesImplicit
++	     & ~ignoredImplicitWawResources
++	     & ~static_cast<unsigned int>( VU_RESOURCE_ACCUMULATING )) != 0 )
+ 		return false;
+ 
+ 	if( vuTokensHaveDataDependency(moved, crossed) || vuTokensHaveDataDependency(crossed, moved) )
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..aa299d2 100644
+index 8188099..77aff81 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,318 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -27,6 +27,10 @@ bool isVuMinii( const std::string& name );
+ bool isVuLoadToMiniiBypassProducer( const std::string& name );
+ 
+ bool isVuMacReader( const std::string& name );
++// FSAND/FSEQ/FSOR. Split out of isVuMacReader(), which used to list them while the
++// instruction table declared them as reading nothing - two answers to one question.
++bool isVuStatusReader( const std::string& name );
++bool isVuMacOrStatusReader( const std::string& name );
+ bool isVuClipReader( const std::string& name );
+ bool isVuClipw( const std::string& name );
+ 
+@@ -46,8 +50,21 @@ void collectVuRegisterWriteKeys( const Token& token, std::list<std::string>& wri
+ bool isVuZeroMoveFromVf00( const Token& token );
+ bool isVuMoveAsUpperMaxCandidate( const Token& token );
+ bool vuTokenListReadsMac( const std::list<Token>& tokens );
++bool vuTokenListReadsStatus( const std::list<Token>& tokens );
+ bool vuTokenListReadsClip( const std::list<Token>& tokens );
+ 
++// The hardware resource an `out_hw_*`/`in_hw_*` directive names: the program's
++// contract with whatever runs next, so a resource one of them mentions is live
++// even when no instruction in the program touches it.
++//
++// This lives here, and not in the dead-write pass where it was written, because
++// the dead-write pass was the only thing honouring it. The SCHEDULER decided the
++// same question from in-program readers alone, so a program declaring
++// `out_hw_clip` had its `clipw` correctly kept and then permuted - and the CLIP
++// window is positional, so permuting them changes what the successor reads. One
++// question, one answer, one place.
++unsigned int vuDeclaredHardwareResource( const Token& token );
++
+ bool isVuPlainMemoryStore( const Token& token );
+ bool isVuPlainMemoryLoad( const Token& token );
+ bool isVuXgkick( const Token& token );
+@@ -55,6 +72,326 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -5677,6 +6047,14 @@ index 8188099..aa299d2 100644
 +// the scheduler kept them four cycles from their CLIP, so the scheduler's caution
 +// was the binding one. Two copies of this test is how that happens again.
 +bool vuClipReadIsFullWindow( const Token& token );
++
++// The status register's equivalent question, and the one that decides how much an
++// accumulating resource costs. A reader whose mask names only the sticky bits
++// (ZS/SS/US/OS/IS/DS) needs every contributor since the last FSSET to be behind it
++// and nothing more; a reader that names a non-sticky bit (Z/S/U/O/I/D) is asking
++// about the last contributor specifically, and that one has to stay last. See
++// addAccumulatingImplicitFlagDependencies() in VuSchedulerAnalysis.cpp.
++bool vuStatusReadNeedsLastWriter( const Token& token );
 +
 +// --exempt-full-clip-masks: let the SCHEDULER make the same exemption. Off by
 +// default; with it on, a full-window reader no longer waits

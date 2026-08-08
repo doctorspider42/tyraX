@@ -2479,6 +2479,68 @@ the target was wrong: `cull_d vertexLoop` was named here as the immovable block 
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
 
+### A second live miscompile, and this one was visible: environment mapping did not render
+
+The CLIP bug cost frames and changed no pixel. The ACC bug **deleted environment mapping
+outright**, and it shipped for just as long.
+
+The engine's env-map block builds its S/T coordinates by accumulating:
+
+```
+add.xy  acc, vf00, envConsts[w]     ; the seed - deleted by the shipped build
+add.z   acc, vf00, envConsts[z]
+madd.x  stq1, envConsts, tyraEnvDotR[x]
+madd.y  stq1, envConsts, tyraEnvDotU[x]
+```
+
+`implicitWriteIsObservable()` saw "another ACC writer" below the `.xy` seed and deleted it,
+**without checking that the later write does not cover the earlier one's fields**. ACC is
+per-field; the resource was one bit. So the env-map coordinates were accumulated onto whatever
+the *previous vertex* had left in `ACC.xy`. Sony's `vcl` emits `addaw.xy` three times per
+program; the shipped build emitted **zero**, across the 8 `*_tce*` programs - 24 instructions.
+
+**On screen that is not subtle.** Same engine, same scene, only the assembler different: before
+the fix the reflective spheres in `examples/reflections` are flat tinted blobs with no reflection
+at all; after it they show the reflected horizon and the reflected geometry. Screenshots are
+44 691 and 69 486 bytes - the PNG entropy alone tells you the picture gained detail.
+
+**Why every check in this migration passed it.** The pixel comparisons and GIF-packet
+comparisons were run on terrain and clipper scenes, which never touch the `*_tce*` programs. The
+one property that would have caught it - "openvcl emits the same instruction multiset as SCE" -
+was measured per block on `cull_c`, not corpus-wide by opcode.
+
+**And the audit that looked for exactly this missed it.** The previous pass concluded ACC was
+"not reachable in this corpus - zero adjacent ACC-writer pairs with non-covering masks". Its
+scanner required an accumulator *mnemonic* (`adda|mula|madda|…`), but VCL lets the *destination
+operand* select the accumulator form, so `add.xy acc, …` was invisible to it. A corrected scanner
+finds 24 uncovered writers in 8 programs on the shipped build and 0 on the fixed one. Same shape
+as every other miss in this file: an instrument that answered a narrower question than the one
+being asked, and returned a reassuring zero.
+
+Two more fixes ship alongside it, both byte-identical on all 70:
+
+* **The status register is now an accumulating resource.** `FSAND`/`FSEQ`/`FSOR` read it, every
+  MAC writer and `DIV`/`SQRT`/`RSQRT` write it, and `FSSET` is declared **read-and-write** - that
+  one declaration makes it a hard barrier under the RAW/WAR tests that already exist, with no
+  test needing to learn what a "clear" is. The class emits **no writer-to-writer edge**, so the
+  WAW-between-every-pair-of-FMACs catastrophe that made a naive fix worse than the bug never
+  arises. The sticky half needs no last-writer; the non-sticky half is pinned only when the
+  reader's own immediate names a non-sticky bit. Measured cost on a synthetic corpus that uses
+  `fs*`: zero rows when nothing reads status, one row when something does.
+* **Declared live-out resources** (`out_hw_clip`/`out_hw_status`) now reach
+  `vuIgnoredFlagWawResourcesForRemaining()`, which had been deciding "dead" from in-program
+  readers alone while the dead-write pass honoured the declarations. One question, one answer,
+  one place.
+
+| | resident 10 | engine 25 | generated 45 |
+|---|---:|---:|---:|
+| SCE | 2028 | 3982 | 9264 |
+| before these three | 1968 | 3868 | 9190 |
+| **after** | **1992** | **3900** | **9216** |
+
+Still under SCE on all three, 50 words under the 2042 ceiling. All re-measured from `nm` on the
+real engine build, with `addaw` back to 3 per env-mapped program.
+
 ### Does the parity generalise? Two scenes say yes, and three say nothing at all
 
 The parity result above came from one scene. That scene runs **two programs out of seventy**, so
