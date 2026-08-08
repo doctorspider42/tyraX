@@ -395,6 +395,32 @@ it because the saving was still hypothetical. It is measured now, in the display
 mode named above, and nowhere else: **no other display mode has been booted since
 the change.**
 
+#### At `1×2` the VRAM saving is exactly ZERO, and nothing said so
+
+Every figure above is a `2×2` figure. At `1×2` the raster is 512×224 of a 512×448
+output, so the z buffer shrinks by 114 688 words — and the low-res colour target
+is 512×224 at 32bpp, which is *the same 114 688 words*. Both buffers are
+`width × height` at 32 bits per pixel, so at half the raster area the saving and
+the cost are the same number **by construction**, at every output size:
+
+| output | scale | z returned | low-res target | **net** |
+|---|---|---|---|---|
+| 512×448 | 2×2 | 672 KB | 224 KB | **+448 KB** |
+| 512×448 | **1×2** | 448 KB | 448 KB | **0** |
+| 512×512 (Pal576i) | 2×2 | 768 KB | 256 KB | **+512 KB** |
+| 512×512 (Pal576i) | **1×2** | 512 KB | 512 KB | **0** |
+
+So `1×2` is a choice about *fill and picture*, never about memory, and the
+settings panel now says that on the line under the Render scale combo — computed
+for the display mode the project actually boots in
+(`App::blssVramLine`, a host twin of `RendererCoreGSVRam::getSize`). The tooltip
+it replaced quoted "2×2 hands 672 KB back and 1×2 hands back 448 KB", which is
+the z-buffer column alone with the target's cost left out — true of neither row
+of that table. Derived, not measured: the arithmetic is the engine's own
+(`renderer_core_gs.cpp` allocates z at `getRasterWidthUI/HeightUI`;
+`renderer_core_blss.cpp` allocates the target at `lowBufW × lowH`), and no `1×2`
+project has been booted to read a `VRAMSTAT` line back.
+
 ## Training
 
 The network is trained **on the host, headless, by the editor itself** — no
@@ -789,6 +815,11 @@ emit step, none of which used to exist outside a terminal. The five project
 settings live there too, on a *Project settings* tab, and are mirrored in
 *Project ▸ Preferences ▸ Neural upscaler (BLSS)*. Off by default.
 
+**Start with the one button above the tabs — `Will this scene benefit?`** It
+needs no trained network and it is the only step that can tell you not to bother.
+Everything else in the window is worth doing only after it says there is
+headroom.
+
 ### The window
 
 **It runs the editor's own binary and parses its output, deliberately.** Every
@@ -801,6 +832,89 @@ into numbers, and **the tool's raw output sits on screen under every table**. Th
 is what makes a parsed number falsifiable instead of trusted: if a table looks
 wrong, the text that produced it is one glance away. A parser that finds nothing
 says so; it never invents a row.
+
+#### The header: one button that answers the only question most people have
+
+Above the tabs, under the corpus switch, is **`Will this scene benefit?`** — one
+click, no network needed, and it is worth more than every tab under it.
+
+It runs `--blss-eval` **with no `-i`**, which needs no `blss.net` at all
+([net-free evaluation](#what-blss-eval-prints-for-a-machine-to-read)), and states
+the answer in plain language:
+
+> *THIS SCENE WILL NOT BENEFIT. Leave the upscaler off.* The oracle — the best any
+> per-tile weighting can do — scores +0.02 dB over plain bilinear here.
+
+or
+
+> *Headroom: +0.95 dB available at 1.22 passes.*  [ Train a network for this scene ]
+
+That button is there because the window used to tell people to *"run the Evaluate
+tab on your project BEFORE turning this on"* and **that was impossible**: Evaluate
+loaded `blss.net` first and bailed, and only Train could produce one — twenty
+minutes of work before the first fact, on a scene that might have had nothing to
+win. The verdict block is the same `drawBlssVerdict` the Evaluate tab draws, in a
+compact form, so there is one wording and one arithmetic
+(`blssui::summarise` / `blssui::parseVerdictLine`, both host-only and both
+harness-checked against captured runs).
+
+The header also states **what the network is**, not how many bytes it is:
+`blss.net - 123 weights, 6->12->3, 2026-08-08 15:06`, with the byte count in the
+tooltip. And it compares the provenance sidecar against the project's *current*
+settings, because a `blss.net` stores none of them, so a mismatch is otherwise
+silent and simply worse:
+
+> *This net does not match the project's current settings — RETRAIN:*
+> *— `--sharpen 0.50`, but the project now says 0.80*
+
+It fires for the sharpen strength, the render scale, and a command line with no
+project directory in it (i.e. a bestiary-trained net about to ship).
+
+#### Every long-running button says what it costs
+
+Train, Evaluate and — above all — Cross-validate are minutes to tens of minutes,
+and until now the only one that said anything printed a *count* of fold-runs,
+which is not a cost. Each now carries **"about N minutes on this machine (N
+cores)"**, with a tooltip splitting it into corpus / oracle / fit.
+
+`blssui::estimate()` is the model — a pure function of (verb, frames, epochs,
+cores, seeds, folds, shots), next to the parsers for the same reason they are
+there. It is calibrated against real runs of this tree, on one machine with 24
+hardware threads, `examples/procedural`:
+
+| run | model | measured |
+|---|---|---|
+| `--blss-train` 36 f / 100 e, `--threads 1` | 17.1 s | 14.7 s |
+| `--blss-train` 156 f / 400 e, every core | 16.5 s | 14.5 s |
+| `--blss-eval` 156 f, `--threads 1` | 152.3 s | 151.4 s |
+| `--blss-eval` 156 f, `--threads 6` | 52.5 s | 52.2 s |
+| `--blss-eval` 156 f, every core | 43.8 s | 42.4 s |
+| `--blss-eval` 156 f, net-free, every core | 43.8 s | 43.1 s |
+| `--blss-eval --cv` 36 f / 100 e, 2 folds | 5.1 s | 6.0 s |
+| `--blss-eval --cv` 36 f / 100 e, 6 folds | 7.9 s | 9.0 s |
+| `--blss-eval --cv` 156 f / 400 e, 6 folds | 52.7 s | 50.0 s |
+
+Three facts fall out of those runs and each is one constant in the model. The
+**fit is sequential** and at the shipped defaults is the largest phase of a
+training run. The **corpus render saturates at about 4× however many cores it
+gets** — a worker owns ~30 MB of raster scratch, so it is memory-bandwidth bound
+(3.5× measured at 24 threads here, 3.95× at 6 cores in
+[the threading table](#threads-n-and-the-determinism-that-pays-for-it) — the same
+ceiling from both ends) — while the oracle's **labelling** pass scales nearly
+linearly (12.9× at 24 threads).
+
+And **`--blss-eval` is not `--blss-train` minus the fit**: it is ten times
+slower, and it scales differently again. Evaluation closes the temporal loop, so
+its unit of parallelism is a **shot run**, not a frame — a corpus of six camera
+moves has about six independent chains however many cores are watching. Measured
+here at 156 frames: **138.0 s at one thread, 46.6 at six, 39.1 at twenty-four**,
+a ceiling around 3.6×. The model takes that six-move ceiling and does not try to
+predict a thirteen-shot bestiary going further, which errs toward over-quoting
+the wait — the right direction to be wrong in.
+
+The window says *"about"* and `humanDuration()` rounds, because the model is one
+machine and one project: a scene with ten times the triangles renders its corpus
+proportionally slower. Treat a factor of two as within tolerance.
 
 #### The corpus is a switch, in the header, and it defaults to the project
 
@@ -830,12 +944,34 @@ the **−0.40 dB** in the radio button's own subtitle.
 
 | Tab | What it is for |
 |---|---|
-| **Train** | the training parameters as real controls, each tooltip carrying its measured trade, on a background worker that leaves the editor usable |
-| **Evaluate** | the PSNR / flicker / occupancy table as a table, under a plain-language **verdict** (below) |
+| **Train** | **Frames and Epochs**, and nothing else that is not a decision. The other six controls are behind *Advanced — measured, and set where the measurement said* (below) |
+| **Evaluate** | a plain-language **verdict**, then **three thumbnails** (bilinear / BLSS / the amplified difference), then the PSNR / flicker / occupancy table it all came from |
 | **Cross-validate** | the fold table with its per-seed columns, its spread, its in-distribution control and the deadzone sweep — plus, on a project corpus, the caveat that says what a held-out decibel means there (below) |
-| **Compare** | the dumped PNGs with an **A/B wipe**, defaulting to bilinear against BLSS, because "is it actually better" is a question about pixels. The weight field is one pixel per tile and is magnified with NEAREST |
+| **Compare** | the dumped PNGs with an **A/B wipe** and a **difference view**, defaulting to bilinear against BLSS, because "is it actually better" is a question about pixels. The weight field is one pixel per tile and is magnified with NEAREST |
 | **Inputs** | the per-channel distribution with saturation coloured — the diagnostic that explains the shot the network loses on |
-| **Project settings** | the five settings below, and the build-interlock warning |
+| **Project settings** | the five settings below, the live VRAM line, and the build-interlock warning |
+
+#### The Train tab asks for two numbers, not ten
+
+A user needs **Frames** and **Epochs**. The other six — the seed, the weight
+decay, the fill weight, the flicker weight, `--standardise` and *Materials from*
+— are behind a collapsing header, with **every tooltip preserved verbatim**,
+because they are research knobs: all six are measured, all six are already set
+where the measurement said, and **two of them have tooltips that say in so many
+words that moving them makes the feature worse** (`--standardise` cross-validates
+at +0.24 dB against +0.40; the flicker weight costs 0.02 dB and moves the flicker
+column not at all). That is an argument for folding them away, not for deleting
+them — a knob measured and set off is not the same as a knob that was never there.
+
+*Restore defaults* now covers **every** field the window owns, including the four
+frame counts, the deadzone and the cross-validation settings; it used to reset
+eight of them and leave the rest wherever they had been dragged, which produced a
+configuration that was not the documented one, silently. It deliberately leaves
+the **corpus switch** alone — which project you are measuring is a statement
+about your game, not a training default. And because there are
+four independent **Frames** fields — one per verb — each tab says so when they
+have drifted apart: a table measured over a different number of frames than the
+net was fitted to is not a comparison.
 
 #### Evaluate answers the question in words, before the table
 
@@ -861,8 +997,34 @@ neither half alone is an answer about the scene.
 words, plus the `[blss] verdict …` line
 ([above](#what---blss-eval-prints-for-a-machine-to-read)) — so a terminal, a CI
 log and the tab cannot disagree about what the table said. There is a fourth
-branch the tab cannot reach: **net-free**, where there is a ceiling but no
-network to compare against it, which says the ceiling and points at `-i`.
+branch, **net-free**: a ceiling with no network to compare against it, which
+states the headroom and offers *Train the network*. That is what the header's
+`Will this scene benefit?` button reaches, and it is the same function drawing
+it — `drawBlssVerdict(summary, compact)`. The window prefers the machine-readable
+`[blss] verdict` line for the ceiling when it is present and falls back to
+re-deriving it from the parsed table when it is not, so an older binary still
+answers.
+
+#### The picture goes under the verdict, and the difference view is the point
+
+*"Is it actually better"* is a question about pixels — the Compare tab says so in
+its own first line, and the answer used to be on the fourth tab behind two
+tables. Directly under the verdict there is now a three-thumbnail strip —
+**bilinear | BLSS | the difference, amplified 8×** — click-through to the Compare
+tab (and two named buttons beside it, because an `ImageButton` has no label for
+ImGui to report, so a cursor is the only thing that can reach one).
+
+The **difference view** is the addition that earns its place. Two reconstructions
+of one frame that differ by a few tenths of a decibel are indistinguishable side
+by side and even under the wipe; at 8× the disagreement is a picture of *where*
+the network spent its composite passes, and a black frame is the honest statement
+that it changed nothing whatever the decibel column says. It is |A−B| per
+channel on the CPU from the loaded PNGs, rebuilt only when the pair or the
+amplification changes, and the caption reports the **raw** mean and peak, not the
+amplified ones — the amplification is a magnifying glass and a number about it
+would be a number about the magnifying glass. A and B of different sizes (the
+weight field is 16×14) say there is nothing honest to subtract rather than
+scaling one to the other.
 
 #### Cross-validate says what it is measuring on a project
 
@@ -902,6 +1064,22 @@ Three more details that are load-bearing rather than decorative:
   are drawn from one place and called by both this window and the Preferences
   dialog. Leaving the warning inlined in the dialog would have made this window a
   second mirror of an interlock that must not drift.
+- **…and it names what caused it, and takes you there.** `blssClashesFor()` walks
+  `project_.scenes` / `sc.objects` with the scene and the object *in hand* and
+  used to throw both away into four bools, so on a ten-scene project *"a Set Depth
+  Of Field flow node turns it on at runtime"* left the reader hunting through
+  every graph for a node the editor had already found. Each clash now carries a
+  list of `scene > object` labels with the offending value —
+  `main > dof-switch  (Set Depth Of Field node 2, amount 0.35)` — and a
+  **`Select it`** button that switches to that scene, selects the object and puts
+  the camera pivot on it (`blssSelectClash`). Scene-level clashes (depth of field
+  is a post-fx setting, not an object) offer *Go to the scene* instead.
+- **The warnings are shown whether the feature is on or off.** They used to be
+  inside `if (s.blssEnabled)`, so the reader who most needs them — the one
+  deciding whether to tick the box — saw nothing at all, and the first thing they
+  would then meet is a build refusing with a wall of `#error`. With the feature
+  off the block is styled as a note and reads *"If you turn this on, the BUILD
+  WILL REFUSE this project"*; with it on it is the amber warning it always was.
 
 Also, `--blss-*` now writes stdout **unbuffered**. A C `stdout` on a pipe is
 block-buffered, so `--blss-train | tee`, a CI log and this window all saw nothing
@@ -911,27 +1089,35 @@ Two things the window does **not** have, and both are deliberate: `--probe` and
 `--drop-feature`, which belong to the instrument above and would have been
 controls nobody could stand behind at the time.
 
-> **What was and was not seen on screen.** An earlier state of the window was
-> verified by driving it with `--ui-script` through idle, a training run
-> mid-corpus and mid-labelling, a finished one with the provenance line filled
-> in, a running evaluation and its parsed table, the A/B wipe, the channel report
-> with three channels flagged against their clamp, and a cross-validation in its
-> silent fold loop. **Everything added in `7d3dbf67` has been read and never
-> seen**: the header corpus switch, the verdict block, the cross-validation
-> caveat and the three-entry Debug view combo were written on a machine with no
-> working compositor, so their *layout* is unverified. So are the two states that
-> were already unverified — the finished cross-validation table and the error
-> banner. What *was* checked is the arithmetic behind them, from a host-only
-> harness against captured runs: `blssui::summarise()` on all three verdict
-> branches, and that the training progress bar never goes backwards over a whole
-> run and ends at 100 %. That is a different claim from "somebody looked at it".
+> **What was and was not seen on screen.** The window in its present shape was
+> driven with `--ui-script` on two fixtures — a copy of `examples/procedural` and
+> a scratch project built to carry every clash at once — and screenshotted at
+> each step: the header at idle, `Will this scene benefit?` mid-run and then
+> showing *Headroom: +0.95 dB available at 1.22 passes* with its *Train the
+> network* button, a finished evaluation with its verdict and parsed table, the
+> three-thumbnail strip, the click-through landing on the Compare tab in the
+> difference view, the Train tab with the Advanced header both collapsed and
+> expanded, the cross-validation cost line, the frame-drift warning appearing and
+> then cleared by *Restore defaults*, the provenance-drift warning, the clash
+> block in both its informational and its warning form with all four kinds named,
+> and a `Select it` that really did select `portal-a` in the Properties panel.
+> The live VRAM line was read at both scales on a `Pal576i` project (+512 KB at
+> 2×2, exactly 0 at 1×2).
+>
+> Still **read and never seen**: the finished cross-validation *table*, the error
+> banner, and the Inputs tab's per-shot section. What is checked instead of
+> looked at is the arithmetic, from a host-only harness (`blss_ui.cpp` +
+> `platform.cpp`, ~120 lines) against captured runs: all three verdict branches
+> plus the net-free one, `parseVerdictLine` against a real `[blss] verdict` line
+> and against text that has none, and `estimate()` against all seven timed runs
+> in the table above. That is a different claim from "somebody looked at it".
 
 ### The project settings
 
 | Setting | Meaning |
 |---|---|
 | **Enabled** | render the 3D scene at reduced resolution and reconstruct |
-| **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail) |
+| **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so) |
 | **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
 | **Debug view** | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |

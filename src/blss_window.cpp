@@ -9,11 +9,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <imgui.h>
@@ -128,27 +131,55 @@ App::BlssClash App::blssClashesFor(const ProjectSettings& staged) const {
     //
     // POSTFX_DOFS stores the amount in 1/128ths, so an amount under 1/128 is
     // depth of field that never draws.
+    //
+    // WHAT CAUSED IT IS CARRIED, not just THAT it happened. The walk below has
+    // the scene and the object in hand at the moment it decides; four bools
+    // threw that away, and on a ten-scene project "a Set Depth Of Field flow
+    // node turns it on at runtime" left the reader hunting through every graph
+    // for a node the editor had already found.
     BlssClash c;
     if (!hasProject_) return c;
     const auto dofActive = [](float amount, float focus) {
         return (int)(amount * 128.0f + 0.5f) > 0 && focus > 0.0f;
     };
     const bool splitPref = staged.multiplayer == "split";
-    for (const SceneData& sc : project_.scenes) {
+    for (size_t si = 0; si < project_.scenes.size(); ++si) {
+        const SceneData& sc = project_.scenes[si];
+        const auto ref = [&](int obj, const std::string& what) {
+            BlssClashRef r;
+            r.scene = (int)si;
+            r.object = obj;
+            r.label = sc.name + (what.empty() ? "" : " > " + what);
+            return r;
+        };
         // project::resolvedSettings()' post-fx branch, against the STAGED
         // project settings: dofAmount/dofFocus come from the scene only when it
         // overrides that group, and nothing else in that function - the
         // ambience preset overlay included - touches either field.
         const ProjectSettings& fx = sc.overrides.postFx ? sc.settings : staged;
-        if (dofActive(fx.dofAmount, fx.dofFocus)) c.dof = true;
-        int players = 0;
-        for (const SceneObject& o : sc.objects) {
-            if (o.type == PrimitiveType::Player) ++players;
+        if (dofActive(fx.dofAmount, fx.dofFocus)) {
+            BlssClashRef r = ref(-1, "");
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "  (amount %.2f, focus %.1f%s)", fx.dofAmount,
+                          fx.dofFocus, sc.overrides.postFx ? ", this scene's override" : "");
+            r.label += buf;
+            c.dof.push_back(r);
+        }
+        int players = 0, firstExtraPlayer = -1;
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const SceneObject& o = sc.objects[oi];
+            if (o.type == PrimitiveType::Player) {
+                ++players;
+                if (players == 2) firstExtraPlayer = (int)oi;
+            }
             if (o.type == PrimitiveType::Portal && !o.portalTarget.empty())
                 for (const SceneObject& t : sc.objects)
                     if (&t != &o && t.type == PrimitiveType::Portal &&
-                        t.name == o.portalTarget)
-                        c.portals = true;
+                        t.name == o.portalTarget) {
+                        BlssClashRef r = ref((int)oi, o.name);
+                        r.label += " -> " + t.name;
+                        c.portals.push_back(r);
+                    }
             // Mode 1 turns depth of field off and mode 2 restores the scene's
             // authored value (which the loop above already caught when it is
             // non-zero), so only mode 0 sets its own. The amount is a literal in
@@ -160,50 +191,173 @@ App::BlssClash App::blssClashesFor(const ProjectSettings& staged) const {
                 bool posWired = false;
                 for (const FlowLink& l : o.flowGraph.links)
                     posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
-                if (dofActive(n.num[2], posWired ? 1.0f : n.num[0])) c.dofNode = true;
+                if (dofActive(n.num[2], posWired ? 1.0f : n.num[0])) {
+                    BlssClashRef r = ref((int)oi, o.name);
+                    char buf[80];
+                    std::snprintf(buf, sizeof(buf), "  (Set Depth Of Field node %d, amount %.2f)",
+                                  n.id, n.num[2]);
+                    r.label += buf;
+                    c.dofNode.push_back(r);
+                }
             }
         }
-        if (splitPref && players >= 2) c.split = true;
+        if (splitPref && players >= 2) {
+            BlssClashRef r = ref(firstExtraPlayer,
+                                 firstExtraPlayer >= 0 ? sc.objects[(size_t)firstExtraPlayer].name
+                                                       : std::string());
+            r.label += "  (the second Player object)";
+            c.split.push_back(r);
+        }
     }
     return c;
 }
 
-void App::drawBlssClashWarning(const BlssClash& c) {
+// Take the reader to what the warning is about. The editor already knows how to
+// select and frame an object; the only extra step is the SCENE, because
+// selection indices address the active scene's object list and nothing else -
+// which is exactly why a clash in scene 7 was unfindable before.
+void App::blssSelectClash(const BlssClashRef& r) {
+    if (!hasProject_ || r.scene < 0 || r.scene >= (int)project_.scenes.size()) return;
+    if (project_.activeScene != r.scene) {
+        project_.activeScene = r.scene;
+        clearSelection();
+        cancelPastePlacement();  // staged copies belong to the old scene
+        flowGraphObject_ = -1;
+        flowPositionsApplied_ = false;
+        applyProjectToViewport();  // terrain/lighting are per scene
+    }
+    if (r.object < 0 || r.object >= (int)project_.objects().size()) {
+        clearSelection();
+        return;
+    }
+    selectOnly(r.object);
+    viewport_.setTarget(project_.objects()[(size_t)r.object].position);
+    navFocusedIndex_ = r.object;  // keep orbit-around-selection in sync
+}
+
+void App::drawBlssClashWarning(const BlssClash& c, bool informational) {
     if (!c.any()) return;
-    const ImVec4 warn(1.0f, 0.6f, 0.2f, 1.0f);
-    ImGui::TextColored(warn,
-                       "    Cannot be combined with what this project uses,\n"
-                       "    and the BUILD WILL REFUSE IT:");
-    if (c.dof || c.dofNode)
+    // WARNING when the feature is on (the build will refuse this project),
+    // INFORMATIONAL when it is off - because the reader most in need of this
+    // block is the one deciding whether to switch the feature on, and until now
+    // that reader saw nothing at all: the whole block was inside
+    // `if (s.blssEnabled)`, so the conflicts appeared only once it was too late
+    // to have avoided them.
+    const ImVec4 col = informational ? ImVec4(0.70f, 0.70f, 0.78f, 1.0f)
+                                     : ImVec4(1.0f, 0.6f, 0.2f, 1.0f);
+    int uid = 0;
+    // One "Select it" per named cause. A clash on a ten-scene project is a
+    // needle; the walk that found it had the scene and the object in hand.
+    const auto list = [&](const std::vector<BlssClashRef>& refs) {
+        for (const BlssClashRef& r : refs) {
+            ImGui::Indent(scaled(28.0f));
+            ImGui::TextColored(col, "%s", r.label.c_str());
+            ImGui::SameLine();
+            ImGui::PushID(uid++);
+            // The scene-level rows (depth of field is a post-fx setting, not an
+            // object) have nothing to select, so they offer the scene instead.
+            if (ImGui::SmallButton(r.object >= 0 ? "Select it" : "Go to the scene"))
+                blssSelectClash(r);
+            ImGui::PopID();
+            ImGui::Unindent(scaled(28.0f));
+        }
+    };
+
+    ImGui::TextColored(col,
+                       informational
+                           ? "    If you turn this on, the BUILD WILL REFUSE this project - it "
+                             "cannot be\n    combined with what the project already uses:"
+                           : "    Cannot be combined with what this project uses,\n"
+                             "    and the BUILD WILL REFUSE IT:");
+    if (!c.dof.empty() || !c.dofNode.empty())
         ImGui::TextColored(
-            warn,
+            col,
             "      - Depth of field composites its blur through the GS depth\n"
             "        test at display resolution, and with this on the depth\n"
             "        buffer is only as big as the reduced render.");
-    if (c.dofNode)
+    list(c.dof);
+    if (!c.dofNode.empty())
         ImGui::TextColored(
-            warn,
-            c.dof ? "          ...and a Set Depth Of Field flow node turns it\n"
-                    "          on at runtime as well: set that node's Mode to\n"
-                    "          Off, or delete it."
-                  : "          The authored amount is 0, but a Set Depth Of\n"
-                    "          Field flow node turns it ON at runtime. Set\n"
-                    "          that node's Mode to Off, or delete it.");
-    if (c.portals)
+            col,
+            !c.dof.empty() ? "          ...and a Set Depth Of Field flow node turns it\n"
+                             "          on at runtime as well: set that node's Mode to\n"
+                             "          Off, or delete it."
+                           : "          The authored amount is 0, but a Set Depth Of\n"
+                             "          Field flow node turns it ON at runtime. Set\n"
+                             "          that node's Mode to Off, or delete it.");
+    list(c.dofNode);
+    if (!c.portals.empty())
         ImGui::TextColored(
-            warn,
+            col,
             "      - Portals want that same display-resolution depth, and a\n"
             "        through-view carves its opening from inside the scene\n"
             "        pass with a display-sized raster window. Only a LINKED\n"
             "        pair renders one, so unlinking is a fix too.");
-    if (c.split)
+    list(c.portals);
+    if (!c.split.empty())
         ImGui::TextColored(
-            warn,
+            col,
             "      - Split-screen frames are never reduced at all (only the\n"
             "        single-view path is), and scene depth writes are masked\n"
             "        outside the reduced pass - so both halves would render\n"
             "        full-resolution with no working depth buffer.");
-    ImGui::TextColored(warn, "    Turn one of the two off; either side resolves it.");
+    list(c.split);
+    ImGui::TextColored(col, "    Turn one of the two off; either side resolves it.");
+}
+
+// The engine's own buffer arithmetic, as a host twin. RendererCoreGSVRam::
+// getSize() rounds a 32bpp buffer's WIDTH up to a multiple of 64 and then its
+// size up to a GS page (2048 words); RendererCoreGS::allocateVramBuffers()
+// allocates the z buffer at the RASTER size, which is what makes the whole
+// saving exist. Keep in step with vendor/tyra/.../renderer_core_gs_vram.cpp.
+static int blssBufferWords(int w, int h) {
+    if (w <= 0 || h <= 0) return 0;
+    const int aligned = w > 16 ? ((w + 63) & ~63) : w;
+    const int words = aligned * h;
+    return (words + 2047) & ~2047;
+}
+
+// WHAT THE REDUCED RENDER IS WORTH ON THIS PROJECT'S RASTER, which is the one
+// number a reader can act on - and the tooltip it replaces quoted a measurement
+// taken at PAL 512x512 to somebody whose game is 512x448.
+//
+// z shrinks with the raster and the low-res colour target is new, so the net is
+// (z at output) - (z at raster) - (the low-res target), and at 32bpp the target
+// is exactly the same size as the z it displaced. That makes 1x2 EXACTLY ZERO -
+// the low-res target costs precisely what the z buffer saves - which nothing in
+// this window or in the documentation used to say.
+std::string App::blssVramLine(const ProjectSettings& s) const {
+    if (!hasProject_) return "";
+    const DisplayModeInfo& dm = project::displayModeInfo(project::bootDisplayMode(s));
+    const int outW = dm.bufW;
+    const int outH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
+    const int sx = s.blssScale == 1 ? 1 : 2, sy = 2;
+    const int lowW = outW / sx, lowH = outH / sy;
+    const int zOut = blssBufferWords(outW, outH);
+    const int zLow = blssBufferWords(lowW, lowH);
+    const int target = blssBufferWords(lowW, lowH);
+    const int net = zOut - zLow - target;
+    char buf[320];
+    if (net > 0)
+        std::snprintf(buf, sizeof(buf),
+                      "    %s on this project's %dx%d output hands back %d KB of GS VRAM: the "
+                      "z-buffer\n    follows the raster (%d KB back) and the %dx%d target costs "
+                      "%d KB of it.",
+                      sx == 1 ? "1x2" : "2x2", outW, outH, net * 4 / 1024,
+                      (zOut - zLow) * 4 / 1024, lowW, lowH, target * 4 / 1024);
+    else if (net == 0)
+        std::snprintf(buf, sizeof(buf),
+                      "    %s hands back NOTHING on this project's %dx%d output: the %dx%d "
+                      "target costs\n    exactly what the z-buffer saves (%d KB each way). Pick "
+                      "%s if VRAM is the reason.",
+                      sx == 1 ? "1x2" : "2x2", outW, outH, lowW, lowH, target * 4 / 1024,
+                      sx == 1 ? "2x2" : "1x2");
+    else
+        std::snprintf(buf, sizeof(buf),
+                      "    %s COSTS %d KB of GS VRAM on this project's %dx%d output - the "
+                      "low-res target is\n    bigger than the z-buffer it shrinks.",
+                      sx == 1 ? "1x2" : "2x2", -net * 4 / 1024, outW, outH);
+    return buf;
 }
 
 bool App::drawBlssSettings(ProjectSettings& s) {
@@ -275,13 +429,22 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "    is +0.02 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
             "    tab answers 'will this scene benefit' in one line. No frame of it has\n"
             "    ever been timed on console or hardware; look at it in PCSX2 too.");
-    if (s.blssEnabled) drawBlssClashWarning(blssClashesFor(s));
+    // ALWAYS, not only when the feature is on. The person who most needs to
+    // know that this project uses depth of field is the one deciding whether to
+    // tick the box above; drawing it only for `s.blssEnabled` meant the answer
+    // arrived one click too late, and the first thing they would then hit is a
+    // build refusing with a wall of #error.
+    drawBlssClashWarning(blssClashesFor(s), !s.blssEnabled);
 
     ImGui::BeginDisabled(!s.blssEnabled);
     {
         int scale = s.blssScale == 1 ? 1 : 0;
+        // Deliberately no resolution in these labels. They used to read "(256x224
+        // of a PAL 512x448 frame)", which is a different frame from the one most
+        // projects boot in - and now sits directly above a line that states this
+        // project's real numbers, so the two would contradict each other.
         const char* names[] = {
-            "2x2 - quarter the pixels (256x224 of a PAL 512x448 frame)",
+            "2x2 - quarter the pixels",
             "1x2 - half height only (keeps horizontal detail; cheaper to reconstruct)"};
         ImGui::SetNextItemWidth(scaled(420));
         if (ImGui::Combo("Render scale", &scale, names, 2)) {
@@ -293,12 +456,27 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
             "own interlaced-field mode already does to the raster - softer\n"
             "vertically, untouched horizontally.\n"
-            "The z-buffer is allocated at THIS size, so on a 512x448 output\n"
-            "2x2 hands 672 KB of VRAM back and 1x2 hands back 448 KB.\n"
+            "The z-buffer is allocated at THIS size, which is where the VRAM\n"
+            "saving comes from - the line under this combo works it out for\n"
+            "the display mode THIS project boots in, rather than quoting a\n"
+            "measurement taken at some other resolution.\n"
             "Train the network at the scale you ship - the Train tab follows\n"
             "this setting. A blss.net is a bare list of floats and records nothing\n"
             "about how it was trained, so a mismatch costs quality without\n"
             "saying anything.");
+        // THE NUMBER FOR THIS PROJECT, live, under the control that decides it.
+        {
+            const std::string vram = blssVramLine(s);
+            if (!vram.empty()) {
+                if (s.blssScale == 1)
+                    // 1x2's saving is exactly zero and that is worth colour: it
+                    // is the one setting whose headline benefit is absent, and
+                    // neither the UI nor the docs ever said so.
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", vram.c_str());
+                else
+                    ImGui::TextDisabled("%s", vram.c_str());
+            }
+        }
 
         ImGui::SetNextItemWidth(scaled(120));
         ImGui::DragFloat("Sharpen strength", &s.blssSharpen, 0.01f, 0.0f, 1.0f, "%.2f");
@@ -520,6 +698,16 @@ void App::drawBlssCorpusReminder() {
                            "Corpus: the procedural bestiary, NOT this project.");
 }
 
+// How many camera moves the corpus will have. Only the cross-validation cost
+// estimate needs it (its fold count defaults to one per shot), and it is a
+// GUESS on a project - blssscene derives six moves per scene from the bounds
+// and the player start, plus any authored Cutscene Director camera track, and
+// only the tool knows how many of those resolved.
+int App::blssExpectedShots() const {
+    if (!blssCorpusProject_) return 13;  // the bestiary, docs/neural-upscaler.md
+    return std::max(1, 6 * (int)project_.scenes.size());
+}
+
 void App::blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs) {
     if (!hasProject_ || blssJob_.running()) return;
     const std::string exe = platform::exePath();
@@ -545,6 +733,7 @@ void App::blssPoll() {
     if (dump != blssDumpDir_) {
         blssDumpDir_ = dump;
         blssEval_ = blssui::EvalTable{};
+        blssSummary_ = blssui::EvalSummary{};
         blssCv_ = blssui::CvTable{};
         blssFeat_ = blssui::FeatureTable{};
         blssLastError_.clear();
@@ -560,8 +749,26 @@ void App::blssPoll() {
     for (const std::string& e : errs) blssLastError_ += (blssLastError_.empty() ? "" : "\n") + e;
 
     switch (k) {
-        case blssui::Kind::Eval: {
+        case blssui::Kind::Eval:
+        case blssui::Kind::Headroom: {
             blssEval_ = blssui::parseEval(text);
+            // TWO SOURCES, and the tool's own arithmetic wins where it exists.
+            // `[blss] verdict ...` is one line printed by the run itself over
+            // the whole corpus; summarise() re-derives the same figures from
+            // whatever the table parser managed to read back, and additionally
+            // knows whether there was a BLSS row at all. So: take the ceiling
+            // from the line when it is there, and the net half from the table.
+            blssSummary_ = blssui::summarise(blssEval_);
+            const blssui::EvalSummary line = blssui::parseVerdictLine(text);
+            if (line.ok && !blssSummary_.ok) {
+                blssSummary_ = line;
+            } else if (line.ok) {
+                blssSummary_.bilinear = line.bilinear;
+                blssSummary_.oracle = line.oracle;
+                blssSummary_.native = line.native;
+                blssSummary_.oracleMargin = line.oracleMargin;
+                blssSummary_.oraclePasses = line.oraclePasses;
+            }
             blssImagesDirty_ = true;
             break;
         }
@@ -585,6 +792,65 @@ void App::blssReleaseImages() {
     for (BlssImage& im : blssImages_)
         if (im.tex) glDeleteTextures(1, &im.tex);
     blssImages_.clear();
+    if (blssDiffTex_) glDeleteTextures(1, &blssDiffTex_);
+    blssDiffTex_ = 0;
+    blssDiffA_ = blssDiffB_ = -1;
+    blssDiffAmpBuilt_ = -1.0f;
+}
+
+// |A - B|, amplified. THE ONE VIEW THAT MAKES A 0.4 dB GAP VISIBLE: side by
+// side, and even under the wipe, two reconstructions of the same frame look
+// identical to a reader who is not already looking for the difference - which
+// is exactly the reader this window is for. At 8x the disagreement is a picture
+// of WHERE the network spent its passes.
+//
+// Computed on the CPU from the pixels blssReloadImages kept, and only when the
+// pair or the amplification changes: it is a full-image pass, not a per-frame
+// one.
+void App::blssRebuildDiff() {
+    if (blssImgA_ < 0 || blssImgB_ < 0 || blssImgA_ >= (int)blssImages_.size() ||
+        blssImgB_ >= (int)blssImages_.size())
+        return;
+    const BlssImage& A = blssImages_[(size_t)blssImgA_];
+    const BlssImage& B = blssImages_[(size_t)blssImgB_];
+    if (blssDiffA_ == blssImgA_ && blssDiffB_ == blssImgB_ &&
+        blssDiffAmpBuilt_ == blssDiffAmp_ && blssDiffTex_)
+        return;
+    blssDiffA_ = blssImgA_;
+    blssDiffB_ = blssImgB_;
+    blssDiffAmpBuilt_ = blssDiffAmp_;
+    blssDiffPeak_ = blssDiffMean_ = 0.0;
+    // Different sizes means different things - the weight field is 16x14 and
+    // the frames are 512x448 - so there is nothing honest to subtract.
+    if (A.w != B.w || A.h != B.h || A.px.empty() || B.px.empty()) {
+        if (blssDiffTex_) glDeleteTextures(1, &blssDiffTex_);
+        blssDiffTex_ = 0;
+        blssDiffW_ = blssDiffH_ = 0;
+        return;
+    }
+    const size_t n = (size_t)A.w * A.h;
+    std::vector<unsigned char> out(n * 4, 255);
+    double sum = 0.0;
+    int peak = 0;
+    for (size_t i = 0; i < n; ++i) {
+        for (int c = 0; c < 3; ++c) {
+            const int d = std::abs((int)A.px[i * 4 + c] - (int)B.px[i * 4 + c]);
+            sum += d;
+            peak = std::max(peak, d);
+            const int v = (int)(d * blssDiffAmp_ + 0.5f);
+            out[i * 4 + (size_t)c] = (unsigned char)std::min(255, v);
+        }
+    }
+    // The RAW difference, not the amplified one - the amplification is a
+    // magnifying glass, and a caption quoting what it shows would be a number
+    // about the magnifying glass.
+    blssDiffMean_ = sum / (double)(n * 3);
+    blssDiffPeak_ = peak;
+    if (!blssDiffTex_) glGenTextures(1, &blssDiffTex_);
+    glBindTexture(GL_TEXTURE_2D, blssDiffTex_);
+    glUploadTexRgba(A.w, A.h, out.data());
+    blssDiffW_ = A.w;
+    blssDiffH_ = A.h;
 }
 
 void App::blssReloadImages() {
@@ -603,6 +869,7 @@ void App::blssReloadImages() {
         im.path = path;
         im.w = img.w;
         im.h = img.h;
+        im.px = img.px;  // kept for the difference view - see blssRebuildDiff
         glGenTextures(1, &im.tex);
         glBindTexture(GL_TEXTURE_2D, im.tex);
         glUploadTexRgba(img.w, img.h, img.px.data());
@@ -651,27 +918,35 @@ void App::drawBlssWindow() {
     const float outH = std::clamp(blssOutputH_, scaled(60.0f), outMax);
     ImGui::BeginChild("blsstabs", ImVec2(0, -(outH + scaled(14.0f))), false);
     if (ImGui::BeginTabBar("blsstabbar")) {
-        if (ImGui::BeginTabItem("Train")) {
+        // A click on a verdict thumbnail (or on "Train the network" under the
+        // headroom answer) has to be able to take the reader to the tab that
+        // shows it, or the strip is decoration. Consumed here, once.
+        const int want = blssTabSelect_;
+        blssTabSelect_ = -1;
+        const auto flag = [&](int i) {
+            return want == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        };
+        if (ImGui::BeginTabItem("Train", nullptr, flag(0))) {
             drawBlssTrainTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Evaluate")) {
+        if (ImGui::BeginTabItem("Evaluate", nullptr, flag(1))) {
             drawBlssEvalTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Cross-validate")) {
+        if (ImGui::BeginTabItem("Cross-validate", nullptr, flag(2))) {
             drawBlssCvTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Compare")) {
+        if (ImGui::BeginTabItem("Compare", nullptr, flag(3))) {
             drawBlssImagesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Inputs")) {
+        if (ImGui::BeginTabItem("Inputs", nullptr, flag(4))) {
             drawBlssFeaturesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Project settings")) {
+        if (ImGui::BeginTabItem("Project settings", nullptr, flag(5))) {
             ImGui::Spacing();
             if (drawBlssSettings(project_.settings)) commitChange();
             ImGui::EndTabItem();
@@ -703,8 +978,24 @@ void App::drawBlssHeader() {
     ImGui::TextUnformatted("Project network:");
     ImGui::SameLine();
     if (blssNetPresent_) {
-        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s  -  %zu bytes, %s",
-                           blssNetName_, blssNetBytes_, blssNetWhen_.c_str());
+        // WEIGHTS AND TOPOLOGY, not a byte count. "500 bytes" tells a reader
+        // nothing they can use; "123 weights, 6->12->3" is the same file
+        // described in the units the rest of this window and the documentation
+        // are written in. The count is derived from the topology rather than
+        // typed, so it follows kFeatures/kHidden the way every other figure in
+        // this feature does.
+        constexpr int kWeights = blss::kHidden * blss::kFeatures + blss::kHidden +
+                                 blss::kOutputs * blss::kHidden + blss::kOutputs;
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "%s  -  %d weights, %d->%d->%d, %s",
+                           blssNetName_, kWeights, blss::kFeatures, blss::kHidden,
+                           blss::kOutputs, blssNetWhen_.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "%zu bytes on disk: a four-byte magic, a u32 version and the weights\n"
+                "in declaration order. It carries NO topology, so a file written by a\n"
+                "differently shaped net cannot be told apart by reading it - the\n"
+                "version number is the only guard.",
+                blssNetBytes_);
         if (blssNetArgs_.empty())
             ImGui::TextDisabled(
                 "    Trained outside this editor - a blss.net records nothing about how it "
@@ -717,6 +1008,12 @@ void App::drawBlssHeader() {
             ImGui::TextDisabled("    Trained here with:");
             ImGui::SameLine();
             ImGui::TextWrapped("%s", blssNetArgs_.c_str());
+            // A blss.net records nothing about the settings it was fitted
+            // under, so the sidecar is the ONLY place a mismatch can be caught -
+            // and a mismatch is silent everywhere else: the game reconstructs
+            // happily with a net trained for a different sharpen strength or a
+            // different render scale, just worse.
+            drawBlssProvenanceDrift();
         }
     } else if (s.blssEnabled) {
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
@@ -729,6 +1026,8 @@ void App::drawBlssHeader() {
     }
     ImGui::Spacing();
     drawBlssCorpusChoice();
+    ImGui::Spacing();
+    drawBlssHappyPath();
     ImGui::Spacing();
     // BAKING IT IN is one button because the build already does it: codegen
     // reads <project>/blss.net every time and rewrites inc/blss_net.gen.hpp, so
@@ -779,6 +1078,116 @@ void App::drawBlssHeader() {
     if (!blssLastError_.empty())
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "%s", blssLastError_.c_str());
     ImGui::Separator();
+}
+
+// --- the happy path ----------------------------------------------------------
+
+namespace {
+// A flag's value out of a recorded command line. The sidecar holds the exact
+// argv the window ran, shell-quoted, so a token match is enough - and a token
+// that is not there means the run took the default, which is what `def` is for.
+bool argValue(const std::string& cmd, const char* flag, std::string& out) {
+    std::string needle = std::string(" ") + flag + " ";
+    const size_t at = cmd.find(needle);
+    if (at == std::string::npos) return false;
+    size_t b = at + needle.size();
+    while (b < cmd.size() && cmd[b] == ' ') ++b;
+    size_t e = b;
+    while (e < cmd.size() && cmd[e] != ' ') ++e;
+    out = cmd.substr(b, e - b);
+    // The job shell-quotes every argument, so strip whatever it used.
+    while (!out.empty() && (out.front() == '"' || out.front() == '\'')) out.erase(0, 1);
+    while (!out.empty() && (out.back() == '"' || out.back() == '\'')) out.pop_back();
+    return !out.empty();
+}
+}  // namespace
+
+void App::drawBlssProvenanceDrift() {
+    if (blssNetArgs_.empty()) return;
+    const ProjectSettings& s = project_.settings;
+    std::vector<std::string> drift;
+    std::string v;
+    // --sharpen: the oracle charges for the two sharpen passes at THIS k, so
+    // the labels the net was fitted to depend on it.
+    const float trainedSharpen = argValue(blssNetArgs_, "--sharpen", v) ? (float)std::atof(v.c_str())
+                                                                       : 0.5f;
+    if (std::fabs(trainedSharpen - s.blssSharpen) > 0.005f) {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "--sharpen %.2f, but the project now says %.2f",
+                      trainedSharpen, s.blssSharpen);
+        drift.push_back(buf);
+    }
+    // --scale-1x2 is a switch, not a value: absent means 2x2.
+    const bool trained1x2 = blssNetArgs_.find("--scale-1x2") != std::string::npos;
+    if (trained1x2 != (s.blssScale == 1))
+        drift.push_back(std::string("render scale ") + (trained1x2 ? "1x2" : "2x2") +
+                        ", but the project now says " + (s.blssScale == 1 ? "1x2" : "2x2"));
+    // Which corpus. A net fitted to the bestiary and shipped on a project is
+    // the -0.40 dB mistake this whole window is arranged around.
+    const bool trainedOnProject =
+        blssNetArgs_.find("--blss-train") != std::string::npos &&
+        blssNetArgs_.find(fs::path(project_.dir).filename().string()) != std::string::npos;
+    if (!trainedOnProject && !blssNetArgs_.empty())
+        drift.push_back("no project directory in the command line - this looks like a "
+                        "BESTIARY-trained net");
+    if (drift.empty()) return;
+    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                       "    This net does not match the project's current settings - RETRAIN:");
+    for (const std::string& d : drift)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "      - %s", d.c_str());
+    ImGui::TextDisabled("    A blss.net stores no settings, so nothing downstream will "
+                        "complain: the game just reconstructs worse.");
+}
+
+// ONE BUTTON, ABOVE THE TABS, AND IT IS WORTH MORE THAN THE REST OF THE WINDOW.
+// The only question most people have is "should I turn this on", the answer has
+// always been in `--blss-eval`'s oracle row, and until now the window's advice
+// was to run Evaluate first - which could not be done at all without a
+// blss.net, which only Train could produce, which is twenty minutes of work
+// before the first fact. The net-free `--blss-eval` needs no network: the
+// ORACLE is the best any per-tile weighting can do under the exact GS
+// composite, so it bounds every network that could ever be trained here.
+void App::drawBlssHappyPath() {
+    const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+    const blssui::Cost cost = blssui::estimate(blssui::Kind::Headroom, blssEvalFrames_, 0, cores,
+                                               1, 0, blssExpectedShots());
+    ImGui::BeginDisabled(blssJob_.running());
+    if (ImGui::Button("Will this scene benefit?", ImVec2(scaled(260.0f), scaled(30.0f)))) {
+        // NO `-i`. That is the whole feature: with a network the run measures
+        // that network, without one it measures the SCENE.
+        std::vector<std::string> a{"--blss-eval"};
+        for (const std::string& c : blssCommonArgs()) a.push_back(c);
+        a.push_back("--frames");
+        a.push_back(std::to_string(blssEvalFrames_));
+        a.push_back("--deadzone");
+        a.push_back(numArg(blssEvalDeadzone_));
+        blssStart(blssui::Kind::Headroom, a, 0);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s on this machine (%d cores). No network needed.",
+                        blssui::humanDuration(cost.total).c_str(), cores);
+    prefHelp(
+        "Runs `--blss-eval` on this corpus with NO network and reads the ORACLE\n"
+        "row - the best any per-tile weighting can do under the exact GS\n"
+        "composite. No network can beat it, so it is the SCENE'S OWN CEILING and\n"
+        "it answers 'is there anything here to reconstruct' before you spend an\n"
+        "afternoon training something.\n"
+        "\n"
+        "Some scenes have no ceiling at all: on examples/showcase the oracle\n"
+        "itself scores +0.02 dB over plain bilinear at 1.00 passes - soft ground\n"
+        "texture, low-poly props, nothing that aliases. That is a fact about the\n"
+        "content and no amount of training moves it.\n"
+        "\n"
+        "It renders the whole corpus, which is most of the cost, so the estimate\n"
+        "next to the button is the same corpus render the Train tab pays for.");
+    if (blssSummary_.ok) {
+        drawBlssVerdict(blssSummary_, /*compact=*/true);
+    } else if (!blssJob_.running()) {
+        ImGui::TextDisabled(
+            "    Press it. The oracle row of a net-free evaluation is the scene's ceiling, and\n"
+            "    it is the one measurement that can tell you NOT to bother.");
+    }
 }
 
 void App::drawBlssOutput(float height) {
@@ -832,42 +1241,39 @@ void App::drawBlssTrainTab() {
     // two items with one name in one window is a target a UI script (and a
     // person tabbing through) cannot tell apart - the first scripted run of
     // this window pressed the tab and reported success.
-    if (ImGui::Button("Train the network", ImVec2(scaled(190.0f), 0))) {
-        std::vector<std::string> a{"--blss-train"};
-        for (const std::string& c : blssCommonArgs()) a.push_back(c);
-        a.push_back("-o");
-        a.push_back(blssNetName_);
-        a.push_back("--frames");
-        a.push_back(std::to_string(blssTrainFrames_));
-        a.push_back("--epochs");
-        a.push_back(std::to_string(blssTrainEpochs_));
-        a.push_back("--seed");
-        char seedbuf[32];
-        std::snprintf(seedbuf, sizeof(seedbuf), "0x%X", blssTrainSeed_);
-        a.push_back(seedbuf);
-        a.push_back("--weight-decay");
-        a.push_back(numArg(blssTrainDecay_));
-        a.push_back("--fill-weight");
-        a.push_back(numArg(blssTrainFill_));
-        a.push_back("--flicker-weight");
-        a.push_back(numArg(blssTrainFlicker_));
-        if (blssTrainAllShots_) a.push_back("--all-shots");
-        if (blssTrainStandardise_) a.push_back("--standardise");
-        blssStart(blssui::Kind::Train, a, blssTrainEpochs_);
-    }
+    if (ImGui::Button("Train the network", ImVec2(scaled(190.0f), 0))) blssStartTraining();
     ImGui::SameLine();
-    if (ImGui::Button("Restore defaults", ImVec2(scaled(150.0f), 0))) {
-        blssTrainFrames_ = 156;
-        blssTrainEpochs_ = 400;
-        blssTrainSeed_ = 0xB1557u;
-        blssTrainDecay_ = 1e-4f;
-        blssTrainFill_ = blss::kFillWeight;
-        blssTrainFlicker_ = blss::kFlickerWeight;
-        blssTrainAllShots_ = true;
-        blssTrainStandardise_ = false;
-    }
+    if (ImGui::Button("Restore defaults", ImVec2(scaled(150.0f), 0))) blssRestoreTrainDefaults();
+    prefHelp(
+        "Every field this window owns: the ones on this tab including the\n"
+        "advanced ones, the network file name and materials path, and the\n"
+        "Evaluate / Cross-validate / Inputs settings - their four frame counts\n"
+        "above all, which are only comparable when they agree.\n"
+        "It leaves the CORPUS switch alone: which project you are measuring is\n"
+        "a statement about your game, not a training default.");
     ImGui::SameLine();
-    ImGui::TextDisabled("(the defaults are the swept-and-chosen configuration)");
+    // WHAT IT COSTS, before it is pressed. Train, Evaluate and especially
+    // Cross-validate are minutes to tens of minutes and used to say nothing at
+    // all about their price; the model is blssui::estimate(), calibrated
+    // against real runs, and the comment there has the measurements.
+    {
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Train, blssTrainFrames_,
+                                                   blssTrainEpochs_, cores, 1, 0,
+                                                   blssExpectedShots());
+        ImGui::TextDisabled("%s on this machine (%d cores).",
+                            blssui::humanDuration(cost.total).c_str(), cores);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "About %s to render the corpus, %s to label it with the oracle and\n"
+                "%s to fit - the last of which is sequential SGD and is the phase no\n"
+                "core count can help. An estimate calibrated on one machine and one\n"
+                "project; a scene with far more triangles renders its corpus\n"
+                "proportionally slower.",
+                blssui::humanDuration(cost.corpus).c_str(),
+                blssui::humanDuration(cost.oracle).c_str(),
+                blssui::humanDuration(cost.fit).c_str());
+    }
     ImGui::Spacing();
 
     ImGui::SetNextItemWidth(scaled(160));
@@ -876,21 +1282,6 @@ void App::drawBlssTrainTab() {
         "Relative to the project directory. 'blss.net' is the one the build\n"
         "bakes in; any other name is a candidate you can evaluate without\n"
         "replacing what the game ships.");
-
-    ImGui::SetNextItemWidth(scaled(160));
-    ImGui::InputText("Materials from", blssAssets_, sizeof(blssAssets_));
-    prefHelp(
-        "An examples/ tree whose res/materials and res/models PNGs the corpus\n"
-        "textures its shots with. Missing is not an error - the corpus falls\n"
-        "back to procedural checkers, noise and foliage, which is what makes\n"
-        "training work in a clean checkout - but every number in\n"
-        "docs/neural-upscaler.md was measured with the real textures.");
-    {
-        std::error_code ec;
-        if (!fs::is_directory(blssAssets_, ec))
-            ImGui::TextDisabled("    not a directory - the corpus will use procedural "
-                                "materials only");
-    }
 
     ImGui::SeparatorText("Corpus");
     ImGui::SetNextItemWidth(scaled(160));
@@ -903,18 +1294,14 @@ void App::drawBlssTrainTab() {
         "one frame deep and the first frame of a shot has none at all.\n"
         "It is linear in every phase: the corpus render, the oracle and the\n"
         "fit all scale with it.");
+    drawBlssFrameDrift(blssTrainFrames_);
     ImGui::SetNextItemWidth(scaled(160));
-    {
-        int seed = (int)blssTrainSeed_;
-        if (ImGui::InputInt("Corpus / init seed", &seed, 0, 0,
-                            ImGuiInputTextFlags_CharsHexadecimal))
-            blssTrainSeed_ = (unsigned)(seed < 0 ? 0 : seed);
-    }
+    ImGui::DragInt("Epochs", &blssTrainEpochs_, 1.0f, 20, 4000);
     prefHelp(
-        "Hexadecimal. Seeds both the corpus and the weight initialisation.\n"
-        "It matters far less than it looks: under cross-validation the sd of\n"
-        "the per-seed fold MEAN is 0.01 dB, against 0.40 dB from fold to fold.\n"
-        "The shipped default is B1557.");
+        "Adam steps over the whole sample set. 400 is the shipped default and\n"
+        "the one every number in docs/neural-upscaler.md was measured at.\n"
+        "The fit is sequential, so this is the one setting on this tab whose\n"
+        "cost no core count reduces - it is about a third of a training run.");
     ImGui::Checkbox("Fit every shot (--all-shots)", &blssTrainAllShots_);
     prefHelp(
         "ON, and on a project corpus it should stay on. The console runs the\n"
@@ -935,6 +1322,58 @@ void App::drawBlssTrainTab() {
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
                            "    A third of the corpus is withheld - this is a measurement "
                            "net, not the one to ship.");
+
+    ImGui::Text("Sharpen k: %.2f, render scale %s (both from Project settings)",
+                project_.settings.blssSharpen,
+                project_.settings.blssScale == 1 ? "1x2" : "2x2");
+    prefHelp(
+        "The oracle charges for the two sharpen passes at the project's own\n"
+        "k, so the labels depend on it - and the corpus renders at the\n"
+        "project's own scale. Change either on the Project settings tab;\n"
+        "training follows them rather than offering a second value that could\n"
+        "disagree with what the game ships.");
+
+    // EVERYTHING BELOW IS RESEARCH, and it was the default view. Ten controls
+    // for a decision that needs two: these six are all measured, all set where
+    // the measurement said, and two of them have tooltips that say in so many
+    // words that turning them up makes the feature WORSE. That is an argument
+    // for folding them away, not for deleting them - a knob measured and set
+    // off is not the same as a knob that was never there, which is why every
+    // tooltip below is preserved verbatim.
+    ImGui::Spacing();
+    if (!ImGui::CollapsingHeader("Advanced - measured, and set where the measurement said")) {
+        ImGui::EndDisabled();
+        return;
+    }
+    ImGui::Indent(scaled(12.0f));
+
+    ImGui::SetNextItemWidth(scaled(160));
+    {
+        int seed = (int)blssTrainSeed_;
+        if (ImGui::InputInt("Corpus / init seed", &seed, 0, 0,
+                            ImGuiInputTextFlags_CharsHexadecimal))
+            blssTrainSeed_ = (unsigned)(seed < 0 ? 0 : seed);
+    }
+    prefHelp(
+        "Hexadecimal. Seeds both the corpus and the weight initialisation.\n"
+        "It matters far less than it looks: under cross-validation the sd of\n"
+        "the per-seed fold MEAN is 0.01 dB, against 0.40 dB from fold to fold.\n"
+        "The shipped default is B1557.");
+
+    ImGui::SetNextItemWidth(scaled(160));
+    ImGui::InputText("Materials from", blssAssets_, sizeof(blssAssets_));
+    prefHelp(
+        "An examples/ tree whose res/materials and res/models PNGs the corpus\n"
+        "textures its shots with. Missing is not an error - the corpus falls\n"
+        "back to procedural checkers, noise and foliage, which is what makes\n"
+        "training work in a clean checkout - but every number in\n"
+        "docs/neural-upscaler.md was measured with the real textures.");
+    {
+        std::error_code ec;
+        if (!fs::is_directory(blssAssets_, ec))
+            ImGui::TextDisabled("    not a directory - the corpus will use procedural "
+                                "materials only");
+    }
 
     ImGui::SeparatorText("Objective");
     ImGui::TextDisabled(
@@ -961,19 +1400,8 @@ void App::drawBlssTrainTab() {
         "moves the flicker column not at all. The reason is the form, not the\n"
         "weight - MSE against the history is minimised by the picture\n"
         "FREEZING, which is free on a static shot and ghosting on a dolly.");
-    ImGui::SetNextItemWidth(scaled(160));
-    ImGui::Text("Sharpen k: %.2f (from Project settings)", project_.settings.blssSharpen);
-    prefHelp(
-        "The oracle charges for the two sharpen passes at the project's own\n"
-        "k, so the labels depend on it. Change it on the Project settings\n"
-        "tab; training follows it rather than offering a second value that\n"
-        "could disagree with what the game ships.");
-    ImGui::Text("Render scale: %s (from Project settings)",
-                project_.settings.blssScale == 1 ? "1x2" : "2x2");
 
     ImGui::SeparatorText("Fit");
-    ImGui::SetNextItemWidth(scaled(160));
-    ImGui::DragInt("Epochs", &blssTrainEpochs_, 1.0f, 20, 4000);
     ImGui::SetNextItemWidth(scaled(160));
     ImGui::DragFloat("Weight decay", &blssTrainDecay_, 1e-5f, 0.0f, 1e-2f, "%.5f");
     prefHelp(
@@ -993,7 +1421,86 @@ void App::drawBlssTrainTab() {
         "bilinear instead of 5. Kept because a knob measured and set off is\n"
         "not the same as a knob deleted.");
 
+    ImGui::Unindent(scaled(12.0f));
     ImGui::EndDisabled();
+}
+
+// --- the shared training action, and the shared defaults ---------------------
+
+// Pressed from TWO places now - the Train tab and the verdict's "Train the
+// network" - so the argument list is built once. Two copies is how one of them
+// silently stops passing --all-shots.
+void App::blssStartTraining() {
+    std::vector<std::string> a{"--blss-train"};
+    for (const std::string& c : blssCommonArgs()) a.push_back(c);
+    a.push_back("-o");
+    a.push_back(blssNetName_);
+    a.push_back("--frames");
+    a.push_back(std::to_string(blssTrainFrames_));
+    a.push_back("--epochs");
+    a.push_back(std::to_string(blssTrainEpochs_));
+    a.push_back("--seed");
+    char seedbuf[32];
+    std::snprintf(seedbuf, sizeof(seedbuf), "0x%X", blssTrainSeed_);
+    a.push_back(seedbuf);
+    a.push_back("--weight-decay");
+    a.push_back(numArg(blssTrainDecay_));
+    a.push_back("--fill-weight");
+    a.push_back(numArg(blssTrainFill_));
+    a.push_back("--flicker-weight");
+    a.push_back(numArg(blssTrainFlicker_));
+    if (blssTrainAllShots_) a.push_back("--all-shots");
+    if (blssTrainStandardise_) a.push_back("--standardise");
+    blssStart(blssui::Kind::Train, a, blssTrainEpochs_);
+}
+
+// EVERY field, not the eight it used to cover. Restore defaults left the four
+// frame counts, the deadzone, the cross-validation settings and the corpus
+// switch wherever they had been dragged - so "restore defaults" produced a
+// configuration that was not the documented one, silently, which is the worst
+// thing a button with that name can do.
+void App::blssRestoreTrainDefaults() {
+    blssTrainFrames_ = 156;
+    blssTrainEpochs_ = 400;
+    blssTrainSeed_ = 0xB1557u;
+    blssTrainDecay_ = 1e-4f;
+    blssTrainFill_ = blss::kFillWeight;
+    blssTrainFlicker_ = blss::kFlickerWeight;
+    blssTrainAllShots_ = true;
+    blssTrainStandardise_ = false;
+    blssEvalFrames_ = 156;
+    blssEvalDeadzone_ = 8.0f;
+    blssEvalDump_ = true;
+    blssCvFrames_ = 156;
+    blssCvEpochs_ = 400;
+    blssCvSeeds_ = 1;
+    blssCvFolds_ = 0;
+    blssCvSweep_ = false;
+    std::snprintf(blssCvSweepList_, sizeof(blssCvSweepList_), "0,1,2,3,4,6,8,12,16,24");
+    blssFeatFrames_ = 156;
+    std::snprintf(blssNetName_, sizeof(blssNetName_), "blss.net");
+    const std::string a = discoverAssets();
+    std::snprintf(blssAssets_, sizeof(blssAssets_), "%s", a.c_str());
+}
+
+// FOUR INDEPENDENT FRAME FIELDS, one per verb, and they are only comparable
+// when they agree. A net fitted to 156 frames and evaluated against 36 is not a
+// wrong answer, it is an answer to a different question - and nothing said so.
+void App::drawBlssFrameDrift(int mine) {
+    const int others[] = {blssTrainFrames_, blssEvalFrames_, blssCvFrames_, blssFeatFrames_};
+    int lo = others[0], hi = others[0];
+    for (int v : others) {
+        lo = std::min(lo, v);
+        hi = std::max(hi, v);
+    }
+    if (lo == hi) return;
+    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                       "    The four tabs' frame counts have drifted apart (%d..%d; this one is "
+                       "%d).",
+                       lo, hi, mine);
+    ImGui::TextDisabled(
+        "    A table measured over a different number of frames than the net was fitted to is "
+        "not\n    a comparison. 'Restore defaults' on the Train tab puts all four back to 156.");
 }
 
 // ---------------------------------------------------------------- evaluate ---
@@ -1017,11 +1524,16 @@ constexpr double kNoHeadroomDb = 0.10;
 // WILL THIS SCENE BENEFIT AT ALL - the answer --blss-eval has always contained
 // and has always buried in the sixth row of a table. The oracle row IS the
 // scene's ceiling, so it answers the question the PSNR columns only imply.
-void App::drawBlssVerdict() {
-    // The arithmetic is blssui::summarise() - a pure function of the parsed
-    // table, so it is checkable from the host-only harness. This function only
-    // chooses words and colours.
-    const blssui::EvalSummary sum = blssui::summarise(blssEval_);
+//
+// `sum` may come from a run that had NO network (the header's "Will this scene
+// benefit?" button), in which case only the ceiling half of the verdict exists
+// and the block ends with the button that produces the other half. `compact`
+// drops the explanatory paragraphs for the header, where the same verdict sits
+// above six tabs and cannot have five lines of prose.
+void App::drawBlssVerdict(const blssui::EvalSummary& sum, bool compact) {
+    // The arithmetic is blssui::summarise() / blssui::parseVerdictLine() - pure
+    // functions of the tool's output, so they are checkable from the host-only
+    // harness. This function only chooses words and colours.
     if (!sum.ok) return;
     const double ceiling = sum.oracleMargin, margin = sum.netMargin;
     const double netP = sum.netPasses, orcP = sum.oraclePasses;
@@ -1034,16 +1546,49 @@ void App::drawBlssVerdict() {
         ImGui::TextWrapped(
             "The ORACLE - the best any per-tile weighting can do under the exact GS "
             "composite, which no network can beat - scores %+.2f dB over plain bilinear "
-            "here, at %.2f passes. There is nothing to reconstruct: a half-resolution "
-            "render of this content, blown up bilinearly, is already as close to the "
-            "supersampled truth as the composite can get. That is a fact about the scene - "
-            "soft textures, low-poly silhouettes, nothing that aliases - and no amount of "
-            "training moves it.",
-            ceiling, orcP);
-        ImGui::TextDisabled(
-            "    What it costs to turn on anyway: the reduced render gives VRAM back, and "
-            "the composite\n    takes it away in fill. Above 1.00 passes you are paying "
-            "for nothing.");
+            "here, at %.2f passes.%s",
+            ceiling, orcP,
+            compact ? "" :
+                    " There is nothing to reconstruct: a half-resolution "
+                    "render of this content, blown up bilinearly, is already as close to the "
+                    "supersampled truth as the composite can get. That is a fact about the "
+                    "scene - soft textures, low-poly silhouettes, nothing that aliases - and "
+                    "no amount of training moves it.");
+        if (!compact)
+            ImGui::TextDisabled(
+                "    What it costs to turn on anyway: the reduced render gives VRAM back, and "
+                "the composite\n    takes it away in fill. Above 1.00 passes you are paying "
+                "for nothing.");
+    } else if (!sum.haveNet) {
+        // THE HEADROOM BRANCH: a net-free run knows the ceiling and nothing
+        // about any network, so it says the ceiling and offers the next step
+        // instead of inventing a margin it did not measure.
+        ImGui::TextColored(good, "Headroom: %+.2f dB available at %.2f passes.", ceiling, orcP);
+        ImGui::TextWrapped(
+            "That is the ORACLE - the best any per-tile weighting can do under the exact GS "
+            "composite. A trained network reaches some fraction of it, never more.%s",
+            compact ? "" :
+                    " Train one on this corpus and evaluate it to find out how much of that "
+                    "fraction you actually get.");
+        ImGui::BeginDisabled(blssJob_.running());
+        // NOT "Train the network" - that is the Train tab's button, and two
+        // items with one label in one window is a target neither a UI script
+        // nor a person tabbing through can tell apart. The tab's own button
+        // was renamed away from "Train" for exactly this reason once already.
+        if (ImGui::Button("Train a network for this scene", ImVec2(scaled(240.0f), 0))) {
+            blssStartTraining();
+            blssTabSelect_ = 0;  // show the Train tab's controls and its progress
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        {
+            const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+            const blssui::Cost cost = blssui::estimate(blssui::Kind::Train, blssTrainFrames_,
+                                                       blssTrainEpochs_, cores, 1, 0,
+                                                       blssExpectedShots());
+            ImGui::TextDisabled("%s on this machine (%d cores), at the Train tab's settings.",
+                                blssui::humanDuration(cost.total).c_str(), cores);
+        }
     } else if (margin < 0.0) {
         ImGui::TextColored(bad, "THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT: %+.2f dB.",
                            margin);
@@ -1064,11 +1609,17 @@ void App::drawBlssVerdict() {
                                "none of that, so a mismatch is silent.");
     } else {
         ImGui::TextColored(good, "%+.2f dB over plain bilinear, at %.2f passes.", margin, netP);
-        ImGui::TextWrapped(
-            "The scene's own ceiling is %+.2f dB at %.2f passes (the oracle), so the network "
-            "has captured %.0f%% of what is there to capture. 1.00 passes IS plain bilinear "
-            "and 5.00 is every kernel everywhere, so read the two together.",
-            ceiling, orcP, ceiling > 0.0 ? 100.0 * margin / ceiling : 0.0);
+        if (compact)
+            ImGui::Text("The scene's ceiling is %+.2f dB at %.2f passes, so the network has "
+                        "captured %.0f%% of it.",
+                        ceiling, orcP, ceiling > 0.0 ? 100.0 * margin / ceiling : 0.0);
+        else
+            ImGui::TextWrapped(
+                "The scene's own ceiling is %+.2f dB at %.2f passes (the oracle), so the "
+                "network has captured %.0f%% of what is there to capture. 1.00 passes IS "
+                "plain bilinear and 5.00 is every kernel everywhere, so read the two "
+                "together.",
+                ceiling, orcP, ceiling > 0.0 ? 100.0 * margin / ceiling : 0.0);
     }
     if (!blssCorpusProject_)
         ImGui::TextColored(warn,
@@ -1113,10 +1664,12 @@ void App::drawBlssEvalTab() {
         "WHOLE full-screen pass on the console. 8 is the shipped value and\n"
         "buys a whole pass (2.85 -> 1.85) for 0.02 dB. It never touches the\n"
         "labels, so changing it needs no re-train.");
+    drawBlssFrameDrift(blssEvalFrames_);
     ImGui::Checkbox("Write the comparison images", &blssEvalDump_);
     prefHelp("Ground truth / native / bilinear / point / temporal / sharpen / BLSS /\n"
              "oracle PNGs of the first held-out frame, plus the weight field. The\n"
-             "Compare tab shows them.");
+             "Compare tab shows them, and the strip under the verdict is the three\n"
+             "that answer the question.");
     if (blssEvalDump_) ImGui::TextDisabled("    %s", blssDumpDir_.c_str());
 
     ImGui::Spacing();
@@ -1135,6 +1688,23 @@ void App::drawBlssEvalTab() {
         }
         blssStart(blssui::Kind::Eval, a, 0);
     }
+    ImGui::SameLine();
+    {
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Eval, blssEvalFrames_, 0, cores,
+                                                   1, 0, blssExpectedShots());
+        ImGui::TextDisabled("%s on this machine (%d cores).",
+                            blssui::humanDuration(cost.total).c_str(), cores);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Most of it is not the corpus. Evaluation CLOSES THE TEMPORAL LOOP -\n"
+                "every frame's history is the previous frame's real composite, which is\n"
+                "what the console has - so its unit of parallelism is a SHOT RUN and not\n"
+                "a frame: six camera moves are about six chains however many cores are\n"
+                "watching. Measured, 156 frames: 138 s at one thread, 46.6 at six, 39.1\n"
+                "at twenty-four, where the corpus renders in 3.3. An estimate; treat a\n"
+                "factor of two as normal.");
+    }
     ImGui::EndDisabled();
 
     if (!blssEval_.ok()) {
@@ -1143,8 +1713,10 @@ void App::drawBlssEvalTab() {
         return;
     }
     // The verdict FIRST, because it is the question that was asked; the table
-    // below is where it comes from.
-    drawBlssVerdict();
+    // below is where it comes from, and the pictures under it are what the
+    // decibels are actually about.
+    drawBlssVerdict(blssSummary_, /*compact=*/false);
+    drawBlssVerdictThumbs();
     for (const blssui::EvalSplit& sp : blssEval_.splits) {
         ImGui::SeparatorText(sp.heldOut ? "Held-out shots" : "Training shots");
         ImGui::TextDisabled("%s", sp.caption.c_str());
@@ -1208,6 +1780,104 @@ void App::drawBlssEvalTab() {
         "bought at 5 passes is not a win. Compare flicker against the native row, which is\n"
         "the honest floor for a given camera move, not against zero. The oracle row is the\n"
         "regression test: BLSS falling well below it is a host/engine parity break.");
+}
+
+// THE PICTURE, UNDER THE VERDICT. "Is it actually better" is a question about
+// pixels and the Compare tab says so in its own first line - and then the
+// answer lived on the fourth tab behind two tables. Three thumbnails is enough
+// to see whether the difference is anywhere at all; clicking one opens the
+// Compare tab on that view, at size.
+void App::drawBlssVerdictThumbs() {
+    if (blssImagesDirty_) blssReloadImages();
+    const auto find = [&](const char* label) -> int {
+        for (int i = 0; i < (int)blssImages_.size(); ++i)
+            if (blssImages_[i].label == label) return i;
+        return -1;
+    };
+    const int bil = find("bilinear (the baseline)");
+    const int net = find("BLSS (the trained net)");
+    if (bil < 0 || net < 0) return;
+
+    ImGui::Spacing();
+    const float w = scaled(190.0f);
+    const BlssImage& B = blssImages_[(size_t)bil];
+    const float h = B.w > 0 ? w * (float)B.h / (float)B.w : w * 0.875f;
+    // An ImageButton does not DRAW its label, so the label is pure id - which
+    // makes it the one chance these have to be nameable at all. `##thumb` and a
+    // PushID would have left three identical unnamed rects that neither a
+    // scripted run nor a person tabbing through could tell apart.
+    const auto thumb = [&](int idx, const char* id, const char* caption, const char* tip) {
+        ImGui::BeginGroup();
+        if (ImGui::ImageButton(id, (ImTextureID)(intptr_t)blssImages_[(size_t)idx].tex,
+                               ImVec2(w, h))) {
+            blssImgA_ = bil;
+            blssImgB_ = net;
+            blssImgMode_ = 0;
+            blssTabSelect_ = 3;  // Compare
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n\nClick to open the Compare tab.", tip);
+        ImGui::TextDisabled("%s", caption);
+        ImGui::EndGroup();
+    };
+    thumb(bil, "Compare the bilinear baseline", "bilinear (the baseline)",
+          "One full-screen pass of the half-res render, blown up bilinearly.\n"
+          "Every margin in this window is measured against this.");
+    ImGui::SameLine();
+    thumb(net, "Compare the BLSS composite", "BLSS (the trained net)",
+          "The composite the network asked for, through the same 8-bit GS\n"
+          "arithmetic the console executes.");
+    ImGui::SameLine();
+    // The difference gets the same treatment as the two frames, because it is
+    // the only one of the three in which a fraction of a decibel is visible.
+    {
+        const int wasA = blssImgA_, wasB = blssImgB_;
+        blssImgA_ = bil;
+        blssImgB_ = net;
+        blssRebuildDiff();
+        blssImgA_ = wasA;
+        blssImgB_ = wasB;
+        ImGui::BeginGroup();
+        if (blssDiffTex_) {
+            if (ImGui::ImageButton("Compare the difference", (ImTextureID)(intptr_t)blssDiffTex_,
+                                   ImVec2(w, h))) {
+                blssImgA_ = bil;
+                blssImgB_ = net;
+                blssImgMode_ = 4;  // Difference
+                blssTabSelect_ = 3;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "|bilinear - BLSS|, amplified %.0fx. Raw difference: mean %.2f,\n"
+                    "peak %.0f of 255 per channel. A black frame here means the network\n"
+                    "changed nothing, whatever the decibel column says.\n\n"
+                    "Click to open the Compare tab on this view.",
+                    blssDiffAmp_, blssDiffMean_, blssDiffPeak_);
+            ImGui::TextDisabled("difference x%.0f", blssDiffAmp_);
+        } else {
+            ImGui::Dummy(ImVec2(w, h));
+            ImGui::TextDisabled("difference: n/a");
+        }
+        ImGui::EndGroup();
+    }
+    // The images above are click-through, but an ImageButton has no label for
+    // ImGui to report - so it can be reached by a cursor and by nothing else.
+    // These two carry the same two destinations with names on them, which is
+    // what makes the strip discoverable AND drivable.
+    if (ImGui::SmallButton("Open the Compare tab")) {
+        blssImgA_ = bil;
+        blssImgB_ = net;
+        blssImgMode_ = 0;
+        blssTabSelect_ = 3;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Open the difference view")) {
+        blssImgA_ = bil;
+        blssImgB_ = net;
+        blssImgMode_ = 4;
+        blssTabSelect_ = 3;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("- at size, with a wipe and a zoom.");
 }
 
 // ----------------------------------------------------------- cross-validate ---
@@ -1289,21 +1959,41 @@ void App::drawBlssCvTab() {
         ImGui::SetNextItemWidth(scaled(280));
         ImGui::InputText("Alpha values", blssCvSweepList_, sizeof(blssCvSweepList_));
     }
+    drawBlssFrameDrift(blssCvFrames_);
 
     ImGui::Spacing();
     {
-        // The shot count is only known once the corpus has been built - 13 for
-        // the bestiary, six per scene for a project - so with Folds at 0 this
-        // says what it costs per shot rather than inventing a total.
+        // A COUNT IS NOT A COST, and this tab used to print only the count -
+        // for the button in this window that takes tens of minutes. The shot
+        // count is only known once the corpus has been built (13 for the
+        // bestiary, six per scene for a project), so with Folds at 0 the
+        // estimate says which assumption it made.
         const int seeds = std::max(1, blssCvSeeds_);
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const int shots = blssExpectedShots();
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Cv, blssCvFrames_, blssCvEpochs_,
+                                                   cores, seeds, blssCvFolds_, shots);
         if (blssCvFolds_ > 0)
             ImGui::TextDisabled("%d fold-run(s): %d corpus render(s) plus %d training(s).",
-                                seeds * blssCvFolds_, seeds, seeds * blssCvFolds_);
+                                seeds * blssCvFolds_, seeds, cost.trainings);
         else
             ImGui::TextDisabled(
-                "%d corpus render(s), then one training per shot per corpus (13 shots on the "
-                "bestiary,\nsix camera moves per scene on a project).",
-                seeds);
+                "%d corpus render(s), then one training per shot per corpus - %d expected "
+                "here\n(13 shots on the bestiary, six camera moves per scene on a project), so "
+                "%d training(s).",
+                seeds, shots, cost.trainings);
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s on this machine (%d cores).",
+                           blssui::humanDuration(cost.total).c_str(), cores);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "About %s of corpus render, %s of oracle labelling and %s of fitting\n"
+                "and per-fold evaluation. The fit dominates, it is sequential SGD, and\n"
+                "it is paid once PER FOLD - which is why this is the expensive button.\n"
+                "An estimate; treat a factor of two as normal, and note the shot count\n"
+                "is a guess until the corpus has loaded.",
+                blssui::humanDuration(cost.corpus).c_str(),
+                blssui::humanDuration(cost.oracle).c_str(),
+                blssui::humanDuration(cost.fit).c_str());
     }
     if (ImGui::Button("Run cross-validation", ImVec2(scaled(190.0f), 0))) {
         std::vector<std::string> a{"--blss-eval", "--cv"};
@@ -1520,15 +2210,29 @@ void App::drawBlssImagesTab() {
     ImGui::SetNextItemWidth(scaled(240));
     ImGui::Combo("B", &blssImgB_, names.data(), (int)names.size());
 
-    const char* modes[] = {"Wipe", "Side by side", "A only", "B only"};
-    ImGui::SetNextItemWidth(scaled(160));
-    ImGui::Combo("View", &blssImgMode_, modes, 4);
+    // Difference is the fifth entry rather than the first because the wipe is
+    // the right default, but it is the one view that makes a fraction of a
+    // decibel visible at all - see blssRebuildDiff.
+    const char* modes[] = {"Wipe", "Side by side", "A only", "B only", "Difference |A-B|"};
+    ImGui::SetNextItemWidth(scaled(180));
+    ImGui::Combo("View", &blssImgMode_, modes, 5);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(scaled(160));
     ImGui::SliderFloat("Zoom", &blssZoom_, 0.5f, 4.0f, "%.1fx");
     if (blssImgMode_ == 0) {
         ImGui::SetNextItemWidth(scaled(340));
         ImGui::SliderFloat("Wipe", &blssWipe_, 0.0f, 1.0f, "%.2f");
+    }
+    if (blssImgMode_ == 4) {
+        ImGui::SetNextItemWidth(scaled(340));
+        ImGui::SliderFloat("Amplify", &blssDiffAmp_, 1.0f, 32.0f, "%.0fx");
+        prefHelp(
+            "|A - B| per channel, multiplied by this and clamped. Two\n"
+            "reconstructions of one frame that differ by a few tenths of a\n"
+            "decibel are indistinguishable side by side and obvious at 8x, and\n"
+            "WHERE they differ is the useful half: it is a picture of where the\n"
+            "network spent its composite passes. The caption under the image\n"
+            "reports the RAW difference, not the amplified one.");
     }
 
     const BlssImage& A = blssImages_[(size_t)blssImgA_];
@@ -1558,6 +2262,21 @@ void App::drawBlssImagesTab() {
         ImGui::Image((ImTextureID)(intptr_t)A.tex, drawOne(A));
     } else if (blssImgMode_ == 3) {
         ImGui::Image((ImTextureID)(intptr_t)B.tex, drawOne(B));
+    } else if (blssImgMode_ == 4) {
+        blssRebuildDiff();
+        if (!blssDiffTex_) {
+            ImGui::TextDisabled(
+                "A and B are different sizes (%dx%d against %dx%d), so there is nothing "
+                "honest to\nsubtract - the weight field is one pixel per tile.",
+                A.w, A.h, B.w, B.h);
+        } else {
+            const float w = scaled((float)blssDiffW_) * blssZoom_;
+            ImGui::Image((ImTextureID)(intptr_t)blssDiffTex_,
+                         ImVec2(w, w * (float)blssDiffH_ / (float)blssDiffW_));
+            ImGui::TextDisabled(
+                "|%s - %s| x%.0f.  Raw difference: mean %.2f, peak %.0f of 255 per channel.",
+                A.label.c_str(), B.label.c_str(), blssDiffAmp_, blssDiffMean_, blssDiffPeak_);
+        }
     } else {
         // The wipe: A whole, then the right-hand slice of B on top of it, with
         // matching UVs so the two halves are the same pixels of the same frame.
@@ -1601,6 +2320,7 @@ void App::drawBlssFeaturesTab() {
     ImGui::BeginDisabled(blssJob_.running());
     ImGui::SetNextItemWidth(scaled(160));
     ImGui::DragInt("Frames", &blssFeatFrames_, 1.0f, 13, 520);
+    drawBlssFrameDrift(blssFeatFrames_);
     if (ImGui::Button("Report the input channels", ImVec2(scaled(220.0f), 0))) {
         std::vector<std::string> a{"--blss-eval", "--features"};
         for (const std::string& c : blssCommonArgs()) a.push_back(c);
@@ -1609,6 +2329,14 @@ void App::drawBlssFeaturesTab() {
         a.push_back("--fill-weight");
         a.push_back(numArg(blssTrainFill_));
         blssStart(blssui::Kind::Features, a, 0);
+    }
+    ImGui::SameLine();
+    {
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const blssui::Cost cost = blssui::estimate(blssui::Kind::Features, blssFeatFrames_, 0,
+                                                   cores, 1, 0, blssExpectedShots());
+        ImGui::TextDisabled("%s on this machine (%d cores).",
+                            blssui::humanDuration(cost.total).c_str(), cores);
     }
     ImGui::EndDisabled();
 

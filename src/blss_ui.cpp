@@ -33,12 +33,165 @@ const char* kindName(Kind k) {
     switch (k) {
         case Kind::Train: return "--blss-train";
         case Kind::Eval: return "--blss-eval";
+        case Kind::Headroom: return "--blss-eval (no network)";
         case Kind::Cv: return "--blss-eval --cv";
         case Kind::Features: return "--blss-eval --features";
         case Kind::Emit: return "--blss-emit";
         case Kind::None: break;
     }
     return "";
+}
+
+// ------------------------------------------------------------------- cost ---
+//
+// MEASURED, on this branch, on examples/procedural at 512x448, on one machine
+// with 24 hardware threads - from the tool's own `blss: timing` line where it
+// prints one and from the wall clock where it does not:
+//
+//   --blss-train  36 frames, 100 epochs, --threads 1 : corpus 2.7 s, oracle 11.6 s, fit 0.4 s
+//   --blss-train 156 frames, 400 epochs, every core  : corpus 3.3 s, oracle  3.9 s, fit 7.4 s
+//   --blss-eval  156 frames, --threads 1             : corpus 13.4 s, eval 138.0 s
+//   --blss-eval  156 frames, --threads 6             : corpus  5.6 s, eval  46.6 s
+//   --blss-eval  156 frames, every core              : corpus  3.3 s, eval  39.1 s
+//   --blss-eval  156 frames, NET-FREE, every core    : corpus  3.6 s, eval  39.5 s
+//   --blss-eval --cv  36 frames, 100 epochs, 2 folds :  6 s
+//   --blss-eval --cv  36 frames, 100 epochs, 6 folds :  9 s
+//   --blss-eval --cv 156 frames, 400 epochs, 6 folds : 50 s
+//
+// (Net-free evaluates one method row fewer and is not measurably cheaper, so
+// one constant covers both.)
+//
+// Three things those numbers say that are not obvious from the code, and each
+// is why one of the constants below exists.
+//
+// THE FIT IS SEQUENTIAL and at the shipped defaults it is the largest phase of
+// a training run - each Adam step reads the weights the previous one wrote, so
+// `--threads` cannot touch it.
+//
+// THE TWO PARALLEL PHASES SCALE VERY DIFFERENTLY. A corpus worker owns ~30 MB
+// of raster scratch, so the render is memory-bandwidth bound and saturates at
+// about 4x however many cores are thrown at it (3.5x measured at 24 threads
+// here; 3.95x measured at 6 cores in docs/neural-upscaler.md - the same ceiling
+// reached from both ends). The oracle's LABELLING pass is coordinate descent
+// over one tile at a time and scales nearly linearly (12.9x at 24 threads,
+// 5.25x at 6 in the docs).
+//
+// AND `--blss-eval` IS NOT `--blss-train` MINUS THE FIT - it is ten times
+// slower than that, and it scales quite differently. Evaluation closes the
+// temporal loop (every frame's history is the previous frame's real composite,
+// which is what the console has), so the unit of parallelism is a SHOT RUN
+// rather than a frame: a corpus of six camera moves has about six independent
+// chains however many cores are watching. Measured here, 156 frames: 138.0 s at
+// one thread, 46.6 at six, 39.1 at twenty-four - a ceiling around 3.6x, where
+// the labelling pass reaches 12.9x on the same machine. A thirteen-shot
+// bestiary would go further and the model does not try to predict that; it
+// takes the six-move project's ceiling, which errs toward over-quoting the
+// wait, which is the right direction to be wrong in.
+//
+// This is an ESTIMATE, the window says "about", and humanDuration() rounds. It
+// is calibrated on one machine and one project; a scene with ten times the
+// triangles renders its corpus proportionally slower. Treat a factor of two as
+// within tolerance and never print it to the second.
+namespace {
+constexpr double kCorpusPerFrame = 0.075;      // s, one thread
+constexpr double kOraclePerFrame = 0.32;       // s, one thread, threaded labelling
+constexpr double kEvalPerFrame = 0.885;        // s, one thread, ALL the method rows
+constexpr double kCvFoldEvalPerFrame = 0.008;  // s, one fold's own evaluation
+constexpr double kFitPerFrameEpoch = 1.15e-4;  // s, sequential
+// Loading the project, walking its scenes into triangles, reading materials.
+constexpr double kStartup = 2.5;
+// The two ceilings, both measured rather than guessed - see above.
+constexpr double kCorpusMaxSpeedup = 4.0;
+constexpr double kEvalMaxSpeedup = 3.6;
+
+double parallelCorpus(int cores) {
+    const double n = (double)std::clamp(cores, 1, 32);
+    return std::clamp(1.0 + 0.60 * (n - 1.0), 1.0, kCorpusMaxSpeedup);
+}
+double parallelOracle(int cores) {
+    return std::pow((double)std::clamp(cores, 1, 32), 0.8);
+}
+double parallelEval(int cores) {
+    return std::min(std::pow((double)std::clamp(cores, 1, 32), 0.6), kEvalMaxSpeedup);
+}
+}  // namespace
+
+Cost estimate(Kind kind, int frames, int epochs, int cores, int seeds, int folds, int shots) {
+    Cost c;
+    c.cores = std::clamp(cores, 1, 32);
+    frames = std::max(1, frames);
+    epochs = std::max(0, epochs);
+    const double corpus1 = frames * kCorpusPerFrame / parallelCorpus(c.cores);
+    const double oracle1 = frames * kOraclePerFrame / parallelOracle(c.cores);
+    const double fit1 = (double)frames * epochs * kFitPerFrameEpoch;
+
+    switch (kind) {
+        case Kind::Train:
+            c.corpora = c.trainings = 1;
+            c.corpus = kStartup + corpus1;
+            c.oracle = oracle1;
+            c.fit = fit1;
+            break;
+        case Kind::Eval:
+        case Kind::Headroom:
+            c.corpora = 1;
+            c.trainings = 0;
+            c.corpus = kStartup + corpus1;
+            // Its own parallel model: the chains are shot runs, not frames.
+            c.oracle = frames * kEvalPerFrame / parallelEval(c.cores);
+            c.fit = 0.0;
+            break;
+        case Kind::Features:
+            // The channel report labels the corpus once and correlates; no
+            // recurrent evaluation, so it is a training run minus the fit.
+            c.corpora = 1;
+            c.trainings = 0;
+            c.corpus = kStartup + corpus1;
+            c.oracle = oracle1;
+            c.fit = 0.0;
+            break;
+        case Kind::Cv: {
+            // Per --cv-seeds: one corpus render and one labelling. Then one
+            // TRAINING per fold on top of that, which is what makes this the
+            // expensive button in the window - and the one that never said so.
+            const int s = std::max(1, seeds);
+            const int f = folds > 0 ? folds : std::max(1, shots);
+            c.corpora = s;
+            c.trainings = s * f;
+            c.corpus = kStartup + corpus1 * s;
+            c.oracle = oracle1 * s;
+            // A fold trains on all but one shot, so ~(f-1)/f of the samples,
+            // and then evaluates the net it just fitted on both splits.
+            const double share = f > 1 ? (double)(f - 1) / (double)f : 1.0;
+            c.fit = fit1 * share * c.trainings +
+                    (double)c.trainings * frames * kCvFoldEvalPerFrame;
+            break;
+        }
+        case Kind::Emit:
+        case Kind::None: break;
+    }
+    c.total = c.corpus + c.oracle + c.fit;
+    return c;
+}
+
+std::string humanDuration(double seconds) {
+    char buf[64];
+    if (seconds <= 0.0) return "no time at all";
+    if (seconds < 90.0) {
+        // Round to 5 s so two neighbouring frame counts do not read as a
+        // precision this model does not have.
+        const int s = std::max(5, (int)(seconds / 5.0 + 0.5) * 5);
+        std::snprintf(buf, sizeof(buf), "about %d seconds", s);
+        return buf;
+    }
+    if (seconds < 3600.0) {
+        const int m = (int)(seconds / 60.0 + 0.5);
+        std::snprintf(buf, sizeof(buf), "about %d minute%s", m, m == 1 ? "" : "s");
+        return buf;
+    }
+    const double h = seconds / 3600.0;
+    std::snprintf(buf, sizeof(buf), "about %.1f hours", h);
+    return buf;
 }
 
 namespace {
@@ -215,7 +368,7 @@ bool phaseOf(const std::string& line, Kind kind, int epochs, Phase& out) {
         out.status = t.substr(6);
         return true;
     }
-    if (kind == Kind::Eval && t.rfind("half-res + ", 0) == 0) {
+    if ((kind == Kind::Eval || kind == Kind::Headroom) && t.rfind("half-res + ", 0) == 0) {
         out.progress = -1.0f;
         out.status = "evaluating: " + t.substr(11, 24);
         return true;
@@ -439,33 +592,81 @@ const EvalRow* rowNamed(const EvalSplit& sp, const char* prefix) {
 EvalSummary summarise(const EvalTable& t) {
     EvalSummary s;
     double wsum = 0;
+    int splitsUsed = 0, splitsWithNet = 0;
     for (const EvalSplit& sp : t.splits) {
         const EvalRow* bil = rowNamed(sp, "bilinear");
         const EvalRow* net = rowNamed(sp, "BLSS");
         const EvalRow* orc = rowNamed(sp, "oracle");
-        // All three or none: a summary built from a split that is missing its
-        // baseline would be comparing rows from different frame sets.
-        if (!bil || !net || !orc) continue;
+        const EvalRow* nat = rowNamed(sp, "native");
+        // The BASELINE and the CEILING or nothing: a summary built from a split
+        // that is missing either would be comparing rows from different frame
+        // sets. The BLSS row is optional, because a net-free `--blss-eval` does
+        // not produce one and the ceiling is still the answer to "will this
+        // scene benefit" - see EvalSummary::haveNet.
+        if (!bil || !orc) continue;
         // A caption whose frame count did not parse still weighs something -
         // one - rather than dropping the split out of the mean silently.
         const double w = sp.frames > 0 ? (double)sp.frames : 1.0;
         s.bilinear += w * bil->psnr;
-        s.net += w * net->psnr;
         s.oracle += w * orc->psnr;
-        s.netPasses += w * net->passes;
         s.oraclePasses += w * orc->passes;
+        if (nat) s.native += w * nat->psnr;
+        if (net) {
+            s.net += w * net->psnr;
+            s.netPasses += w * net->passes;
+            ++splitsWithNet;
+        }
         s.frames += sp.frames;
         wsum += w;
+        ++splitsUsed;
     }
     if (wsum <= 0.0) return s;
     s.bilinear /= wsum;
-    s.net /= wsum;
     s.oracle /= wsum;
-    s.netPasses /= wsum;
+    s.native /= wsum;
     s.oraclePasses /= wsum;
-    s.netMargin = s.net - s.bilinear;
     s.oracleMargin = s.oracle - s.bilinear;
+    // All splits or none: a mean over the held-out rows plus a net figure taken
+    // from only one of them would be two different frame sets in one sentence.
+    s.haveNet = splitsWithNet == splitsUsed;
+    if (s.haveNet) {
+        s.net /= wsum;
+        s.netPasses /= wsum;
+        s.netMargin = s.net - s.bilinear;
+    } else {
+        s.net = s.netPasses = s.netMargin = 0.0;
+    }
     s.ok = true;
+    return s;
+}
+
+EvalSummary parseVerdictLine(const std::string& text) {
+    EvalSummary s;
+    // The LAST such line wins - a run prints one, but a log the window has been
+    // appending to across two runs must answer about the newer one.
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.rfind("[blss] verdict", 0) != 0) continue;
+        EvalSummary v;
+        bool any = false;
+        for (const std::string& tok : tokenize(line)) {
+            const size_t eq = tok.find('=');
+            if (eq == std::string::npos) continue;
+            const std::string key = tok.substr(0, eq);
+            double val = 0;
+            if (!asNumber(tok.substr(eq + 1), val)) continue;
+            if (key == "headroom") { v.oracleMargin = val; any = true; }
+            else if (key == "passes") v.oraclePasses = val;
+            else if (key == "bilinear") v.bilinear = val;
+            else if (key == "oracle") v.oracle = val;
+            else if (key == "native") v.native = val;
+        }
+        // `headroom` is the one field the verdict cannot be built without.
+        if (!any) continue;
+        v.ok = true;
+        v.haveNet = false;
+        s = v;
+    }
     return s;
 }
 

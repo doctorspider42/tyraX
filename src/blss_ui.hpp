@@ -46,9 +46,44 @@ namespace blssui {
 // command line because the progress heuristics and the parser are chosen from
 // it, and "which table am I looking at" must not depend on string matching an
 // argument list.
-enum class Kind { None, Train, Eval, Cv, Features, Emit };
+//
+// `Headroom` is `--blss-eval` with NO `-i`: the net-free run that answers "will
+// this scene benefit at all" without needing a trained network to exist. It is
+// its own Kind rather than a flag on Eval because the two produce different
+// tables - the net-free one has no BLSS row - and because the window's status
+// line has to name what it is doing.
+enum class Kind { None, Train, Eval, Headroom, Cv, Features, Emit };
 
 const char* kindName(Kind k);
+
+// ------------------------------------------------------------------- cost ---
+
+// What a verb is about to cost, in wall-clock seconds. It exists because the
+// three expensive buttons in this window (train, evaluate, cross-validate) used
+// to say nothing at all about their price - and cross-validation is minutes to
+// tens of minutes, which is not a thing to discover by pressing a button.
+//
+// A pure function of (work, cores), here with the parsers rather than inside a
+// draw call, for the same reason summarise() is: it is checkable from the
+// host-only harness against a real run's own `blss: timing` line.
+struct Cost {
+    double corpus = 0, oracle = 0, fit = 0, total = 0;
+    int cores = 1;
+    // How many independent corpus renders + labellings the verb pays for
+    // (cross-validation pays one per --cv-seeds) and how many nets it fits.
+    int corpora = 1, trainings = 1;
+};
+
+// `shots` is how many camera moves the corpus is expected to have - 13 for the
+// bestiary, six per scene for a project - and is only used by the
+// cross-validation estimate, whose fold count defaults to "one per shot".
+// `seeds`/`folds` are --cv-seeds / --cv-folds (0 = every shot).
+Cost estimate(Kind kind, int frames, int epochs, int cores, int seeds, int folds, int shots);
+
+// "about 4 minutes", "about 25 seconds", "over an hour". Deliberately coarse:
+// the model is calibrated on one machine and one corpus, so a figure printed to
+// the second would claim a precision it does not have.
+std::string humanDuration(double seconds);
 
 // ---------------------------------------------------------------- progress ---
 
@@ -172,13 +207,32 @@ EvalTable parseEval(const std::string& text);
 // aliases - and no network can beat a bound of zero.
 struct EvalSummary {
     bool ok = false;
+    // False for a NET-FREE run (`--blss-eval` with no `-i`), which prints
+    // native / bilinear / oracle and no BLSS row at all. The ceiling is still
+    // the whole answer to "will this scene benefit"; only the "how much of it
+    // did the network capture" half is missing, and a verdict that invented a
+    // net margin from a table with no net row would be the sixth number this
+    // feature measured on the wrong thing.
+    bool haveNet = false;
     int frames = 0;
-    double bilinear = 0, net = 0, oracle = 0;  // PSNR, dB
+    double bilinear = 0, net = 0, oracle = 0, native = 0;  // PSNR, dB
     double netPasses = 0, oraclePasses = 0;    // mean full-screen passes, 1.00 = bilinear
     double netMargin = 0;                      // net - bilinear
     double oracleMargin = 0;                   // oracle - bilinear: the ceiling
 };
 EvalSummary summarise(const EvalTable&);
+
+// The one machine-readable line every `--blss-eval` prints:
+//
+//   [blss] verdict headroom=<dB> passes=<f> bilinear=<dB> oracle=<dB> native=<dB>
+//
+// Preferred over re-deriving those numbers from the table, because it is the
+// TOOL'S OWN arithmetic over the whole corpus rather than the window's over
+// what its parser managed to read back. `ok` is false when the line is absent
+// (an older binary), and the caller falls back to summarise(); `haveNet` is
+// always false here - the line describes the scene's ceiling and says nothing
+// about any network.
+EvalSummary parseVerdictLine(const std::string& text);
 
 // ------------------------------------------------------------ --blss-eval --cv ---
 

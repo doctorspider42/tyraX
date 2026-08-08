@@ -675,11 +675,26 @@ private:
     // every verb through blssCommonArgs().
     void drawBlssCorpusChoice();
     void drawBlssCorpusReminder();
+    // THE HAPPY PATH, and it is above the tabs because it is the only question
+    // most people have: one button that runs the NET-FREE `--blss-eval` on this
+    // project and answers "will this scene benefit" in plain language. It needs
+    // no trained network, which is the whole point - the window used to tell
+    // people to run Evaluate first, and Evaluate could not run without a net
+    // that only Train could produce.
+    void drawBlssHappyPath();
+    // The net's recorded command line against the project's CURRENT settings.
+    // A blss.net stores no settings at all, so the `.args` sidecar is the only
+    // place "this was trained with --sharpen 0.5 and the project now says 0.80"
+    // can be noticed - everywhere else the mismatch is silent and just worse.
+    void drawBlssProvenanceDrift();
     // "Will this scene benefit at all?" - the answer --blss-eval already
     // contains and used to bury in a table. Reads the oracle row, which is the
     // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
-    // can beat a bound of zero.
-    void drawBlssVerdict();
+    // can beat a bound of zero. `compact` drops the explanatory paragraphs for
+    // the header, where the same verdict has to sit above six tabs.
+    void drawBlssVerdict(const blssui::EvalSummary& sum, bool compact);
+    // bilinear | BLSS | the amplified difference, click-through to Compare.
+    void drawBlssVerdictThumbs();
     void drawBlssOutput(float height);
     void drawBlssTrainTab();
     void drawBlssEvalTab();
@@ -691,22 +706,58 @@ private:
     // lands - the giBakerPoll rule.
     void blssPoll();
     void blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs);
+    // Pressed from the Train tab AND from the verdict, so the argument list is
+    // built once - two copies is how one of them stops passing --all-shots.
+    void blssStartTraining();
+    void blssRestoreTrainDefaults();
+    // The four tabs each carry their own frame count and are only comparable
+    // when they agree; this says so when they have drifted.
+    void drawBlssFrameDrift(int mine);
     std::vector<std::string> blssCommonArgs() const;
     std::string blssNetPath() const;
     void blssRefreshNetStatus();
     static void blssWriteNetSidecar(const std::string& netPath, const std::string& command);
     void blssReloadImages();
     void blssReleaseImages();
+    // The amplified |A-B| view of the Compare tab, built on the CPU from the
+    // two loaded PNGs. A 0.4 dB gap is invisible side by side and obvious at
+    // 8x, which is why this is the one view worth adding.
+    void blssRebuildDiff();
+    // How many camera moves the corpus is expected to have - 13 for the
+    // bestiary, six per scene for a project. Only the cross-validation cost
+    // estimate needs it (its fold count defaults to one per shot).
+    int blssExpectedShots() const;
+    // How much GS VRAM the reduced render hands back on THIS project's raster,
+    // and the honest answer for 1x2, which is "nothing".
+    std::string blssVramLine(const ProjectSettings& s) const;
     // THE BUILD'S OWN INTERLOCK, mirrored live. blssClashes() in templates.cpp
     // emits an #error for each of these, so the dialog and the build must
     // answer alike; this is the ONE mirror, called by both Project >
     // Preferences (staged settings) and the BLSS window (live ones).
+    //
+    // It carries the NAMES now, not four bools. "A Set Depth Of Field flow node
+    // turns it on at runtime" is not actionable on a ten-scene project - the
+    // walk in blssClashesFor() has the scene and the object in hand and used to
+    // throw both away - so each clash is a list of what caused it, and each
+    // entry can be selected and framed.
+    struct BlssClashRef {
+        int scene = -1;
+        int object = -1;  // -1 when the clash is a property of the scene itself
+        std::string label;  // "scene > object", or just the scene name
+    };
     struct BlssClash {
-        bool dof = false, dofNode = false, portals = false, split = false;
-        bool any() const { return dof || dofNode || portals || split; }
+        std::vector<BlssClashRef> dof, dofNode, portals, split;
+        bool any() const {
+            return !dof.empty() || !dofNode.empty() || !portals.empty() || !split.empty();
+        }
     };
     BlssClash blssClashesFor(const ProjectSettings& staged) const;
-    void drawBlssClashWarning(const BlssClash&);
+    // `informational` styles the block as a note rather than a warning, for the
+    // case that matters most: someone EVALUATING whether to turn the feature on
+    // has to be able to see what would stop them before they turn it on.
+    void drawBlssClashWarning(const BlssClash&, bool informational);
+    // Switch to that scene, select that object and put the camera pivot on it.
+    void blssSelectClash(const BlssClashRef&);
     // The five project settings and their tooltips, drawn from one place by
     // both Preferences and the window. Returns true when something changed.
     bool drawBlssSettings(ProjectSettings& s);
@@ -1565,18 +1616,37 @@ private:
     int blssFeatFrames_ = 156;
     // Parsed out of the last run of each kind - never computed here.
     blssui::EvalTable blssEval_;
+    // THE VERDICT'S NUMBERS, from the last Evaluate or "will this scene
+    // benefit" run. Taken from the tool's own machine-readable `[blss] verdict`
+    // line when it is there and re-derived from the parsed table when it is
+    // not, so an older binary still answers.
+    blssui::EvalSummary blssSummary_;
     blssui::CvTable blssCv_;
     blssui::FeatureTable blssFeat_;
-    // The comparison PNGs --blss-eval --dump wrote, as GL textures.
+    // Which tab to force open next frame (-1 = leave it alone). The verdict's
+    // thumbnails are click-through to Compare, and a strip that showed the
+    // pictures but could not get you to them would be decoration.
+    int blssTabSelect_ = -1;
+    // The comparison PNGs --blss-eval --dump wrote, as GL textures. The PIXELS
+    // are kept as well, because the difference view is computed from them on
+    // the CPU - ~900 KB each at 512x448, nine of them.
     struct BlssImage {
         std::string label, tip, path;
         unsigned tex = 0;
         int w = 0, h = 0;
+        std::vector<unsigned char> px;  // RGBA, w*h*4
     };
     std::vector<BlssImage> blssImages_;
     bool blssImagesDirty_ = true;
     int blssImgA_ = 0, blssImgB_ = 0, blssImgMode_ = 0;
     float blssWipe_ = 0.5f, blssZoom_ = 1.0f;
+    // |A-B| amplified. Rebuilt when the pair or the amplification changes, and
+    // never per frame - it is a full-image CPU pass.
+    unsigned blssDiffTex_ = 0;
+    int blssDiffW_ = 0, blssDiffH_ = 0;
+    int blssDiffA_ = -1, blssDiffB_ = -1;
+    float blssDiffAmp_ = 8.0f, blssDiffAmpBuilt_ = -1.0f;
+    double blssDiffPeak_ = 0.0, blssDiffMean_ = 0.0;  // the honest scale of the gap
 
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;

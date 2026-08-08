@@ -48,6 +48,30 @@ the verification, and any fact worth reusing belongs in the relevant
     (34%)** - each step reads the weights the previous one wrote, so `--threads`
     cannot touch it. Not worth a GPU at 6 seconds; if the cycle needs to be
     faster, the oracle's coordinate descent is still more than half of it.
+  - **DONE: the window answers "should I turn this on" in one click, and every
+    long button says what it costs.** The window was built by its author and read
+    like it: it told the user to "run the Evaluate tab before turning this on"
+    and Evaluate could not run without a `blss.net` that only Train could
+    produce. Above the tabs now: **`Will this scene benefit?`**, a NET-FREE
+    `--blss-eval` whose oracle row is the scene's ceiling, rendered as *THIS
+    SCENE WILL NOT BENEFIT* or *Headroom: +0.95 dB available at 1.22 passes* with
+    a *Train the network* button under it. Plus: an **ETA** on Train / Evaluate /
+    Cross-validate (`blssui::estimate`, calibrated against seven timed runs, all
+    within 17%); the Train tab down to **Frames and Epochs** with the six
+    research knobs behind an *Advanced* header, tooltips verbatim; clash warnings
+    that **name the scene and object** and carry a `Select it` button, and that
+    are shown whether the feature is on or off; a **live VRAM line** under the
+    Render scale combo computed for this project's own raster - which is how
+    "**1x2 hands back exactly nothing**" got written down for the first time
+    (z shrinks by precisely what the low-res target costs, at every output size);
+    a **difference view** (|A-B| x8) on the Compare tab with a three-thumbnail
+    strip under the verdict; and the smaller ones - 123 weights instead of 500
+    bytes, a retrain warning when the net's `.args` sidecar disagrees with the
+    project's sharpen or scale, *Restore defaults* covering every field, and a
+    warning when the four tabs' frame counts drift apart. Driven end to end with
+    `--ui-script` on two fixtures and screenshotted; the arithmetic additionally
+    checked from a host-only harness. Still unseen: the finished cross-validation
+    table and the error banner.
   - **DONE: `--blss-eval` is 4.6x faster, `--cv` 1.23x, and all of it is
     BIT-EXACT.** That was the other half of the item above - the TRAIN cycle got
     threaded, the EVALUATE cycle did not, and a plain `--blss-eval` was ~80% one
