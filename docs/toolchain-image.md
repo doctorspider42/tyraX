@@ -2479,6 +2479,38 @@ the target was wrong: `cull_d vertexLoop` was named here as the immovable block 
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
 
+### Does the parity generalise? Two scenes say yes, and three say nothing at all
+
+The parity result above came from one scene. That scene runs **two programs out of seventy**, so
+generalising from it would have been exactly the mistake this file has already made twice. A
+second scene was measured, and - the part worth copying - **every scene was measured with a
+sensitivity control**: the pre-fix build as a third arm, purely to answer *can this scene detect
+the difference at all*.
+
+| scene | Sony | pre-fix | post-fix | verdict |
+|---|---:|---:|---:|---|
+| fresh fpp, 128x128 terrain, VU1 clipper | 100.4 | 78.3 | **99.5** | sensitive; **parity** |
+| `procedural`, 25 objects / 22 models / 1.1 MB of geometry | 87.84 | 75.21 | **87.38** | sensitive; **parity** |
+| `day-night`, models + lights, 32x32 terrain | 99.0 | 98.83 | 99.66 | **blind** - the fix is worth +0.8% here against +27% on the terrain scene |
+| `raytraced-mirror`, VU1 clipper, light | 52.5 | - | 52.4 | blind |
+| `vu-lab`, precise clipper | 86.96 | - | 86.97 | blind - never uploads the clip programs at all |
+
+**Three of the five scenes cannot see a 27% difference.** A "parity" reading from any of them is
+not a result, it is a measurement of nothing - and `day-night` in particular *looks* like a
+perfect confirmation (99.78/98.28 against 99.14/99.52) while its own control shows it registers
+0.8% of a change worth 27% elsewhere. Take a sensitivity control on every perf scene here, or the
+number will eventually agree with whatever you hoped.
+
+What the two sensitive scenes do establish: the deficit was **-21% and -14.4%** on different
+geometry mixes, and after the clip-window fix both are within 1% of Sony's `vcl`. The second
+scene is model-heavy rather than terrain-heavy, so it exercises paths the first never touches.
+
+**Still not isolated on hardware:** `cull_d`/`cull_td` specifically - the lit-model class, whose
+per-iteration gap to SCE is 43% (169/173 cycles against 118/123) and which every arm of every
+exchange rate produced an identical schedule for. `procedural` covers the lit path in a mix; a
+scene that is *only* lit high-poly models would size that family on its own, and nothing here
+does that yet.
+
 ### The same mistake, looked for everywhere else
 
 The bug is a category, not an instance: **a resource the compiler treats as "a later write kills
