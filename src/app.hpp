@@ -14,6 +14,7 @@
 
 #include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
+#include "blss_ui.hpp"  // the Neural Upscaler window's job + parsed tables
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
@@ -661,6 +662,44 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+
+    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
+    // Training, evaluation, cross-validation, the input-channel report, the
+    // comparison images and the emit step, all of which used to be CLI-only.
+    // Every run is a subprocess of the editor's own binary (blss_ui.hpp says
+    // why) and every number drawn is parsed out of its output.
+    void drawBlssWindow();
+    void drawBlssHeader();
+    void drawBlssOutput(float height);
+    void drawBlssTrainTab();
+    void drawBlssEvalTab();
+    void drawBlssCvTab();
+    void drawBlssImagesTab();
+    void drawBlssFeaturesTab();
+    // Picks up a finished run. Called every frame from drawUI, NOT from the
+    // window body, so a training run that ends while the tab is shut still
+    // lands - the giBakerPoll rule.
+    void blssPoll();
+    void blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs);
+    std::vector<std::string> blssCommonArgs() const;
+    std::string blssNetPath() const;
+    void blssRefreshNetStatus();
+    static void blssWriteNetSidecar(const std::string& netPath, const std::string& command);
+    void blssReloadImages();
+    void blssReleaseImages();
+    // THE BUILD'S OWN INTERLOCK, mirrored live. blssClashes() in templates.cpp
+    // emits an #error for each of these, so the dialog and the build must
+    // answer alike; this is the ONE mirror, called by both Project >
+    // Preferences (staged settings) and the BLSS window (live ones).
+    struct BlssClash {
+        bool dof = false, dofNode = false, portals = false, split = false;
+        bool any() const { return dof || dofNode || portals || split; }
+    };
+    BlssClash blssClashesFor(const ProjectSettings& staged) const;
+    void drawBlssClashWarning(const BlssClash&);
+    // The five project settings and their tooltips, drawn from one place by
+    // both Preferences and the window. Returns true when something changed.
+    bool drawBlssSettings(ProjectSettings& s);
 
     // Tools > VU Programs (vu_ui.cpp, docs/vu-authoring.md).
     void drawVuProgramsWindow();
@@ -1458,6 +1497,60 @@ private:
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
+    // One job at a time: every verb here saturates the machine, so a second
+    // would only make both slower.
+    bool showBlss_ = false;
+    blssui::Job blssJob_;
+    uint64_t blssJobSeen_ = 0;
+    std::string blssPendingNet_;  // the net a running --blss-train will write
+    std::string blssLastError_;
+    // Negative so the very first frame the window is drawn refreshes rather
+    // than waiting out the throttle - "no network" is the one thing this
+    // window must never say wrongly.
+    double blssStatusChecked_ = -1.0e9;
+    float blssOutputH_ = 150.0f;
+    // What the project's network is, and where it came from. A blss.net is a
+    // bare list of floats and records nothing about how it was made, so the
+    // provenance is a sidecar this editor writes next to the net it trained;
+    // a net newer than its sidecar reports "unknown" rather than a stale one.
+    bool blssNetPresent_ = false;
+    bool blssNetArgsStale_ = false;
+    size_t blssNetBytes_ = 0;
+    std::string blssNetWhen_, blssNetArgs_;
+    char blssNetName_[128] = "blss.net";
+    char blssAssets_[512] = {};
+    // Train
+    int blssTrainFrames_ = 156, blssTrainEpochs_ = 400;
+    unsigned blssTrainSeed_ = 0xB1557u;
+    float blssTrainDecay_ = 1e-4f, blssTrainFill_ = 16.0f, blssTrainFlicker_ = 0.0f;
+    bool blssTrainAllShots_ = false, blssTrainStandardise_ = false;
+    // Evaluate
+    int blssEvalFrames_ = 156;
+    float blssEvalDeadzone_ = 8.0f;
+    bool blssEvalDump_ = true;
+    std::string blssDumpDir_;
+    // Cross-validate
+    int blssCvFrames_ = 156, blssCvEpochs_ = 400, blssCvSeeds_ = 1, blssCvFolds_ = 0;
+    bool blssCvSweep_ = false;
+    char blssCvSweepList_[128] = "0,1,2,3,4,6,8,12,16,24";
+    // Inputs
+    int blssFeatFrames_ = 156;
+    // Parsed out of the last run of each kind - never computed here.
+    blssui::EvalTable blssEval_;
+    blssui::CvTable blssCv_;
+    blssui::FeatureTable blssFeat_;
+    // The comparison PNGs --blss-eval --dump wrote, as GL textures.
+    struct BlssImage {
+        std::string label, tip, path;
+        unsigned tex = 0;
+        int w = 0, h = 0;
+    };
+    std::vector<BlssImage> blssImages_;
+    bool blssImagesDirty_ = true;
+    int blssImgA_ = 0, blssImgB_ = 0, blssImgMode_ = 0;
+    float blssWipe_ = 0.5f, blssZoom_ = 1.0f;
 
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;

@@ -2632,6 +2632,16 @@ int main(int argc, char** argv) {
     // The neural upscaler's host side (docs/neural-upscaler.md). Headless like
     // --bake-gi: no display, no Project - the network is trained on a
     // procedural corpus and baked into the game as a header.
+    //
+    // UNBUFFERED, because these three are the only commands here that report
+    // PROGRESS over minutes and the only ones something else watches. A C
+    // stdout writing to a PIPE is block-buffered, so `--blss-train | tee`, a
+    // CI log and the editor's own Neural Upscaler window all saw nothing at all
+    // until the process exited and then the whole run at once - a corpus
+    // render, an oracle pass and 400 epochs arriving as one lump. Total output
+    // is a couple of kilobytes, so there is nothing to pay for it with.
+    if (argc > 1 && std::strncmp(argv[1], "--blss-", 7) == 0)
+        std::setvbuf(stdout, nullptr, _IONBF, 0);
     if (argc > 1 && std::strcmp(argv[1], "--blss-train") == 0)
         return blss::trainMain(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--blss-eval") == 0)

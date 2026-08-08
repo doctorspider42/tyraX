@@ -874,6 +874,8 @@ void App::drawUI() {
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    blssPoll();
+    drawBlssWindow();
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
@@ -1571,6 +1573,13 @@ void App::drawMenuBar() {
                     "Ambient / drone music generator: audition a patch live,\n"
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Train, cross-validate and inspect the reduced-resolution\n"
+                    "reconstruction network, and look at the pictures it makes.\n"
+                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                    "without a terminal. Proof of concept - read the notes.");
             ImGui::Separator();
             // Lives in the Ambience Editor now; the menu item still works
             // and simply opens that window on its GI tab.
@@ -4222,6 +4231,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
+    if (key == "blss") return &showBlss_;
     return nullptr;
 }
 
@@ -4244,7 +4254,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat"};
+    "credits",  "vu",       "chat",     "blss"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -13560,242 +13570,22 @@ void App::drawPreferencesModal() {
     // The neural upscaler (docs/neural-upscaler.md). Project-wide and baked at
     // build time, like custom screen effects: no per-scene override, no flow
     // node. Off by default and honest about the trade in every tooltip.
+    //
+    // The widgets, the tooltips AND the build-interlock warning live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws exactly the
+    // same block. They used to be inlined here, which made this dialog the one
+    // mirror of templates.cpp's blssClashes(); a second window would have made
+    // it two mirrors, and two mirrors of an interlock drift the day either is
+    // touched. The staged settings go in, so the warning answers for what the
+    // modal will apply and not for what is on disk.
     ImGui::SeparatorText("Neural upscaler (BLSS)");
-    // What it cannot be combined with, checked against the STAGED settings for
-    // the project-wide half and the live scenes for the per-scene half.
-    //
-    // THESE ARE THE BUILD'S OWN CONDITIONS. blssClashes() in src/templates.cpp
-    // emits a #error into inc/scene_data.hpp for each of them, so the build
-    // REFUSES the combination now - this dialog is no longer the interlock, it
-    // is the early warning that stops someone reaching a refused build. The two
-    // must therefore answer alike: a dialog that is quieter than the build lets
-    // a user walk into a wall of #error, and one that is louder cries wolf on a
-    // project that would have built. Mirrored rather than shared because
-    // blssClashes() reads a saved Project and this has to answer for the STAGED
-    // settings while the modal is open; if you edit one, edit the other.
-    //
-    // The list is SHORTER than it was when this block was written. Env maps,
-    // camera feeds and projected shadows used to restore the display buffer
-    // from inside renderScene() and so silently cancelled the redirect for the
-    // rest of the frame; they restore the previous RasterTarget now and nest
-    // correctly, so they are not warned about and must not be. What is left is
-    // the three features that want real GS depth at DISPLAY resolution, which
-    // the engine does not even allocate any more - the z buffer follows the
-    // reduced raster. Split screen fails a second way as well (its frame is
-    // never bracketed at all), and the warning says which, because "it will be
-    // wrong" sends nobody anywhere useful.
-    //
-    // Every condition is the one the GENERATED GAME takes, not the coarser
-    // question "does this project mention the feature at all":
-    //   - depth of field per SCENE (a scene can override the whole post-fx
-    //     group), quantised the way POSTFX_DOFS is and gated on a non-zero
-    //     focus distance, because applyPostFx runs the pass only for
-    //     `dof > 0 && dofFocus > 0`;
-    //   - ...AND the Set Depth Of Field flow node, which raises it at RUNTIME in
-    //     a project whose authored amount is 0 everywhere. This warning missed
-    //     that for as long as it existed, which is a broken picture with nothing
-    //     said about it;
-    //   - a portal only when its target resolves to another Portal in the same
-    //     scene: renderPortalView skips target < 0, so an unlinked portal is a
-    //     tinted surface and no clash;
-    //   - split screen only when the preference AND a scene with a second Player
-    //     object, which is what PLAYER2_INDEXES gates the split branch on. A
-    //     project set to split with no player two anywhere never renders a split
-    //     frame, and this used to warn about it anyway.
-    //
-    // POSTFX_DOFS stores the amount in 1/128ths, so an amount under 1/128 is
-    // depth of field that never draws.
-    auto blssDofActive = [](float amount, float focus) {
-        return (int)(amount * 128.0f + 0.5f) > 0 && focus > 0.0f;
-    };
-    const bool blssSplitPref = prefSettings_.multiplayer == "split";
-    bool blssDof = false;      // an authored amount, project-wide or per scene
-    bool blssDofNode = false;  // ...or a Set Depth Of Field node that turns it on
-    bool blssPortals = false;
-    bool blssSplit = false;
-    if (hasProject_) {
-        for (const SceneData& sc : project_.scenes) {
-            // project::resolvedSettings()' post-fx branch, against the STAGED
-            // project settings: dofAmount/dofFocus come from the scene only
-            // when it overrides that group, and nothing else in that function -
-            // the ambience preset overlay included - touches either field.
-            const ProjectSettings& fx =
-                sc.overrides.postFx ? sc.settings : prefSettings_;
-            if (blssDofActive(fx.dofAmount, fx.dofFocus)) blssDof = true;
-            int players = 0;
-            for (const SceneObject& o : sc.objects) {
-                if (o.type == PrimitiveType::Player) ++players;
-                if (o.type == PrimitiveType::Portal && !o.portalTarget.empty())
-                    for (const SceneObject& t : sc.objects)
-                        if (&t != &o && t.type == PrimitiveType::Portal &&
-                            t.name == o.portalTarget)
-                            blssPortals = true;
-                // Mode 1 turns depth of field off and mode 2 restores the
-                // scene's authored value (which the loop above already caught
-                // when it is non-zero), so only mode 0 sets its own. The amount
-                // is a literal in the emitted code - nothing can wire it - but a
-                // wired POSITION replaces Focus with the live player-to-point
-                // distance, which is > 0.
-                for (const FlowNode& n : o.flowGraph.nodes) {
-                    if (n.type != "SetDof" || (int)n.num[3] != 0) continue;
-                    bool posWired = false;
-                    for (const FlowLink& l : o.flowGraph.links)
-                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
-                    if (blssDofActive(n.num[2], posWired ? 1.0f : n.num[0]))
-                        blssDofNode = true;
-                }
-            }
-            if (blssSplitPref && players >= 2) blssSplit = true;
-        }
-    }
-    ImGui::Checkbox("Reconstruct from a reduced-resolution render",
-                    &prefSettings_.blssEnabled);
+    drawBlssSettings(prefSettings_);
+    if (ImGui::SmallButton("Open Tools > Neural Upscaler (BLSS)")) showBlss_ = true;
     prefHelp(
-        "Renders the 3D SCENE at reduced resolution into its own GS target,\n"
-        "then reconstructs the display buffer from it: a small neural network\n"
-        "trained on the host picks, per 32x32 screen tile, how much crisp\n"
-        "point sampling, previous frame and sharpening to blend. The HUD,\n"
-        "the menus, the text and every post effect still draw at FULL\n"
-        "resolution, so 2D stays crisp.\n"
-        "\n"
-        "PROOF OF CONCEPT, and worth knowing BEFORE you turn it on. On content\n"
-        "it was NOT trained on it beats a plain bilinear upscale by +0.40 dB -\n"
-        "leave-one-shot-out cross-validation, 13 shots x 3 seeds = 39 fold-runs,\n"
-        "sd 0.40, and 5 of those 39 still came out below bilinear. Over the six\n"
-        "shots that took no part in choosing the defaults it is +0.23 dB. It\n"
-        "is a real win and a modest one, and it is not uniform: on an indoor\n"
-        "corridor it LOSES half a decibel. No BLSS frame has ever been TIMED,\n"
-        "in the emulator or on hardware, so whether it is faster on your scene\n"
-        "is genuinely unknown, and nobody has watched the picture in PCSX2\n"
-        "since the training objective last changed.\n"
-        "\n"
-        "VRAM it gives back: the z-buffer shrinks with the render, which\n"
-        "returns more than the reduced-resolution target costs (measured at\n"
-        "PAL 512x512: 0.227 MB of texture VRAM free with this off, 0.727 MB\n"
-        "with it on). Fill it costs: up to five full-screen composite passes,\n"
-        "which is more than the reduced render saves whenever the network\n"
-        "asks for every kernel everywhere.\n"
-        "\n"
-        "Reflections, camera feeds and projected shadows work with it - they\n"
-        "used to switch it off in the middle of the frame. Depth of field,\n"
-        "portals and split-screen do not, and the BUILD REFUSES the pair: the\n"
-        "generated scene_data.hpp carries an #error naming the feature and the\n"
-        "scene it is in. The warning below is the same check, live.\n"
-        "\n"
-        "Train the network with 'tyrax-editor --blss-train' in the project\n"
-        "directory, then check it with '--blss-eval --cv' - plain '--blss-eval'\n"
-        "holds out one fixed split, which is a sample of size one. Without a\n"
-        "blss.net the game is built with random weights and says so in its\n"
-        "boot log.");
-    if (prefSettings_.blssEnabled) {
-        ImGui::TextColored(
-            ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-            "    Proof of concept. On content it was not trained on it beats a\n"
-            "    plain bilinear upscale by +0.40 dB (13-shot cross-validation,\n"
-            "    39 fold-runs, sd 0.40; 5 of the 39 came out below bilinear),\n"
-            "    but no frame of it has ever been timed on console or hardware.\n"
-            "    Run 'tyrax-editor --blss-eval --cv' and look at the result in\n"
-            "    PCSX2 before you ship a game with this on.");
-    }
-    if (prefSettings_.blssEnabled &&
-        (blssDof || blssDofNode || blssPortals || blssSplit)) {
-        const ImVec4 warn(1.0f, 0.6f, 0.2f, 1.0f);
-        ImGui::TextColored(warn,
-                           "    Cannot be combined with what this project uses,\n"
-                           "    and the BUILD WILL REFUSE IT:");
-        if (blssDof || blssDofNode)
-            ImGui::TextColored(
-                warn,
-                "      - Depth of field composites its blur through the GS depth\n"
-                "        test at display resolution, and with this on the depth\n"
-                "        buffer is only as big as the reduced render.");
-        if (blssDofNode)
-            ImGui::TextColored(
-                warn,
-                blssDof ? "          ...and a Set Depth Of Field flow node turns it\n"
-                          "          on at runtime as well: set that node's Mode to\n"
-                          "          Off, or delete it."
-                        : "          The authored amount is 0, but a Set Depth Of\n"
-                          "          Field flow node turns it ON at runtime. Set\n"
-                          "          that node's Mode to Off, or delete it.");
-        if (blssPortals)
-            ImGui::TextColored(
-                warn,
-                "      - Portals want that same display-resolution depth, and a\n"
-                "        through-view carves its opening from inside the scene\n"
-                "        pass with a display-sized raster window. Only a LINKED\n"
-                "        pair renders one, so unlinking is a fix too.");
-        if (blssSplit)
-            ImGui::TextColored(
-                warn,
-                "      - Split-screen frames are never reduced at all (only the\n"
-                "        single-view path is), and scene depth writes are masked\n"
-                "        outside the reduced pass - so both halves would render\n"
-                "        full-resolution with no working depth buffer.");
-        ImGui::TextColored(warn,
-                           "    Turn one of the two off; either side resolves it.");
-    }
-    ImGui::BeginDisabled(!prefSettings_.blssEnabled);
-    {
-        int blssScale = prefSettings_.blssScale == 1 ? 1 : 0;
-        const char* blssScaleNames[] = {
-            "2x2 - quarter the pixels (256x224 of a PAL 512x448 frame)",
-            "1x2 - half height only (keeps horizontal detail; cheaper to "
-            "reconstruct)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Render scale", &blssScale, blssScaleNames, 2))
-            prefSettings_.blssScale = blssScale;
-        prefHelp(
-            "How much of the frame the GS actually rasterises. 2x2 quarters\n"
-            "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
-            "own interlaced-field mode already does to the raster - softer\n"
-            "vertically, untouched horizontally.\n"
-            "The z-buffer is allocated at THIS size, so on a 512x448 output\n"
-            "2x2 hands 672 KB of VRAM back and 1x2 hands back 448 KB.\n"
-            "Train the network at the scale you ship: 'tyrax-editor\n"
-            "--blss-train --scale-1x2' for the second option. A blss.net is\n"
-            "147 bare floats and records nothing about how it was trained, so\n"
-            "a mismatch here costs quality without saying anything.");
-
-        ImGui::SetNextItemWidth(scaled(120));
-        ImGui::DragFloat("Sharpen strength", &prefSettings_.blssSharpen, 0.01f,
-                         0.0f, 1.0f, "%.2f");
-        prefSettings_.blssSharpen =
-            std::clamp(prefSettings_.blssSharpen, 0.0f, 1.0f);
-        prefHelp(
-            "The k of the unsharp mask that recovers detail the reduced\n"
-            "render lost. The network decides WHERE to sharpen; this decides\n"
-            "how hard. 0 = never sharpen (the two extra composite passes are\n"
-            "then skipped everywhere, which is also the cheapest setting).");
-
-        ImGui::Checkbox("Temporal reuse (reproject the previous frame)",
-                        &prefSettings_.blssTemporal);
-        prefHelp(
-            "Lets the network blend in the previously presented frame,\n"
-            "reprojected per grid vertex. This is where the anti-aliasing\n"
-            "comes from - two sub-pixel jitter phases averaged is a real 2x\n"
-            "supersample, and the GS has no MSAA to offer instead. Off =\n"
-            "spatial only: no ghosting on fast motion, and no AA either.\n"
-            "It is also the switch to reach for if the picture SHAKES. A\n"
-            "visible sub-pixel bob was seen in the emulator before the\n"
-            "training objective was retuned; the host's stability metric\n"
-            "improved with the retune, but nobody has watched a television\n"
-            "since, so it is neither confirmed fixed nor confirmed present.");
-
-        int blssDebug = prefSettings_.blssDebugView == 1 ? 1 : 0;
-        const char* blssDebugNames[] = {
-            "Off", "Tint by winning kernel (red = point, green = temporal, "
-                   "blue = sharpen)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Debug view", &blssDebug, blssDebugNames, 2))
-            prefSettings_.blssDebugView = blssDebug;
-        prefHelp(
-            "Paints each tile by the reconstruction the network chose there -\n"
-            "the fastest way to see whether it is making sensible decisions\n"
-            "on your content. Ships in the build, so turn it off before you\n"
-            "hand the game to anyone.");
-    }
-    ImGui::EndDisabled();
+        "Train the network, cross-validate it, look at the pictures it makes\n"
+        "and at what its input channels look like - everything --blss-train,\n"
+        "--blss-eval and --blss-emit do, without a terminal, on a worker that\n"
+        "leaves the editor usable.");
 
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
