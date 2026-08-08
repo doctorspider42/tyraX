@@ -35,15 +35,17 @@ the verification, and any fact worth reusing belongs in the relevant
     - "it saves nothing, the frames are EE-bound" - came from one low-fill
     fixture plus a **discriminator that does not work**: `drain ~ 0` does not
     mean EE-bound, because GS backpressure stalls the EE inside the submission.
-    Break-even is ~22 full-screen coverages. Four bit-identical EE cuts landed
-    with it, worth **1.96 ms on hardware** (7.92 -> 5.95). See profiling.md.
-  - **Re-tune `examples/upscaler-lab`.** It runs at **1.9 FPS on a console**
-    with BLSS off and 6.3 with it on. It was tuned against PCSX2, which
-    under-reports GS fill by 76x, so its haze is roughly two orders of magnitude
-    past what the hardware can draw. Excellent stress case, unshippable demo -
-    it needs a bank/particle count chosen against hardware, plus a second
-    fixture that is GS-bound *and* inside the 20 ms budget, which is the shape a
-    real project would have.
+    Break-even is ~13 full-screen coverages (BLSS keeps 25.9 % of the fill -
+    `blssScale 0` is quarter-area, not half). Four bit-identical EE cuts landed
+    with it, worth **1.96 ms on hardware** (7.92 -> 5.95), and the activation
+    table another **1.14** (-> 5.02). See profiling.md.
+  - **DONE - `examples/upscaler-lab` re-tuned against hardware.** It ran at
+    **1.9 FPS** with BLSS off because it had been tuned against PCSX2, which
+    under-reports GS fill by 76x. Now 6 banks x 32 billboards instead of
+    12 x 256: **52.86 ms off / 32.98 ms on = 18.9 -> 30.3 FPS, 1.60x**,
+    n = 1024 paired frames. It cannot go faster in the BLSS-on arm than ~40 FPS
+    - the scene's non-haze floor is 24.8 ms with BLSS on - and thinning the haze
+    further only shrinks the win.
   - **The activation table is still one decision away**, and it is a TWO-LINE
     commit that must move both twins at once: `TYRA_BLSS_ACT_TABLE` 0 -> 512 in
     `vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp`, and

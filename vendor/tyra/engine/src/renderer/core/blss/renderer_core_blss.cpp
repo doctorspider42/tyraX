@@ -92,11 +92,13 @@ static inline float clamp01(float v) {
 //
 // Until 2026-08-08 actTanh/actLogistic were never CALLED - the table was
 // landed, hashed, documented and dead, and runNet() went straight to
-// tanhf/expf. It is wired now, so the switch below is a real switch; it still
-// SHIPS AT 0, because the host's default is `--act-table 0` (src/blss.cpp) and
-// the two must move together.
+// tanhf/expf. It is wired now, and since 2026-08-08 it SHIPS AT 512, together
+// with the host's `--act-table` default in src/blss.cpp. The two numbers are
+// one number: a one-sided flip is silent twin divergence, which is the exact
+// failure docs/blss-reconstruction.md exists to prevent. Never move one
+// without the other, in the same commit.
 #ifndef TYRA_BLSS_ACT_TABLE
-#define TYRA_BLSS_ACT_TABLE 0  // 0 = libm (the host's default); 512 = table
+#define TYRA_BLSS_ACT_TABLE 512  // 0 = libm; 512 = table (the host's default)
 #endif
 
 #if TYRA_BLSS_ACT_TABLE

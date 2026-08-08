@@ -1424,9 +1424,11 @@ struct CliOpts {
     // 72) and nobody had ever measured what it costs.
     int tile = kTile;
     // --act-table N: replace tanh/exp with an N-interval shared table
-    // (blss.hpp, actTanh). 0 = libm, which is what ships until the engine twin
-    // exists.
-    int actTable = 0;
+    // (blss.hpp, actTanh). 0 = libm; 512 is the default and the shipped value.
+    // THIS NUMBER IS THE ENGINE'S TYRA_BLSS_ACT_TABLE
+    // (renderer_core_blss.cpp). They are one number in two files and they move
+    // in the same commit - a one-sided flip is silent twin divergence.
+    int actTable = 512;
 };
 
 CliOpts parseCli(int argc, char** argv) {
@@ -1650,7 +1652,7 @@ void applySweepKnobs(const CliOpts& o) {
             std::printf(
                 "blss: activation TABLE, %d intervals over [-%g, +%g], Q15, nearest, "
                 "hash 0x%08X - tanh AND the logistic, no libm and no divide. The "
-                "engine twin does not have this yet.\n",
+                "engine twin runs the same table (TYRA_BLSS_ACT_TABLE).\n",
                 o.actTable, static_cast<double>(kActRange), static_cast<double>(kActRange),
                 actTableHash());
         }

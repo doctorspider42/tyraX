@@ -1489,12 +1489,11 @@ constexpr float kTicksPerMs = 294912.0F;
 constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
 
 u32 work[kWindow], drain[kWindow];
-u32 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
-// The split of the two big EE terms - proxy feed / reprojection / features /
-// MLP / packet build. The first A/B read the composite's EE half off ONE
-// counter and got "~3.9 ms of scene submission" by SUBTRACTION, which is not
-// a measurement; these make both attributable.
-u32 sPrx = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
 int n = 0;
 u32 frame = 0;  // frames since boot - the alignment key between runs A and B
 u32 raw[kRaw];
@@ -1508,7 +1507,12 @@ u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
 u32 pPrx = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
-inline float ms(u32 ticks, int count) {
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
   return (float)ticks / (kTicksPerMs * (float)count);
 }
 
@@ -1575,7 +1579,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   n = 0;
 
   u32 sorted[kWindow];
-  u32 sumW = 0, sumD = 0;
+  u64 sumW = 0, sumD = 0;
   int over = 0;
   for (int k = 0; k < kWindow; k++) {
     sorted[k] = work[k];
@@ -1603,10 +1607,10 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
            (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
   TYRA_LOG(line);
-  // The attribution line. proxy is charged inside StaPipCore (scene
-  // submission, NOT the composite); the other four are the composite's EE
-  // half split at its four phases, so reproj+feat+net+pkt should reconstruct
-  // comp's EE figure above to within the counters' own overhead.
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
   snprintf(line, sizeof(line),
            "FTSPLIT f=%lu proxy=%.2f reproj=%.2f feat=%.2f net=%.2f pkt=%.2f",
            (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),

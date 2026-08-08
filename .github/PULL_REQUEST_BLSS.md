@@ -3,8 +3,26 @@
 Nineteen commits. The 3D scene renders into a **half-resolution GS target**; a
 small neural network, trained on the host and baked into the game as 123 floats,
 decides per **32×32 screen tile, every frame**, how that image is blown up to the
-display buffer and how much of the previous frame to reuse. Off by default,
-proof of concept.
+display buffer and how much of the previous frame to reuse. Off by default —
+**because it is a large win above a break-even amount of overdraw and a straight
+loss below it**, and only your scene knows which side it is on.
+
+> **The one-paragraph result.** BLSS costs **5.02 ms of EE** per frame on a real
+> PlayStation 2 and returns **74 % of the scene's GS fill** (the raster is half
+> the linear resolution, so a quarter of the pixels). At the calibrated 0.587 ms
+> per full-screen alpha-blended textured pass, break-even is **a scene
+> rasterising more than about 13 full-screen coverages**. Measured on hardware,
+> on both sides of that line, with paired per-frame samples:
+>
+> | fixture | overdraw | BLSS off | BLSS on | d |
+> |---|---|---|---|---|
+> | `blssrig` — terrain + six slabs | a handful | 9.42 ms | 19.25 ms | **−9.83 ms** |
+> | `examples/upscaler-lab` — the haze demo | ~75 coverages | **52.86 ms** | **32.98 ms** | **+19.88 ms — 1.60x** |
+>
+> The regime is **heavy alpha-blended overdraw**: haze, smoke, layered
+> billboards. Not triangles, not texture size — coverage. `--blss-eval
+> <projectDir>` prints the image-quality ceiling before you spend an afternoon,
+> and needs no trained net to do it.
 
 It is not a super-resolution network. Nothing on a 147 MHz rasteriser pushes
 327 680 pixels through a net at 50 Hz. This is the *other* half of DLSS — the
@@ -206,20 +224,37 @@ actually here.
 
 Read this section before believing anything in the one above it.
 
-- **No BLSS frame has ever been timed.** Not in the emulator, not on hardware. No
-  profiling pass exists. Every performance statement in this PR — including all
-  the pass counts — is **fill arithmetic and host measurement**, never a
-  stopwatch. Occupancy is a count of grid cells, not a millisecond.
-- **No physical PlayStation 2 has ever run this.** Everything on-console was
-  observed in PCSX2's software renderer.
-- **Nobody has watched the picture since the objective was retuned.** The last
-  time a human watched it in an emulator, **the picture visibly oscillated** — a
-  stationary sub-pixel bob, which was traced to the jitter and not to
-  interlacing. The objective has since gained a fill term that culls exactly the
-  two passes which alternate with the jitter, and the host's flicker metric
-  improved with it, but **the oscillation is neither confirmed fixed nor
-  confirmed present**. That is a twenty-minute PCSX2 boot and it gates the
-  feature.
+- ~~**No BLSS frame has ever been timed.**~~ **Retired.** Frames are now timed on
+  a real PlayStation 2 with the frame-timing rig
+  ([profiling.md](../docs/profiling.md)) — paired per-frame `FTRAW` samples, two
+  runs per arm, all cross-pairings, camera parked so frame *k* of one arm shows
+  what frame *k* of the other does. What is still arithmetic rather than a
+  stopwatch is the **break-even coverage figure**: it is computed from the
+  measured EE bill, the measured 25.9 % fill-survival slope and the calibrated
+  0.587 ms/pass, not measured by sweeping a scene across the line.
+- ~~**No physical PlayStation 2 has ever run this.**~~ **Retired.** The console at
+  the other end of ps2link has run both arms of both fixtures. What remains
+  PCSX2-only is every **GS** figure taken there — the calibration gate says the
+  emulator under-reports fill by **76x**, so no PCSX2 fill number is admissible
+  for this feature. Its EE numbers transfer *in aggregate* and **not
+  per-function**: PCSX2 ranked `net` above `proxy`, hardware ranks them the other
+  way, and the activation table it valued at 2.11 ms was worth **1.14** on the
+  console. Attribute on hardware.
+- **The picture bobs with `blssJitter` on, and that is now confirmed by a
+  person**, not by a metric: three builds differing in nothing but these flags
+  were called steady / **"like an earthquake"** / steady, for BLSS-off /
+  jitter-on / jitter-off. `blssJitter` defaults to **`false`**. It is **not
+  fixed**, it is switched off — and `examples/upscaler-lab` deliberately keeps it
+  **on**, because its committed net is fitted with the jittered sampler and it is
+  the reference for the artefact. Set `"blssJitter": false` in that project's
+  `.tyra` before demonstrating it to anybody.
+- **The two halves of the activation table must move together.** Engine
+  `TYRA_BLSS_ACT_TABLE` and host `src/blss.cpp`'s `actTable` are one number in
+  two files. Both are now **512**. A one-sided flip is silent twin divergence,
+  which is the failure [`docs/blss-reconstruction.md`](../docs/blss-reconstruction.md)
+  exists to prevent; the parity check is `--blss-eval <projectDir> -i <net>`,
+  and it is unchanged across the flip (headline table identical, two per-shot
+  columns move by 0.001 dB).
 - **The editor window's layout has never been seen.** An earlier state of it was
   driven with `--ui-script` and screenshotted; everything added in the last
   commit — the header corpus switch, the Evaluate verdict block, the

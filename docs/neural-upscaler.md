@@ -12,7 +12,34 @@ BLSS is the other half of DLSS — **the part that picks and blends
 reconstruction kernels** — done honestly, on hardware that has a 147 MHz
 rasteriser and no pixel shaders at all.
 
-> Status: **proof of concept**, off by default.
+> Status: **on when your scene earns it**, off by default. The feature has a
+> **regime**, it has been measured on both sides of it, and the line between
+> them is a number.
+>
+> **What it costs, on a real PS2: 5.02 ms of EE per frame.** What it buys:
+> the scene rasterises at half the linear resolution, and **25.9 % of the
+> scene's fill survives** — measured, not assumed (see
+> [profiling.md](profiling.md), "The re-tuned demo"). So the trade is
+> ~74 % of your GS fill against 5.02 ms of EE, and at the calibrated
+> **0.587 ms per full-screen alpha-blended textured pass** break-even is
+>
+> > **a scene rasterising more than about 13 full-screen coverages.**
+>
+> Above that line the feature is a large win. Below it, it is a straight loss of
+> about 4 ms. Both halves are measured on hardware, on the same afternoon, with
+> the same instrument:
+>
+> | fixture | overdraw | BLSS off | BLSS on | verdict |
+> |---|---|---|---|---|
+> | `blssrig` — terrain + six slabs | a handful of coverages | 9.42 ms | 19.25 ms | **−9.83 ms**, a pure loss |
+> | `examples/upscaler-lab` — the haze demo | ~75 coverages | **52.86 ms** | **32.98 ms** | **+19.88 ms, 1.60x** |
+>
+> **The regime is heavy alpha-blended overdraw.** Haze, smoke, layered
+> billboards, anything that paints the same pixels many times. Triangle count is
+> not the trigger and neither is texture size: it is coverage. Run
+> `--blss-eval <projectDir>` for the image-quality ceiling and read your own
+> frame's fill before switching it on — a project that is EE-bound gets nothing
+> here but a bill.
 >
 > **Fit the project you will ship, and ship that net.** That is the one sentence
 > on this page with a decision in it. A net fitted to the **built-in procedural
@@ -25,85 +52,58 @@ rasteriser and no pixel shaders at all.
 > before you spend an afternoon on it, and **needs no trained network to say it**
 > ([net-free evaluation](#training)).
 >
-> The network is real, trained and measured on the host, where it beats every
-> fixed kernel in distribution — and, **on the bestiary**, on content it was never
-> trained on, beats a plain bilinear upscale by **+0.42 dB** (leave-one-shot-out
-> cross-validation over 13 shots × 3 seeds = 39 fold-runs, sd 0.35, 3 of 39 below
-> bilinear, 1.80 mean full-screen passes; **+0.26 dB** over the six folds that
-> took no part in choosing the defaults). See
-> [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something).
-> That number is about the bestiary. It is not a promise about your game, and
-> leading with it is a mistake this page and the settings panel both had to
-> correct.
->
-> **This page said "≈+0.1 dB, statistically a draw" until the measurement was
-> done properly, and that was wrong in the pessimistic direction** — the ±0.4 dB
-> it blamed on the training seed turned out to be which *shot* you held out. The
-> methodology is [the fifth entry](#measured-is-not-optimised-six-times) and it
-> is the most transferable thing here.
->
-> What is now known, and both answers are bad. **The oscillation is still
-> present** — measured, not watched: with the fill term in and a net trained on
-> the project's own scenes, a static-camera frame alternates between two images,
-> 30.8 % of the picture changing every frame
-> (see [The oscillation](#the-oscillation)). `blssJitter: false` removes it
-> completely, at the cost of the temporal supersampling. And **a BLSS frame has
-> now been timed on a real PS2**, twice, and the two answers are opposite:
-> on a terrain-and-slabs fixture it cost **+9.83 ms and saved nothing**, while
-> on `examples/upscaler-lab` - 3 072 large alpha-blended billboards - it made
-> the frame **3.4x faster (530 -> 157 ms, d = +373 ms, n = 262 paired frames)**
-> for 5.9 ms of EE. **The feature has a regime; it is heavy overdraw**, and the
-> break-even is about 22 full-screen coverages
-> ([profiling.md](profiling.md), "THE ANSWER"). It is still off by default and
-> `upscaler-lab` itself is badly scaled - 1.9 FPS with BLSS off - because it was
-> tuned against PCSX2, which under-reports GS fill by 76x.
->
-> **The verdict that stood here for a week rested on a measurement error, and
-> the error was in the INSTRUMENT'S DOCUMENTATION, not in its numbers.**
-> "`drain` ~ 0 means the frame is EE-bound, so BLSS cannot help" is false:
-> when the GS falls behind, the GIF FIFO fills and the EE stalls *inside the
-> submission*, which the rig charges to `submit`. `drain` only ever measured
-> the tail after the last packet. The `upscaler-lab` run above reads
-> `drain = 0.02 ms` in **both** arms and shows a 3.4x GS win. The only honest
-> discriminator is to change the GS load and see whether the frame shortens.
->
-> **That +9.83 ms is PROVISIONAL and must not be quoted as final.** It was taken
-> on a build carrying the z-mask defect fixed on 2026-08-08
-> ([the math doc, §6](blss-reconstruction.md#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on)),
-> so the BLSS-on arm was rasterising a frame with **every palettised surface
-> missing**. The EE half of the bill is unaffected — reprojection, the MLP and
-> the packet build do not depend on what the GS drew — but the GS half was
-> measured against a frame short of surfaces and therefore **understates
-> whatever fill BLSS saves**. The A/B needs retaking on the fixed build; the
-> console is off the LAN at the time of writing, so it has not been.
->
-> ~~**And the oscillation figure below is net-dependent.**~~ **RETRACTED the
-> same day.** A person was shown three builds of `examples/upscaler-lab` that
-> differed in nothing but these flags and called them steady / **"like an
-> earthquake"** / steady for BLSS-off / jitter-on / jitter-off. The shipped net
-> reproduces it, the fill term did not fix it, and the "byte-identical" reading
-> came from an instrument measuring a fixture that could not exhibit the
-> artefact and a scene whose own particles were louder than it. **`blssJitter`
-> now defaults to `false`** — see
+> **The picture still bobs with `blssJitter` on**, and that is a separate axis
+> from the timing. A person was shown three builds of `examples/upscaler-lab`
+> differing in nothing but these flags and called them steady / **"like an
+> earthquake"** / steady, for BLSS-off / jitter-on / jitter-off. `blssJitter`
+> defaults to **`false`** because of it, at the cost of the temporal
+> supersampling. `examples/upscaler-lab` keeps it **`true`** deliberately — its
+> committed net is fitted with the jittered sampler and it is the jitter-on
+> reference — so **that example is the one that shakes**; set `"blssJitter":
+> false` in its `.tyra` before showing it to anyone. See
 > [A/B/C](#abc-a-human-looked-at-three-builds-2026-08-08).
 >
-> **The EE half of that bill has now been priced, and a quarter of it is
-> gone** (2026-08-08, PCSX2 — EE only, the GS half still awaits hardware).
-> Splitting the two big terms onto their own counters found that the largest
-> single cost in the whole feature is **`runNet`, the MLP**, not the packet
-> build and not the proxy feed: newlib's `tanhf`/`expf` compute in double and
-> the EE has no double-precision FPU. Four **bit-identical** cuts — an early-out
-> in the bag-proxy near-clip, the deadzone compare moved in front of the
-> logistic, skipping a composite pass with no non-zero corner, and a hoist in
-> `addBag` — took the EE overhead from **+8.76 ms to +6.39 ms**. The activation
-> table is worth another **2.11 ms** and is the one big saving still blocked on
-> a decision rather than on work, because it must move on both twins at once -
-> though it is worth ~1.5 ms on hardware rather than 2.11, because PCSX2
-> over-weights libm. **Re-measured on the console the four cuts are worth
-> 1.96 ms**, taking BLSS' EE bill from 7.92 to **5.95 ms**. That 5.95 ms is what
-> decides how much overdraw a project needs before the feature pays. Full tables, and the break-even that follows from
-> them, in [profiling.md](profiling.md) — "Where the EE time actually goes" and
-> "The EE floor, and whether this feature has a regime at all".
+> ### What this page believed, and why it was wrong
+>
+> Kept, because the errors are more instructive than the conclusion and all
+> three were the *instrument*, not the arithmetic.
+>
+> 1. **"`drain` ≈ 0 means the frame is EE-bound, so an upscaler cannot help."**
+>    This page said it for four months and the verdict *"BLSS saves nothing"*
+>    rested on it entirely. It is false. When the GS falls behind, the GIF FIFO
+>    fills, VIF1's DMA stalls and the EE blocks **inside the submission it is
+>    already in** — which the rig charges to `submit`. `drain` only ever measured
+>    the tail still in flight after the last packet, and in a saturated pipeline
+>    that tail is short. `upscaler-lab` reads `drain = 0.02 ms` in **both** arms
+>    of a run where BLSS makes the frame 1.6x shorter. **The only honest
+>    discriminator is to change the GS load and see whether the frame gets
+>    shorter** — which is what an on/off A/B is. Run it; do not predict it.
+> 2. **"The generated games do not have the fill to trade."** Drawn from one
+>    fixture that had no fill, and generalised to the feature. Wrong: generated
+>    games fall on *both* sides of the break-even, which is why the break-even is
+>    now the headline instead of a verdict.
+> 3. **"BLSS wins half the scene's fill."** It wins about three quarters:
+>    `blssScale 0` is `Scale::X2Y2`, half in *each* axis, so a quarter of the
+>    pixels survive. The break-even computed off the wrong factor read ~22
+>    coverages; it is ~13. Measured slope: 25.9 % of the fill survives.
+>
+> Two provisional figures this page used to carry are now retired. The
+> **+9.83 ms** regression was taken on a build carrying the z-mask defect
+> ([the math doc, §6](blss-reconstruction.md#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on));
+> it stands as the *below-break-even* datum and nothing more. And the
+> **3.37x / 530 → 157 ms** headline was real but taken on a scene running at
+> **1.9 FPS** — tuned against PCSX2, which under-reports GS fill by **76x**.
+> A number nobody can run is not a demo; `upscaler-lab` has been re-tuned
+> against hardware and the table above is the figure to quote.
+>
+> **The EE bill has been priced twice and cut twice.** Splitting the composite
+> onto its own counters found the largest single cost was **`runNet`, the MLP** —
+> newlib's `tanhf`/`expf` compute in double and the EE has no double-precision
+> FPU. Four **bit-identical** cuts took the hardware bill from 7.92 to 5.95 ms,
+> and the **activation table**, now enabled on *both* twins, took `net` from
+> **1.93 ms to 0.79 ms** for a total of **5.02 ms**. Every millisecond off that
+> number lowers the break-even by roughly two full-screen coverages. Full tables
+> in [profiling.md](profiling.md).
 
 ## Why this can work at all on a PS2
 

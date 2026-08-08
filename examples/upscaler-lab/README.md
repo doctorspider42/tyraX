@@ -1,4 +1,4 @@
-# upscaler-lab — a scene built to be GS fill-bound, so the neural upscaler has something to win
+# upscaler-lab — a watchable scene that is GS fill-bound, so the neural upscaler has something to win
 
 Every other example in this repo is built to look right. This one is built to be
 **measured**: a deliberately overdraw-heavy PAL scene for the
@@ -20,14 +20,14 @@ Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 ## What is in the scene
 
 A 96x96 cobbled yard between two cottages, under a haze bank thick enough to
-matter.
+matter and thin enough to watch.
 
 | Piece | Count | Why |
 |---|---|---|
 | Cottage (`Cottage_FREE.obj`, 4 281 tris, 512² diffuse) | 2 | The textured static landmark, and **the content the BLSS corpus can actually see** — `blssscene` walks primitives, static `.obj` and terrain chunks, nothing else. Its diffuse is what makes the `texDetail` feature non-zero; that channel being identically zero is the documented mechanism behind the −0.40 dB disaster on `examples/procedural`. |
 | Static boxes (wall, fence posts + rails, crates, two slabs) | 26 | Cheap, static-batched (`26 objects in 4 batches`), textured. Edge density and proxy count for almost no EE. |
 | Spider (`spider.fbx`, clip `spider.walk`) | 2 | 1 092 vertices each, LOD tiers 480/180 — read off the baked `.tskl`, not guessed. ~2 ms of EE per 1 000-vertex instance on real hardware, so two is the whole animated budget. EE is the half BLSS does **not** reduce. |
-| **Custom haze emitters** | **12 x 256** | **The fill.** `kind: "custom"`, `size 9.0`, `opacity 0.8`, `life 8`, `gravity -0.15` (buoyant), `grow 1.6`, spread over `[26, 1, 26]`, one shared 128² soft-puff material. |
+| **Custom haze emitters** | **6 x 32** | **The fill.** `kind: "custom"`, `size 9.0`, `opacity 0.8`, `life 8`, `gravity -0.15` (buoyant), `grow 1.6`, spread over `[26, 1, 26]`, one shared 128² soft-puff material. Six banks at x −8…+9, z −18…+15, every centre above eye height. **Tuned against the console, not the emulator** — see [Measured](#measured). |
 | Campfire (`fire` 48 + `smoke` 40) | 2 | Two more emitter kinds, and something to look at. |
 | Rain (`kind rain`, 200, `followPlayer`) | 1 | The many-small-quads regime beside the few-huge-quads one. |
 | Cutscene Director sequence, 20 s | 1 | Two jobs — see below. |
@@ -71,47 +71,68 @@ bank.
   anything closer than ~2 m. Every bank's centre is kept above eye height for
   exactly this reason.
 - Turn the upscaler off in *Project > Preferences > Neural upscaler* and rebuild.
-  On this scene that is currently the **better-looking** build — see the defect
-  below.
+  It is still the **sharper** build: from the parked vantage the BLSS-off frame
+  resolves the cobbles crisply, while the BLSS-on frame smears them into
+  directional streaks at grazing angles. That is the reconstruction cost of a
+  quarter-area raster on a high-frequency ground texture, and the PSNR table
+  prices it — 27.25 dB against 28.52 native. What you buy for it is the frame
+  rate in [Measured](#measured).
 - Re-run the training and watch the ceiling move:
   `tyrax-editor --blss-eval <this folder>` prints the oracle row before any net
   exists.
 
 ## Measured
 
-PCSX2 2.6.3, software renderer, PAL, debug profile with the frame profiler on.
-The three-step tuning loop, all at the post-sequence spawn vantage:
+**On a real PlayStation 2**, over ps2link, with the frame-timing rig
+(`docs/profiling.md`): `buildProfile debug`, PAL interlaced, Live Link / Live
+Debugger / Live Logic / Remote Pad / Time Machine **all off**, the 20 s tour
+followed by the parked camera. Samples are the per-frame `FTRAW` ticks of frames
+**550–1611**, inside the parked region in both arms. **Two runs per arm, all four
+cross-pairings.** Sign: **d = work(off) − work(on)**, so d > 0 means BLSS made
+the frame shorter.
 
-| Step | FPS | FRAME | SCENE | PART |
-|---|---|---|---|---|
-| 1. Particles **off** (Square), BLSS off | **50** | 20.00 ms | **9.34 ms** | — |
-| 2. Particles **on**, BLSS off | **25** | 33.35 ms | 12.84 ms | 1.31 ms |
-| 3. Particles on, **BLSS on** | **25** | 40.00 ms | 13.60 ms | 1.33 ms |
+| arm | mean | median | p95 | max | FPS |
+|---|---|---|---|---|---|
+| BLSS **off** | **52.86 ms** | 53.01 | 54.44 | 55.37 | **18.9** |
+| BLSS **on** | **32.98 ms** | 32.93 | 33.62 | 34.37 | **30.3** |
 
-Step 1 clears its bar (comfortably 50 FPS, SCENE well under 12 ms), so the scene
-is not EE-bound. Step 2 halves the frame rate with **identical EE work** — that
-drop is fill, and it is what the example was built to produce. Step 3 is not a
-result: see the defect below.
+**d = +19.88 ms, 95 % CI [+19.81, +19.95], sd 1.12, n = 1024 paired frames** per
+pairing; the four cross-pairings span **0.014 ms** against an effect of 19.9.
+**A 1.60x speedup, on a scene you can actually watch.**
 
-**The frame cost is strongly vantage-dependent, which is the whole point.** Step
-2's numbers are the worst case, standing where most of a bank is in frame. A
-matched pair taken from a lighter vantage in the same run, particles toggled
-with Square and nothing else changed, reads **FRAME 23.87 / SCENE 10.37 on** and
-**FRAME 20.00 / SCENE 9.35 off**. So depending on where you stand the haze costs
-between ~1 ms and ~13 ms of frame time, and only the second of those is a
-half-resolution render worth having. A scene that is uniformly fill-bound from
-every angle would be a nicer benchmark and a worse demonstration.
+`drain` reads **0.02 ms in both arms** — see the boxed correction in
+`docs/profiling.md`. It is not the EE/GS discriminator and never was.
 
-**Read `PART` with care.** A GS-bound frame back-pressures the EE inside
-`stapip.core.render`, so `PART` inflates with GS wait rather than EE work. Step 1
-(particles off ⇒ EE only) is the honest discriminator, not `PART`.
+### Why 6 x 32 and not 12 x 256
 
-**The fill had to be raised four times.** The design started at 3 banks x 128 at
-`size 5.0`; that measured **49-50 FPS with BLSS off**, i.e. not fill-bound at
-all, with the profiler's GS-overhang fence reading 0.04 ms. That is the cost
-model restating itself: at 194 us per full-screen pass a PAL frame swallows
-about a hundred of them before the GS is the limit. 12 x 256 at `size 9.0` is
-roughly 8x that fill and is what finally moved the frame.
+The original scene was tuned against **PCSX2's FPS counter**, and PCSX2
+under-reports GS fill by **76x**. So the haze was raised until the *emulator*
+moved, which put it about two orders of magnitude past what a console can draw:
+**530 ms/frame with BLSS off — 1.9 FPS**, and 6.3 FPS with it on. A 3.37x
+speedup that nobody can look at is a stress case, not a demo.
+
+Re-tuned against the console, and the two measurements together pin the whole
+fill model, because they differ in nothing but particle count:
+
+| | ms per haze particle | intercept at N = 0 |
+|---|---|---|
+| BLSS off | 0.1658 | **21.2 ms** |
+| BLSS on | 0.0429 | **24.8 ms** |
+
+- **BLSS keeps 25.9 % of the fill.** `blssScale 0` is `Scale::X2Y2` — half in
+  *each* axis, so a quarter of the pixels. Not half; `docs/profiling.md` said
+  half for a week and the break-even it computed was ~70 % too pessimistic.
+- **The scene's non-haze floor is 21.2 ms off / 24.8 ms on.** That is why the
+  demo lands at 19 → 30 FPS and not higher: with BLSS on this scene cannot beat
+  ~40 FPS however thin the haze gets, and **thinning the haze shrinks the win**,
+  because the haze is the only thing BLSS is paid to remove. 6 x 32 is the
+  compromise: both arms watchable, the win still 1.6x, and the scene still ~75
+  full-screen coverages — comfortably above the ~13-coverage break-even.
+- `count` was cut rather than `size`, so every puff looks exactly as it did and
+  2 880 particles of EE come off **both** arms.
+
+**The Square / Circle toggle is still the honest discriminator** for how much of
+the frame is fill: same camera, same run, emitters off and on.
 
 ### The network
 
@@ -119,28 +140,55 @@ Trained on this project with `--all-shots` and shipped as `blss.net` (codegen
 reads it straight out of the project directory, so `--blss-emit` is not needed):
 
 ```
-half-res + bilinear                 26.413 dB   1.00 passes
-half-res + BLSS (trained)           27.20  dB   1.76 passes   +0.79 dB
-half-res + oracle (upper bound)     28.141 dB   1.46 passes   +1.73 dB
-native full-res                     28.551 dB
+half-res + bilinear                 26.395 dB   1.00 passes
+half-res + BLSS (trained)           27.25  dB   1.76 passes   +0.85 dB
+half-res + oracle (upper bound)     28.125 dB   1.46 passes   +1.73 dB
+native full-res                     28.521 dB
 ```
 
 **The oracle row is the number that matters: +1.73 dB is this scene's ceiling**,
 against +0.77 dB on `examples/procedural` and **+0.00 dB on
 `examples/showcase`** — the scene really does have something to win, which is
-the first thing this example set out to establish. The trained net captures 45 %
+the first thing this example set out to establish. The trained net captures 49 %
 of it. Per `docs/neural-upscaler.md`, the held-out decibel of a *project* corpus
 is not quotable (six camera moves of one scene do not generalise) and is
 deliberately not quoted here.
 
-Not measured on real hardware. PCSX2's software GS is not a fill-rate model of
-the console's, so treat every frame time above as indicative and the ratios as
-the result.
+**The re-tune did not change the corpus, and that is not an accident**:
+`blssscene` walks primitives, static `.obj` and terrain chunks and **never sees
+an emitter**, so deleting six haze banks left the training corpus byte-identical
+(156 frames, 34 944 tile samples, oracle +1.730 dB before and after). The net was
+retrained and recommitted anyway, because **the activation table changed the
+forward pass** — and it came out slightly better: **+0.85 dB against the previous
++0.78**, 49 % of the ceiling against 45 %.
 
-## Two defects this scene found, neither of them fixed here
+**What it costs the EE, measured on the console** (`FTSPLIT`, this scene):
 
-**1. With BLSS on, every textured primitive and the textured terrain disappear.**
-Reproduced in a minimal control (a fresh `--new` fpp project, one plain-coloured
+| term | ms |
+|---|---|
+| `proxy` — the bag-proxy feed, inside scene submission | 2.69 |
+| `net` — the MLP | **0.79** |
+| `pkt` — the grid packet build | 0.55 |
+| `reproj` | 0.28 |
+| `feat` | 0.19 |
+| `beginScene` / `endScene` | 0.41 / 0.11 |
+| **total** | **5.02** |
+
+`net` was **1.93 ms** until the activation table was enabled on both twins; the
+emulator predicted that cut would be worth 2.11 ms and it is worth **1.14** here.
+`proxy` is now more than half the bill.
+
+## Two defects this scene found — one fixed, one switched off
+
+**1. ~~With BLSS on, every textured primitive and the textured terrain
+disappear.~~ FIXED — the z mask was never on** (see
+`docs/blss-reconstruction.md` §6). Re-checked on the re-tuned scene in PCSX2's
+software renderer, BLSS on, from the parked vantage: both cottages, their window
+and wall textures, the crates and the cobbled terrain all draw. The table below
+is kept because it is a good minimal control and because the *shape* of the
+symptom — texture resident, bound thousands of times per frame, nothing reaching
+the target — is what a GS alpha-test cutout looks like, and that trap is real
+elsewhere. As originally reproduced in a minimal control (a fresh `--new` fpp project, one plain-coloured
 box, one box with a `map_Kd` material, terrain with and without a terrain
 material):
 

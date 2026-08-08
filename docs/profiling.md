@@ -387,7 +387,7 @@ tile are 15 software-emulated round trips - about 340 EE cycles each.
 | runNet: deadzone compare in front of the logistic | `net` | 3.96 -> 3.39 | **+0.57** |
 | composite: skip a pass with no non-zero corner | `pkt` | 0.61 -> 0.31 | **+0.30** |
 | `addBag`: hoist the per-column overlap out of the row loop | `proxy` | 2.17 -> 1.97 | **+0.20** |
-| *(gated, not landed)* the activation table | `net` | 3.39 -> 1.29 | **+2.11** |
+| *(now landed, both twins)* the activation table | `net` | 3.39 -> 1.29 | **+2.11** in PCSX2; **+1.14 on hardware** |
 
 **The same four cuts, re-measured ON HARDWARE** (`upscaler-lab`, BLSS on, the
 pre-cut engine carrying the identical counters, paired by window):
@@ -423,8 +423,10 @@ after. That check is the reason the instrument is permanent.
 | BLSS on, after the four landed cuts | 11.93 | **+6.39** |
 | BLSS on, + the activation table (needs the host half) | ~9.6 | ~+4.1 |
 
-So **27 % of the EE overhead is gone, and 51 % is reachable** the moment the
-host's `--act-table` default moves with the engine's. `drain` read **0.02-0.05 ms
+So **27 % of the EE overhead is gone**, and the activation table - which had to
+move on the engine (`TYRA_BLSS_ACT_TABLE`) and the host (`src/blss.cpp`)
+**in the same commit or not at all** - has since taken another 1.14 ms on
+hardware, for a bill of **5.02 ms**. `drain` read **0.02-0.05 ms
 in both arms**, exactly as on hardware: these frames are EE-bound, and none of
 this makes the GS the bottleneck.
 
@@ -472,8 +474,77 @@ and 6.3 FPS with it on; neither is a shippable frame. `upscaler-lab` was tuned
 against PCSX2's FPS counter, and PCSX2 under-reports GS fill by **76x** (the
 calibration above), so the haze was raised until the *emulator* moved — roughly
 two orders of magnitude past what the console can draw. The fixture is excellent
-as a **GS-bound stress case** and useless as a demo. Re-tune it against hardware
-before anyone is shown it.
+as a **GS-bound stress case** and useless as a demo. It has since been re-tuned
+against hardware — see the next section, whose table is the one to quote.
+
+### The re-tuned demo, and the number to quote (2026-08-08, REAL HARDWARE)
+
+The 3.37x above is real and was measured on a scene running at 1.9 FPS, which
+nobody can watch. The haze was re-tuned **against the console** rather than
+against PCSX2: **12 banks x 256 billboards at `size 9.0` became 6 banks x 32**,
+same `size`, same material, same everything else — 3 072 large alpha-blended
+sprites down to **192**. Six banks instead of twelve keeps haze spread across the
+yard (x from −8 to +9, z from −18 to +15, all above eye height); cutting `count`
+rather than `size` keeps each puff's *look* identical and takes the EE cost of
+2 880 vertices off both arms.
+
+Fixture and protocol otherwise unchanged from "THE ANSWER" above: `buildProfile
+debug`, PAL interlaced, Live Link / Live Debugger / Live Logic / Remote Pad /
+Time Machine **all off**, deployed over ps2link, the 20 s Cutscene Director tour
+followed by a parked camera. Samples are the `FTRAW` per-frame ticks of frames
+**550–1611**, which are inside the parked region in **both** arms (the tour is
+driven by `dt`, so it occupies a different *number* of frames in each arm — pair
+inside the parked region, never across the tour). **Two runs per arm, all four
+cross-pairings.** Sign convention: **d = work(BLSS off) − work(BLSS on);
+d > 0 means BLSS made the frame shorter.**
+
+| arm | mean | median | p95 | max | FPS | `drain` |
+|---|---|---|---|---|---|---|
+| BLSS **off** | **52.86** | 53.01 | 54.44 | 55.37 | **18.9** | 0.02 |
+| BLSS **on** | **32.98** | 32.93 | 33.62 | 34.37 | **30.3** | 0.02 |
+
+**d = +19.88 ms, 95 % CI [+19.81, +19.95], sd 1.12, n = 1024 paired frames per
+pairing** (2 048 pooled frames per arm). The four cross-pairings span **0.014 ms**
+against an effect of 19.9. A **1.60x** speedup, in a scene a person can look at.
+
+**Two points fix the whole fill model**, because the old 3 072-particle run and
+this 192-particle one differ in nothing but particle count:
+
+| | ms per haze particle | intercept (N = 0) |
+|---|---|---|
+| BLSS off | 0.1658 | 21.2 ms |
+| BLSS on | 0.0429 | 24.8 ms |
+
+Three things fall out, and the second one corrects this page.
+
+1. **BLSS keeps 25.9 % of the scene's fill** (0.0429 / 0.1658). Not half —
+   **`blssScale 0` is `Scale::X2Y2`, half in *each* axis**, so a quarter of the
+   pixels survive and the extra 0.9 % is measurement. The break-even below was
+   computed against a 2x factor and was therefore about 70 % too pessimistic.
+2. **The base scene costs 21.2 ms with BLSS off and 24.8 ms with it on.** That
+   +3.6 ms is BLSS' EE bill *net of* the ~2.6 full-screen coverages of base fill
+   (terrain, sky, cottages, rain, campfires) that it also halves. It is the floor:
+   this scene cannot go above ~40 FPS with BLSS on however thin the haze gets,
+   which is why the demo lands at 19 → 30 FPS and not at the 20 → 45 that was
+   asked for. **Raising the off-arm frame rate shrinks the win**, because the
+   thing being removed is the only thing BLSS is paid to remove.
+3. **Break-even on this scene is ~29 of these puffs**, i.e. about **8 full-screen
+   coverages** — lower than the general figure below because the base scene's own
+   fill is part of the saving.
+
+**The activation table is on in this build**, on both twins, and the split line
+says what it bought on hardware:
+
+```
+FTSPLIT f=2400 proxy=2.69 reproj=0.28 feat=0.19 net=0.79 pkt=0.55
+```
+
+`net` **1.93 → 0.79 ms**. The PCSX2 round predicted 2.11 ms and the hardware
+bound was stated as "at most ~1.5"; the truth is **1.14 ms**, and the reason the
+emulator over-predicted is the one already recorded above — it over-weights libm
+and does not transfer per-function. **BLSS' EE bill on hardware is now
+`proxy` 2.69 + `reproj` 0.28 + `feat` 0.19 + `net` 0.79 + `pkt` 0.55 +
+`begin` 0.41 + `end` 0.11 = 5.02 ms**, and `proxy` is now more than half of it.
 
 ### The EE floor, and whether the EE cost still matters
 
@@ -483,7 +554,7 @@ With everything above applied, the EE cost of BLSS on this fixture is
 | term | ms | why it is a floor |
 |---|---|---|
 | `proxy` | 2.39 | one box per VU1 package must be projected and accumulated into tiles; cutting further means describing the frame more coarsely, which is a **twin-contract change** |
-| `net` | 1.97 | the MLP; the activation table takes ~1.5 of this, the rest is 108 multiply-adds x N tiles |
+| `net` | 0.79 | the MLP, with the activation table in (it took 1.14 ms off); what is left is 108 multiply-adds x N tiles and no table can remove it |
 | `reproj` + `feat` + `pkt` | 1.03 | 255 corners, N tiles, and the grid packet |
 | `begin` + `end` | 0.55 | the raster redirect and its drain |
 
@@ -491,19 +562,25 @@ With everything above applied, the EE cost of BLSS on this fixture is
 for the same rows - a different scene and a different machine, so compare the
 shape, not the digits.)
 
-Against that floor, what BLSS WINS is half the scene's GS fill, minus the fill
-the composite adds back (0.46 ms measured on hardware). At the calibrated
-**0.587 ms per full-screen blended textured pass**, break-even is
+Against that floor, what BLSS WINS is **74.1 % of the scene's GS fill** (measured
+— the render is quarter-area, see the re-tuned demo above; this page said "half"
+for a week and it was wrong), minus the fill the composite adds back (0.46 ms
+measured on hardware). At the calibrated **0.587 ms per full-screen blended
+textured pass** and the post-activation-table EE bill of **5.02 ms**, break-even
+is
 
-> scene fill / 2 - 0.46 ms > ~5.9 ms of EE, i.e. **a scene rasterising more than
-> about 22 full-screen coverages.**
+> 0.741 x 0.587 x C > 5.02 + 0.46 ms, i.e. **a scene rasterising more than about
+> 13 full-screen coverages.**
 
-`upscaler-lab` rasterises on the order of *nine hundred*, which is why it wins by
-3.4x and also why it is a broken demo. `blssrig` rasterises a handful, which is
-why it loses by 6.4 ms. **The break-even is a real line and generated games fall
-on both sides of it** - so the EE floor is not academic: it is what decides how
-much overdraw a project needs before the feature pays. Every millisecond taken
-off the 5.9 ms lowers that bar by roughly two full-screen coverages.
+The old figure on this line was **22**, computed off the wrong resolution factor
+and the pre-table EE bill. `upscaler-lab` as first built rasterised on the order
+of *nine hundred* coverages, which is why it won by 3.4x and also why it was a
+broken demo; **re-tuned it rasterises about 75** and still wins by 1.60x.
+`blssrig` rasterises a handful, which is why it loses by 6.4 ms. **The break-even
+is a real line and generated games fall on both sides of it** - so the EE floor is
+not academic: it is what decides how much overdraw a project needs before the
+feature pays. Every millisecond taken off the 5.02 ms lowers that bar by roughly
+**2.3** full-screen coverages.
 
 One more measured negative, so nobody spends a day on it: the composite's EE
 work *can* be moved in front of `endScene`'s drain, because it is a pure

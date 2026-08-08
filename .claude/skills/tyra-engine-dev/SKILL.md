@@ -552,9 +552,19 @@ Eight things here that were paid for, and that any edit must keep:
   drawn and then cleared over.
 - **AND THE FEATURE HAS A REGIME AFTER ALL - IT IS HEAVY OVERDRAW.** On
   `examples/upscaler-lab` (3 072 large alpha-blended billboards) a real PS2
-  measures **530 ms with BLSS off against 157 ms with it on** - d = +373 ms,
-  95 % CI [+369, +377], n = 262 paired frames, a **3.37x** speedup for 5.95 ms
-  of EE. Break-even is about **22 full-screen coverages**. The previous verdict
+  measured **530 ms with BLSS off against 157 ms with it on** - a **3.37x**
+  speedup, on a scene running at **1.9 FPS** that nobody could watch. **Re-tuned
+  against the console** (6 banks x 32 instead of 12 x 256, ~75 coverages) it
+  measures **52.86 ms off against 32.98 ms on** - d = +19.88 ms, 95 % CI
+  [+19.81, +19.95], n = 1024 paired frames, **1.60x**, for **5.02 ms of EE**.
+  That second table is the one to quote. Break-even is about **13 full-screen
+  coverages**: BLSS keeps **25.9 %** of the fill, because `blssScale 0` is
+  `Scale::X2Y2` - half in *each* axis, a quarter of the pixels, NOT half the
+  fill, which is what the ~22 figure had assumed. The activation table
+  (`TYRA_BLSS_ACT_TABLE`, and the host's `actTable` in `src/blss.cpp` - **one
+  number in two files, moved in the same commit or not at all**) took `net` from
+  1.93 to **0.79 ms**; PCSX2 had predicted 2.11, because it over-weights libm
+  and does not transfer per-function. The previous verdict
   ("it saves nothing, the frames are EE-bound") came from ONE low-fill fixture
   plus a **false discriminator**: `drain ~ 0` does NOT mean EE-bound, because GS
   backpressure stalls the EE inside the submission (charged to `submit`) and
