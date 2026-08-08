@@ -2448,7 +2448,9 @@ It also answers a measurement that sat unexplained in this file since the `clip_
 plane tests against SCE's 12**, i.e. 7x6, every triangle through every plane. That was this bug,
 seen from the other end.
 
-`--clip-window-liveness` is the fix: a CLIP push no longer kills an earlier CLIP write (only the
+The fix is **unconditional, inside `--drop-dead-writes`** rather than behind a flag of its own -
+a known miscompile left off by default is a trap for anyone applying this patch without our
+exact flag list. A CLIP push no longer kills an earlier CLIP write (only the
 fourth subsequent push retires it, while `FCSET` still kills at once), and CLIP writers are
 chained in program order in `addPreciseImplicitFlagDependencies()` - needed because once the
 four `clipw` came back, nothing ordered two writers of one flag and the scheduler transposed
@@ -2476,6 +2478,66 @@ could not have found it: they compare pixels and GIF packets, and this bug chang
 the target was wrong: `cull_d vertexLoop` was named here as the immovable block to attack, but
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
+
+### The same mistake, looked for everywhere else
+
+The bug is a category, not an instance: **a resource the compiler treats as "a later write kills
+an earlier one" when the hardware does not work that way.** Every resource the dead-write walk
+and the dependency builders reason about was audited against that question. Two more were wrong.
+
+**The R register - two bugs, fixed, and one of them fires on pristine upstream with no flags.**
+`src/VuInstructionInfo.cpp` declared `RNEXT` as a pure *read* and `RXOR` as a pure *write*. Both
+are read-modify-write: `RNEXT` advances the LFSR and then copies it out, `RXOR` folds a source
+field into the current R. Three reproducers, all confirmed:
+
+* `rget` scheduled *above* `rnext`, reading the un-advanced LFSR - **on stock upstream openvcl
+  at commit `a5867c3` with zero flags**, because neither instruction is a writer in the table so
+  the graph has no edge between them at all;
+* an `rnext` whose destination VF is dead **deleted** under `--drop-dead-writes`, silently
+  dropping an LFSR step (its `implicitWrites` is `NONE`, so the observability walk is never even
+  consulted);
+* `rinit R,seed` and the first `rxor` both deleted, leaving one `rxor` folding into whatever R
+  held on entry - the CLIP mistake exactly, a later write that *consumes* the earlier one.
+
+Declaring both as `reads=R, writes=R` fixes all three and needs no change to the walk, which
+checks `implicitReads` before `implicitWrites`. Zero cost here: no `r*` instruction appears in
+the 70, so all 70 stay byte-identical.
+
+**The status register - not modelled at all.** `FSAND`/`FSEQ`/`FSOR`/`FSSET` carry
+`reads=NONE, writes=NONE` and no FMAC declares a status write, so on stock upstream an `fsand`
+schedules *before* the `mul.x` whose flags it exists to read, and under `--drop-dead-writes` that
+`mul.x` is deleted outright. Worse, `isVuMacReader()` **does** list `fsand`/`fseq`/`fsor` and
+`declaredHardwareResource()` maps `out_hw_status` onto MAC - so the compiler answers "is this a
+MAC reader?" two different ways in two places, and the latency tracker uses the one that says no.
+
+**Deliberately not fixed**, and the reason is the interesting part: the sticky bits
+(`ZS/SS/US/OS/IS/DS`) **accumulate** until `fsset` clears them, so there is no kill at all. Giving
+status a resource bit and marking every FMAC a writer would put a WAW edge between *every pair of
+FMACs* under the current pairwise builder and wreck every schedule. It needs an
+**accumulating-resource** class - writes commute, so no WAW, only RAW/WAR against readers and
+`fsset`. Latent here (zero `fs*` in the 70) and worth its own change.
+
+**ACC - true per field, false at the granularity the model uses.** `madda`/`msuba` correctly
+declare read-and-write, so accumulation is modelled, but ACC is per-field and the resource is one
+bit: `mula.x` followed by `mula.yzw` has the first deleted, because the walk sees "another ACC
+writer" and the second does not cover the first's fields. Not reachable here - a scan of all 70
+sources finds **zero** adjacent ACC-writer pairs with non-covering masks - and the fix is a field
+mask alongside the resource bit.
+
+**MAC, Q, P, I - sound**, with reasons rather than assumptions. MAC genuinely does kill whole
+(fields outside the destination mask are cleared, not preserved) and it is the one verdict resting
+on a manual rather than a measurement - moot here, since there are **zero** MAC-flag readers in
+all 70, which is exactly why `--drop-dead-writes` pays so well. Q and P look like they should have
+a pipeline hazard and do not: `VuLatencyTracker` holds every reader until the *last* writer's ready
+cycle, so a reader can never see a superseded result, and the walk returns "observable" at any
+branch or label, which keeps the guarantee block-local where the tracker is. `I` has `loi` as its
+only writer and nothing reads-and-writes it; 623 of them survive in the emitted corpus.
+
+One residual inconsistency, latent and worth fixing when someone is next in there:
+`vuIgnoredFlagWawResourcesForRemaining()` decides CLIP/MAC are dead purely from in-program
+readers, ignoring the `out_hw_clip`/`out_hw_status` declarations that `declaredHardwareResource()`
+does honour. With `out_hw_clip` declared, the scheduler may permute the `clipw` the dead-write
+pass correctly kept. Nothing in the 70 declares it.
 
 ### The frame time is entirely VU1, and the EE never notices - measured
 

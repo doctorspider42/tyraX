@@ -1,3 +1,270 @@
+diff --git a/NOTICE-TYRAX.md b/NOTICE-TYRAX.md
+new file mode 100644
+index 0000000..c180973
+--- /dev/null
++++ b/NOTICE-TYRAX.md
+@@ -0,0 +1,221 @@
++# This is a MODIFIED copy of OpenVCL
++
++**This repository is not OpenVCL.** It is a derivative work, maintained for
++[TyraX](https://github.com/doctorspider42/tyra-editor), and it carries changes the
++upstream project has neither seen nor accepted. Do not report problems with it to
++upstream, and do not assume its behaviour matches theirs.
++
++This notice exists to satisfy section 6 (*Attribution Rights*) of the Academic Free
++License v2.0, under which OpenVCL is licensed: every copyright, patent and trademark
++notice from the original source is retained, and this file is the prominent notice
++that the Original Work has been modified.
++
++## Upstream
++
++* Project: **OpenVCL** — <https://github.com/ps2dev/openvcl>
++* Forked at commit `a5867c3daf03828806ee966aca4116622da3f671` (v0.4.0)
++* Originally written by **Jesper Svennevid** and **Daniel Collin**
++* Current upstream maintainer: **Francisco Javier Trujillo Mata**
++* Licence: **Academic Free License v2.0** — see [`LICENSE`](LICENSE), unchanged
++
++The names above are recorded as attribution, as the licence requires. Per section 4
++(*Exclusions From License Grant*) they do **not** endorse this copy, and nothing here
++should be read as their approval.
++
++## What was changed, and why
++
++TyraX compiles a PS2 engine's 25 VU1/VU0 microprograms. It needs an assembler it can
++ship, because the alternative — Sony's `vcl` — comes with no licence at all, which is
++what makes a publishable toolchain image impossible. Getting there took one
++correctness fix and a set of density flags; the full measurements, including the ones
++that failed, live in the TyraX repo under `docs/toolchain-image.md`.
++
++**Correctness**
++
++* `CLIPw` with an implied `w` component is accepted instead of rejected. Upstream
++  rejects the operand *and still writes a complete output file* with the `clipw`
++  missing and the `fcand` that reads its clip flags kept — silently emitting a program
++  that tests clip flags nobody set.
++
++**Density — six flags, every one off by default**
++
++| flag | effect |
++|---|---|
++| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
++| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
++| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
++| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
++| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
++| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
++
++Every latency constant is calibrated against the minimum distances Sony's `vcl`
++demonstrates in its own output over those 25 programs — black-box observation of a
++known-good reference, no disassembly of anything. With all six, the engine's resident
++VU1 program set needs **2040** instructions against Sony's 2042, and the rendered
++frame is pixel-identical in PCSX2.
++
++**Register allocation — six more flags, every one off by default**
++
++The six above make the code denser; these make it fit. TyraX's VU authoring layer
++generates 45 microprograms and Sony's `vcl` compiles all 45; this copy compiled 23,
++every failure being *Register allocation ran out of registers*.
++
++| flag | effect |
++|---|---|
++| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
++| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
++| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
++| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
++| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
++| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, so a value read only past a two-arm block stops being live across it |
++
++With all six on top of the six above, **all 45** compile and assemble, all clean
++under TyraX's loop-carry checker, and the engine's resident VU1 set needs **2008**
++instructions against Sony's 2028 for the same ten programs.
++
++The last of the 45, `vu_script3_tce_cl`, is what the sixth flag exists for. Five
++GIF-tag quadwords are loaded in its preamble and read only by the `sq`s that build
++the packet header, but a two-arm branch picking the destination address sits in
++between, so their live ranges spanned the whole program and the peak was 33
++simultaneously live float ranges against 31 registers. Both arms rejoin at
++`setDestAddr:` before the first of those `sq`s, which is a point every path
++reaches, and landing the loads there takes the peak to 28. The post-dominance that
++licenses the move is tested during the sink pass's own forward walk, from one
++count of how many branches name each label, rather than from a control-flow graph
++the allocator does not build.
++
++Carrying a load over a branch reorders the block it lands in, and over the 45 it
++was worth about two words in either direction in programs that had registers to
++spare and gained nothing for it. So the flag is not applied speculatively: the
++allocation runs first exactly as it would with the flag off, and the flag only
++gets its turn when that runs out of registers. All 44 programs that compiled
++without it are byte-identical with it on, as are the engine's 25.
++
++**Dead code — one more flag, off by default**
++
++The twelve above made the generated programs *fit* and made them *dense*, and they
++were still bigger than Sony's: 9506 instructions against 9264 over the 45, larger
++in 34 of them. The first thing measured was whether the six allocator flags had
++caused it. They had not. Over the 23 programs that compile with and without them,
++the ten density flags alone come to 4064 and all sixteen come to 4064 — the same
++number. (The four sink flags cost 30 on their own and `--trim-uncarried-ranges`
++with `--coalesce-float-writes` buys 8 back, so the six net to zero.) The gap was
++there before any of that work.
++
++Counting rows and slots says where it was. Over the 45, Sony's output is 9240
++instruction rows holding 10910 non-`nop` slots; this copy's was 9486 rows holding
++**11222**. Both fit 1.18 real operations in a row. This copy was not
++scheduling worse — it was scheduling 312 instructions Sony's `vcl` never emitted,
++and the histogram named them: 93 more `loi`, 65 more `lq`, and the `muli`/`addi`/
++`mulw`/`addw` that consume them.
++
++They are dead. TyraX's VU authoring layer emits a whole four-component constant
++vector when the body reads two of its components, and an `lq` for every quadword
++the description names whether the body touches it or not. Sony's `vcl` deletes
++both. `--drop-dead-writes` does the same:
++
++| flag | effect |
++|---|---|
++| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either |
++
++The liveness in it is the weakest one that finds them: a value is live if *any*
++token anywhere reads that component, with no control flow in the analysis at all.
++Nothing here deletes a write that is dead on one path and live on another — that
++needs dominance the register allocator does not build. Only aliases are
++candidates; a literal `VF05` an author named by number may be an interface with
++something this compiler cannot see. A name any `in_vf`/`out_vf`/`--exitm`
++directive mentions is live by declaration, as is a hardware resource any
++`out_hw_*` names. Stores, `xgkick`, the auto-incrementing loads, branches,
++anything with a delay slot, and any token carrying a label are never candidates.
++
++The flag writes are what make it worth having. Every FMAC instruction writes the
++MAC flags, so a dead `add.z` is only deletable if that write is unobserved; the
++test is global first (a program with no flag reader at all cannot observe any of
++them) and positional second (walk forward: a reader says live, another writer says
++dead, and a label, a branch, a directive or the end of the program says live,
++because a wrong answer here is a miscompile). It iterates to a fixed point:
++deleting `add.z k0, vf00, i` is what makes the `loi` above it dead.
++
++"Another writer says dead" is true of MAC and false of CLIP, and that is not a
++tuning knob — it is the difference between a register and a shift register. The
++CLIP register is a 24-bit window of the last **four** 6-bit judgements: `clipw`
++pushes six bits in at the bottom and moves the previous three entries up, so a
++later `clipw` does not overwrite an earlier one, and a positional reader — `fcand
++VI01,0x3CA3CA` names all four entries at once — still sees the older judgement
++three pushes later. Only the fourth subsequent push retires it. `fcset`, which
++really does replace the whole register, kills it at once. The same fact is why
++the dependency builder chains CLIP writers to each other instead of only to the
++final writer: which push landed in which entry is observable, so their program
++order is too. Both are unconditional; neither is behind a flag. Getting this
++wrong deletes four of the seven `clipw` in every `stapip_clip_*` program and
++leaves the "entirely inside, skip clipping" branch reading the previous
++triangle's bits — pixel-identical output, because Sutherland-Hodgman on a
++fully-inside polygon is a no-op, and five times the clipping work.
++
++With it on top of the twelve, over the 45 generated programs:
++
++| | Sony `vcl` | this copy, sixteen flags | plus `--drop-dead-writes` |
++|---|---|---|---|
++| instructions | 9264 | 9506 (+242) | **9308** (+44) |
++| smaller / larger / equal | — | 4 / 34 / 7 | 17 / 24 / 4 |
++
++and the engine's resident VU1 set drops from 2008 to **1988** against Sony's 2028.
++Not one of the 70 programs gets bigger: 42 of the 45 shrink and 3 are unchanged,
++6 of the 10 resident ones shrink and 4 are unchanged. All 45 still compile and
++assemble, all 25 engine programs still compile, both corpora are clean under
++TyraX's loop-carry checker, the multiset of stores and `xgkick`s each of the 70
++emits is unchanged to the offset, and with the flag off every one of them is
++byte-identical to what this copy emitted before it — no flags, the ten, and all
++sixteen.
++
++**What is left, and its shape.** With the dead code gone this copy emits *fewer*
++real operations than Sony's — 10864 non-`nop` slots against 10910 — in *more*
++rows: 9283 against 9240. None of the remaining 43 rows is work. All of it is `nop nop` in
++front of a CLIP reader: 91 words of it here against Sony's 48, and +43 is exactly
++the row gap. Every other padding bucket nets out.
++
++It is one shape, in the `_cl` programs' clip chain, and it is not a tuning
++constant. Sony pays the window exactly once in each of the sixteen `_cl` programs
++— three words, in the fan block where there is genuinely nothing else to do — and
++this copy pays it three to eleven times. The difference is how many `clip`s are
++allowed to be in flight at once. Over the 45:
++
++| | Sony `vcl` | this copy |
++|---|---|---|
++| `clip` sharing a row with a CLIP reader | 12 | **0** |
++| `clip`-to-`clip` distance 2, 3 or 4 rows | 10 / 10 / 13 | **0 / 0 / 0** |
++| `clip`-to-`clip` distance exactly 5 rows | 3 | 37 |
++
++Sony runs two or three `clip`s ahead of their readers and puts a reader in the
++lower slot of a row whose upper is the *next* `clip`; this copy issues one `clip`,
++waits out its window, reads it, and only then issues the next — five rows per
++vertex where Sony takes one or two. Sony's same-row reader is not reading the
++`clip` beside it; it is reading one from several rows back, which is the only way
++that output and the four-word window are both true. Two rules keep this copy from
++doing the same. The pair-legality test refuses a `clip` and a CLIP reader on one
++row outright, in both directions, and the window is enforced against the *nearest
++preceding* `clip` rather than against the one whose bits the mask selects.
++
++Both are about the same thing: the CLIP register is a 24-bit shift register, four
++entries of six bits, and neither the scheduler nor the emitter models the shift.
++They model "a `clip` happened N rows ago". Under that model a second `clip` in
++flight is indistinguishable from clobbering the first, so refusing it is the only
++safe answer, and the serialisation follows. Overlapping the chains needs the
++positions modelled — which entry each mask selects, and how many pushes have
++happened since — through the dependency graph, the pair test, the latency tracker
++and `emittedRowsSinceClipWrite`. That is the redesign, and it is the whole 43.
++
++It is also the part of this compiler with the worst track record. Three commits
++here — `ff1bc4a`, `09f8557`, `68d27df` — are all corrections to the positional
++CLIP window, and `stapip_clip_c` is still on the defect list below. Forty-three
++words out of 9264 do not justify reopening it without hardware to check against.
++
++## Known defects in this copy
++
++* `stapip_as_is_c`-style programs: a value loaded above a batch loop can be reused
++  inside it (TyraX works around it in its own sources). The obvious explanation —
++  liveness ignoring the back edge — is **wrong**: narrow the register pool and this
++  copy refuses cleanly instead of clobbering. No minimal reproducer yet.
++* One TyraX microprogram, `stapip_clip_c`, is still miscompiled by this copy.
++
++Upstream's own test suite (419 tests) passes unmodified.
+diff --git a/README.md b/README.md
+index 14667b8..2f64009 100644
+--- a/README.md
++++ b/README.md
+@@ -106,12 +106,35 @@ Useful options:
+ | `--dump-instruction-info-json` | print the VU instruction metadata table as JSON |
+ | `--dump-schedule-info` | print generic ready-scheduler issue slots |
+ | `--dump-schedule-info-json` | print generic ready-scheduler issue slots as JSON |
++| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
++| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
++| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
++| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
++| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
++| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
++| `--loop-liveness-always` | never skip extending a live range across a loop's back edge |
++| `--upper-move-with-w` | promote a full-width `move` into the upper pipe, where it can pair |
++| `--pair-best-of-two` | schedule each segment both ways and keep the shorter |
++| `--pair-best-of-many` | schedule each segment under seven ready-list heuristics and keep the shortest |
++| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
++| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
++| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
++| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
++| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
++| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, and only after an allocation has already run out of registers |
++| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either — CLIP being a four-entry shift register, not a register, so a later `clipw` does not kill an earlier one |
++| `--exempt-full-clip-masks` | let the scheduler make the exemption the emitter already makes: a CLIP-flag reader whose mask covers the whole window does not have to wait for its own six bits |
++| `--clip-exemption-best-of` | schedule each program both with and without that exemption and keep the shorter, so the exemption is taken only where it pays for the schedule it changes downstream |
+ | `--enable-generic-software-pipelining` | enable safe generic software-pipeline rewrites, currently the default |
+ | `--disable-generic-software-pipelining` | disable generic software-pipeline rewrites for comparison/debugging |
+ | `--strict-schedule-slots` | emit from the typed scheduler slot model without legacy lookahead pairing |
+ 
+ `-M`, `-P`, and `-Z` are accepted for VCL command-line compatibility.
+ 
++The nineteen density, register-allocation and dead-code options are additions
++this fork makes to OpenVCL, and every one of them is off by default. What each is
++for and what it measured are in [`NOTICE-TYRAX.md`](NOTICE-TYRAX.md).
++
+ ## VSM Cost Analysis
+ 
+ OpenVCL can also analyze already scheduled `.vsm` files. This works for both
 diff --git a/src/Alias.cpp b/src/Alias.cpp
 index a29122a..85588f0 100644
 --- a/src/Alias.cpp
@@ -755,10 +1022,10 @@ index 1845035..d05414a 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..029a9cd 100644
+index e6a6dea..756dc55 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,31 @@ CommandLine::CommandLine()
+@@ -75,6 +75,30 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -780,7 +1047,6 @@ index e6a6dea..029a9cd 100644
 +	m_sinkLoadsPastBranches = false;
 +	m_sinkLoadsBestOf = false;
 +	m_dropDeadWrites = false;
-+	m_clipWindowLiveness = false;
 +	m_exemptFullClipMasks = false;
 +	m_clipExemptionBestOf = false;
 +	m_showPairMisses = false;
@@ -790,7 +1056,7 @@ index e6a6dea..029a9cd 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +150,31 @@ CommandLine::CommandLine()
+@@ -125,6 +149,30 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -812,7 +1078,6 @@ index e6a6dea..029a9cd 100644
 +	m_options.push_back(Option(0,"sink-loads-past-branches",SINK_LOADS_PAST_BRANCHES,false));
 +	m_options.push_back(Option(0,"sink-loads-best-of",SINK_LOADS_BEST_OF,false));
 +	m_options.push_back(Option(0,"drop-dead-writes",DROP_DEAD_WRITES,false));
-+	m_options.push_back(Option(0,"clip-window-liveness",CLIP_WINDOW_LIVENESS,false));
 +	m_options.push_back(Option(0,"exempt-full-clip-masks",EXEMPT_FULL_CLIP_MASKS,false));
 +	m_options.push_back(Option(0,"clip-exemption-best-of",CLIP_EXEMPTION_BEST_OF,false));
 +	m_options.push_back(Option(0,"show-pair-misses",SHOW_PAIR_MISSES,false));
@@ -822,7 +1087,7 @@ index e6a6dea..029a9cd 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +289,31 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +287,30 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -844,7 +1109,6 @@ index e6a6dea..029a9cd 100644
 +				case SINK_LOADS_PAST_BRANCHES: m_sinkLoadsPastBranches = true; break;
 +				case SINK_LOADS_BEST_OF: m_sinkLoadsBestOf = true; break;
 +				case DROP_DEAD_WRITES: m_dropDeadWrites = true; break;
-+				case CLIP_WINDOW_LIVENESS: m_clipWindowLiveness = true; break;
 +				case EXEMPT_FULL_CLIP_MASKS: m_exemptFullClipMasks = true; break;
 +				case CLIP_EXEMPTION_BEST_OF: m_clipExemptionBestOf = true; break;
 +				case SHOW_PAIR_MISSES: m_showPairMisses = true; break;
@@ -854,7 +1118,7 @@ index e6a6dea..029a9cd 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +405,10 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +402,10 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -866,10 +1130,10 @@ index e6a6dea..029a9cd 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..eeec0eb 100644
+index f5e4b3d..0688b79 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,31 @@ public:
+@@ -56,6 +56,30 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -891,7 +1155,6 @@ index f5e4b3d..eeec0eb 100644
 +	bool sinkLoadsPastBranches() const;
 +	bool sinkLoadsBestOf() const;
 +	bool dropDeadWrites() const;
-+	bool clipWindowLiveness() const;
 +	bool exemptFullClipMasks() const;
 +	bool clipExemptionBestOf() const;
 +	bool showPairMisses() const;
@@ -901,7 +1164,7 @@ index f5e4b3d..eeec0eb 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +155,31 @@ private:
+@@ -130,6 +154,30 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -923,7 +1186,6 @@ index f5e4b3d..eeec0eb 100644
 +		SINK_LOADS_PAST_BRANCHES,
 +		SINK_LOADS_BEST_OF,
 +		DROP_DEAD_WRITES,
-+		CLIP_WINDOW_LIVENESS,
 +		EXEMPT_FULL_CLIP_MASKS,
 +		CLIP_EXEMPTION_BEST_OF,
 +		SHOW_PAIR_MISSES,
@@ -933,7 +1195,7 @@ index f5e4b3d..eeec0eb 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +235,31 @@ private:
+@@ -185,6 +233,30 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -955,7 +1217,6 @@ index f5e4b3d..eeec0eb 100644
 +	bool m_sinkLoadsPastBranches;
 +	bool m_sinkLoadsBestOf;
 +	bool m_dropDeadWrites;
-+	bool m_clipWindowLiveness;
 +	bool m_exemptFullClipMasks;
 +	bool m_clipExemptionBestOf;
 +	bool m_showPairMisses;
@@ -966,10 +1227,10 @@ index f5e4b3d..eeec0eb 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..d2ad8a9 100644
+index 5500026..e596b8e 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,181 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,174 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1099,13 +1360,6 @@ index 5500026..d2ad8a9 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
-+inline bool CommandLine::clipWindowLiveness() const
-+{
-+	return m_clipWindowLiveness;
-+}
-+
-+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-+
 +inline bool CommandLine::exemptFullClipMasks() const
 +{
 +	return m_exemptFullClipMasks;
@@ -1222,7 +1476,7 @@ index a9a3c8e..7458bcf 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..73bcbe3 100644
+index b8b1946..463202c 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1242,7 +1496,7 @@ index b8b1946..73bcbe3 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -2045,6 +2048,40 @@ bool Parser::tokenize()
+@@ -2045,6 +2048,39 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1272,7 +1526,6 @@ index b8b1946..73bcbe3 100644
 +	setVuSinkLoadsIntoLoopsEnabled( m_cmdLine.sinkLoadsIntoLoops() );
 +	setVuSinkLoadsPastBranchesEnabled( m_cmdLine.sinkLoadsPastBranches() );
 +	setVuDropDeadWritesEnabled( m_cmdLine.dropDeadWrites() );
-+	setVuClipWindowLivenessEnabled( m_cmdLine.clipWindowLiveness() );
 +	setVuExemptFullClipMasksEnabled( m_cmdLine.exemptFullClipMasks() );
 +	setVuClipExemptionBestOfEnabled( m_cmdLine.clipExemptionBestOf() );
 +	setVuShowPairMissesEnabled( m_cmdLine.showPairMisses() );
@@ -1283,7 +1536,7 @@ index b8b1946..73bcbe3 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2063,34 +2100,324 @@ bool Parser::tokenize()
+@@ -2063,34 +2099,324 @@ bool Parser::tokenize()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1619,7 +1872,7 @@ index b8b1946..73bcbe3 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2453,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2452,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {
@@ -1671,7 +1924,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..d4efbee 100644
+index cf6d79b..beda6fc 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -2176,7 +2429,7 @@ index cf6d79b..d4efbee 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1631,1402 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1631,1407 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -2482,17 +2735,22 @@ index cf6d79b..d4efbee 100644
 +	// FMAC's flag write drops out before the walk starts, and the walk only has
 +	// to be right about the resources somebody really does read.
 +	//
-+	// CLIP is the one resource where "another writer says no" is WRONG, and
-+	// --clip-window-liveness is what fixes it: a `clipw` does not overwrite the
-+	// previous judgement, it shifts it up one 6-bit entry, where a positional
-+	// reader (`fcand VI01,0x3CA3CA` names all four entries) still sees it. Only
-+	// the fourth subsequent push retires it; anything else that writes CLIP
-+	// (FCSET) really does replace the register and kills it at once.
++	// CLIP is the one resource where "another writer says no" is WRONG, and it
++	// is not behind a flag because it is not an option: a `clipw` does not
++	// overwrite the previous judgement, it shifts it up one 6-bit entry, where a
++	// positional reader (`fcand VI01,0x3CA3CA` names all four entries) still
++	// sees it. Only the fourth subsequent push retires it; anything else that
++	// writes CLIP (FCSET) really does replace the register and kills it at once.
++	//
++	// This shipped for one commit as --clip-window-liveness and was folded in
++	// here, because a --drop-dead-writes build without it deletes four of the
++	// seven `clipw` in every stapip_clip_* program, and the "entirely inside,
++	// skip clipping" branch then reads the previous triangle's judgements - a
++	// miscompile no pixel or GIF-packet comparison can see.
 +	bool implicitWriteIsObservable( std::list<Token>::const_iterator token,
 +	                                std::list<Token>::const_iterator end,
 +	                                unsigned int resources )
 +	{
-+		const bool clipShifts = vuClipWindowLivenessEnabled();
 +		unsigned int pending = resources;
 +		unsigned int clipPushes = 0;
 +		for( ++token; token != end && pending != VU_RESOURCE_NONE; ++token )
@@ -2513,7 +2771,7 @@ index cf6d79b..d4efbee 100644
 +				return true;
 +
 +			unsigned int kills = access.implicitWrites;
-+			if( clipShifts && (kills & VU_RESOURCE_CLIP) && tokenIsClipPush( *token ) )
++			if( (kills & VU_RESOURCE_CLIP) && tokenIsClipPush( *token ) )
 +			{
 +				// A push only retires the entry once it has shifted out of the
 +				// window; until then the old judgement is still readable.
@@ -3796,6 +4054,41 @@ index daf0965..01ad208 100644
  inline Token::Argument::Argument( const std::string& text )
  {
  	m_text = text;
+diff --git a/src/VuInstructionInfo.cpp b/src/VuInstructionInfo.cpp
+index 6f36f6d..655fb8f 100644
+--- a/src/VuInstructionInfo.cpp
++++ b/src/VuInstructionInfo.cpp
+@@ -283,10 +283,28 @@ namespace
+ 
+ 		VU_INFO(VU_OP_LOI, "LOI", 1, Operand::LOWER|Operand::IWRITE, "imm:evaluate:raw", Operand::LSU, VU_PIPE_LOWER, VU_EXEC_LSU, 1, 1, VU_INSTR_WRITES_I, VU_RESOURCE_NONE, VU_RESOURCE_I, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 
++		// R is the random unit's 23-bit LFSR, and only two of these four touch it
++		// the way a plain register is touched. RINIT replaces it outright and RGET
++		// only copies it out, so those two are a write and a read. The other two
++		// are read-modify-writes and were described as if they were not:
++		//
++		//   RNEXT advances the LFSR and THEN copies it out, so it is a writer as
++		//   much as a reader. Described as read-only, two RNEXTs carried no
++		//   dependency between them at all, an RNEXT and a later RGET carried
++		//   none either - the scheduler reordered them - and --drop-dead-writes
++		//   deleted an RNEXT whose destination register was dead, which silently
++		//   drops an LFSR step and changes every value drawn after it.
++		//
++		//   RXOR folds a source field INTO the current R, so the previous value is
++		//   its input. Described as write-only, the dead-write walk treated the
++		//   next RXOR as an overwrite and deleted the earlier one - the same
++		//   mistake as treating CLIP as a register instead of a shift window, and
++		//   with the same shape: a later write that consumes the earlier one
++		//   rather than replacing it.
+ 		VU_INFO(VU_OP_RINIT, "RINIT", 2, Operand::LOWER, "r:write,vf:flag", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_RGET, "RGET", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_RNEXT, "RNEXT", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+-		VU_INFO(VU_OP_RXOR, "RXOR", 2, Operand::LOWER, "r:write,vf:flag", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_RNEXT, "RNEXT", 2, Operand::LOWER|Operand::DEST, "vf:dest:write,r", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 4, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
++		VU_INFO(VU_OP_RXOR, "RXOR", 2, Operand::LOWER, "r:write,vf:flag", Operand::RANDU, VU_PIPE_LOWER, VU_EXEC_RANDU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_R, VU_RESOURCE_R, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 
+ 		VU_INFO(VU_OP_FSAND, "FSAND", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
+ 		VU_INFO(VU_OP_FSEQ, "FSEQ", 2, Operand::LOWER, "vi:write,imm:evaluate", Operand::IALU, VU_PIPE_LOWER, VU_EXEC_IALU, 1, 1, VU_INSTR_NONE, VU_RESOURCE_NONE, VU_RESOURCE_NONE, VU_MEMORY_NONE, VU_MEMORY_FLAG_NONE, 0, VU_BYPASS_NONE),
 diff --git a/src/VuLatencyTracker.cpp b/src/VuLatencyTracker.cpp
 index 71ee7cb..7b43dae 100644
 --- a/src/VuLatencyTracker.cpp
@@ -3997,7 +4290,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..3f4ba60 100644
+index 3260370..01ad685 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -4047,17 +4340,18 @@ index 3260370..3f4ba60 100644
  			return;
  
  		const unsigned int finalWriter = writers.back();
-@@ -76,6 +102,9 @@ namespace
+@@ -76,6 +102,10 @@ namespace
  	{
  		std::vector<unsigned int> pendingWriters;
  		const bool preserveLiveOutWriter = (ignoredImplicitWawResources & resource) == 0;
 +		// Only CLIP shifts; every other implicit resource here is a plain register.
-+		const bool chainWriters =
-+			vuClipWindowLivenessEnabled() && resource == VU_RESOURCE_CLIP;
++		// Not behind a flag: which push landed in which entry is a property of the
++		// hardware, not of a command-line option.
++		const bool chainWriters = resource == VU_RESOURCE_CLIP;
  
  		for( unsigned int index = 0; index < accesses.size(); ++index )
  		{
-@@ -86,7 +115,7 @@ namespace
+@@ -86,7 +116,7 @@ namespace
  			{
  				if( !pendingWriters.empty() )
  				{
@@ -4066,16 +4360,21 @@ index 3260370..3f4ba60 100644
  					addEdge( edges, pendingWriters.back(), index, VU_DEPENDENCY_RESOURCE_RAW );
  				}
  				pendingWriters.clear();
-@@ -96,7 +125,7 @@ namespace
+@@ -96,7 +126,12 @@ namespace
  				pendingWriters.push_back( index );
  		}
  
 -		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter );
-+		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter, chainWriters );
++		// The trailing group has no reader after it, so its order is observable
++		// only if the resource is live out - and when it is not, a shift register
++		// is as unordered as a plain one. `preserveLiveOutWriter` gates the chain
++		// for the same reason it gates the fan-in.
++		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter,
++		                                   chainWriters && preserveLiveOutWriter );
  	}
  
  	bool memoryOrderRequiresDependency( const VuTokenResourceAccess& beforeAccess,
-@@ -124,13 +153,85 @@ namespace
+@@ -124,13 +159,85 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -4162,7 +4461,7 @@ index 3260370..3f4ba60 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +239,7 @@ namespace
+@@ -138,7 +245,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -4171,7 +4470,7 @@ index 3260370..3f4ba60 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +247,7 @@ namespace
+@@ -146,7 +253,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4180,7 +4479,7 @@ index 3260370..3f4ba60 100644
  
  		return score;
  	}
-@@ -208,7 +309,8 @@ namespace
+@@ -208,7 +315,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4190,7 +4489,7 @@ index 3260370..3f4ba60 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +319,8 @@ namespace
+@@ -217,7 +325,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -4200,7 +4499,7 @@ index 3260370..3f4ba60 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +335,11 @@ namespace
+@@ -232,9 +341,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4215,7 +4514,7 @@ index 3260370..3f4ba60 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +348,10 @@ namespace
+@@ -243,8 +354,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4228,7 +4527,7 @@ index 3260370..3f4ba60 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +361,69 @@ namespace
+@@ -254,6 +367,69 @@ namespace
  		return best;
  	}
  
@@ -4298,7 +4597,7 @@ index 3260370..3f4ba60 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +519,36 @@ namespace
+@@ -349,6 +525,36 @@ namespace
  		return 1;
  	}
  
@@ -4335,7 +4634,7 @@ index 3260370..3f4ba60 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +568,28 @@ namespace
+@@ -368,9 +574,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4367,7 +4666,7 @@ index 3260370..3f4ba60 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +778,7 @@ namespace
+@@ -559,6 +784,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4375,7 +4674,7 @@ index 3260370..3f4ba60 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +825,8 @@ namespace
+@@ -605,7 +831,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4385,7 +4684,7 @@ index 3260370..3f4ba60 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +844,9 @@ namespace
+@@ -623,7 +850,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4396,7 +4695,7 @@ index 3260370..3f4ba60 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +904,7 @@ namespace
+@@ -681,6 +910,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4404,7 +4703,7 @@ index 3260370..3f4ba60 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +939,8 @@ namespace
+@@ -715,7 +945,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4414,7 +4713,7 @@ index 3260370..3f4ba60 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +969,58 @@ namespace
+@@ -744,7 +975,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4474,7 +4773,7 @@ index 3260370..3f4ba60 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1155,188 @@ namespace
+@@ -879,6 +1161,188 @@ namespace
  		return liveness;
  	}
  
@@ -4663,7 +4962,7 @@ index 3260370..3f4ba60 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1344,64 @@ namespace
+@@ -886,12 +1350,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -4729,7 +5028,7 @@ index 3260370..3f4ba60 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1414,7 @@ namespace
+@@ -904,6 +1420,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -4737,7 +5036,7 @@ index 3260370..3f4ba60 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1424,32 @@ namespace
+@@ -913,45 +1430,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -4805,7 +5104,7 @@ index 3260370..3f4ba60 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1462,7 @@ namespace
+@@ -964,7 +1468,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -4814,7 +5113,7 @@ index 3260370..3f4ba60 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1491,9 @@ namespace
+@@ -993,6 +1497,9 @@ namespace
  			}
  		}
  
@@ -4824,7 +5123,7 @@ index 3260370..3f4ba60 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6183,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6189,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -4832,7 +5131,7 @@ index 3260370..3f4ba60 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -6114,6 +6616,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6622,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -4880,7 +5179,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..ef81b80 100644
+index c28ec6d..c250808 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -4900,7 +5199,7 @@ index c28ec6d..ef81b80 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,432 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,413 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -4952,7 +5251,6 @@ index c28ec6d..ef81b80 100644
 +	bool g_sinkLoadsIntoLoops = false;
 +	bool g_sinkLoadsPastBranches = false;
 +	bool g_dropDeadWrites = false;
-+	bool g_clipWindowLiveness = false;
 +	bool g_showPairMisses = false;
 +	bool g_pairBestOfTwo = false;
 +	bool g_pairBestOfMany = false;
@@ -5265,24 +5563,6 @@ index c28ec6d..ef81b80 100644
 +	return g_dropDeadWrites;
 +}
 +
-+// --clip-window-liveness: teach --drop-dead-writes that CLIP is a SHIFT
-+// register, not a register. A `clipw` pushes its six judgement bits into the
-+// bottom of a 24-bit window and shifts the previous three entries up; a later
-+// `clipw` therefore does NOT kill an earlier one, it merely moves it, and a
-+// positional reader (`fcand VI01,0x3CA3CA` reads all four entries at once) still
-+// sees it three pushes later. Without this the dead-write walk treats the next
-+// CLIP writer as an overwrite and deletes four of the seven `clipw` in every
-+// stapip_clip_* program, leaving the four-entry mask reading stale bits.
-+void setVuClipWindowLivenessEnabled( bool enabled )
-+{
-+	g_clipWindowLiveness = enabled;
-+}
-+
-+bool vuClipWindowLivenessEnabled()
-+{
-+	return g_clipWindowLiveness;
-+}
-+
 +// Diagnostics only: report why a row went out with one slot used.
 +void setVuShowPairMissesEnabled( bool enabled )
 +{
@@ -5335,10 +5615,10 @@ index c28ec6d..ef81b80 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..ba6e130 100644
+index 8188099..aa299d2 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,317 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,318 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -5634,14 +5914,15 @@ index 8188099..ba6e130 100644
 +// nothing observes either. Iterated to a fixed point, so the `loi` feeding a
 +// deleted reader goes with it. Only aliases are candidates: a literal VFxx an
 +// author named by number may be an interface with the outside world.
-+void setVuDropDeadWritesEnabled( bool enabled );
-+bool vuDropDeadWritesEnabled();
++//
 +// CLIP is a 24-bit shift register of four 6-bit judgements, so one CLIP write
 +// does not kill the previous one - it survives three more pushes, and a
-+// positional mask still reads it. Makes --drop-dead-writes model that instead
-+// of treating the next CLIP writer as an overwrite.
-+void setVuClipWindowLivenessEnabled( bool enabled );
-+bool vuClipWindowLivenessEnabled();
++// positional mask still reads it. That is not optional and is not a flag: both
++// this pass and the dependency builder model it unconditionally. See
++// implicitWriteIsObservable() in RegisterAllocator.cpp and
++// addPreciseImplicitFlagDependencies() in VuSchedulerAnalysis.cpp.
++void setVuDropDeadWritesEnabled( bool enabled );
++bool vuDropDeadWritesEnabled();
 +void setVuShowPairMissesEnabled( bool enabled );
 +bool vuShowPairMissesEnabled();
 +void setVuPairBestOfTwoEnabled( bool enabled );

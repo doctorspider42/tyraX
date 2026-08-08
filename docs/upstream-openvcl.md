@@ -210,7 +210,50 @@ programs, four of them at 1, 0, 3 and 2 rows in `stapip_billboard_c_vu1`. SCE pa
 with a `clip` several rows back rather than the nearest one, which is what modelling the
 shift window buys and what we still do not do.
 
-## 5. Twenty-one flags, all off by default
+## 5. `RNEXT` and `RXOR` are declared as if they were not read-modify-write
+
+**This one fires on stock upstream at `a5867c3` with no flags at all, and it is two constants.**
+`src/VuInstructionInfo.cpp` declares `RNEXT` as a pure *read* of R and `RXOR` as a pure *write*.
+Both are read-modify-write: `RNEXT` advances the LFSR and then copies it out; `RXOR` folds a
+source field into the current R.
+
+Because neither is a *writer* in the table, the dependency graph contains **no edge at all**
+between an `rnext` and a following `rget`, and the scheduler will hoist the `rget` above it, so
+it reads the un-advanced value:
+
+```
+	rinit	R, 0x3F800000
+	rnext.x	vf01, R          ; advances R, then copies
+	rget.x	vf02, R          ; scheduled ABOVE the rnext
+```
+
+Two more consequences appear as soon as a dead-code pass exists. An `rnext` whose destination VF
+is dead is deleted outright, silently dropping an LFSR step — its `implicitWrites` is `NONE`, so
+an observability check is never even consulted. And `rinit R,seed` followed by two `rxor` loses
+the `rinit` and the first `rxor`, leaving the second folding into whatever R held on entry.
+
+Fix: declare both `reads=R, writes=R`. Nothing else has to change — the observability walk checks
+`implicitReads` before `implicitWrites`, so a correctly declared read-modify-write is handled by
+construction. Reproducers for all three are `r_order.vcl`, `r_rnext.vcl` and `r_rxor.vcl`.
+
+## 6. The status register is not modelled, and `fsand` can be scheduled before what it reads
+
+`FSAND`/`FSEQ`/`FSOR`/`FSSET` carry `reads=NONE, writes=NONE`, and no FMAC declares a status
+write. On stock upstream, an `fsand` is therefore scheduled *before* the `mul.x` whose flags it
+exists to read, and a dead-code pass deletes that `mul.x` outright because "nobody reads MAC".
+
+The compiler already disagrees with itself here: `isVuMacReader()` in `VuSchedulingRules.cpp`
+**does** list `fsand`/`fseq`/`fsor`, and `declaredHardwareResource()` maps `out_hw_status` onto
+`VU_RESOURCE_MAC` — but the latency tracker asks `tokenReadsImplicitResource`, which uses the
+table that says no.
+
+**The fix is not "mark every FMAC a status writer".** The sticky bits (`ZS/SS/US/OS/IS/DS`)
+*accumulate* until `fsset` clears them, so there is no kill to model at all; adding a resource bit
+under the current pairwise builder would put a WAW edge between every pair of FMACs and destroy
+every schedule. What this needs is an **accumulating-resource** class: writes commute, so no WAW,
+only RAW and WAR against readers and against `fsset`. Reproducer `status_sticky.vcl`.
+
+## 7. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's
