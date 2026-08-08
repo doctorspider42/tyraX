@@ -234,13 +234,13 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "this project and 'Fit every shot' on. That is the net to ship.\n"
         "\n"
         "AND SOME SCENES HAVE NOTHING TO WIN. On examples/showcase the ORACLE\n"
-        "itself - the best any per-tile weighting can do - scores +0.00 dB at\n"
+        "itself - the best any per-tile weighting can do - scores +0.02 dB at\n"
         "1.00 passes: soft ground texture, low-poly props, nothing that\n"
         "aliases. Run the window's Evaluate tab on your project BEFORE turning\n"
         "this on; it says so in one line.\n"
         "\n"
         "On the built-in corpus, held out shot by shot, it is +0.42 dB (13\n"
-        "shots x 3 seeds = 39 fold-runs, sd 0.40, 3 of the 39 below bilinear) -\n"
+        "shots x 3 seeds = 39 fold-runs, sd 0.35, 3 of the 39 below bilinear) -\n"
         "but that is a number about the bestiary, not about your game. No BLSS\n"
         "frame has ever been TIMED, in the emulator or on hardware, so whether\n"
         "it is faster on your scene is genuinely unknown, and nobody has\n"
@@ -272,7 +272,7 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "    project, i.e. worse than leaving this off, where one fitted to that\n"
             "    project's own scenes measured +0.06 against a ceiling of +0.77. Some\n"
             "    scenes have no ceiling at all - on examples/showcase the oracle itself\n"
-            "    is +0.00 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
+            "    is +0.02 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
             "    tab answers 'will this scene benefit' in one line. No frame of it has\n"
             "    ever been timed on console or hardware; look at it in PCSX2 too.");
     if (s.blssEnabled) drawBlssClashWarning(blssClashesFor(s));
@@ -1008,7 +1008,7 @@ void marginText(double v) {
 // Below this many dB the oracle - the best ANY per-tile weighting can do under
 // the exact GS composite - is indistinguishable from plain bilinear, and no
 // network can beat a bound of zero. Measured: on examples/showcase the oracle
-// scores +0.07 dB held-out and +0.00 dB on the rest, at 1.01 and 1.00 passes.
+// scores +0.07 dB held-out and +0.02 dB on the rest, at 1.01 and 1.00 passes.
 // Soft ground texture, low-poly props, nothing that aliases: a fact about the
 // scene, not about the trainer.
 constexpr double kNoHeadroomDb = 0.10;
@@ -1088,7 +1088,7 @@ void App::drawBlssEvalTab() {
         ImGui::TextWrapped(
             "ON A PROJECT CORPUS THIS IS THE MEASUREMENT THAT DECIDES. It answers 'will this "
             "scene benefit at all' - the ORACLE row is the scene's own ceiling, and some "
-            "scenes have none: on examples/showcase the oracle itself scores +0.00 dB at "
+            "scenes have none: on examples/showcase the oracle itself scores +0.02 dB at "
             "1.00 passes, so no network can win there. Run this before you enable the "
             "upscaler on a game. The verdict is under the table.");
     else
