@@ -159,6 +159,43 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+The neural upscaler trains and measures headlessly too
+(`docs/neural-upscaler.md`), which is the whole test layer that feature has:
+
+```
+TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
+TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
+TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
+```
+
+**Verify a change to either parallel phase with `--threads`, not by reading the
+code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render
+and the oracle, and it is a wall-clock knob and nothing else: the same `--seed`
+must write a byte-identical `blss.net` at any thread count. So the check is two
+runs and `md5sum` —
+
+```bash
+build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
+    --all-shots --threads 1 -o /tmp/t1.net
+build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
+    --all-shots            -o /tmp/auto.net
+md5sum /tmp/t1.net /tmp/auto.net    # must be identical
+```
+
+— and the stronger form, which is what actually protects the published numbers,
+is to build the commit *before* the change into its own worktree and check that
+its `blss.net` matches too. Every measured table in `docs/neural-upscaler.md`
+came off a seeded run, so a thread-dependent result would silently unmake all of
+them. On 6 cores that run is ~68 s at `--threads 1` and ~18 s at auto; use
+`--frames 78 --epochs 200` for a faster smoke check (still deterministic, just a
+different net). `--blss-train` ends with `blss: timing - corpus X, oracle Y,
+fit Z`, and the per-shot corpus lines report **cpu ms, not wall ms** — summing
+them will not give you the wall clock of a threaded run.
+
+`--blss-eval <projectDir>` is also the "should this project have the feature on
+at all" check: the **oracle** row is the scene's ceiling, and on some scenes it
+is +0.00 dB. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
+
 VU1 microprogram work has its own layer, faster than everything below
 (`docs/vu-framework.md`):
 
@@ -566,7 +603,7 @@ Notes:
   script — a GDI capture that works reliably:
 
   ```powershell
-  powershell -File .claude/skills/tyra-testing/scripts/screenshot-window.ps1 `
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
       -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
   ```
 
@@ -638,7 +675,7 @@ Notes:
   synthetic keyboard/mouse, no human in the loop:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
   ```
 
   It talks straight to **mutter's own D-Bus APIs** (`org.gnome.Mutter.ScreenCast`
@@ -657,7 +694,7 @@ Notes:
   PipeWire every time (~0.6 s each) and drops pointer state in between:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
   key ctrl+n
   sleep 0.6
   click --at 917,382
@@ -690,7 +727,7 @@ Notes:
   single screenshot instead of thirty:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py \
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py \
       watch <scratchpad>/w --auto --aspect 4:3 --every 1 --for 20 --tile 224
   ```
 

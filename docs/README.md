@@ -77,14 +77,18 @@ guides. What is queued is in [Backlog](backlog.md).
   that tile wants: the sub-pixel `XYOFFSET` jitter, the features the EE can
   produce without ever reading the framebuffer back, the free full-resolution
   history hiding in the other display buffer, the host-side trainer
-  (`--blss-train` / `--blss-eval` / `--blss-eval --cv`), the three-term objective
-  the oracle actually minimises - accuracy, flicker and the fill the composite
-  would cost - the FIVE times this feature learned that anything absent from the
-  objective, or from the measurement, does not exist (the fifth is the most
-  transferable: every out-of-distribution decibel it ever quoted came from a
-  single held-out split, and cross-validating turned "statistically a draw" into
-  a real +0.40 dB), and why shrinking the z buffer to the reduced raster makes it
-  leave MORE texture VRAM than not using it at all.
+  (`--blss-train <projectDir>` / `--blss-eval` / `--blss-eval --cv`, threaded and
+  byte-for-byte deterministic at any `--threads N`), why you must **fit the
+  project you will ship** - a net trained on the built-in bestiary measured
+  -0.40 dB, i.e. worse than doing nothing, on a real project - the three-term
+  objective the oracle actually minimises (accuracy, flicker and the fill the
+  composite would cost), the SIX times this feature learned that anything absent
+  from the objective, or from the measurement, or from the thing being measured
+  ON, does not exist (the fifth is the most transferable: every
+  out-of-distribution decibel it ever quoted came from a single held-out split,
+  and cross-validating turned "statistically a draw" into a real +0.42 dB on the
+  bestiary), and why shrinking the z buffer to the reduced raster makes it leave
+  MORE texture VRAM than not using it at all.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why

@@ -28,6 +28,26 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
+  - **DONE: the corpus render is threaded, and DETERMINISM is what pays for it**
+    (7d3dbf67). The oracle has been parallel per frame since 1b9c7a74; the corpus
+    render was the last serial phase that could be parallel at all (7.2-7.7 s of
+    a ~24 s default run). The one thing making it serial was `prevLow` carried
+    between iterations - an order dependency - so it is re-rendered from its own
+    camera and its own jitter phase, the same image by construction, for 1.5%
+    more work. `--threads N` (0 = every core, clamped to 32) bounds both parallel
+    phases and is a WALL-CLOCK knob only: on `examples/procedural`, 156 frames,
+    400 epochs, `--all-shots`, `--threads 1`/`3`/`6`/auto and **the pre-change
+    binary** all write md5 `6b2fba90d0f059f055134a55df478c8e`. That last row is
+    the load-bearing one - every published fold table stays a measurement of this
+    code. 6 cores, 1 -> auto: corpus 7.5 -> 1.9 s, oracle 54.6 -> 10.4 s, fit 6.2
+    -> 6.2 s, total 68.4 -> 18.5 s; end to end against the previous commit,
+    24.4/23.6 s -> 18.5/18.5 s.
+
+    **New from this item: the bottleneck is the FIT.** At every core the oracle
+    is 10.4 s (56%), the corpus 1.9 s (10%) and the sequential Adam SGD **6.2 s
+    (34%)** - each step reads the weights the previous one wrote, so `--threads`
+    cannot touch it. Not worth a GPU at 6 seconds; if the cycle needs to be
+    faster, the oracle's coordinate descent is still more than half of it.
   - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BEFORE IT WAS WRITTEN: make the
     raster-redirect brackets nest.** `RendererCoreEnvMap::end()`, the camera
     feed and `RendererCoreShadowMap::end()` restored FRAME/SCISSOR/ZBUF/XYOFFSET
@@ -240,10 +260,11 @@ the verification, and any fact worth reusing belongs in the relevant
     Some projects have nothing to win: on `examples/showcase` the ORACLE itself
     scores +0.00 dB, which `--blss-eval <projectDir>` is now how you find out.
 
-    **Still open from this item:** the *Tools > Neural Upscaler (BLSS)* window's
-    Train tab does not take a project directory - it always trains on the
-    bestiary, i.e. on the configuration nobody should ship. It also hard-codes
-    13 shots in its progress heuristic, which a six-move project corpus is not.
+    **Closed by `7d3dbf67`:** the window's corpus is now one switch in the
+    header, shared by all five verbs, and it DEFAULTS to this project's own
+    scenes with `--all-shots` on - so the configuration that was measured to work
+    is the one the UI expresses first. The progress line counts frames rather
+    than assuming 13 shots.
   - **DONE: describe the frame to the network instead of handing it a constant,
     and keep the instrument this time.** `StaPipCore` was handing BLSS the bag's
     bounding SPHERE, once per bag: `wNear = w - radius` collapses to the near
@@ -264,10 +285,14 @@ the verification, and any fact worth reusing belongs in the relevant
     once and DELETED it - after which the net was fitted to one distribution and
     run on another for eleven commits with nobody able to compare them.
 
-    **Still open from this item:** the editor's Debug view combo offers only 0
-    and 1, so reaching view 2 means hand-editing `"blssDebugView": 2` into the
-    `.tyra`; and the sky-dome opt-out has never been booted (the session that
-    wrote it lost its compositor), so it is verified at compile level only.
+    **Closed by `7d3dbf67`:** the Debug view combo has three entries, so view 2
+    is reachable without a text editor. It offered only 0 and 1 against a field
+    `project.cpp` clamps to `0..2`, which meant a project that already had the
+    logger on displayed as "Off" and writing the widget back reset it.
+
+    **Still open from this item:** the sky-dome opt-out has never been booted
+    (the session that wrote it lost its compositor), so it is verified at compile
+    level only.
   - **DONE: two input channels measured and deleted.** `histAge` (the recurrent
     one) was letting the net memorise "this shot has been still a while" - it hurt
     most on the shot with the HIGHEST histAge - and taking it out removed the

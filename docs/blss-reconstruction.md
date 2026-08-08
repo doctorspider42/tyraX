@@ -184,8 +184,12 @@ twins get checked:
   The channel names and their order are **exactly `blss::kFeatureNames`**, so a
   line here sits next to a row of `--blss-eval --features`. It is compiled out of
   an `NDEBUG` build (`TYRA_LOG`), which the editor's own game build is not.
-  Reaching it needs `"blssDebugView": 2` edited into the `.tyra` by hand — see
-  the caveat in [the upscaler page](neural-upscaler.md#using-it).
+  **It is reachable from the UI**: *Debug view* → "Log the feature spread to
+  bin/log.txt (no tint)", in the upscaler window's *Project settings* tab and in
+  *Project ▸ Preferences*. Until `7d3dbf67` that combo offered only two entries
+  against a field the loader clamps to `0..2`, so reaching view 2 meant editing
+  `"blssDebugView": 2` into the `.tyra` by hand and a project that already had it
+  displayed as "Off".
 
 - **Host, `--blss-eval --probe "<BLSSFEAT line>"`.** Paste that line back and it
   places the console's vector *inside the corpus distribution*: per channel the

@@ -447,10 +447,15 @@ Eight things here that were paid for, and that any edit must keep:
   `tyrax-editor --blss-eval --probe "<BLSSFEAT line>"`, which places that vector
   inside the corpus distribution. A previous round added this measurement, read it
   once and removed it — after which the network was fitted to one distribution and
-  run on another with nobody able to compare them. Two gotchas: it is inside
-  `#ifndef NDEBUG` (so a `make release` build has no `TYRA_LOG`), and the editor's
-  Debug view combo only offers 0 and 1, so reaching view 2 means editing
-  `"blssDebugView": 2` into the `.tyra` by hand.
+  run on another with nobody able to compare them. One gotcha left: it is inside
+  `#ifndef NDEBUG`, so a `make release` build has no `TYRA_LOG` (the editor's own
+  game build is not one). **Switching it on is a combo entry** — *Debug view* →
+  "Log the feature spread to bin/log.txt (no tint)", in the BLSS window's
+  *Project settings* tab and in *Project > Preferences*. Until `7d3dbf67` that
+  combo offered only 0 and 1 against a field `project.cpp` clamps to `0..2`, so
+  reaching view 2 meant editing `"blssDebugView": 2` into the `.tyra` by hand and
+  a project that already had it displayed as "Off"; anything still saying that is
+  stale.
 - **The composite writes GS state the engine never wrote before**: `TEXA`
   (for the per-vertex-alpha trick: `TFX=MODULATE` + `TCC=0` + vertex RGB pinned
   to 128 makes RGB the untouched texel and A the vertex alpha) and **`COLCLAMP`**
@@ -509,7 +514,15 @@ answer on the built-in corpus is **+0.42 dB over plain bilinear**, 39 fold-runs,
 3 of them below bilinear, 1.80 mean passes. **That net is not the one to ship into
 a game**: on a real project's own scenes a bestiary-trained net measures −0.40 dB,
 i.e. worse than doing nothing, because the channels its temporal gate leans on are
-out of range there. `--blss-train <projectDir>` fits the project instead.
+out of range there. `--blss-train <projectDir>` fits the project instead, and the
+editor's BLSS window defaults its corpus switch to exactly that.
+
+Both verbs take **`--threads N`** (0 = every core, clamped to 32) for the corpus
+render and the oracle. It moves the wall clock and nothing else: the same seed
+writes a byte-identical `blss.net` at any thread count **and matches the binary
+from before the corpus was parallelised**, which is what keeps the fold tables
+above measurements of the current code. `--threads 1` against every core, then
+`md5sum`, is the check.
 
 ## Before you hand-edit a `.vclpp`: run it on the host first
 

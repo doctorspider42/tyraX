@@ -12,18 +12,28 @@ BLSS is the other half of DLSS — **the part that picks and blends
 reconstruction kernels** — done honestly, on hardware that has a 147 MHz
 rasteriser and no pixel shaders at all.
 
-> Status: **proof of concept**, off by default. The network is real, trained and
-> measured on the host, where it beats every fixed kernel in distribution —
-> **and, on content it was never trained on, beats a plain bilinear upscale by
-> +0.42 dB** (leave-one-shot-out cross-validation over 13 shots × 3 seeds = 39
-> fold-runs, sd 0.35, 3 of 39 below bilinear, 1.80 mean full-screen passes;
-> **+0.26 dB** over the six folds that took no part in choosing the defaults). See
-> [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something).
+> Status: **proof of concept**, off by default.
 >
-> **That is the bestiary net, and you should not ship it.** A net fitted to the
-> built-in procedural corpus measured **−0.40 dB — worse than doing nothing** — on
-> a real project's own scenes. `--blss-train <projectDir>` fits the project
-> instead; see [Training on your own project](#training-on-your-own-project).
+> **Fit the project you will ship, and ship that net.** That is the one sentence
+> on this page with a decision in it. A net fitted to the **built-in procedural
+> corpus** measured **−0.40 dB — worse than doing nothing** — on a real project's
+> own scenes, while the same trainer fitted to *that project's* scenes measured
+> **+0.06 dB** against an oracle ceiling of +0.77. `--blss-train <projectDir>`,
+> or the corpus switch in the window's header, which defaults to it; see
+> [Training on your own project](#training-on-your-own-project). And **some
+> scenes have no ceiling at all** — `--blss-eval <projectDir>` says so in one line
+> before you spend an afternoon on it.
+>
+> The network is real, trained and measured on the host, where it beats every
+> fixed kernel in distribution — and, **on the bestiary**, on content it was never
+> trained on, beats a plain bilinear upscale by **+0.42 dB** (leave-one-shot-out
+> cross-validation over 13 shots × 3 seeds = 39 fold-runs, sd 0.35, 3 of 39 below
+> bilinear, 1.80 mean full-screen passes; **+0.26 dB** over the six folds that
+> took no part in choosing the defaults). See
+> [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something).
+> That number is about the bestiary. It is not a promise about your game, and
+> leading with it is a mistake this page and the settings panel both had to
+> correct.
 >
 > **This page said "≈+0.1 dB, statistically a draw" until the measurement was
 > done properly, and that was wrong in the pessimistic direction** — the ±0.4 dB
@@ -242,11 +252,16 @@ identified the sky dome in one line. The channel names and their order are exact
 `blss::kFeatureNames`, so a `BLSSFEAT` line sits next to a row of
 `--blss-eval --features`.
 
-Two caveats on reaching it. `logFeatureSpread()` is inside `#ifndef NDEBUG`, so it
-is compiled out of a `make release` build (the editor's own game build is not one).
-And **the Debug view combo in the editor only offers 0 and 1** — reaching view 2
-means editing `"blssDebugView": 2` into the `.tyra` by hand; the project loader
-accepts it, the UI cannot select it and displays it as "Off".
+One caveat on reaching it: `logFeatureSpread()` is inside `#ifndef NDEBUG`, so it
+is compiled out of a `make release` build (the editor's own game build is not
+one). Otherwise it is a combo entry — *Debug view* → "Log the feature spread to
+bin/log.txt (no tint)", in the window's *Project settings* tab and in
+*Project ▸ Preferences*. That combo used to offer **only 0 and 1** against a
+field `project.cpp` clamps to `0..2`, so reaching view 2 meant hand-editing
+`"blssDebugView": 2` into the `.tyra`, and a project that already had it
+displayed as "Off" — the UI lying about the project's own data, and writing the
+widget back reset it. Fixed in `7d3dbf67`; **anything that still tells you to
+edit the `.tyra` for this is stale.**
 
 The obvious upgrade to `texDetail` is still to have the editor **bake** real
 high-frequency energy per material at build time — it owns the content, so it can
@@ -390,8 +405,9 @@ tyrax-editor --blss-eval             # the table below: PSNR, flicker, occupancy
 ```
 
 Both take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
-`--scale-1x2`, `--weight-decay W`, `--standardise`, and the two weights of the
-oracle's objective — `--flicker-weight` and `--fill-weight`. **Sweep those two as
+`--scale-1x2`, `--weight-decay W`, `--standardise`, `--threads N`
+([below](#--threads-n-and-the-determinism-that-pays-for-it)), and the two weights
+of the oracle's objective — `--flicker-weight` and `--fill-weight`. **Sweep those two as
 a pair**, because they trade against each other and against sharpness; the
 shipped defaults (`0` and `16`) are the result of such a sweep, recorded with its
 numbers in `src/blss.hpp`. Changing either changes the *labels*, so a change is
@@ -409,6 +425,75 @@ would actually ship, after which `--blss-eval`'s held-out columns mean nothing);
 look like over the corpus, and how each correlates with the oracle) with its
 `--probe` companion, and `--drop-feature <name>` (hold channels at zero — the
 instrument that retired two of them).
+
+### `--threads N`, and the determinism that pays for it
+
+`--threads N` bounds the two parallel phases — the corpus render and the oracle
+labelling. `0` (the default) means every core, and the count is clamped to **32**
+at parse time, because a corpus worker owns ~30 MB of raster scratch and because
+printing "on 999 thread(s)" would have been a lie. The trainer itself is
+sequential and ignores it.
+
+**It is a wall-clock knob and nothing else, and that is a contract rather than an
+aspiration.** Both loops hand item *i* to a fixed worker and let it touch only
+item *i*, so at any thread count the same `--seed` writes the **same `blss.net`,
+byte for byte**. Measured on this branch — 156 frames, 400 epochs, `--all-shots`,
+`examples/procedural` — md5 of `blss.net`:
+
+| | md5 of `blss.net` |
+|---|---|
+| `--threads 1` / `3` / `6` / auto | `6b2fba90d0f059f055134a55df478c8e` |
+| **the binary from before the corpus was threaded** (`7d3dbf67^`), two runs | `6b2fba90d0f059f055134a55df478c8e` |
+
+**The last row is the load-bearing one.** The parallel corpus does not merely
+agree with itself; it agrees with the serial loop it replaced, so every fold
+table on this page is still a measurement of the code that is here now. That
+required removing the loop's one order dependency: `prevLow` used to be carried
+from iteration to iteration, and it is now re-rendered from its own camera and
+its own jitter phase — the same image by construction, since `renderScene` is a
+pure function of geometry, materials, camera, size and raster offset and clears
+both targets, and 1.5 % more work because a low-res render is 1/64 of the
+supersampled truth. What it buys is that frame *i* is computed from *i* alone.
+
+`--threads 1` is how that gets checked rather than asserted. Run it against a
+run on every core and diff the two nets; a difference is a real bug and not a
+rounding artefact.
+
+**Measured**, same seed and protocol, 6 cores, `examples/procedural`, 156 frames,
+400 epochs, `--all-shots` — the tool's own `blss: timing` line:
+
+| phase | `--threads 1` | `--threads 3` | `--threads 6` | auto | speedup, 1 → auto |
+|---|---|---|---|---|---|
+| corpus render | 7.5 s | 3.0 s | 1.7 s | 1.9 s | 3.9× |
+| oracle labels | 54.6 s | 19.9 s | 10.5 s | 10.4 s | 5.2× |
+| **fit** (Adam SGD) | **6.2 s** | **6.1 s** | **6.3 s** | **6.2 s** | **1.0×** |
+| total | 68.4 s | 29.0 s | 18.6 s | 18.5 s | 3.8× |
+
+End to end against the **previous commit**, both at auto threads, the gain is
+much smaller: two runs of the `7d3dbf67^` binary took **24.4 s and 23.6 s**
+against **18.5 s and 18.5 s** here, about **1.3×**. The oracle had been parallel
+per frame since `1b9c7a74`, so only the corpus render was still serial — 7.2–7.7 s
+of a ~24 s run — and 1.3× is the whole of what parallelising a ~31 % phase can be
+worth.
+
+> **The bottleneck is now the fit.** At auto threads the oracle is 10.4 s (56 %),
+> the corpus 1.9 s (10 %) and the fit **6.2 s — 34 %**, which is sequential SGD:
+> each Adam step reads the weights the previous one wrote, so it is the one phase
+> `--threads` cannot touch. It is also not worth a GPU. Six seconds is not the
+> problem, and an 18-second cycle is a workflow rather than a batch job.
+
+Two things the tool now prints that are worth reading. `--blss-train` ends with a
+three-phase line — `blss: timing - corpus X, oracle Y, fit Z (T total)` — because
+"the oracle is nearly all of it" stopped being true and the next person to
+optimise this should see which phase is actually slow. And the corpus header says
+which it is doing: `blss: rendering 156 corpus frames at 512x448 on 6 thread(s)`,
+or `… on every core` when `--threads` was not given.
+
+**The per-shot lines report cpu ms, not wall ms.** Wall clock stopped being a
+per-shot quantity the moment the shots overlapped, so
+`shot 2 main orbit orbit 26 frame(s) 1219 ms cpu (47 ms/frame)` is the summed CPU
+time of that shot's frames. Adding the six up gives roughly the one-thread corpus
+time, never the wall clock of a threaded run.
 
 `--blss-train` runs a self-contained software rasteriser (`src/blsscorpus.cpp`)
 over a **procedural corpus** of thirteen shots — the cases that actually alias on
@@ -489,13 +574,17 @@ Two rules follow, and they pull in opposite directions on purpose:
   Six moves over one scene do not generalise to a seventh — the same wall the
   bestiary hit at five shots (+0.10 dB) before it grew to thirteen.
 
-**And not every project has anything to win.** On `examples/showcase` the *oracle*
-itself scores +0.00 dB over bilinear at 1.00 passes: soft ground texture, low-poly
-props, nothing that aliases. `--blss-eval <projectDir>` is how you find that out
-before shipping BLSS on it.
+**And not every project has anything to win.** On `examples/showcase` — 156
+frames over two scenes × six moves — the *oracle* itself scores **+0.02 dB** over
+bilinear at **1.00 passes**, frame-weighted over both splits the way the window's
+verdict computes it (+0.04 held-out, +0.01 over the training shots): soft ground
+texture, low-poly props, nothing that aliases. `--blss-eval <projectDir>` is how
+you find that out before shipping BLSS on it, and the window says it in one line.
 
-> The window's Train tab does **not** take a project directory yet — it always
-> trains on the bestiary. Use the CLI for a project-trained net.
+> **The window does this too, and it is the default.** *Tools ▸ Neural Upscaler
+> (BLSS)* has a **corpus switch in its header** — one switch for all five verbs —
+> and it starts on *This project's own scenes*, with *Fit every shot* on. See
+> [the window](#the-window).
 
 The corpus was the binding constraint, not the trainer. Measured on the original
 seven when they were all there was (`1b9c7a74`, and **not re-run since** — the
@@ -589,20 +678,82 @@ is what makes a parsed number falsifiable instead of trusted: if a table looks
 wrong, the text that produced it is one glance away. A parser that finds nothing
 says so; it never invents a row.
 
+#### The corpus is a switch, in the header, and it defaults to the project
+
+The first control in the window is not on a tab. **Which corpus produced this
+table must have a single answer, visible above every table**, so one switch in
+the header serves all five verbs — a per-tab copy is exactly how a net trained on
+the project gets evaluated against the bestiary without anyone noticing. It
+defaults to **this project's own scenes**, and every table carries a one-line
+reminder of which corpus it came from so the question never needs a scroll.
+
+`blssCommonArgs()` implements it by putting the project directory in as the
+positional argument every verb already accepts. **Absolute**, for two reasons:
+the job runs with cwd set to the project directory, so a relative `Project::dir`
+would resolve against itself; and that string is what the provenance sidecar
+records next to `blss.net`, where "trained on ." is not an answer to "trained on
+what".
+
+`--all-shots` — *Fit every shot* — **defaults on**, and its tooltip says why: the
+console runs the frames the net was fitted on, so withholding a third of the
+corpus buys an honest held-out column nobody can act on and costs the shipped net
+real quality. Turning it off is still possible and now says in amber that what
+comes out is a *measurement* net, not the one to ship.
+
+The bestiary is presented as what it is — the fallback for a project with nothing
+drawable, and the corpus the 13-shot fold tables below were measured on — with
+the **−0.40 dB** in the radio button's own subtitle.
+
 | Tab | What it is for |
 |---|---|
 | **Train** | the training parameters as real controls, each tooltip carrying its measured trade, on a background worker that leaves the editor usable |
-| **Evaluate** | the PSNR / flicker / occupancy table as a table |
-| **Cross-validate** | the fold table with its per-seed columns, its spread, its in-distribution control and the deadzone sweep |
+| **Evaluate** | the PSNR / flicker / occupancy table as a table, under a plain-language **verdict** (below) |
+| **Cross-validate** | the fold table with its per-seed columns, its spread, its in-distribution control and the deadzone sweep — plus, on a project corpus, the caveat that says what a held-out decibel means there (below) |
 | **Compare** | the dumped PNGs with an **A/B wipe**, defaulting to bilinear against BLSS, because "is it actually better" is a question about pixels. The weight field is one pixel per tile and is magnified with NEAREST |
 | **Inputs** | the per-channel distribution with saturation coloured — the diagnostic that explains the shot the network loses on |
 | **Project settings** | the five settings below, and the build-interlock warning |
 
-Three details that are load-bearing rather than decorative:
+#### Evaluate answers the question in words, before the table
+
+`--blss-eval` has always *contained* the answer to "will this scene benefit at
+all", and has always buried it in the sixth row of a table: **the oracle row is
+the scene's own ceiling**, because no network can beat the best per-tile
+weighting under the exact GS composite. The tab now states a verdict above the
+table, in one of three forms:
+
+| when | what it says |
+|---|---|
+| the oracle margin is under **0.10 dB** | **THIS SCENE WILL NOT BENEFIT** — leave the upscaler off. There is nothing to reconstruct, and no amount of training moves that |
+| the net's own margin is **below zero** on a scene that *does* have room | **THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT** — this is the net, not the content. On the bestiary corpus it adds that this is exactly what a bestiary-trained net does on a real project |
+| otherwise | the margin, the pass count, the ceiling, and **what fraction of the ceiling** the network captured |
+
+The arithmetic is `blssui::summarise()`, **not a calculation inside an ImGui draw
+call** — same reason the parsers live there: a pure function of the parsed table
+is checkable from the host-only harness, and a draw call is not. It is
+frame-weighted over both splits, because the two splits partition one corpus and
+neither half alone is an answer about the scene.
+
+#### Cross-validate says what it is measuring on a project
+
+A held-out decibel means something different on a project corpus, and the tab
+says so instead of quietly handing back a confident number. **The bestiary's 13
+shots are 13 kinds of content**, so holding one out asks "does this generalise to
+content it has not seen". **A project's shots are one scene from six camera
+moves**, so holding one out asks whether walks and orbits predict a strafe — and
+the measured answer on `examples/procedural` is no: −0.17 dB, 9 of 18 fold-runs
+below bilinear. The tab leads with that and points at Evaluate for the number to
+act on, while keeping the per-fold rows, which *are* useful there: they name the
+camera move the net falls apart on.
+
+Three more details that are load-bearing rather than decorative:
 
 - **Progress is the tool's own milestones**, and it is honest where it cannot know
-  one. Corpus shot *N* of 13, labelling, epoch *N* of *M* are real fractions;
-  cross-validation prints **nothing** for the whole fold loop (it turns the
+  one. Corpus frame *N* of *M*, labelling, epoch *N* of *M* are real fractions —
+  frames rather than shots, because a threaded render finishes them out of order
+  and because a project corpus only decides how many shots it has once it has
+  loaded the scenes. The per-shot lines are a *summary* printed after the last
+  frame, so they report the phase finished instead of winding the bar back to
+  shot 1. Cross-validation prints **nothing** for the whole fold loop (it turns the
   trainer's verbosity off), so that stretch is an indeterminate bar and an elapsed
   clock rather than an invented percentage. A run that finishes while the tab is
   shut still lands — the poll runs every frame from the UI, not from the window
@@ -626,20 +777,22 @@ until the process exited and then the whole run at once. Piping one now streams.
 
 Two things the window does **not** have, and both are deliberate: `--probe` and
 `--drop-feature`, which belong to the instrument above and would have been
-controls nobody could stand behind at the time. A third gap is not deliberate —
-**the Train tab always trains on the built-in corpus.** `--blss-train <projectDir>`
-(below) landed after the window and has no control yet, which matters because
-training on the project is the configuration you should ship.
+controls nobody could stand behind at the time.
 
-> **What was and was not seen on screen.** The window was verified by driving it
-> with `--ui-script` through idle, a training run mid-corpus and mid-labelling, a
-> finished one with the provenance line filled in, a running evaluation and its
-> parsed table, the A/B wipe, the channel report with three channels flagged
-> against their clamp, and a cross-validation in its silent fold loop. **Two states
-> have never been looked at: the finished cross-validation results table, and the
-> error state** (a failed run's red banner and `parseErrors` output). They are
-> unverified visually — the parsers behind them were checked against captured
-> output by a harness, which is a different claim.
+> **What was and was not seen on screen.** An earlier state of the window was
+> verified by driving it with `--ui-script` through idle, a training run
+> mid-corpus and mid-labelling, a finished one with the provenance line filled
+> in, a running evaluation and its parsed table, the A/B wipe, the channel report
+> with three channels flagged against their clamp, and a cross-validation in its
+> silent fold loop. **Everything added in `7d3dbf67` has been read and never
+> seen**: the header corpus switch, the verdict block, the cross-validation
+> caveat and the three-entry Debug view combo were written on a machine with no
+> working compositor, so their *layout* is unverified. So are the two states that
+> were already unverified — the finished cross-validation table and the error
+> banner. What *was* checked is the arithmetic behind them, from a host-only
+> harness against captured runs: `blssui::summarise()` on all three verdict
+> branches, and that the training progress bar never goes backwards over a whole
+> run and ends at 100 %. That is a different claim from "somebody looked at it".
 
 ### The project settings
 
@@ -649,18 +802,29 @@ training on the project is the configuration you should ship.
 | **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail) |
 | **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
-| **Debug view** | tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen) |
+| **Debug view** | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |
 
 Ticking **Enabled** also puts two notes under the checkbox, and both are there
 because a user should not have to discover them from a broken build.
 
-The **standing** one says the feature is a proof of concept that beats bilinear
-on unseen content by a cross-validated margin, names how many folds still came out
-*below* bilinear, and says it has never been timed on console or hardware. It
-currently quotes **+0.40 dB / 5 of 39**, which is one re-run behind the
-[+0.42 dB / 3 of 39](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
-this page measures — a string in `drawBlssSettings`, not a computed value, so it
-has to be edited whenever the fold table is.
+The **standing** one no longer leads with a bestiary decibel, and that was the
+point of rewriting it. It used to open with **+0.40 dB / 5 of 39** — a number
+about a corpus nobody ships, one re-run stale
+([+0.42 dB / 3 of 39](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
+is what this page measures), and the *first* thing a user read. It now opens with
+the three facts that decide anything: a bestiary-trained net measured **−0.40 dB
+on a real project**, the same trainer fitted to that project's own scenes
+measured **+0.06** against a ceiling of **+0.77**, and **some scenes have no
+ceiling at all** — on `examples/showcase` the oracle itself is +0.02 dB, which
+the window's Evaluate tab will tell you in one line. The bestiary figure is still
+in the tooltip, further down, labelled as a number about the bestiary. It ends
+where it always did: no BLSS frame has ever been timed, on console or hardware.
+
+> These are **strings in `drawBlssSettings`, not computed values**, so they have
+> to be edited whenever a table on this page is. One known drift today: the
+> tooltip quotes the fold spread as **sd 0.40**, where the re-run in
+> [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
+> reads **0.35**.
 
 The **conditional** one lists whichever of **depth of field / portals /
 split-screen** *this project actually uses* — the pattern is "warn only about the
@@ -754,6 +918,14 @@ twelve **training** shots, i.e. the control that says the fold trained at all
 > (`pitch-sky`, `sphere-field`) now spread 0.24–0.25 dB across seeds. The seed
 > still moves the answer far less than the fold does, but by four times less
 > margin than this page claimed.
+>
+> **Re-run again at `7d3dbf67`, on the threaded corpus, and it reproduces cell
+> for cell** — every fold mean, every per-seed column, the +0.42, the sd 0.35,
+> the 3 of 39, the 1.80 passes and the 0.04 per-seed fold-mean sd. That is what
+> the determinism contract behind `--threads`
+> ([above](#--threads-n-and-the-determinism-that-pays-for-it)) is *for*. The
+> whole table now costs **3 min 38 s** of wall clock (16 min 49 s of CPU) on 6
+> cores, which is why it is reasonable to re-run it rather than quote it.
 
 **The one shot it still loses on is `corridor` (−0.15), and the reason is a
 feature the network effectively does not have there.** `depth` is `1/w`
@@ -810,6 +982,7 @@ Training shots (108 frames, the 9 shots with `shot % 3 != 1`):
 | half-res + temporal | 23.07 | 13.65 | 0 % | 100 % | 0 % | 2.00 |
 | half-res + sharpen | 24.85 | 25.34 | 0 % | 0 % | 100 % | 3.00 |
 | **half-res + BLSS (trained)** | **27.81** | **21.43** | 0 % | 66.7 % | 0 % | **1.67** |
+| half-res + oracle weights | 28.70 | 20.01 | 7.3 % | 43.5 % | 2.3 % | 1.55 |
 
 Held-out shots (48 frames — `boxes-sphere`, `grazing-wall`, `corridor`,
 `distant-plain`):
@@ -824,8 +997,15 @@ Held-out shots (48 frames — `boxes-sphere`, `grazing-wall`, `corridor`,
 | **half-res + BLSS (trained)** | **24.49** | **21.17** | 0 % | 86.6 % | 0 % | **1.87** |
 | half-res + oracle weights | 25.19 | 19.96 | 3.0 % | 33.0 % | 0.0 % | 1.36 |
 
-(The tool prints the oracle row for the held-out split only, which is why the
-first table has no upper bound in it.)
+> **Both tables above were re-run at `7d3dbf67` and reproduce cell for cell**,
+> and the re-run corrected a false note this page used to carry: *"the tool
+> prints the oracle row for the held-out split only"*. It does not — the oracle
+> is one of the six rows and both splits get all six. What is held-out-only is
+> the **PNG dump**. The training table simply had no upper bound in it, and now
+> it does: the oracle reaches **28.70 dB at 1.55 passes** in distribution against
+> the network's 27.81 at 1.67, i.e. **the network is paying more fill than the
+> oracle for 0.89 dB less** — the same diagnosis the held-out split gives, on the
+> split where the win was never in question.
 
 **In distribution the win is +0.70 dB over the best fixed kernel** (27.81 against
 bilinear's 27.11), at less flicker than a full-resolution native render (21.43
@@ -1320,11 +1500,17 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
   on a much smaller scale. So "≈1.8 passes" is the right order of magnitude and
   the wrong number to put in a fill budget — size anything that has to be
   *correct* off the 5.00 worst case.
-- **Give the Debug view combo its third entry.** The engine's feature/output
-  instrument is debug view **2**, the project loader accepts it, and the editor's
-  combo offers only 0 and 1 — so reaching the one measurement that says what the
-  console's network actually sees means hand-editing the `.tyra`, and the combo
-  displays such a project as "Off".
+- **The training bottleneck is now the fit, and it is the phase that cannot be
+  threaded.** At every core the corpus render is 1.9 s (10 %), the oracle 10.4 s
+  (56 %) and the Adam SGD **6.2 s (34 %)** — each step reads the weights the
+  previous one wrote, so `--threads` does nothing for it
+  ([the table](#--threads-n-and-the-determinism-that-pays-for-it)). It is not
+  worth a GPU at these sizes; anyone wanting the cycle faster should look at the
+  oracle's coordinate descent first, which is still more than half of it.
+- **DONE — the Debug view combo has its third entry** (`7d3dbf67`). It offered
+  only 0 and 1 against a field the loader clamps to `0..2`, so reaching the
+  console instrument meant hand-editing the `.tyra` and a project that had it on
+  displayed as "Off".
 
 **Frame timings are still not measured, and real hardware has never run this
 at all.** No profiling pass exists in the emulator and no PS2 has booted it, so
@@ -1347,8 +1533,9 @@ Occupancy is a count of grid cells, not a millisecond.
   more than anything else on this list: `--blss-train <projectDir>` walks the
   project's own scenes, and a bestiary-trained net measured **worse than doing
   nothing** on a real project. See
-  [Training on your own project](#training-on-your-own-project). What is *not*
-  fixed is the window, which still trains on the bestiary only.
+  [Training on your own project](#training-on-your-own-project). **The window
+  does it too, and defaults to it** — the corpus switch is the first control in
+  the header and starts on this project's scenes, with `--all-shots` on.
 - **The labels do not see the real history.** The true history is the previous
   frame's composite, which depends on the previous frame's weights, which depend
   on the net being trained — unrolling that is out of scope for a PoC. Label
@@ -1453,7 +1640,11 @@ Occupancy is a count of grid cells, not a millisecond.
   world-space triangles, so the corpus can be the user's own scenes). CLI in
   `src/main.cpp`: `--blss-train [<projectDir>]`, `--blss-eval [<projectDir>]`,
   `--blss-emit`. `blss.hpp` carries the measured tables for every constant it
-  defines — read it before changing one.
+  defines — read it before changing one. The two parallel phases go through
+  `parallelFor` (`blss.cpp`, the oracle) and `parallelFrames` (`blsscorpus.cpp`,
+  the render), both bounded by `--threads` and both clamped to 32; **item *i* is
+  handed to a fixed worker that may touch only item *i*, and that is what
+  `--threads 1` against `--threads N` checks.**
 - Engine side: `vendor/tyra/engine/{inc,src}/renderer/core/blss/`
   (`RendererCoreBlss`), reached as `engine->renderer.core.blss`. The proxy
   producers are `addBagBox()` / `addBagSphere()`, fed from `StaPipCore` one box
@@ -1480,7 +1671,11 @@ Occupancy is a count of grid cells, not a millisecond.
   `blss.cpp`. `drawBlssSettings` / `blssClashesFor` / `drawBlssClashWarning` live
   there too and are drawn by **both** the window and `App::drawPreferencesModal`,
   so the conflict warning is one mirror of `blssClashes()`; edit the two together
-  or the editor drifts away from the build again.
+  or the editor drifts away from the build again. The corpus switch is
+  `App::blssCorpusProject_` + `blssCommonArgs()` (one switch, five verbs, the
+  project directory made absolute); the Evaluate verdict is
+  `App::drawBlssVerdict()` over `blssui::summarise()` — **the arithmetic belongs
+  in `blss_ui.cpp`, not in the draw call**, for the same reason the parsers do.
 - Code generation: `blssInclude` / `blssInit` / `blssSceneRender` /
   `blssNetHeader` in `src/templates.cpp`, reaching both the orbit and FPP
   templates through the `{{BLSS_INCLUDE}}` / `{{BLSS_INIT}}` /
