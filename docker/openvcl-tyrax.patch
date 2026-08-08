@@ -3937,7 +3937,7 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..b66b562 100644
+index 3260370..bd850ae 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -3954,7 +3954,7 @@ index 3260370..b66b562 100644
  	bool containsKey( const std::list<std::string>& keys, const std::string& key )
  	{
  		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
-@@ -124,13 +131,64 @@ namespace
+@@ -124,13 +131,85 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -3971,8 +3971,29 @@ index 3260370..b66b562 100644
 +	//   rate  4: 1984 words / 2956 cycles
 +	//   off:     1968 words / 3010 cycles      (SCE: 2028 / 2433)
 +	//
-+	// 2 is the fastest point that still fits, and it is under SCE's own 2028.
-+	const unsigned int VU_PAIR_CYCLES_PER_WORD = 2;
++	// 4 rather than 2, for whoever enables this flag - it is NOT enabled by default,
++	// and the measurement below is why.
++	//
++	// Rate 2 fits the 2042-word ceiling but puts TyraX's 45 generated programs at
++	// 9392 words against SCE's 9264 - handing back a won result to buy cycles. Rate 4
++	// is 9248 (sixteen under SCE) and 1984 resident (58 under the ceiling, 44 under
++	// SCE), for -2.76% modelled cycles against rate 2's -5.91%: 47% of the cycles for
++	// 29% of the words. Rate 1 moves blocks neither reaches, and costs 2086 - over the
++	// hardware ceiling.
++	//
++	// The modelled figure looked like an UNDERSTATEMENT of rate 4, and that argument
++	// was wrong. The model counts each block once, and rate 4 spends its words almost
++	// entirely in the clipper's per-edge and per-emitted-vertex loops - the deepest
++	// code in the corpus - putting `edgeLoop` at exact SCE cycle parity (45) in all
++	// five resident clip programs. Weighted by trip counts that should be worth more
++	// than 2.76%. Measured on the console it is worth nothing: alternated A/B against
++	// the flag-off build on a VU1-bound scene, 84.01/84.61 FPS against 84.46/85.05 -
++	// consistently about half a percent SLOWER, in both pairs. Modelled cycles and
++	// frames have now disagreed in DIRECTION three times on that scene, and only one
++	// change in this whole migration turned modelled cycles into frames
++	// (--split-dead-float-ranges, -16.8% modelled -> +7.7% measured).
++	//
++const unsigned int VU_PAIR_CYCLES_PER_WORD = 4;
 +
 +	// One point in the space of ready-list heuristics. The default values are the
 +	// only behaviour openvcl had before --pair-best-of-many; the alternatives exist
@@ -4020,7 +4041,7 @@ index 3260370..b66b562 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +196,7 @@ namespace
+@@ -138,7 +217,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -4029,7 +4050,7 @@ index 3260370..b66b562 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +204,7 @@ namespace
+@@ -146,7 +225,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4038,7 +4059,7 @@ index 3260370..b66b562 100644
  
  		return score;
  	}
-@@ -208,7 +266,8 @@ namespace
+@@ -208,7 +287,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4048,7 +4069,7 @@ index 3260370..b66b562 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +276,8 @@ namespace
+@@ -217,7 +297,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -4058,7 +4079,7 @@ index 3260370..b66b562 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +292,11 @@ namespace
+@@ -232,9 +313,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4073,7 +4094,7 @@ index 3260370..b66b562 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +305,10 @@ namespace
+@@ -243,8 +326,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4086,7 +4107,7 @@ index 3260370..b66b562 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +318,69 @@ namespace
+@@ -254,6 +339,69 @@ namespace
  		return best;
  	}
  
@@ -4156,7 +4177,7 @@ index 3260370..b66b562 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +476,36 @@ namespace
+@@ -349,6 +497,36 @@ namespace
  		return 1;
  	}
  
@@ -4193,7 +4214,7 @@ index 3260370..b66b562 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +525,28 @@ namespace
+@@ -368,9 +546,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4225,7 +4246,7 @@ index 3260370..b66b562 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +735,7 @@ namespace
+@@ -559,6 +756,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4233,7 +4254,7 @@ index 3260370..b66b562 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +782,8 @@ namespace
+@@ -605,7 +803,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4243,7 +4264,7 @@ index 3260370..b66b562 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +801,9 @@ namespace
+@@ -623,7 +822,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4254,7 +4275,7 @@ index 3260370..b66b562 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +861,7 @@ namespace
+@@ -681,6 +882,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4262,7 +4283,7 @@ index 3260370..b66b562 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +896,8 @@ namespace
+@@ -715,7 +917,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4272,7 +4293,7 @@ index 3260370..b66b562 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +926,58 @@ namespace
+@@ -744,7 +947,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4332,7 +4353,7 @@ index 3260370..b66b562 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1112,188 @@ namespace
+@@ -879,6 +1133,188 @@ namespace
  		return liveness;
  	}
  
@@ -4521,7 +4542,7 @@ index 3260370..b66b562 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1301,64 @@ namespace
+@@ -886,12 +1322,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -4587,7 +4608,7 @@ index 3260370..b66b562 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1371,7 @@ namespace
+@@ -904,6 +1392,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -4595,7 +4616,7 @@ index 3260370..b66b562 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1381,32 @@ namespace
+@@ -913,45 +1402,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -4663,7 +4684,7 @@ index 3260370..b66b562 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1419,7 @@ namespace
+@@ -964,7 +1440,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -4672,7 +4693,7 @@ index 3260370..b66b562 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1448,9 @@ namespace
+@@ -993,6 +1469,9 @@ namespace
  			}
  		}
  
@@ -4682,7 +4703,7 @@ index 3260370..b66b562 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6140,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6161,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -4690,7 +4711,7 @@ index 3260370..b66b562 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -6114,6 +6573,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6594,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  

@@ -2613,6 +2613,43 @@ confirm. Trading a published size result and two thirds of the micro-memory head
 unconfirmable few percent is not a trade to make silently; enabling it is one word appended to
 `ARG VCL_FLAGS` in both Dockerfiles when someone decides it is worth it.
 
+**The whole exchange-rate curve, and why none of it is enabled.** Words from `nm`, cycles
+modelled; two independent sweeps agreed to the word, and I re-measured the two shipped points
+myself on the real engine build (resident 1984, engine 3896 at rate 4).
+
+| point | resident | engine 25 | generated 45 | cycles, all 70 | |
+|---|---:|---:|---:|---:|---|
+| **off (shipped)** | **1968** | **3868** | **9190** | **21133** | |
+| per-segment free-only | 1968 | 3868 | 9190 | 21085 | -0.23%, zero words |
+| per-program no-growth | 1968 | 3868 | 9190 | 21003 | -0.62%, zero words, **5.6x compile time** |
+| rate 4 | 1984 | 3896 | 9248 | 20550 | -2.76%, and 16 under SCE's generated 9264 |
+| rate 2 | 2016 | 3964 | 9392 | 19884 | -5.91%, but **128 words OVER Sony** |
+| rate 1 | 2086 | 4072 | 9648 | 19261 | -8.86%, **44 over the hardware ceiling** |
+
+Rate 4 looked like the answer and the argument for it was good: it spends its words almost
+entirely in the clipper's per-edge and per-emitted-vertex loops - the deepest code in the
+corpus - and puts `edgeLoop` at **exact SCE cycle parity (45) in all five resident clip
+programs**. The model counts each block once, so trip-weighted that should be worth more than
+2.76%.
+
+**Measured on the console it is worth about half a percent, negative.** Alternated A/B against
+the flag-off build (ABAB, not blocks - blocks are what let drift masquerade as an arm
+difference once already): rate 4 at 84.01 / 84.61 FPS against 84.46 / 85.05, the same sign in
+both pairs. So the flag stays out of `VCL_FLAGS`, the constant stays at 4 for whoever enables
+it, and the honest summary is that **modelled cycles and frames have now disagreed in DIRECTION
+three times on this scene**. In this whole migration exactly one change turned modelled cycles
+into measurable frames: `--split-dead-float-ranges`, -16.8% modelled to +7.7% measured. Nothing
+smaller has survived contact with the console.
+
+A correction the agent that built this raised against its own brief, worth keeping so nobody
+re-runs it: **no exchange rate above 1, and no depth-graded budget, moves any of the three
+blocks named as the scoreboard** (`cull_d`/`cull_td vertexLoop`, `cull_tce processing`,
+`clip_d`/`td triLoop`). `cull_d`/`cull_td vertexLoop` is **immovable** - every arm produces an
+identical schedule, so the lever does not reach it at all. And the depth-graded budget loses to
+a plain rate at every matched budget for a structural reason: the model counts each block once,
+so grading toward the deep loops trades total modelled cycles for trip-weighted ones and then
+reports the loss.
+
 **Four doors this closed, all measured.** The ready-list *strategy* space is exhausted: 128
 strategy points (priority weight 6-400 x unblocking x cheap-partner x no-long-latency x
 stall-aware) with cycle-first selection at zero word cost buy 10 cycles on the resident ten,
