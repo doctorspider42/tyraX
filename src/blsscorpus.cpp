@@ -796,6 +796,23 @@ bool bagOf(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
     if (!any) return false;                                            // behind us
     if (x1 <= 0.0f || y1 <= 0.0f || x0 >= (float)outW || y0 >= (float)outH)
         return false;                                                  // off screen
+    // A BOX THAT STRADDLES THE EYE AND STILL FILLS THE FRAME DESCRIBES NOTHING.
+    // Twinned with RendererCoreBlss::addBagBox, where it earns its keep: a
+    // generated game's sky dome is a 90-unit sphere centred on the camera, so
+    // every one of its package boxes wraps the eye, and one of them was handing
+    // all 196 tiles "fully covered, at the nearest representable depth" -
+    // depth, depthGrad and coverage pinned at 1 across the whole frame. The
+    // bbox is the frame BY CONSTRUCTION there and wNear is the clip constant,
+    // not a measurement.
+    //
+    // It is a NO-OP on this corpus and that is deliberate rather than lucky:
+    // nothing here encloses the camera (the floors are zero-thickness quads at
+    // y = 0 under an eye at y > 1, the walls are zero-thickness in x), so the
+    // rule can be stated on both sides without any corpus frame changing by a
+    // single byte - which is what keeps a fold table comparable across it.
+    if (wn <= kNear * 1.0001f && x0 <= 0.0f && y0 <= 0.0f && x1 >= (float)outW &&
+        y1 >= (float)outH)
+        return false;
     out.x0 = std::max(x0, 0.0f);
     out.y0 = std::max(y0, 0.0f);
     out.x1 = std::min(x1, (float)outW);
@@ -1355,52 +1372,6 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
     return shots;
 }
 
-// ------------------------------------------------------------------ histAge ---
-
-// The one recurrent channel, and the corpus owns its state (blss.hpp says so).
-// A tile is "still the same tile" while its reprojection stays inside half a
-// tile and its coverage and depth hold - past that, last frame's pixels are
-// different content and the counter has to restart or the net is told to trust
-// history that does not exist.
-void ageTiles(std::vector<uint8_t>& age, const std::vector<TileStats>& cur,
-              const std::vector<TileStats>& prev, const ReprojField& reproj, int cols,
-              int rows, bool firstOfShot) {
-    if (firstOfShot || prev.size() != cur.size()) {
-        std::fill(age.begin(), age.end(), (uint8_t)0);
-        return;
-    }
-    // THE THRESHOLDS ARE THE ENGINE'S, verbatim - see section 4 of
-    // docs/blss-reconstruction.md. They started out different on the two sides
-    // (0.10 / 0.10 / 0.5 here against 0.02 / 0.05 / 0.25 there), which silently
-    // fed the network a recurrent channel at training time that the console
-    // would never reproduce. Change them in one place and the other stops
-    // matching, so change the doc first.
-    const int rs = cols + 1;
-    for (int ty = 0; ty < rows; ++ty)
-        for (int tx = 0; tx < cols; ++tx) {
-            const size_t i = (size_t)ty * cols + tx;
-            // motion, exactly as buildFeatures derives it: the length of the
-            // mean of the tile's four corner offsets, over the tile edge.
-            const size_t k00 = (size_t)ty * rs + tx, k10 = k00 + 1;
-            const size_t k01 = k00 + rs, k11 = k01 + 1;
-            float motion = 0.0f;
-            if (k11 < reproj.du.size()) {
-                const float mdu =
-                    (reproj.du[k00] + reproj.du[k10] + reproj.du[k01] + reproj.du[k11]) * 0.25f;
-                const float mdv =
-                    (reproj.dv[k00] + reproj.dv[k10] + reproj.dv[k01] + reproj.dv[k11]) * 0.25f;
-                motion = std::sqrt(mdu * mdu + mdv * mdv) / (float)kTile;
-            }
-            const float depth = std::min(1.0f, std::max(0.0f, cur[i].depthMean * kDepthRef));
-            const float prevDepth =
-                std::min(1.0f, std::max(0.0f, prev[i].depthMean * kDepthRef));
-            const bool changed = std::fabs(depth - prevDepth) > 0.02f ||
-                                 std::fabs(cur[i].cover - prev[i].cover) > 0.05f ||
-                                 motion > 0.25f;
-            age[i] = changed ? 0 : (uint8_t)std::min(255, (int)age[i] + 1);
-        }
-}
-
 }  // namespace
 
 // -------------------------------------------------------------------- entry ---
@@ -1447,8 +1418,6 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const Shot& shot = shots[(size_t)si];
         const auto ts = std::chrono::steady_clock::now();
 
-        std::vector<uint8_t> age((size_t)cols * rows, 0);
-        std::vector<TileStats> prevStats;
         Image prevLow;
         for (int i = 0; i < n; ++i) {
             const float t = n > 1 ? (float)i / (float)(n - 1) : 0.0f;
@@ -1495,18 +1464,16 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             // other display framebuffer (docs/blss-reconstruction.md section 6),
             // so one history texel is one output pixel.
             fr.reproj = buildReproj(cols, rows, outW, outH, outW, outH, cur, prev, stats);
-            // Features FIRST, then the age counters - and that order is load
-            // bearing. RendererCoreBlss::composite() runs buildFeatures(),
-            // runNet() and only then updateHistAge(), so the console's network
-            // sees the counter as it stood at the END OF THE PREVIOUS FRAME. Age
-            // the tiles first and the corpus would hand the net a channel that
-            // already knows about the change this frame - a one-frame lookahead
-            // the hardware does not have, which is the sort of thing that trains
-            // beautifully and then ghosts on the console.
-            fr.features = buildFeatures(cols, rows, stats, fr.reproj, age);
-            ageTiles(age, stats, prevStats, fr.reproj, cols, rows, i == 0);
+            // No per-tile state crosses this line any more. It used to: the
+            // recurrent histAge counter had to be aged AFTER the features were
+            // built, because the console's network sees the counter as it stood
+            // at the end of the PREVIOUS frame, and ageing first would have
+            // handed the corpus a one-frame lookahead the hardware does not
+            // have. The channel was measured and removed (blss.hpp, kFeatures),
+            // and that whole ordering hazard went with it - buildFeatures is now
+            // a pure function of this frame.
+            fr.features = buildFeatures(cols, rows, stats, fr.reproj);
 
-            prevStats = stats;
             prevLow = fr.low;
             out.push_back(std::move(cf));
         }

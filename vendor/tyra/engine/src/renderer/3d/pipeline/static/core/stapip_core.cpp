@@ -255,12 +255,29 @@ void StaPipCore::render(StaPipBag* bag) {
   }
   qbufferRenderer.setBagLight(bagLight);
 
-  // Modified by TyraX: the BLSS bag feed. One O(1) hook per submitted bag,
-  // completely inert when BLSS is off (and when it is on but we are not inside
-  // its beginScene/endScene bracket - addBagSphere checks). The upscaler never
-  // reads the framebuffer back, so a bag's screen bbox + w range + two
-  // material scalars is ALL the network ever learns about a frame; see
+  // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it
+  // is on but we are not inside its beginScene/endScene bracket - the
+  // RendererCoreBlss entry points check). The upscaler never reads the
+  // framebuffer back, so a bag's screen bbox + w range + two material scalars
+  // is ALL the network ever learns about a frame; see
   // docs/blss-reconstruction.md section 2.
+  //
+  // ONE BAG IS NOT ONE PROXY, and that used to be the feature's biggest lie.
+  // A bag carries one bbox and one w range, so a floor or terrain mesh
+  // reported "fully covered, at my nearest depth" for every tile it touched -
+  // on a still `fpp` scene that came out as depth = grad = cover = 1 in all
+  // 224 tiles, a network output that was the same constant everywhere, and a
+  // sky reconstructed from history. The corpus never had the problem because
+  // it chunks its floors 8x8 and its walls x6.
+  //
+  // The packages this bag is about to be split into already carry their own
+  // axis-aligned boxes - cached, and computed for frustum classification
+  // whether or not BLSS is on - so the grid gets the corpus' granularity for
+  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise
+  // - particle billboards) fall back to the bounding-sphere proxy, which for
+  // them means contributing nothing at all: without a bbox the sphere is the
+  // model translation at radius 0 and addBag rejects the empty box. That is
+  // the behaviour those bags already had, not a new hole.
   if (blssOn) {
     // texDetail is the minification proxy - texels per screen pixel - so BLSS
     // gets the raw texel area and finishes the ratio once it knows the screen
@@ -284,7 +301,46 @@ void StaPipCore::render(StaPipBag* bag) {
               (1.0F / (3.0F * 255.0F));
     }
     if (luma > 1.0F) luma = 1.0F;
-    rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea, luma);
+
+    if (bbox != nullptr) {
+      // bbox is non-null only for Precise frustum culling, and the assert
+      // above makes that imply TyraMVP - so `mvp` below really is the
+      // view-projection times this bag's model matrix, which is the space
+      // addBagBox projects from.
+      const std::vector<CoreBBox>& parts = bbox->getParts();
+      const u32 partsCount = static_cast<u32>(parts.size());
+      if (partsCount == 0) {
+        rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea,
+                                        luma);
+      } else {
+        // At most kMaxProxiesPerBag boxes: merge consecutive parts when a mesh
+        // has more. Merging by vertex range (not by space) can only ENLARGE a
+        // box, never move it, so the worst case degrades toward the whole-bag
+        // proxy instead of lying about where the geometry is.
+        const u32 cap =
+            static_cast<u32>(RendererCoreBlss::kMaxProxiesPerBag);
+        const u32 group = partsCount <= cap ? 1u : (partsCount + cap - 1) / cap;
+        for (u32 i = 0; i < partsCount; i += group) {
+          const u32 end = i + group < partsCount ? i + group : partsCount;
+          Vec4 lo = parts[i].vertices[0];
+          Vec4 hi = parts[i].vertices[7];
+          for (u32 k = i + 1; k < end; k++) {
+            const Vec4& l = parts[k].vertices[0];
+            const Vec4& h = parts[k].vertices[7];
+            if (l.x < lo.x) lo.x = l.x;
+            if (l.y < lo.y) lo.y = l.y;
+            if (l.z < lo.z) lo.z = l.z;
+            if (h.x > hi.x) hi.x = h.x;
+            if (h.y > hi.y) hi.y = h.y;
+            if (h.z > hi.z) hi.z = h.z;
+          }
+          rendererCore->blss.addBagBox(mvp, lo, hi, texelArea, luma);
+        }
+      }
+    } else {
+      rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea,
+                                      luma);
+    }
   }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);

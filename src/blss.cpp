@@ -10,6 +10,8 @@
 #include "blss.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -26,9 +28,8 @@
 
 namespace blss {
 
-const char* const kFeatureNames[kFeatures] = {
-    "motion", "depth", "depthGrad", "edgeDens",
-    "texDetail", "coverage", "luma", "histAge"};
+const char* const kFeatureNames[kFeatures] = {"motion",    "depth",    "depthGrad", "edgeDens",
+                                              "texDetail", "coverage", "luma"};
 const char* const kOutputNames[kOutputs] = {"point", "temporal", "sharpen"};
 
 namespace {
@@ -348,8 +349,7 @@ ReprojField buildReproj(int cols, int rows, int outW, int outH, int lowW, int lo
 
 std::vector<Features> buildFeatures(int cols, int rows,
                                     const std::vector<TileStats>& stats,
-                                    const ReprojField& reproj,
-                                    const std::vector<uint8_t>& histAge) {
+                                    const ReprojField& reproj) {
     std::vector<Features> out(static_cast<size_t>(cols) * rows);
     // Normalised depth first - depthGrad differences these, so it must see the
     // same numbers the network does.
@@ -393,8 +393,6 @@ std::vector<Features> buildFeatures(int cols, int rows,
             f.texDetail() = clamp01(s.texDetail);
             f.coverage() = clamp01(s.cover);
             f.luma() = clamp01(s.luma);
-            f.histAge() =
-                k < histAge.size() ? std::min(1.0f, static_cast<float>(histAge[k]) / 8.0f) : 0.0f;
         }
     return out;
 }
@@ -447,7 +445,12 @@ void Net::forward(const Features& f, float out[kOutputs]) const {
 }
 
 namespace {
-constexpr uint32_t kNetVersion = 1;
+// 2: kFeatures went 8 -> 7 when the recurrent histAge channel was measured and
+// removed (see blss.hpp). The file carries no topology, only a flat float run,
+// so a version-1 net would load silently into a differently shaped Net and
+// produce nonsense - bump this with ANY change to kFeatures / kHidden /
+// kOutputs.
+constexpr uint32_t kNetVersion = 2;
 constexpr size_t kNetFloats = kHidden * kFeatures + kHidden + kOutputs * kHidden + kOutputs;
 
 void netToFlat(const Net& n, float* d) {
@@ -1217,6 +1220,18 @@ struct CliOpts {
     // corpus. A channel that is constant is a channel the net cannot use, and
     // nothing printed that until this flag existed.
     bool featureStats = false;
+    // --probe "<BLSSFEAT line>": a feature vector measured ON THE CONSOLE,
+    // placed in the corpus' own distribution. This is the instrument the
+    // feature was missing for its entire life - the corpus could describe
+    // itself and the console could not be compared to it, so the network was
+    // fitted to one distribution and run on another for eleven commits. Paste
+    // the engine's own debugView-2 line straight in; see probeReport().
+    std::string probe;
+    // --drop-feature <name|index>[,...]: zero these input channels over the
+    // whole corpus, which is exactly what removing them from the vector would
+    // do to a trained net. The honest way to ask "does this channel earn its
+    // keep" without editing kFeatures on both twins first.
+    std::array<bool, kFeatures> dropped{};
     // --deadzone A: the inference-time snap-to-zero, in GS alpha bytes
     // (kDeadzoneAlpha). Overridable for the same reason the objective's weights
     // are: it trades quality against fill, and the only honest way to set it is
@@ -1271,6 +1286,29 @@ CliOpts parseCli(int argc, char** argv) {
         else if (a == "--standardise") o.standardise = true;
         else if (a == "--all-shots") o.allShots = true;
         else if (a == "--features") o.featureStats = true;
+        else if (a == "--probe") {
+            o.probe = next("");
+            o.featureStats = true;  // the probe is read against that table
+        }
+        else if (a == "--drop-feature") {
+            const std::string list = next("");
+            size_t at = 0;
+            while (at <= list.size()) {
+                const size_t comma = list.find(',', at);
+                std::string one = list.substr(at, comma - at);
+                if (!one.empty()) {
+                    int idx = -1;
+                    for (int c = 0; c < kFeatures; ++c)
+                        if (one == kFeatureNames[c]) idx = c;
+                    if (idx < 0 && one.find_first_not_of("0123456789") == std::string::npos)
+                        idx = std::atoi(one.c_str());
+                    if (idx >= 0 && idx < kFeatures) o.dropped[static_cast<size_t>(idx)] = true;
+                    else std::printf("blss: --drop-feature: no channel '%s'\n", one.c_str());
+                }
+                if (comma == std::string::npos) break;
+                at = comma + 1;
+            }
+        }
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
     }
@@ -1386,7 +1424,25 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.assetDir = o.assetDir;
     std::printf("blss: rendering %d corpus frames at %dx%d (this is the slow part)\n",
                 cc.frames, cc.outW, cc.outH);
-    return generate(cc);
+    std::vector<CorpusFrame> corpus = generate(cc);
+    // --drop-feature: hold a channel at zero everywhere. A constant input is
+    // worth exactly what a deleted one is - the net's weights on it are only
+    // ever touched by weight decay - so this measures "would kFeatures - 1
+    // score the same" without first editing kFeatures on BOTH twins, the
+    // emitter and kNetVersion.
+    bool anyDropped = false;
+    for (int c = 0; c < kFeatures; ++c) anyDropped = anyDropped || o.dropped[static_cast<size_t>(c)];
+    if (anyDropped) {
+        std::printf("blss: holding at zero:");
+        for (int c = 0; c < kFeatures; ++c)
+            if (o.dropped[static_cast<size_t>(c)]) std::printf(" %s", kFeatureNames[c]);
+        std::printf("\n");
+        for (CorpusFrame& cf : corpus)
+            for (Features& f : cf.frame.features)
+                for (int c = 0; c < kFeatures; ++c)
+                    if (o.dropped[static_cast<size_t>(c)]) f.v[c] = 0.0f;
+    }
+    return corpus;
 }
 
 int shotCountOf(const std::vector<CorpusFrame>& c) {
@@ -1869,6 +1925,115 @@ int crossValidate(const CliOpts& o) {
 // strongly it correlates with what the ORACLE asked for (weighted by importance,
 // because tiles where every kernel is equal do not get a vote in training
 // either).
+// ONE CHANNEL AS THE CONSOLE MEASURED IT. The engine's debugView-2 line prints
+// min/mean/max per tile grid, so a probe carries a band, not a point - and the
+// band is the interesting part: a min that equals its max is a channel saying
+// the same thing in every tile of the frame, which is what "no per-tile
+// decision is happening" looks like from the outside.
+struct ProbeChannel {
+    bool given = false;
+    float lo = 0, mid = 0, hi = 0;
+};
+
+// Parses `motion=0.000/0.183/0.941 depth=...`, i.e. exactly what
+// RendererCoreBlss::logFeatureSpread() writes into the game's log. A leading
+// `BLSSFEAT` / `LOG:` and any punctuation between fields are ignored, so the
+// line can be pasted straight out of bin/log.txt. `name=value` (one number) is
+// accepted too, for a hand-written vector.
+std::array<ProbeChannel, kFeatures> parseProbe(const std::string& text, int* unknown) {
+    std::array<ProbeChannel, kFeatures> out{};
+    *unknown = 0;
+    size_t at = 0;
+    while (at < text.size()) {
+        const size_t eq = text.find('=', at);
+        if (eq == std::string::npos) break;
+        // The key is the run of name characters immediately before the '='.
+        size_t ks = eq;
+        while (ks > at && (std::isalnum(static_cast<unsigned char>(text[ks - 1])) ||
+                           text[ks - 1] == '_'))
+            --ks;
+        const std::string key = text.substr(ks, eq - ks);
+        size_t vs = eq + 1;
+        size_t ve = vs;
+        while (ve < text.size() && (std::isdigit(static_cast<unsigned char>(text[ve])) ||
+                                    text[ve] == '.' || text[ve] == '-' || text[ve] == '+' ||
+                                    text[ve] == '/' || text[ve] == 'e' || text[ve] == 'E'))
+            ++ve;
+        const std::string val = text.substr(vs, ve - vs);
+        at = ve > eq ? ve : eq + 1;
+        if (key.empty() || val.empty()) continue;
+        int idx = -1;
+        for (int c = 0; c < kFeatures; ++c)
+            if (key == kFeatureNames[c]) idx = c;
+        if (idx < 0) {
+            // The short spellings the FIRST, throwaway instrument used (the one
+            // that was deleted after a single reading). Accepted so the vectors
+            // recorded in commit 0f33c17b's message can still be placed in a
+            // corpus, which is the whole reason that instrument is permanent now.
+            static const struct {
+                const char* alias;
+                int idx;
+            } kAliases[] = {{"grad", 2}, {"edge", 3}, {"detail", 4}, {"cover", 5}, {"hist", 7}};
+            for (const auto& a : kAliases)
+                if (key == a.alias) idx = a.idx;
+        }
+        if (idx < 0) {
+            ++*unknown;
+            continue;
+        }
+        std::vector<float> nums;
+        size_t p = 0;
+        while (p <= val.size()) {
+            const size_t slash = val.find('/', p);
+            const std::string one = val.substr(p, slash - p);
+            if (!one.empty()) nums.push_back(static_cast<float>(std::atof(one.c_str())));
+            if (slash == std::string::npos) break;
+            p = slash + 1;
+        }
+        if (nums.empty()) continue;
+        ProbeChannel& pc = out[static_cast<size_t>(idx)];
+        pc.given = true;
+        if (nums.size() >= 3) {
+            pc.lo = nums[0];
+            pc.mid = nums[1];
+            pc.hi = nums[2];
+        } else if (nums.size() == 2) {
+            pc.lo = nums[0];
+            pc.hi = nums[1];
+            pc.mid = 0.5f * (nums[0] + nums[1]);
+        } else {
+            pc.lo = pc.mid = pc.hi = nums[0];
+        }
+    }
+    return out;
+}
+
+// Fraction of `sorted` at or below v.
+double percentileOf(const std::vector<float>& sorted, float v) {
+    if (sorted.empty()) return 0.0;
+    const size_t n = static_cast<size_t>(
+        std::upper_bound(sorted.begin(), sorted.end(), v) - sorted.begin());
+    return 100.0 * static_cast<double>(n) / static_cast<double>(sorted.size());
+}
+
+// HOW MUCH CORPUS SITS WHERE THE CONSOLE IS - the fraction of tiles within
+// kSupportBand of v, and the number the verdict is actually read off.
+//
+// A percentile cannot answer this and quietly lies at both ends: histAge = 1.0
+// is the 100th percentile of the corpus AND 4.6% of its tiles, while
+// texDetail = 1.0 is also the 100th percentile and 0.0% of them. The network is
+// fitted by a weighted MSE, so what decides whether it INTERPOLATES or
+// EXTRAPOLATES at a value is how much of the gradient came from near that
+// value - which is this, not the rank.
+constexpr double kSupportBand = 0.05;
+double supportOf(const std::vector<float>& sorted, float v) {
+    if (sorted.empty()) return 0.0;
+    const double lo = static_cast<double>(v) - kSupportBand;
+    const double hi = static_cast<double>(v) + kSupportBand;
+    return percentileOf(sorted, static_cast<float>(hi)) -
+           percentileOf(sorted, static_cast<float>(std::nextafter(lo, -1e30)));
+}
+
 int featureReport(const CliOpts& o) {
     std::vector<CorpusFrame> corpus = buildCorpus(o);
     if (corpus.empty()) return 1;
@@ -1885,6 +2050,14 @@ int featureReport(const CliOpts& o) {
                                          std::vector<Acc>(kFeatures));
     // Importance-weighted covariance of each feature with each oracle output.
     std::vector<std::array<double, kOutputs>> cov(kFeatures, std::array<double, kOutputs>{});
+    // Every value of every channel, kept so --probe can place a console
+    // measurement at a PERCENTILE rather than merely inside a min/max box: the
+    // range says a value is representable, the percentile says whether the net
+    // ever saw one.
+    std::vector<std::vector<float>> raw(kFeatures);
+    if (!o.probe.empty())
+        for (int c = 0; c < kFeatures; ++c)
+            raw[static_cast<size_t>(c)].reserve(corpus.size() * 256);
     std::vector<double> fMean(kFeatures, 0.0), fVar(kFeatures, 0.0);
     std::array<double, kOutputs> tMean{}, tVar{};
     double wSum = 0.0;
@@ -1903,6 +2076,7 @@ int featureReport(const CliOpts& o) {
                 a.hi = std::max(a.hi, v);
                 a.at0 += v <= 1e-4 ? 1 : 0;
                 a.at1 += v >= 1.0 - 1e-4 ? 1 : 0;
+                if (!o.probe.empty()) raw[static_cast<size_t>(c)].push_back(s.f.v[c]);
                 Acc& b = byShot[static_cast<size_t>(corpus[i].shot)][static_cast<size_t>(c)];
                 b.n += 1;
                 b.sum += v;
@@ -1967,6 +2141,80 @@ int featureReport(const CliOpts& o) {
         std::printf("   %6.3f\n", spreadOf(means).sd);
     }
     std::printf("\n");
+
+    if (!o.probe.empty()) {
+        int unknown = 0;
+        const std::array<ProbeChannel, kFeatures> probe = parseProbe(o.probe, &unknown);
+        for (int c = 0; c < kFeatures; ++c)
+            std::sort(raw[static_cast<size_t>(c)].begin(), raw[static_cast<size_t>(c)].end());
+
+        std::printf("  A MEASURED CONSOLE VECTOR, PLACED IN THE CORPUS ABOVE.\n"
+                    "  Paste the engine's own `BLSSFEAT` line (BLSS debug view 2, in the game's\n"
+                    "  bin/log.txt) - it prints min/mean/max per channel over the tile grid.\n"
+                    "  `spread` is that band; a channel with no spread is the same number in every\n"
+                    "  tile of the frame, which is a network making no per-tile decision at all.\n"
+                    "  `pct` is where the console's MEAN falls in the corpus; `supp` is how much of\n"
+                    "  the corpus lies within +-0.05 of it, which is what decides whether the net\n"
+                    "  interpolates or extrapolates there; `band` is how much of the corpus lies\n"
+                    "  inside the console's OWN min..max - i.e. how much of what was taught this\n"
+                    "  frame is even able to reach.\n\n");
+        std::printf("  %-11s %21s %8s %17s %7s %7s %7s  %s\n", "feature", "console min/mean/max",
+                    "spread", "corpus min..max", "pct", "supp", "band", "verdict");
+        std::printf("  %s\n", std::string(13 + 22 + 9 + 18 + 8 * 3 + 26, '-').c_str());
+        int outOfRange = 0, constants = 0, tails = 0, missing = 0;
+        for (int c = 0; c < kFeatures; ++c) {
+            const ProbeChannel& p = probe[static_cast<size_t>(c)];
+            const std::vector<float>& v = raw[static_cast<size_t>(c)];
+            std::printf("  %-11s", kFeatureNames[c]);
+            if (!p.given) {
+                std::printf(" %21s %8s %17s %7s %7s %7s  %s\n", "-", "-", "-", "-", "-", "-",
+                            "not in the probe");
+                ++missing;
+                continue;
+            }
+            const double lo = v.empty() ? 0.0 : v.front();
+            const double hi = v.empty() ? 0.0 : v.back();
+            const double pct = percentileOf(v, p.mid);
+            const double supp = supportOf(v, p.mid);
+            const double band = percentileOf(v, p.hi) - percentileOf(v, p.lo);
+            const bool isConst = (p.hi - p.lo) <= 1e-4f;
+            const bool below = static_cast<double>(p.mid) < lo - 1e-4;
+            const bool above = static_cast<double>(p.mid) > hi + 1e-4;
+            // 1% of the tiles is 1% of the gradient: below that the net has
+            // essentially not been taught this value and is extrapolating.
+            const bool tail = !below && !above && supp < 1.0;
+            std::string verdict;
+            if (below || above) {
+                verdict = above ? "OUT OF RANGE (above corpus)" : "OUT OF RANGE (below corpus)";
+                ++outOfRange;
+            } else if (tail) {
+                verdict = "no support - net extrapolates";
+                ++tails;
+            } else {
+                verdict = "in distribution";
+            }
+            if (isConst) {
+                verdict = "CONSTANT; " + verdict;
+                ++constants;
+            }
+            char band3[32];
+            std::snprintf(band3, sizeof(band3), "%.3f/%.3f/%.3f", static_cast<double>(p.lo),
+                          static_cast<double>(p.mid), static_cast<double>(p.hi));
+            char range[32];
+            std::snprintf(range, sizeof(range), "%.3f..%.3f", lo, hi);
+            std::printf(" %21s %8.3f %17s %6.1f%% %6.1f%% %6.1f%%  %s\n", band3,
+                        static_cast<double>(p.hi - p.lo), range, pct, supp, band,
+                        verdict.c_str());
+        }
+        std::printf("\n  %d channel(s) out of the corpus' range, %d constant across the frame,"
+                    " %d with <1%% support,\n  %d absent from the probe",
+                    outOfRange, constants, tails, missing);
+        if (unknown > 0) std::printf(", %d unrecognised key(s) ignored", unknown);
+        std::printf(".\n");
+        if (outOfRange == 0 && constants == 0 && tails == 0 && missing == 0)
+            std::printf("  Every channel the console produced is inside what the corpus taught.\n");
+        std::printf("\n");
+    }
     return 0;
 }
 

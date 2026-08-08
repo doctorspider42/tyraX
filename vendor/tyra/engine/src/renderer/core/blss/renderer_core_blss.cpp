@@ -21,6 +21,7 @@
 #include <gs_gp.h>
 #include <gs_psm.h>
 #include <math.h>
+#include <stdio.h>
 #include "renderer/core/blss/renderer_core_blss.hpp"
 #include "math/math.hpp"
 #include "debug/debug.hpp"
@@ -67,8 +68,6 @@ RendererCoreBlss::RendererCoreBlss() {
     tCover[i] = tDepth[i] = tLuma[i] = tDetail[i] = tEdge[i] = 0.0F;
     tDepthMin[i] = tDepthMax[i] = 0.0F;
     outW_A[i] = outW_C[i] = outW_D[i] = 0.0F;
-    histAge[i] = 0;
-    prevDepth[i] = prevCover[i] = 0.0F;
     for (int f = 0; f < kFeatures; f++) feat[i][f] = 0.0F;
   }
   for (int i = 0; i < kMaxCorners; i++) {
@@ -200,10 +199,6 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
     endPacket = packet2_create(32, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   }
 
-  for (int i = 0; i < kMaxTiles; i++) {
-    histAge[i] = 0;
-    prevDepth[i] = prevCover[i] = 0.0F;
-  }
   hasPrev = false;
   phase = 0;
 
@@ -290,6 +285,23 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   if (tx1 > cols - 1) tx1 = cols - 1;
   if (ty1 > rows - 1) ty1 = rows - 1;
   if (tx1 < tx0 || ty1 < ty0) return;
+
+  proxies++;  // the instrument's "how finely was this frame described" column
+  // ...and WHICH proxy is flattening the grid. One bag whose box covers the
+  // frame pins depth, depthGrad and coverage in every tile it touches, and no
+  // aggregate can say which bag that was - so keep the widest one and print
+  // it. `wNear == the near plane` in that line means the box straddles the
+  // eye, which is the shape that cannot carry a per-tile depth at all.
+  const int span = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+  if (span > worstTiles) {
+    worstTiles = span;
+    worstX0 = x0;
+    worstY0 = y0;
+    worstX1 = x1;
+    worstY1 = y1;
+    worstWNear = wNear;
+    worstWFar = wFar;
+  }
 
   const float invNear = 1.0F / (wNear > 1e-4F ? wNear : 1e-4F);
   const float invFar = 1.0F / (wFar > 1e-4F ? wFar : 1e-4F);
@@ -380,6 +392,133 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
   }
 
   addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail, luma);
+}
+
+// --------------------------------------------------------------- section 2 ---
+// The twin of the corpus' bagOf() (src/blsscorpus.cpp): an object-space AABB
+// through `mvp`, near-clipped along its twelve edges, reduced to a screen bbox
+// and a w range. See the header for WHY this replaces the bounding sphere.
+void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
+                                 const Vec4& objMax, const float& texelArea,
+                                 const float& luma) {
+  if (!enabled || !inScene) return;
+  if (core3D->isForeignViewActive()) return;
+
+  // Clip space is AFFINE in the box's parametric coordinates, so one
+  // matrix-vector product and three scaled columns give all eight corners.
+  // M4x4 is column-major storage of a column-vector matrix: data[0..3] is
+  // column 0, i.e. what x multiplies.
+  const float ex = objMax.x - objMin.x;
+  const float ey = objMax.y - objMin.y;
+  const float ez = objMax.z - objMin.z;
+  const Vec4 base = mvp * Vec4(objMin.x, objMin.y, objMin.z, 1.0F);
+  const float dxx = mvp.data[0] * ex, dxy = mvp.data[1] * ex;
+  const float dxw = mvp.data[3] * ex;
+  const float dyx = mvp.data[4] * ey, dyy = mvp.data[5] * ey;
+  const float dyw = mvp.data[7] * ey;
+  const float dzx = mvp.data[8] * ez, dzy = mvp.data[9] * ez;
+  const float dzw = mvp.data[11] * ez;
+
+  // Only x, y and w matter - z is the depth the GS would write and BLSS never
+  // reads it (the network's `depth` is 1/w, section 4).
+  struct P {
+    float x, y, w;
+  };
+  P corner[8];
+  for (int c = 0; c < 8; c++) {
+    const float fx = (c & 1) ? 1.0F : 0.0F;
+    const float fy = (c & 2) ? 1.0F : 0.0F;
+    const float fz = (c & 4) ? 1.0F : 0.0F;
+    corner[c].x = base.x + dxx * fx + dyx * fy + dzx * fz;
+    corner[c].y = base.y + dxy * fx + dyy * fy + dzy * fz;
+    corner[c].w = base.w + dxw * fx + dyw * fy + dzw * fz;
+  }
+
+  // The near plane is the PROJECT's, not a constant here: it is the plane the
+  // engine's own clipper works to, so a box that reaches past it is described
+  // by the part the frame will actually draw.
+  const float near = settings->getNear();
+
+  float x0 = 1e30F, y0 = 1e30F, x1 = -1e30F, y1 = -1e30F;
+  float wn = 1e30F, wf = -1e30F;
+  bool any = false;
+  const float halfW = static_cast<float>(outW) * 0.5F;
+  const float halfH = static_cast<float>(outH) * 0.5F;
+  const float sx = 2048.0F * static_cast<float>(scaleX);
+  const float sy = 2048.0F * static_cast<float>(scaleY);
+  // 2048 * ndc is the raster offset from the window centre in LOW-RES pixels;
+  // the raster-scale factors lift it to output pixels - the same mapping
+  // addBagSphere uses, so the two proxies land in the same space.
+  auto take = [&](const float& cx, const float& cy, const float& cw) {
+    const float invW = 1.0F / cw;
+    const float px = halfW + sx * cx * invW;
+    const float py = halfH + sy * cy * invW;
+    if (px < x0) x0 = px;
+    if (px > x1) x1 = px;
+    if (py < y0) y0 = py;
+    if (py > y1) y1 = py;
+    if (cw < wn) wn = cw;
+    if (cw > wf) wf = cw;
+    any = true;
+  };
+
+  // The twelve edges of eight corners. An edge that crosses the near plane
+  // contributes its INTERSECTION, which is what keeps a floor the camera
+  // stands on from projecting its behind-the-eye corners to nonsense.
+  for (int c = 0; c < 8; c++) {
+    for (int bit = 0; bit < 3; bit++) {
+      if (c & (1 << bit)) continue;
+      const P& a = corner[c];
+      const P& b = corner[c | (1 << bit)];
+      const bool ina = a.w >= near, inb = b.w >= near;
+      if (!ina && !inb) continue;
+      if (ina) take(a.x, a.y, a.w);
+      if (inb) take(b.x, b.y, b.w);
+      if (ina != inb) {
+        const float d = b.w - a.w;
+        const float t = (d > 1e-9F || d < -1e-9F) ? (near - a.w) / d : 0.0F;
+        take(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, near);
+      }
+    }
+  }
+  if (!any) return;  // wholly behind the eye
+  const float fOutW = static_cast<float>(outW);
+  const float fOutH = static_cast<float>(outH);
+  if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return;
+
+  // A BOX THAT STRADDLES THE EYE AND STILL FILLS THE FRAME DESCRIBES NOTHING,
+  // and both twins drop it (blss::accumulate's producer, bagOf(), has the same
+  // rule). Its screen bbox is the whole frame BY CONSTRUCTION and its wNear is
+  // the clip constant, not a measurement - so every tile it touches is handed
+  // "fully covered, at the nearest representable depth", which is exactly the
+  // `depth=1 grad=1 cover=1` in all 196 tiles that a generated game's SKY DOME
+  // produced: a 90-unit dome centred on the camera, whose every package box
+  // wraps the eye. The condition is threshold-free on purpose - it fires only
+  // for a box that fills the frame in BOTH axes after clipping AND has no
+  // usable near depth, which is the pathological shape and nothing else.
+  const bool eyeInside = wn <= near * 1.0001F;
+  const bool fillsFrame = x0 <= 0.0F && y0 <= 0.0F && x1 >= fOutW && y1 >= fOutH;
+  if (eyeInside && fillsFrame) return;
+
+  if (x0 < 0.0F) x0 = 0.0F;
+  if (y0 < 0.0F) y0 = 0.0F;
+  if (x1 > fOutW) x1 = fOutW;
+  if (y1 > fOutH) y1 = fOutH;
+  if (wn < near) wn = near;
+  if (wf < wn) wf = wn;
+
+  // Section 2's minification ratio, off the CLAMPED bbox - the corpus does the
+  // same, so a proxy running off the side of the screen reports the detail of
+  // what is on screen.
+  float texDetail = 0.0F;
+  if (texelArea > 0.0F) {
+    float area = (x1 - x0) * (y1 - y0);
+    if (area < 1.0F) area = 1.0F;
+    texDetail = sqrtf(texelArea / area) * 0.25F;
+    if (texDetail > 1.0F) texDetail = 1.0F;
+  }
+
+  addBag(x0, y0, x1, y1, wn, wf, texDetail, luma);
 }
 
 // --------------------------------------------------------------- section 2 ---
@@ -533,7 +672,6 @@ void RendererCoreBlss::buildFeatures() {
       feat[i][4] = tDetail[i];
       feat[i][5] = tCover[i];
       feat[i][6] = tLuma[i];
-      feat[i][7] = clamp01(static_cast<float>(histAge[i]) * (1.0F / 8.0F));
     }
   }
 }
@@ -629,25 +767,122 @@ void RendererCoreBlss::runNet() {
   }
 }
 
-void RendererCoreBlss::updateHistAge() {
-  // The one recurrent channel: frames since this tile last changed
-  // materially. The caller owns it (section 4), so the thresholds live here -
-  // they are deliberately coarse, the net only ever sees histAge/8 clamped.
+// ---------------------------------------------------- the instrument (dv 2) ---
+// PERMANENT, and it is permanent on purpose. A previous round added exactly
+// this measurement, read it once and DELETED it - which is how the network
+// spent its whole life fitted to the corpus' distribution and evaluated on the
+// console's without anybody being able to see the difference. Same channel
+// names and the same order as blss::kFeatureNames, so a line here sits next to
+// a row of `--blss-eval --features`, and `--blss-eval --probe "<line>"` reads
+// one straight back.
+void RendererCoreBlss::logFeatureSpread() {
+#ifndef NDEBUG
+  // EXACTLY blss::kFeatureNames, spelled the same and in the same order: the
+  // host's --probe matches these keys, and a line whose keys do not match the
+  // corpus' is a line nobody can place in the corpus.
+  static const char* const kFeatureNames[kFeatures] = {
+      "motion", "depth", "depthGrad", "edgeDens", "texDetail", "coverage",
+      "luma"};
+  static const char* const kOutputNames[kOutputs] = {"point", "temporal",
+                                                     "sharpen"};
   const int n = cols * rows;
-  for (int i = 0; i < n; i++) {
-    const float depth = feat[i][1];
-    const float cover = tCover[i];
-    const bool changed = fabsf(depth - prevDepth[i]) > 0.02F ||
-                         fabsf(cover - prevCover[i]) > 0.05F ||
-                         feat[i][0] > 0.25F;
-    if (changed) {
-      histAge[i] = 0;
-    } else if (histAge[i] < 255) {
-      histAge[i]++;
-    }
-    prevDepth[i] = depth;
-    prevCover[i] = cover;
+  if (n <= 0) return;
+
+  float fMin[kFeatures], fMax[kFeatures], fSum[kFeatures];
+  for (int f = 0; f < kFeatures; f++) {
+    fMin[f] = 1e30F;
+    fMax[f] = -1e30F;
+    fSum[f] = 0.0F;
   }
+  float oMin[kOutputs], oMax[kOutputs], oSum[kOutputs];
+  for (int m = 0; m < kOutputs; m++) {
+    oMin[m] = 1e30F;
+    oMax[m] = -1e30F;
+    oSum[m] = 0.0F;
+  }
+  int covered = 0;
+  for (int i = 0; i < n; i++) {
+    if (tCover[i] >= 0.02F) covered++;
+    for (int f = 0; f < kFeatures; f++) {
+      const float v = feat[i][f];
+      if (v < fMin[f]) fMin[f] = v;
+      if (v > fMax[f]) fMax[f] = v;
+      fSum[f] += v;
+    }
+    const float o[kOutputs] = {outW_A[i], outW_C[i], outW_D[i]};
+    for (int m = 0; m < kOutputs; m++) {
+      if (o[m] < oMin[m]) oMin[m] = o[m];
+      if (o[m] > oMax[m]) oMax[m] = o[m];
+      oSum[m] += o[m];
+    }
+  }
+  const float inv = 1.0F / static_cast<float>(n);
+
+  // Occupancy through the ENGINE's own skip rule - a cell is drawn when ANY of
+  // its four corner alpha bytes is non-zero (emitGrid), so one tile asking for
+  // a kernel lights the nine cells touching its corners. That bleed is real
+  // fill and this is the number blss::occupancy() reports on the host.
+  int cells = 0, drawn[3] = {0, 0, 0};
+  for (int cy = 0; cy < rows; cy++)
+    for (int cx = 0; cx < cols; cx++) {
+      cells++;
+      const int c00 = cy * cornerCols + cx;
+      const int idx[4] = {c00, c00 + 1, c00 + cornerCols, c00 + cornerCols + 1};
+      for (int p = 0; p < 3; p++) {
+        // cornerAlpha's passes: 1 = point, 2 = temporal, 3 = sharpen.
+        bool on = false;
+        for (int k = 0; k < 4; k++)
+          if (cornerAlpha(p + 1, idx[k]) != 0) on = true;
+        if (on) drawn[p]++;
+      }
+    }
+  const float invC = cells > 0 ? 1.0F / static_cast<float>(cells) : 0.0F;
+  const float pt = static_cast<float>(drawn[0]) * invC;
+  const float tp = static_cast<float>(drawn[1]) * invC;
+  const float sh = sharpen > 0.0F ? static_cast<float>(drawn[2]) * invC : 0.0F;
+
+  char line[512];
+  snprintf(line, sizeof(line),
+           "BLSSGRID %dx%d tiles, %d covered, %d proxy(ies), scale %dx%d",
+           cols, rows, covered, proxies, scaleX, scaleY);
+  TYRA_LOG(line);
+  snprintf(line, sizeof(line),
+           "BLSSWORST %d of %d tile(s), bbox %.0f,%.0f..%.0f,%.0f, w %.2f..%.2f"
+           " (near plane %.2f)",
+           worstTiles, cols * rows, static_cast<double>(worstX0),
+           static_cast<double>(worstY0), static_cast<double>(worstX1),
+           static_cast<double>(worstY1), static_cast<double>(worstWNear),
+           static_cast<double>(worstWFar),
+           static_cast<double>(settings->getNear()));
+  TYRA_LOG(line);
+
+  // min/mean/max per channel. A channel whose three numbers are equal is a
+  // channel the 147 weights cannot use - that is the whole point of printing
+  // the SPREAD rather than one sampled tile.
+  int at = 0;
+  at = snprintf(line, sizeof(line), "BLSSFEAT");
+  for (int f = 0; f < kFeatures; f++)
+    at += snprintf(line + at, sizeof(line) - at, " %s=%.3f/%.3f/%.3f",
+                   kFeatureNames[f], static_cast<double>(fMin[f]),
+                   static_cast<double>(fSum[f] * inv),
+                   static_cast<double>(fMax[f]));
+  TYRA_LOG(line);
+
+  at = snprintf(line, sizeof(line), "BLSSOUT ");
+  for (int m = 0; m < kOutputs; m++)
+    at += snprintf(line + at, sizeof(line) - at, " %s=%.3f/%.3f/%.3f",
+                   kOutputNames[m], static_cast<double>(oMin[m]),
+                   static_cast<double>(oSum[m] * inv),
+                   static_cast<double>(oMax[m]));
+  TYRA_LOG(line);
+
+  snprintf(line, sizeof(line),
+           "BLSSFILL point=%.1f%% temporal=%.1f%% sharpen=%.1f%% passes=%.2f",
+           static_cast<double>(pt * 100.0F), static_cast<double>(tp * 100.0F),
+           static_cast<double>(sh * 100.0F),
+           static_cast<double>(1.0F + pt + tp + 2.0F * sh));
+  TYRA_LOG(line);
+#endif
 }
 
 // --------------------------------------------------------------- section 1 ---
@@ -672,6 +907,8 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
     dMin[i] = 1e30F;
     dMax[i] = 0.0F;
   }
+  proxies = 0;
+  worstTiles = 0;
 
   capturePinhole();
   inScene = true;
@@ -1033,6 +1270,14 @@ void RendererCoreBlss::composite() {
   buildFeatures();
   runNet();
 
+  // debugView 2: the feature/output spread of this frame, once a second. It
+  // runs HERE, on the same tile stats and outputs the packet below is about to
+  // quantise, so what it prints is what the GS draws.
+  if (debugView >= 2 && ++logFrame >= kLogEvery) {
+    logFrame = 0;
+    logFeatureSpread();
+  }
+
   const auto* hist = gs->getPreviousFrameBuffer();
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
@@ -1115,7 +1360,6 @@ void RendererCoreBlss::composite() {
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 
-  updateHistAge();
   prev = cur;
   hasPrev = true;
 }

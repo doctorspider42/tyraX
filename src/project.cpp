@@ -4166,7 +4166,15 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("blssDebugView"))
             st.blssDebugView = (int)v->numberOr(0.0);
         if (st.blssDebugView < 0) st.blssDebugView = 0;
-        if (st.blssDebugView > 1) st.blssDebugView = 1;
+        // 2 is the FEATURE-SPREAD INSTRUMENT (RendererCoreBlss::
+        // logFeatureSpread): one BLSSGRID/BLSSFEAT/BLSSOUT/BLSSFILL group per
+        // second into the game's bin/log.txt, picture untouched. It is what
+        // `tyrax-editor --blss-eval --probe "<BLSSFEAT line>"` reads, i.e. the
+        // only way to find out whether the network is being run on the
+        // distribution it was trained on. The panel's combo offers 0 and 1;
+        // this value is reachable by editing the .tyra, which is deliberate -
+        // it is a developer instrument, not a project setting.
+        if (st.blssDebugView > 2) st.blssDebugView = 2;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);

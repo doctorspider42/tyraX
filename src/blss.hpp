@@ -54,7 +54,49 @@ inline float jitterY(int phase) { return phase == 0 ? -0.25f : 0.25f; }
 
 // ---------------------------------------------------------------- features ---
 
-constexpr int kFeatures = 8;
+// SEVEN, AND IT WAS EIGHT: `histAge` - frames since this tile last changed -
+// is gone, and it went because it was measured rather than because it looked
+// redundant.
+//
+// It was the one RECURRENT channel and the one piece of state either twin kept
+// between frames, so it carried the contract's most drift-prone rule (an
+// earlier draft left the update to "the caller" and the two sides promptly
+// implemented different thresholds, feeding the network a channel at training
+// time the console would never reproduce). It also carried the loudest of the
+// standing suspicions: the console pins it at 1.0 on a still camera, and the
+// corpus was believed to top out at 0.250.
+//
+// THAT SUSPICION WAS WRONG, and `--blss-eval --probe` is what says so. At the
+// shipped 156 frames the corpus reaches 1.0 in 4.6% of its tiles (the static
+// `foliage` shot and the tail of `floor-horizon`), so the console's 1.0 sits on
+// real training mass and the net INTERPOLATES there. The 0.250 ceiling was a
+// reading off a 48-frame corpus, where no shot survived eight stable frames.
+//
+// So the channel was asked the only question left - does it earn its keep -
+// with `--cv --cv-seeds 3 --drop-feature`, 13 folds x 3 seeds = 39 fold-runs
+// per row, everything else at the shipped defaults:
+//
+//   held at zero      (nothing)   histAge   edgeDens
+//   held-out margin     +0.38      +0.41      +0.36   dB over bilinear
+//   mean passes          1.85       1.84       1.76
+//   folds below bil      4/39       5/39       4/39
+//
+// The edgeDens column is the CONTROL and it is the reason the histAge column
+// means anything: dropping a channel that is pulling its weight costs 0.02 dB,
+// so the instrument resolves a difference of that size, and histAge is 0.03 on
+// the other side of it. The per-seed fold-mean sd is 0.01-0.02, and two of the
+// three seeds moved up. The fold that gains most is `foliage static` (+0.46 ->
+// +0.77) - the shot with the HIGHEST histAge, i.e. the channel was hurting
+// hardest exactly where it exists to help. It was letting the net memorise
+// "this shot has been still a while" instead of learning what a still tile
+// looks like.
+//
+// Removing it takes the whole recurrent path with it: no per-tile counters, no
+// prevDepth/prevCover, no updateHistAge(), and no ordering hazard between
+// building the features and ageing the tiles. It is also one input cheaper on
+// the EE - 135 weights instead of 147, 121 MACs per tile instead of 132,
+// ~27 000 per frame instead of ~29 600.
+constexpr int kFeatures = 7;
 
 // THE HIDDEN LAYER, AND IT IS NOT WHAT LIMITS THIS NETWORK - measured, after
 // the corpus grew to 13 shots dropped the in-distribution margin from ~+1.0 dB
@@ -62,6 +104,11 @@ constexpr int kFeatures = 8;
 // data". It is not. Leave-one-shot-out cross-validation, 13 shots, 156 frames,
 // 3 seeds = 39 fold-runs per row, everything else at the shipped defaults
 // (decay 1e-4, fill 16), held-out margin over plain bilinear:
+//
+// (The weight and MAC counts in this table are the EIGHT-input ones it was
+// measured with; at today's kFeatures = 7 they are 135 / 179 / 267 / 355 and
+// 10*kHidden per tile. The conclusion is about the SHAPE of the held-out and
+// in-dist rows, which the input count does not touch.)
 //
 //   kHidden           12      16      24      32
 //   weights          147     195     291     387
@@ -99,7 +146,7 @@ constexpr int kOutputs = 3;  // wA (point), wC (temporal), wD (sharpen)
 // order the generated PS2 code fills the array in, and the order
 // kFeatureNames documents.
 struct Features {
-    float v[kFeatures] = {0, 0, 0, 0, 0, 0, 0, 0};
+    float v[kFeatures] = {0, 0, 0, 0, 0, 0, 0};
 
     // Named accessors - use these, not v[3], everywhere outside the emitter.
     float& motion() { return v[0]; }     // reprojection length / tile edge
@@ -109,7 +156,6 @@ struct Features {
     float& texDetail() { return v[4]; }  // baked high-frequency texture energy
     float& coverage() { return v[5]; }   // fraction of tile with geometry
     float& luma() { return v[6]; }       // mean brightness of the tile
-    float& histAge() { return v[7]; }    // frames stable, /8, clamped - recurrent
 
     float motion() const { return v[0]; }
     float depth() const { return v[1]; }
@@ -118,7 +164,6 @@ struct Features {
     float texDetail() const { return v[4]; }
     float coverage() const { return v[5]; }
     float luma() const { return v[6]; }
-    float histAge() const { return v[7]; }
 };
 
 extern const char* const kFeatureNames[kFeatures];
@@ -412,22 +457,24 @@ ReprojField buildReproj(int cols, int rows, int outW, int outH, int lowW, int lo
                         const Pinhole& cur, const Pinhole& prev,
                         const std::vector<TileStats>& stats);
 
-// TileStats + reprojection + per-tile stability counters -> the network input.
-// `histAge` is frames-since-this-tile-last-changed-a-lot, clamped by the caller
-// to 0..255; it is the recurrent channel, so the caller owns its state.
+// TileStats + reprojection -> the network input. PURE: no per-tile state
+// survives a frame on either twin any more (see kFeatures - the recurrent
+// `histAge` channel was measured and removed), so this is a function of the
+// frame and nothing else, and there is no ordering hazard between building the
+// features and updating a counter.
 std::vector<Features> buildFeatures(int cols, int rows,
                                     const std::vector<TileStats>& stats,
-                                    const ReprojField& reproj,
-                                    const std::vector<uint8_t>& histAge);
+                                    const ReprojField& reproj);
 
 // ----------------------------------------------------------------- network ---
 
 // MLP kFeatures -> kHidden -> kOutputs, tanh hidden, logistic outputs. At the
-// shipped 8 -> 12 -> 3 that is 147 weights and 132 MACs per tile, so ~29 600
+// shipped 7 -> 12 -> 3 that is 135 weights and 121 MACs per tile, so ~27 100
 // MACs plus ~3 400 transcendentals over a 16x14 grid - small enough to run on
 // the EE FPU rather than VU1 (whose micro memory has nothing left - see the
-// tyra-engine-dev skill). Both figures are 11*kHidden and (kHidden+3), times
-// 224 tiles; the width sweep that says 12 is the right one is up at kHidden.
+// tyra-engine-dev skill). Both figures are (kFeatures+kOutputs+1)*kHidden and
+// (kHidden+3), times 224 tiles; the width sweep that says 12 is the right one
+// is up at kHidden.
 // NEITHER HAS EVER BEEN TIMED, in PCSX2 or on hardware - "far too small to
 // matter" is arithmetic and a design argument, not a measurement.
 struct Net {
@@ -583,7 +630,7 @@ Occupancy occupancy(const WeightField&, float sharpen);
 // `importance` (optional, cols*rows) receives how much the choice mattered in
 // that tile: MSE(worst weights) - MSE(best). Tiles where every kernel is
 // equally good get a near-zero value and are down-weighted during training, so
-// the net spends its 147 weights on the tiles that actually differ.
+// the net spends its 135 weights on the tiles that actually differ.
 //
 // The score is NOT plain MSE - see Objective: it is MSE against the truth, plus
 // a flicker penalty against the reprojected history, plus the fill the
@@ -605,7 +652,7 @@ struct TrainConfig {
     int epochs = 400;
     int batch = 64;
     float lr = 0.01f;
-    // 147 weights over ~13 000 supervised tiles sounds like a lot of data per
+    // 135 weights over ~13 000 supervised tiles sounds like a lot of data per
     // weight, and it is not: the tiles come from 12 camera moves, so the number
     // that matters is a dozen scenes, and this network's whole failure mode is
     // variance. Decay was 1e-5, which is barely regularisation at all. Under
@@ -665,11 +712,29 @@ int trainMain(int argc, char** argv);
 //       kernel everywhere. With --deadzone-sweep it also prints one row per
 //       deadzone, both columns, over the same folds.
 //
-//   --features
-//       What the eight input channels actually look like over the corpus -
+//   --features [--probe "<BLSSFEAT line>"]
+//       What the seven input channels actually look like over the corpus -
 //       distribution, saturation, per-shot means, and correlation with what the
-//       oracle asked for. A channel that is constant is a channel the 147
+//       oracle asked for. A channel that is constant is a channel the 135
 //       weights cannot use, and nothing printed that until this existed.
+//
+//       --probe IS THE OTHER HALF, and it is the instrument this feature spent
+//       eleven commits without: it takes a feature vector MEASURED ON THE
+//       CONSOLE and places it in that distribution. Run a game with the
+//       project's BLSS debug view set to 2, take the `BLSSFEAT` line out of
+//       bin/log.txt and paste it in whole - the engine prints min/mean/max per
+//       channel over the tile grid in the same names and the same order, so
+//       the tool reports, per channel, the console's spread, its percentile in
+//       the corpus, how much of the corpus falls inside the console's own
+//       band, and a verdict: out of range, a <1% tail the net can only
+//       extrapolate into, or constant across the frame (which is a network
+//       making no per-tile decision at all).
+//
+//   --drop-feature <name|index>[,...]
+//       Hold those input channels at zero over the whole corpus - training,
+//       labelling and evaluation - which is what deleting them from the vector
+//       would do to a trained net. Ask "does this channel earn its keep" with
+//       `--cv --drop-feature histAge` BEFORE paying for it on both twins.
 int evalMain(int argc, char** argv);
 // --blss-emit [-i blss.net] [-o blss_net.gen.hpp]
 int emitMain(int argc, char** argv);

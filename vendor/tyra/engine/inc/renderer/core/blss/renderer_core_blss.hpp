@@ -24,7 +24,7 @@ namespace Tyra {
  * BLSS - "Bieda-Level Super Sampling", the neural upscaler.
  *
  * The 3D scene rasterises into a half-resolution GS render target; a small MLP
- * (kFeatures -> kHidden -> kOutputs, 8 -> 12 -> 3 and 147 weights as shipped,
+ * (kFeatures -> kHidden -> kOutputs, 7 -> 12 -> 3 and 135 weights as shipped,
  * trained on the host and baked into the game)
  * decides per 32x32 output tile HOW that image should be blown up to the
  * display buffer and how much of the previous frame to reuse. The three outputs
@@ -66,7 +66,20 @@ class RendererCoreBlss {
   static constexpr int kMaxTiles = kMaxCols * kMaxRows;
   static constexpr int kMaxCorners = (kMaxCols + 1) * (kMaxRows + 1);
 
-  static constexpr int kFeatures = 8;
+  /**
+   * SEVEN, and it was eight. The recurrent `histAge` channel (frames since a
+   * tile last changed) is gone: measured with `--cv --drop-feature histAge` it
+   * scored BETTER without it (+0.41 dB held out against +0.38 with, at the
+   * same pass count), and the control of dropping a channel that IS pulling
+   * its weight costs 0.02 dB - so the difference is real at the resolution the
+   * corpus can measure. The whole rationale and the table are on
+   * blss::kFeatures in src/blss.hpp.
+   *
+   * It also takes the only per-frame STATE this class kept with it - the
+   * histAge counters and their prevDepth/prevCover - so the feature grid is
+   * now a pure function of one frame's bag proxies and the two cameras.
+   */
+  static constexpr int kFeatures = 7;
   static constexpr int kHidden = 12;
   static constexpr int kOutputs = 3;  // wA (point), wC (temporal), wD (sharpen)
 
@@ -92,6 +105,30 @@ class RendererCoreBlss {
    * any output whose alpha byte would be at most this to exactly 0.
    */
   static constexpr float kDeadzoneAlpha = 8.0F;
+
+  /**
+   * HOW MANY PROXIES ONE SUBMITTED BAG MAY BECOME, and it is the difference
+   * between a feature grid that describes the frame and one that reports the
+   * same number in every tile.
+   *
+   * A bag carries ONE screen bbox and ONE w range. A terrain chunk or a floor
+   * mesh whose bbox is the whole frame therefore told every tile "fully
+   * covered, at my NEAREST depth" - which is how a still `fpp` scene measured
+   * `depth=1 grad=1 cover=1` in all 224 tiles and the sky was temporally
+   * reconstructed. The corpus never had that problem because it chunks its
+   * floors 8x8 and its walls x6 (`kFloorChunks` / `kWallChunks` in
+   * src/blsscorpus.cpp) precisely so one bag describes one bounded piece of
+   * the world.
+   *
+   * The engine gets the same granularity for nearly nothing: StaPipCore
+   * already holds `StaPipBagPackagesBBox`, one axis-aligned box per
+   * maxVertCount/3 vertices, computed and CACHED for frustum classification.
+   * The hook walks those instead of the bag's bounding sphere. This cap merges
+   * consecutive parts when a mesh has more of them, so the per-bag cost is
+   * bounded: at most this many boxes, each 8 corners built from one
+   * matrix-vector product plus three column deltas.
+   */
+  static constexpr int kMaxProxiesPerBag = 32;
 
   RendererCoreBlss();
   ~RendererCoreBlss();
@@ -121,7 +158,9 @@ class RendererCoreBlss {
 
   /**
    * Build-time config from the generated game's init(). scaleX/scaleY are
-   * 2,2 or 1,2; sharpen 0..1; debugView 0 = off, 1 = tint by winning kernel.
+   * 2,2 or 1,2; sharpen 0..1; debugView 0 = off, 1 = tint by winning kernel,
+   * 2 = the feature/output SPREAD instrument (logFeatureSpread(), one line
+   * group per second into the game's log, picture untouched).
    *
    * Enables BLSS (1,1 is treated as "off"), sizes and allocates the low-res
    * target, sizes the composite packet and rebuilds the 3D projection at the
@@ -132,7 +171,8 @@ class RendererCoreBlss {
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
                  int debugView);
 
-  /** The trained weights (147 at the shipped kHidden = 12), emitted into the
+  /** The trained weights (135 at the shipped kFeatures = 7, kHidden = 12),
+   * emitted into the
    * game as BLSS_NET_* tables by the editor's --blss-emit - so kHidden here
    * must equal blss::kHidden there, or the tables and these arrays disagree
    * about their own length.
@@ -199,6 +239,29 @@ class RendererCoreBlss {
   void addBagSphere(const Vec4& worldCenter, const float& worldRadius,
                     const float& texelArea, const float& luma);
 
+  /**
+   * THE PROXY THE PIPELINE SHOULD PREFER, and the exact twin of the corpus'
+   * `bagOf()` (src/blsscorpus.cpp): an OBJECT-SPACE axis-aligned box, its
+   * eight corners carried through `mvp` into clip space, near-clipped along
+   * its twelve edges, and reduced to the screen bbox + w range of section 2.
+   *
+   * Why a box and not the sphere below. A bounding sphere around a floor mesh
+   * has a radius of tens of world units, so `wNear = w - radius` collapses to
+   * the near-plane clamp and EVERY tile the bag touches reads `depth = 1` and
+   * `depthGrad = 1` - confidently wrong, and wrong in the same way in every
+   * tile, which is what a constant network output looks like from the
+   * outside. The box says where the geometry actually is; the twelve-edge
+   * near clip is what keeps a box that straddles the eye from projecting to
+   * garbage instead of to the screen border.
+   *
+   * The corners cost one `mvp * min` plus three scaled matrix columns: clip
+   * space is affine in the box's parametric coordinates, so the other seven
+   * corners are sums of those. Inert unless called inside the
+   * beginScene/endScene bracket, and ignored under a foreign view.
+   */
+  void addBagBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
+                 const float& texelArea, const float& luma);
+
  private:
   /** A pinhole camera - the only form reprojection needs (docs section 3). */
   struct Pinhole {
@@ -217,11 +280,28 @@ class RendererCoreBlss {
   void finishTileStats();
   /** docs section 3: per grid corner, in history-buffer texels. */
   void buildReproj();
-  /** docs section 4: tile stats + reprojection + histAge -> features. */
+  /** docs section 4: tile stats + reprojection -> features. */
   void buildFeatures();
   /** docs section 5: the MLP, then the corner average of its outputs. */
   void runNet();
-  void updateHistAge();
+  /**
+   * THE INSTRUMENT, and it is not temporary this time (debugView >= 2).
+   *
+   * The corpus can measure its own feature distribution (`--blss-eval
+   * --features`); the console never could, so for the whole life of this
+   * feature the network was fitted to one distribution and run on another,
+   * and nobody could see it. One frame in `logEvery` this prints the SPREAD -
+   * min / mean / max over the covered tiles - of all eight input channels and
+   * all three outputs, plus the fill the frame actually paid.
+   *
+   * Read it against the `--blss-eval --features` table, which prints the same
+   * channels in the same order, and against `--blss-eval --probe` which takes
+   * a BLSSFEAT line back and says where each channel falls in the corpus.
+   * A channel pinned at one value, or an output whose min equals its max, is
+   * the failure this exists to make visible: no per-tile decision is
+   * happening at all.
+   */
+  void logFeatureSpread();
 
   qword_t* emitPassState(qword_t* q, int srcVram, int srcBufW, int texW,
                          int texH, bool linear, u64 alpha, bool textured);
@@ -265,6 +345,16 @@ class RendererCoreBlss {
   int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4)
   int jitter16Y = 0;
 
+  // --- the feature-spread instrument (debugView >= 2) -------------------
+  int proxies = 0;      // bag proxies accumulated this frame (reset per frame)
+  int logFrame = 0;     // frames since the last spread line
+  // The widest proxy of the frame, by tiles touched - the one that decides
+  // whether the feature grid describes anything.
+  int worstTiles = 0;
+  float worstX0 = 0, worstY0 = 0, worstX1 = 0, worstY1 = 0;
+  float worstWNear = 0, worstWFar = 0;
+  static constexpr int kLogEvery = 60;  // ~1 s at 60 Hz - readable, not a flood
+
   // Projection scale captured at beginScene: a world offset d at view depth w
   // spans d * projScale / w OUTPUT pixels. Captured so addBag() cannot be
   // fooled by a mid-frame pushEnvView/pushPortalView projection swap.
@@ -305,10 +395,10 @@ class RendererCoreBlss {
   float cornerDu[kMaxCorners];
   float cornerDv[kMaxCorners];
 
-  // --- recurrent state --------------------------------------------------
-  u8 histAge[kMaxTiles];
-  float prevDepth[kMaxTiles];
-  float prevCover[kMaxTiles];
+  // --- the only state that crosses a frame ------------------------------
+  // The PREVIOUS camera, for the reprojection of section 3, and nothing else:
+  // the per-tile histAge counters that used to live here went with the channel
+  // (see kFeatures above).
   Pinhole cur, prev;
   bool hasPrev = false;
 

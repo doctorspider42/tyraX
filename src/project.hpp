@@ -1277,7 +1277,10 @@ struct ProjectSettings {
     int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
     float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
     bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
-    int blssDebugView = 0;     // 0 = off, 1 = tint by winning kernel
+    // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
+    // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
+    // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).
+    int blssDebugView = 0;
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
