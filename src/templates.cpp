@@ -4471,7 +4471,11 @@ constexpr float kTicksPerMs = 294912.0F;
 constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
 
 u32 work[kWindow], drain[kWindow];
-u32 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
 int n = 0;
 u32 frame = 0;  // frames since boot - the alignment key between runs A and B
 u32 raw[kRaw];
@@ -4482,9 +4486,15 @@ u32 rawFirst = 0;
 // frame's. Holding the BLSS values back by one frame makes every record
 // coherent instead of skewed.
 u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
+u32 pPrx = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
-inline float ms(u32 ticks, int count) {
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
   return (float)ticks / (kTicksPerMs * (float)count);
 }
 
@@ -4528,11 +4538,21 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     sEnd += pEnd;
     sCmp += pCmp;
     sCmpEe += pCmpEe;
+    sPrx += pPrx;
+    sRep += pRep;
+    sFea += pFea;
+    sNet += pNet;
+    sPkt += pPkt;
   }
   pBeg = FP::tBlssBegin;
   pEnd = FP::tBlssEnd;
   pCmp = FP::tBlssComposite;
   pCmpEe = FP::tBlssCompositeEe;
+  pPrx = FP::tBlssProxy;
+  pRep = FP::tBlssReproj;
+  pFea = FP::tBlssFeat;
+  pNet = FP::tBlssNet;
+  pPkt = FP::tBlssPacket;
   pValid = true;
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
@@ -4541,7 +4561,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   n = 0;
 
   u32 sorted[kWindow];
-  u32 sumW = 0, sumD = 0;
+  u64 sumW = 0, sumD = 0;
   int over = 0;
   for (int k = 0; k < kWindow; k++) {
     sorted[k] = work[k];
@@ -4558,7 +4578,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   const float mean = ms(sumW, kWindow);
   const float dr = ms(sumD, kWindow);
 
-  char line[220];
+  char line[320];
   snprintf(line, sizeof(line),
            "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
            "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
@@ -4569,7 +4589,18 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
            (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
   TYRA_LOG(line);
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
+  snprintf(line, sizeof(line),
+           "FTSPLIT f=%lu proxy=%.2f reproj=%.2f feat=%.2f net=%.2f pkt=%.2f",
+           (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
+           (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
+  TYRA_LOG(line);
   sBeg = sEnd = sCmp = sCmpEe = 0;
+  sPrx = sRep = sFea = sNet = sPkt = 0;
   if (rawN >= kRaw) dumpRaw();
 }
 

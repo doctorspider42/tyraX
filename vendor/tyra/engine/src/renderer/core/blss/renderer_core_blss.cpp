@@ -79,6 +79,22 @@ static inline float clamp01(float v) {
 // build with no -ffast-math - for 15 table lookups. ONE table serves both,
 // because logistic(z) = (1 + tanh(z/2)) / 2 exactly, so the divide dies with
 // the expf. MACs are unchanged.
+//
+// AND ON THE EE THAT IS THE LARGEST SINGLE COST THIS FEATURE HAS. runNet()
+// measures 3.96 ms of the composite's 5.14 ms EE half (PCSX2, the blssrig
+// fixture, 224 tiles) - more than the whole bag-proxy feed, and it was never
+// where anyone looked. newlib's tanhf/expf compute in DOUBLE and the EE has no
+// double-precision FPU, so each of those 15 calls per tile is a software-
+// emulated round trip. MEASURED behind this switch on that fixture, 65 paired
+// 50-frame windows: runNet 3.39 -> 1.29 ms, i.e. -2.11 ms [-2.10, -2.12], and
+// the 1.29 ms that is left is the 108 MACs a tile that no table can remove.
+// Nothing else in this file is worth 2 ms.
+//
+// Until 2026-08-08 actTanh/actLogistic were never CALLED - the table was
+// landed, hashed, documented and dead, and runNet() went straight to
+// tanhf/expf. It is wired now, so the switch below is a real switch; it still
+// SHIPS AT 0, because the host's default is `--act-table 0` (src/blss.cpp) and
+// the two must move together.
 #ifndef TYRA_BLSS_ACT_TABLE
 #define TYRA_BLSS_ACT_TABLE 0  // 0 = libm (the host's default); 512 = table
 #endif
@@ -427,6 +443,27 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   const float invTile2 = 1.0F / static_cast<float>(kTile * kTile);
   const float det = clamp01(texDetail);
 
+  // The x overlap and the two VERTICAL bbox edges depend only on the COLUMN,
+  // so they are computed once per column instead of once per (row, column).
+  // Same expressions, same order, same values - this is a hoist, not a
+  // reformulation, and the accumulators come out bit-identical.
+  //
+  // It is worth doing because a proxy is not a small thing: a package box of a
+  // terrain chunk covers a large part of the grid, and the measured cost of
+  // the whole proxy feed (2.17 ms over 118 proxies, PCSX2 blssrig fixture) is
+  // dominated by THIS loop rather than by the eight-corner projection above.
+  float oxCol[kMaxCols];
+  bool vx0Col[kMaxCols], vx1Col[kMaxCols];
+  for (int tx = tx0; tx <= tx1; tx++) {
+    const float tileX0 = static_cast<float>(tx * kTile);
+    const float tileX1 = tileX0 + static_cast<float>(kTile);
+    float ox = (x1 < tileX1 ? x1 : tileX1) - (x0 > tileX0 ? x0 : tileX0);
+    if (ox < 0.0F) ox = 0.0F;
+    oxCol[tx] = ox;
+    vx0Col[tx] = x0 >= tileX0 && x0 < tileX1;
+    vx1Col[tx] = x1 >= tileX0 && x1 < tileX1;
+  }
+
   for (int ty = ty0; ty <= ty1; ty++) {
     const float tileY0 = static_cast<float>(ty * kTile);
     const float tileY1 = tileY0 + static_cast<float>(kTile);
@@ -434,14 +471,12 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
     if (oy < 0.0F) oy = 0.0F;
     const bool topEdgeHere = y0 >= tileY0 && y0 < tileY1;
     const bool botEdgeHere = y1 >= tileY0 && y1 < tileY1;
+    const int row = ty * cols;
 
     for (int tx = tx0; tx <= tx1; tx++) {
-      const float tileX0 = static_cast<float>(tx * kTile);
-      const float tileX1 = tileX0 + static_cast<float>(kTile);
-      float ox = (x1 < tileX1 ? x1 : tileX1) - (x0 > tileX0 ? x0 : tileX0);
-      if (ox < 0.0F) ox = 0.0F;
+      const float ox = oxCol[tx];
 
-      const int idx = ty * cols + tx;
+      const int idx = row + tx;
       const float a = ox * oy * invTile2;
       coverAcc[idx] += a;
       depthAcc[idx] += a * invNear;
@@ -454,8 +489,8 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
       float e = 0.0F;
       if (topEdgeHere) e += ox;
       if (botEdgeHere) e += ox;
-      if (x0 >= tileX0 && x0 < tileX1) e += oy;
-      if (x1 >= tileX0 && x1 < tileX1) e += oy;
+      if (vx0Col[tx]) e += oy;
+      if (vx1Col[tx]) e += oy;
       edgeAcc[idx] += e;
     }
   }
@@ -556,7 +591,6 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
 
   float x0 = 1e30F, y0 = 1e30F, x1 = -1e30F, y1 = -1e30F;
   float wn = 1e30F, wf = -1e30F;
-  bool any = false;
   const float halfW = static_cast<float>(outW) * 0.5F;
   const float halfH = static_cast<float>(outH) * 0.5F;
   const float sx = 2048.0F * static_cast<float>(scaleX);
@@ -574,29 +608,47 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
     if (py > y1) y1 = py;
     if (cw < wn) wn = cw;
     if (cw > wf) wf = cw;
-    any = true;
   };
 
-  // The twelve edges of eight corners. An edge that crosses the near plane
-  // contributes its INTERSECTION, which is what keeps a floor the camera
-  // stands on from projecting its behind-the-eye corners to nonsense.
+  // EVERY IN-FRONT CORNER CONTRIBUTES ITSELF; ONLY A CROSSING EDGE CONTRIBUTES
+  // AN INTERSECTION - and a box wholly in front of the near plane has no
+  // crossing edge, so it never enters the twelve-edge loop at all.
+  //
+  // This used to be written the other way round: twelve edges, each taking
+  // BOTH of its endpoints. That is the same set of points - min/max is
+  // idempotent and an out-corner was never taken either way, so the result
+  // here is BIT-IDENTICAL and the twin contract (src/blsscorpus.cpp bagOf())
+  // is untouched - but it evaluated take() 24 times instead of 8, i.e. 24
+  // perspective divides to reduce 8 points. The straddling case is rare (it
+  // needs the eye inside the package's own AABB) and pays exactly what it did
+  // before; the common case is 3x cheaper. A generated frame submits one of
+  // these per VU1 package - 300..440 of them for twenty terrain chunks - which
+  // is why the shape of this loop is worth a paragraph.
+  int inMask = 0;
   for (int c = 0; c < 8; c++) {
-    for (int bit = 0; bit < 3; bit++) {
-      if (c & (1 << bit)) continue;
-      const P& a = corner[c];
-      const P& b = corner[c | (1 << bit)];
-      const bool ina = a.w >= near, inb = b.w >= near;
-      if (!ina && !inb) continue;
-      if (ina) take(a.x, a.y, a.w);
-      if (inb) take(b.x, b.y, b.w);
-      if (ina != inb) {
+    if (corner[c].w >= near) {
+      inMask |= 1 << c;
+      take(corner[c].x, corner[c].y, corner[c].w);
+    }
+  }
+  if (inMask == 0) return;  // wholly behind the eye
+  if (inMask != 0xFF) {
+    // The twelve edges, but only where the near plane actually cuts one. The
+    // intersection is what keeps a floor the camera stands on from projecting
+    // its behind-the-eye corners to nonsense.
+    for (int c = 0; c < 8; c++) {
+      for (int bit = 0; bit < 3; bit++) {
+        if (c & (1 << bit)) continue;
+        const int other = c | (1 << bit);
+        if (((inMask >> c) & 1) == ((inMask >> other) & 1)) continue;
+        const P& a = corner[c];
+        const P& b = corner[other];
         const float d = b.w - a.w;
         const float t = (d > 1e-9F || d < -1e-9F) ? (near - a.w) / d : 0.0F;
         take(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, near);
       }
     }
   }
-  if (!any) return;  // wholly behind the eye
   const float fOutW = static_cast<float>(outW);
   const float fOutH = static_cast<float>(outH);
   if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return;
@@ -811,6 +863,30 @@ void RendererCoreBlss::runNet() {
   float dead[kOutputs];
   for (int m = 0; m < kOutputs; m++)
     dead[m] = scale[m] > 0.0F ? kDeadzoneAlpha / scale[m] : 1e30F;
+
+  // THE DEADZONE COMPARE, MOVED IN FRONT OF THE LOGISTIC. logistic() is
+  // strictly increasing, so `logistic(s) <= dead` is exactly `s <= logit(dead)`
+  // - and a tile that is about to be snapped to zero has no use for the expf +
+  // fdiv that produced the number being thrown away. This is a pure cost cut,
+  // not an approximation: within kLogitGuard of the threshold the logistic is
+  // STILL evaluated and the original compare still decides, so every output
+  // byte is bit-identical to before and nothing about the twin contract moves.
+  // The guard is generous by orders of magnitude - the logistic's slope is at
+  // most 1/4, so 0.01 in `s` is at least 0.0025 in `o`, against a round-trip
+  // error in the last bits of a float.
+  //
+  // `allDead` is the same rule taken to its limit: an output whose alpha scale
+  // is zero - `sharpen` 0, which is a project setting and a common one - is
+  // deadzoned in every tile of every frame, so its whole row of the second
+  // layer never runs.
+  static constexpr float kLogitGuard = 0.01F;
+  bool allDead[kOutputs];
+  float sDead[kOutputs];
+  for (int m = 0; m < kOutputs; m++) {
+    allDead[m] = dead[m] >= 1.0F;
+    sDead[m] =
+        allDead[m] ? 0.0F : logf(dead[m] / (1.0F - dead[m])) - kLogitGuard;
+  }
   for (int i = 0; i < n; i++) {
     // An empty tile is not a decision the network is entitled to make. The
     // oracle's importance weighting gives "tiles where every kernel is
@@ -829,13 +905,21 @@ void RendererCoreBlss::runNet() {
     for (int k = 0; k < kHidden; k++) {
       float s = b1[k];
       for (int f = 0; f < kFeatures; f++) s += w1[k][f] * feat[i][f];
-      h[k] = tanhf(s);
+      h[k] = actTanh(s);
     }
     float o[kOutputs];
     for (int m = 0; m < kOutputs; m++) {
+      if (allDead[m]) {
+        o[m] = 0.0F;
+        continue;
+      }
       float s = b2[m];
       for (int k = 0; k < kHidden; k++) s += w2[m][k] * h[k];
-      o[m] = 1.0F / (1.0F + expf(-s));
+      if (s <= sDead[m]) {
+        o[m] = 0.0F;  // below the deadzone with room to spare - see above
+        continue;
+      }
+      o[m] = actLogistic(s);
       // A logistic cannot emit 0, and "barely on" costs exactly as much fill
       // as "fully on" - kDeadzoneAlpha. Three compares per tile against
       // thresholds derived above; twinned with netField() on the host, which
@@ -1028,6 +1112,11 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   }
   proxies = 0;
   worstTiles = 0;
+#if TYRA_FRAME_PROFILE
+  // StaPipCore accumulates into this across the whole scene; the frame's owner
+  // is this bracket, so it is cleared here.
+  FrameProfile::tBlssProxy = 0;
+#endif
 
   capturePinhole();
   inScene = true;
@@ -1271,6 +1360,23 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
   return q;
 }
 
+// Does this pass draw ANYTHING? emitGrid's own skip rule is per cell, so a
+// pass whose every corner quantises to alpha 0 already emits no primitive -
+// but it still walked all 255 corners building UVs it threw away, and
+// composite() still emitted its ~10-qword state block for a pass that then
+// drew nothing at all. Point and sharpen measure 0 % occupancy at the shipped
+// deadzone, so that was two of the five passes on every frame.
+//
+// Free of any twin implication: emitGrid's four-corner rule decides what is
+// drawn and this only asks it earlier. A pass with no non-zero corner has no
+// cell with a non-zero corner, by construction.
+bool RendererCoreBlss::passHasAlpha(int pass) const {
+  const int n = cornerCols * cornerRows;
+  for (int c = 0; c < n; c++)
+    if (cornerAlpha(pass, c) != 0) return true;
+  return false;
+}
+
 qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
   const bool debugPass = pass == 5;
   const bool abe = pass != 0;
@@ -1421,10 +1527,24 @@ void RendererCoreBlss::composite() {
   // the tail of the low-res render it is about to sample.
   if (path1->isVU1Configured()) sync->align3D();
 
+#if TYRA_FRAME_PROFILE
+  const u32 fpS0 = FrameProfile::ticks();
+#endif
   finishTileStats();
   buildReproj();
+#if TYRA_FRAME_PROFILE
+  const u32 fpS1 = FrameProfile::ticks();
+  FrameProfile::tBlssReproj = fpS1 - fpS0;
+#endif
   buildFeatures();
+#if TYRA_FRAME_PROFILE
+  const u32 fpS2 = FrameProfile::ticks();
+  FrameProfile::tBlssFeat = fpS2 - fpS1;
+#endif
   runNet();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssNet = FrameProfile::ticks() - fpS2;
+#endif
 
   // debugView 2: the feature/output spread of this frame, once a second. It
   // runs HERE, on the same tile stats and outputs the packet below is about to
@@ -1438,6 +1558,11 @@ void RendererCoreBlss::composite() {
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
 
+#if TYRA_FRAME_PROFILE
+  // After the once-a-second log block above, which is host: file I/O and is
+  // not part of what the packet build costs.
+  const u32 fpS3 = FrameProfile::ticks();
+#endif
   packet2_reset(packet, false);
   qword_t* q = packet->base;
 
@@ -1455,14 +1580,16 @@ void RendererCoreBlss::composite() {
   q = emitGrid(q, 0);
 
   // Pass 2 - nearest, lerped in by wA: (Cs - Cd) * As >> 7 + Cd.
-  q = emitPassState(q, lowVram, lowBufW, lowW, lowH, false,
-                    GS_SET_ALPHA(0, 1, 0, 1, 0), true);
-  q = emitGrid(q, 1);
+  if (passHasAlpha(1)) {
+    q = emitPassState(q, lowVram, lowBufW, lowW, lowH, false,
+                      GS_SET_ALPHA(0, 1, 0, 1, 0), true);
+    q = emitGrid(q, 1);
+  }
 
   // Pass 3 - the reprojected previous frame, lerped in by wC/2. The history is
   // the OTHER display framebuffer: already full resolution, one frame old, and
   // itself composited, so a static camera keeps accumulating samples.
-  if (temporal && hasPrev) {
+  if (temporal && hasPrev && passHasAlpha(2)) {
     q = emitPassState(q, histVram, histBufW, outW, outH, true,
                       GS_SET_ALPHA(0, 1, 0, 1, 0), true);
     q = emitGrid(q, 2);
@@ -1472,7 +1599,8 @@ void RendererCoreBlss::composite() {
   // blend equations the GS actually has. C = 0 (As), NOT 2 (FIX): the sharpen
   // amount is per tile, so it has to ride in on the vertex alpha like every
   // other weight.
-  if (sharpen > 0.0F) {
+  // Passes 4 and 5 share one weight (cornerD), so one check covers both.
+  if (sharpen > 0.0F && passHasAlpha(3)) {
     q = emitPassState(q, lowVram, lowBufW, lowW, lowH, true,
                       GS_SET_ALPHA(0, 2, 0, 1, 0), true);  // Cd + Cs * As
     q = emitGrid(q, 3);
@@ -1513,6 +1641,9 @@ void RendererCoreBlss::composite() {
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssPacket = FrameProfile::ticks() - fpS3;
+#endif
 #if TYRA_FRAME_PROFILE
   // The split the whole feature is judged on: everything above this read is
   // EE (reprojection, the feature grid, the MLP, quantisation, the packet -

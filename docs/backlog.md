@@ -28,6 +28,42 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
+  - **DONE, and it reverses the feature's verdict: BLSS WINS 3.4x on a
+    GS-bound scene, on real hardware.** `examples/upscaler-lab` measures
+    **530 ms with BLSS off against 157 ms with it on** (d = +373 ms, 95 % CI
+    [+369, +377], n = 262 paired frames) for **5.95 ms of EE**. The old verdict
+    - "it saves nothing, the frames are EE-bound" - came from one low-fill
+    fixture plus a **discriminator that does not work**: `drain ~ 0` does not
+    mean EE-bound, because GS backpressure stalls the EE inside the submission.
+    Break-even is ~22 full-screen coverages. Four bit-identical EE cuts landed
+    with it, worth **1.96 ms on hardware** (7.92 -> 5.95). See profiling.md.
+  - **Re-tune `examples/upscaler-lab`.** It runs at **1.9 FPS on a console**
+    with BLSS off and 6.3 with it on. It was tuned against PCSX2, which
+    under-reports GS fill by 76x, so its haze is roughly two orders of magnitude
+    past what the hardware can draw. Excellent stress case, unshippable demo -
+    it needs a bank/particle count chosen against hardware, plus a second
+    fixture that is GS-bound *and* inside the 20 ms budget, which is the shape a
+    real project would have.
+  - **The activation table is still one decision away**, and it is a TWO-LINE
+    commit that must move both twins at once: `TYRA_BLSS_ACT_TABLE` 0 -> 512 in
+    `vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp`, and
+    `int actTable = 0;` -> `512` at `src/blss.cpp:1429`, then a `--blss-eval -i`
+    parity run. Worth 2.11 ms in PCSX2 but only **~1.5 ms on hardware** (the
+    emulator over-weights libm). The engine half was landed, hashed and DEAD
+    until 2026-08-08 - `runNet` never called it; it does now.
+  - **The next EE cut is twin-contract work.** The bag-proxy feed is the largest
+    remaining EE term on hardware (2.39 ms). Cheaper means describing the frame
+    more coarsely - a screen-area floor below which a proxy is dropped, or one
+    box per bag beyond some distance - and `src/blsscorpus.cpp`'s `bagOf()` must
+    cut exactly the same way or the network is trained for a machine that does
+    not exist. Do not land the engine half alone.
+  - **The degenerate-net fast path is designed and unlanded.** When every output
+    is deadzoned (measured: `point 0 % / temporal 0 % / sharpen 0 %` on a real
+    project's own net) the composite is exactly one full-screen bilinear blit,
+    and pass 0's 16-row grid could be one sprite - worth the 0.31-0.56 ms of
+    `pkt`. It needs a guard for negative jitter (the grid clamps UV at 0, a
+    sprite would interpolate through it) and a frame-buffer comparison against
+    the strip, because sprite and triangle UV DDA are not obviously bit-equal.
   - **DONE: the corpus render is threaded, and DETERMINISM is what pays for it**
     (7d3dbf67). The oracle has been parallel per frame since 1b9c7a74; the corpus
     render was the last serial phase that could be parallel at all (7.2-7.7 s of

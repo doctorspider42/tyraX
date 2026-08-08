@@ -50,7 +50,7 @@ to decide what to teach.
 | `lowW = outW/sx`, `lowH = outH/sy` | the low-res render target |
 | `kTile` | 32 — decision tile edge, in output pixels |
 | `cols = outW/kTile`, `rows = outH/kTile` | 16 × 14 |
-| `T[0..N]` | the shared activation table, §5 — **off on both twins today** |
+| `T[0..N]` | the shared activation table, §5 — **wired on both twins, off by default on both** |
 | `jx`, `jy` | this frame's jitter, in low-res pixels: ±0.25, i.e. ±4/16 exactly |
 
 **`kTile` is 32 on both sides and the host can sweep it.** `--tile N` moves
@@ -415,18 +415,29 @@ evaluates libm is exactly the twin drift this page exists to prevent. The
 measurement that says it is free is
 [on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table).
 
-**The engine half landed too, and it is off by the same default.**
-`renderer_core_blss.cpp` now carries the `N = 512` table and `actTanh` /
+**The engine half is WIRED now, and it is off by the same default.**
+`renderer_core_blss.cpp` carries the `N = 512` table and `actTanh` /
 `actLogistic` behind `TYRA_BLSS_ACT_TABLE`, which defaults to **0 = libm** —
 the host's default, register for register. The 257 stored `short`s are
-`tyrax-editor --blss-emit --act-table 512` **verbatim**, so the FNV-1a below is
-theirs by construction; it was checked against the constant before the literals
-were pasted. Compile-checked with the switch forced to 512; never yet executed
-on a console, because turning it on is a decision about both twins at once.
-**Flipping one side alone is silent divergence** — nothing in `blss.net`
-records which activation fitted it — so the switch-on is its own commit that
-moves `src/blss.cpp`'s default and `TYRA_BLSS_ACT_TABLE` together, followed by
-a `--blss-eval -i` parity run.
+`tyrax-editor --blss-emit --act-table 512` **verbatim**; the FNV-1a below was
+re-derived from the pasted literals on 2026-08-08 and is `0x47A59E3C`, with a
+maximum deviation from `tanh` of 1.5e-05, i.e. half a Q15 LSB.
+
+**Until 2026-08-08 the engine half was landed, hashed, documented and DEAD.**
+`actTanh` and `actLogistic` were defined and never called — `runNet()` went
+straight to `tanhf`/`expf` — so the switch controlled nothing and "the engine
+half landed" (which this page used to say) was not true of the code that ran.
+`runNet()` calls them now, which makes `TYRA_BLSS_ACT_TABLE` a real switch for
+the first time. It still defaults to 0.
+
+**Flipping one side alone is silent divergence** — nothing in `blss.net` records
+which activation fitted it — so the switch-on is its own commit that moves
+`src/blss.cpp`'s default (`--act-table`, `int actTable = 0;`) and
+`TYRA_BLSS_ACT_TABLE` together, followed by a `--blss-eval -i` parity run.
+**It is worth 2.11 ms of EE**, measured on a console-shaped fixture in PCSX2
+(`runNet` 3.39 → 1.29 ms, 65 paired windows, CI [2.10, 2.12]) — the largest
+single saving available to this feature, and the only one still blocked on a
+decision rather than on work. See [profiling.md](profiling.md).
 
 Why it is worth doing at all: the engine evaluates `12 tanhf + 3 expf + 3 fdiv`
 per tile (`renderer_core_blss.cpp`, the `logFeatureSpread` neighbourhood), in a

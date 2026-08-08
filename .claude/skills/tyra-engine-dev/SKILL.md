@@ -510,8 +510,64 @@ Eight things here that were paid for, and that any edit must keep:
   PROVISIONAL**: it was taken on a build carrying the z-mask defect above, so
   the BLSS-on arm drew a frame with every palettised surface missing — the EE
   half stands, the GS half understates whatever fill BLSS saves, and the A/B
-  needs retaking on hardware. 5.10 ms of that is the
-  composite's EE half - reprojection + MLP + the ~5 700-qword packet build.
+  needs retaking on hardware.
+- **THE EE HALF IS PRICED, AND THE BIGGEST TERM IS THE MLP.** Splitting the two
+  large terms onto their own counters (`tBlssProxy` in StaPipCore,
+  `tBlssReproj`/`tBlssFeat`/`tBlssNet`/`tBlssPacket` in composite - the previous
+  round got "~3.9 ms of scene submission" **by subtraction**, which is not a
+  measurement) gives, in PCSX2 on the `blssrig` fixture: **net 3.96**, proxy
+  3.26, pkt 0.61, reproj 0.39, feat 0.14. `runNet` being the largest is the
+  finding - **newlib's tanhf/expf compute in DOUBLE and the EE has no
+  double-precision FPU**, so 15 activations a tile are 15 software round trips.
+  Four **bit-identical** cuts landed (2026-08-08), each measured on its own
+  counter: the proxy near-clip takes each in-front corner ONCE instead of twelve
+  edges x two endpoints (-1.10 ms, and a box wholly in front never enters the
+  edge loop at all); the deadzone compare moved IN FRONT of the logistic, since
+  logistic is monotone and a snapped-to-zero output does not need the expf that
+  produced the number being discarded (-0.57 ms, guard-banded so the original
+  compare still decides within 0.01 of the threshold); `passHasAlpha()` skips a
+  composite pass with no non-zero corner, which at the shipped deadzone is point
+  AND sharpen every frame (-0.30 ms); and `addBag` hoists the per-COLUMN overlap
+  out of the row loop (-0.20 ms). **BLSS on/off went +8.76 -> +6.39 ms of EE in
+  PCSX2; re-measured on the CONSOLE the same four cuts are worth 1.96 ms**
+  (proxy 3.95->2.39, net 2.20->1.97, pkt 0.73->0.56), taking the whole EE bill
+  from 7.92 to 5.95 ms. **PCSX2 does not transfer per-function**: it puts `net`
+  above `proxy`, the console puts `proxy` above `net`, because the emulator
+  over-weights libm. Attribute on hardware.
+  Bit-identity was CHECKED, not asserted: under `blssDebugView` 2 the BLSSGRID /
+  BLSSFEAT / BLSSOUT / BLSSFILL lines are byte-identical across 44 s of paired
+  frames before and after. The **activation table is worth another 2.11 ms**
+  (net 3.39 -> 1.29) and is the one big saving blocked on a decision: it must
+  flip on BOTH twins in one commit (`TYRA_BLSS_ACT_TABLE` 512 + `src/blss.cpp`'s
+  `--act-table` default), and until 2026-08-08 the engine's actTanh/actLogistic
+  were never CALLED, so that switch used to control nothing. What is left is a
+  **~5.95 ms EE floor on hardware** (proxy 2.39 + net 1.97 + 1.03 + 0.55);
+  cutting the proxy term further means describing the frame more coarsely, which
+  is a TWIN-CONTRACT change and needs `src/blsscorpus.cpp`'s `bagOf` to cut the
+  same way. Two measured negatives worth not repeating: moving the composite's
+  EE work in front of `endScene`'s drain can save at most `tBlssEnd`, which is
+  **0.05 ms in PCSX2 and 0.11 ms on hardware**; and `beginScene`'s
+  `draw_wait_finish()` is NOT removable - PATH1 preempts an in-flight PATH3
+  transfer, so the clear sprite must complete before VU1 kicks, or the scene is
+  drawn and then cleared over.
+- **AND THE FEATURE HAS A REGIME AFTER ALL - IT IS HEAVY OVERDRAW.** On
+  `examples/upscaler-lab` (3 072 large alpha-blended billboards) a real PS2
+  measures **530 ms with BLSS off against 157 ms with it on** - d = +373 ms,
+  95 % CI [+369, +377], n = 262 paired frames, a **3.37x** speedup for 5.95 ms
+  of EE. Break-even is about **22 full-screen coverages**. The previous verdict
+  ("it saves nothing, the frames are EE-bound") came from ONE low-fill fixture
+  plus a **false discriminator**: `drain ~ 0` does NOT mean EE-bound, because GS
+  backpressure stalls the EE inside the submission (charged to `submit`) and
+  `drain` only measures the tail after the last packet. Both arms of the 3.4x
+  win read `drain = 0.02 ms`. **Never infer boundedness from `drain`; change the
+  GS load and see whether the frame shortens.** Two fixture traps found doing
+  this: the project key for the Live Debugger is **`liveDebug`**, not
+  `liveDebugger`, and leaving it on costs ~500 ms/frame of host: network I/O
+  INSIDE the measurement; and the rig's own window mean summed ticks in a
+  **u32**, which overflows above ~290 ms/frame and printed a 500 ms frame as
+  37 ms (now u64 - the median was always right, which is how it was caught).
+  `upscaler-lab` itself is a fine GS-bound stress case and a BAD demo: 1.9 FPS
+  with BLSS off, because it was tuned against PCSX2's 76x-under-reported fill.
   The instrument is `inc/debug/frame_profile.hpp` (TYRA_FRAME_PROFILE, default
   0, so a shipped libtyra.a carries none of it) plus the FRAMETIME line in the
   generated drawDebugHud.

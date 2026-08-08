@@ -48,10 +48,24 @@ rasteriser and no pixel shaders at all.
 > 30.8 % of the picture changing every frame
 > (see [The oscillation](#the-oscillation)). `blssJitter: false` removes it
 > completely, at the cost of the temporal supersampling. And **a BLSS frame has
-> now been timed on a real PS2**: it cost **+9.83 ms per frame** and saved
-> nothing, because the frame was EE-bound and had no GS fill to trade
-> ([profiling.md](profiling.md), "Timing a frame that BLSS is in"). Do not
-> enable this yet.
+> now been timed on a real PS2**, twice, and the two answers are opposite:
+> on a terrain-and-slabs fixture it cost **+9.83 ms and saved nothing**, while
+> on `examples/upscaler-lab` - 3 072 large alpha-blended billboards - it made
+> the frame **3.4x faster (530 -> 157 ms, d = +373 ms, n = 262 paired frames)**
+> for 5.9 ms of EE. **The feature has a regime; it is heavy overdraw**, and the
+> break-even is about 22 full-screen coverages
+> ([profiling.md](profiling.md), "THE ANSWER"). It is still off by default and
+> `upscaler-lab` itself is badly scaled - 1.9 FPS with BLSS off - because it was
+> tuned against PCSX2, which under-reports GS fill by 76x.
+>
+> **The verdict that stood here for a week rested on a measurement error, and
+> the error was in the INSTRUMENT'S DOCUMENTATION, not in its numbers.**
+> "`drain` ~ 0 means the frame is EE-bound, so BLSS cannot help" is false:
+> when the GS falls behind, the GIF FIFO fills and the EE stalls *inside the
+> submission*, which the rig charges to `submit`. `drain` only ever measured
+> the tail after the last packet. The `upscaler-lab` run above reads
+> `drain = 0.02 ms` in **both** arms and shows a 3.4x GS win. The only honest
+> discriminator is to change the GS load and see whether the frame shortens.
 >
 > **That +9.83 ms is PROVISIONAL and must not be quoted as final.** It was taken
 > on a build carrying the z-mask defect fixed on 2026-08-08
@@ -73,15 +87,23 @@ rasteriser and no pixel shaders at all.
 > now defaults to `false`** — see
 > [A/B/C](#abc-a-human-looked-at-three-builds-2026-08-08).
 >
-> **The EE half of that bill has now been priced.** 5.10 ms of the 9.83 is
-> `composite()`'s inference and packet build, and the two changes that attack it
-> have been cross-validated: **the transcendental table is free** (0.01 dB against
-> a fold sd of 0.35, and it deletes every `tanhf`, `expf` and divide in the
-> inference), while **`kTile` 32 → 64 is a 4× cut that doubles the folds where
-> the net is worse than doing nothing**. Neither is switched on, both are twin
-> changes, and neither closes the gap alone — see
-> [the transcendentals](#the-transcendentals-as-a-table) and
-> [the tile size](#the-tile-size-swept).
+> **The EE half of that bill has now been priced, and a quarter of it is
+> gone** (2026-08-08, PCSX2 — EE only, the GS half still awaits hardware).
+> Splitting the two big terms onto their own counters found that the largest
+> single cost in the whole feature is **`runNet`, the MLP**, not the packet
+> build and not the proxy feed: newlib's `tanhf`/`expf` compute in double and
+> the EE has no double-precision FPU. Four **bit-identical** cuts — an early-out
+> in the bag-proxy near-clip, the deadzone compare moved in front of the
+> logistic, skipping a composite pass with no non-zero corner, and a hoist in
+> `addBag` — took the EE overhead from **+8.76 ms to +6.39 ms**. The activation
+> table is worth another **2.11 ms** and is the one big saving still blocked on
+> a decision rather than on work, because it must move on both twins at once -
+> though it is worth ~1.5 ms on hardware rather than 2.11, because PCSX2
+> over-weights libm. **Re-measured on the console the four cuts are worth
+> 1.96 ms**, taking BLSS' EE bill from 7.92 to **5.95 ms**. That 5.95 ms is what
+> decides how much overdraw a project needs before the feature pays. Full tables, and the break-even that follows from
+> them, in [profiling.md](profiling.md) — "Where the EE time actually goes" and
+> "The EE floor, and whether this feature has a regime at all".
 
 ## Why this can work at all on a PS2
 
@@ -1733,20 +1755,29 @@ Measured the same way as everything else — `--blss-eval --cv --cv-seeds 3`,
 scale by the covered fraction — ~0.8 in the one instrumented console frame.
 **With `kTile = 64` as well it is 840 lookups and 6 048 MACs.**)
 
-Against the hardware measurement — `composite()` 5.41 ms of which **5.10 ms is
-EE**, in a frame that is 9.83 ms slower with BLSS on and whose GS overhang is
-0.02 ms in *both* arms — this is the part of the inference that is not MACs, and
-it is the only change on this page that costs nothing at all. It does **not**
-close the gap on its own: the packet build is untouched, and so are the ~3.9 ms
-of extra scene submission from the per-package proxies and the 0.45 ms of
-`beginScene()`.
+**AND IT IS NOW MEASURED ON A CONSOLE-SHAPED FRAME, not argued from an
+instruction count.** PCSX2, the `blssrig` fixture, 65 paired 50-frame windows,
+the engine's own `tBlssNet` counter: `runNet` goes **3.39 → 1.29 ms**, i.e.
+**−2.11 ms** with a 95 % CI of [−2.10, −2.12] and no measurable movement in any
+other counter. That is the **largest single EE saving available to this
+feature** — larger than the entire bag-proxy feed — and the reason is specific:
+newlib's `tanhf`/`expf` compute in **double**, the EE has **no double-precision
+FPU**, and so each of the 15 activations per tile is a software-emulated round
+trip of roughly 340 EE cycles. The 1.29 ms that remains is the 108 MACs a tile,
+which no table can touch.
 
-**It is not switched on.** `--act-table` defaults to 0, i.e. libm, because
+**It was also, until 2026-08-08, not actually wired.** The engine's `actTanh` /
+`actLogistic` existed, were hashed and were documented, and `runNet` called
+`tanhf`/`expf` directly — so `TYRA_BLSS_ACT_TABLE` controlled nothing. `runNet`
+calls them now; the measurement above is what the switch is worth.
+
+**It is still not switched on.** `--act-table` defaults to 0, i.e. libm, because
 **`blss.net` records nothing about which activation fitted it**, so a host that
 trains against a table while the console evaluates libm is a silent twin
-divergence with no file to detect it. Land it on the engine
-(`renderer_core_blss.cpp`'s `tanhf`/`expf` in `runNet`) and flip the host default
-in the same commit, or not at all.
+divergence with no file to detect it. Switching it on is a two-line commit —
+`TYRA_BLSS_ACT_TABLE` 0 → 512 in `renderer_core_blss.cpp`, and `int actTable =
+0;` → `512` in `src/blss.cpp`'s option parsing — followed by a `--blss-eval -i`
+parity run. Both lines or neither.
 
 **No `kNetVersion` bump.** The topology and the file format are untouched, and
 bumping it would refuse every existing net to guard a difference of 0.01 dB.

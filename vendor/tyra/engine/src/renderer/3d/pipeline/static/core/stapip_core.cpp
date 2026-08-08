@@ -13,6 +13,7 @@
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
+#include "debug/frame_profile.hpp"
 
 // #define TYRA_RENDERER_VERBOSE_LOG 1
 
@@ -285,6 +286,12 @@ void StaPipCore::render(StaPipBag* bag) {
   // model translation at radius 0 and addBag rejects the empty box. That is
   // the behaviour those bags already had, not a new hole.
   if (blssOn) {
+#if TYRA_FRAME_PROFILE
+    // Charged to FrameProfile::tBlssProxy, which beginScene clears - so the
+    // "extra scene submission" term is READ rather than inferred by
+    // subtracting everything else from the A/B difference.
+    const u32 fpP0 = FrameProfile::ticks();
+#endif
     // texDetail is the minification proxy - texels per screen pixel - so BLSS
     // gets the raw texel area and finishes the ratio once it knows the screen
     // footprint it just computed. Untextured bags carry no texture aliasing.
@@ -339,6 +346,9 @@ void StaPipCore::render(StaPipBag* bag) {
     } else {
       rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
     }
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssProxy += FrameProfile::ticks() - fpP0;
+#endif
   }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);

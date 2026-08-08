@@ -30,6 +30,11 @@ u32 tBlssBegin = 0;
 u32 tBlssEnd = 0;
 u32 tBlssComposite = 0;
 u32 tBlssCompositeEe = 0;
+u32 tBlssProxy = 0;
+u32 tBlssReproj = 0;
+u32 tBlssFeat = 0;
+u32 tBlssNet = 0;
+u32 tBlssPacket = 0;
 u32 tExcluded = 0;
 
 namespace {

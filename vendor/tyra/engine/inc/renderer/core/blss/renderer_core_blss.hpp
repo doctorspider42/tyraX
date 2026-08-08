@@ -324,6 +324,14 @@ class RendererCoreBlss {
   qword_t* emitGrid(qword_t* q, int pass);
   /** 0..255 alpha byte of a pass at a grid corner (docs section 6). */
   u8 cornerAlpha(int pass, int corner) const;
+
+  /**
+   * Would this pass draw a single cell? emitGrid already skips a cell whose
+   * four corners are all alpha 0; this asks the same question of the whole
+   * grid BEFORE the corner UVs are built and before the pass' state block is
+   * emitted. Point and sharpen measure 0 % occupancy at the shipped deadzone.
+   */
+  bool passHasAlpha(int pass) const;
   /**
    * The three weight -> alpha-byte scales, in output order (wA, wC, wD):
    * 128, kTemporalMax, sharpen * 128. One definition, because cornerAlpha()

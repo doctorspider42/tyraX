@@ -112,6 +112,36 @@ extern u32 tBlssComposite;
 extern u32 tBlssCompositeEe;
 
 /**
+ * THE SPLIT COUNTERS. The first hardware A/B attributed 5.10 ms to "the
+ * composite's EE half" off ONE counter, and the remaining ~3.9 ms to "extra
+ * scene submission" BY SUBTRACTING everything else from the A/B difference -
+ * which is an inference, not a measurement, and it is the term nobody had
+ * looked inside. These five make both attributable. They cost one mfc0 pair
+ * each per frame (tBlssProxy: one pair per submitted bag).
+ *
+ * Cleared by whoever owns the frame's phase - beginScene for the proxy term
+ * (StaPipCore only ever adds), composite for the other four.
+ */
+
+/**
+ * The BLSS bag-proxy feed inside StaPipCore::render: the package loop, the
+ * consecutive-part merge, and addBagBox/addBagSphere.
+ */
+extern u32 tBlssProxy;
+
+/** finishTileStats + buildReproj (255 corners, 2 divides each). */
+extern u32 tBlssReproj;
+
+/** buildFeatures (224 tiles, a sqrtf each). */
+extern u32 tBlssFeat;
+
+/** runNet - the MLP over the covered tiles, plus the corner averaging. */
+extern u32 tBlssNet;
+
+/** emitPassState + emitGrid + the restore block: the packet build itself. */
+extern u32 tBlssPacket;
+
+/**
  * Instrumentation the GAME wants kept OUT of tFrameWork - its own once-a-
  * second sort + snprintf + TYRA_LOG, which is host: file I/O and would
  * otherwise show up as a 20 ms spike in one frame of every fifty. The game

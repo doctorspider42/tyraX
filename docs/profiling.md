@@ -140,7 +140,25 @@ improvement is fully visible at a locked 50 Hz.
 | `tBlssEnd` | `RendererCoreBlss::endScene` | **GS overhang of the half-res scene** |
 | `tBlssComposite` | `RendererCoreBlss::composite` | features + MLP + packet + GS raster |
 | `tBlssCompositeEe` | ... up to the DMA kick | the EE half of the line above |
+| `tBlssProxy` | `StaPipCore::render` | **scene submission**: the whole bag-proxy feed |
+| `tBlssReproj` | `composite` | `finishTileStats` + `buildReproj` |
+| `tBlssFeat` | `composite` | `buildFeatures` |
+| `tBlssNet` | `composite` | `runNet` - the MLP |
+| `tBlssPacket` | `composite` | the grid packet build |
 | `tExcluded` | written by the game | its own logging, subtracted back out |
+
+**The last five exist because the first hardware A/B did not measure two of its
+own terms.** It read the composite's EE half off one counter and got the other
+big term - "~3.9 ms of extra scene submission" - **by subtracting everything
+else from the A/B difference**, which is an inference, not a measurement, and it
+pointed the next round of work at the wrong half of the feature. `tBlssProxy` is
+charged inside `StaPipCore` (submission, not the composite); the other four
+split the composite at its four phases and reconstruct `comp`'s EE figure to
+within their own overhead. They print as a second line:
+
+```
+FTSPLIT f=3150 proxy=3.04 reproj=0.39 feat=0.14 net=3.86 pkt=0.62
+```
 
 **The fairness fence is not optional.** BLSS' three brackets each end in
 `dma_channel_wait(GIF)` + `draw_wait_finish()`, so a BLSS frame is *serialised*
@@ -152,10 +170,25 @@ charges it to `tDrain`. The guard is `path1.isVU1Configured()`: before a 3D
 pipeline has brought VU1 up (the pure-2D loading screen) the FINISH handshake
 spins forever.
 
-`drain` is also the **EE-bound / GS-bound discriminator**, and it is the whole
-question for an upscaler: near zero means the EE is the bottleneck and there is
-no fill to trade, so BLSS cannot help however good the network is. `tBlssEnd`
-says the same thing about the half-res scene specifically.
+> **`drain` IS NOT THE EE-BOUND / GS-BOUND DISCRIMINATOR, and this page said it
+> was for four months.** The claim - near zero means the EE is the bottleneck,
+> so an upscaler cannot help - is what the verdict "BLSS saves nothing" rested
+> on. It is **wrong**, and it was falsified on hardware on 2026-08-08:
+> `examples/upscaler-lab` reads `drain = 0.02 ms` in **both** arms and BLSS
+> still made the frame **3.4x faster** (530 -> 157 ms).
+>
+> The mechanism is DMA backpressure. When the GS falls behind, the GIF FIFO
+> fills, VIF1's DMA stalls, and the EE blocks **inside the submission it is
+> already in** - which the rig charges to `submit`, not to `drain`. `drain` only
+> measures the tail still in flight *after the last packet was sent*, and in a
+> fully saturated pipeline that tail is short. So `drain ~ 0` is equally
+> consistent with "the EE is the bottleneck" and with "the GS has been throttling
+> the EE all frame". It cannot tell those apart, and neither can `tBlssEnd`.
+>
+> **The only honest discriminator is to change the GS load and see whether the
+> frame gets shorter** - which is exactly what a BLSS on/off A/B is. Run the A/B;
+> do not predict it from `drain`. A large `submit` with a near-zero `drain` and
+> a frame far over budget is the signature to be suspicious of.
 
 ### The output line
 
@@ -315,6 +348,169 @@ generated runtime already fills to ~9 ms. This is the same thing
 [the top of this page](#profiling-the-generated-game-ee-frame-time) says: these
 frames are EE-bound. An upscaler trades GS fill for EE work, and on the evidence
 here the generated games do not have the GS fill to trade.
+
+### Where the EE time actually goes, and what came off it (2026-08-08)
+
+The console was off the LAN for this round, so it was measured in **PCSX2**.
+That is admissible *here and only here*: the calibration above says a PCSX2 GS
+number is worth nothing (76x under-reported), but the same rig measured the
+BLSS A/B at **+8.55 ms in PCSX2 against +9.83 ms on hardware**, so the EE side
+transfers. Everything in this section is EE. **The GS half of every claim below
+still awaits hardware.**
+
+Fixture: `blssrig` again (the frame-indexed orbit script, `buildProfile: debug`,
+Live everything off), 16x16 tiles at 2x2, 118 proxies, ~65 paired 50-frame
+windows per arm after a 150-frame warm-up, compared window-by-window on the `f=`
+key. Sign convention below: **d = before - after, so d > 0 is a saving.**
+
+**First, the attribution the split counters bought:**
+
+| term | ms | what it is |
+|---|---|---|
+| `net` | **3.96** | the MLP - *the largest single cost in the feature* |
+| `proxy` | **3.26** | the bag-proxy feed, in scene submission |
+| `pkt` | 0.61 | the grid packet build |
+| `reproj` | 0.39 | `finishTileStats` + `buildReproj` |
+| `feat` | 0.14 | `buildFeatures` |
+| `begin` / `end` | 0.26 / 0.05 | the two brackets |
+
+`runNet` being the biggest term was not what anyone expected, and it is the
+whole reason this round found anything: **newlib's `tanhf`/`expf` compute in
+double, and the EE has no double-precision FPU**, so the 12 + 3 activations per
+tile are 15 software-emulated round trips - about 340 EE cycles each.
+
+**What came off, each measured on its own counter:**
+
+| cut | term | before -> after | d (95 % CI) |
+|---|---|---|---|
+| proxy: take each in-front corner once instead of twelve edges x 2 endpoints | `proxy` | 3.26 -> 2.17 | **+1.10** |
+| runNet: deadzone compare in front of the logistic | `net` | 3.96 -> 3.39 | **+0.57** |
+| composite: skip a pass with no non-zero corner | `pkt` | 0.61 -> 0.31 | **+0.30** |
+| `addBag`: hoist the per-column overlap out of the row loop | `proxy` | 2.17 -> 1.97 | **+0.20** |
+| *(gated, not landed)* the activation table | `net` | 3.39 -> 1.29 | **+2.11** |
+
+**The same four cuts, re-measured ON HARDWARE** (`upscaler-lab`, BLSS on, the
+pre-cut engine carrying the identical counters, paired by window):
+
+| term | pre-cut | post-cut | d (95 % CI) |
+|---|---|---|---|
+| `proxy` (cuts 1 + 4) | 3.95 | 2.39 | **+1.56** [+1.43, +1.68] |
+| `net` (cut 2) | 2.20 | 1.97 | **+0.23** [+0.20, +0.27] |
+| `pkt` (cut 3) | 0.73 | 0.56 | **+0.17** [+0.17, +0.17] |
+| **BLSS EE total** | **7.92** | **5.95** | **+1.96** |
+
+**Read the two tables together before optimising anything else, because they
+disagree about what is expensive.** PCSX2 puts `net` at 3.96 ms and `proxy` at
+3.26; hardware puts `net` at 2.20 and `proxy` at 3.95. The emulator
+**over-weights libm** relative to the console, so the activation table - the
+biggest win in PCSX2 - is worth at most ~1.5 ms on hardware (`net` is only
+1.97 ms in total there), while **the bag-proxy feed is the largest EE term on
+the real machine**. PCSX2 transfers well for the EE *in aggregate*; it does not
+transfer per-function. Attribute on hardware.
+
+All four landed cuts are **bit-identical by construction**, and that was
+checked rather than asserted: with `blssDebugView` 2 the `BLSSGRID`, `BLSSFEAT`,
+`BLSSOUT` and `BLSSFILL` lines - the network's own inputs and outputs to three
+decimals - are **byte-identical across 44 seconds of paired frames** before and
+after. That check is the reason the instrument is permanent.
+
+**The restated A/B:**
+
+| arm | mean `work` | d vs BLSS off |
+|---|---|---|
+| BLSS off | 5.54 | - |
+| BLSS on, before this round | 14.30 | **+8.76** |
+| BLSS on, after the four landed cuts | 11.93 | **+6.39** |
+| BLSS on, + the activation table (needs the host half) | ~9.6 | ~+4.1 |
+
+So **27 % of the EE overhead is gone, and 51 % is reachable** the moment the
+host's `--act-table` default moves with the engine's. `drain` read **0.02-0.05 ms
+in both arms**, exactly as on hardware: these frames are EE-bound, and none of
+this makes the GS the bottleneck.
+
+### THE ANSWER: a Tyra frame CAN be GS-bound, and BLSS wins 3.4x on one (2026-08-08, REAL HARDWARE)
+
+Everything above this heading was measured on `blssrig` — terrain plus slabs,
+a scene with almost no fill — and on that fixture BLSS is a pure loss. The
+question that mattered was whether *any* scene is GS-bound. It is.
+
+Fixture: `examples/upscaler-lab`, the haze demo (12 banks x 256 alpha-blended
+billboards at `size 9.0` = 3 072 large blended sprites), **BLSS off vs on**,
+particles on, static camera, PAL interlaced, debug profile, Live Link / Live
+Debugger / Live Logic / Remote Pad / Time Machine **all off**, deployed over
+ps2link to a real PS2. 262 paired per-frame samples from the static-camera
+region, `FTRAW` per-frame ticks.
+
+| arm | mean `work` | median | p95 | FPS | `drain` |
+|---|---|---|---|---|---|
+| BLSS **off** | **530.48** | 534.24 | 540.6 | 1.89 | **0.02** |
+| BLSS **on** | **157.44** | 158.48 | 159.9 | 6.35 | **0.02** |
+
+**d = +373.04 ms, 95 % CI [+369.41, +376.67], sd 29.97, n = 262.** A **3.37x**
+speedup. The upscaler bought 373 ms of GS for **5.91 ms of EE**:
+
+| BLSS EE term (hardware) | ms |
+|---|---|
+| `proxy` (bag proxies, in submission) | 2.47 |
+| `composite` EE (reproj 0.28 + feat 0.19 + net 1.93 + pkt 0.56) | 2.89 |
+| `beginScene` | 0.44 |
+| `endScene` | 0.11 |
+| **total EE spent** | **5.91** |
+| composite's GS half | 0.46 |
+
+Two things follow, and the second one is the expensive lesson.
+
+1. **The feature has a regime.** "An upscaler trades GS fill for EE work, and the
+   generated games do not have the fill to trade" was a conclusion drawn from one
+   fixture. A scene with heavy alpha-blended overdraw has enormous fill to trade,
+   and there the EE bill is a rounding error against the saving.
+2. **`drain` never said otherwise** — see the boxed correction above. It read
+   0.02 ms in both arms of the run that shows a 3.4x GS win.
+
+**And the demo itself is badly scaled.** 530 ms/frame is 1.9 FPS with BLSS off
+and 6.3 FPS with it on; neither is a shippable frame. `upscaler-lab` was tuned
+against PCSX2's FPS counter, and PCSX2 under-reports GS fill by **76x** (the
+calibration above), so the haze was raised until the *emulator* moved — roughly
+two orders of magnitude past what the console can draw. The fixture is excellent
+as a **GS-bound stress case** and useless as a demo. Re-tune it against hardware
+before anyone is shown it.
+
+### The EE floor, and whether the EE cost still matters
+
+With everything above applied, the EE cost of BLSS on this fixture is
+**~4.3 ms** and it decomposes into things that cannot simply be deleted:
+
+| term | ms | why it is a floor |
+|---|---|---|
+| `proxy` | 2.39 | one box per VU1 package must be projected and accumulated into tiles; cutting further means describing the frame more coarsely, which is a **twin-contract change** |
+| `net` | 1.97 | the MLP; the activation table takes ~1.5 of this, the rest is 108 multiply-adds x N tiles |
+| `reproj` + `feat` + `pkt` | 1.03 | 255 corners, N tiles, and the grid packet |
+| `begin` + `end` | 0.55 | the raster redirect and its drain |
+
+(Hardware, `upscaler-lab`. `blssrig` in PCSX2 gives 1.97 / 1.29 / 0.84 / 0.14
+for the same rows - a different scene and a different machine, so compare the
+shape, not the digits.)
+
+Against that floor, what BLSS WINS is half the scene's GS fill, minus the fill
+the composite adds back (0.46 ms measured on hardware). At the calibrated
+**0.587 ms per full-screen blended textured pass**, break-even is
+
+> scene fill / 2 - 0.46 ms > ~5.9 ms of EE, i.e. **a scene rasterising more than
+> about 22 full-screen coverages.**
+
+`upscaler-lab` rasterises on the order of *nine hundred*, which is why it wins by
+3.4x and also why it is a broken demo. `blssrig` rasterises a handful, which is
+why it loses by 6.4 ms. **The break-even is a real line and generated games fall
+on both sides of it** - so the EE floor is not academic: it is what decides how
+much overdraw a project needs before the feature pays. Every millisecond taken
+off the 5.9 ms lowers that bar by roughly two full-screen coverages.
+
+One more measured negative, so nobody spends a day on it: the composite's EE
+work *can* be moved in front of `endScene`'s drain, because it is a pure
+function of the proxies gathered during submission. It is not worth doing.
+`tBlssEnd` - the GS overhang that reordering would hide the EE work behind - is
+**0.05 ms in PCSX2 and 0.03 ms on hardware**. The maximum possible saving is
+that number.
 
 ### The stability gate (period-2 / the "bob")
 
