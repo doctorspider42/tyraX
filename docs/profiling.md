@@ -507,6 +507,17 @@ d > 0 means BLSS made the frame shorter.**
 pairing** (2 048 pooled frames per arm). The four cross-pairings span **0.014 ms**
 against an effect of 19.9. A **1.60x** speedup, in a scene a person can look at.
 
+> **Measured with `blssJitter` on, and the fixture now ships it off**
+> (2026-08-09 — see `examples/upscaler-lab`). The re-run against the jitter-off
+> build was attempted and did not complete: the console stopped answering
+> `ps2client` mid-session and dropped off the LAN, which needs a power cycle at
+> the machine. The number above is therefore the jitter-**on** timing, and it is
+> left standing rather than adjusted, because the alternative was to publish an
+> estimate as a measurement. The jitter changes *where* the half-res raster
+> samples rather than how much of it there is, and the retrained net asks for the
+> same 1.76 passes, so it is expected to carry over — that expectation is what
+> the re-run exists to test, not something it may assume.
+
 **Two points fix the whole fill model**, because the old 3 072-particle run and
 this 192-particle one differ in nothing but particle count:
 
@@ -675,6 +686,33 @@ A and C are *byte-identical* across the whole burst; B's two clusters are
 byte-identical within and differ by up to 40/255 between, on every textured edge
 in the frame. This is the run a human independently called steady / earthquake /
 steady, in that order. `blssJitter` now defaults to **false** because of it.
+
+**Re-confirmed 2026-08-09 on the shipped example**, after `examples/upscaler-lab`
+was switched to `blssJitter: false` and its net retrained: 40 back-to-back
+captures, best two-cluster split **38 / 2**, within 0.0282, between 0.0352 — a
+ratio of **1.25x** where build B gives a balanced 20/20 at 1.15/255 — and a
+SAD-minimising lag of **(0,0)**. Not alternating.
+
+**Two confounds cost a whole capture burst before that run, and neither is the
+upscaler.** Both are worth checking before any future use of this gate:
+
+- **The debug HUD prints a live frame counter.** `showFps` / `showMemory` /
+  `showProfiler` are on in the fixtures, and the digits change every frame. The
+  original recipe said "rows below the HUD"; cropping is fragile, and turning the
+  three settings off is one edit and removes the problem at the source.
+- **PAL interlaced mode alternates fields, which IS a period-2 signal.** A
+  window capture of an interlaced build alternates between two images *by
+  construction*, with nothing wrong with the renderer at all — this is the same
+  mechanism that makes a strict pixel A/B between two runs impossible
+  (tyra-testing). Set `displayMode` to **progressive** (480p) for the gate. This
+  is why the row above says 480p, and it is now the reason rather than a detail.
+
+With both left in, the same still scene measures **0.10-0.15/255** of pure
+instrument noise — comfortably above the 0.77/255 artefact the gate exists to
+find, and it clusters into nothing. That is the fourth time an instrument on this
+page has reported the wrong thing about this artefact, and the first time it
+would have reported a *shake* that was not there rather than missing one that
+was.
 
 Capturing this on Windows has one trap that will silently produce a wrong
 answer: `screenshot-window.ps1 -ProcessName pcsx2-qt` takes the **first** PCSX2

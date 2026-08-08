@@ -557,7 +557,11 @@ Eight things here that were paid for, and that any edit must keep:
   against the console** (6 banks x 32 instead of 12 x 256, ~75 coverages) it
   measures **52.86 ms off against 32.98 ms on** - d = +19.88 ms, 95 % CI
   [+19.81, +19.95], n = 1024 paired frames, **1.60x**, for **5.02 ms of EE**.
-  That second table is the one to quote. Break-even is about **13 full-screen
+  That second table is the one to quote - with the caveat that it was measured
+  with `blssJitter` **on**, which is no longer what the fixture ships; the
+  jitter-off re-run is owed (docs/backlog.md) and is expected to land in the
+  same place, since the jitter moves where the half-res raster samples and not
+  how much of it there is. Break-even is about **13 full-screen
   coverages**: BLSS keeps **25.9 %** of the fill, because `blssScale 0` is
   `Scale::X2Y2` - half in *each* axis, a quarter of the pixels, NOT half the
   fill, which is what the ~22 figure had assumed. The activation table
@@ -595,6 +599,15 @@ Eight things here that were paid for, and that any edit must keep:
   displacement — cross-correlation lag `(0,0)` — but a resample alternation on
   every textured edge, which is what a shake looks like from a chair. The rules
   that make it measurable are in docs/profiling.md, "The stability gate".
+  **`examples/upscaler-lab` ships jitter OFF since 2026-08-09** and its net is
+  refitted for that sampler; it used to ship `true` as "the jitter-on reference",
+  i.e. the flagship demo shook until you edited it. Two confounds will make the
+  gate lie to you, and both cost a burst: the debug HUD prints a live **frame
+  counter** (turn `showFps`/`showMemory`/`showProfiler` off, do not try to crop
+  around it), and **PAL interlaced mode alternates fields, which is itself a
+  period-2 signal in a window capture** - run the gate at `displayMode`
+  **progressive**. With both left in, a still scene reads 0.10-0.15/255 of noise
+  against a 0.77/255 artefact.
   Separately, `getFieldYOffset16()` is non-zero for
   `DisplayMode::InterlacedField` **only**, so in the usual `Interlaced` mode it
   contributes nothing; `beginScene` used to add it anyway, unscaled, inside a

@@ -34,6 +34,12 @@ rasteriser and no pixel shaders at all.
 > | `blssrig` — terrain + six slabs | a handful of coverages | 9.42 ms | 19.25 ms | **−9.83 ms**, a pure loss |
 > | `examples/upscaler-lab` — the haze demo | ~75 coverages | **52.86 ms** | **32.98 ms** | **+19.88 ms, 1.60x** |
 >
+> (Both rows were measured with `blssJitter` **on**, which is no longer what
+> either fixture ships. The jitter moves where the half-res raster samples, not
+> how much of it there is, so these timings are expected to carry over
+> unchanged — but that is a prediction and the re-run is still owed. See
+> [examples/upscaler-lab](../examples/upscaler-lab/README.md).)
+>
 > **The regime is heavy alpha-blended overdraw.** Haze, smoke, layered
 > billboards, anything that paints the same pixels many times. Triangle count is
 > not the trigger and neither is texture size: it is coverage. Run
@@ -57,10 +63,11 @@ rasteriser and no pixel shaders at all.
 > differing in nothing but these flags and called them steady / **"like an
 > earthquake"** / steady, for BLSS-off / jitter-on / jitter-off. `blssJitter`
 > defaults to **`false`** because of it, at the cost of the temporal
-> supersampling. `examples/upscaler-lab` keeps it **`true`** deliberately — its
-> committed net is fitted with the jittered sampler and it is the jitter-on
-> reference — so **that example is the one that shakes**; set `"blssJitter":
-> false` in its `.tyra` before showing it to anyone. See
+> supersampling. **Every shipped example, `examples/upscaler-lab` included, now
+> ships it off and is measurably still**; that example used to keep it `true` as
+> "the jitter-on reference", which meant the flagship demo shook until you
+> edited it. Flipping one line in its `.tyra` reproduces build **B** whenever
+> the reference is wanted. See
 > [A/B/C](#abc-a-human-looked-at-three-builds-2026-08-08).
 >
 > ### What this page believed, and why it was wrong
@@ -2103,11 +2110,20 @@ unchanged.
 **A project saved before the key existed now opens with it off** — the one
 deliberate exception to this repo's "an older file opens byte-identical" rule
 (`src/version.hpp`), because the behaviour it declines to preserve is a
-flickering picture. `examples/upscaler-lab` keeps `"blssJitter": true` written
-out explicitly, and deliberately: its committed `blss.net` was fitted with the
-jittered sampler, and the trainer reads the project's own flag, so flipping it
-there would leave the example running a net fitted for a sampler it no longer
-uses. It is the page's jitter-on reference — and, now, build **B**.
+flickering picture.
+
+**`examples/upscaler-lab` ships it off too, since 2026-08-09.** It spent a day
+shipping `"blssJitter": true` on the argument that its committed `blss.net` had
+been fitted with the jittered sampler and the trainer reads the project's own
+flag, so flipping the flag alone would leave it running a net fitted for a
+sampler it no longer used. That argument was sound and the conclusion was
+backwards: **retrain the net, do not ship the shake.** The example is the
+project's flagship demo, and its README told the reader to edit the `.tyra`
+before showing it to anyone — a default nobody can use as it stands. The flag is
+now `false`, `blss.net` is refitted against the un-jittered sampler
+(+0.85 → +0.51 dB trained, ceiling +1.730 → +1.058 dB, 49 % → 48 % of it), and
+the captures say the shipped build does not alternate. Build **B** of the A/B/C
+is one line in that `.tyra` plus a retrain, documented in its README.
 
 **FIXED — the host twin knows about it now.** That paragraph used to end "the
 oracle and the corpus always model the jittered sampler, so a net trained today

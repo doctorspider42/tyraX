@@ -585,6 +585,15 @@ Eight things here that were paid for, and that any edit must keep:
   displacement — cross-correlation lag `(0,0)` — but a resample alternation on
   every textured edge, which is what a shake looks like from a chair. The rules
   that make it measurable are in docs/profiling.md, "The stability gate".
+  **`examples/upscaler-lab` ships jitter OFF since 2026-08-09** and its net is
+  refitted for that sampler; it used to ship `true` as "the jitter-on reference",
+  i.e. the flagship demo shook until you edited it. Two confounds will make the
+  gate lie to you, and both cost a burst: the debug HUD prints a live **frame
+  counter** (turn `showFps`/`showMemory`/`showProfiler` off, do not try to crop
+  around it), and **PAL interlaced mode alternates fields, which is itself a
+  period-2 signal in a window capture** - run the gate at `displayMode`
+  **progressive**. With both left in, a still scene reads 0.10-0.15/255 of noise
+  against a 0.77/255 artefact.
   Separately, `getFieldYOffset16()` is non-zero for
   `DisplayMode::InterlacedField` **only**, so in the usual `Interlaced` mode it
   contributes nothing; `beginScene` used to add it anyway, unscaled, inside a

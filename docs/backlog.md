@@ -46,6 +46,19 @@ the verification, and any fact worth reusing belongs in the relevant
     n = 1024 paired frames. It cannot go faster in the BLSS-on arm than ~40 FPS
     - the scene's non-haze floor is 24.8 ms with BLSS on - and thinning the haze
     further only shrinks the win.
+  - **OWED - re-run that hardware A/B against the jitter-OFF build.** The example
+    shipped `blssJitter: true` when the 52.86/32.98 pair was measured and ships
+    `false` since 2026-08-09 (its net is retrained to match). The re-run was
+    attempted the same day and did not complete: the console stopped answering
+    `ps2client` and dropped off the LAN, which needs a power cycle at the
+    machine. Nothing was adjusted in its place - the published figure is
+    labelled as the jitter-on timing everywhere it appears. The jitter changes
+    *where* the half-res raster samples, not how much of it there is, and the
+    retrained net asks for the same 1.76 passes, so the number is expected to
+    hold; that is exactly the prediction the re-run is for. Rig: set
+    `TYRA_FRAME_PROFILE 1` in
+    `vendor/tyra/engine/inc/debug/frame_profile.hpp`, then the protocol in
+    docs/profiling.md (fixture reusable at `%TEMP%\tyra-editor-test\ulabhw`).
   - **The activation table is still one decision away**, and it is a TWO-LINE
     commit that must move both twins at once: `TYRA_BLSS_ACT_TABLE` 0 -> 512 in
     `vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp`, and

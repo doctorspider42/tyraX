@@ -1,6 +1,24 @@
 THIRD-PARTY NOTICES
 ===================
 
+  !! READ BEFORE PUBLISHING ANYTHING BUILT FROM THIS EXAMPLE !!
+
+  TWO OF THIS EXAMPLE'S ART ASSETS HAVE UNVERIFIED REDISTRIBUTION TERMS:
+  the "Cottage FREE" model (res/models/cottage/*) and the animated spider
+  (res/models/spider.fbx). Both were downloaded as free assets; neither
+  licence was checked when this example was written. See "Scene assets used
+  by this example" below for the detail.
+
+  They are fine to build, run and look at. Before you REDISTRIBUTE anything
+  containing them - a released game, a package, a store page - read each
+  asset's original licence and satisfy yourself that redistribution is
+  permitted, or replace the asset. Nothing in TyraX can answer this for you,
+  and this notice is not a substitute for reading them.
+
+  Everything else in this file has verified terms. The rest of the example -
+  the scene, the code, the generated textures - is unaffected.
+
+
 This game is built with TyraX and runs on the Tyra engine. You may release it
 commercially and you may keep your source code closed - nothing here is a
 copyleft license, and none of it requires you to publish anything you wrote.

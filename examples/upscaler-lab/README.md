@@ -17,6 +17,12 @@ version is still fill-bound at all.
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
 
+> **Before redistributing anything built from this example**, read
+> [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt): two of its art assets —
+> the cottage model and the animated spider — have **unverified redistribution
+> terms**. They are free to build, run and measure with; shipping them is a
+> question only their original licences can answer.
+
 ## What is in the scene
 
 A 96x96 cobbled yard between two cottages, under a haze bank thick enough to
@@ -100,6 +106,20 @@ the frame shorter.
 pairing; the four cross-pairings span **0.014 ms** against an effect of 19.9.
 **A 1.60x speedup, on a scene you can actually watch.**
 
+> **This table was measured with `blssJitter` ON, which is no longer what this
+> example ships** (2026-08-09). It has **not** been re-measured against the
+> jitter-off build: the attempt was made and the console dropped off the LAN
+> mid-run, and no number was going to be invented to fill the gap. Read it as
+> the timing of the jitter-**on** configuration until someone re-runs it.
+>
+> What is known without the re-run: the jitter changes *where* the half-res
+> raster samples, not how much of it there is, and the retrained net asks for
+> the same **1.76 passes** as the old one, so the fill either arm pays should be
+> the same and the figure is expected to hold. "Expected to hold" is a
+> prediction, not a measurement — the re-run is filed in `docs/backlog.md`. The
+> rig is one line: `TYRA_FRAME_PROFILE 1` in
+> `vendor/tyra/engine/inc/debug/frame_profile.hpp`, then the protocol above.
+
 `drain` reads **0.02 ms in both arms** — see the boxed correction in
 `docs/profiling.md`. It is not the EE/GS discriminator and never was.
 
@@ -140,27 +160,40 @@ Trained on this project with `--all-shots` and shipped as `blss.net` (codegen
 reads it straight out of the project directory, so `--blss-emit` is not needed):
 
 ```
-half-res + bilinear                 26.395 dB   1.00 passes
-half-res + BLSS (trained)           27.25  dB   1.76 passes   +0.85 dB
-half-res + oracle (upper bound)     28.125 dB   1.46 passes   +1.73 dB
+half-res + bilinear                 26.658 dB   1.00 passes
+half-res + BLSS (trained)           27.17  dB   1.76 passes   +0.51 dB
+half-res + oracle (upper bound)     27.716 dB   1.38 passes   +1.06 dB
 native full-res                     28.521 dB
 ```
 
-**The oracle row is the number that matters: +1.73 dB is this scene's ceiling**,
-against +0.77 dB on `examples/procedural` and **+0.00 dB on
-`examples/showcase`** — the scene really does have something to win, which is
-the first thing this example set out to establish. The trained net captures 49 %
-of it. Per `docs/neural-upscaler.md`, the held-out decibel of a *project* corpus
-is not quotable (six camera moves of one scene do not generalise) and is
-deliberately not quoted here.
+**The oracle row is the number that matters: +1.06 dB is this scene's ceiling**,
+against +0.33 dB on `examples/procedural` and **+0.01 dB on
+`examples/showcase`** — all three measured with `blssJitter` **off**, which is
+what all three projects now ship. The scene really does have something to win —
+three times what `procedural` has and a hundred times what `showcase` has —
+which is the first thing this example set out to establish. The trained net
+captures 48 % of it. Per `docs/neural-upscaler.md`, the held-out decibel of a
+*project* corpus is not quotable (six camera moves of one scene do not
+generalise) and is deliberately not quoted here.
 
-**The re-tune did not change the corpus, and that is not an accident**:
+**These numbers are lower than the ones this file used to quote, and the reason
+is the sampler, not a regression.** Until 2026-08-09 this example shipped
+`"blssJitter": true` and its net was fitted against the jittered sampler, which
+scored **+0.85 dB trained against a +1.730 dB ceiling (49 %)**. The jitter is
+what makes the two half-res phases a real quincunx pair, so it is also most of
+the reconstruction there is to win: turning it off costs about 40 % of the
+ceiling (+1.730 → +1.058 dB). It was turned off because **the picture visibly
+shakes with it on** — see below — and a demo that has to be edited before anyone
+can look at it is not a demo. The net was retrained against the sampler the
+example actually ships, because `--blss-train` / `--blss-eval` read the
+project's own `blssJitter`, and a net fitted for a sampler the game no longer
+uses is fitted out of distribution.
+
+**The 6 × 32 re-tune did not change the corpus, and that is not an accident**:
 `blssscene` walks primitives, static `.obj` and terrain chunks and **never sees
 an emitter**, so deleting six haze banks left the training corpus byte-identical
-(156 frames, 34 944 tile samples, oracle +1.730 dB before and after). The net was
-retrained and recommitted anyway, because **the activation table changed the
-forward pass** — and it came out slightly better: **+0.85 dB against the previous
-+0.78**, 49 % of the ceiling against 45 %.
+(156 frames, 34 944 tile samples). Emitters change what the *console* draws, not
+what the trainer sees.
 
 **What it costs the EE, measured on the console** (`FTSPLIT`, this scene):
 
@@ -230,19 +263,57 @@ has since landed and been tested against exactly this fixture.
 **Settled 2026-08-08, by a person rather than a metric.** Three builds of this
 scene differing in nothing but two flags were handed to someone and they called
 them steady (BLSS off) / **"like an earthquake"** (jitter on) / steady (jitter
-off). `blssJitter` now defaults to **false** repo-wide — but **this project sets
-it explicitly to `true`**, on purpose: the committed `blss.net` here was fitted
-with the jittered sampler, and `--blss-train`/`--blss-eval` read the project's
-own flag, so flipping it would leave the example running a net fitted for a
-sampler it no longer uses. So this fixture stays the jitter-**on** reference,
-and it is the one that shakes. Set `"blssJitter": false` in the `.tyra` to see
-the cure (and retrain if you intend to measure decibels afterwards).
+off).
+
+**So as of 2026-08-09 this example ships `"blssJitter": false`, like the rest of
+the repo, and its `blss.net` is retrained to match.** It used to ship `true` as
+"the jitter-on reference", with a note telling you to flip it before showing the
+example to anyone — which is the wrong default for the project's flagship
+demo. A reference build you have to repair before you can look at it is a
+liability, not a reference.
+
+**To see the shake, flip one line** in `upscaler-lab.tyra`:
+
+```json
+"blssJitter": true,
+```
+
+Rebuild and it is build **B** of the A/B/C in `docs/neural-upscaler.md`. Retrain
+first (`--blss-train . --all-shots -o blss.net`) if you intend to quote decibels
+afterwards — the trainer reads that flag, so the shipped net is fitted for the
+un-jittered sampler and would otherwise be out of distribution. Do not commit
+either change.
+
+**Confirmed still, by capture, on the shipped configuration** (2026-08-09). The
+gate is the one in `docs/profiling.md` — 480p progressive, HUD off, camera
+frozen (`walkSpeed`/`lookSpeed` 0), **emitters off** (one `press square`), 40
+GDI grabs of the render child **back to back** rather than on a stride, no
+`-Trim`, clustered by pairwise difference rather than counted:
+
+| | frame-to-frame | best 2-cluster split | within | between | lag | verdict |
+|---|---|---|---|---|---|---|
+| jitter **off** (shipped) | 0.031/255 | **38 / 2** | 0.0282 | 0.0352 (**1.25x**) | (0,0) | **stable** |
+| jitter **on** (reference) | — | 20 / 20 | **0.0000** | 1.15/255 | (0,0) | alternating |
+
+**A period-2 alternation is two *balanced* clusters, near-zero within and large
+between.** 38/2 at a ratio of 1.25x is not a split at all, it is the clustering
+finding nothing; the 0.03/255 residual is the same "stable" floor the BLSS-off
+arm measures. Byte-identical frames were the expected result and are not quite
+what came out — two things move that are not the upscaler, and both were
+identified rather than assumed: the debug HUD prints a live frame counter, and
+**PAL interlaced mode alternates fields, which is itself a period-2 signal in a
+window capture**. The table above is from a build with the HUD off and
+`displayMode` progressive; measured *with* those two confounds in, the same
+scene reads 0.10-0.15/255 of pure instrument noise, above the artefact it is
+supposed to detect. That is the "an instrument whose noise floor is above the
+signal is not measuring the signal" rule, met twice in one afternoon.
 
 Worth noting against the documented case: on **this** scene the trained net puts
 **72-78 % of its weight on the temporal pass** and 0 % on point and sharpen — so
-the accumulator that fuses the two jitter phases is doing most of the work here,
-which is the opposite of the "jitter on, nothing fusing it" configuration
-`docs/neural-upscaler.md` warns about. It bobs anyway.
+the accumulator that fuses the two jitter phases was doing most of the work
+here, which is the opposite of the "jitter on, nothing fusing it" configuration
+`docs/neural-upscaler.md` warns about. It bobbed anyway. That is why the cure
+here is the sampler and not the net.
 
 ## An honest limitation of the corpus
 

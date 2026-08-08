@@ -19,6 +19,11 @@ loss below it**, and only your scene knows which side it is on.
 > | `blssrig` — terrain + six slabs | a handful | 9.42 ms | 19.25 ms | **−9.83 ms** |
 > | `examples/upscaler-lab` — the haze demo | ~75 coverages | **52.86 ms** | **32.98 ms** | **+19.88 ms — 1.60x** |
 >
+> (Both measured with `blssJitter` on, which is no longer what either fixture
+> ships; the jitter-off re-run is owed and is expected to land in the same
+> place, since the jitter moves where the half-res raster samples rather than
+> how much of it there is.)
+>
 > The regime is **heavy alpha-blended overdraw**: haze, smoke, layered
 > billboards. Not triangles, not texture size — coverage. `--blss-eval
 > <projectDir>` prints the image-quality ceiling before you spend an afternoon,
