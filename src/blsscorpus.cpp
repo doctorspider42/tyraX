@@ -3,6 +3,7 @@
 #include "blssscene.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -2038,6 +2039,423 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                     out.size(), out.size() * (size_t)(cols * rows), s);
     }
     return out;
+}
+
+// ============================================================== coverage =====
+//
+// "Will this scene get FASTER" is one number - how many times over the scene
+// paints the screen - and the contract is in blsscorpus.hpp. What follows is
+// the counter, the emitter model, and the walk that drives them.
+
+namespace {
+
+// A counted draw: world positions, triangles, and the console's own submission
+// test. No materials, no UVs, no colours - none of them change a fragment
+// COUNT, and skipping them means the estimator never decodes a PNG, which is
+// most of what makes it seconds rather than minutes.
+struct CovMesh {
+    std::vector<V3> p;
+    std::vector<int> idx;
+    float viewDist = 0.0f;
+    V3 centre{};
+};
+
+CovMesh covOf(const SceneMesh& sm) {
+    CovMesh m;
+    m.p.reserve(sm.vert.size());
+    for (const SceneVert& v : sm.vert) m.p.push_back({v.p[0], v.p[1], v.p[2]});
+    m.idx = sm.idx;
+    m.viewDist = sm.viewDist;
+    m.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
+    return m;
+}
+
+// FRAGMENTS OF ONE PROJECTED TRIANGLE, clamped to the target - the same exact
+// span solve renderScene does, with the inner pixel loop deleted. A count is a
+// sum of span LENGTHS, so a sprite covering the whole screen costs one division
+// per scanline instead of 57 344 depth compares; that is the single reason a
+// 3 000-billboard haze bank can be counted inside a window.
+uint64_t countTri(float ax, float ay, float bx, float by, float cx2, float cy2, int rw,
+                  int rh) {
+    float x[3] = {ax, bx, cx2}, y[3] = {ay, by, cy2};
+    float det = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
+    if (det < 0.0f) {  // double-sided, exactly like the rasteriser above
+        std::swap(x[1], x[2]);
+        std::swap(y[1], y[2]);
+        det = -det;
+    }
+    if (det < 1e-7f) return 0;
+
+    int x0 = (int)std::floor(std::min(x[0], std::min(x[1], x[2])) - 0.5f);
+    int x1 = (int)std::ceil(std::max(x[0], std::max(x[1], x[2])) + 0.5f);
+    int y0 = (int)std::floor(std::min(y[0], std::min(y[1], y[2])) - 0.5f);
+    int y1 = (int)std::ceil(std::max(y[0], std::max(y[1], y[2])) + 0.5f);
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0);
+    x1 = std::min(x1, rw - 1), y1 = std::min(y1, rh - 1);
+    if (x0 > x1 || y0 > y1) return 0;
+
+    const float ea[3] = {-(y[1] - y[0]), -(y[2] - y[1]), -(y[0] - y[2])};
+    const float eb[3] = {x[1] - x[0], x[2] - x[1], x[0] - x[2]};
+    const float ec[3] = {(y[1] - y[0]) * x[0] - (x[1] - x[0]) * y[0],
+                         (y[2] - y[1]) * x[1] - (x[2] - x[1]) * y[1],
+                         (y[0] - y[2]) * x[2] - (x[0] - x[2]) * y[2]};
+    uint64_t n = 0;
+    for (int py = y0; py <= y1; ++py) {
+        const float yc = (float)py + 0.5f;
+        float lo = (float)x0 + 0.5f, hi = (float)x1 + 0.5f;
+        bool empty = false;
+        for (int e = 0; e < 3; ++e) {
+            const float k = eb[e] * yc + ec[e];
+            if (ea[e] > 1e-12f)
+                lo = std::max(lo, -k / ea[e]);
+            else if (ea[e] < -1e-12f)
+                hi = std::min(hi, -k / ea[e]);
+            else if (k < 0.0f) {
+                empty = true;
+                break;
+            }
+        }
+        if (empty) continue;
+        int xs = (int)std::ceil(lo - 0.5f);
+        int xe = (int)std::floor(hi - 0.5f);
+        xs = std::max(xs, x0), xe = std::min(xe, x1);
+        if (xs <= xe) n += (uint64_t)(xe - xs + 1);
+    }
+    return n;
+}
+
+// A triangle soup under one camera. `viewDist` is the console's own submission
+// test, applied here for the same reason bagList applies it: a bag the game
+// never submits costs no fill.
+uint64_t countMesh(const CovMesh& m, const Pinhole& cam, int rw, int rh) {
+    if (m.viewDist > 0.0f) {
+        const V3 d{m.centre.x - cam.pos[0], m.centre.y - cam.pos[1], m.centre.z - cam.pos[2]};
+        if (dot(d, d) > m.viewDist * m.viewDist) return 0;
+    }
+    const float sxScale = 0.5f * (float)rw / cam.tanHalfFovX;
+    const float syScale = 0.5f * (float)rh / cam.tanHalfFovY;
+    const float cx = 0.5f * (float)rw, cy = 0.5f * (float)rh;
+    uint64_t n = 0;
+    for (size_t f = 0; f + 2 < m.idx.size(); f += 3) {
+        CVert in[3];
+        for (int k = 0; k < 3; ++k) {
+            const V3& src = m.p[(size_t)m.idx[f + k]];
+            const V3 rel{src.x - cam.pos[0], src.y - cam.pos[1], src.z - cam.pos[2]};
+            in[k].vx = rel.x * cam.right[0] + rel.y * cam.right[1] + rel.z * cam.right[2];
+            in[k].vy = rel.x * cam.up[0] + rel.y * cam.up[1] + rel.z * cam.up[2];
+            in[k].w = rel.x * cam.fwd[0] + rel.y * cam.fwd[1] + rel.z * cam.fwd[2];
+        }
+        CVert poly[4];
+        const int pn = clipNear(in, poly);
+        if (pn == 0) continue;
+        float sx[4], sy[4];
+        for (int k = 0; k < pn; ++k) {
+            const float iw = 1.0f / poly[k].w;
+            sx[k] = poly[k].vx * iw * sxScale + cx;
+            sy[k] = -poly[k].vy * iw * syScale + cy;
+        }
+        for (int fan = 0; fan + 2 < pn; ++fan)
+            n += countTri(sx[0], sy[0], sx[fan + 1], sy[fan + 1], sx[fan + 2], sy[fan + 2], rw,
+                          rh);
+    }
+    return n;
+}
+
+// --- the emitter half, which is MODELLED and says so ------------------------
+//
+// A billboard's half extents are `m00` and `m11` in updateParticles(), and both
+// are the emitter's `size` scaled by a per-kind curve of the particle's life
+// fraction. Averaged over a uniformly distributed life, those curves are the
+// constants below - the same arithmetic templates.cpp runs per particle per
+// frame, integrated once. Getting the fog one wrong would be a factor of three.
+struct CovBillboard {
+    float halfW = 0.5f, halfH = 0.5f;
+};
+CovBillboard billboardOf(const SceneEmitter& e) {
+    CovBillboard b;
+    float mul = 1.0f;
+    switch (e.kind) {
+        case 0: mul = 0.9f; break;   // fire:   size * (0.5 + 0.8 t)
+        case 1: mul = 1.1f; break;   // smoke:  size * (1.6 - t)
+        case 2: mul = 3.0f; break;   // fog:    size * 3
+        case 3: mul = 0.35f; break;  // sparks: size * 0.35
+        case 4:                      // rain: a thin streak, width != height
+            b.halfW = e.size * 0.06f;
+            b.halfH = e.size * 0.5f;
+            return b;
+        default:                     // custom: 1 -> Grow over the life
+            mul = 1.0f + (e.grow - 1.0f) * 0.5f;
+            break;
+    }
+    b.halfW = b.halfH = e.size * mul;
+    return b;
+}
+
+// How far a particle gets from where it spawned, per kind, over its life. The
+// runtime spawns on the emitter's own XZ rectangle and integrates a velocity;
+// this spreads the pool through a box instead. It is the coarsest thing in the
+// estimate and it is second order - the distance to the CAMERA and the
+// billboard's own size are what set the pixels - but a fire whose flames all
+// sat at the emitter's y would read as one hot spot rather than a column.
+float emitterRise(const SceneEmitter& e) {
+    switch (e.kind) {
+        case 0: return 1.4f;   // fire:   ~1.8 u/s over ~0.8 s
+        case 1: return 2.0f;   // smoke:  ~0.75 u/s over ~2.75 s
+        case 2: return 0.1f;   // fog:    hugs the ground
+        case 3: return 1.5f;   // sparks
+        case 4: return e.box[1];  // rain falls the emitter's own height
+        default: return std::min(e.speed * e.life * 0.5f, 40.0f);  // custom
+    }
+}
+
+// The pool, as world-space centres. Deterministic (a fixed low-discrepancy
+// sequence, never rand()), so pressing the button twice gives the same answer -
+// the same rule the corpus itself is built on.
+std::vector<V3> emitterCentres(const SceneEmitter& e) {
+    int n = e.count;
+    if (n < 1) n = 1;
+    if (n > 256) n = 256;  // the runtime's own clamp (buildParticles)
+    const float rise = emitterRise(e);
+    std::vector<V3> out;
+    out.reserve((size_t)n);
+    // Halton (2, 3) over XZ and a straight stratification up Y: the pool is
+    // small and a hashed uniform draw clumps visibly at n = 32.
+    const auto halton = [](int i, int base) {
+        float f = 1.0f, r = 0.0f;
+        while (i > 0) {
+            f /= (float)base;
+            r += f * (float)(i % base);
+            i /= base;
+        }
+        return r;
+    };
+    for (int i = 0; i < n; ++i) {
+        const float hx = halton(i + 1, 2), hz = halton(i + 1, 3);
+        const float hy = ((float)i + 0.5f) / (float)n;
+        V3 c;
+        c.x = e.pos[0] + (hx - 0.5f) * e.box[0];
+        c.z = e.pos[2] + (hz - 0.5f) * e.box[2];
+        c.y = e.kind == 4 ? e.pos[1] - hy * rise : e.pos[1] + hy * rise;
+        out.push_back(c);
+    }
+    return out;
+}
+
+// One emitter's fill under one camera: `count` camera-facing quads, which is
+// exactly what the VU1 billboard program expands each centre into.
+uint64_t countEmitter(const std::vector<V3>& centres, const CovBillboard& b, const Pinhole& cam,
+                      int rw, int rh) {
+    const V3 right{cam.right[0], cam.right[1], cam.right[2]};
+    const V3 up{cam.up[0], cam.up[1], cam.up[2]};
+    CovMesh q;
+    q.p.reserve(centres.size() * 4);
+    q.idx.reserve(centres.size() * 6);
+    for (const V3& c : centres) {
+        const V3 rw2 = right * b.halfW, uh = up * b.halfH;
+        const int base = (int)q.p.size();
+        q.p.push_back(c - rw2 - uh);
+        q.p.push_back(c + rw2 - uh);
+        q.p.push_back(c + rw2 + uh);
+        q.p.push_back(c - rw2 + uh);
+        const int t[6] = {base, base + 1, base + 2, base, base + 2, base + 3};
+        q.idx.insert(q.idx.end(), t, t + 6);
+    }
+    return countMesh(q, cam, rw, rh);
+}
+
+// One job of the count: which shot, which frame within it.
+struct CovJob {
+    int shot = 0, frame = 0, frames = 1;
+};
+
+}  // namespace
+
+CoverageReport measureCoverage(const CoverageConfig& cfg, const std::atomic<bool>* cancel) {
+    CoverageReport rep;
+    if (cfg.projectDir.empty()) {
+        rep.err = "no project directory";
+        return rep;
+    }
+    std::string err;
+    const std::vector<ProjectScene> scenes =
+        loadProject(cfg.projectDir, &err, cfg.verbose, /*animated=*/true, nullptr);
+    if (!err.empty()) {
+        rep.err = err;
+        return rep;
+    }
+    if (scenes.empty()) {
+        rep.err = "the project loads but has nothing to draw";
+        return rep;
+    }
+    if (cancel && cancel->load()) {
+        rep.err = "cancelled";
+        return rep;
+    }
+
+    // The raster keeps the OUTPUT's aspect, so the projection is the console's
+    // and only the pixel pitch differs - which a ratio cannot see.
+    const int rw = std::max(32, cfg.raster);
+    const int rh = std::max(16, (int)std::lround((double)rw * (double)cfg.outH / (double)cfg.outW));
+    const double pixels = (double)rw * (double)rh;
+    const int perShot = std::max(1, cfg.framesPerShot);
+
+    // Flatten the project into (geometry, emitters, shots) once. The shots of
+    // one scene share its geometry, exactly as buildProjectShots arranges it.
+    struct CovScene {
+        std::vector<CovMesh> mesh;
+        std::vector<std::vector<CovMesh>> anim;   // [part][pose]
+        std::vector<std::vector<V3>> emitCentre;  // [emitter]
+        std::vector<CovBillboard> emitBill;
+    };
+    std::vector<CovScene> geo;
+    geo.reserve(scenes.size());
+    struct CovShot {
+        int scene = 0;
+        const SceneShot* shot = nullptr;
+    };
+    std::vector<CovShot> shots;
+    for (size_t si = 0; si < scenes.size(); ++si) {
+        const ProjectScene& ps = scenes[si];
+        CovScene cs;
+        cs.mesh.reserve(ps.mesh.size());
+        for (const SceneMesh& sm : ps.mesh) {
+            if (sm.cutout) rep.sawCutout = true;
+            cs.mesh.push_back(covOf(sm));
+        }
+        for (const AnimMesh& am : ps.anim) {
+            if (am.pose.empty()) continue;
+            rep.sawAnimated = true;
+            std::vector<CovMesh> poses;
+            poses.reserve(am.pose.size());
+            for (const SceneMesh& sm : am.pose) poses.push_back(covOf(sm));
+            cs.anim.push_back(std::move(poses));
+        }
+        for (const SceneEmitter& e : ps.emitter) {
+            // A disabled emitter starts hidden and draws nothing until a flow
+            // node shows it, so it is not fill - but it is a reason the number
+            // could be wrong later, which the report carries.
+            if (!e.enabled) {
+                rep.sawDisabledEmitter = true;
+                continue;
+            }
+            cs.emitCentre.push_back(emitterCentres(e));
+            cs.emitBill.push_back(billboardOf(e));
+            ++rep.emitters;
+            rep.billboards += (int)cs.emitCentre.back().size();
+        }
+        rep.triangles += ps.triangles();
+        geo.push_back(std::move(cs));
+        for (const SceneShot& ss : ps.shot)
+            if (ss.keys() >= 1) shots.push_back({(int)si, &ss});
+    }
+    rep.scenes = (int)scenes.size();
+    if (shots.empty()) {
+        rep.err = "the project has no camera move to measure";
+        return rep;
+    }
+
+    std::vector<CovJob> jobs;
+    jobs.reserve(shots.size() * (size_t)perShot);
+    for (size_t s = 0; s < shots.size(); ++s)
+        for (int f = 0; f < perShot; ++f) jobs.push_back({(int)s, f, perShot});
+    // Per-job slots, written by the job that owns them: which worker computes
+    // job i is a function of the core count and nothing else touches job i, so
+    // the answer does not depend on the machine (blsscorpus' parallelFrames
+    // rule, and for the same reason - a number that moved with the core count
+    // would be one nobody could reproduce).
+    std::vector<double> jobGeom(jobs.size(), 0.0), jobEmit(jobs.size(), 0.0);
+
+    const auto camOf = [&](const CovShot& cs, int f) {
+        Shot s;
+        s.move = Move::Path;
+        s.pathEye = cs.shot->eye;
+        s.pathLook = cs.shot->look;
+        s.ease = cs.shot->ease;
+        s.fovDeg = cs.shot->fovDeg > 5.0f ? cs.shot->fovDeg : 60.0f;
+        const float t = perShot > 1 ? (float)f / (float)(perShot - 1) : 0.5f;
+        return cameraAt(s, t);
+    };
+
+    const auto body = [&](size_t i) {
+        if (cancel && cancel->load()) return;
+        const CovJob& j = jobs[i];
+        const CovShot& cs = shots[(size_t)j.shot];
+        const CovScene& g = geo[(size_t)cs.scene];
+        const Pinhole cam = camOf(cs, j.frame);
+        uint64_t frags = 0;
+        for (const CovMesh& m : g.mesh) frags += countMesh(m, cam, rw, rh);
+        for (const std::vector<CovMesh>& poses : g.anim) {
+            const size_t pose = std::min((size_t)j.frame, poses.size() - 1);
+            frags += countMesh(poses[pose], cam, rw, rh);
+        }
+        jobGeom[i] = (double)frags / pixels;
+        uint64_t ef = 0;
+        for (size_t e = 0; e < g.emitCentre.size(); ++e)
+            ef += countEmitter(g.emitCentre[e], g.emitBill[e], cam, rw, rh);
+        jobEmit[i] = (double)ef / pixels;
+    };
+
+    int workers = cfg.threads > 0 ? cfg.threads : (int)std::thread::hardware_concurrency();
+    if (workers < 1) workers = 1;
+    if (workers > 32) workers = 32;
+    if (workers > (int)jobs.size()) workers = (int)jobs.size();
+    if (workers <= 1) {
+        for (size_t i = 0; i < jobs.size(); ++i) body(i);
+    } else {
+        const auto run = [&](int w) {
+            for (size_t i = (size_t)w; i < jobs.size(); i += (size_t)workers) body(i);
+        };
+        std::vector<std::thread> pool;
+        pool.reserve((size_t)workers - 1);
+        for (int w = 1; w < workers; ++w) pool.emplace_back(run, w);
+        run(0);
+        for (std::thread& t : pool) t.join();
+    }
+    if (cancel && cancel->load()) {
+        rep.err = "cancelled";
+        return rep;
+    }
+
+    rep.shots.resize(shots.size());
+    for (size_t s = 0; s < shots.size(); ++s) {
+        rep.shots[s].scene = scenes[(size_t)shots[s].scene].name;
+        rep.shots[s].name = shots[s].shot->name;
+        rep.shots[s].move = shots[s].shot->move;
+    }
+    std::vector<double> all;
+    all.reserve(jobs.size());
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        CoverageShot& cs = rep.shots[(size_t)jobs[i].shot];
+        cs.geom += jobGeom[i];
+        cs.emit += jobEmit[i];
+        cs.peak = std::max(cs.peak, jobGeom[i] + jobEmit[i]);
+        ++cs.frames;
+        all.push_back(jobGeom[i] + jobEmit[i]);
+        rep.geomMean += jobGeom[i];
+        rep.emitMean += jobEmit[i];
+    }
+    for (CoverageShot& cs : rep.shots)
+        if (cs.frames > 0) {
+            cs.geom /= (double)cs.frames;
+            cs.emit /= (double)cs.frames;
+        }
+    rep.frames = (int)jobs.size();
+    rep.geomMean /= (double)jobs.size();
+    rep.emitMean /= (double)jobs.size();
+    rep.mean = rep.geomMean + rep.emitMean;
+    std::sort(all.begin(), all.end());
+    // Nearest-rank p95, floored at the last sample - with 30-odd frames the
+    // interpolated variants differ by less than the model's own uncertainty and
+    // "the 95th percentile is one of the frames you rendered" is easier to
+    // defend than a number that is not.
+    const size_t k = std::min(all.size() - 1, (size_t)std::ceil(0.95 * (double)all.size()) - 1);
+    rep.p95 = all[k];
+    rep.ok = true;
+    if (cfg.verbose)
+        std::printf("[blss] coverage: %.1f full-screen coverages (geometry %.1f + emitters %.1f), "
+                    "p95 %.1f, %d frame(s)\n",
+                    rep.mean, rep.geomMean, rep.emitMean, rep.p95, rep.frames);
+    return rep;
 }
 
 }  // namespace blss

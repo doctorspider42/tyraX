@@ -6,13 +6,22 @@ Every other example in this repo is built to look right. This one is built to be
 EE work and until now it had never been pointed at content where that trade can
 pay.
 
-The arithmetic it exists to test: the GS draws 8 textured pixels per clock at
-147.456 MHz, so one full-screen 512x448 pass costs ~194 us — **0.97 % of a PAL
-frame**. Rendering at 256x224 saves `145.8 * D` us for overdraw `D`, and the
-composite costs `194.4 * P` us at `P` passes. Break-even is **D >= 2.5 on the GS
-alone, and D >= 9.4 once BLSS's own ~1 ms of EE is charged**. So overdraw is the
-target, not triangles — and a triangle has to exceed ~288 px before its halved
-version is still fill-bound at all.
+The arithmetic it exists to test, **as measured on hardware rather than as
+derived from the GS data sheet**: one full-screen 512x448 alpha-blended textured
+pass costs **0.587 ms** on a real PS2 (the sheet's 8 pixels/clock at 147.456 MHz
+predicts ~194 us — a third of it, and the measured number is the one that
+counts). BLSS keeps **25.9 %** of the scene's fill and costs **5.02 ms of EE +
+0.46 ms of composite**, so break-even is `0.741 * 0.587 * D > 5.48`, i.e.
+**about 13 full-screen coverages**. So overdraw is the target, not triangles —
+and a triangle has to exceed ~288 px before its halved version is still
+fill-bound at all.
+
+The editor will now tell you where a scene sits on that line before you build
+anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**. It
+reads **72.6 coverages** here — 1.0 of geometry and **71.7 of haze** — against
+the ~75 the hardware A/B below implies. That agreement is the point of this
+example as a fixture; it is also why the emitter term exists at all, since a
+count taken from geometry alone reads this scene as one coverage.
 
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
@@ -317,14 +326,23 @@ here is the sampler and not the net.
 
 ## An honest limitation of the corpus
 
-**The training corpus sees neither the particles nor the animated models.**
-`blssscene` walks only primitives, static `.obj` and terrain chunks
-(`blssscene.cpp:216-231`), and on the console the particle bags contribute **no
-BLSS proxy at all** — `stapip_core.cpp:282-286` gives them no bbox, so the sphere
-fallback has radius 0 and is rejected. The net is therefore fitted on the
-cottages, the primitives and the terrain, and then run on a frame whose fill is
-overwhelmingly haze it has never seen. That is a real gap in the feature, not a
-property of this scene; it is filed in `docs/backlog.md`.
+**The training corpus does not see the particles.** `blssscene` walks
+primitives, static `.obj`, the terrain and — since the animated models were
+found to be missing from it — skinned `.glb`/`.fbx` posed per console frame. It
+does **not** walk emitters, and on the console the particle bags contribute **no
+BLSS proxy at all** (`stapip_core.cpp` gives a billboard bag no bbox, so the
+sphere fallback has radius 0 and is rejected). The net is therefore fitted on
+the cottages, the primitives, the terrain and the spiders, and then run on a
+frame whose fill is overwhelmingly haze it has never seen. That is a real gap in
+the feature, not a property of this scene; it is filed in `docs/backlog.md`.
+
+**The speed estimate is the one place that gap is closed**, and only
+approximately: `blss::measureCoverage` reads the emitters out of the project and
+expands each into `count` camera-facing quads `2 * size` across, placed through
+the spawn box and sized by the average of the kind's own life curve. It is not a
+simulation and it does not feed the network — it exists so that "will the frame
+get faster" is not answered from 1.0 coverage of cobbles on a scene that is 99 %
+haze.
 
 ## Build & run
 
@@ -334,6 +352,12 @@ tyrax-editor --blss-eval   <this folder>     # the oracle ceiling, before any ne
 tyrax-editor --blss-train  <this folder> --all-shots -o <this folder>/blss.net
 tyrax-editor --build       <this folder> --run
 ```
+
+The **speed** half has no CLI verb — it is a second of in-process work with
+nothing to write, so it lives only in the window: open *Tools > Neural Upscaler
+(BLSS)* and press **Will the frame get faster?**. Both halves together produce
+one answer ("TURN IT ON. The picture has room and the frame gets shorter." on
+this example), and the per-camera-move breakdown is behind the fold under it.
 
 `palFullHeight` is deliberately **absent** from the manifest: `project::create`
 sets it true and it is written only when true, and left on a PAL BIOS boots

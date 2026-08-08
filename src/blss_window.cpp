@@ -397,20 +397,24 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "shots x 3 seeds = 39 fold-runs, sd 0.35, 3 of the 39 below bilinear) -\n"
         "but that is a number about the bestiary, not about your game.\n"
         "\n"
-        "IT IS NOT FREE, AND THAT IS NOW MEASURED. On real hardware a BLSS\n"
-        "frame came out 9.83 ms SLOWER (9.42 -> 19.25 ms), and essentially all\n"
-        "of it is EE cost the feature adds: the GS overhang was 0.02 ms in both\n"
-        "arms, so the reduced-resolution render bought back nothing there. Two\n"
-        "reworks of that cost are in flight, so read it as the state of this\n"
-        "branch rather than a settled property. There is also an OPEN BUG -\n"
-        "with this on, textured primitives and textured terrain can vanish.\n"
+        "IT HAS A REGIME, AND BOTH SIDES OF IT ARE MEASURED. The feature costs\n"
+        "5.02 ms of EE per frame and keeps only 25.9 % of the scene's GS fill\n"
+        "(the render is half in EACH axis, so a quarter of the pixels). At the\n"
+        "calibrated 0.587 ms per full-screen blended textured pass that is\n"
+        "break-even at about 13 full-screen coverages. On a real PS2:\n"
+        "  examples/upscaler-lab, ~75 coverages: 52.86 -> 32.98 ms, 1.60x\n"
+        "  blssrig, a handful of coverages:       9.42 -> 19.25 ms, a loss\n"
+        "'Will the frame get faster?' in Tools > Neural Upscaler (BLSS)\n"
+        "estimates YOUR scene's overdraw and says which side of that line it\n"
+        "falls on. No emulator number is admissible here - PCSX2 under-reports\n"
+        "GS fill by 76x.\n"
         "\n"
         "VRAM it gives back: the z-buffer shrinks with the render, which\n"
-        "returns more than the reduced-resolution target costs (measured at\n"
-        "PAL 512x512: 0.227 MB of texture VRAM free with this off, 0.727 MB\n"
-        "with it on). Fill it costs: up to five full-screen composite passes,\n"
-        "which is more than the reduced render saves whenever the network\n"
-        "asks for every kernel everywhere.\n"
+        "returns more than the reduced-resolution target costs - 448 KB at 2x2\n"
+        "on a 512x448 output, and EXACTLY ZERO at 1x2, where the low-res target\n"
+        "costs precisely what the z-buffer saves. Fill it costs back: 0.46 ms\n"
+        "of composite, measured on hardware, and up to five full-screen passes\n"
+        "when the network asks for every kernel everywhere.\n"
         "\n"
         "Reflections, camera feeds and projected shadows work with it - they\n"
         "used to switch it off in the middle of the frame. Depth of field,\n"
@@ -788,6 +792,9 @@ void App::blssStart(blssui::Kind kind, const std::vector<std::string>& args, int
 // Called every frame from drawUI, NOT from the window body - a run that
 // finishes while the tab is shut still lands (the giBakerPoll rule).
 void App::blssPoll() {
+    // The in-process half, polled from here for the same reason the subprocess
+    // half is: a run that finishes while the window is shut still has to land.
+    blssCoverageTick();
     // A different project means different everything: the net beside it, the
     // images it dumped, the tables measured against it. Detected here rather
     // than in the window body so the window cannot be opened onto the previous
@@ -800,6 +807,8 @@ void App::blssPoll() {
         blssSummary_ = blssui::EvalSummary{};
         blssCv_ = blssui::CvTable{};
         blssFeat_ = blssui::FeatureTable{};
+        blssCov_ = blss::CoverageReport{};
+        blssSpeed_ = blssui::SpeedEstimate{};
         blssLastError_.clear();
         blssImagesDirty_ = true;
         blssStatusChecked_ = -1.0e9;
@@ -1216,6 +1225,122 @@ void App::drawBlssProvenanceDrift() {
                         "complain: the game just reconstructs worse.");
 }
 
+// --- the speed half: how much fill does this scene ask the GS for -----------
+
+// IN-PROCESS, and it is the one verb in this window that is. Every other button
+// here spawns `tyrax-editor --blss-<verb>` because the driver it needs lives in
+// blss.cpp's anonymous namespace and a re-implementation would be a second
+// answer to "what does --blss-eval measure". This one has no CLI verb behind
+// it, writes no file, and takes about a second: `blss::measureCoverage` IS the
+// public API, there is nothing to re-implement, and a process would cost more
+// than the work.
+void App::blssStartCoverage() {
+    if (!hasProject_ || blssCovRunning_.load()) return;
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    blssCovCancel_.store(false);
+    blssCovRunning_.store(true);
+    blssCovStarted_ = ImGui::GetTime();
+    blssCovSeconds_ = 0.0;
+    blss::CoverageConfig cfg;
+    cfg.projectDir = project_.dir;
+    // The project's OWN raster, so the coverages are per the frame the console
+    // will present rather than per a nominal 512x448.
+    const DisplayModeInfo& dm = project::displayModeInfo(project::bootDisplayMode(project_.settings));
+    cfg.outW = dm.bufW;
+    cfg.outH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
+    blssCovThread_ = std::thread([this, cfg]() {
+        blssCovOut_ = blss::measureCoverage(cfg, &blssCovCancel_);
+        // The version bump is the HANDOVER, and it must be the last write: the
+        // UI thread reads blssCovOut_ only after seeing it move (the Runner /
+        // giBakerPoll idiom).
+        blssCovVersion_.fetch_add(1);
+        blssCovRunning_.store(false);
+    });
+}
+
+void App::blssCoverageTick() {
+    if (blssCovRunning_.load()) {
+        blssCovSeconds_ = ImGui::GetTime() - blssCovStarted_;
+        return;
+    }
+    if (blssCovSeen_ == blssCovVersion_.load()) return;
+    blssCovSeen_ = blssCovVersion_.load();
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    blssCov_ = blssCovOut_;
+    // The estimate is derived ONCE, here, rather than per frame: a verdict a
+    // reader is going to quote must not shimmer between two roundings.
+    blssSpeed_ = blssCov_.ok ? blssui::speedFrom(blssCov_.mean) : blssui::SpeedEstimate{};
+    if (blssCov_.ok)
+        statusMessage_ = "BLSS: coverage estimate finished";
+    else if (!blssCov_.err.empty())
+        blssLastError_ = "coverage estimate: " + blssCov_.err;
+}
+
+// The per-shot table, behind a collapsing header. A project whose mean is 15
+// because one scene rasterises 30 and another rasterises 1 has been told
+// something useful only if it can see which is which - examples/showcase is
+// exactly that project.
+void App::drawBlssCoverageDetail() {
+    if (!blssCov_.ok) return;
+    if (!ImGui::CollapsingHeader("Coverage per camera move, and what the count could not see"))
+        return;
+    // WHAT IT CANNOT SEE, said out loud rather than quietly left out of the
+    // total. Every item here can only make the real figure BIGGER, which is
+    // exactly what makes the estimate a floor rather than a guess - and it is
+    // one click from the number instead of five lines above the tabs.
+    std::string blind =
+        "    Not counted: the sky dome (about one more coverage); particle lifetimes and "
+        "drift - the emitter\n    term places a pool through its spawn box and averages the "
+        "per-kind size curve rather than\n    simulating it";
+    if (blssCov_.sawCutout)
+        blind += "; alpha-tested cutouts, which the GS rasterises and then throws away "
+                 "(counted here as solid)";
+    if (blssCov_.sawDisabledEmitter)
+        blind += "; emitters that start disabled, which a flow node can turn on";
+    if (!blssCov_.sawAnimated)
+        blind += "; nothing animated was found, so a character walking into frame is not in "
+                 "this figure";
+    blind +=
+        ".\n    The HUD, the menus and the post effects are NOT counted - and NOT reduced "
+        "either: BLSS shrinks\n    the 3D scene's fill and nothing else.";
+    ImGui::TextDisabled("%s", blind.c_str());
+    if (ImGui::BeginTable("blsscovtbl", 6,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("scene");
+        ImGui::TableSetupColumn("camera move");
+        ImGui::TableSetupColumn("kind");
+        ImGui::TableSetupColumn("geometry");
+        ImGui::TableSetupColumn("emitters");
+        ImGui::TableSetupColumn("worst frame");
+        ImGui::TableHeadersRow();
+        for (const blss::CoverageShot& s : blssCov_.shots) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.scene.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.move.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", s.geom);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", s.emit);
+            ImGui::TableNextColumn();
+            const bool over = s.peak >= blssui::fill::breakEven();
+            ImGui::TextColored(over ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f)
+                                    : ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
+                               "%.1f", s.peak);
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled(
+        "    %d frame(s) over %zu camera move(s), %zu triangle(s). Counted at a quarter-linear\n"
+        "    raster - a coverage is a ratio, so the answer is the same to two decimals at "
+        "512x448.",
+        blssCov_.frames, blssCov_.shots.size(), blssCov_.triangles);
+}
+
 // ONE BUTTON, ABOVE THE TABS, AND IT IS WORTH MORE THAN THE REST OF THE WINDOW.
 // The only question most people have is "should I turn this on", the answer has
 // always been in `--blss-eval`'s oracle row, and until now the window's advice
@@ -1224,12 +1349,18 @@ void App::drawBlssProvenanceDrift() {
 // before the first fact. The net-free `--blss-eval` needs no network: the
 // ORACLE is the best any per-tile weighting can do under the exact GS
 // composite, so it bounds every network that could ever be trained here.
+//
+// AND THERE ARE TWO QUESTIONS, not one. That oracle row answers "will the
+// PICTURE improve" and says nothing at all about speed - which is now the
+// feature's actual selling point and the half with a hardware model behind it.
+// So the second button counts the scene's overdraw and the two answers are
+// combined below into one recommendation.
 void App::drawBlssHappyPath() {
     const int cores = std::max(1, (int)std::thread::hardware_concurrency());
     const blssui::Cost cost = blssui::estimate(blssui::Kind::Headroom, blssEvalFrames_, 0, cores,
                                                1, 0, blssExpectedShots());
     ImGui::BeginDisabled(blssJob_.running());
-    if (ImGui::Button("Will this scene benefit?", ImVec2(scaled(260.0f), scaled(30.0f)))) {
+    if (ImGui::Button("Will the picture improve?", ImVec2(scaled(230.0f), scaled(30.0f)))) {
         // NO `-i`. That is the whole feature: with a network the run measures
         // that network, without one it measures the SCENE.
         std::vector<std::string> a{"--blss-eval"};
@@ -1258,13 +1389,145 @@ void App::drawBlssHappyPath() {
         "\n"
         "It renders the whole corpus, which is most of the cost, so the estimate\n"
         "next to the button is the same corpus render the Train tab pays for.");
-    if (blssSummary_.ok) {
-        drawBlssVerdict(blssSummary_, /*compact=*/true);
-    } else if (!blssJob_.running()) {
+
+    ImGui::BeginDisabled(blssCovRunning_.load());
+    if (ImGui::Button("Will the frame get faster?", ImVec2(scaled(230.0f), scaled(30.0f))))
+        blssStartCoverage();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (blssCovRunning_.load())
+        ImGui::TextDisabled("counting overdraw... %.0f s", blssCovSeconds_);
+    else
+        ImGui::TextDisabled("about a second. No network needed, and nothing is written.");
+    prefHelp(
+        "Counts how many times over this project's own scenes paint the screen,\n"
+        "and puts that against the MEASURED break-even.\n"
+        "\n"
+        "BLSS trades GS fill for EE work at a price both halves of which were\n"
+        "measured on a real PS2: it keeps 25.9 % of the scene's fill (the render\n"
+        "is half in EACH axis, so a quarter of the pixels) and costs 5.02 ms of\n"
+        "EE plus 0.46 ms of composite fill. At the calibrated 0.587 ms per\n"
+        "full-screen blended textured pass that is break-even at about 13\n"
+        "full-screen coverages. Above the line it is a large win; below it, a\n"
+        "straight loss of up to ~5.5 ms a frame.\n"
+        "\n"
+        "It walks the same scenes and the same camera moves the corpus uses and\n"
+        "counts every fragment the rasteriser produces - the GS has no early-z\n"
+        "and no backface culling, so a hidden wall and the far side of a box are\n"
+        "both real fill.\n"
+        "\n"
+        "IT IS A FLOOR, not a measurement. What it cannot see is listed under the\n"
+        "answer; the console is the only thing that settles it.");
+    ImGui::Spacing();
+    drawBlssAnswer();
+}
+
+// --- the two verdicts as ONE answer -----------------------------------------
+
+// A reader wants "should I turn this on", and until now this window had two
+// separate answers to it: a picture verdict here and no speed verdict anywhere.
+// The combination has cases neither half has alone, and the most common one is
+// the flat no - no headroom AND below the break-even, which is most scenes.
+//
+// The arithmetic is blssui::recommend() / blssui::speedFrom(), pure functions
+// checkable from the host-only harness. This chooses words and colours.
+void App::drawBlssAnswer() {
+    const bool haveQ = blssSummary_.ok;
+    const bool haveS = blssCov_.ok && blssSpeed_.ok;
+    const blssui::Recommendation rec =
+        blssui::recommend(blssSummary_, haveQ, blssSpeed_, haveS);
+
+    const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
+        good(0.45f, 0.85f, 0.45f, 1.0f), dim(0.65f, 0.65f, 0.65f, 1.0f);
+    ImGui::SeparatorText("The answer");
+    if (!haveQ && !haveS) {
         ImGui::TextDisabled(
-            "    Press it. The oracle row of a net-free evaluation is the scene's ceiling, and\n"
-            "    it is the one measurement that can tell you NOT to bother.");
+            "    Press both. One says whether the picture has anything to gain, the other "
+            "whether the\n    frame gets shorter - and the honest answer for most scenes is "
+            "neither.");
+        return;
     }
+    ImVec4 col = dim;
+    switch (rec.verdict) {
+        case blssui::Recommendation::Verdict::Off: col = bad; break;
+        case blssui::Recommendation::Verdict::On: col = good; break;
+        case blssui::Recommendation::Verdict::SpeedOnly: col = good; break;
+        case blssui::Recommendation::Verdict::QualityOnly: col = warn; break;
+        // Mixed is amber and never green: it is either half an answer or a
+        // margin too thin to act on, and a green one of those reads as a yes.
+        default: col = warn; break;
+    }
+    ImGui::TextColored(col, "%s", rec.headline.c_str());
+    ImGui::TextWrapped("%s", rec.why.c_str());
+
+    // The speed half's own paragraph: the range, the assumption that produces
+    // it, and the one hardware A/B that exists, so the reader can see how far
+    // the estimate is from a measurement.
+    if (haveS) {
+        const blssui::SpeedEstimate& sp = blssSpeed_;
+        if (sp.band == blssui::SpeedEstimate::Band::Win) {
+            ImGui::TextWrapped(
+                "    Expect roughly %.1f-%.1fx, the two ends being 'the frame is 60 %% fill' "
+                "and 'the frame is nothing but fill'. Measured on examples/upscaler-lab: "
+                "1.60x at ~75 coverages (52.86 -> 32.98 ms, real PS2) - which landed on the "
+                "LOW end of its own range.",
+                sp.lo, sp.hi);
+        } else if (sp.band == blssui::SpeedEstimate::Band::Marginal) {
+            ImGui::TextWrapped(
+                "    No speedup is quoted here on purpose: %.1f ms a frame is smaller than the "
+                "things this count cannot see, so any multiplier would be a decimal place "
+                "with nothing behind it. Break-even is ~%.0f coverages; the two hardware "
+                "points either side of it are examples/upscaler-lab at ~75 (1.60x) and "
+                "blssrig at a handful (-6.4 ms).",
+                sp.savedMs, sp.breakEven);
+        } else {
+            ImGui::TextWrapped(
+                "    The floor of that loss is %.1f ms - BLSS' own bill with no fill at all to "
+                "trade against it. Measured: blssrig, a terrain and six slabs, loses by 6.4 ms.",
+                blssui::fill::kEeCostMs + blssui::fill::kCompositeGsMs);
+        }
+        ImGui::TextDisabled(
+            "    Mean %.1f coverages, p95 %.1f (geometry %.1f counted + emitters %.1f "
+            "estimated). A FLOOR, not\n    a measurement - see below for what it could not "
+            "see. Only the console settles it.",
+            blssCov_.mean, blssCov_.p95, blssCov_.geomMean, blssCov_.emitMean);
+        drawBlssCoverageDetail();
+    }
+    if (haveQ && !haveS)
+        ImGui::TextDisabled(
+            "    The speed half is the other button, and on this feature it is the half with "
+            "the bigger number.");
+    if (haveS && !haveQ)
+        ImGui::TextDisabled(
+            "    The picture half is the other button - it needs no network either.");
+
+    // THE VRAM SIDE, the third measured benefit and the one that is exactly
+    // zero at 1x2. Same arithmetic the Project settings tab prints, from the
+    // same function, so the two cannot disagree.
+    const std::string vram = blssVramLine(project_.settings);
+    if (!vram.empty()) ImGui::TextDisabled("%s", vram.c_str());
+
+    // The headroom branch offers the next step; keep that, because "train one"
+    // is the action a reader with headroom wants and it is two clicks away.
+    if (haveQ && blssSummary_.oracleMargin >= blssui::kNoHeadroomDb && !blssSummary_.haveNet) {
+        ImGui::BeginDisabled(blssJob_.running());
+        if (ImGui::Button("Train a network for this scene", ImVec2(scaled(240.0f), 0))) {
+            blssStartTraining();
+            blssTabSelect_ = 0;
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const blssui::Cost c = blssui::estimate(blssui::Kind::Train, blssTrainFrames_,
+                                                blssTrainEpochs_, cores, 1, 0,
+                                                blssExpectedShots());
+        ImGui::TextDisabled("%s on this machine (%d cores), at the Train tab's settings.",
+                            blssui::humanDuration(c.total).c_str(), cores);
+    }
+    if (!blssCorpusProject_ && haveQ)
+        ImGui::TextColored(warn,
+                           "    The picture half was measured on the BESTIARY, not on this "
+                           "project. It is not an answer about your game.");
 }
 
 void App::drawBlssOutput(float height) {
@@ -1589,13 +1852,10 @@ void marginText(double v) {
     ImGui::TextColored(v >= 0.0 ? good : bad, "%+.2f", v);
 }
 
-// Below this many dB the oracle - the best ANY per-tile weighting can do under
-// the exact GS composite - is indistinguishable from plain bilinear, and no
-// network can beat a bound of zero. Measured: on examples/showcase the oracle
-// scores +0.07 dB held-out and +0.02 dB on the rest, at 1.01 and 1.00 passes.
-// Soft ground texture, low-poly props, nothing that aliases: a fact about the
-// scene, not about the trainer.
-constexpr double kNoHeadroomDb = 0.10;
+// The no-headroom threshold now lives in blss_ui.hpp next to the arithmetic
+// that reads it (blssui::recommend), because the combined verdict has to apply
+// exactly the same test the picture-only one does.
+using blssui::kNoHeadroomDb;
 }  // namespace
 
 // WILL THIS SCENE BENEFIT AT ALL - the answer --blss-eval has always contained
@@ -1647,25 +1907,15 @@ void App::drawBlssVerdict(const blssui::EvalSummary& sum, bool compact) {
             compact ? "" :
                     " Train one on this corpus and evaluate it to find out how much of that "
                     "fraction you actually get.");
-        ImGui::BeginDisabled(blssJob_.running());
-        // NOT "Train the network" - that is the Train tab's button, and two
-        // items with one label in one window is a target neither a UI script
-        // nor a person tabbing through can tell apart. The tab's own button
-        // was renamed away from "Train" for exactly this reason once already.
-        if (ImGui::Button("Train a network for this scene", ImVec2(scaled(240.0f), 0))) {
-            blssStartTraining();
-            blssTabSelect_ = 0;  // show the Train tab's controls and its progress
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        {
-            const int cores = std::max(1, (int)std::thread::hardware_concurrency());
-            const blssui::Cost cost = blssui::estimate(blssui::Kind::Train, blssTrainFrames_,
-                                                       blssTrainEpochs_, cores, 1, 0,
-                                                       blssExpectedShots());
-            ImGui::TextDisabled("%s on this machine (%d cores), at the Train tab's settings.",
-                                blssui::humanDuration(cost.total).c_str(), cores);
-        }
+        // THE BUTTON THAT USED TO BE HERE IS IN THE HEADER'S ANSWER BLOCK, and
+        // it is not here as well on purpose: an ImGui label IS its id, this tab
+        // and that block are submitted in the same frame, and two "Train a
+        // network for this scene" buttons in one window collide silently -
+        // neither a person tabbing through nor a --ui-script run can tell them
+        // apart. One verb, one place.
+        ImGui::TextDisabled(
+            "    The button that starts it is with the combined answer at the top of this "
+            "window.");
     } else if (margin < 0.0) {
         ImGui::TextColored(bad, "THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT: %+.2f dB.",
                            margin);

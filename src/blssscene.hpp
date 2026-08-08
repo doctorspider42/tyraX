@@ -127,6 +127,37 @@ struct AnimMesh {
 // character costs ~3 MB. Frames past it clamp to the last pose.
 constexpr int kAnimPoses = 48;
 
+// ONE PARTICLE EMITTER, DESCRIBED RATHER THAN DRAWN - and it is here because
+// the fill it produces is the whole reason this feature has a winning fixture.
+//
+// The walk above cannot see an emitter: it draws no triangles on the host and
+// its quads are built on VU1 from a centre plus a 2x2 basis, so `drawsGeometry`
+// says false and always has. That is right for the CORPUS (a net is fitted to
+// what a BagProxy can describe, and a billboard bag describes nothing useful)
+// and completely wrong for a question about FILL: `examples/upscaler-lab` wins
+// 1.60x on hardware and the thing it is winning against is 192 large
+// alpha-blended puffs. A coverage estimate taken from geometry alone reads that
+// scene as a handful of coverages and tells the user to leave the feature off.
+//
+// So the emitters are carried, unused by generate() and read by
+// blss::measureCoverage(). Everything here is what `MeshData`/`RuntimeObject`
+// hand `TerrainGame::buildParticles` and `updateParticles`; the billboard is
+// `2 * size` world units across (`m00 = size`, `m11 = size`, corner = centre +-
+// right*m00 +- up*m11 - templates.cpp), which is the one number the estimate
+// turns into pixels.
+struct SceneEmitter {
+    std::string name;
+    float pos[3] = {0, 0, 0};    // world position
+    float box[3] = {1, 1, 1};    // object scale = the spawn box, FULL extent
+    float size = 0.5f;           // emitterSize, world units
+    float grow = 1.0f;           // custom kind: size multiplier reached at death
+    float speed = 3.0f;          // custom kind: emission speed, units/s
+    float life = 1.5f;           // custom kind: particle lifetime, seconds
+    int count = 24;              // pool size, clamped to 256 by the runtime
+    int kind = 0;                // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain, 5 custom
+    bool enabled = true;         // false = starts hidden, so it draws nothing
+};
+
 // One scene of the project, drawn and shot.
 struct ProjectScene {
     std::string name;
@@ -138,6 +169,10 @@ struct ProjectScene {
     // Stored once per scene rather than per pose: a pose list is 48 copies of
     // the same mesh and would have been 48 copies of the texture with it.
     std::vector<std::vector<unsigned char>> embedded;
+    // Read by measureCoverage() and by NOTHING the corpus does - see
+    // SceneEmitter. Filled after the bounds are taken, so adding it moved no
+    // camera and no corpus frame.
+    std::vector<SceneEmitter> emitter;
     std::vector<SceneShot> shot;
     float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};
     size_t triangles() const {

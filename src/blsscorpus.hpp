@@ -37,6 +37,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -131,5 +132,74 @@ struct CorpusFrame {
 // the .cpp. The frames come back in the same order a serial run produced them,
 // so a corpus index still means what every held-out split assumes it means.
 std::vector<CorpusFrame> generate(const CorpusConfig&);
+
+// ------------------------------------------------------------- coverage ------
+
+// HOW MUCH FILL THE SCENE ASKS THE GS FOR, which is the only input the measured
+// speed model has (docs/profiling.md, "The EE floor"). BLSS trades GS fill for
+// EE work at a fixed price - 5.02 ms of EE against 74.1 % of the fill - so
+// "will this get faster" is entirely a question about overdraw, and overdraw is
+// a counter in a rasteriser this file already owns.
+//
+// It is DELIBERATELY NOT the corpus. generate() renders the ground truth at 4x
+// supersample, labels every frame with the oracle and builds features; none of
+// that says anything about fill, and all of it is minutes. This walks the same
+// scenes with the same cameras and counts fragments, which is seconds - so the
+// window can answer the speed question without a training run, exactly as the
+// net-free `--blss-eval` answers the quality one without a network.
+//
+// WHAT IT COUNTS: every fragment the rasteriser produces inside the screen,
+// z-test or not. That is what the GS pays for - it has no early-z and no
+// backface culling (Vec4::shouldBeBackfaceCulled exists in the engine and is
+// called by nothing), so a hidden wall and the far side of a closed box are
+// both real fill. Divided by the output's pixel count, that IS "full-screen
+// coverages", the unit the break-even is stated in.
+struct CoverageConfig {
+    std::string projectDir;   // required: this only answers about a project
+    int outW = 512, outH = 448;  // the display raster the coverages are per
+    // WIDTH THE COUNTER ACTUALLY RASTERISES AT. Coverage is a ratio, so it is
+    // very nearly invariant to this, and a quarter-linear raster is a sixteenth
+    // of the fragment loop - which is what makes a 3 000-sprite haze bank
+    // countable in a second rather than a minute. Sub-pixel triangles are lost
+    // at any resolution and are not where overdraw comes from.
+    int raster = 256;
+    int framesPerShot = 6;
+    int threads = 0;          // 0 = every core
+    bool verbose = false;
+};
+
+// One camera move's worth. `emit` is the estimated emitter half, kept separate
+// from `geom` all the way to the UI because one is counted and the other is
+// modelled, and a reader is entitled to know which is which.
+struct CoverageShot {
+    std::string scene, name, move;
+    double geom = 0, emit = 0;  // mean full-screen coverages over the shot
+    double peak = 0;            // the worst single frame (geom + emit)
+    int frames = 0;
+};
+
+struct CoverageReport {
+    bool ok = false;
+    std::string err;
+    int scenes = 0, frames = 0;
+    size_t triangles = 0;
+    // Means and 95th percentiles over every frame of every shot. `mean` and
+    // `p95` are the sum of the two halves; the halves are carried because the
+    // honest sentence about them is different.
+    double geomMean = 0, emitMean = 0, mean = 0, p95 = 0;
+    int emitters = 0, billboards = 0;
+    // What the count could NOT see, so the UI can say so instead of quietly
+    // under-reporting. `cutout` matters because an alpha-tested texel is
+    // rasterised and then thrown away - counted here, not drawn there.
+    bool sawAnimated = false, sawCutout = false, sawDisabledEmitter = false;
+    std::vector<CoverageShot> shots;
+};
+
+// Walks `projectDir` (blssscene::loadProject - the same walk the corpus uses,
+// so the two cannot disagree about what the scene contains) and counts. Returns
+// `ok == false` with `err` set when the directory is not a loadable project.
+// `cancel`, when set, is polled between frames - an atomic because the caller
+// is a UI thread abandoning a worker (App::closeProject).
+CoverageReport measureCoverage(const CoverageConfig&, const std::atomic<bool>* cancel = nullptr);
 
 }  // namespace blss

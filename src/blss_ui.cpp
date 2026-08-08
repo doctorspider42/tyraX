@@ -912,6 +912,146 @@ FeatureTable parseFeatures(const std::string& text) {
     return out;
 }
 
+// -------------------------------------------------------------- will it be faster ---
+
+SpeedEstimate speedFrom(double coverages) {
+    SpeedEstimate e;
+    if (!(coverages >= 0.0)) return e;  // NaN-safe
+    e.ok = true;
+    e.coverages = coverages;
+    e.breakEven = fill::breakEven();
+    e.fillMs = coverages * fill::kPassMs;
+    e.savedMs = fill::kSavedFraction * e.fillMs - (fill::kEeCostMs + fill::kCompositeGsMs);
+    if (e.savedMs <= 0.0) {
+        e.band = SpeedEstimate::Band::Loss;
+        return e;  // lo/hi stay 1.0: a slowdown is stated in ms, not as a ratio
+    }
+    e.band = coverages < e.breakEven * 1.5 ? SpeedEstimate::Band::Marginal
+                                           : SpeedEstimate::Band::Win;
+    // The GS-bound limit: the whole frame is fill, so the whole frame shrinks
+    // to what survives plus what BLSS costs. Nothing can beat this.
+    const double onAllFill = fill::kKeptFraction * e.fillMs + fill::kEeCostMs + fill::kCompositeGsMs;
+    e.hi = onAllFill > 1e-6 ? e.fillMs / onAllFill : 1.0;
+    // ...and the other end: fill is 60 % of the frame, the rest is EE work BLSS
+    // does not touch. That fraction is an assumption and is named wherever this
+    // range is printed; it is worth knowing that on the one scene where both
+    // arms were measured (upscaler-lab, 1.60x at ~75 coverages) the outcome
+    // landed exactly on this end of the range.
+    const double totalOff = e.fillMs / 0.60;
+    const double totalOn = totalOff - e.savedMs;
+    e.lo = totalOn > 1e-6 ? totalOff / totalOn : e.hi;
+    if (e.lo > e.hi) std::swap(e.lo, e.hi);
+    return e;
+}
+
+// ------------------------------------------------------------- one answer ---
+
+namespace {
+std::string msText(double ms) {
+    char b[48];
+    std::snprintf(b, sizeof(b), "%.1f ms", ms < 0 ? -ms : ms);
+    return b;
+}
+std::string rangeText(const SpeedEstimate& s) {
+    char b[64];
+    std::snprintf(b, sizeof(b), "%.1f-%.1fx", s.lo, s.hi);
+    return b;
+}
+}  // namespace
+
+Recommendation recommend(const EvalSummary& quality, bool haveQuality, const SpeedEstimate& speed,
+                         bool haveSpeed) {
+    Recommendation r;
+    const bool q = haveQuality && quality.ok;
+    const bool s = haveSpeed && speed.ok;
+    if (!q && !s) {
+        r.headline = "Nothing has been measured yet.";
+        r.why = "The two buttons above answer the two halves: whether the picture has anything "
+                "to gain, and whether the frame will get shorter.";
+        return r;
+    }
+    const bool headroom = q && quality.oracleMargin >= kNoHeadroomDb;
+    // THREE SPEED STATES, NOT TWO, and the middle one is the reason this
+    // function exists rather than an `if (savedMs > 0)` in the draw call. A
+    // scene estimated at 15 coverages against a ~13 break-even saves about
+    // 1 ms - which is smaller than the things the count admits it cannot see,
+    // so "TURN IT ON FOR THE SPEED" there is a confident wrong answer, and a
+    // confident wrong answer is worse than a range. examples/showcase is
+    // exactly that scene and is what caught it.
+    const bool win = s && speed.band == SpeedEstimate::Band::Win;
+    const bool loss = s && speed.band == SpeedEstimate::Band::Loss;
+    const bool close = s && speed.band == SpeedEstimate::Band::Marginal;
+
+    if (q && s) {
+        if (!headroom && loss) {
+            r.verdict = Recommendation::Verdict::Off;
+            r.headline = "LEAVE IT OFF. There is no picture to gain and no time to gain.";
+        } else if (!headroom && close) {
+            r.verdict = Recommendation::Verdict::Mixed;
+            r.headline = "TOO CLOSE TO CALL, and there is no picture to gain either.";
+        } else if (!headroom && win) {
+            r.verdict = Recommendation::Verdict::SpeedOnly;
+            r.headline = "TURN IT ON FOR THE SPEED, not for the picture.";
+        } else if (headroom && loss) {
+            r.verdict = Recommendation::Verdict::QualityOnly;
+            r.headline = "ONLY IF YOU CAN AFFORD " + msText(speed.savedMs) +
+                         " A FRAME - the picture improves, the frame gets longer.";
+        } else if (headroom && close) {
+            r.verdict = Recommendation::Verdict::Mixed;
+            r.headline = "WORTH IT FOR THE PICTURE; the speed is too close to call.";
+        } else {
+            r.verdict = Recommendation::Verdict::On;
+            r.headline = "TURN IT ON. The picture has room and the frame gets shorter.";
+        }
+    } else if (s) {
+        r.verdict = win ? Recommendation::Verdict::SpeedOnly : Recommendation::Verdict::Mixed;
+        r.headline = win    ? "The frame should get shorter - the picture half is unmeasured."
+                     : close ? "The speed is too close to call - and the picture half is "
+                               "unmeasured."
+                             : "The frame will get LONGER - and the picture half is unmeasured.";
+    } else {
+        r.verdict = Recommendation::Verdict::Mixed;
+        r.headline = headroom
+                         ? "The picture has room - whether the frame gets shorter is unmeasured."
+                         : "The picture has nothing to gain - the speed half is unmeasured.";
+    }
+
+    // The two facts, always in the same order and always with their units, so
+    // the sentence above can be checked against them.
+    std::string why;
+    if (q) {
+        char b[192];
+        std::snprintf(b, sizeof(b), "Picture: the oracle ceiling is %+.2f dB at %.2f passes%s. ",
+                      quality.oracleMargin, quality.oraclePasses,
+                      headroom ? "" : " - indistinguishable from plain bilinear");
+        why += b;
+    }
+    if (s) {
+        char b[320];
+        if (win)
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages against a ~%.0f break-even, so "
+                          "roughly %s off the GS - %s if the frame is mostly fill.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str(),
+                          rangeText(speed).c_str());
+        else if (close)
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages against a ~%.0f break-even - "
+                          "only %s a frame either way, which is inside what this count admits it "
+                          "cannot see. It is a FLOOR, so the console is likelier to land above "
+                          "the line than below it.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
+        else
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages, below the ~%.0f break-even, so "
+                          "the frame gets about %s LONGER.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
+        why += b;
+    }
+    r.why = why;
+    return r;
+}
+
 // ------------------------------------------------------------------ errors ---
 
 std::vector<std::string> parseErrors(const std::string& text) {

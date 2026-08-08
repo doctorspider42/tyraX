@@ -703,6 +703,10 @@ int App::run(const std::string& initialProjectDir) {
     droneAudition(false);
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
+    // ...and the BLSS coverage estimate, for the plainer reason that a joinable
+    // std::thread destroyed at exit calls std::terminate.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -4885,6 +4889,17 @@ void App::closeProject() {
         peerPresence_.clear();
         viewport_.setPeerSelections({});
     }
+    // The BLSS coverage estimate is a worker thread reading project_.dir off
+    // the disk; it must not outlive the project, and its result must not land
+    // in whichever project is opened next. The subprocess half (blssJob_)
+    // already stands down on its own - it holds no reference to the model - so
+    // only this one needs cancelling here.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    blssCovRunning_.store(false);
+    blssCovSeen_ = blssCovVersion_.load();
+    blssCov_ = blss::CoverageReport{};
+    blssSpeed_ = blssui::SpeedEstimate{};
 
     project_ = Project();  // one empty scene - objects() stays safe to call
     hasProject_ = false;

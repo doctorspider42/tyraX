@@ -15,6 +15,7 @@
 #include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
 #include "blss_ui.hpp"  // the Neural Upscaler window's job + parsed tables
+#include "blsscorpus.hpp"  // blss::CoverageReport - the speed half of the answer
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
@@ -682,6 +683,24 @@ private:
     // people to run Evaluate first, and Evaluate could not run without a net
     // that only Train could produce.
     void drawBlssHappyPath();
+    // THE OTHER HALF OF THE HAPPY PATH: will the scene get FASTER. BLSS trades
+    // GS fill for EE work at a measured price, so the answer is entirely a
+    // question about overdraw - and blss::measureCoverage() counts a project's
+    // own overdraw in about a second. Unlike every other verb in this window
+    // this runs IN-PROCESS on a worker thread rather than as a subprocess:
+    // there is no CLI verb behind it, it touches no file, and a second is not
+    // worth a process. `blssCoverageTick` is the poll (called from blssPoll, so
+    // a run that ends while the window is shut still lands).
+    void blssStartCoverage();
+    void blssCoverageTick();
+    // ONE ANSWER, not two tables: the quality ceiling and the speed estimate
+    // combined, in the window's own voice, including the case that occurs on
+    // most scenes - no headroom AND below the break-even, so leave it off.
+    void drawBlssAnswer();
+    // The per-shot coverage breakdown, behind a collapsing header. A project
+    // whose mean is 15 because one scene is 30 and another is 1 has been told
+    // something useful only if it can see that.
+    void drawBlssCoverageDetail();
     // The net's recorded command line against the project's CURRENT settings.
     // A blss.net stores no settings at all, so the `.args` sidecar is the only
     // place "this was trained with --sharpen 0.5 and the project now says 0.80"
@@ -1623,6 +1642,21 @@ private:
     blssui::EvalSummary blssSummary_;
     blssui::CvTable blssCv_;
     blssui::FeatureTable blssFeat_;
+    // THE SPEED HALF. `blssCov_` is the UI's copy and is only ever written by
+    // blssCoverageTick after the worker has finished (the version bump is the
+    // handover, the Runner/giBaker idiom); `blssCovOut_` is the worker's own
+    // slot and must not be read while it runs.
+    blss::CoverageReport blssCov_, blssCovOut_;
+    std::thread blssCovThread_;
+    std::atomic<bool> blssCovRunning_{false};
+    std::atomic<bool> blssCovCancel_{false};
+    std::atomic<uint64_t> blssCovVersion_{0};
+    uint64_t blssCovSeen_ = 0;
+    double blssCovStarted_ = 0.0, blssCovSeconds_ = 0.0;
+    // The estimate, derived from blssCov_ once per finished run rather than per
+    // frame - blssui::speedFrom is pure and cheap, but the verdict text is what
+    // a reader quotes and it must not flicker between two roundings.
+    blssui::SpeedEstimate blssSpeed_;
     // Which tab to force open next frame (-1 = leave it alone). The verdict's
     // thumbnails are click-through to Compare, and a strip that showed the
     // pictures but could not get you to them would be decoration.

@@ -290,6 +290,99 @@ struct FeatureTable {
 
 FeatureTable parseFeatures(const std::string& text);
 
+// -------------------------------------------------------------- will it be faster ---
+
+// THE MEASURED SPEED MODEL, in one place, with its provenance attached. Every
+// one of these came off a real PS2 on 2026-08-08 (docs/profiling.md, "The
+// re-tuned demo" and "The EE floor") and NOT off PCSX2, which under-reports GS
+// fill by 76x and is why this feature published a 3.37x headline nobody could
+// run. They are constants rather than settings because a knob here would let a
+// reader tune the verdict until it said what they wanted.
+namespace fill {
+// What survives the reduced render. `blssScale 0` is Scale::X2Y2 - half in EACH
+// axis - so a quarter of the pixels; the measured slope is 0.259 and the extra
+// 0.9 % is measurement. This page said "half" for a week, and the break-even
+// computed off that was ~70 % too pessimistic.
+constexpr double kKeptFraction = 0.259;
+constexpr double kSavedFraction = 1.0 - kKeptFraction;
+// One full-screen alpha-blended textured pass on hardware, its own draw_finish.
+constexpr double kPassMs = 0.587;
+// BLSS' EE bill with the activation table in: proxy 2.69 + reproj 0.28 +
+// feat 0.19 + net 0.79 + pkt 0.55 + begin 0.41 + end 0.11.
+constexpr double kEeCostMs = 5.02;
+// ...and the fill the composite itself adds back, measured on hardware.
+constexpr double kCompositeGsMs = 0.46;
+// The one scene where both ends of this model have been measured.
+constexpr double kAnchorCoverages = 75.0;
+constexpr double kAnchorSpeedup = 1.60;
+constexpr double kAnchorOffMs = 52.86, kAnchorOnMs = 32.98;
+// VRAM handed back at 2x2 on a 512x448 output, and it is EXACTLY ZERO at 1x2 -
+// the low-res target costs precisely what the z-buffer saves.
+constexpr int kVramBackKb2x2 = 448;
+
+// 0.741 x 0.587 x C > 5.02 + 0.46: about 13 full-screen coverages. Derived
+// rather than written down, so a millisecond taken off the EE bill moves it.
+inline double breakEven() {
+    return (kEeCostMs + kCompositeGsMs) / (kSavedFraction * kPassMs);
+}
+}  // namespace fill
+
+// What the model says about a scene that rasterises `coverages` times over.
+//
+// A RANGE, NEVER A NUMBER, and the reason is that the model knows the GS half
+// of the frame and nothing at all about the EE half. Saving X ms is a 2.6x
+// speedup on a frame that is entirely fill and a 1.3x speedup on one that is
+// half EE, and the estimator cannot tell those apart - so the two ends are
+// stated with the assumption that produces them, and the one hardware A/B this
+// feature has is quoted next to them for scale. A confident single figure here
+// would be the sixth number this feature measured on the wrong thing.
+struct SpeedEstimate {
+    bool ok = false;
+    double coverages = 0;   // what went in
+    double fillMs = 0;      // coverages x kPassMs: the scene's own GS bill
+    double savedMs = 0;     // net of BLSS' EE cost; negative = the frame gets longer
+    double breakEven = 0;
+    // Speedup multipliers. `hi` assumes the frame is ENTIRELY fill (the
+    // GS-bound limit, which nothing can beat); `lo` assumes fill is 60 % of it.
+    // Both are 1.0 when the estimate is a loss - a slowdown is stated in
+    // milliseconds, because a "0.8x speedup" is a sentence nobody parses.
+    double lo = 1.0, hi = 1.0;
+    enum class Band { Loss, Marginal, Win };
+    Band band = Band::Loss;
+};
+SpeedEstimate speedFrom(double coverages);
+
+// ------------------------------------------------------------- one answer ---
+
+// THE TWO VERDICTS AS ONE. A reader wants "should I turn this on", not a
+// quality table beside a speed table - and the combination has cases neither
+// half has on its own, the common one being "no picture to gain AND below the
+// break-even", which is most scenes and is a flat no.
+//
+// Pure, and here rather than in the draw call for the same reason summarise()
+// is: three inputs, six outcomes, and a harness can walk all of them.
+struct Recommendation {
+    enum class Verdict {
+        Unknown,      // neither half has been measured yet
+        Off,          // no headroom and no speed: the easy, common no
+        SpeedOnly,    // the picture will not improve; the frame will get shorter
+        QualityOnly,  // the picture improves; the frame gets LONGER
+        On,           // both
+        Mixed         // one half known, and it is not enough to decide alone
+    };
+    Verdict verdict = Verdict::Unknown;
+    std::string headline;  // one sentence, the answer
+    std::string why;       // the two facts behind it
+};
+Recommendation recommend(const EvalSummary& quality, bool haveQuality,
+                         const SpeedEstimate& speed, bool haveSpeed);
+
+// Below this many dB the ORACLE - the best any per-tile weighting can do under
+// the exact GS composite - is indistinguishable from plain bilinear, and no
+// network can beat a bound of zero. Measured: on examples/showcase the oracle
+// scores +0.07 dB held-out and +0.02 dB on the rest.
+constexpr double kNoHeadroomDb = 0.10;
+
 // ------------------------------------------------------------------ errors ---
 
 // The `blss: ...` lines the tool prints when it refuses to run - a missing
