@@ -66,9 +66,11 @@ struct Phase {
 };
 
 // True when `line` moved the phase on. `epochs` is what the run was asked for
-// (the epoch lines carry a number, not a fraction) and `shots` how many corpus
-// shots there are, both used only to turn a count into a fraction.
-bool phaseOf(const std::string& line, Kind kind, int epochs, int shots, Phase& out);
+// (the epoch lines carry a number, not a fraction) and is the only thing the
+// caller has to supply: the corpus renderer prints its own total now that it is
+// threaded, so a project corpus - whose shot count is not known until its
+// scenes have loaded - no longer needs the window to guess one.
+bool phaseOf(const std::string& line, Kind kind, int epochs, Phase& out);
 
 // -------------------------------------------------------------------- job ---
 
@@ -86,7 +88,7 @@ public:
     // unquoted - the job shell-quotes them), `cwd` the project directory so a
     // default `-o blss.net` lands next to the .tyra.
     void start(Kind kind, const std::string& exe, const std::vector<std::string>& args,
-               const std::string& cwd, int epochs, int shots);
+               const std::string& cwd, int epochs);
     // Kills the process tree and joins. Safe to call when nothing is running.
     void cancel();
 
@@ -106,7 +108,7 @@ public:
     std::string command() const;
 
 private:
-    void run(std::string cmdline, std::string cwd, int epochs, int shots);
+    void run(std::string cmdline, std::string cwd, int epochs);
 
     std::thread worker_;
     std::atomic<bool> running_{false};
@@ -152,6 +154,31 @@ struct EvalTable {
 };
 
 EvalTable parseEval(const std::string& text);
+
+// THE ONE-LINE ANSWER, as arithmetic. "Will this scene benefit at all" has
+// always been in the PSNR table and has always been the sixth row of it, so the
+// window states it - and the numbers behind that sentence live HERE, with the
+// parsers, for the same reason the parsers do: a pure function of an EvalTable
+// is checkable from a harness, and a calculation buried in an ImGui draw call
+// is not.
+//
+// Everything is frame-weighted over both splits, because they partition ONE
+// corpus and neither half on its own is the answer about the scene.
+//
+// `oracleMargin` is the load-bearing figure. The oracle is the best any per-tile
+// weighting can do under the exact GS composite, so it is the scene's CEILING:
+// on examples/showcase it is +0.07 dB held-out and +0.00 dB over the training
+// shots, at 1.01 and 1.00 passes - soft textures, low-poly props, nothing that
+// aliases - and no network can beat a bound of zero.
+struct EvalSummary {
+    bool ok = false;
+    int frames = 0;
+    double bilinear = 0, net = 0, oracle = 0;  // PSNR, dB
+    double netPasses = 0, oraclePasses = 0;    // mean full-screen passes, 1.00 = bilinear
+    double netMargin = 0;                      // net - bilinear
+    double oracleMargin = 0;                   // oracle - bilinear: the ceiling
+};
+EvalSummary summarise(const EvalTable&);
 
 // ------------------------------------------------------------ --blss-eval --cv ---
 

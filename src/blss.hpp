@@ -721,8 +721,16 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 // per VU1 package - see CorpusConfig::packageSplit. It exists to reproduce the
 // fold tables measured before the split, not to ship.
 //
+// `--threads N` (0 = every core) bounds the two parallel phases: the corpus
+// renderer and the oracle. IT MOVES THE WALL CLOCK AND NOTHING ELSE - both hand
+// item i to a fixed worker that may touch only item i - and `--threads 1`
+// against `--threads N` producing byte-identical blss.net files is how that is
+// checked rather than believed. The FIT is sequential SGD and ignores it, which
+// is why --blss-train now prints its three phases separately: on a project
+// corpus at the shipped defaults the fit is the largest of the three.
+//
 // --blss-train [<projectDir>] [-o blss.net] [--frames N] [--epochs N]
-//              [--weight-decay W] [--dump <dir>] [--all-shots]
+//              [--weight-decay W] [--dump <dir>] [--all-shots] [--threads N]
 int trainMain(int argc, char** argv);
 // --blss-eval [<projectDir>] [-i blss.net] [--frames N] [--dump <dir>]
 //             [--deadzone A] [--deadzone-sweep a,b,c]

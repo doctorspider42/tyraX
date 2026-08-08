@@ -670,6 +670,16 @@ private:
     // why) and every number drawn is parsed out of its output.
     void drawBlssWindow();
     void drawBlssHeader();
+    // The corpus switch (project vs the built-in bestiary) and the one-line
+    // reminder of which one a table came from. Drawn in the header, read by
+    // every verb through blssCommonArgs().
+    void drawBlssCorpusChoice();
+    void drawBlssCorpusReminder();
+    // "Will this scene benefit at all?" - the answer --blss-eval already
+    // contains and used to bury in a table. Reads the oracle row, which is the
+    // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
+    // can beat a bound of zero.
+    void drawBlssVerdict();
     void drawBlssOutput(float height);
     void drawBlssTrainTab();
     void drawBlssEvalTab();
@@ -1521,11 +1531,27 @@ private:
     std::string blssNetWhen_, blssNetArgs_;
     char blssNetName_[128] = "blss.net";
     char blssAssets_[512] = {};
+    // WHICH CORPUS EVERY VERB IN THIS WINDOW RUNS ON, and it defaults to the
+    // project because a measurement says so: a net fitted to the built-in
+    // procedural bestiary scored -0.40 dB on examples/procedural, i.e. WORSE
+    // than not reconstructing at all, while the same code fitted to that
+    // project's own scenes scored +0.06 (commit 29b4de60). The bestiary is the
+    // fallback for a project with nothing to draw, not the thing to ship.
+    //
+    // One switch for all five verbs rather than one per tab: "which corpus
+    // produced this table" must have a single answer visible above every table
+    // in the window, and a per-tab copy is how a Train on the project gets
+    // evaluated against the bestiary without anyone noticing.
+    bool blssCorpusProject_ = true;
     // Train
     int blssTrainFrames_ = 156, blssTrainEpochs_ = 400;
     unsigned blssTrainSeed_ = 0xB1557u;
     float blssTrainDecay_ = 1e-4f, blssTrainFill_ = 16.0f, blssTrainFlicker_ = 0.0f;
-    bool blssTrainAllShots_ = false, blssTrainStandardise_ = false;
+    // --all-shots ON by default, and it follows the corpus: the console runs
+    // the frames the net was fitted on, so for a PROJECT corpus withholding a
+    // third of it buys an honest held-out column nobody can act on and costs
+    // the shipped net real quality.
+    bool blssTrainAllShots_ = true, blssTrainStandardise_ = false;
     // Evaluate
     int blssEvalFrames_ = 156;
     float blssEvalDeadzone_ = 8.0f;

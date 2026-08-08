@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1244,6 +1245,13 @@ struct CliOpts {
     // are: it trades quality against fill, and the only honest way to set it is
     // to sweep it under --cv and read BOTH columns. 0 turns it off.
     float deadzone = kDeadzoneAlpha;
+    // --threads N: how many worker threads the corpus renderer and the oracle
+    // use. 0 = every core. THIS CHANGES THE WALL CLOCK AND NOTHING ELSE - both
+    // loops hand item i to a fixed worker and let it touch only item i - and
+    // `--threads 1` is the check, not a comment: it must produce a
+    // byte-identical blss.net to a run on every core. The trainer itself is
+    // sequential SGD and ignores this.
+    int threads = 0;
     // --deadzone-sweep a,b,c: every value in one --cv run. THE DEADZONE DOES
     // NOT TOUCH TRAINING - the labels never see it, it is applied to the net's
     // answer - so N deadzones over the same folds are N honest rows of one
@@ -1316,6 +1324,12 @@ CliOpts parseCli(int argc, char** argv) {
                 at = comma + 1;
             }
         }
+        // Clamped HERE rather than only inside the two loops, so the count the
+        // tool prints is the count it will actually run: both parallelFor and
+        // parallelFrames cap at 32 (a corpus worker owns ~30 MB of raster
+        // scratch), and "on 999 thread(s)" would have been a lie.
+        else if (a == "--threads")
+            o.threads = std::clamp(std::atoi(next("0").c_str()), 0, 32);
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
         else if (a == "--no-package-split") o.packageSplit = false;
         // The only positional argument: the project to train on. Taken as the
@@ -1380,10 +1394,16 @@ bool inMask(const ShotMask& m, int shot) {
 // RESULT does not depend on how many threads ran. Determinism has to survive
 // parallelism here - a cross-validation table that moved with the machine it ran
 // on would be worthless. (Same rule as matbake.cpp's sampler.)
+//
+// `threads` is `--threads`, 0 for every core the machine has. It is a WALL
+// CLOCK knob and nothing else, and `--threads 1` is how that is checked rather
+// than asserted: one thread and N threads must write byte-identical blss.net
+// files, because every number this feature has published came off a seeded run.
 template <class F>
-void parallelFor(int n, const F& body) {
+void parallelFor(int n, int threads, const F& body) {
     if (n <= 0) return;
-    unsigned hw = std::thread::hardware_concurrency();
+    unsigned hw = threads > 0 ? static_cast<unsigned>(threads)
+                              : std::thread::hardware_concurrency();
     if (hw < 1) hw = 1;
     if (hw > 32) hw = 32;
     const int workers = std::min<int>(static_cast<int>(hw), n);
@@ -1435,8 +1455,13 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.assetDir = o.assetDir;
     cc.projectDir = o.projectDir;
     cc.packageSplit = o.packageSplit;
-    std::printf("blss: rendering %d corpus frames at %dx%d (this is the slow part)\n",
-                cc.frames, cc.outW, cc.outH);
+    cc.threads = o.threads;
+    if (o.threads > 0)
+        std::printf("blss: rendering %d corpus frames at %dx%d on %d thread(s)\n", cc.frames,
+                    cc.outW, cc.outH, o.threads);
+    else
+        std::printf("blss: rendering %d corpus frames at %dx%d on every core\n", cc.frames,
+                    cc.outW, cc.outH);
     std::vector<CorpusFrame> corpus = generate(cc);
     // --drop-feature: hold a channel at zero everywhere. A constant input is
     // worth exactly what a deleted one is - the net's weights on it are only
@@ -1611,9 +1636,10 @@ Method fixedMethod(Kernel k) {
 using FrameLabels = std::vector<Sample>;
 
 std::vector<FrameLabels> labelCorpus(const std::vector<CorpusFrame>& corpus, float sharpen,
-                                     const Objective& obj, const ShotMask* want = nullptr) {
+                                     const Objective& obj, int threads,
+                                     const ShotMask* want = nullptr) {
     std::vector<FrameLabels> labels(corpus.size());
-    parallelFor(static_cast<int>(corpus.size()), [&](int i) {
+    parallelFor(static_cast<int>(corpus.size()), threads, [&](int i) {
         const CorpusFrame& cf = corpus[static_cast<size_t>(i)];
         if (want && !inMask(*want, cf.shot)) return;
         std::vector<float> imp;
@@ -1712,12 +1738,12 @@ double nativePsnr(const std::vector<CorpusFrame>& corpus, const ShotMask& want) 
 // WHICH content it fails on.
 std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus, int shots,
                                           const CliOpts& o, uint32_t seed) {
-    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj);
+    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, o.threads);
     const int nFolds = o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots;
     std::vector<FoldResult> folds(static_cast<size_t>(nFolds));
     // Folds are independent, so they run in parallel; each writes only its own
     // slot and trains its own net from its own sample vector.
-    parallelFor(nFolds, [&](int f) {
+    parallelFor(nFolds, o.threads, [&](int f) {
         FoldResult& r = folds[static_cast<size_t>(f)];
         r.shot = f;
         const ShotMask test = singleShotMask(shots, f);
@@ -2062,7 +2088,7 @@ int featureReport(const CliOpts& o) {
     const int shots = shotCountOf(corpus);
     std::printf("blss: labelling %zu frames to correlate features against the oracle\n",
                 corpus.size());
-    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj);
+    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, o.threads);
 
     struct Acc {
         double n = 0, sum = 0, sq = 0, lo = 1e30, hi = -1e30, at0 = 0, at1 = 0;
@@ -2254,11 +2280,21 @@ int trainMain(int argc, char** argv) {
         return 1;
     }
 
+    // WHERE THE MINUTES GO, printed rather than guessed. Two of the three
+    // phases below are threaded and one is not, so which of them dominates
+    // moves with the frame count, the epoch count and the core count - and
+    // "the oracle is nearly all of it" was true of this tool exactly once.
+    const auto tStart = std::chrono::steady_clock::now();
+    const auto since = [](std::chrono::steady_clock::time_point t) {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+    };
+
     std::vector<CorpusFrame> corpus = buildCorpus(o);
     if (corpus.empty()) {
         std::printf("blss: the corpus generator produced no frames\n");
         return 1;
     }
+    const double tCorpus = since(tStart);
     const int shots = shotCountOf(corpus);
 
     // By default the split's held-out shots are kept OUT, so that a later
@@ -2276,18 +2312,23 @@ int trainMain(int argc, char** argv) {
     for (char c : trained) trainShots += c ? 1 : 0;
 
     std::printf("blss: labelling %zu frames with the oracle\n", corpus.size());
-    const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, &trained);
+    const auto tLabel0 = std::chrono::steady_clock::now();
+    const std::vector<FrameLabels> labels =
+        labelCorpus(corpus, o.sharpen, o.obj, o.threads, &trained);
     std::vector<Sample> samples = gatherSamples(labels, corpus, trained);
     if (samples.empty()) {
         std::printf("blss: no training samples (every shot held out?)\n");
         return 1;
     }
+    const double tLabel = since(tLabel0);
 
     std::printf("blss: training on %zu tiles from %d shots (objective: flicker %.3f, fill %.2f)\n",
                 samples.size(), trainShots, o.obj.flicker, o.obj.fill);
+    const auto tFit0 = std::chrono::steady_clock::now();
     const TrainConfig tc = trainConfigOf(o);
     Net net;
     const float loss = train(net, samples, tc);
+    const double tFit = since(tFit0);
 
     std::string err;
     if (!save(net, outPath, &err)) {
@@ -2295,6 +2336,12 @@ int trainMain(int argc, char** argv) {
         return 1;
     }
     std::printf("blss: final loss %.6f, wrote %s\n", loss, outPath.c_str());
+    // The three phases, named, so the next person to make this faster optimises
+    // the one that is actually slow. Corpus and labelling are threaded; the fit
+    // is sequential SGD (each Adam step reads the weights the previous one
+    // wrote) and is the only phase `--threads` cannot touch.
+    std::printf("blss: timing - corpus %.1f s, oracle %.1f s, fit %.1f s (%.1f s total)\n",
+                tCorpus, tLabel, tFit, since(tStart));
     return 0;
 }
 

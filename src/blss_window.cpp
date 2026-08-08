@@ -222,16 +222,30 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "the menus, the text and every post effect still draw at FULL\n"
         "resolution, so 2D stays crisp.\n"
         "\n"
-        "PROOF OF CONCEPT, and worth knowing BEFORE you turn it on. On content\n"
-        "it was NOT trained on it beats a plain bilinear upscale by +0.40 dB -\n"
-        "leave-one-shot-out cross-validation, 13 shots x 3 seeds = 39 fold-runs,\n"
-        "sd 0.40, and 5 of those 39 still came out below bilinear. Over the six\n"
-        "shots that took no part in choosing the defaults it is +0.23 dB. It\n"
-        "is a real win and a modest one, and it is not uniform: on an indoor\n"
-        "corridor it LOSES half a decibel. No BLSS frame has ever been TIMED,\n"
-        "in the emulator or on hardware, so whether it is faster on your scene\n"
-        "is genuinely unknown, and nobody has watched the picture in PCSX2\n"
-        "since the training objective last changed.\n"
+        "PROOF OF CONCEPT, and the FIRST thing to know is which network you\n"
+        "have. A net fitted to the built-in procedural corpus was measured on\n"
+        "a real project (examples/procedural, 72 frames, six camera moves) at\n"
+        "-0.40 dB against plain bilinear - WORSE than leaving this off - while\n"
+        "paying half a composite pass more, because that corpus' most\n"
+        "predictive channels are out of range on a scene it did not see. The\n"
+        "same trainer fitted to THAT PROJECT'S OWN SCENES scored +0.06 dB at\n"
+        "1.19 passes against an oracle ceiling of +0.77. So: train on your\n"
+        "project, in Tools > Neural Upscaler (BLSS), with the corpus set to\n"
+        "this project and 'Fit every shot' on. That is the net to ship.\n"
+        "\n"
+        "AND SOME SCENES HAVE NOTHING TO WIN. On examples/showcase the ORACLE\n"
+        "itself - the best any per-tile weighting can do - scores +0.00 dB at\n"
+        "1.00 passes: soft ground texture, low-poly props, nothing that\n"
+        "aliases. Run the window's Evaluate tab on your project BEFORE turning\n"
+        "this on; it says so in one line.\n"
+        "\n"
+        "On the built-in corpus, held out shot by shot, it is +0.42 dB (13\n"
+        "shots x 3 seeds = 39 fold-runs, sd 0.40, 3 of the 39 below bilinear) -\n"
+        "but that is a number about the bestiary, not about your game. No BLSS\n"
+        "frame has ever been TIMED, in the emulator or on hardware, so whether\n"
+        "it is faster on your scene is genuinely unknown, and nobody has\n"
+        "watched the picture in PCSX2 since the training objective last\n"
+        "changed.\n"
         "\n"
         "VRAM it gives back: the z-buffer shrinks with the render, which\n"
         "returns more than the reduced-resolution target costs (measured at\n"
@@ -253,12 +267,14 @@ bool App::drawBlssSettings(ProjectSettings& s) {
     if (s.blssEnabled)
         ImGui::TextColored(
             ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-            "    Proof of concept. On content it was not trained on it beats a\n"
-            "    plain bilinear upscale by +0.40 dB (13-shot cross-validation,\n"
-            "    39 fold-runs, sd 0.40; 5 of the 39 came out below bilinear),\n"
-            "    but no frame of it has ever been timed on console or hardware.\n"
-            "    Cross-validate it and look at the result in PCSX2 before you\n"
-            "    ship a game with this on.");
+            "    Proof of concept, and it has to be trained on THIS PROJECT: a net\n"
+            "    fitted to the built-in procedural corpus measured -0.40 dB on a real\n"
+            "    project, i.e. worse than leaving this off, where one fitted to that\n"
+            "    project's own scenes measured +0.06 against a ceiling of +0.77. Some\n"
+            "    scenes have no ceiling at all - on examples/showcase the oracle itself\n"
+            "    is +0.00 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
+            "    tab answers 'will this scene benefit' in one line. No frame of it has\n"
+            "    ever been timed on console or hardware; look at it in PCSX2 too.");
     if (s.blssEnabled) drawBlssClashWarning(blssClashesFor(s));
 
     ImGui::BeginDisabled(!s.blssEnabled);
@@ -318,19 +334,46 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "temporal kernel available, so turning it off does not need and\n"
             "does not get a different network.");
 
-        int debug = s.blssDebugView == 1 ? 1 : 0;
+        // THREE ENTRIES, BECAUSE THE FIELD HAS THREE VALUES. project.cpp clamps
+        // blssDebugView to 0..2 and the engine reads 2 as the feature-spread
+        // logger; a two-entry combo displayed a project that had 2 as "Off",
+        // i.e. the UI lied about the project's own data, and writing the widget
+        // back silently reset it. View 2 is also the only instrument that has
+        // ever caught a host/console divergence (the whole-mesh proxy, the sky
+        // dome), so it must stay reachable without a text editor.
+        int debug = std::clamp(s.blssDebugView, 0, 2);
         const char* debugNames[] = {
-            "Off", "Tint by winning kernel (red = point, green = temporal, blue = sharpen)"};
+            "Off", "Tint by winning kernel (red = point, green = temporal, blue = sharpen)",
+            "Log the feature spread to bin/log.txt (no tint)"};
         ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Debug view", &debug, debugNames, 2)) {
+        if (ImGui::Combo("Debug view", &debug, debugNames, 3)) {
             s.blssDebugView = debug;
             changed = true;
         }
         prefHelp(
-            "Paints each tile by the reconstruction the network chose there -\n"
-            "the fastest way to see whether it is making sensible decisions\n"
-            "on your content. Ships in the build, so turn it off before you\n"
-            "hand the game to anyone.");
+            "1 paints each tile by the reconstruction the network chose there -\n"
+            "the fastest way to see whether it is making sensible decisions on\n"
+            "your content.\n"
+            "\n"
+            "2 IS THE INSTRUMENT. Once a second the game writes a block into\n"
+            "bin/log.txt: BLSSGRID (tile grid and proxy count), BLSSFEAT\n"
+            "(min/mean/max of each of the six input channels over the grid, in\n"
+            "the trainer's own names and order), BLSSOUT (the three weights the\n"
+            "net asked for), BLSSFILL (the passes that cost) and BLSSWORST (the\n"
+            "tiles nothing described). Paste a BLSSFEAT line into\n"
+            "'tyrax-editor --blss-eval --features --probe \"<line>\"' and the\n"
+            "tool places the CONSOLE'S OWN distribution inside the corpus' -\n"
+            "which is how the whole-mesh bag proxy and the sky dome were found,\n"
+            "and the only way to know the network is being fed what it was\n"
+            "trained on. It does not tint the picture.\n"
+            "\n"
+            "Both ship in the build, so set this back to Off before you hand\n"
+            "the game to anyone.");
+        if (debug == 2)
+            ImGui::TextDisabled(
+                "    The game writes BLSSFEAT into bin/log.txt about once a second; feed one\n"
+                "    line to --blss-eval --features --probe to place it in this corpus' "
+                "distribution.");
     }
     ImGui::EndDisabled();
     return changed;
@@ -398,12 +441,83 @@ void App::blssWriteNetSidecar(const std::string& netPath, const std::string& com
 
 std::vector<std::string> App::blssCommonArgs() const {
     std::vector<std::string> a;
+    // THE PROJECT DIRECTORY IS POSITIONAL AND IT COMES FIRST, because parseCli
+    // takes the first bare word as the corpus to render.
+    //
+    // ABSOLUTE, and it has to be for two reasons. The job runs with cwd = the
+    // project directory, so a Project::dir that came in relative (the CLI can
+    // open one that way) would be resolved against ITSELF and find nothing. And
+    // this string is what the provenance sidecar records next to blss.net -
+    // "trained on ." is not an answer to "trained on what".
+    if (blssCorpusProject_) {
+        std::error_code ec;
+        const fs::path abs = fs::absolute(project_.dir, ec);
+        a.push_back(ec ? project_.dir : abs.string());
+    }
     a.push_back("--assets");
     a.push_back(blssAssets_);
     a.push_back("--sharpen");
     a.push_back(numArg(project_.settings.blssSharpen));
     if (project_.settings.blssScale == 1) a.push_back("--scale-1x2");
     return a;
+}
+
+// --- which corpus, and it is the decision this whole window turns on ----------
+
+void App::drawBlssCorpusChoice() {
+    ImGui::TextUnformatted("Corpus:");
+    ImGui::SameLine();
+    int mode = blssCorpusProject_ ? 0 : 1;
+    ImGui::BeginDisabled(blssJob_.running());
+    if (ImGui::RadioButton("This project's own scenes", &mode, 0)) blssCorpusProject_ = true;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Procedural bestiary", &mode, 1)) blssCorpusProject_ = false;
+    ImGui::EndDisabled();
+    prefHelp(
+        "WHICH FRAMES THE NETWORK IS FITTED TO, and the measurement that makes\n"
+        "this the first control in the window rather than a footnote.\n"
+        "\n"
+        "The console runs YOUR scene. A net fitted to the built-in procedural\n"
+        "bestiary was measured ON a real project (examples/procedural, 72\n"
+        "frames, six camera moves) at -0.40 dB against plain bilinear - WORSE\n"
+        "than switching the feature off - while paying half a composite pass\n"
+        "more. The same trainer fitted to that project's own scenes scored\n"
+        "+0.06 dB at 1.19 passes, and the oracle's ceiling there is +0.77.\n"
+        "\n"
+        "The mechanism is not subtle: texDetail is identically ZERO over all\n"
+        "16 128 tiles of that project (it has no textures) and it is the\n"
+        "bestiary's channel most correlated with the temporal weight, while\n"
+        "edgeDens saturates in 63% of its tiles against 29% of the bestiary's.\n"
+        "The bestiary net's temporal gate is driven by inputs that are out of\n"
+        "range, so it asks for 62-93% temporal occupancy where the oracle asks\n"
+        "for 7-30%.\n"
+        "\n"
+        "The bestiary is the FALLBACK - it is what a project with nothing\n"
+        "drawable falls back to, and what the docs' 13-shot fold tables were\n"
+        "measured on. It is not the net to ship.");
+    if (blssCorpusProject_) {
+        ImGui::TextDisabled("    %s", project_.dir.c_str());
+        ImGui::TextDisabled(
+            "    Primitives, static .obj and the terrain, walked / panned / orbited /\n"
+            "    whipped / pitched / strafed from the scene's bounds and the player start,\n"
+            "    plus any authored Cutscene Director camera track. Animated .glb is skipped -\n"
+            "    it goes down the dynamic pipeline, which does not feed the upscaler at all.");
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                           "    13 hand-written procedural shots. Measured at -0.40 dB - worse "
+                           "than no BLSS -\n    on a real project. Use it to reproduce the "
+                           "documented fold tables, not to ship a game.");
+    }
+}
+
+// The same fact, one line, above every table that was produced by a run - so
+// "which corpus is this?" never needs a scroll back up to the header.
+void App::drawBlssCorpusReminder() {
+    if (blssCorpusProject_)
+        ImGui::TextDisabled("Corpus: this project's own scenes (%s).", project_.dir.c_str());
+    else
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                           "Corpus: the procedural bestiary, NOT this project.");
 }
 
 void App::blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs) {
@@ -416,10 +530,7 @@ void App::blssStart(blssui::Kind kind, const std::vector<std::string>& args, int
     blssLastError_.clear();
     blssPendingNet_.clear();
     if (kind == blssui::Kind::Train) blssPendingNet_ = blssNetPath();
-    // 13 shots is what blsscorpus ships; the progress fraction only needs it to
-    // turn "shot 7 of ?" into a bar, and a wrong count costs a smooth bar, not
-    // a wrong number.
-    blssJob_.start(kind, exe, args, project_.dir, epochs, 13);
+    blssJob_.start(kind, exe, args, project_.dir, epochs);
 }
 
 // Called every frame from drawUI, NOT from the window body - a run that
@@ -616,6 +727,9 @@ void App::drawBlssHeader() {
     } else {
         ImGui::TextDisabled("none");
     }
+    ImGui::Spacing();
+    drawBlssCorpusChoice();
+    ImGui::Spacing();
     // BAKING IT IN is one button because the build already does it: codegen
     // reads <project>/blss.net every time and rewrites inc/blss_net.gen.hpp, so
     // training here IS baking. This runs `--blss-emit` for the case where the
@@ -692,11 +806,23 @@ void App::drawBlssOutput(float height) {
 void App::drawBlssTrainTab() {
     ImGui::Spacing();
     ImGui::TextWrapped(
-        "Renders the procedural corpus, labels every frame with the oracle (the weights "
-        "that minimise the objective under the exact GS composite), fits the %d-%d-%d MLP to "
-        "those labels and writes the result next to the project. Minutes, on every core "
-        "the machine has - the editor stays usable while it runs.",
+        "Renders the corpus, labels every frame with the oracle (the weights that minimise "
+        "the objective under the exact GS composite), fits the %d-%d-%d MLP to those labels "
+        "and writes the result next to the project. The corpus render and the oracle run on "
+        "every core the machine has and are seeded, so the same settings give the same "
+        "blss.net whatever the core count; the fit itself is sequential and is about a "
+        "third of the wall clock. The editor stays usable while it runs.",
         blss::kFeatures, blss::kHidden, blss::kOutputs);
+    ImGui::Spacing();
+    drawBlssCorpusReminder();
+    if (blssCorpusProject_)
+        ImGui::TextDisabled(
+            "This is the net to ship: the console runs the frames it was fitted on.");
+    else
+        ImGui::TextColored(
+            ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+            "A net fitted here scored -0.40 dB on a real project - worse than leaving the\n"
+            "upscaler off. Switch the corpus in the header before training one to ship.");
     ImGui::Spacing();
 
     ImGui::BeginDisabled(blssJob_.running());
@@ -737,7 +863,7 @@ void App::drawBlssTrainTab() {
         blssTrainDecay_ = 1e-4f;
         blssTrainFill_ = blss::kFillWeight;
         blssTrainFlicker_ = blss::kFlickerWeight;
-        blssTrainAllShots_ = false;
+        blssTrainAllShots_ = true;
         blssTrainStandardise_ = false;
     }
     ImGui::SameLine();
@@ -768,13 +894,15 @@ void App::drawBlssTrainTab() {
 
     ImGui::SeparatorText("Corpus");
     ImGui::SetNextItemWidth(scaled(160));
-    ImGui::DragInt("Frames", &blssTrainFrames_, 1.0f, 13, 520);
+    ImGui::DragInt("Frames", &blssTrainFrames_, 1.0f, 6, 520);
     prefHelp(
-        "Split evenly over the 13 shots, so this and the shot count move\n"
-        "together: 156 gives 12 frames each. A shot with three frames teaches\n"
-        "the temporal channel almost nothing - its history is one frame deep\n"
-        "and the first frame of a shot has none at all. This is the slow part\n"
-        "of every run.");
+        "Split evenly over the shots, so this and the shot count move\n"
+        "together: 156 gives 12 frames each over the bestiary's 13 shots, and\n"
+        "26 each over a one-scene project's six camera moves. A shot with three\n"
+        "frames teaches the temporal channel almost nothing - its history is\n"
+        "one frame deep and the first frame of a shot has none at all.\n"
+        "It is linear in every phase: the corpus render, the oracle and the\n"
+        "fit all scale with it.");
     ImGui::SetNextItemWidth(scaled(160));
     {
         int seed = (int)blssTrainSeed_;
@@ -789,12 +917,24 @@ void App::drawBlssTrainTab() {
         "The shipped default is B1557.");
     ImGui::Checkbox("Fit every shot (--all-shots)", &blssTrainAllShots_);
     prefHelp(
-        "Off: the four held-out shots are kept out, so a later Evaluate on\n"
-        "the same corpus measures content this net has not seen.\n"
-        "On: fits all 13. That is the net you would actually SHIP - it costs\n"
-        "the shipped default real quality to withhold a third of the corpus -\n"
-        "but afterwards the Evaluate tab's held-out columns mean nothing and\n"
-        "cross-validation is the only honest measurement left.");
+        "ON, and on a project corpus it should stay on. The console runs the\n"
+        "frames the net was fitted to, so fitting all of them is the point -\n"
+        "measured on examples/procedural, that net scores +0.06 dB against an\n"
+        "oracle ceiling of +0.77, while a net trained on the bestiary scores\n"
+        "-0.40 on the same frames.\n"
+        "\n"
+        "Off keeps a strided third of the shots out, so a later Evaluate on the\n"
+        "same corpus measures content this net has not seen. That is a\n"
+        "measurement, not a shipping configuration, and it costs the net real\n"
+        "quality: on the bestiary, leave-one-out scored +0.31 dB where\n"
+        "leave-two-out scored +0.10 on identical content.\n"
+        "\n"
+        "With it on the Evaluate tab's held-out columns mean nothing - every\n"
+        "row is in-distribution.");
+    if (!blssTrainAllShots_)
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                           "    A third of the corpus is withheld - this is a measurement "
+                           "net, not the one to ship.");
 
     ImGui::SeparatorText("Objective");
     ImGui::TextDisabled(
@@ -864,7 +1004,77 @@ void marginText(double v) {
     const ImVec4 good(0.45f, 0.85f, 0.45f, 1.0f), bad(1.0f, 0.45f, 0.35f, 1.0f);
     ImGui::TextColored(v >= 0.0 ? good : bad, "%+.2f", v);
 }
+
+// Below this many dB the oracle - the best ANY per-tile weighting can do under
+// the exact GS composite - is indistinguishable from plain bilinear, and no
+// network can beat a bound of zero. Measured: on examples/showcase the oracle
+// scores +0.07 dB held-out and +0.00 dB on the rest, at 1.01 and 1.00 passes.
+// Soft ground texture, low-poly props, nothing that aliases: a fact about the
+// scene, not about the trainer.
+constexpr double kNoHeadroomDb = 0.10;
 }  // namespace
+
+// WILL THIS SCENE BENEFIT AT ALL - the answer --blss-eval has always contained
+// and has always buried in the sixth row of a table. The oracle row IS the
+// scene's ceiling, so it answers the question the PSNR columns only imply.
+void App::drawBlssVerdict() {
+    // The arithmetic is blssui::summarise() - a pure function of the parsed
+    // table, so it is checkable from the host-only harness. This function only
+    // chooses words and colours.
+    const blssui::EvalSummary sum = blssui::summarise(blssEval_);
+    if (!sum.ok) return;
+    const double ceiling = sum.oracleMargin, margin = sum.netMargin;
+    const double netP = sum.netPasses, orcP = sum.oraclePasses;
+
+    const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
+        good(0.45f, 0.85f, 0.45f, 1.0f);
+    ImGui::SeparatorText("The answer");
+    if (ceiling < kNoHeadroomDb) {
+        ImGui::TextColored(bad, "THIS SCENE WILL NOT BENEFIT. Leave the upscaler off.");
+        ImGui::TextWrapped(
+            "The ORACLE - the best any per-tile weighting can do under the exact GS "
+            "composite, which no network can beat - scores %+.2f dB over plain bilinear "
+            "here, at %.2f passes. There is nothing to reconstruct: a half-resolution "
+            "render of this content, blown up bilinearly, is already as close to the "
+            "supersampled truth as the composite can get. That is a fact about the scene - "
+            "soft textures, low-poly silhouettes, nothing that aliases - and no amount of "
+            "training moves it.",
+            ceiling, orcP);
+        ImGui::TextDisabled(
+            "    What it costs to turn on anyway: the reduced render gives VRAM back, and "
+            "the composite\n    takes it away in fill. Above 1.00 passes you are paying "
+            "for nothing.");
+    } else if (margin < 0.0) {
+        ImGui::TextColored(bad, "THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT: %+.2f dB.",
+                           margin);
+        ImGui::TextWrapped(
+            "It costs %.2f passes to score below the one pass plain bilinear costs. The "
+            "scene itself has room - the oracle reaches %+.2f dB - so this is the NET, not "
+            "the content.",
+            netP, ceiling);
+        if (!blssCorpusProject_)
+            ImGui::TextColored(warn,
+                               "    That is exactly what a bestiary-trained net does on a real "
+                               "project (-0.40 dB,\n    measured). Switch the corpus above to "
+                               "this project and train again.");
+        else
+            ImGui::TextColored(warn,
+                               "    Check that the net was trained on THIS corpus, at this "
+                               "render scale and this\n    sharpen strength - a blss.net records "
+                               "none of that, so a mismatch is silent.");
+    } else {
+        ImGui::TextColored(good, "%+.2f dB over plain bilinear, at %.2f passes.", margin, netP);
+        ImGui::TextWrapped(
+            "The scene's own ceiling is %+.2f dB at %.2f passes (the oracle), so the network "
+            "has captured %.0f%% of what is there to capture. 1.00 passes IS plain bilinear "
+            "and 5.00 is every kernel everywhere, so read the two together.",
+            ceiling, orcP, ceiling > 0.0 ? 100.0 * margin / ceiling : 0.0);
+    }
+    if (!blssCorpusProject_)
+        ImGui::TextColored(warn,
+                           "    Measured on the BESTIARY, not on this project. It is not an "
+                           "answer about your game.");
+}
 
 void App::drawBlssEvalTab() {
     ImGui::Spacing();
@@ -872,9 +1082,19 @@ void App::drawBlssEvalTab() {
         "Runs the trained net and every fixed kernel over the corpus and prints PSNR, "
         "flicker and occupancy for each. It closes the temporal loop - every frame's "
         "history is the previous frame's real composite, which is what the console has.");
-    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
-                       "Its held-out columns are ONE draw. Use the Cross-validate tab for "
-                       "anything you intend to act on.");
+    ImGui::Spacing();
+    drawBlssCorpusReminder();
+    if (blssCorpusProject_)
+        ImGui::TextWrapped(
+            "ON A PROJECT CORPUS THIS IS THE MEASUREMENT THAT DECIDES. It answers 'will this "
+            "scene benefit at all' - the ORACLE row is the scene's own ceiling, and some "
+            "scenes have none: on examples/showcase the oracle itself scores +0.00 dB at "
+            "1.00 passes, so no network can win there. Run this before you enable the "
+            "upscaler on a game. The verdict is under the table.");
+    else
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                           "Its held-out columns are ONE draw of the bestiary's split. Use the "
+                           "Cross-validate tab for\nanything you intend to act on there.");
     ImGui::Spacing();
 
     ImGui::BeginDisabled(blssJob_.running());
@@ -922,6 +1142,9 @@ void App::drawBlssEvalTab() {
         ImGui::TextDisabled("No table yet. Run it, or look at the output pane below.");
         return;
     }
+    // The verdict FIRST, because it is the question that was asked; the table
+    // below is where it comes from.
+    drawBlssVerdict();
     for (const blssui::EvalSplit& sp : blssEval_.splits) {
         ImGui::SeparatorText(sp.heldOut ? "Held-out shots" : "Training shots");
         ImGui::TextDisabled("%s", sp.caption.c_str());
@@ -993,9 +1216,35 @@ void App::drawBlssCvTab() {
     ImGui::Spacing();
     ImGui::TextWrapped(
         "Leave-one-shot-out: every shot is held out in turn and its own net is trained on "
-        "the other twelve. It ignores the Network field - it trains what it measures. This "
-        "is the number to act on; a single held-out split is a sample of size ONE, and "
-        "quoting one is the mistake this feature made five times.");
+        "the rest. It ignores the Network field - it trains what it measures.");
+    ImGui::Spacing();
+    drawBlssCorpusReminder();
+    if (blssCorpusProject_) {
+        // WHAT A HELD-OUT DECIBEL MEANS DEPENDS ON WHAT THE SHOTS ARE, and on a
+        // project corpus it is not what it is on the bestiary. Saying so here is
+        // the whole point: the tab would otherwise hand back a confident number
+        // that answers a question nobody asked.
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                           "ON A PROJECT CORPUS THIS DOES NOT MEASURE WHAT YOU WILL SHIP.");
+        ImGui::TextWrapped(
+            "The bestiary's 13 shots are 13 KINDS OF CONTENT, so holding one out asks 'does "
+            "this generalise to content it has not seen'. A project's shots are one scene "
+            "seen from six CAMERA MOVES, so holding one out asks whether a corpus of walks, "
+            "pans and orbits predicts a strafe - and the measured answer on "
+            "examples/procedural is NO: -0.17 dB, 9 of 18 fold-runs below plain bilinear, "
+            "1.22 passes. That is the same wall the bestiary hit at five shots (+0.10 dB) "
+            "before it grew to thirteen.");
+        ImGui::TextWrapped(
+            "It does not matter for the net you ship, because the console runs the frames "
+            "the net was fitted on: train with 'Fit every shot' and read the Evaluate tab. "
+            "Do not quote a project corpus' held-out decibel. What this tab IS good for here "
+            "is finding the move the net falls apart on - the per-fold rows, not the mean.");
+    } else {
+        ImGui::TextWrapped(
+            "On the bestiary each shot is a different KIND of content, so this is the number "
+            "to act on: a single held-out split is a sample of size ONE, and quoting one is "
+            "the mistake this feature made five times.");
+    }
     ImGui::Spacing();
 
     ImGui::BeginDisabled(blssJob_.running());
@@ -1014,12 +1263,14 @@ void App::drawBlssCvTab() {
         "another full corpus render plus 13 trainings.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(scaled(70));
-    ImGui::DragInt("Folds", &blssCvFolds_, 0.1f, 0, 13);
+    ImGui::DragInt("Folds", &blssCvFolds_, 0.1f, 0, 48);
     prefHelp(
         "--cv-folds: holds out only the first N shots in turn (0 = every shot).\n"
         "That is how a before/after survives the corpus growing under it: same\n"
         "held-out content, more training content, is the only comparison that\n"
-        "means anything.");
+        "means anything.\n"
+        "The bestiary has 13 shots; a project has six camera moves per scene,\n"
+        "so a two-scene project has twelve.");
     ImGui::SetNextItemWidth(scaled(110));
     ImGui::DragFloat("Weight decay", &blssTrainDecay_, 1e-5f, 0.0f, 1e-2f, "%.5f");
     ImGui::SameLine();
@@ -1041,10 +1292,18 @@ void App::drawBlssCvTab() {
 
     ImGui::Spacing();
     {
-        const long long trainings = (long long)std::max(1, blssCvSeeds_) *
-                                    (blssCvFolds_ > 0 ? blssCvFolds_ : 13);
-        ImGui::TextDisabled("%lld fold-run(s): %d corpus render(s) plus %lld training(s).",
-                            trainings, std::max(1, blssCvSeeds_), trainings);
+        // The shot count is only known once the corpus has been built - 13 for
+        // the bestiary, six per scene for a project - so with Folds at 0 this
+        // says what it costs per shot rather than inventing a total.
+        const int seeds = std::max(1, blssCvSeeds_);
+        if (blssCvFolds_ > 0)
+            ImGui::TextDisabled("%d fold-run(s): %d corpus render(s) plus %d training(s).",
+                                seeds * blssCvFolds_, seeds, seeds * blssCvFolds_);
+        else
+            ImGui::TextDisabled(
+                "%d corpus render(s), then one training per shot per corpus (13 shots on the "
+                "bestiary,\nsix camera moves per scene on a project).",
+                seeds);
     }
     if (ImGui::Button("Run cross-validation", ImVec2(scaled(190.0f), 0))) {
         std::vector<std::string> a{"--blss-eval", "--cv"};
@@ -1330,6 +1589,13 @@ void App::drawBlssFeaturesTab() {
         "does not have. This is the first place to look when the answer to 'why does it "
         "not help here' is wanted, before the topology.",
         blss::kFeatures);
+    ImGui::Spacing();
+    drawBlssCorpusReminder();
+    ImGui::TextDisabled(
+        "Run it on BOTH corpora to see why a bestiary-trained net misbehaves on a project:\n"
+        "texDetail is identically zero over an untextured project's tiles and it is the\n"
+        "bestiary's channel most correlated with the temporal weight (r = +0.251), so that\n"
+        "net's temporal gate is driven by an input that is out of range on your scene.");
     ImGui::Spacing();
 
     ImGui::BeginDisabled(blssJob_.running());

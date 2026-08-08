@@ -69,6 +69,21 @@ struct CorpusConfig {
     // the bestiary's hand-chunked floors and walls were its stand-in for. Kept
     // as `--no-package-split` so those tables stay reproducible.
     bool packageSplit = true;
+    // HOW MANY THREADS RENDER THE FRAMES. 0 = every core the machine has.
+    //
+    // It changes the WALL CLOCK AND NOTHING ELSE, and that is a requirement
+    // rather than a hope: generate() computes frame i from i alone (its camera,
+    // its jitter phase, and its predecessor's camera - never from a buffer the
+    // previous iteration happened to leave behind), so the corpus is
+    // bit-identical at 1 thread and at 32. Every number this feature has
+    // published came off a seeded run; a corpus that depended on the core count
+    // would have silently unmade all of them. `--threads 1` is how that is
+    // checked - see the determinism note above generate() in blsscorpus.cpp.
+    //
+    // Each worker owns ~30 MB of raster scratch at the shipped 4x supersample
+    // (a 2048x1792 colour target and its z-buffer), so this is also the knob for
+    // a machine with many cores and little memory.
+    int threads = 0;
 };
 
 // One training/eval item: what the console would hold, and what it should have
@@ -89,9 +104,16 @@ struct CorpusFrame {
     std::string moveName;
 };
 
-// Renders the whole corpus. Frame N's `prevLow` is frame N-1 of the same shot
-// (the first frame of a shot reuses its own render, which is what the console
-// does on a scene cut), and the jitter phase alternates per frame.
+// Renders the whole corpus, one worker per frame (CorpusConfig::threads). Frame
+// N's `prevLow` is frame N-1 of the same shot (the first frame of a shot reuses
+// its own render, which is what the console does on a scene cut), and the
+// jitter phase alternates per frame.
+//
+// That predecessor is RE-RENDERED from its own camera and phase rather than
+// carried over from the previous iteration, which is what makes frame N a pure
+// function of N and the loop parallel at all - see the note above generate() in
+// the .cpp. The frames come back in the same order a serial run produced them,
+// so a corpus index still means what every held-out split assumes it means.
 std::vector<CorpusFrame> generate(const CorpusConfig&);
 
 }  // namespace blss

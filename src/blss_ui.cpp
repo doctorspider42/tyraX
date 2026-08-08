@@ -136,7 +136,7 @@ double numBefore(const std::vector<std::string>& t, const char* key, double def 
 
 // ---------------------------------------------------------------- progress ---
 
-bool phaseOf(const std::string& line, Kind kind, int epochs, int shots, Phase& out) {
+bool phaseOf(const std::string& line, Kind kind, int epochs, Phase& out) {
     const std::string t = trimmed(line);
     if (t.empty()) return false;
 
@@ -151,18 +151,28 @@ bool phaseOf(const std::string& line, Kind kind, int epochs, int shots, Phase& o
         out.status = "gathering corpus materials";
         return true;
     }
-    // "[blss]   shot 3 poles          pan          12 frame(s)  1234 ms"
-    if (t.rfind("[blss]   shot ", 0) == 0) {
+    // "[blss]   rendered 84 of 156 frame(s)". The corpus renderer is threaded,
+    // so the unit of progress is a FRAME and the total is on the line - it no
+    // longer needs the caller to know how many shots the corpus has, which a
+    // project corpus only decides once it has loaded the scenes.
+    if (t.rfind("[blss]   rendered ", 0) == 0) {
         const std::vector<std::string> tok = tokenize(t);
-        double s = 0;
-        if (tok.size() > 2 && asNumber(tok[2], s)) {
-            const int n = shots > 0 ? shots : 13;
-            out.progress = 0.60f * (float)((s + 1) / n);
-            out.status = "rendering corpus shot " + std::to_string((int)s + 1) + " of " +
-                         std::to_string(n);
+        double done = 0, total = 0;
+        if (tok.size() > 4 && asNumber(tok[2], done) && asNumber(tok[4], total) && total > 0) {
+            out.progress = 0.60f * (float)(done / total);
+            out.status = "rendering the corpus, frame " + std::to_string((int)done) + " of " +
+                         std::to_string((int)total);
             return true;
         }
         return false;
+    }
+    // "[blss]   shot 3 poles          pan          12 frame(s)  1234 ms cpu"
+    // is now a SUMMARY, printed after every frame is rendered, so it reports
+    // the phase as finished rather than winding the bar back to shot 1.
+    if (t.rfind("[blss]   shot ", 0) == 0) {
+        out.progress = 0.60f;
+        out.status = "corpus rendered";
+        return true;
     }
     if (t.rfind("[blss] corpus ready", 0) == 0) {
         out.progress = 0.60f;
@@ -225,7 +235,7 @@ double nowSeconds() {
 Job::~Job() { cancel(); }
 
 void Job::start(Kind kind, const std::string& exe, const std::vector<std::string>& args,
-                const std::string& cwd, int epochs, int shots) {
+                const std::string& cwd, int epochs) {
     cancel();
     std::string cmd = platform::shellArg(exe);
     for (const std::string& a : args) cmd += " " + platform::shellArg(a);
@@ -242,10 +252,10 @@ void Job::start(Kind kind, const std::string& exe, const std::vector<std::string
     running_.store(true);
     started_.store(nowSeconds());
     ended_.store(0.0);
-    worker_ = std::thread(&Job::run, this, cmd, cwd, epochs, shots);
+    worker_ = std::thread(&Job::run, this, cmd, cwd, epochs);
 }
 
-void Job::run(std::string cmdline, std::string cwd, int epochs, int shots) {
+void Job::run(std::string cmdline, std::string cwd, int epochs) {
     platform::Process::Options opts;
     opts.cwd = cwd;
     opts.capture = true;
@@ -268,7 +278,7 @@ void Job::run(std::string cmdline, std::string cwd, int epochs, int shots) {
     std::string line;
     while (proc->readLine(line)) {
         Phase ph;
-        const bool moved = phaseOf(line, k, epochs, shots, ph);
+        const bool moved = phaseOf(line, k, epochs, ph);
         std::lock_guard<std::mutex> lock(mutex_);
         log_ += line;
         log_ += '\n';
@@ -413,6 +423,50 @@ EvalTable parseEval(const std::string& text) {
                                     [](const EvalSplit& s) { return s.rows.empty(); }),
                      out.splits.end());
     return out;
+}
+
+namespace {
+// A row by the tool's own label. parseEval strips the "half-res + " prefix and
+// keeps everything before the first token that is wholly a number, so a prefix
+// match on "bilinear" / "BLSS" / "oracle" is matching what the tool printed.
+const EvalRow* rowNamed(const EvalSplit& sp, const char* prefix) {
+    for (const EvalRow& r : sp.rows)
+        if (r.name.rfind(prefix, 0) == 0) return &r;
+    return nullptr;
+}
+}  // namespace
+
+EvalSummary summarise(const EvalTable& t) {
+    EvalSummary s;
+    double wsum = 0;
+    for (const EvalSplit& sp : t.splits) {
+        const EvalRow* bil = rowNamed(sp, "bilinear");
+        const EvalRow* net = rowNamed(sp, "BLSS");
+        const EvalRow* orc = rowNamed(sp, "oracle");
+        // All three or none: a summary built from a split that is missing its
+        // baseline would be comparing rows from different frame sets.
+        if (!bil || !net || !orc) continue;
+        // A caption whose frame count did not parse still weighs something -
+        // one - rather than dropping the split out of the mean silently.
+        const double w = sp.frames > 0 ? (double)sp.frames : 1.0;
+        s.bilinear += w * bil->psnr;
+        s.net += w * net->psnr;
+        s.oracle += w * orc->psnr;
+        s.netPasses += w * net->passes;
+        s.oraclePasses += w * orc->passes;
+        s.frames += sp.frames;
+        wsum += w;
+    }
+    if (wsum <= 0.0) return s;
+    s.bilinear /= wsum;
+    s.net /= wsum;
+    s.oracle /= wsum;
+    s.netPasses /= wsum;
+    s.oraclePasses /= wsum;
+    s.netMargin = s.net - s.bilinear;
+    s.oracleMargin = s.oracle - s.bilinear;
+    s.ok = true;
+    return s;
 }
 
 // -------------------------------------------------------------- parse: cv ---

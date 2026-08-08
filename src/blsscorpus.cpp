@@ -9,7 +9,9 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1616,6 +1618,67 @@ std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
 
 // -------------------------------------------------------------------- entry ---
 
+namespace {
+
+// ONE FRAME'S WORTH OF RASTER SCRATCH, owned by a worker rather than by a frame.
+// The supersampled target and its z-buffer are 15 MB each at the shipped 4x, so
+// reallocating them per frame was already worth avoiding when this loop was
+// serial; per WORKER is the same trick with the thread count in front of it.
+struct RenderScratch {
+    Image big;
+    std::vector<float> zb;
+};
+
+// Split [0, n) across `threads` workers and run `body(i, scratch)`. Worker w
+// takes i = w, w + workers, w + 2*workers, ... - a fixed partition, so which
+// worker computes item i is a function of the core count and NOTHING ELSE
+// touches item i. Same rule as blss.cpp's parallelFor and matbake's sampler,
+// for the same reason: this loop produces the training corpus, every published
+// number on this feature came off a seeded run of it, and a corpus that came
+// out different on a bigger machine would have quietly invalidated all of them.
+template <class F>
+void parallelFrames(int n, int threads, const F& body) {
+    if (n <= 0) return;
+    int workers = threads;
+    if (workers <= 0) {
+        workers = (int)std::thread::hardware_concurrency();
+        if (workers < 1) workers = 1;
+    }
+    // Each worker holds ~30 MB of raster scratch at 4x supersample, on top of a
+    // corpus that is already ~2.3 MB per frame, so the cap applies to an
+    // explicit `--threads 64` as much as to a 64-core machine. Same ceiling as
+    // blss.cpp's parallelFor.
+    if (workers > 32) workers = 32;
+    if (workers > n) workers = n;
+    if (workers <= 1) {
+        RenderScratch sc;
+        for (int i = 0; i < n; ++i) body(i, sc);
+        return;
+    }
+    const auto run = [&](int w) {
+        RenderScratch sc;
+        for (int i = w; i < n; i += workers) body(i, sc);
+    };
+    std::vector<std::thread> pool;
+    pool.reserve((size_t)workers - 1);
+    for (int w = 1; w < workers; ++w) pool.emplace_back(run, w);
+    run(0);
+    for (std::thread& t : pool) t.join();
+}
+
+}  // namespace
+
+// DETERMINISM SURVIVES THE THREAD COUNT, and it is the frame loop below that
+// has to earn it. The serial version carried `prevLow` from one iteration to
+// the next, which is a dependency on the ORDER frames were rendered in; the
+// parallel one re-renders the predecessor's low-res target from its own camera
+// and its own jitter phase instead. That is the same image by construction -
+// renderScene() is a pure function of (geometry, materials, camera, size,
+// raster offset) and clears both its colour target and its z-buffer - and it
+// costs 1.5% more work, because a low-res render is 1/64 of the supersampled
+// truth that dominates the frame. What it buys is that frame i is computed from
+// i alone, so `--threads 1` and `--threads 32` produce byte-identical corpora,
+// byte-identical labels, and a byte-identical blss.net.
 std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     std::vector<CorpusFrame> out;
     const int outW = cfg.outW, outH = cfg.outH;
@@ -1698,86 +1761,120 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                                      : "one per object (--no-package-split)");
     }
 
-    out.reserve((size_t)cfg.frames);
-    std::vector<float> zb;   // raster scratch, reused across every pass
-    Image big;               // the supersampled render, likewise
-    for (int si = 0; si < shotCount; ++si) {
-        const int n = perShot[(size_t)si];
-        if (n <= 0) continue;
-        const Shot& shot = shots[(size_t)si];
+    // THE WORK LIST, in the order the serial loop produced it: shot 0's frames,
+    // then shot 1's, ... Building it up front is what turns "a loop with a
+    // carried variable" into "n independent items", and keeping the order means
+    // a corpus index still means what every held-out split and every fold table
+    // already assumed it means.
+    struct FrameJob {
+        int shot = 0;   // which shot
+        int i = 0;      // frame index within it
+        int n = 0;      // frames in that shot
+    };
+    std::vector<FrameJob> jobs;
+    jobs.reserve((size_t)cfg.frames);
+    for (int si = 0; si < shotCount; ++si)
+        for (int i = 0; i < perShot[(size_t)si]; ++i) jobs.push_back({si, i, perShot[(size_t)si]});
+
+    out.resize(jobs.size());
+    std::vector<double> shotMs((size_t)shotCount, 0.0);
+    std::mutex report;
+    int done = 0, reported = -1;
+
+    parallelFrames((int)jobs.size(), cfg.threads, [&](int j, RenderScratch& sc) {
+        const FrameJob& job = jobs[(size_t)j];
+        const Shot& shot = shots[(size_t)job.shot];
         const std::vector<Object>& geo = shot.geometry();
+        const int i = job.i, n = job.n;
         const auto ts = std::chrono::steady_clock::now();
 
-        Image prevLow;
-        for (int i = 0; i < n; ++i) {
-            const float t = n > 1 ? (float)i / (float)(n - 1) : 0.0f;
-            const float tPrev = n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f;
-            const Pinhole cur = cameraAt(shot, t);
-            // Frame 0 has no predecessor: prev == cur makes every reprojection
-            // offset zero and prevLow its own render, which is exactly what the
-            // console holds on a scene cut.
-            const Pinhole prev = i > 0 ? cameraAt(shot, tPrev) : cur;
+        const float t = n > 1 ? (float)i / (float)(n - 1) : 0.0f;
+        const float tPrev = n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f;
+        const Pinhole cur = cameraAt(shot, t);
+        // Frame 0 has no predecessor: prev == cur makes every reprojection
+        // offset zero and prevLow its own render, which is exactly what the
+        // console holds on a scene cut.
+        const Pinhole prev = i > 0 ? cameraAt(shot, tPrev) : cur;
 
-            CorpusFrame cf;
-            cf.shot = si;
-            cf.shotName = shot.name;
-            cf.moveName = shot.moveName;
-            Frame& fr = cf.frame;
-            fr.cols = cols, fr.rows = rows;
-            fr.outW = outW, fr.outH = outH;
-            fr.scale = cfg.scale;
-            fr.phase = i % kJitterPhases;
+        CorpusFrame& cf = out[(size_t)j];
+        cf.shot = job.shot;
+        cf.shotName = shot.name;
+        cf.moveName = shot.moveName;
+        Frame& fr = cf.frame;
+        fr.cols = cols, fr.rows = rows;
+        fr.outW = outW, fr.outH = outH;
+        fr.scale = cfg.scale;
+        fr.phase = i % kJitterPhases;
 
-            // Ground truth: rendered at ss x the display size and box-resolved.
-            // Point samples on a regular grid, so it is not a perfect
-            // band-limit of a checkerboard at the horizon - but it is the same
-            // definition the oracle and psnr() are measured against, and 16
-            // samples per output pixel is far past what the console will ever
-            // see.
-            renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, big, zb);
-            cf.truth = ss > 1 ? boxDown(big, ss) : big;
-            // The "no BLSS" baseline: full resolution, one sample, no jitter.
-            renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, zb);
-            // What the console actually has: the jittered low-res target. The
-            // jitter is in LOW-RES pixels and this render's pixels ARE low-res
-            // pixels, so it goes straight in as the raster offset.
-            renderScene(geo, mats, cur, lowW, lowH, jitterX(fr.phase),
-                        jitterY(fr.phase), fr.low, zb);
-            fr.prevLow = i > 0 ? prevLow : fr.low;
+        // Ground truth: rendered at ss x the display size and box-resolved.
+        // Point samples on a regular grid, so it is not a perfect band-limit of
+        // a checkerboard at the horizon - but it is the same definition the
+        // oracle and psnr() are measured against, and 16 samples per output
+        // pixel is far past what the console will ever see.
+        renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, sc.big, sc.zb);
+        cf.truth = ss > 1 ? boxDown(sc.big, ss) : sc.big;
+        // The "no BLSS" baseline: full resolution, one sample, no jitter.
+        renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, sc.zb);
+        // What the console actually has: the jittered low-res target. The
+        // jitter is in LOW-RES pixels and this render's pixels ARE low-res
+        // pixels, so it goes straight in as the raster offset.
+        renderScene(geo, mats, cur, lowW, lowH, jitterX(fr.phase), jitterY(fr.phase),
+                    fr.low, sc.zb);
+        // ...and the predecessor's, RE-RENDERED rather than carried over from
+        // the previous iteration - that carry is the only thing that made this
+        // loop serial. Same camera, same jitter phase, same pure function, so
+        // the same image: see the determinism note above.
+        if (i > 0)
+            renderScene(geo, mats, prev, lowW, lowH, jitterX((i - 1) % kJitterPhases),
+                        jitterY((i - 1) % kJitterPhases), fr.prevLow, sc.zb);
+        else
+            fr.prevLow = fr.low;
 
-            // ...and what the EE knows ABOUT it: one bag per drawn object, from
-            // the unjittered display-resolution projection.
-            const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH);
-            const std::vector<TileStats> stats =
-                accumulate(cols, rows, outW, outH, bags);
-            // History size is the DISPLAY size: the runtime's history is the
-            // other display framebuffer (docs/blss-reconstruction.md section 6),
-            // so one history texel is one output pixel.
-            fr.reproj = buildReproj(cols, rows, outW, outH, outW, outH, cur, prev, stats);
-            // No per-tile state crosses this line any more. It used to: the
-            // recurrent histAge counter had to be aged AFTER the features were
-            // built, because the console's network sees the counter as it stood
-            // at the end of the PREVIOUS frame, and ageing first would have
-            // handed the corpus a one-frame lookahead the hardware does not
-            // have. The channel was measured and removed (blss.hpp, kFeatures),
-            // and that whole ordering hazard went with it - buildFeatures is now
-            // a pure function of this frame.
-            fr.features = buildFeatures(cols, rows, stats, fr.reproj);
+        // ...and what the EE knows ABOUT it: one bag per drawn object, from
+        // the unjittered display-resolution projection.
+        const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH);
+        const std::vector<TileStats> stats = accumulate(cols, rows, outW, outH, bags);
+        // History size is the DISPLAY size: the runtime's history is the other
+        // display framebuffer (docs/blss-reconstruction.md section 6), so one
+        // history texel is one output pixel.
+        fr.reproj = buildReproj(cols, rows, outW, outH, outW, outH, cur, prev, stats);
+        // No per-tile state crosses this line any more. It used to: the
+        // recurrent histAge counter had to be aged AFTER the features were
+        // built, because the console's network sees the counter as it stood at
+        // the end of the PREVIOUS frame, and ageing first would have handed the
+        // corpus a one-frame lookahead the hardware does not have. The channel
+        // was measured and removed (blss.hpp, kFeatures), and that whole
+        // ordering hazard went with it - buildFeatures is now a pure function of
+        // this frame. It is also what lets this loop be a parallelFrames at all.
+        fr.features = buildFeatures(cols, rows, stats, fr.reproj);
 
-            prevLow = fr.low;
-            out.push_back(std::move(cf));
-        }
-        if (cfg.verbose) {
-            const double ms = std::chrono::duration<double, std::milli>(
-                                  std::chrono::steady_clock::now() - ts)
-                                  .count();
-            std::printf("[blss]   shot %d %-18s %-13s %2d frame(s)  %7.0f ms (%.0f ms/frame)\n",
-                        si, shot.name.c_str(), shot.moveName.c_str(), n, ms,
-                        ms / (double)n);
-        }
-    }
+        const double ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ts)
+                .count();
+        // The only shared state, and it is bookkeeping: a CPU-time total per
+        // shot and a progress line. Neither reaches a pixel, a feature or a
+        // label, so neither can move the corpus.
+        std::lock_guard<std::mutex> lock(report);
+        shotMs[(size_t)job.shot] += ms;
+        ++done;
+        if (!cfg.verbose) return;
+        const int pct = done * 20 / (int)jobs.size();  // a line every 5%
+        if (pct == reported) return;
+        reported = pct;
+        std::printf("[blss]   rendered %d of %zu frame(s)\n", done, jobs.size());
+        std::fflush(stdout);
+    });
 
     if (cfg.verbose) {
+        // Per shot, the summed CPU time of its frames - NOT wall clock, which
+        // stopped being a per-shot quantity the moment the shots overlapped.
+        for (int si = 0; si < shotCount; ++si) {
+            const int n = perShot[(size_t)si];
+            if (n <= 0) continue;
+            std::printf("[blss]   shot %d %-18s %-13s %2d frame(s)  %7.0f ms cpu (%.0f ms/frame)\n",
+                        si, shots[(size_t)si].name.c_str(), shots[(size_t)si].moveName.c_str(), n,
+                        shotMs[(size_t)si], shotMs[(size_t)si] / (double)n);
+        }
         const double s = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - t0)
                              .count();
