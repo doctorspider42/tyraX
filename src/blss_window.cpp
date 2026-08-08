@@ -395,11 +395,15 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "\n"
         "On the built-in corpus, held out shot by shot, it is +0.42 dB (13\n"
         "shots x 3 seeds = 39 fold-runs, sd 0.35, 3 of the 39 below bilinear) -\n"
-        "but that is a number about the bestiary, not about your game. No BLSS\n"
-        "frame has ever been TIMED, in the emulator or on hardware, so whether\n"
-        "it is faster on your scene is genuinely unknown, and nobody has\n"
-        "watched the picture in PCSX2 since the training objective last\n"
-        "changed.\n"
+        "but that is a number about the bestiary, not about your game.\n"
+        "\n"
+        "IT IS NOT FREE, AND THAT IS NOW MEASURED. On real hardware a BLSS\n"
+        "frame came out 9.83 ms SLOWER (9.42 -> 19.25 ms), and essentially all\n"
+        "of it is EE cost the feature adds: the GS overhang was 0.02 ms in both\n"
+        "arms, so the reduced-resolution render bought back nothing there. Two\n"
+        "reworks of that cost are in flight, so read it as the state of this\n"
+        "branch rather than a settled property. There is also an OPEN BUG -\n"
+        "with this on, textured primitives and textured terrain can vanish.\n"
         "\n"
         "VRAM it gives back: the z-buffer shrinks with the render, which\n"
         "returns more than the reduced-resolution target costs (measured at\n"
@@ -427,8 +431,9 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "    project's own scenes measured +0.06 against a ceiling of +0.77. Some\n"
             "    scenes have no ceiling at all - on examples/showcase the oracle itself\n"
             "    is +0.02 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
-            "    tab answers 'will this scene benefit' in one line. No frame of it has\n"
-            "    ever been timed on console or hardware; look at it in PCSX2 too.");
+            "    tab answers 'will this scene benefit' in one line. On hardware it also\n"
+            "    measured 9.83 ms a frame SLOWER (9.42 -> 19.25), and textured\n"
+            "    primitives and terrain can vanish with it on - both are open work.");
     // ALWAYS, not only when the feature is on. The person who most needs to
     // know that this project uses depth of field is the one deciding whether to
     // tick the box above; drawing it only for `s.blssEnabled` meant the answer
@@ -503,14 +508,55 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "comes from - two sub-pixel jitter phases averaged is a real 2x\n"
             "supersample, and the GS has no MSAA to offer instead. Off =\n"
             "spatial only: no ghosting on fast motion, and no AA either.\n"
-            "It is also the switch to reach for if the picture SHAKES. A\n"
-            "visible sub-pixel bob was seen in the emulator before the\n"
-            "training objective was retuned; the host's stability metric\n"
-            "improved with the retune, but nobody has watched a television\n"
-            "since, so it is neither confirmed fixed nor confirmed present.\n"
+            "It averages the two sub-pixel jitter phases where the network asks\n"
+            "for it - but do NOT read that as a cure for a picture that shakes.\n"
+            "Measured: the upscaler-lab net puts 72-78% of its weight on this\n"
+            "pass and the picture still bobs, at the same magnitude as one that\n"
+            "leans on it far less. 'Sub-pixel jitter' below is the switch that\n"
+            "actually settles it, and its price is written under it.\n"
             "It is a RUNTIME switch only: the trainer always labels with the\n"
             "temporal kernel available, so turning it off does not need and\n"
             "does not get a different network.");
+
+        if (ImGui::Checkbox("Sub-pixel jitter (the samples temporal reuse averages)",
+                            &s.blssJitter))
+            changed = true;
+        prefHelp(
+            "STABILITY AGAINST RECONSTRUCTION, and both sides are measured.\n"
+            "Read the whole table before you touch it: this is not a free cure\n"
+            "for the bob.\n"
+            "\n"
+            "On, the raster origin moves a quarter of a pixel every frame. Those\n"
+            "offset samples are what the reconstruction is BUILT on, so most of\n"
+            "what the upscaler is worth comes from them. Off, every frame\n"
+            "samples the same place: a plain spatial upscale, and a still\n"
+            "picture.\n"
+            "\n"
+            "                                  jitter ON   jitter OFF\n"
+            "   trained margin over bilinear     +0.69 dB     +0.26 dB\n"
+            "   the scene's own oracle CEILING   +0.84 dB     +0.27 dB\n"
+            "   folds below bilinear                 0/18         3/18\n"
+            "   picture alternating per frame       30.8%        0.05%\n"
+            "   amplitude of that alternation    1.42/255     0.03/255\n"
+            "\n"
+            "The dB rows were measured on examples/upscaler-lab, the stability\n"
+            "rows on hardware with a frozen camera. 0.03/255 is the floor - the\n"
+            "identical number BLSS switched off measures.\n"
+            "\n"
+            "So turning it off does not merely cost what the network captured:\n"
+            "it removes most of what there was to capture, and the scene's\n"
+            "CEILING falls with it. What the price buys is a picture that does\n"
+            "not bob.\n"
+            "\n"
+            "Do not expect the temporal pass to fuse the two phases instead:\n"
+            "upscaler-lab's net puts 72-78% of its weight on temporal and bobs\n"
+            "at the same magnitude anyway.\n"
+            "\n"
+            "NOT a runtime switch. The trainer renders and evaluates through the\n"
+            "project's own sampler, so flipping this makes the existing blss.net\n"
+            "stale - re-train, or the net is fitted to a distribution the\n"
+            "console does not produce. The net's provenance line above says so\n"
+            "when the two have drifted apart.");
 
         // THREE ENTRIES, BECAUSE THE FIELD HAS THREE VALUES. project.cpp clamps
         // blssDebugView to 0..2 and the engine reads 2 as the feature-spread
@@ -637,6 +683,15 @@ std::vector<std::string> App::blssCommonArgs() const {
     a.push_back("--sharpen");
     a.push_back(numArg(project_.settings.blssSharpen));
     if (project_.settings.blssScale == 1) a.push_back("--scale-1x2");
+    // State the jitter choice rather than letting the trainer resolve it. On a
+    // project corpus this is a NO-OP - the tool would read the same blssJitter
+    // out of the same project - but it is what puts the choice on the command
+    // line the sidecar keeps, which is the only way drawBlssProvenanceDrift can
+    // later tell a jitter-off net from a jitter-on one. The bestiary keeps its
+    // own default (jitter on): its fold tables are published numbers, and this
+    // project's sampler is not a fact about them.
+    if (blssCorpusProject_)
+        a.push_back(project_.settings.blssJitter ? "--jitter" : "--no-jitter");
     return a;
 }
 
@@ -676,10 +731,13 @@ void App::drawBlssCorpusChoice() {
     if (blssCorpusProject_) {
         ImGui::TextDisabled("    %s", project_.dir.c_str());
         ImGui::TextDisabled(
-            "    Primitives, static .obj and the terrain, walked / panned / orbited /\n"
-            "    whipped / pitched / strafed from the scene's bounds and the player start,\n"
-            "    plus any authored Cutscene Director camera track. Animated .glb is skipped -\n"
-            "    it goes down the dynamic pipeline, which does not feed the upscaler at all.");
+            "    Primitives, static .obj, the terrain and animated .glb/.fbx, walked /\n"
+            "    panned / orbited / whipped / pitched / strafed from the scene's bounds and\n"
+            "    the player start, plus any authored Cutscene Director camera track.\n"
+            "    An animated model is baked pose by pose, one bag per part - the console\n"
+            "    skins it on the EE/VU0 and draws it through the SAME static pipeline as the\n"
+            "    rest of the scene, so it submits a BLSS proxy like every other bag and the\n"
+            "    corpus has to describe it too.");
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
                            "    13 hand-written procedural shots. Measured at -0.40 dB - worse "
@@ -1122,6 +1180,19 @@ void App::drawBlssProvenanceDrift() {
     if (trained1x2 != (s.blssScale == 1))
         drift.push_back(std::string("render scale ") + (trained1x2 ? "1x2" : "2x2") +
                         ", but the project now says " + (s.blssScale == 1 ? "1x2" : "2x2"));
+    // Sub-pixel jitter is FITTED IN, not switched at runtime: the corpus is
+    // rendered through the project's own sampler, so a net trained one way and
+    // shipped the other is fitted to a distribution the console never produces.
+    // A sidecar written before the window started stating the flag says nothing
+    // about jitter, and silence is not drift - hence the "known" test.
+    const bool jitterKnown = blssNetArgs_.find("--jitter") != std::string::npos ||
+                             blssNetArgs_.find("--no-jitter") != std::string::npos;
+    if (jitterKnown) {
+        const bool trainedJitter = blssNetArgs_.find("--no-jitter") == std::string::npos;
+        if (trainedJitter != s.blssJitter)
+            drift.push_back(std::string("sub-pixel jitter ") + (trainedJitter ? "on" : "off") +
+                            ", but the project now says " + (s.blssJitter ? "on" : "off"));
+    }
     // Which corpus. A net fitted to the bestiary and shipped on a project is
     // the -0.40 dB mistake this whole window is arranged around.
     const bool trainedOnProject =
@@ -1676,8 +1747,21 @@ void App::drawBlssEvalTab() {
     if (ImGui::Button("Run the evaluation", ImVec2(scaled(190.0f), 0))) {
         std::vector<std::string> a{"--blss-eval"};
         for (const std::string& c : blssCommonArgs()) a.push_back(c);
-        a.push_back("-i");
-        a.push_back(blssNetName_);
+        // Only ask for a net that is actually there. --blss-eval's net-free mode
+        // is gated on -i being GIVEN, not on the file resolving, so passing it
+        // unconditionally turns "this project has never been trained" into exit 1
+        // instead of the headroom answer - which is the one answer that project
+        // most needs. Stat it here rather than trusting blssNetPresent_: that is
+        // refreshed once a second, and the Network field above can be retyped
+        // inside that second.
+        {
+            std::error_code ec;
+            const std::string net = blssNetPath();
+            if (!net.empty() && fs::is_regular_file(net, ec)) {
+                a.push_back("-i");
+                a.push_back(blssNetName_);
+            }
+        }
         a.push_back("--frames");
         a.push_back(std::to_string(blssEvalFrames_));
         a.push_back("--deadzone");
@@ -2031,7 +2115,11 @@ void App::drawBlssCvTab() {
     ImGui::SeparatorText("Margin over plain bilinear on the held-out shot, dB");
     if (!blssCv_.caption.empty()) ImGui::TextDisabled("%s", blssCv_.caption.c_str());
     const int seedCols = (int)blssCv_.seeds.size();
-    if (ImGui::BeginTable("blsscv", 3 + seedCols,
+    // #, held-out shot, one per seed, mean, sd - FOUR fixed columns, not three.
+    // At 3 + seedCols the last TableSetupColumn overflowed ("called too many
+    // times!" on stderr) and the sd column was dropped from the table the whole
+    // cross-validation tab exists to show.
+    if (ImGui::BeginTable("blsscv", 4 + seedCols,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                               ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("#");

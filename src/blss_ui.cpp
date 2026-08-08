@@ -359,9 +359,26 @@ bool phaseOf(const std::string& line, Kind kind, int epochs, Phase& out) {
     }
     if (t.rfind("blss: seed 0x", 0) == 0) {
         out.progress = -1.0f;
-        out.status = "cross-validating: " + t.substr(6) +
-                     " (the fold loop prints nothing until it is done)";
+        out.status = "cross-validating: " + t.substr(6);
         return true;
+    }
+    // "[blss] fold 3 of 13" - one line per fold as it LANDS. The trainer's own
+    // verbosity is off inside a fold (crossValidateOnce sets tc.verbose = false),
+    // so the epoch line never fires here and this is the only progress the loop
+    // emits. The count is completion order, not the fold index - folds run in
+    // parallel - which is exactly what a bar wants and not what a label wants,
+    // so the status says how many are done rather than naming one.
+    if (t.rfind("[blss] fold ", 0) == 0) {
+        const std::vector<std::string> tok = tokenize(t);
+        double done = 0, total = 0;
+        if (tok.size() > 4 && asNumber(tok[2], done) && asNumber(tok[4], total) && total > 0) {
+            // The fold loop owns everything after labelling (0.62).
+            out.progress = 0.62f + 0.37f * (float)(done / total);
+            out.status = "cross-validating, " + std::to_string((int)done) + " of " +
+                         std::to_string((int)total) + " fold(s) done";
+            return true;
+        }
+        return false;
     }
     if (t.rfind("blss: final loss", 0) == 0 || t.rfind("blss: wrote", 0) == 0) {
         out.progress = 1.0f;
