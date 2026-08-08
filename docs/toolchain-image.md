@@ -2424,6 +2424,48 @@ content. Both halves are true, and the size half is the one the migration needed
 micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs said "smaller
 and faster", and that was a row count talking.
 
+### The frame time is entirely VU1, and the EE never notices - measured
+
+Twenty-two flags were tuned against a static cycle model before anyone asked the console
+*where the frame time goes*. That measurement should have come first, and it settles what the
+model could not.
+
+The benchmark scene's own COP0 phase timers, logged rather than read off the HUD (the scene's
+`terrain_game.cpp` is taken over for this; nothing in the engine changed), alternated A/B with
+only the assembler different:
+
+| | FRAME | SCENE - EE time inside `renderScene` | rest |
+|---|---:|---:|---:|
+| Sony, run 1 | 9.90 ms | **7.70** | 2.20 |
+| openvcl, run 1 | 12.68 ms | **7.70** | 4.98 |
+| Sony, run 2 | 9.96 ms | **7.70** | 2.25 |
+| openvcl, run 2 | 12.55 ms | **7.70** | 4.85 |
+
+**EE time is identical to the hundredth of a millisecond, on both arms, in all four runs.** The
+EE issues the same work and finishes it in the same time; the whole +2.7 ms lands after it, as
+the frame waiting for VU1 to drain. The GIF packet VU1 stages was verified byte-identical to
+Sony's earlier, so the GS is doing the same work - what is longer is VU1 execution and nothing
+else.
+
+That closes the "maybe it is DMA shape, GS kicks or microprogram upload" question: it is not.
+And it puts a size on the target. 2.7 ms at 294.912 MHz is about **800 000 extra VU1 cycles per
+frame**, on a scene of ~98k vertices of overwhelmingly *unclipped* terrain - which runs the
+**cull** programs' per-triangle block far more than anything else. The measured per-iteration
+gaps there are +29 (`cull_c processing`, 166 against 137) to +51 (`cull_d vertexLoop`, 169
+against 118) cycles, and multiplied by this scene's triangle count they land in the same range.
+
+**Which explains every flag result in this file at once.** `--pair-best-of-cycles` at rate 2 is
+-5.91% of *corpus* modelled cycles and bought +0.4% frames; rate 4 is -2.76% and bought -0.5%.
+Both moved corpus-wide averages while leaving the cull per-triangle block untouched - and that
+block is the frame. The corpus average was never the right weight, and
+`cull_d`/`cull_td vertexLoop` being **immovable** (every arm of every exchange rate produces an
+identical schedule for it) is not a footnote, it is the whole remaining problem.
+
+**The rule that follows, for anyone continuing this:** a change that moves the cull programs'
+per-triangle block is worth more than any corpus-wide percentage, *even if the corpus total
+gets worse*. Modelled corpus cycles have now failed as a predictor of frames four times, in
+direction three of them.
+
 ### Where the cycles actually go
 
 Modelled with an FMAC read-after-write pass added to openvcl's own `--cost` analyzer (scratch
