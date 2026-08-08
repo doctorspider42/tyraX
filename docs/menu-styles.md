@@ -32,7 +32,9 @@ Three surfaces, and they all draw the same bake:
 - **Tools > Menu Preview** - the same preview in a window of its own, with a
   zoom, its own display mode and the cost readout under it. It follows the Menu
   Editor's selection and carries a menu picker of its own, so it is useful with
-  the editor closed.
+  the editor closed. The Menu Editor's own preview row has a **Big preview**
+  button that opens and focuses it, because the compact one is sized to leave
+  the tabs below it visible and a full-screen panel wants the room.
 - **Layout > Menu Designer** - the desk: the Menu Editor filling the left (Font
   Manager one tab away, because a typeface is the other half of restyling), the
   preview column on the right, logs along the bottom.

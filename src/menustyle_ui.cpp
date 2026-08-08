@@ -1193,7 +1193,10 @@ void App::menuPreviewControls(const GameMenu& m, int& mode) {
              "The panel keeps its authored proportions either way (the game\n"
              "squeezes it to cancel the stretch) - what changes is how much of\n"
              "the screen it covers, and how the shot around it frames.");
-    ImGui::SameLine();
+    // Two rows, and it has to stay two: the Menu Editor is a docked COLUMN and
+    // one row of all of this ran off its right edge, where a widget is drawn,
+    // dumped with a rect and simply cannot be clicked (docs/ui-scripting.md).
+    // What the panel IS goes above, what the preview is DOING goes below.
     // The simulated cursor: a styled menu's whole point is what the SELECTED
     // row looks like, so the preview has to be able to move it.
     const int rows = (int)m.entries.size();
@@ -1383,6 +1386,23 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
 void App::drawMenuPreview(const GameMenu& m) {
     ImGui::SeparatorText("Preview");
     menuPreviewControls(m, menuPreviewMode_);
+    // A shortcut to the roomy one. This preview is sized to leave the tabs
+    // below it visible, so a full-screen panel is judged at a size that is not
+    // the size anything ships at - which is what the standalone window exists
+    // for. Reaching it through Tools means leaving the menu you are editing, so
+    // it gets a button on the row it belongs to; the window it opens is docked
+    // beside this one in the Menu Designer layout, hence focus rather than just
+    // "shown" (a tab that opens behind another one reads as nothing happening).
+    // Not in menuPreviewControls: that row is shared with the standalone window,
+    // where a button opening itself would be nonsense.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Big preview")) {
+        showMenuPreview_ = true;
+        pendingFocusWindow_ = "Menu Preview";
+    }
+    prefHelp("Opens the standalone Menu Preview window (Tools > Menu Preview):\n"
+             "the same panel with a zoom, its own display mode and the VRAM\n"
+             "cost next to it. The Menu Designer layout docks the two together.");
     menuPreviewRefresh(m);
     menuPreviewDraw(m, menuPreviewMode_, 1.0f);
 }
