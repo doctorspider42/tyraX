@@ -2383,9 +2383,29 @@ Two scenes, PCSX2, frame counts taken from the engine's own `VRAMSTAT f=` counte
 | scene | Sony `vcl` | openvcl | |
 |---|---:|---:|---|
 | `vu-lab`, precise clipper, 32x32 terrain | 86.96 FPS | 86.97 FPS | **not VU1-bound - blind to the difference** |
-| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts), 19 flags | **104.96 / 104.96** | **77.97 / 74.99** | **-26 to -29%** |
-| the same scene, 20 flags (`--sink-loads-best-of`) | 104.96 | **77.98 / 74.98** | **unchanged** |
-| the same scene, 21 flags (`--split-dead-float-ranges`) | 104.96 | **83.97 / 83.99 / 83.99** | **-20%**, gap down from -26% |
+| `raytraced-mirror`, VU1 clipper, 32x32 | **52.52 / 52.56** | **52.43 / 52.43** (21 flags) | **-0.2%: parity** |
+| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts), 19 flags | 104.96 / 104.96 | 77.97 / 74.99 | -26 to -29% |
+| the same scene, 20 flags (`--sink-loads-best-of`) | 104.96 | 77.98 / 74.98 | unchanged |
+| the same scene, 21 flags (`--split-dead-float-ranges`) | **105.34 / 105.43** | **80.68 / 75.08** | **-20 to -29%** |
+
+**Two things that table is easy to misread.** First, the regression is not a property of the
+assembler in general - it is specific to *geometry-heavy content through the VU1 clipper*. On
+`raytraced-mirror`, which uses the same VU1 clipper on a light scene, openvcl and Sony are
+within 0.2% of each other. That narrows the remaining problem from "FMAC stalls everywhere"
+to "FMAC stalls in the five clip programs, at scale", which is a much smaller target.
+
+Second, **this machine's noise floor is a few percent and it is not uniform across arms.**
+Sony returns 105.34 and 105.43 on consecutive runs; the 21-flag arm returned 80.68 and 75.08
+on consecutive runs of the same binary. Anything under ~5% needs arms measured *alternately*,
+not in blocks, and two runs per arm is not enough for it. The -20%-to-26% band is safe because
+it is five to seven times that; a 1% claim is not, and one made here earlier did not survive
+looking at the spread.
+
+The frame counter is logged every 120 frames, so "frames seen in a fixed 40 s window"
+quantises **both** endpoints - +/-240 frames, which is +/-6 FPS at 50 FPS and enough to
+manufacture a dead heat. `scratchpad/fpsmeas.ps1` measures the other way round: poll often,
+take the wall time at which a given frame number first appears, and divide an exact frame
+delta by the measured interval. The numbers above are from that.
 
 Sony's arm returned exactly 4200 frames on both runs. The heavy scene is the instrument; the
 light one is worth recording only because it shows how easy it is to measure nothing - an
@@ -2455,29 +2475,76 @@ Two things were needed to make it pay, and both were found by measuring rather t
   chain pre-pass that places almost everything. **FLOAT only:** spreading the 16-wide integer
   file caused most of the allocation failures, and restricting it is better on all three
   corpora *and* on cycles.
-* **The split has to be retryable.** Seven programs run out of registers with it, so
-  allocation retries without it and they compile exactly as before - the flag can only ever
-  add programs that build. (Suppression had to be made nestable for that, or the outer retry
-  un-suppresses the inner `--sink-loads-past-branches` one.)
+* **The split has to be retryable.** Three programs run out of registers with it
+  (`vu0_rt_kernel`, `vu_script2_d_cl`, `vu_script2_td_cl`), so allocation retries without it
+  and they compile exactly as before - the flag can only ever add programs that build.
+  (Suppression had to be made nestable for that, or the outer retry un-suppresses the inner
+  `--sink-loads-past-branches` one.) That retry is now a four-rung **ladder** - see below.
 
 | | SCE | 20 flags | **21 flags** |
 |---|---:|---:|---:|
-| modelled cycles, all 70 | 16030 | 25657 (+60.1%) | **21543 (+34.4%)** |
-| modelled FMAC stalls | 2614 | 12068 | **8192** |
+| modelled cycles, all 70 | 16030 | 25657 (+60.1%) | **21344 (+33.2%)** |
+| modelled FMAC stalls | 2614 | 12068 | **8002** |
 | resident 10, cycles | 2433 | 3545 (+45.7%) | **3010 (+23.7%)** |
 | resident 10, words | 2028 | 1978 | **1968** |
-| engine 25, words | 3982 | 3928 | **3872** |
-| generated 45, words | 9264 | 9254 | **9194** |
+| engine 25, words | 3982 | 3928 | **3868** |
+| generated 45, words | 9264 | 9254 | **9190** |
 
 **43% of the modelled cycle gap, and every corpus got smaller rather than paying for it.**
 On the console that is 3120 → 3360 frames, 77.98 → 83.98 FPS, the gap to Sony from -26% to
 -20%. The frame gap closes by less than the modelled one, which is what you expect when VU1
 is one stage of several.
 
-Still open, and the next thing worth doing: the **seven fallback programs get nothing**.
-`vu0_rt_kernel` (337 → 747 stalls) and `vu_script3_td_cl` (58 → 327) are untouched, about
-1200 modelled cycles, because the retry is all-or-nothing. A ladder that splits only the
-widest-separated webs before giving up should reach most of them.
+### The ladder, and three corrections to the paragraph that used to be here
+
+This section previously said seven programs fell back, worth about 1200 modelled cycles, and
+that a ladder splitting the *widest-separated webs first* should reach them. All three claims
+were wrong, and the measurements that replaced them are worth more than the fix:
+
+* **Three programs fall back, not seven** - `vu0_rt_kernel`, `vu_script2_d_cl`,
+  `vu_script2_td_cl`, counted by grepping `Retrying allocation without` out of
+  `--show-reg-alloc` over all 70. The seven was a different set: programs whose *cycles* the
+  split does not move, six of which rename fine and simply schedule the same.
+  `vu_script3_td_cl` was named as untouched and is not - it renames 405 occurrences. Its
+  quoted "58 → 327" was SCE against the **20-flag** build, not against the tip.
+  Reachable cycles were **≤625, not ~1200**.
+* **The split is not what runs out of registers.** Peak simultaneously-live FLOAT aliases is
+  *identical* with the split and without it in all three - and that is forced, not lucky:
+  splitting a name partitions its live range, so it adds names but never adds values live at
+  a line. Two of the three failed eight and nine registers below the ceiling, and the alias
+  that actually fails is never a split web (`k0`, a constant; `bT`/`bHb`, ray hit state that
+  is never split). What runs out is `preferSpreadRegister` handing each of the first 31
+  values a fresh untouched register.
+* **So the ladder is about the spread's SCOPE, not the split's extent.** Rungs: spread every
+  float alias, then spread only the aliases the split created, then no spread, then no split.
+  A distance cap was the obvious alternative and is measured as a disaster - at N=4 the whole
+  corpus costs **+3491 cycles** and every corpus grows, because an empty register is exactly
+  what the interleave needs.
+
+| program | 20 flags | 21 flags | **ladder** | SCE |
+|---|---:|---:|---:|---:|
+| `vu0_rt_kernel` | 1278 / 747 | 1278 / 747 | **1066 / 540** | 867 / 337 |
+| `vu_script2_d_cl` | 380 / 155 | 380 / 155 | **377 / 151** | 281 / 63 |
+| `vu_script2_td_cl` | 405 / 165 | 405 / 165 | **409 / 171** | 290 / 60 |
+| all 70 | 25657 / 12068 | 21344 / 8002 | **21133 / 7797** | 16030 / 2614 |
+
+cycles / FMAC-stall cycles, modelled. 67 of the 70 outputs are byte-identical to the tip;
+the engine corpus goes 3872 → 3868 and the generated 9194 → 9190.
+
+**On the console the ladder does nothing measurable, and that is the honest verdict rather
+than a disappointing one.** On the VU1-bound scene it reads 82.36 / 82.21 against the tip's
+80.68 / 75.08 - the tip's own two runs differ by more than the arms do. On `raytraced-mirror`
+it reads 51.86 / 51.90 against 52.43 / 52.43, which looks like a 1% regression until you note
+those were measured in blocks rather than alternately, on a machine that has just shown a 7%
+spread between consecutive runs of one binary. Both readings are inside the noise. It ships
+for the four words and for the corrected diagnosis above, not for frames - and the modelled
+-211 cycles is 1.0% of the total, which is below what this harness can see anyway.
+
+**And that route is now closed.** A per-program best-of between the two placement modes is
+worth six more cycles, and `vu0_rt_kernel`'s peak pressure is 31 of 31 - six whole-program
+constants plus twelve long-lived ray/hit values at one line - so no placement policy reaches
+the 199 cycles it still owes SCE. What is left there is reducing pressure, not choosing
+registers better.
 
 Dead ends worth not repeating:
 
@@ -2620,8 +2687,8 @@ toolchain's artifacts straight back over the ones the image built.
 | engine programs | 25/25 | **25/25** |
 | generated programs | 45/45 | **45/45** |
 | resident VU1 set | 1968 words | **1968** (SCE 2028, ceiling 2042) |
-| engine corpus, all 25 | 3872 words | **3872** (SCE 3982 - openvcl is 110 under) |
-| generated corpus, all 45 | 9194 words | **9194** (SCE 9264 - 70 under; it was +22 at 19 flags) |
+| engine corpus, all 25 | 3868 words | **3868** (SCE 3982 - openvcl is 114 under) |
+| generated corpus, all 45 | 9190 words | **9190** (SCE 9264 - 74 under; it was +22 at 19 flags) |
 | frame rate, VU1-bound scene | - | **-20% against Sony's `vcl`** (see "Measured on the console") |
 
 Smaller than Sony's `vcl` on **all three** corpora as of the twentieth flag, and 20% slower

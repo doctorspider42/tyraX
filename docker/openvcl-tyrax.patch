@@ -755,10 +755,10 @@ index 1845035..d05414a 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..f84df32 100644
+index e6a6dea..8337e2d 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,28 @@ CommandLine::CommandLine()
+@@ -75,6 +75,29 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
@@ -771,6 +771,7 @@ index e6a6dea..f84df32 100644
 +	m_upperMoveWithW = false;
 +	m_coalesceFloatWrites = false;
 +	m_splitDeadFloatRanges = false;
++	m_spreadWebsOnly = false;
 +	m_trimUncarriedRanges = false;
 +	m_sinkLoads = false;
 +	m_sinkLoadsAcrossStores = false;
@@ -787,7 +788,7 @@ index e6a6dea..f84df32 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +147,28 @@ CommandLine::CommandLine()
+@@ -125,6 +148,29 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
@@ -800,6 +801,7 @@ index e6a6dea..f84df32 100644
 +	m_options.push_back(Option(0,"upper-move-with-w",UPPER_MOVE_WITH_W,false));
 +	m_options.push_back(Option(0,"coalesce-float-writes",COALESCE_FLOAT_WRITES,false));
 +	m_options.push_back(Option(0,"split-dead-float-ranges",SPLIT_DEAD_FLOAT_RANGES,false));
++	m_options.push_back(Option(0,"spread-webs-only",SPREAD_WEBS_ONLY,false));
 +	m_options.push_back(Option(0,"trim-uncarried-ranges",TRIM_UNCARRIED_RANGES,false));
 +	m_options.push_back(Option(0,"sink-loads",SINK_LOADS,false));
 +	m_options.push_back(Option(0,"sink-loads-across-stores",SINK_LOADS_ACROSS_STORES,false));
@@ -816,7 +818,7 @@ index e6a6dea..f84df32 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +283,28 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +285,29 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
@@ -829,6 +831,7 @@ index e6a6dea..f84df32 100644
 +				case UPPER_MOVE_WITH_W: m_upperMoveWithW = true; break;
 +				case COALESCE_FLOAT_WRITES: m_coalesceFloatWrites = true; break;
 +				case SPLIT_DEAD_FLOAT_RANGES: m_splitDeadFloatRanges = true; break;
++				case SPREAD_WEBS_ONLY: m_spreadWebsOnly = true; break;
 +				case TRIM_UNCARRIED_RANGES: m_trimUncarriedRanges = true; break;
 +				case SINK_LOADS: m_sinkLoads = true; break;
 +				case SINK_LOADS_ACROSS_STORES: m_sinkLoadsAcrossStores = true; break;
@@ -845,7 +848,7 @@ index e6a6dea..f84df32 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +396,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +399,9 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
@@ -856,10 +859,10 @@ index e6a6dea..f84df32 100644
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..70557b9 100644
+index f5e4b3d..5d18e55 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,28 @@ public:
+@@ -56,6 +56,29 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
@@ -872,6 +875,7 @@ index f5e4b3d..70557b9 100644
 +	bool upperMoveWithW() const;
 +	bool coalesceFloatWrites() const;
 +	bool splitDeadFloatRanges() const;
++	bool spreadWebsOnly() const;
 +	bool trimUncarriedRanges() const;
 +	bool sinkLoads() const;
 +	bool sinkLoadsAcrossStores() const;
@@ -888,7 +892,7 @@ index f5e4b3d..70557b9 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +152,28 @@ private:
+@@ -130,6 +153,29 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
@@ -901,6 +905,7 @@ index f5e4b3d..70557b9 100644
 +		UPPER_MOVE_WITH_W,
 +		COALESCE_FLOAT_WRITES,
 +		SPLIT_DEAD_FLOAT_RANGES,
++		SPREAD_WEBS_ONLY,
 +		TRIM_UNCARRIED_RANGES,
 +		SINK_LOADS,
 +		SINK_LOADS_ACROSS_STORES,
@@ -917,7 +922,7 @@ index f5e4b3d..70557b9 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +229,28 @@ private:
+@@ -185,6 +231,29 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
@@ -930,6 +935,7 @@ index f5e4b3d..70557b9 100644
 +	bool m_upperMoveWithW;
 +	bool m_coalesceFloatWrites;
 +	bool m_splitDeadFloatRanges;
++	bool m_spreadWebsOnly;
 +	bool m_trimUncarriedRanges;
 +	bool m_sinkLoads;
 +	bool m_sinkLoadsAcrossStores;
@@ -947,10 +953,10 @@ index f5e4b3d..70557b9 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..e6ad6d8 100644
+index 5500026..c4f7d3f 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,160 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,167 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1013,6 +1019,13 @@ index 5500026..e6ad6d8 100644
 +inline bool CommandLine::splitDeadFloatRanges() const
 +{
 +	return m_splitDeadFloatRanges;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::spreadWebsOnly() const
++{
++	return m_spreadWebsOnly;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1182,7 +1195,7 @@ index a9a3c8e..7458bcf 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..06fba96 100644
+index b8b1946..5179e5e 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1202,7 +1215,7 @@ index b8b1946..06fba96 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -2045,6 +2048,36 @@ bool Parser::tokenize()
+@@ -2045,6 +2048,38 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1223,6 +1236,8 @@ index b8b1946..06fba96 100644
 +	setVuUpperMoveWithWEnabled( m_cmdLine.upperMoveWithW() );
 +	setVuCoalesceFloatWritesEnabled( m_cmdLine.coalesceFloatWrites() );
 +	setVuSplitDeadFloatRangesEnabled( m_cmdLine.splitDeadFloatRanges() );
++	setVuSpreadFloatRegistersEnabled( m_cmdLine.splitDeadFloatRanges() );
++	setVuSpreadFloatRegistersWebsOnly( m_cmdLine.spreadWebsOnly() );
 +	setVuTrimUncarriedRangesEnabled( m_cmdLine.trimUncarriedRanges() );
 +	setVuSinkLoadsEnabled( m_cmdLine.sinkLoads() );
 +	setVuSinkLoadsAcrossStoresEnabled( m_cmdLine.sinkLoadsAcrossStores() );
@@ -1239,17 +1254,49 @@ index b8b1946..06fba96 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2063,34 +2096,263 @@ bool Parser::tokenize()
+@@ -2063,34 +2098,324 @@ bool Parser::tokenize()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
-+// --split-dead-float-ranges costs registers, and seven of the seventy programs
++// --split-dead-float-ranges costs registers, and three of the seventy programs
 +// run out.  Allocate with it, and if that runs out put the tokenizer's own output
-+// back and allocate again without it - the same bargain --coalesce-float-writes
-+// and --sink-loads-past-branches strike, so the flag can only ever add programs
-+// that compile.  The flag stays off for the REST of this program once the
-+// fallback fires, because --sink-loads-best-of recompiles from the source lines
-+// and has to reach the same decision this attempt did.
++// back and allocate again - the same bargain --coalesce-float-writes and
++// --sink-loads-past-branches strike, so the flag can only ever add programs that
++// compile.  Whatever this settles on stays settled for the REST of this program,
++// because --sink-loads-best-of recompiles from the source lines and has to reach
++// the same decision this attempt did.
++//
++// A LADDER rather than one all-or-nothing fallback, because measuring the three
++// says the rename is not what runs out.  The peak number of simultaneously live
++// float aliases is IDENTICAL with the split and without it in all three -
++// vu0_rt_kernel 31, vu_script2_d_cl 22, vu_script2_td_cl 23, against 31 available
++// - which is forced rather than lucky: splitting a name partitions its live
++// range, so it can add names but never add values live at a line.  Two of the
++// three run out nine registers below the ceiling.  What runs out is the placement
++// rule the flag also turns on: preferSpreadRegister takes an untouched register
++// outright, so the first thirty-one values each claim a fresh one and the
++// long-lived constant `k0`, allocated later, finds all thirty-one busy somewhere
++// inside its range.
++//
++// So the rungs back the SPREAD off, never the rename, and back it off by scope
++// rather than by distance:
++//
++//   1  spread every float alias          - unchanged, and 67 of 70 stop here
++//   2  spread only the split webs        - constants and un-split names first fit
++//   3  no spread                         - the rename alone
++//   4  no split                          - what the whole program did before
++//
++// Rung 2 is where all three land, and it is worth having: vu0_rt_kernel goes 1278
++// -> 1066 modelled cycles and 470 -> 466 words, because the spread that program
++// needs is over the twenty-odd names the split renamed, not over the six
++// whole-program constants and the ray state that were never welded to begin with.
++// Backing off by DISTANCE instead - "a register N rows away is as good as an empty
++// one" - was built and measured and is not in the tree: it fixes the same three
++// and costs 3491 modelled cycles across the other sixty-seven at N=4, because an
++// empty register is exactly what the interleave needs.
++//
++// Rung 1 first, so a program that allocates today is emitted by the same code in
++// the same order as before this ladder existed - byte for byte, all 70 checked.
  bool Parser::allocateRegisters()
  {
 +	const bool retrySplit = m_cmdLine.splitDeadFloatRanges();
@@ -1265,6 +1312,34 @@ index b8b1946..06fba96 100644
 +
 +	bool allocated = allocateRegistersAttempt();
 +
++	if( retrySplit && !allocated && !m_cmdLine.spreadWebsOnly() )
++	{
++		if( m_cmdLine.showRegisterInfo() )
++			std::cerr << "Retrying allocation with the spread narrowed to the split webs" << std::endl;
++
++		m_tokenizer.tokens().clear();
++		m_tokenizer.tokens().insert( m_tokenizer.tokens().end(),
++		                             pristine.begin(), pristine.end() );
++		m_registerAllocator.reset();
++		setVuSpreadFloatRegistersWebsOnly( true );
++
++		allocated = allocateRegistersAttempt();
++	}
++
++	if( retrySplit && !allocated )
++	{
++		if( m_cmdLine.showRegisterInfo() )
++			std::cerr << "Retrying allocation without the float register spread" << std::endl;
++
++		m_tokenizer.tokens().clear();
++		m_tokenizer.tokens().insert( m_tokenizer.tokens().end(),
++		                             pristine.begin(), pristine.end() );
++		m_registerAllocator.reset();
++		setVuSpreadFloatRegistersEnabled( false );
++
++		allocated = allocateRegistersAttempt();
++	}
++
 +	if( retrySplit )
 +	{
 +		Error::SetSuppressed( wasSuppressed );
@@ -1279,6 +1354,7 @@ index b8b1946..06fba96 100644
 +			                             pristine.begin(), pristine.end() );
 +			m_registerAllocator.reset();
 +			setVuSplitDeadFloatRangesEnabled( false );
++			setVuSpreadFloatRegistersEnabled( false );
 +
 +			allocated = allocateRegistersAttempt();
 +		}
@@ -1370,7 +1446,12 @@ index b8b1946..06fba96 100644
 -bool Parser::generateCode()
 +bool Parser::generateCodeInto( CodeGenerator& generator, const std::string& name,
 +                               const std::list<Token>& tokens )
-+{
+ {
+-	m_codeGenerator.setEmitSource( m_cmdLine.emitSource() );
+-	m_codeGenerator.setKnownLoopOptimizations( m_cmdLine.knownLoopOptimizations() );
+-	m_codeGenerator.setGenericSoftwarePipelining( m_cmdLine.genericSoftwarePipelining() );
+-	m_codeGenerator.setStrictScheduleSlots( m_cmdLine.strictScheduleSlots() );
+-	m_codeGenerator.setName( m_registerAllocator.name() );
 +	generator.setEmitSource( m_cmdLine.emitSource() );
 +	generator.setKnownLoopOptimizations( m_cmdLine.knownLoopOptimizations() );
 +	generator.setGenericSoftwarePipelining( m_cmdLine.genericSoftwarePipelining() );
@@ -1416,12 +1497,7 @@ index b8b1946..06fba96 100644
 +//   --clip-exemption-best-of.  A tie keeps the sinking arm, so the flag can only ever
 +//   be read as a win over the build without it.
 +void Parser::tryUnsunkArm()
- {
--	m_codeGenerator.setEmitSource( m_cmdLine.emitSource() );
--	m_codeGenerator.setKnownLoopOptimizations( m_cmdLine.knownLoopOptimizations() );
--	m_codeGenerator.setGenericSoftwarePipelining( m_cmdLine.genericSoftwarePipelining() );
--	m_codeGenerator.setStrictScheduleSlots( m_cmdLine.strictScheduleSlots() );
--	m_codeGenerator.setName( m_registerAllocator.name() );
++{
 +	// A fresh tokenizer, allocator and generator, so nothing the first arm built -
 +	// aliases hung off token arguments, branch states, the emitted line list - can
 +	// leak into the second and quietly poison it.  A half-applied first pass would
@@ -1454,7 +1530,8 @@ index b8b1946..06fba96 100644
 +	}
 +
 +	CodeGenerator generator;
-+
+ 
+-	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
 +	if( built )
 +	{
 +		RegisterAllocator allocator;
@@ -1464,8 +1541,7 @@ index b8b1946..06fba96 100644
 +		// Not setShowRegisterInfo: --show-reg-alloc describes the allocation that
 +		// produced the output, and this one usually does not.
 +		built = allocator.process( tokenizer.tokens() );
- 
--	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
++
 +		if( built )
 +			built = generateCodeInto( generator, allocator.name(), tokenizer.tokens() );
 +	}
@@ -1514,7 +1590,7 @@ index b8b1946..06fba96 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2388,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2451,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {
@@ -1566,7 +1642,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..5470241 100644
+index cf6d79b..4f5634b 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,6 +10,7 @@
@@ -1577,7 +1653,25 @@ index cf6d79b..5470241 100644
  #include "BranchState.h"
  #include "Error.h"
  #include "VuTokenResourceAccess.h"
-@@ -48,6 +49,8 @@ RegisterAllocator::RegisterAllocator()
+@@ -26,6 +27,17 @@
+ namespace vcl
+ {
+ 
++namespace
++{
++	// An alias splitDeadFloatRanges created, told apart by the `~generation`
++	// suffix it renames into.  `~` cannot occur in a VCL identifier, so the test
++	// can never mistake a source name for a web.
++	bool aliasIsSplitWeb( const Alias* alias )
++	{
++		return alias != NULL && alias->debugName().find( '~' ) != std::string::npos;
++	}
++}
++
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ RegisterAllocator::RegisterAllocator()
+@@ -48,6 +60,8 @@ RegisterAllocator::RegisterAllocator()
  
  	m_dynamicThreshold = 16;
  	m_showRegisterInfo = false;
@@ -1586,7 +1680,7 @@ index cf6d79b..5470241 100644
  	m_currState = OUTSIDE;
  }
  
-@@ -59,6 +62,33 @@ RegisterAllocator::~RegisterAllocator()
+@@ -59,6 +73,33 @@ RegisterAllocator::~RegisterAllocator()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1620,7 +1714,7 @@ index cf6d79b..5470241 100644
  void RegisterAllocator::setAvailableFloats( unsigned int floats )
  {
  	for( unsigned int i = 1; i < 32; i++ )
-@@ -79,6 +109,35 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -79,6 +120,35 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  {
  	BranchState* branchState = NULL;
  
@@ -1656,7 +1750,7 @@ index cf6d79b..5470241 100644
  	if( !collectLabels( tokens.begin(), tokens.end() ) )
  		return false;
  
-@@ -262,14 +321,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
+@@ -262,14 +332,55 @@ bool RegisterAllocator::process( std::list<Token>& tokens )
  			return false;
  	}
  
@@ -1713,7 +1807,7 @@ index cf6d79b..5470241 100644
  		{
  			Error::Display( Error( "Register allocation ran out of registers" ) );
  			return false;
-@@ -610,7 +710,9 @@ bool RegisterAllocator::processAliases()
+@@ -610,7 +721,9 @@ bool RegisterAllocator::processAliases()
  		for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
  		{
  			Alias* alias = i->first;
@@ -1724,7 +1818,7 @@ index cf6d79b..5470241 100644
  			if( alias->allocatedRegister() )
  				std::cerr << "[prealloc: " << alias->allocatedRegister()->name() << "] ";
  			alias->printRanges( std::cerr );
-@@ -659,6 +761,21 @@ bool RegisterAllocator::processAliases()
+@@ -659,6 +772,25 @@ bool RegisterAllocator::processAliases()
  		}
  
  		unsigned int maxLimit = root->type() == Alias::FLOAT ? 32 : 16;
@@ -1740,13 +1834,17 @@ index cf6d79b..5470241 100644
 +		// fallbacks below - `Failed to allocate INTEGER register for alias
 +		// srcBase` in vu_script3_td_cl, with the float side fitting fine - and
 +		// turning it off is better on all three corpora AND on modelled cycles.
-+		const bool spreadChain = vuSplitDeadFloatRangesEnabled()
-+		                         && root->type() == Alias::FLOAT;
++		bool chainHasWeb = false;
++		for( unsigned int m = 0; !chainHasWeb && m < chain.size(); ++m )
++			chainHasWeb = aliasIsSplitWeb( chain[m] );
++		const bool spreadChain = vuSpreadFloatRegistersEnabled()
++		                         && root->type() == Alias::FLOAT
++		                         && ( !vuSpreadFloatRegistersWebsOnly() || chainHasWeb );
 +		std::vector<const Register*> chainAcceptable;
  		for( unsigned int j = 0; j < maxLimit; ++j )
  		{
  			const Register* candidate = (root->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
-@@ -692,11 +809,22 @@ bool RegisterAllocator::processAliases()
+@@ -692,11 +824,22 @@ bool RegisterAllocator::processAliases()
  
  			if( !conflict )
  			{
@@ -1772,7 +1870,7 @@ index cf6d79b..5470241 100644
  	}
  
  	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
-@@ -757,6 +885,15 @@ bool RegisterAllocator::processAliases()
+@@ -757,6 +900,16 @@ bool RegisterAllocator::processAliases()
  			}
  		}
  
@@ -1781,14 +1879,15 @@ index cf6d79b..5470241 100644
 +		// and preferSpreadRegister picks.  Without the flag the vector is
 +		// short-circuited on the first hit and the behaviour is unchanged,
 +		// byte for byte.
-+		const bool spread = vuSplitDeadFloatRangesEnabled()
-+		                    && dest->type() == Alias::FLOAT;
++		const bool spread = vuSpreadFloatRegistersEnabled()
++		                    && dest->type() == Alias::FLOAT
++		                    && ( !vuSpreadFloatRegistersWebsOnly() || aliasIsSplitWeb( dest ) );
 +		std::vector<const Register*> acceptable;
 +
  		for( unsigned int j = 0; j < maxLimit; ++j )
  		{
  			const Register* candidate = (dest->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
-@@ -786,23 +923,50 @@ bool RegisterAllocator::processAliases()
+@@ -786,23 +939,50 @@ bool RegisterAllocator::processAliases()
  
  			if( candidate )
  			{
@@ -1842,7 +1941,7 @@ index cf6d79b..5470241 100644
  	return true;
  }
  
-@@ -905,44 +1069,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1085,160 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -2010,7 +2109,7 @@ index cf6d79b..5470241 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1253,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1269,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -2026,7 +2125,7 @@ index cf6d79b..5470241 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1503,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1519,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -2040,7 +2139,7 @@ index cf6d79b..5470241 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1614,1357 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,6 +1630,1364 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -3237,6 +3336,13 @@ index cf6d79b..5470241 100644
 +// occupied neighbour is furthest from `dest`.  A register with nothing on it at
 +// all wins outright; ties keep the lowest number, so the choice is a function of
 +// the ranges and not of allocation order.
++//
++// The `score < 0` shortcut - an empty register wins outright - is what buys the
++// interleave and also what makes the spread expensive: the first thirty-one
++// values each take a fresh register.  Capping it was measured and rejected.  A
++// cap of four rows applied to all seventy programs costs 3491 modelled cycles
++// and grows every corpus; the fix for the programs that run out is to narrow
++// WHICH aliases are spread, not how far.  See vuSpreadFloatRegistersWebsOnly.
 +const Register* RegisterAllocator::preferSpreadRegister( const std::vector<Alias*>& group,
 +                                                         const std::vector<const Register*>& candidates ) const
 +{
@@ -4527,7 +4633,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..3579b2c 100644
+index c28ec6d..9170013 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -4547,7 +4653,7 @@ index c28ec6d..3579b2c 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,380 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,402 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -4591,6 +4697,8 @@ index c28ec6d..3579b2c 100644
 +	bool g_coalesceFloatWrites = false;
 +	bool g_trimUncarriedRanges = false;
 +	bool g_splitDeadFloatRanges = false;
++	bool g_spreadFloatRegisters = false;
++	bool g_spreadFloatRegistersWebsOnly = false;
 +	bool g_sinkLoads = false;
 +	bool g_sinkLoadsAcrossStores = false;
 +	bool g_sinkLoadsIntoLoops = false;
@@ -4814,6 +4922,26 @@ index c28ec6d..3579b2c 100644
 +	return g_splitDeadFloatRanges;
 +}
 +
++void setVuSpreadFloatRegistersEnabled( bool enabled )
++{
++	g_spreadFloatRegisters = enabled;
++}
++
++bool vuSpreadFloatRegistersEnabled()
++{
++	return g_spreadFloatRegisters;
++}
++
++void setVuSpreadFloatRegistersWebsOnly( bool enabled )
++{
++	g_spreadFloatRegistersWebsOnly = enabled;
++}
++
++bool vuSpreadFloatRegistersWebsOnly()
++{
++	return g_spreadFloatRegistersWebsOnly;
++}
++
 +void setVuTrimUncarriedRangesEnabled( bool enabled )
 +{
 +	g_trimUncarriedRanges = enabled;
@@ -4930,10 +5058,10 @@ index c28ec6d..3579b2c 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..488eedc 100644
+index 8188099..928c846 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,259 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,293 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -5095,6 +5223,40 @@ index 8188099..488eedc 100644
 +// every value lands in.
 +void setVuSplitDeadFloatRangesEnabled( bool enabled );
 +bool vuSplitDeadFloatRangesEnabled();
++
++// The register-CHOICE half of --split-dead-float-ranges, on its own switch so the
++// allocation ladder can drop it without dropping the rename.
++//
++// Measured, and it overturns the reason the fallback was written: on all three
++// programs that fall back, the peak number of simultaneously live float aliases
++// is IDENTICAL with the split and without it - 31, 22 and 23 against 31
++// available.  It has to be: splitting a name partitions its live range, so it
++// can never raise the number of values live at a line, only the number of names.
++// Two of the three fail nine registers below the ceiling.  What runs out is not
++// the file, it is this placement rule: `preferSpreadRegister` takes an untouched
++// register outright when it finds one, so the first thirty-one values each claim
++// a fresh register and a long-lived constant allocated later - `k0` in both
++// vu_script2_*_cl - finds every one of them occupied somewhere inside its range.
++//
++// So the ladder backs the spread off in stages instead of giving up on the
++// rename.  See Parser::allocateRegisters.
++void setVuSpreadFloatRegistersEnabled( bool enabled );
++bool vuSpreadFloatRegistersEnabled();
++
++// --spread-webs-only, and the ladder's second rung: narrow the spread to the
++// aliases the split actually created - the ones whose name carries the
++// `~generation` suffix - and place everything else by first fit.
++//
++// The spread exists to put two webs of ONE name on two registers.  Nothing about
++// that needs the program's constants scattered as well, and scattering them is
++// what leaves a long-lived value with nothing to allocate: in vu0_rt_kernel the
++// alias that fails is `bT`, the ray's best hit distance, live over 296 rows and
++// never split.  Narrowed, that program allocates on its first attempt and its
++// modelled cost goes 1278 -> 1066 cycles, 747 -> 540 FMAC stall cycles, on four
++// words LESS.  Applied to all seventy it is worth less than the ladder is (-190
++// modelled cycles against -211), so it is a rung and not the default.
++void setVuSpreadFloatRegistersWebsOnly( bool enabled );
++bool vuSpreadFloatRegistersWebsOnly();
 +
 +void setVuTrimUncarriedRangesEnabled( bool enabled );
 +bool vuTrimUncarriedRangesEnabled();
