@@ -320,7 +320,22 @@ void App::drawPropertiesWindow() {
             o.primDetail = clampPrimDetail(o.type, detail);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
+        ImGui::TextDisabled("(%d tris)",
+                            primTriangleCount(o.type, o.primDetail, o.primRings));
+        // Cylinders get a second tessellation axis, because Detail alone only
+        // adds vertices AROUND the shape - see the tooltip.
+        if (o.type == PrimitiveType::Cylinder) {
+            if (ImGui::Checkbox("Vertical rings", &o.primRings)) committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Subdivide the side along the axis too (one ring per four "
+                    "segments).\nTurn this on when something lights the "
+                    "cylinder from above or below: without\nrings the side is "
+                    "one quad tall at any Detail, so a lamp overhead bakes "
+                    "into\nfull-height diagonal stripes that more Detail only "
+                    "makes narrower.\nLeave it off otherwise - the rings are "
+                    "then triangles nothing shades.");
+        }
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -2301,6 +2316,8 @@ void App::drawMultiProperties() {
         if (d != primary.primDetail)
             for (auto* p : objs) p->primDetail = clampPrimDetail(p->type, d);
         if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+        if (primary.type == PrimitiveType::Cylinder)
+            multiCheck("Vertical rings", &SceneObject::primRings);
     }
 
     // --- solid geometry fields ---

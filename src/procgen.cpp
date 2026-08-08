@@ -641,7 +641,8 @@ TriSoup objectTriangles(const Project& p, const SceneObject& o) {
                 src = primmesh::unitSphere(clampPrimDetail(o.type, o.primDetail));
                 break;
             case PrimitiveType::Cylinder:
-                src = primmesh::unitCylinder(clampPrimDetail(o.type, o.primDetail));
+                src = primmesh::unitCylinder(clampPrimDetail(o.type, o.primDetail),
+                                             o.primRings);
                 break;
             case PrimitiveType::Cone:
                 src = primmesh::unitCone(clampPrimDetail(o.type, o.primDetail));

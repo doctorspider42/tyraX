@@ -826,8 +826,9 @@ std::vector<float> unitBox(int detail = kDefaultBoxDetail) {
 std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
     return shadedMesh(primmesh::unitSphere(detail));
 }
-std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
-    return shadedMesh(primmesh::unitCylinder(detail));
+std::vector<float> unitCylinder(int detail = kDefaultPrimDetail,
+                                bool rings = false) {
+    return shadedMesh(primmesh::unitCylinder(detail, rings));
 }
 std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     return shadedMesh(primmesh::unitCone(detail));
@@ -1653,7 +1654,8 @@ void Viewport::buildPrimitiveMeshes() {
     }
 }
 
-const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail,
+                                         bool rings) {
     // SavePoint draws as a Box (same tessellation family, shared mesh cache).
     if (type == PrimitiveType::SavePoint) type = PrimitiveType::Box;
     const int d = clampPrimDetail(type, detail);
@@ -1665,12 +1667,17 @@ const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
         case PrimitiveType::Cone: cache = &coneMeshes_; break;
         default: return box_;
     }
-    if (auto it = cache->find(d); it != cache->end()) return it->second;
-    const Mesh m = type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
-                   : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
-                   : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d))
-                                                     : uploadMesh(unitCone(d));
-    return cache->emplace(d, m).first->second;
+    // Axial rings are a second tessellation axis, so they are part of the
+    // cache KEY - without this the first cylinder of a given detail decides
+    // the mesh every later one at that detail gets, whatever its own flag.
+    const int key = rings ? d | (1 << 16) : d;
+    if (auto it = cache->find(key); it != cache->end()) return it->second;
+    const Mesh m =
+        type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
+        : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
+        : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d, rings))
+                                          : uploadMesh(unitCone(d));
+    return cache->emplace(key, m).first->second;
 }
 
 void Viewport::clearPrimMeshCache() {
@@ -4247,7 +4254,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Sphere:
             case PrimitiveType::Cylinder:
             case PrimitiveType::Cone:
-            case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
+            case PrimitiveType::SavePoint:
+                return &primMesh(o.type, o.primDetail, o.primRings);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face

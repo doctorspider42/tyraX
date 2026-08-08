@@ -1119,6 +1119,18 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
                  std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
+  // Rings along the axis (mirror of primCylinderStacks in project.hpp - keep
+  // the two in sync), opt-in per object. Without them every vertex-baked term
+  // that varies with HEIGHT - a baked point light overhead, the contact
+  // darkening at the foot, a probe gradient - is one linear ramp per segment
+  // quad, and its diagonal seam paints a full-height stripe that more radial
+  // detail only makes narrower. With nothing lighting the cylinder vertically
+  // they are triangles no shading reads, hence the flag rather than always-on.
+  int rings = 1;
+  if (o.primRings) {
+    rings = seg / 4;
+    if (rings < 1) rings = 1;
+  }
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
@@ -1128,12 +1140,16 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
     // side (smooth) - atlas region 0
     g_aoRegion = 0;
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
+    for (int k = 0; k < rings; ++k) {
+      const float tt = (float)k / rings, tb = (float)(k + 1) / rings;
+      const float yt = h - 2.0F * h * tt, yb = h - 2.0F * h * tb;
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x0, yt, z0}, n0, u0, tt);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x1, yb, z1}, n1, u1, tb);
+    }
     // caps (planar mapping) - atlas regions 1 (+Y) and 2 (-Y)
     g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
@@ -2027,6 +2043,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   const float portalPrevX = players[0].x, portalPrevY = players[0].y,
               portalPrevZ = players[0].z;
@@ -2522,6 +2548,20 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // World Facts: the profile tier is read once at boot and then only written,
+  // so an unlock earned in a previous session is already true before the first
+  // scene loads (docs/world-facts.md "Saving"). It MUST come after saveInit():
+  // that call is what decides whether the transport is the memory card or the
+  // host file next to the ELF, and a read taken before it silently used the
+  // host path while every write went to the card - which looks exactly like a
+  // profile that does not persist. A missing profile is the normal first-run
+  // state; the catalog defaults stand and the file appears the first time one
+  // of them moves.
+  if (FACT_PROFILE_COUNT > 0) {
+    static SaveProfileData prof;  // a few dozen bytes, kept off the stack
+    if (profileRead(prof)) factProfileRestore(prof.facts, prof.factCount);
+    factProfileDirty();  // swallow the restore's own writes
+  }
   // Read which slots already hold a save. The menu refreshes this when it
   // opens, but a Commit Checkpoint in "next free slot" mode can fire long
   // before the player ever opens it - and against an all-false table it would
@@ -5920,6 +5960,9 @@ void TerrainGame::captureState(SaveGameData& d) {
   d.textCount = SAVE_TEXT_COUNT;
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
+  // World Facts: whatever the catalog declared as checkpoint- or save-lived,
+  // each row carrying its fact's own id (docs/world-facts.md).
+  d.factCount = factSaveCapture(d.facts, FACT_SAVE_MAX);
   d.objectCount = 0;
   for (int i = 0;
        i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -5979,6 +6022,12 @@ void TerrainGame::doLoad(int slot) {
 void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  // Facts are matched to slots BY ID, so a payload written before a fact was
+  // renamed, moved or removed still restores everything it still shares with
+  // this build - and silently drops the rest instead of writing a value into
+  // whatever now sits at that position.
+  if (d.factCount > 0 && d.factCount <= FACT_SAVE_MAX)
+    factSaveRestore(d.facts, d.factCount);
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
     d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);

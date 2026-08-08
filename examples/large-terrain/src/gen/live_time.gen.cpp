@@ -49,7 +49,7 @@ constexpr int TM_OBJ_STRIDE = 112;
 constexpr int TM_MAX_OBJECTS = 1213;
 constexpr int TM_MAX_VARS = 1;
 constexpr int TM_MAX_SAVES = 1;
-constexpr tllu64 TM_LAYOUT = 14614574727510615047ull;
+constexpr tllu64 TM_LAYOUT = 2922704154603932798ull;
 constexpr int TM_GRAPH_BYTES = 8;
 constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 30 + 2 +
                              TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4 + 2 +
