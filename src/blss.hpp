@@ -55,6 +55,41 @@ inline float jitterY(int phase) { return phase == 0 ? -0.25f : 0.25f; }
 // ---------------------------------------------------------------- features ---
 
 constexpr int kFeatures = 8;
+
+// THE HIDDEN LAYER, AND IT IS NOT WHAT LIMITS THIS NETWORK - measured, after
+// the corpus grew to 13 shots dropped the in-distribution margin from ~+1.0 dB
+// to ~+0.6 and that was read as "12 units is now the constraint rather than the
+// data". It is not. Leave-one-shot-out cross-validation, 13 shots, 156 frames,
+// 3 seeds = 39 fold-runs per row, everything else at the shipped defaults
+// (decay 1e-4, fill 16), held-out margin over plain bilinear:
+//
+//   kHidden           12      16      24      32
+//   weights          147     195     291     387
+//   MACs / frame  29 568  39 424  59 136  78 848    (11*kHidden over 224 tiles)
+//   held-out, dz 0  +0.40   +0.41   +0.42   +0.41   dB
+//   held-out, dz 8  +0.38   +0.39   +0.40   +0.39
+//   mean passes      1.85    1.82    1.78    1.80   (at the shipped deadzone)
+//   IN-DIST margin  +0.56   +0.56   +0.57   +0.56
+//   folds below bil 4/39    4/39    4/39    4/39
+//
+// Read the IN-DIST row first: it is the one a capacity limit has to move, and
+// it does not move at all - 0.556, 0.555, 0.572, 0.560 across a network that
+// nearly tripled. The held-out row spans 0.02 dB, which is the size of the sd
+// of the per-seed fold-mean (0.01), and it is NOT MONOTONIC: 32 scores below
+// 24. A net that was short of units cannot get worse by being given more.
+//
+// So the ~0.6 dB is a ceiling of the FEATURES, the objective, or what a
+// per-tile decision can express - not of the layer. Widening is the cheap thing
+// to try and it has now been tried; the expensive things (a photometric
+// feature, the editor-baked high-frequency energy, a cost model the net can
+// actually learn) are what is left. 12 stays: 291 weights for +0.02 dB would
+// double the EE inference for a difference this corpus cannot resolve, and the
+// weight table is a generated header the game compiles.
+//
+// If you do move it: it lives on BOTH twins (here and RendererCoreBlss's
+// kHidden), the emitter's table sizes and the engine's fixed-size arrays follow
+// it automatically, and every existing blss.net becomes unreadable - the file
+// carries no topology, so bump kNetVersion with it.
 constexpr int kHidden = 12;
 constexpr int kOutputs = 3;  // wA (point), wC (temporal), wD (sharpen)
 
@@ -100,6 +135,94 @@ constexpr float kDepthRef = 8.0f;
 // tracks the alternation instead of averaging it, and the image visibly bobs;
 // 115 is ~0.9 retention, about a 10-frame constant. Twinned with the engine.
 constexpr float kTemporalMax = 115.0f;
+
+// THE THREE QUANTISERS, IN ONE PLACE. alphaBytes() turns a weight into the GS
+// alpha byte the composite blends with, and each output has its OWN scale:
+// point is a straight 0..128 factor, temporal is capped at kTemporalMax
+// (the accumulator's retention, above), and sharpen carries the project's `k`
+// as well. Anything that needs to reason about "what byte would this weight
+// become" - the deadzone below, the fill term's step, the engine's
+// cornerAlpha() - reads them from here, so there is exactly one definition to
+// keep twinned with the engine.
+inline void alphaScales(float sharpen, float out[kOutputs]) {
+    const float k = sharpen < 0.0f ? 0.0f : (sharpen > 1.0f ? 1.0f : sharpen);
+    out[0] = 128.0f;         // wA: aA = wA * 128
+    out[1] = kTemporalMax;   // wC: aC = wC * kTemporalMax
+    out[2] = k * 128.0f;     // wD: aD = wD * sharpen * 128
+}
+
+// THE DEADZONE, in GS alpha bytes, and the single largest performance knob left
+// in this feature.
+//
+// A logistic output cannot emit zero. Where the oracle says "draw nothing here"
+// the trained net says 0.02, which is worth 0.02 * 128 = alpha 2 - invisible in
+// the picture, negligible in the trainer's MSE, and A WHOLE FULL-SCREEN GS PASS
+// on the console, because emitGrid draws a cell as soon as ONE of its four
+// corner alpha bytes is non-zero. That is the entire gap between the oracle's
+// ~1.5-1.9 passes per frame and the network's ~2.85: not worse weights, a
+// weight that rounds to "barely on" instead of "off".
+//
+// So at INFERENCE - on both twins, never in the labels - an output whose alpha
+// byte would be at most kDeadzoneAlpha is snapped to exactly 0. The thresholds
+// on the WEIGHT are therefore different for the three outputs and one of them
+// depends on a project setting: kDeadzoneAlpha/128, kDeadzoneAlpha/kTemporalMax
+// and kDeadzoneAlpha/(sharpen*128). Derive them from alphaScales() - three
+// hardcoded constants would drift the moment sharpen or kTemporalMax moved, and
+// a drifting deadzone is a twin divergence that no PSNR column can see.
+//
+// A sharpen of 0 makes the third scale 0, so every wD is dead - which is
+// correct: the composite's passes 4/5 multiply by that same zero, so they were
+// always going to draw nothing.
+//
+// 8 is the knee. Leave-one-shot-out cross-validation, 13 shots, 156 frames, 3
+// seeds = 39 fold-runs per row, all of them THE SAME NETS - the deadzone never
+// reaches the labels, so one training run measures the whole sweep
+// (`--blss-eval --cv --deadzone-sweep 0,1,2,3,4,6,8,12,16,24`):
+//
+//   deadzone alpha     0     1     2     3     4     6     8    12    16    24
+//   held-out margin  +.40  +.40  +.40  +.40  +.40  +.39  +.38  +.36  +.35  +.32
+//   mean passes      2.85  2.83  2.70  2.55  2.48  2.12  1.85  1.53  1.41  1.30
+//   point occupancy   83%   83%   82%   71%   65%   33%   15%    2%    0%    0%
+//   temporal          85%   84%   84%   84%   84%   79%   69%   51%   41%   30%
+//   sharpen          8.7%  7.7%  1.6%    0%    0%    0%    0%    0%    0%    0%
+//   folds below bil  5/39  5/39  5/39  5/39  5/39  5/39  4/39  3/39  4/39  3/39
+//
+// Read it as the MARGINAL PRICE OF A PASS, which is the only way this decides
+// anything: 0 -> 4 is free, 4 -> 8 costs 0.03 dB per pass saved, 8 -> 12 costs
+// 0.06, 12 -> 16 costs 0.08 and 16 -> 24 costs 0.27. The price doubles at 8 and
+// goes vertical past 16. So 8 buys A WHOLE FULL-SCREEN PASS (2.85 -> 1.85) for
+// 0.02 dB - one twentieth of the 0.40 sd across folds, i.e. free at the
+// resolution this corpus can measure - and closes most of the distance to the
+// oracle's own 1.53.
+//
+// The sharpen channel is the first to go because its threshold is the loosest:
+// at sharpen 0.5 the scale is 64, so alpha 4 is a weight of 0.0625 and by
+// deadzone 3 the net is asking for no sharpen at all. That is the fill term and
+// this working on the same tiles, not a bug - the sharpen occupancy was already
+// down to 8.7% before the deadzone existed.
+//
+// What this does NOT do is make the network better. The margin is flat, then it
+// erodes: the deadzone removes fill the net was asking for and not using, which
+// is exactly the diagnosis ("the net fails to generalise the cost model") and
+// not a fix for it. A net that had learned the cost model would not need this.
+constexpr float kDeadzoneAlpha = 8.0f;
+
+// Snap the three outputs of one tile to zero where the console would draw them
+// at a negligible alpha. INFERENCE ONLY - the oracle is free to pick any weight
+// it likes and its labels are unchanged; this is what both twins do to the
+// NETWORK's answer before it becomes vertex alpha.
+// The engine divides rather than multiplying (one division per output per
+// frame instead of one multiply per tile), so this does too - the two sides
+// have to agree on the boundary case, not merely on the intent.
+inline void applyDeadzone(float w[kOutputs], float sharpen,
+                          float deadAlpha = kDeadzoneAlpha) {
+    float s[kOutputs];
+    alphaScales(sharpen, s);
+    for (int m = 0; m < kOutputs; ++m) {
+        const float dead = s[m] > 0.0f ? deadAlpha / s[m] : 1e30f;
+        if (w[m] <= dead) w[m] = 0.0f;
+    }
+}
 
 // How hard the oracle is penalised for a frame that differs from the previous
 // one, relative to how hard it is penalised for differing from the truth.
@@ -200,6 +323,15 @@ constexpr float kFlickerWeight = 0.0f;
 // 3.00 passes, which is what a knee looks like when it is measured over seven
 // held-out shots instead of two. Past 24 the network starts giving up kernels it
 // should have kept and the margin goes with it.
+//
+// THAT SWEEP PREDATES kDeadzoneAlpha, and the two do overlapping work: the fill
+// weight teaches the net to want fewer kernels, the deadzone throws away the
+// ones it wants at an alpha the eye cannot see. The pass counts above are
+// therefore the deadzone-0 ones (16 -> 3.00; it is 1.85 with the shipped
+// deadzone), and the two have NOT been swept jointly. That is the open
+// experiment: with the deadzone taking the "barely on" fill for free, a LOWER
+// fill weight might now buy back quality at the same pass count. Sweep them as
+// a pair before moving either.
 constexpr float kFillWeight = 16.0f;
 
 // The oracle's objective in one struct, because a term that is not in here is a
@@ -290,10 +422,14 @@ std::vector<Features> buildFeatures(int cols, int rows,
 
 // ----------------------------------------------------------------- network ---
 
-// MLP 8 -> 12 -> 3, tanh hidden, logistic outputs. 147 weights; the whole
-// frame is ~29 600 MACs (132 per tile over a 16x14 grid), which is still small
-// enough to run on the EE FPU rather than VU1 (whose
-// micro memory has nothing left - see the tyra-engine-dev skill).
+// MLP kFeatures -> kHidden -> kOutputs, tanh hidden, logistic outputs. At the
+// shipped 8 -> 12 -> 3 that is 147 weights and 132 MACs per tile, so ~29 600
+// MACs plus ~3 400 transcendentals over a 16x14 grid - small enough to run on
+// the EE FPU rather than VU1 (whose micro memory has nothing left - see the
+// tyra-engine-dev skill). Both figures are 11*kHidden and (kHidden+3), times
+// 224 tiles; the width sweep that says 12 is the right one is up at kHidden.
+// NEITHER HAS EVER BEEN TIMED, in PCSX2 or on hardware - "far too small to
+// matter" is arithmetic and a design argument, not a measurement.
 struct Net {
     float w1[kHidden][kFeatures] = {};
     float b1[kHidden] = {};
@@ -505,7 +641,13 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 // --blss-train [-o blss.net] [--frames N] [--epochs N] [--weight-decay W]
 //              [--dump <dir>]
 int trainMain(int argc, char** argv);
-// --blss-eval [-i blss.net] [--frames N] [--dump <dir>]
+// --blss-eval [-i blss.net] [--frames N] [--dump <dir>] [--deadzone A]
+//             [--deadzone-sweep a,b,c]
+//
+// `--deadzone A` overrides kDeadzoneAlpha for the run, and `--deadzone-sweep`
+// measures a whole list of them inside ONE --cv run. Both are cheap because the
+// deadzone is an INFERENCE knob: it never reaches the labels, so N deadzones
+// cost N evaluations of the same trained folds rather than N trainings.
 //
 // Two modes train their own nets and therefore ignore -i:
 //
@@ -520,7 +662,8 @@ int trainMain(int argc, char** argv);
 //       a before/after survives the corpus growing under it.
 //       It prints the margin over bilinear per fold AND the mean pass count:
 //       a decibel bought at 5.00 passes is not a win, it is bilinear plus every
-//       kernel everywhere.
+//       kernel everywhere. With --deadzone-sweep it also prints one row per
+//       deadzone, both columns, over the same folds.
 //
 //   --features
 //       What the eight input channels actually look like over the corpus -

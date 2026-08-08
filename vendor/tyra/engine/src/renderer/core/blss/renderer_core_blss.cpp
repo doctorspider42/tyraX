@@ -539,8 +539,27 @@ void RendererCoreBlss::buildFeatures() {
 }
 
 // --------------------------------------------------------------- section 5 ---
+void RendererCoreBlss::alphaScales(float out[kOutputs]) const {
+  const float k = clamp01(sharpen);
+  out[0] = 128.0F;        // wA: aA = wA * 128
+  out[1] = kTemporalMax;  // wC: aC = wC * kTemporalMax
+  out[2] = k * 128.0F;    // wD: aD = wD * sharpen * 128
+}
+
 void RendererCoreBlss::runNet() {
   const int n = cols * rows;
+  // THE DEADZONE, as a threshold on each OUTPUT rather than on its byte: the
+  // three scales differ and one of them is a project setting, so the weight
+  // below which a tile is "off" is kDeadzoneAlpha/128 for point,
+  // kDeadzoneAlpha/kTemporalMax for temporal and kDeadzoneAlpha/(sharpen*128)
+  // for sharpen. Derived here, once, from the same scales cornerAlpha()
+  // quantises with (kDeadzoneAlpha). A scale of 0 - sharpen 0 - makes the
+  // threshold infinite, which is right: those passes are not drawn at all.
+  float scale[kOutputs];
+  alphaScales(scale);
+  float dead[kOutputs];
+  for (int m = 0; m < kOutputs; m++)
+    dead[m] = scale[m] > 0.0F ? kDeadzoneAlpha / scale[m] : 1e30F;
   for (int i = 0; i < n; i++) {
     // An empty tile is not a decision the network is entitled to make. The
     // oracle's importance weighting gives "tiles where every kernel is
@@ -566,6 +585,11 @@ void RendererCoreBlss::runNet() {
       float s = b2[m];
       for (int k = 0; k < kHidden; k++) s += w2[m][k] * h[k];
       o[m] = 1.0F / (1.0F + expf(-s));
+      // A logistic cannot emit 0, and "barely on" costs exactly as much fill
+      // as "fully on" - kDeadzoneAlpha. Three compares per tile against
+      // thresholds derived above; twinned with netField() on the host, which
+      // snaps at the same point, per TILE, BEFORE the corner averaging below.
+      if (o[m] <= dead[m]) o[m] = 0.0F;
     }
     outW_A[i] = o[0];
     outW_C[i] = o[1];
@@ -769,19 +793,20 @@ void RendererCoreBlss::endScene() {
 // --------------------------------------------------------------- section 6 ---
 u8 RendererCoreBlss::cornerAlpha(int pass, int corner) const {
   // trunc(), not round: the host uses the same truncation, and the oracle was
-  // fitted against it.
+  // fitted against it. The scales come from alphaScales() rather than from
+  // three literals here, so runNet()'s deadzone divides by exactly what this
+  // multiplies by (the temporal one is kTemporalMax - an accumulator's
+  // retention, NOT a two-frame average; see src/blss.hpp).
+  float s[kOutputs];
+  alphaScales(s);
   switch (pass) {
     case 1:  // point / nearest:      aA = wA * 128
-      return static_cast<u8>(clamp01(cornerA[corner]) * 128.0F);
-    case 2:  // temporal: aC = wC * kTemporalMax (an accumulator's retention,
-             // NOT a two-frame average - see src/blss.hpp). At the old 64 the
-             // accumulator's time constant is about one frame, so it TRACKS the
-             // alternating jitter instead of averaging it out and the picture
-             // visibly bobs. 115 is ~0.9 retention.
-      return static_cast<u8>(clamp01(cornerC[corner]) * 115.0F);
+      return static_cast<u8>(clamp01(cornerA[corner]) * s[0]);
+    case 2:  // temporal:             aC = wC * kTemporalMax
+      return static_cast<u8>(clamp01(cornerC[corner]) * s[1]);
     case 3:  // sharpen, additive:    aD = wD * sharpen * 128
     case 4:  // sharpen, subtractive: same byte
-      return static_cast<u8>(clamp01(cornerD[corner]) * sharpen * 128.0F);
+      return static_cast<u8>(clamp01(cornerD[corner]) * s[2]);
     default:
       return 0x80;  // pass 0 is opaque; the debug tint blends with FIX
   }

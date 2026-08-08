@@ -24,7 +24,8 @@ namespace Tyra {
  * BLSS - "Bieda-Level Super Sampling", the neural upscaler.
  *
  * The 3D scene rasterises into a half-resolution GS render target; a small MLP
- * (8 -> 12 -> 3, 147 weights, trained on the host and baked into the game)
+ * (kFeatures -> kHidden -> kOutputs, 8 -> 12 -> 3 and 147 weights as shipped,
+ * trained on the host and baked into the game)
  * decides per 32x32 output tile HOW that image should be blown up to the
  * display buffer and how much of the previous frame to reuse. The three outputs
  * ride into the GS as VERTEX ALPHA on a Gouraud-shaded triangle-strip grid, so
@@ -72,6 +73,26 @@ class RendererCoreBlss {
   /** Depth normalisation reference in world units (docs section 4). */
   static constexpr float kDepthRef = 8.0F;
 
+  /**
+   * The temporal pass's ceiling as a GS alpha byte, twinned with
+   * src/blss.hpp's kTemporalMax. 115 is ~0.9 retention of an exponential
+   * accumulator (the history is the previous frame's own composite); at the
+   * old 64 the time constant is about one frame and the picture bobs.
+   */
+  static constexpr float kTemporalMax = 115.0F;
+
+  /**
+   * THE INFERENCE DEADZONE, in GS alpha bytes - twinned with src/blss.hpp's
+   * kDeadzoneAlpha, where the measured sweep lives.
+   *
+   * A logistic output cannot say zero: where the oracle asks for nothing the
+   * trained net asks for 0.02, which is alpha 2 - invisible in the picture and
+   * A WHOLE FULL-SCREEN PASS here, because emitGrid draws a cell as soon as
+   * ONE of its four corner alpha bytes is non-zero. runNet() therefore snaps
+   * any output whose alpha byte would be at most this to exactly 0.
+   */
+  static constexpr float kDeadzoneAlpha = 8.0F;
+
   RendererCoreBlss();
   ~RendererCoreBlss();
 
@@ -111,7 +132,10 @@ class RendererCoreBlss {
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
                  int debugView);
 
-  /** The 147 trained weights, emitted into the game as BLSS_NET_* tables.
+  /** The trained weights (147 at the shipped kHidden = 12), emitted into the
+   * game as BLSS_NET_* tables by the editor's --blss-emit - so kHidden here
+   * must equal blss::kHidden there, or the tables and these arrays disagree
+   * about their own length.
    * w1 is [kHidden][kFeatures] row-major, w2 is [kOutputs][kHidden]. Until
    * this is called every weight reads 0, which makes composite() degrade to
    * the plain bilinear pass 1. */
@@ -204,6 +228,15 @@ class RendererCoreBlss {
   qword_t* emitGrid(qword_t* q, int pass);
   /** 0..255 alpha byte of a pass at a grid corner (docs section 6). */
   u8 cornerAlpha(int pass, int corner) const;
+  /**
+   * The three weight -> alpha-byte scales, in output order (wA, wC, wD):
+   * 128, kTemporalMax, sharpen * 128. One definition, because cornerAlpha()
+   * quantises with them and runNet()'s deadzone divides by them - three
+   * hardcoded numbers would drift the moment `sharpen` or kTemporalMax moved,
+   * and a drifting deadzone is a silent twin divergence. Twinned with
+   * blss::alphaScales() in src/blss.hpp.
+   */
+  void alphaScales(float out[kOutputs]) const;
 
   RendererSettings* settings = nullptr;
   RendererCoreGS* gs = nullptr;
