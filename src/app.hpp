@@ -1717,6 +1717,13 @@ private:
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
     int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    // Preview aspect: 0 = follow the project (Preferences > Widescreen), 1 =
+    // force 4:3, 2 = force 16:9 - the safe-area overlay's Aspect control, for
+    // the same reason. Widescreen is anamorphic, so it changes what a baked
+    // panel looks like without changing a single pixel of it, and checking the
+    // other case must not mean editing the project. Shared by both preview
+    // surfaces: it is a question about the menu, not about the window.
+    int menuPreviewAspect_ = 0;
     std::string menuPreviewKey_;  // serialized menu the texture was baked from
 
     // Color grading (Tools > Color Grading): selected preset + whether the

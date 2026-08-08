@@ -61,7 +61,17 @@ the verification, and any fact worth reusing belongs in the relevant
   still position themselves in the raw framebuffer instead of the logical
   512x448 space menus now scale from, so they are the remaining half of "the UI
   does not move when the display mode does" (the mechanism is there -
-  `Sprite::drawSize` plus the `project::displayModes` table). Also: a `close`
+  `Sprite::drawSize` plus the `project::displayModes` table). **The same split
+  now applies to WIDESCREEN**: menu panels cancel the anamorphic stretch
+  (docs/menu-styles.md "Widescreen", `RendererSettings::getWindowAspect()`) and
+  those three surfaces do not, so they still come out a third wider on 16:9.
+  Whether they SHOULD is a design question rather than a bug - a HUD pinned to
+  the screen edges is arguably meant to follow a wider frame, while a fixed-
+  aspect element (a radar, a portrait, an icon) is not - so the answer is
+  probably per element, not per surface, and it wants deciding before it is
+  coded. The save menu is the clear-cut half: it is a `GameMenu` that is drawn
+  by its own function and takes neither the resolution scale nor the aspect
+  compensation, which is simply inconsistent with every other menu. Also: a `close`
   transition is parsed and generated but the runtime only plays `open` and
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale

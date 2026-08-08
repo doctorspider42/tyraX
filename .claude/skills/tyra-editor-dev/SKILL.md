@@ -878,6 +878,21 @@ differs from every other feature here, because most of it is data:
   geometry table - `App::ps2ViewportOutput` and the Menu Editor's
   per-resolution preview both read it, and it is the host twin of
   `RendererSettings::updateGeometry`.
+- **widescreen is anamorphic, so it is a 2D problem, not a projection one**
+  (docs/menu-styles.md "Widescreen"). The framebuffer keeps its shape and the TV
+  stretches it, which widens a baked panel by a third and fattens its text - so
+  `renderGameMenu`'s HORIZONTAL factor divides `RendererSettings::getWindowAspect()`
+  back out over 4:3 and the panel keeps its authored proportions. Three things
+  follow, and each of them was a bug first. It cannot be solved by baking twice:
+  Set Widescreen and the DISPLAY menu's widescreen row flip the aspect WHILE THE
+  GAME RUNS, so anything derived from it has to be resolved per frame, not at
+  build - which is why the cutscene letterbox masks now ship a STYLE and a
+  runtime `barsFractions` twin instead of the baked fractions they used to
+  (`seqBarsFractions` in src/sequence.hpp takes the display aspect). Runtime text
+  drawn INSIDE a compensated panel must carry the same squeeze (`drawFontText`'s
+  `sx`), or it is a third wider than the row it sits in. And the Menu Editor's
+  preview applies the identical factor plus an **Aspect** override - a preview
+  that does not is the only place this is visible before a console.
 - the sheet's editor support lives in `tools/vscode-tyrax`, and **a change there
   is not done until the `.vsix` is repackaged**: that committed package is what
   the editor installs, nothing rebuilds it, and a source-only change is invisible

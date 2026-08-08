@@ -1322,12 +1322,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "SetBars", .title = "Set Letterbox Bars", .category = "Camera",
          .numCount = 2, .numLabels = {"Style", "Amount"},
          .numTips = {"Which mask: 0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 "
-                     "pillarbox, 4 frame.",
+                     "pillarbox, 4 frame. Cinema and wide letterbox INSIDE the "
+                     "picture, so on a 16:9 game wide covers nothing and "
+                     "cinema is thinner.",
                      "How far the chosen style is deployed, 0..1 of its full "
                      "coverage - wire a Tween into it to slide the bars in."},
          .numIn = true,
          .desc = "Masks the frame with black bars. A playing cutscene's own "
-                 "bars win over this."},
+                 "bars win over this. The coverage follows the aspect the "
+                 "console is outputting, so it stays right when Set Widescreen "
+                 "or the player's own widescreen option changes it."},
         {.key = "SetPlayerVisible", .title = "Set Player Visible",
          .category = "Camera", .execInCount = 2,
          .execInLabels = {"show", "hide"},

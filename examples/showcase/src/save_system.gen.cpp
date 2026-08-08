@@ -163,6 +163,79 @@ static std::string hostSlotPath(int slot) {
   return Tyra::FileUtils::fromCwd(buf);
 }
 
+// --- The profile file (docs/world-facts.md "Saving") -------------------------
+// Same two transports as a slot, one fixed name, no slot index. Deliberately
+// blocking: the payload is a few dozen bytes and it is written when a profile
+// fact moves, which is rare - the async machinery below exists for the
+// slot-sized transfers and would be pure complication here.
+static std::string mcProfileName() {
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s/profile.sav", SAVE_MC_DIR);
+  return std::string(buf);
+}
+
+static std::string hostProfilePath() {
+  return Tyra::FileUtils::fromCwd("profile.sav");
+}
+
+bool profileWrite(const SaveProfileData& data) {
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcWronly | kMcCreat);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int wrote = -1, ret = 0;
+    mcWrite(fd, &data, sizeof(data));
+    mcSync(MC_WAIT, nullptr, &wrote);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+    return wrote == (int)sizeof(data);
+  }
+  FILE* f = fopen(hostProfilePath().c_str(), "wb");
+  if (!f) return false;
+  const size_t written = fwrite(&data, 1, sizeof(data), f);
+  fclose(f);
+  return written == sizeof(data);
+}
+
+bool profileRead(SaveProfileData& out) {
+  SaveProfileData d;
+  bool got = false;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcRdonly);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd >= 0) {
+      int read = -1, ret = 0;
+      mcRead(fd, &d, sizeof(d));
+      mcSync(MC_WAIT, nullptr, &read);
+      mcClose(fd);
+      mcSync(MC_WAIT, nullptr, &ret);
+      // A card read reports FEWER bytes than it delivered for a payload this
+      // small - measured: a 1 KiB profile came back with the whole header and
+      // its rows intact and a reported count of less than sizeof(d), so an
+      // exact-size test rejected a perfectly good profile and the tier read as
+      // "never persists". The payload is self-describing (magic + version +
+      // factCount), so validate THAT and treat a short count as a delivered
+      // read. The slot payload is kilobytes and never hit this.
+      got = read > 0 || d.magic == SAVE_MAGIC;
+    }
+  } else {
+    FILE* f = fopen(hostProfilePath().c_str(), "rb");
+    if (f) {
+      got = fread(&d, 1, sizeof(d), f) == sizeof(d);
+      fclose(f);
+    }
+  }
+  // A profile from a build with a different layout is not migrated, it is
+  // ignored: every row is id-keyed, so the honest answer to "I cannot read
+  // this" is a fresh profile rather than half of an old one.
+  if (!got || d.magic != SAVE_MAGIC || d.version != SAVE_VERSION) return false;
+  if (d.factCount < 0 || d.factCount > FACT_PROFILE_MAX) return false;
+  out = d;
+  return true;
+}
+
 bool saveWrite(int slot, const SaveGameData& data) {
   if (slot < 0 || slot >= SAVE_SLOTS) return false;
   if (mcReady) {

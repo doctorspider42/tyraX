@@ -4436,6 +4436,10 @@ void drawIconAt(Engine* engine, int i, float x, float y, float box) {
   sp->size = Vec2((float)ir.w, (float)ir.h);
   sp->offset = Vec2((float)ir.u, (float)ir.v);
   sp->scale = box / (float)ir.h;
+  // The icon sheet is ONE shared sprite (iconSheetSprite) and drawFontText
+  // gives it a per-axis drawSize for squeezed text - clear it, or a widescreen
+  // menu leaves every later icon drawn at that width.
+  sp->drawSize = Vec2(0.0F, 0.0F);
   sp->position = Vec2(x, y);
   engine->renderer.renderer2D.render(*sp);
 }
@@ -4447,16 +4451,20 @@ int liveIconForAction(int action) {
   return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
 }
 
-float fontTextWidth(int fontIdx, const char* s, float size) {
+/** Width of a string in framebuffer pixels. `sx` squeezes the horizontal axis
+ * (1 = square glyphs): a menu panel compensated for anamorphic widescreen is
+ * narrower than the buffer says, and text measured without the same factor
+ * would be laid out for a panel that is not there. */
+float fontTextWidth(int fontIdx, const char* s, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
-  const float k = size / (float)f.baseSize;
+  const float k = (size / (float)f.baseSize) * sx;
   float w = 0.0F;
   while (*s) {
     int tokenLen = 0;
     const int icon = resolveIconToken(s, &tokenLen);
     if (icon >= 0) {
-      w += iconAdvanceFor(icon, size);
+      w += iconAdvanceFor(icon, size) * sx;
       s += tokenLen;
       continue;
     }
@@ -4468,8 +4476,12 @@ float fontTextWidth(int fontIdx, const char* s, float size) {
   return w;
 }
 
+/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
+ * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
+ * compensated for anamorphic widescreen, where the glyphs have to be squeezed
+ * with the panel or they come out fatter than the baked rows around them. */
 void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size) {
+                  float cy, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs || !f.atlas[0]) return;
 
@@ -4487,10 +4499,11 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
 
   Sprite& sp = glyph[fontIdx];
   const float k = size / (float)f.baseSize;
+  const float kx = k * sx;  // the same factor with the horizontal squeeze in
   sp.scale = k;
 
   // Center anchor, like the baked HUD text sprites.
-  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float startX = cx - fontTextWidth(fontIdx, s, size, sx) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
   // The shared icon-sheet sprite (one texture, see iconSheetSprite).
@@ -4515,16 +4528,20 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       int tokenLen = 0;
       const int icon = resolveIconToken(c, &tokenLen);
       if (icon >= 0) {
-        const float adv = iconAdvanceFor(icon, size);
-        const float box = adv - size * 0.12F;
+        // The box is the icon's HEIGHT, so it never takes the squeeze; only
+        // the advance and the drawn width do.
+        const float box = iconAdvanceFor(icon, size) - size * 0.12F;
+        const float adv = iconAdvanceFor(icon, size) * sx;
         const IconRect& ir = ICONS[icon];
         if (ir.h > 0 && pass == 1 && iconSp) {
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
+          iconSp->drawSize =
+              Vec2((float)ir.w * (box / (float)ir.h) * sx, box);
           // Sit on the line box like a capital does, not on the baseline.
           iconSp->position =
-              Vec2(pen + size * 0.06F + ox,
+              Vec2(pen + size * 0.06F * sx + ox,
                    top + ((float)f.lineH * k - box) * 0.5F + ox);
           engine->renderer.renderer2D.render(*iconSp);
         }
@@ -4539,11 +4556,12 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       if (g.w > 0 && g.h > 0) {
         sp.size = Vec2((float)g.w, (float)g.h);
         sp.offset = Vec2((float)g.u, (float)g.v);
-        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+        sp.drawSize = Vec2((float)g.w * kx, (float)g.h * k);
+        sp.position = Vec2(pen + (float)g.xoff * kx + ox,
                            top + (float)g.yoff * k + ox);
         engine->renderer.renderer2D.render(sp);
       }
-      pen += (float)g.adv * k;
+      pen += (float)g.adv * kx;
     }
   }
 }
@@ -9645,8 +9663,16 @@ void TerrainGame::renderGameMenu() {
   // across the same raster, so 448 columns cover exactly the width 512 do.
   // That also means the two axes scale by different factors - hence
   // Sprite::drawSize rather than Sprite::scale.
+  // Widescreen is ANAMORPHIC (docs/menu-styles.md "Widescreen"): the
+  // framebuffer does not change shape, the TV stretches the same signal across
+  // a 16:9 raster. A panel drawn with the resolution scale alone would come out
+  // a third wider than it was baked, with the text fattened to match - so the
+  // horizontal factor divides the window's shape back out and the panel keeps
+  // the physical size and proportions it was authored at, whatever the player
+  // picks. In 4:3 the ratio is exactly 1 and nothing moves.
   const auto& uiScr = engine->renderer.core.getSettings();
-  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiAspectFix = (4.0F / 3.0F) / uiScr.getWindowAspect();
+  const float uiSX = uiScr.getWidth() / 512.0F * uiAspectFix;
   const float uiSY = uiScr.getHeight() / 448.0F;
   auto sxi = [&](int v) { return (float)v * uiSX; };
   auto syi = [&](int v) { return (float)v * uiSY; };
@@ -9919,16 +9945,19 @@ void TerrainGame::renderGameMenu() {
       // resolutions anyway).
       float size = (float)m.rowH * 0.8F * uiSY;
       const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
-      float w = fontTextWidth(m.font, txt, size);
+      // The panel around this text is squeezed for widescreen (uiAspectFix),
+      // so the binding has to be measured and drawn squeezed too - otherwise
+      // it is a third wider than the row it is supposed to sit in.
+      float w = fontTextWidth(m.font, txt, size, uiAspectFix);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
-        w = fontTextWidth(m.font, txt, size);
+        w = fontTextWidth(m.font, txt, size, uiAspectFix);
       }
       drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
                    baseY + syi(m.row0Y + (i - first) * m.rowH) +
                        syi(m.rowH) * 0.5F,
-                   size);
+                   size, uiAspectFix);
     }
   }
 }
@@ -23830,13 +23859,15 @@ std::string sequencesHeader(const Project& p) {
            "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
            "// letterbox that a cutscene currently owns those.\n"
            "bool playing();\n"
-           "// Letterbox coverage per edge (fractions of the screen) for the\n"
-           "// Set Letterbox Bars flow node, used by renderOverlay when NO\n"
-           "// sequence is active. The style -> fraction mapping stays on the\n"
-           "// host (seqBarsFractions in src/sequence.hpp), so the console needs\n"
-           "// no table: codegen writes the numbers straight in.\n"
-           "extern float g_flowBarTB;\n"
-           "extern float g_flowBarLR;\n"
+           "// Letterbox mask style for the Set Letterbox Bars flow node, used\n"
+           "// by renderOverlay when NO sequence is active (0 none, 1 cinema\n"
+           "// 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its\n"
+           "// coverage: a letterbox is relative to the picture the console is\n"
+           "// outputting and widescreen changes that at runtime, so the\n"
+           "// fractions are resolved per frame (barsFractions in\n"
+           "// src/gen/sequences.gen.cpp, the twin of seqBarsFractions in the\n"
+           "// editor's src/sequence.hpp).\n"
+           "extern int g_flowBarStyle;\n"
            "}  // namespace sequences\n"
            "}  // namespace "
         << ns << "\n";
@@ -24218,7 +24249,6 @@ std::string sequencesScript(const Project& p) {
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
            "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
-           "             float barTB; float barLR;  // mask coverage per edge\n"
            "             const Track* tracks; int trackCount;\n"
            "             const CamKey* camKeys; int camKeyCount; };\n\n";
 
@@ -24304,26 +24334,25 @@ std::string sequencesScript(const Project& p) {
         out << "};\n\n";
     }
 
-    // The sequence table. The widescreen-mask coverage fractions come from the
-    // same seqBarsFractions the editor overlays on the viewport.
+    // The sequence table. The mask STYLE travels, not its coverage: a mask
+    // letterboxes inside the picture the console is actually outputting and
+    // that shape is only known at runtime (see barsFractions below).
     out << "static const Seq kSeqs[] = {";
     for (size_t si = 0; si < p.sequences.size(); ++si) {
         const Sequence& s = p.sequences[si];
         const std::string sp = "kS" + std::to_string(si);
-        float bt, bb, bl, br;
-        seqBarsFractions(s.bars, bt, bb, bl, br);
         out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
             << (s.cameraEnabled ? 1 : 0) << ", " << (s.hidePlayer ? 1 : 0) << ", "
             << s.bars << ", "
             << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
             << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
-            << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
-            << floatLit(bl) << ", " << sp << "Tracks, " << s.tracks.size() << ", "
-            << sp << "Cam, " << s.cameraKeys.size() << "}";
+            << floatLit(s.barsSlideOut) << ", " << sp << "Tracks, "
+            << s.tracks.size() << ", " << sp << "Cam, " << s.cameraKeys.size()
+            << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
                "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
@@ -24616,11 +24645,40 @@ void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
 
-// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame
 // and clears everything on release.
-float g_flowBarTB = 0.0F;
-float g_flowBarLR = 0.0F;
+int g_flowBarStyle = 0;
+
+// Style -> coverage per edge, the runtime twin of seqBarsFractions in
+// src/sequence.hpp (the editor's viewport overlay reads that one). It cannot be
+// baked like the rest of a cutscene: Cinema and Wide letterbox INSIDE the
+// picture the console is currently outputting, and Set Widescreen / the
+// widescreen option row change that shape while the game runs. On a 16:9 output
+// the Wide mask therefore covers nothing at all, which is the correct answer
+// and not a missing feature.
+static void barsFractions(int style, float displayAspect, float* tb,
+                          float* lr) {
+  *tb = 0.0F;
+  *lr = 0.0F;
+  float target = 0.0F;
+  if (style == 1) {
+    target = 2.39F;  // cinema scope
+  } else if (style == 2) {
+    target = 16.0F / 9.0F;  // TV widescreen
+  } else if (style == 3) {
+    *lr = 0.13F;  // pillarbox
+    return;
+  } else if (style == 4) {
+    *tb = 0.08F;  // vintage frame, all four edges
+    *lr = 0.08F;
+    return;
+  } else {
+    return;
+  }
+  const float f = 0.5F * (1.0F - displayAspect / target);
+  *tb = f > 0.0F ? f : 0.0F;
+}
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -24647,11 +24705,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
-  // A cutscene's baked style, or the flow node's coverage when none is
-  // playing - the two never both apply, so one pair of fractions is enough.
+  // A cutscene's style, or the flow node's when none is playing - the two never
+  // both apply, so one pair of fractions is enough. Resolved against the shape
+  // of the picture on the TV, which widescreen changes without touching the
+  // framebuffer these quads are measured in.
   const int idx = g_seqDirector.activeIndex();
-  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
-  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  const int barStyle = idx >= 0 ? kSeqs[idx].bars : g_flowBarStyle;
+  float barTB = 0.0F, barLR = 0.0F;
+  barsFractions(barStyle, scr.getWindowAspect(), &barTB, &barLR);
   if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
     const float tb = barTB * ctx.barsAmount * H;
     const float lr = barLR * ctx.barsAmount * W;
@@ -28445,16 +28506,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << pad << "  ctx.fadeAlpha = a;\n"
                   << pad << "}\n";
             } else if (n.type == "SetBars") {
-                // The style -> coverage mapping is resolved HERE (the host's own
-                // seqBarsFractions), so the console carries no table: codegen
-                // writes the two fractions in as literals.
+                // Only the STYLE travels: a letterbox is measured against the
+                // picture the console is outputting, and Set Widescreen can
+                // change that shape after this node has run - so the coverage
+                // is resolved every frame by sequences::barsFractions.
                 int style = (int)std::lround(n.num[0]);
                 if (style < 0) style = 0;
                 if (style > 4) style = 4;
-                float bt = 0.0f, bb = 0.0f, bl = 0.0f, br = 0.0f;
-                seqBarsFractions(style, bt, bb, bl, br);
-                c << pad << "sequences::g_flowBarTB = " << floatLit(bt) << ";\n"
-                  << pad << "sequences::g_flowBarLR = " << floatLit(bl) << ";\n"
+                c << pad << "sequences::g_flowBarStyle = " << style << ";\n"
                   << pad << "{\n"
                   << pad << "  float a = " << numOperand(n) << ";\n"
                   << pad << "  if (a < 0.0F) a = 0.0F;\n"
