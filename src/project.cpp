@@ -1395,6 +1395,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
          << "    \"blssTemporal\": "
          << (p.settings.blssTemporal ? "true" : "false") << ",\n"
+         << "    \"blssJitter\": "
+         << (p.settings.blssJitter ? "true" : "false") << ",\n"
          << "    \"blssDebugView\": " << p.settings.blssDebugView << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
@@ -4163,6 +4165,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.blssSharpen = clamp01((float)v->numberOr(0.5));
         if (const auto* v = s->find("blssTemporal"))
             st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
+        // Same "absent means the default" rule: the jitter has always been on,
+        // so a project saved before this key existed must keep behaving that
+        // way. Off is the kill switch for the period-2 bob - see project.hpp.
+        if (const auto* v = s->find("blssJitter"))
+            st.blssJitter = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = s->find("blssDebugView"))
             st.blssDebugView = (int)v->numberOr(0.0);
         if (st.blssDebugView < 0) st.blssDebugView = 0;

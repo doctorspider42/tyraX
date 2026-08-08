@@ -968,7 +968,31 @@ Notes:
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
-  GS load.
+  GS load. **For a real A/B in milliseconds** — an engine change, a feature that
+  claims to make frames shorter — the same page's *frame-timing rig* is the
+  instrument: engine counters behind `TYRA_FRAME_PROFILE` (default 0, so a
+  shipped build carries nothing) and a once-a-second `FRAMETIME` line with
+  mean/median/p95, plus a raw per-frame dump so two runs can be compared as
+  PAIRED samples. Three rules from it that generalise: drive the camera from a
+  **frame index in an object script**, not `--pad` (whose driver refreshes off
+  the host wall clock, so the two runs never show the same view); turn Live
+  Link / Live Debugger / Live Logic / Remote Pad / Time Machine **off** (a
+  debug build polls `livepad.bin` through HostFs every frame); and **run the
+  page's GS fill calibration before quoting any PCSX2 number about GS cost** —
+  measured, PCSX2 under-reports fill by **76x**.
+- **Testing whether a picture is STILL needs a period-2 test, not a diff.** A
+  reconstruction that alternates between two images every frame (the BLSS
+  jitter bob) is invisible to any sampler whose stride is even — every sample
+  lands on the same phase and the tool reports a perfectly still picture, which
+  is exactly how that bug survived a round of testing. Freeze the camera,
+  capture at an interval that is NOT frame-locked, and cluster the captures by
+  pairwise difference: two balanced clusters with near-zero within and large
+  between IS the alternation. And on Windows **select the PCSX2 instance by the
+  project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
+  -like "*<project>*"`) — `-ProcessName pcsx2-qt` takes the first one it finds,
+  and with parallel worktrees running that silently captures somebody else's
+  game and looks exactly like a screenshot.
+
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
   at project paths — their projects live wherever they put them, and a blind

@@ -42,13 +42,16 @@ rasteriser and no pixel shaders at all.
 > methodology is [the fifth entry](#measured-is-not-optimised-six-times) and it
 > is the most transferable thing here.
 >
-> What is still not known: the last time a human watched it in PCSX2 **the
-> picture visibly oscillated**; the objective has since gained a fill term that
-> culls the two passes which alternate with the jitter, and the host's flicker
-> metric improved with it — but **nobody has re-watched the emulator since that
-> change, so the oscillation is neither confirmed fixed nor confirmed present**
-> (see [The oscillation](#the-oscillation)) — and **no BLSS frame has ever been
-> timed**, in the emulator or on hardware. Do not enable this yet.
+> What is now known, and both answers are bad. **The oscillation is still
+> present** — measured, not watched: with the fill term in and a net trained on
+> the project's own scenes, a static-camera frame alternates between two images,
+> 30.8 % of the picture changing every frame
+> (see [The oscillation](#the-oscillation)). `blssJitter: false` removes it
+> completely, at the cost of the temporal supersampling. And **a BLSS frame has
+> now been timed on a real PS2**: it cost **+9.83 ms per frame** and saved
+> nothing, because the frame was EE-bound and had no GS fill to trade
+> ([profiling.md](profiling.md), "Timing a frame that BLSS is in"). Do not
+> enable this yet.
 
 ## Why this can work at all on a PS2
 
@@ -1136,7 +1139,9 @@ measured **+0.06** against a ceiling of **+0.77**, and **some scenes have no
 ceiling at all** — on `examples/showcase` the oracle itself is +0.02 dB, which
 the window's Evaluate tab will tell you in one line. The bestiary figure is still
 in the tooltip, further down, labelled as a number about the bestiary. It ends
-where it always did: no BLSS frame has ever been timed, on console or hardware.
+where it always did — except that the ending is now a measurement rather than an
+absence: a BLSS frame on a real PS2 cost **+9.83 ms and saved nothing**
+([profiling.md](profiling.md#timing-a-frame-that-blss-is-in)).
 
 > These are **strings in `drawBlssSettings`, not computed values**, so they have
 > to be edited whenever a table on this page is. One known drift today: the
@@ -1583,11 +1588,14 @@ Three things about that table, all of them limits rather than results:
 - **The bob it describes was later re-measured and re-explained** — the
   interlacing story in the paragraph that used to sit here was refuted. See
   [The oscillation](#the-oscillation).
-- **Frame timings and real hardware are still not measured at all.** No profiling
-  pass has been run in the emulator and nothing has ever run on a physical PS2, so
-  every performance statement on this page — including the pass counts, which are
-  *fill* and not *milliseconds* — is arithmetic and host measurement, never a
-  stopwatch on the console.
+- **Frame timings are measured now, and the pass counts still are not
+  milliseconds.** A real PS2 A/B exists
+  ([profiling.md](profiling.md#what-the-rig-measured-the-first-time-it-was-run-2026-08-08)):
+  **+9.83 ms per frame, saving nothing**, on a frame that turned out to be
+  EE-bound. Every *other* performance statement on this page — the pass counts
+  above all — is still arithmetic and host measurement about **fill**, and 1.8
+  passes has never been converted into a millisecond by anything but the
+  calibration on that page (0.587 ms per full-screen blended pass on hardware).
 - **Its VRAM line predates the z-buffer shrink.** The residency numbers that are
   current are the `VRAMSTAT` table in [§5 VRAM](#5-vram), taken on a later boot
   of the same kind of fixture.
@@ -1597,7 +1605,7 @@ Three things about that table, all of them limits rather than results:
 **The picture shook, and it is not the interlacing.** Everything in this
 subsection was measured on a scratch project with a static camera, **before the
 fill term** — it is why the objective changed, not a description of what the
-current build does on a television. Nobody has looked since. In this order:
+current build does on a television. In this order:
 
 | display mode | BLSS | PCSX2 deinterlacer | result |
 |---|---|---|---|
@@ -1619,6 +1627,43 @@ samples different scene points. That is where the extra information comes from.
 The only thing entitled to fuse it back into a stable picture is the temporal
 accumulator — and it was not converging hard enough, because nothing in the
 objective asked it to.
+
+#### Re-measured with the fill term in (2026-08-08): still there
+
+The fill term culls the point and sharpen passes, which are the two that
+alternate with the jitter, and that was the reason to hope. It is not enough,
+and now there is a number instead of a hope. The measurement is in
+[profiling.md](profiling.md#the-stability-gate-period-2--the-bob); the short
+version is a static camera, captures at an interval that is deliberately **not**
+frame-locked, and a test for the **period-2 signature** (two balanced clusters
+of frames) rather than for "did the picture change" — which is the trap that hid
+this the first time, when a 40-frame sampling stride landed on the same jitter
+phase every time.
+
+| configuration | clusters | within | between | amplitude |
+|---|---|---|---|---|
+| BLSS off | 17 / 3 | 0.014 % | 0.053 % | 0.03/255 |
+| BLSS on, `blssJitter` **off** | 12 / 8 | 0.029 % | 0.046 % | 0.03/255 |
+| BLSS on, `blssJitter` **on** | **8 / 8** | 0.019 % | **30.8 %** | **1.42/255** |
+
+**30.8 % of the picture alternates between two images every frame**, on a net
+trained on the project's own scenes. Why the fill term did not save it: it culls
+point and sharpen, but on a real project's scenes it culls the **temporal** pass
+too — and the temporal accumulator is the only thing entitled to fuse the two
+phases. The remaining bilinear base pass still reconstructs from a low-res
+render that sampled different scene points each phase. The shipping
+configuration was "jitter on, nothing fusing it".
+
+**The kill switch.** `blssJitter` (`ProjectSettings`, default **true**) pins the
+offset to 0: pure spatial upscale, no temporal supersampling, stable by
+construction — a known quality cost for a known cure, and the A/B that proves
+the jitter is the cause on any given build. It reaches the engine as
+`BLSS_JITTER` → `RendererCoreBlss::configure(..., jitter)`; the parameter is
+defaulted to `true` so previously generated games are unchanged. **The host twin
+in `src/blss.cpp` does not know about it**: the oracle and the corpus always
+model the jittered sampler, so a net trained today and run with `blssJitter:
+false` is being run slightly out of distribution. Wiring the flag through the
+trainer is the obvious next step and has not been done.
 
 ### "Measured is not optimised", six times
 
@@ -1984,8 +2029,15 @@ Occupancy is a count of grid cells, not a millisecond.
   `RendererCoreGS::needsBufferRealloc()`. `RendererCore3D::isForeignViewActive()`
   keeps env/portal re-submissions out of BLSS' screen-space feature grid.
 - Project fields: `blssEnabled` / `blssScale` / `blssSharpen` / `blssTemporal` /
-  `blssDebugView`, loose on `ProjectSettings` (`src/project.hpp`), serialised in
-  `src/project.cpp`, format version 4 (additive, no migration step).
+  `blssJitter` / `blssDebugView`, loose on `ProjectSettings` (`src/project.hpp`),
+  serialised in `src/project.cpp`, format versions 4 and 5 (both additive, no
+  migration step). `blssJitter` has **no UI control yet** — it is set by hand in
+  the `.tyra`.
+- Frame timing: the counters and the `FRAMETIME` line are
+  `vendor/tyra/engine/inc/debug/frame_profile.hpp` (compiled out by default) plus
+  the `ftrig` block in the generated `drawDebugHud`. The protocol, the PCSX2
+  fill-rate calibration gate and the measured hardware A/B are in
+  [profiling.md](profiling.md#timing-a-frame-that-blss-is-in).
 - UI: `src/blss_window.cpp` (*Tools ▸ Neural Upscaler (BLSS)*) and
   `src/blss_ui.{hpp,cpp}` (the job that runs the editor's own CLI, and the parsers
   that read its tables back — host-only, no ImGui, no `App`, so they stay testable

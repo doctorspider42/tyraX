@@ -364,6 +364,65 @@ the verification, and any fact worth reusing belongs in the relevant
     `src/blss.hpp` and docs/neural-upscaler.md. If a photometric channel is ever
     wanted back, the honest form is an EDITOR BAKE into the bag, not a run-time
     sample.
+  - **DONE, AND IT IS THE WORST RESULT THIS FEATURE HAS PRODUCED: a BLSS frame
+    has been timed on a real PS2.** The page's standing caveat - "no BLSS frame
+    has ever been timed, in the emulator or on hardware" - is retired. There is
+    a rig now (docs/profiling.md, "Timing a frame that BLSS is in"): COP0
+    counters behind `TYRA_FRAME_PROFILE` (default 0, a shipped `libtyra.a`
+    carries none of it), read at `beginFrame` and immediately before the vsync
+    wait so the number is sub-frame WORK at a locked 50 Hz, plus a fairness
+    fence so the BLSS-off arm is drained at the same point as BLSS' own three
+    brackets. Output is one `FRAMETIME` line a second plus a raw per-frame dump
+    for PAIRED statistics, driven by a frame-INDEXED script camera so frame k of
+    run A is the same view as frame k of run B.
+
+    **The calibration gate says PCSX2 cannot measure this feature.** K
+    full-screen textured blended sprites per frame, K = 0/2/4/8/16, each with
+    its own draw_finish: real PS2 **0.5872 ms** per pass, PCSX2 **0.0077 ms** -
+    both perfectly linear, so PCSX2 under-reports GS fill by **76x** and is
+    timing its emulated GIF, not a raster. No emulator GS number about a feature
+    that trades fill for fill is admissible.
+
+    **On hardware, BLSS cost +9.83 ms per frame and saved nothing.** 1000 frames
+    per arm after a 150-frame warm-up, two runs per arm, all four cross-pairings
+    within 0.02 ms: mean(d) = -9.83 ms, 95% CI [-9.85, -9.81], n = 924 paired
+    frames. 9.42 -> 19.25 ms mean, 0 -> 158 frames over the 20 ms PAL budget.
+    Where it went: composite 5.41 ms of which **5.10 ms is EE** (reprojection +
+    MLP + the ~5 700-qword packet), `beginScene` 0.45 ms, and ~3.9 ms of extra
+    scene submission from the per-package bag proxies. What it saved: nothing,
+    because `drain` read **0.02 ms in both arms** and the half-res scene's GS
+    overhang was **0.03 ms**. The frame is EE-bound, so halving the raster
+    cannot shorten it. A second fixture built specifically to be GS-bound (no
+    terrain, sixteen nested cubes around the camera) read the same 0.02 ms:
+    untextured opaque geometry is too cheap per pixel to overtake a ~9 ms EE
+    frame. **This is the wrong scene for the feature - but nothing in the
+    generated-game runtime has been shown to be the right one**, and that is now
+    the question this feature stands or falls on. Next: find or build a scene
+    whose `drain` is non-zero on hardware (textured, alpha-blended, high
+    overdraw), and cut the 5.10 ms composite EE half, which is a cost BLSS pays
+    on every scene whether or not there is fill to save.
+  - **DONE, AND IT IS STILL BROKEN: the oscillation was re-measured and it is
+    still there; there is a kill switch now.** The fill term culls the point and
+    sharpen passes - the two that alternate with the jitter - which was the
+    reason to hope, and it is not enough: on a real project's scenes it culls
+    the **temporal** pass too, and the temporal accumulator is the only thing
+    entitled to fuse the two jitter phases. Measured on a static camera with a
+    project-trained net: **30.8 % of the picture alternates between two images
+    every frame** (amplitude 1.42/255), against 0.05 % for BLSS off. The test
+    had to be built to see it at all - the documented reason this survived is a
+    sampler with an EVEN frame stride landing on one jitter phase every time -
+    so it freezes the camera, samples off the frame clock, and tests for a
+    period-2 signature (two balanced clusters) rather than for "did it change".
+
+    **`blssJitter`** (ProjectSettings, default true, format version 5) pins the
+    offset to 0; the picture then measures indistinguishable from the BLSS-off
+    control. Two things it still needs: **a UI control** (the setting is
+    hand-edited in the `.tyra` today - `src/blss_window.cpp` and
+    `App::drawPreferencesModal` both draw `drawBlssSettings`, so it goes in
+    there), and **the host twin**. `src/blss.cpp`'s oracle and corpus always
+    model the jittered sampler, so a net trained today and run with the jitter
+    off is being run out of distribution - the flag has to reach the trainer
+    before jitter-off is a supported configuration rather than an escape hatch.
   - **Bake a per-material UV-repeat constant.** `texDetail` is the texel-density
     proxy, and the engine can only supply `texW * texH` (`stapip_core.cpp`): it
     does not know how many times a material tiles over a surface. The corpus can,

@@ -172,9 +172,19 @@ class RendererCoreBlss {
    * reduced raster scale. Call ONCE from the game's init, before the first
    * frame uploads any texture - the low-res target lives in the permanent
    * VRAM region under the texture heap's floor.
+   *
+   * `jitter` (TyraX): the +-1/4-pixel raster jitter that alternates every
+   * frame - the temporal-supersampling half of the feature, and the documented
+   * cause of the period-2 "bob" (docs/neural-upscaler.md, "The oscillation").
+   * Jittered sampling is SUPPOSED to make every frame a different image, and
+   * the only thing entitled to fuse the phases back together is the temporal
+   * accumulator; when the fill term culls the temporal pass there is nothing
+   * left doing it and the alternation reaches the screen. false = a pure
+   * spatial upscale, stable by construction. Defaulted so previously generated
+   * games keep their historical behaviour.
    */
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
-                 int debugView);
+                 int debugView, bool jitter = true);
 
   /** The trained weights (123 at the shipped kFeatures = 6, kHidden = 12),
    * emitted into the
@@ -347,8 +357,9 @@ class RendererCoreBlss {
   int cols = 0, rows = 0;   // tile counts
   int cornerCols = 0, cornerRows = 0;
 
+  bool jitterOn = true;     // TyraX: the kill switch - see configure()
   int phase = 0;            // jitter phase, alternating every frame
-  int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4)
+  int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4, or 0)
   int jitter16Y = 0;
 
   // --- the feature-spread instrument (debugView >= 2) -------------------

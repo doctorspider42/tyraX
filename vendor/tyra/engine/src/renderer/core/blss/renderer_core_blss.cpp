@@ -25,6 +25,7 @@
 #include "renderer/core/blss/renderer_core_blss.hpp"
 #include "math/math.hpp"
 #include "debug/debug.hpp"
+#include "debug/frame_profile.hpp"
 
 namespace Tyra {
 
@@ -134,7 +135,8 @@ void RendererCoreBlss::allocate() {
 }
 
 void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
-                                 bool t_temporal, int t_debugView) {
+                                 bool t_temporal, int t_debugView,
+                                 bool t_jitter) {
   TYRA_ASSERT(settings != nullptr,
               "BLSS configure() before the renderer was initialized!");
   if (settings == nullptr) return;
@@ -143,6 +145,7 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   sharpen = clamp01(t_sharpen);
   temporal = t_temporal;
   debugView = t_debugView;
+  jitterOn = t_jitter;
   // 1x1 is "off" - nothing is allocated and the projection keeps its full
   // raster scale, so a project without BLSS costs zero words and zero cycles.
   enabled = (scaleX * scaleY) > 1;
@@ -880,6 +883,9 @@ void RendererCoreBlss::logFeatureSpread() {
 // --------------------------------------------------------------- section 1 ---
 void RendererCoreBlss::beginScene(const Color& clearColor) {
   if (!enabled) return;
+#if TYRA_FRAME_PROFILE
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
   if (!allocated) allocate();
 
   // The raster redirect below is global GS state - drain in-flight PATH1 3D
@@ -889,8 +895,12 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
 
   // Two phases, alternating every frame, +-0.25 low-res pixels = +-4 raw
   // XYOFFSET units, which is why the host can reproduce them bit-exactly.
-  jitter16X = phase == 0 ? -4 : 4;
-  jitter16Y = phase == 0 ? -4 : 4;
+  // With jitterOn false both offsets are pinned to 0 and every frame samples
+  // the SAME scene points: no temporal supersampling, and no period-2 bob
+  // (docs/neural-upscaler.md, "The oscillation"). `phase` keeps toggling
+  // either way so nothing else in the class has to know about the switch.
+  jitter16X = jitterOn ? (phase == 0 ? -4 : 4) : 0;
+  jitter16Y = jitterOn ? (phase == 0 ? -4 : 4) : 0;
   phase ^= 1;
 
   const int n = cols * rows;
@@ -992,10 +1002,20 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssBegin = FrameProfile::ticks() - fpT0;
+#endif
 }
 
 void RendererCoreBlss::endScene() {
   if (!enabled || !inScene) return;
+#if TYRA_FRAME_PROFILE
+  // What this bracket costs is almost entirely the align3D() below, i.e. the
+  // GS OVERHANG of the half-resolution scene: how far behind the EE the
+  // rasteriser still was when the last bag was submitted. ~0 means the frame
+  // is EE-bound and BLSS has nothing to trade.
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
   inScene = false;
 
   // Drain the low-res scene itself before the raster moves back out.
@@ -1017,6 +1037,9 @@ void RendererCoreBlss::endScene() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssEnd = FrameProfile::ticks() - fpT0;
+#endif
 }
 
 // --------------------------------------------------------------- section 6 ---
@@ -1252,6 +1275,9 @@ qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
 
 void RendererCoreBlss::composite() {
   if (!enabled || gs == nullptr || packet == nullptr) return;
+#if TYRA_FRAME_PROFILE
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
 
   // Defensive: endScene() already drained, but the composite must never race
   // the tail of the low-res render it is about to sample.
@@ -1349,8 +1375,19 @@ void RendererCoreBlss::composite() {
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+#if TYRA_FRAME_PROFILE
+  // The split the whole feature is judged on: everything above this read is
+  // EE (reprojection, the feature grid, the MLP, quantisation, the packet -
+  // ~5 700 qwords worst case), everything below is the GS rasterising the
+  // 1..5 full-screen passes. An upscaler that saves GS fill but spends it
+  // again on the EE has not saved anything.
+  FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
+#endif
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
+#endif
 
   prev = cur;
   hasPrev = true;

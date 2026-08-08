@@ -1277,6 +1277,19 @@ struct ProjectSettings {
     int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
     float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
     bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
+    // The +-1/4-pixel raster jitter that alternates every frame (the temporal
+    // supersampling half of the feature). ON is the historical behaviour and
+    // stays the default; OFF is the KILL SWITCH for the documented "the
+    // picture shook, and it is not the interlacing" bob
+    // (docs/neural-upscaler.md, "The oscillation"): jittered sampling is
+    // SUPPOSED to produce a different image every frame, and the only thing
+    // entitled to fuse the two phases back together is the temporal
+    // accumulator. When the fill term culls the temporal pass - which is what
+    // --blss-eval measures on real project scenes - nothing fuses them and the
+    // alternation reaches the screen as a period-2 bob. Off = a pure spatial
+    // upscale: a known quality cost for a known cure, and the A/B that proves
+    // whether the jitter is the cause on any given build.
+    bool blssJitter = true;
     // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
     // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
     // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).

@@ -12,8 +12,17 @@
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
+#include "debug/frame_profile.hpp"
 
 namespace Tyra {
+
+#if TYRA_FRAME_PROFILE
+namespace FrameProfile {
+// COP0 Count at the top of this frame's beginFrame(). Not published in the
+// header: nothing outside endFrame() has any business reading a half-frame.
+static u32 frameStart = 0;
+}  // namespace FrameProfile
+#endif
 
 RendererCore::RendererCore() { isFrameLimitOn = true; }
 RendererCore::~RendererCore() {}
@@ -229,6 +238,9 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
 }
 
 void RendererCore::beginFrame() {
+#if TYRA_FRAME_PROFILE
+  FrameProfile::frameStart = FrameProfile::ticks();
+#endif
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -238,6 +250,9 @@ void RendererCore::beginFrame() {
 }
 
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
+#if TYRA_FRAME_PROFILE
+  FrameProfile::frameStart = FrameProfile::ticks();
+#endif
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -303,6 +318,25 @@ void RendererCore::endFrame() {
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
   applyPostFx();
+#if TYRA_FRAME_PROFILE
+  // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
+  // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
+  // its three brackets, a plain frame would otherwise defer its whole GS load
+  // past the vsync wait into flipBuffers and read as free. Guarded on
+  // isVU1Configured() because the handshake spins forever before VU1 is up
+  // (the pure-2D loading screen).
+  {
+    const u32 d0 = FrameProfile::ticks();
+    if (path1.isVU1Configured()) sync.align3D();
+    const u32 d1 = FrameProfile::ticks();
+    FrameProfile::tDrain = d1 - d0;
+    // The game's own once-a-second sort + snprintf + TYRA_LOG is host: file
+    // I/O; it is measurement apparatus, not frame work, so it comes back out.
+    FrameProfile::tFrameWork =
+        d1 - FrameProfile::frameStart - FrameProfile::tExcluded;
+    FrameProfile::tExcluded = 0;
+  }
+#endif
   texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
   if (isFrameLimitOn) graph_wait_vsync();
   gs.flipBuffers();

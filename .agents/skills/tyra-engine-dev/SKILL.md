@@ -486,8 +486,30 @@ Eight things here that were paid for, and that any edit must keep:
   shipped inference deadzone the point and sharpen passes are culled COMPLETELY
   (0 %) and only temporal is drawn over most of the screen. Occupancy is noisy
   (sd 0.30 over 39 cross-validation fold-runs, one fold at 2.12), and these are
-  **fill counts, not timings; no BLSS frame has ever been profiled**, in PCSX2 or
-  on hardware.
+  **fill counts, not timings** - and the conversion is measured now, not
+  guessed: on a real PS2 one full-screen textured blended pass is **0.587 ms**
+  (the calibration in docs/profiling.md), and PCSX2 reports **0.0077 ms** for
+  the same sweep - it under-reports GS fill by **76x**, so NO PCSX2 GS number
+  about this feature is admissible. The first real A/B on hardware: BLSS cost
+  **+9.83 ms per frame and saved nothing**, because the frame was EE-bound
+  (`drain` 0.02 ms, the `endScene` overhang 0.03 ms). 5.10 ms of that is the
+  composite's EE half - reprojection + MLP + the ~5 700-qword packet build.
+  The instrument is `inc/debug/frame_profile.hpp` (TYRA_FRAME_PROFILE, default
+  0, so a shipped libtyra.a carries none of it) plus the FRAMETIME line in the
+  generated drawDebugHud.
+- **The jitter still bobs, and there is a switch for it now.** The +-1/4-pixel
+  per-frame raster jitter in `beginScene` is the documented cause of the
+  period-2 "bob"; the fill term was supposed to have retired it and has not.
+  On a static camera with a project-trained net, **30.8 % of the picture
+  alternates between two images every frame**. `configure()`'s new trailing
+  `jitter` parameter (project field `blssJitter`, default true, no UI yet)
+  pins the offset to 0 and the picture becomes indistinguishable from the
+  BLSS-off control. The host twin in `src/blss.cpp` does NOT model the switch,
+  so a net trained today and run with the jitter off is slightly out of
+  distribution. Test for the PERIOD-2 SIGNATURE, never for "did it change": a
+  sampler with an even frame stride lands on one jitter phase every time and
+  reports a perfectly still picture.
+
 
 Incompatible with **depth of field, portals and split view** — all three read or
 write real GS depth at display resolution, which since the z shrink is not merely
