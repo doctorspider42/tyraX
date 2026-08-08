@@ -62,10 +62,10 @@ static constexpr int kPacketQwords = 12288;
 
 RendererCoreBlss::RendererCoreBlss() {
   for (int i = 0; i < kMaxTiles; i++) {
-    coverAcc[i] = depthAcc[i] = lumaAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
+    coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
     dMin[i] = 1e30F;
     dMax[i] = 0.0F;
-    tCover[i] = tDepth[i] = tLuma[i] = tDetail[i] = tEdge[i] = 0.0F;
+    tCover[i] = tDepth[i] = tDetail[i] = tEdge[i] = 0.0F;
     tDepthMin[i] = tDepthMax[i] = 0.0F;
     outW_A[i] = outW_C[i] = outW_D[i] = 0.0F;
     for (int f = 0; f < kFeatures; f++) feat[i][f] = 0.0F;
@@ -269,8 +269,7 @@ void RendererCoreBlss::capturePinhole() {
 
 // --------------------------------------------------------------- section 2 ---
 void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
-                              float wNear, float wFar, float texDetail,
-                              float luma) {
+                              float wNear, float wFar, float texDetail) {
   if (!enabled || !inScene) return;
   if (x1 <= x0 || y1 <= y0) return;
 
@@ -307,7 +306,6 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   const float invFar = 1.0F / (wFar > 1e-4F ? wFar : 1e-4F);
   const float invTile2 = 1.0F / static_cast<float>(kTile * kTile);
   const float det = clamp01(texDetail);
-  const float lum = clamp01(luma);
 
   for (int ty = ty0; ty <= ty1; ty++) {
     const float tileY0 = static_cast<float>(ty * kTile);
@@ -327,7 +325,6 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
       const float a = ox * oy * invTile2;
       coverAcc[idx] += a;
       depthAcc[idx] += a * invNear;
-      lumaAcc[idx] += a * lum;
       detAcc[idx] += a * det;
       if (invFar < dMin[idx]) dMin[idx] = invFar;
       if (invNear > dMax[idx]) dMax[idx] = invNear;
@@ -346,8 +343,7 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
 
 void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
                                     const float& worldRadius,
-                                    const float& texelArea,
-                                    const float& luma) {
+                                    const float& texelArea) {
   if (!enabled || !inScene) return;
   // A reflection probe / camera feed / shadow caster re-submits the SAME bags
   // through a foreign camera, inside this bracket (that is what the nesting
@@ -391,7 +387,7 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
-  addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail, luma);
+  addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail);
 }
 
 // --------------------------------------------------------------- section 2 ---
@@ -399,8 +395,7 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
 // through `mvp`, near-clipped along its twelve edges, reduced to a screen bbox
 // and a w range. See the header for WHY this replaces the bounding sphere.
 void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
-                                 const Vec4& objMax, const float& texelArea,
-                                 const float& luma) {
+                                 const Vec4& objMax, const float& texelArea) {
   if (!enabled || !inScene) return;
   if (core3D->isForeignViewActive()) return;
 
@@ -518,7 +513,7 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
-  addBag(x0, y0, x1, y1, wn, wf, texDetail, luma);
+  addBag(x0, y0, x1, y1, wn, wf, texDetail);
 }
 
 // --------------------------------------------------------------- section 2 ---
@@ -529,7 +524,6 @@ void RendererCoreBlss::finishTileStats() {
     tCover[i] = acc > 1.0F ? 1.0F : acc;
     const float inv = 1.0F / (acc > 1e-6F ? acc : 1e-6F);
     tDepth[i] = depthAcc[i] * inv;
-    tLuma[i] = lumaAcc[i] * inv;
     tDetail[i] = detAcc[i] * inv;
     if (acc > 0.0F) {
       tDepthMin[i] = dMin[i] > 1e29F ? 0.0F : dMin[i];
@@ -671,7 +665,6 @@ void RendererCoreBlss::buildFeatures() {
       feat[i][3] = tEdge[i];
       feat[i][4] = tDetail[i];
       feat[i][5] = tCover[i];
-      feat[i][6] = tLuma[i];
     }
   }
 }
@@ -781,8 +774,7 @@ void RendererCoreBlss::logFeatureSpread() {
   // host's --probe matches these keys, and a line whose keys do not match the
   // corpus' is a line nobody can place in the corpus.
   static const char* const kFeatureNames[kFeatures] = {
-      "motion", "depth", "depthGrad", "edgeDens", "texDetail", "coverage",
-      "luma"};
+      "motion", "depth", "depthGrad", "edgeDens", "texDetail", "coverage"};
   static const char* const kOutputNames[kOutputs] = {"point", "temporal",
                                                      "sharpen"};
   const int n = cols * rows;
@@ -903,7 +895,7 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
 
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
-    coverAcc[i] = depthAcc[i] = lumaAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
+    coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
     dMin[i] = 1e30F;
     dMax[i] = 0.0F;
   }

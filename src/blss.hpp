@@ -54,49 +54,63 @@ inline float jitterY(int phase) { return phase == 0 ? -0.25f : 0.25f; }
 
 // ---------------------------------------------------------------- features ---
 
-// SEVEN, AND IT WAS EIGHT: `histAge` - frames since this tile last changed -
-// is gone, and it went because it was measured rather than because it looked
-// redundant.
+// SIX, AND IT WAS EIGHT. Two channels have been deleted, both after the same
+// measurement rather than because either looked redundant, and the way to read
+// this block is that `--cv --drop-feature` with a CONTROL is the only thing
+// that has ever settled a question about this vector.
 //
-// It was the one RECURRENT channel and the one piece of state either twin kept
-// between frames, so it carried the contract's most drift-prone rule (an
-// earlier draft left the update to "the caller" and the two sides promptly
-// implemented different thresholds, feeding the network a channel at training
-// time the console would never reproduce). It also carried the loudest of the
-// standing suspicions: the console pins it at 1.0 on a still camera, and the
-// corpus was believed to top out at 0.250.
+// `histAge` - frames since this tile last changed - went first. It was the one
+// RECURRENT channel and the one piece of state either twin kept between frames,
+// so it carried the contract's most drift-prone rule (an earlier draft left the
+// update to "the caller" and the two sides promptly implemented different
+// thresholds, feeding the network a channel at training time the console would
+// never reproduce). Removing it took the whole recurrent path with it - no
+// per-tile counters, no prevDepth/prevCover, no ordering hazard between
+// building the features and ageing the tiles - and buildFeatures() became a
+// pure function of one frame on both twins.
 //
-// THAT SUSPICION WAS WRONG, and `--blss-eval --probe` is what says so. At the
-// shipped 156 frames the corpus reaches 1.0 in 4.6% of its tiles (the static
-// `foliage` shot and the tail of `floor-horizon`), so the console's 1.0 sits on
-// real training mass and the net INTERPOLATES there. The 0.250 ceiling was a
-// reading off a 48-frame corpus, where no shot survived eight stable frames.
+// `luma` - the tile's mean brightness - went second, and it went for the
+// reason 6a4cbead flagged it: THE ENGINE CANNOT PRODUCE IT. A bag hands BLSS
+// one scalar for its brightness, and stapip_core can only fill it when the bag
+// has a SINGLE colour; a per-vertex-lit mesh, which is every static mesh a
+// generated game submits, has no cheap mean, so the channel read a constant
+// 0.5 on the console while the corpus - which multiplied its own vertex
+// brightness by its material's - spread it over 0..0.48. The network was
+// therefore fitted on a photometric feature and run on a constant, which is
+// the same class of bug as the whole-bag proxy and one level worse: the
+// constant was OUT of the corpus' range.
 //
-// So the channel was asked the only question left - does it earn its keep -
-// with `--cv --cv-seeds 3 --drop-feature`, 13 folds x 3 seeds = 39 fold-runs
-// per row, everything else at the shipped defaults:
+// There were two ways out - give the EE a real value, or delete the channel -
+// and the measurement chose. `--cv --cv-seeds 3 --drop-feature`, 13 folds x 3
+// seeds = 39 fold-runs per row, everything else at the shipped defaults, on the
+// procedural corpus with one proxy per object (the configuration the rows
+// above it were measured on):
 //
-//   held at zero      (nothing)   histAge   edgeDens
-//   held-out margin     +0.38      +0.41      +0.36   dB over bilinear
-//   mean passes          1.85       1.84       1.76
-//   folds below bil      4/39       5/39       4/39
+//   held at zero      (nothing)     luma    edgeDens
+//   held-out margin     +0.41      +0.43      +0.35   dB over bilinear
+//   mean passes          1.83       1.80       1.75
+//   folds below bil      5/39       5/39       4/39
 //
-// The edgeDens column is the CONTROL and it is the reason the histAge column
-// means anything: dropping a channel that is pulling its weight costs 0.02 dB,
-// so the instrument resolves a difference of that size, and histAge is 0.03 on
-// the other side of it. The per-seed fold-mean sd is 0.01-0.02, and two of the
-// three seeds moved up. The fold that gains most is `foliage static` (+0.46 ->
-// +0.77) - the shot with the HIGHEST histAge, i.e. the channel was hurting
-// hardest exactly where it exists to help. It was letting the net memorise
-// "this shot has been still a while" instead of learning what a still tile
-// looks like.
+// edgeDens is the CONTROL and it is what makes the luma column mean something:
+// dropping a channel that IS pulling its weight costs 0.06 dB, so the
+// instrument resolves a difference of that size, and luma is 0.02 on the other
+// side of it - i.e. the channel was not neutral, it was mildly harmful, and it
+// cost eight tiles' worth of accumulator and twelve weights to be so. (The
+// earlier histAge row was measured the same way at kFeatures = 8 and read
+// +0.38 / +0.41 / +0.36 against an edgeDens control worth 0.02 dB.)
 //
-// Removing it takes the whole recurrent path with it: no per-tile counters, no
-// prevDepth/prevCover, no updateHistAge(), and no ordering hazard between
-// building the features and ageing the tiles. It is also one input cheaper on
-// the EE - 135 weights instead of 147, 121 MACs per tile instead of 132,
-// ~27 000 per frame instead of ~29 600.
-constexpr int kFeatures = 7;
+// Deleting it removes the last quantity the two sides computed DIFFERENTLY:
+// BagProxy::luma, TileStats::luma, the per-bag colour average on the EE, one
+// kMaxTiles accumulator in the engine's fixed arrays, and the corpus'
+// measureLuma() over every material it loads. What is left is six channels that
+// are all geometry, all cheap, and all computed the same way on both twins.
+// It is also one input cheaper on the EE - 123 weights instead of 135, 108 MACs
+// per tile instead of 121, ~24 200 per frame instead of ~27 100.
+//
+// If you ever want a photometric channel back, the honest form is a per-mesh
+// mean brightness BAKED BY THE EDITOR into the bag, not sampled at run time -
+// the same "editor bake" follow-up docs/neural-upscaler.md flags for texDetail.
+constexpr int kFeatures = 6;
 
 // THE HIDDEN LAYER, AND IT IS NOT WHAT LIMITS THIS NETWORK - measured, after
 // the corpus grew to 13 shots dropped the in-distribution margin from ~+1.0 dB
@@ -106,8 +120,8 @@ constexpr int kFeatures = 7;
 // (decay 1e-4, fill 16), held-out margin over plain bilinear:
 //
 // (The weight and MAC counts in this table are the EIGHT-input ones it was
-// measured with; at today's kFeatures = 7 they are 135 / 179 / 267 / 355 and
-// 10*kHidden per tile. The conclusion is about the SHAPE of the held-out and
+// measured with; at today's kFeatures = 6 they are 123 / 163 / 243 / 323 and
+// 9*kHidden per tile. The conclusion is about the SHAPE of the held-out and
 // in-dist rows, which the input count does not touch.)
 //
 //   kHidden           12      16      24      32
@@ -146,7 +160,7 @@ constexpr int kOutputs = 3;  // wA (point), wC (temporal), wD (sharpen)
 // order the generated PS2 code fills the array in, and the order
 // kFeatureNames documents.
 struct Features {
-    float v[kFeatures] = {0, 0, 0, 0, 0, 0, 0};
+    float v[kFeatures] = {0, 0, 0, 0, 0, 0};
 
     // Named accessors - use these, not v[3], everywhere outside the emitter.
     float& motion() { return v[0]; }     // reprojection length / tile edge
@@ -155,7 +169,6 @@ struct Features {
     float& edgeDens() { return v[3]; }   // bag screen-bbox outline in the tile
     float& texDetail() { return v[4]; }  // baked high-frequency texture energy
     float& coverage() { return v[5]; }   // fraction of tile with geometry
-    float& luma() { return v[6]; }       // mean brightness of the tile
 
     float motion() const { return v[0]; }
     float depth() const { return v[1]; }
@@ -163,7 +176,6 @@ struct Features {
     float edgeDens() const { return v[3]; }
     float texDetail() const { return v[4]; }
     float coverage() const { return v[5]; }
-    float luma() const { return v[6]; }
 };
 
 extern const char* const kFeatureNames[kFeatures];
@@ -405,11 +417,13 @@ constexpr float kMinCoverage = 0.02f;
 //
 // If you are tempted to add a channel here that a bag submission cannot cheaply
 // produce on the EE, you are about to train a network the console cannot run.
+// It carried a `luma` too, and losing it is the point of the kFeatures note
+// above: a brightness the EE can only fill for single-coloured bags is a
+// channel the network is trained on and never given.
 struct BagProxy {
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // screen bbox, output pixels
     float wNear = 1, wFar = 1;             // view-space w range over the bbox
     float texDetail = 0;                   // 0..1 baked HF energy of the material
-    float luma = 0;                        // 0..1 material brightness x light
 };
 
 // A pinhole camera, the form both producers can supply and the only thing
@@ -435,14 +449,13 @@ struct TileStats {
     float depthMean = 0;  // 1/w of the covered part, 0 = infinitely far
     float depthMin = 0;   // over the covered part, for the silhouette measure
     float depthMax = 0;
-    float luma = 0;       // 0..1 mean brightness
     float texDetail = 0;  // 0..1 baked high-frequency energy of what is visible
     float edge = 0;       // 0..1 how much geometric outline crosses the tile
 };
 
 // BagProxy list -> per-tile accumulators. Rasterises each bbox over the tile
 // grid: `cover` is the covered fraction, `depth*` the w range weighted by
-// coverage, `luma`/`texDetail` coverage-weighted material means, and `edge` the
+// coverage, `texDetail` the coverage-weighted material mean, and `edge` the
 // bbox OUTLINE length crossing the tile over the tile perimeter. Shared by the
 // corpus and (mirrored) by the engine, so the two cannot disagree about what
 // "an edge" means.
@@ -469,12 +482,12 @@ std::vector<Features> buildFeatures(int cols, int rows,
 // ----------------------------------------------------------------- network ---
 
 // MLP kFeatures -> kHidden -> kOutputs, tanh hidden, logistic outputs. At the
-// shipped 7 -> 12 -> 3 that is 135 weights and 121 MACs per tile, so ~27 100
+// shipped 6 -> 12 -> 3 that is 123 weights and 108 MACs per tile, so ~24 200
 // MACs plus ~3 400 transcendentals over a 16x14 grid - small enough to run on
 // the EE FPU rather than VU1 (whose micro memory has nothing left - see the
-// tyra-engine-dev skill). Both figures are (kFeatures+kOutputs+1)*kHidden and
-// (kHidden+3), times 224 tiles; the width sweep that says 12 is the right one
-// is up at kHidden.
+// tyra-engine-dev skill). The two figures are (kFeatures+kOutputs+1)*kHidden +
+// kOutputs and (kFeatures+kOutputs)*kHidden, the second times 224 tiles; the
+// width sweep that says 12 is the right one is up at kHidden.
 // NEITHER HAS EVER BEEN TIMED, in PCSX2 or on hardware - "far too small to
 // matter" is arithmetic and a design argument, not a measurement.
 struct Net {
@@ -630,7 +643,7 @@ Occupancy occupancy(const WeightField&, float sharpen);
 // `importance` (optional, cols*rows) receives how much the choice mattered in
 // that tile: MSE(worst weights) - MSE(best). Tiles where every kernel is
 // equally good get a near-zero value and are down-weighted during training, so
-// the net spends its 135 weights on the tiles that actually differ.
+// the net spends its 123 weights on the tiles that actually differ.
 //
 // The score is NOT plain MSE - see Objective: it is MSE against the truth, plus
 // a flicker penalty against the reprojected history, plus the fill the
@@ -652,7 +665,7 @@ struct TrainConfig {
     int epochs = 400;
     int batch = 64;
     float lr = 0.01f;
-    // 135 weights over ~13 000 supervised tiles sounds like a lot of data per
+    // 123 weights over ~13 000 supervised tiles sounds like a lot of data per
     // weight, and it is not: the tiles come from 12 camera moves, so the number
     // that matters is a dozen scenes, and this network's whole failure mode is
     // variance. Decay was 1e-5, which is barely regularisation at all. Under
@@ -672,7 +685,7 @@ struct TrainConfig {
     float weightDecay = 1e-4f;
     uint32_t seed = 0x5AFE1234u;
     bool verbose = true;
-    // Standardise the eight inputs while fitting, then fold the affine map back
+    // Standardise the inputs while fitting, then fold the affine map back
     // into w1/b1 so the net that comes out still eats the RAW features the
     // engine computes. OFF, AFTER MEASURING - it fits the training shots better
     // and generalises worse, which is the whole diagnosis of this network in one
@@ -685,11 +698,34 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 
 // ------------------------------------------------------------- CLI entries ---
 
-// --blss-train [-o blss.net] [--frames N] [--epochs N] [--weight-decay W]
-//              [--dump <dir>]
+// TRAIN ON YOUR OWN PROJECT. Both entry points take an optional POSITIONAL
+// project directory:
+//
+//   tyrax-editor --blss-train <projectDir> [-o blss.net] ...
+//   tyrax-editor --blss-eval  <projectDir> --cv ...
+//
+// With it, the corpus is the project's own scenes - real geometry, real
+// materials, real terrain, walked and orbited and whipped by cameras derived
+// from the scene's bounds and its player start, plus any authored Cutscene
+// Director camera track (blssscene.{hpp,cpp}). Without it, the procedural
+// bestiary of blsscorpus.cpp, which is also the fallback when a project has
+// nothing to draw.
+//
+// Why it matters, in one line: the console runs the network on the project, and
+// a net fitted to the bestiary is fitted to a distribution of DIFFICULTY the
+// project does not have. Which of the two nets is better ON a given project is
+// a measurement, not an assumption - `--blss-eval <projectDir> --cv` against
+// `--blss-eval <projectDir> -i <a bestiary-trained net>`, per shot.
+//
+// `--no-package-split` reverts the bag proxies to one per object instead of one
+// per VU1 package - see CorpusConfig::packageSplit. It exists to reproduce the
+// fold tables measured before the split, not to ship.
+//
+// --blss-train [<projectDir>] [-o blss.net] [--frames N] [--epochs N]
+//              [--weight-decay W] [--dump <dir>] [--all-shots]
 int trainMain(int argc, char** argv);
-// --blss-eval [-i blss.net] [--frames N] [--dump <dir>] [--deadzone A]
-//             [--deadzone-sweep a,b,c]
+// --blss-eval [<projectDir>] [-i blss.net] [--frames N] [--dump <dir>]
+//             [--deadzone A] [--deadzone-sweep a,b,c]
 //
 // `--deadzone A` overrides kDeadzoneAlpha for the run, and `--deadzone-sweep`
 // measures a whole list of them inside ONE --cv run. Both are cheap because the
@@ -713,7 +749,7 @@ int trainMain(int argc, char** argv);
 //       deadzone, both columns, over the same folds.
 //
 //   --features [--probe "<BLSSFEAT line>"]
-//       What the seven input channels actually look like over the corpus -
+//       What the six input channels actually look like over the corpus -
 //       distribution, saturation, per-shot means, and correlation with what the
 //       oracle asked for. A channel that is constant is a channel the 135
 //       weights cannot use, and nothing printed that until this existed.

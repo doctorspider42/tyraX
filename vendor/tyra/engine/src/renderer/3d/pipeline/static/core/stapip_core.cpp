@@ -228,7 +228,13 @@ void StaPipCore::render(StaPipBag* bag) {
   // neural upscaler's per-tile features (docs/neural-upscaler.md), so it is
   // computed once here and consumed by both. Everything below is inert -
   // and the sphere is not computed at all - when neither consumer wants it.
-  const bool blssOn = rendererCore->blss.isEnabled();
+  // Modified by TyraX: a bag may opt OUT of the BLSS grid (blssProxy). A shell
+  // centred on the camera - the sky dome, the star field, the sun and moon
+  // discs - has no describable screen box: it wraps the near plane, so its
+  // proxy is "the whole frame, at the nearest representable depth" and it
+  // flattens every channel it touches. See PipelineInfoBag::blssProxy.
+  const bool blssOn =
+      rendererCore->blss.isEnabled() && bag->info->blssProxy;
   const bool wantsLightPick = !bag->lighting && bag->info->dynLightPick;
 
   const M4x4& m = *bag->info->model;
@@ -288,19 +294,13 @@ void StaPipCore::render(StaPipBag* bag) {
           static_cast<float>(bag->texture->texture->getWidth()) *
           static_cast<float>(bag->texture->texture->getHeight());
     }
-    // luma: the bag's own brightness plus whatever dynamic light was picked
-    // for it. A per-vertex-coloured bag has no cheap mean, so it reads as
-    // mid-grey - a proxy, exactly like every other feature.
-    float luma = 0.5F;
-    if (bag->color->single != nullptr) {
-      const Color& c = *bag->color->single;
-      luma = (c.r + c.g + c.b) * (1.0F / (3.0F * 255.0F));
-    }
-    if (bagLight != nullptr && bagLight->enabled) {
-      luma += (bagLight->color.r + bagLight->color.g + bagLight->color.b) *
-              (1.0F / (3.0F * 255.0F));
-    }
-    if (luma > 1.0F) luma = 1.0F;
+    // There used to be a `luma` here too - the bag's own brightness, plus
+    // whatever dynamic light was picked for it. It is gone with the channel it
+    // fed, and THIS is the code that killed it: `bag->color->single` is null
+    // for every per-vertex-lit mesh a generated game submits, so the value it
+    // could actually compute was the fallback 0.5 in nearly every frame, while
+    // the corpus trained the network on a real spread. See
+    // RendererCoreBlss::kFeatures.
 
     if (bbox != nullptr) {
       // bbox is non-null only for Precise frustum culling, and the assert
@@ -310,8 +310,7 @@ void StaPipCore::render(StaPipBag* bag) {
       const std::vector<CoreBBox>& parts = bbox->getParts();
       const u32 partsCount = static_cast<u32>(parts.size());
       if (partsCount == 0) {
-        rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea,
-                                        luma);
+        rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
       } else {
         // At most kMaxProxiesPerBag boxes: merge consecutive parts when a mesh
         // has more. Merging by vertex range (not by space) can only ENLARGE a
@@ -334,12 +333,11 @@ void StaPipCore::render(StaPipBag* bag) {
             if (h.y > hi.y) hi.y = h.y;
             if (h.z > hi.z) hi.z = h.z;
           }
-          rendererCore->blss.addBagBox(mvp, lo, hi, texelArea, luma);
+          rendererCore->blss.addBagBox(mvp, lo, hi, texelArea);
         }
       }
     } else {
-      rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea,
-                                      luma);
+      rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
     }
   }
 

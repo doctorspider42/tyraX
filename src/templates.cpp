@@ -9746,6 +9746,7 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colorBag->many = sb.colors.data();
@@ -9896,6 +9897,10 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
+    // ...and it rides the dome, so it is a shell fragment too - see the dome's
+    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
+    // would read as "the far plane, everywhere it covers".
+    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;
@@ -11709,6 +11714,13 @@ void TerrainGame::buildSkyDome() {
   // The dome is centered on the camera - a nearby dynamic light would win
   // its pick and tint the whole sky.
   skyDome.infoBag->dynLightPick = false;
+  // ...and for the same reason it cannot be described to the BLSS upscaler:
+  // a shell around the eye has no screen bounding box that means anything.
+  // Its package boxes wrap the near plane, so each one reports "the frame,
+  // fully covered, at the nearest representable depth" and flattens coverage,
+  // depth and depthGrad wherever it lands. Measured: with the dome in, the
+  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
+  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();

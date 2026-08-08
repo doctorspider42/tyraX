@@ -24,7 +24,7 @@ namespace Tyra {
  * BLSS - "Bieda-Level Super Sampling", the neural upscaler.
  *
  * The 3D scene rasterises into a half-resolution GS render target; a small MLP
- * (kFeatures -> kHidden -> kOutputs, 7 -> 12 -> 3 and 135 weights as shipped,
+ * (kFeatures -> kHidden -> kOutputs, 6 -> 12 -> 3 and 123 weights as shipped,
  * trained on the host and baked into the game)
  * decides per 32x32 output tile HOW that image should be blown up to the
  * display buffer and how much of the previous frame to reuse. The three outputs
@@ -67,19 +67,24 @@ class RendererCoreBlss {
   static constexpr int kMaxCorners = (kMaxCols + 1) * (kMaxRows + 1);
 
   /**
-   * SEVEN, and it was eight. The recurrent `histAge` channel (frames since a
-   * tile last changed) is gone: measured with `--cv --drop-feature histAge` it
-   * scored BETTER without it (+0.41 dB held out against +0.38 with, at the
-   * same pass count), and the control of dropping a channel that IS pulling
-   * its weight costs 0.02 dB - so the difference is real at the resolution the
-   * corpus can measure. The whole rationale and the table are on
-   * blss::kFeatures in src/blss.hpp.
+   * SIX, and it was eight. Two channels have been deleted, both because
+   * `--cv --drop-feature` with a CONTROL said so; the tables are on
+   * blss::kFeatures in src/blss.hpp and only the consequences are here.
    *
-   * It also takes the only per-frame STATE this class kept with it - the
-   * histAge counters and their prevDepth/prevCover - so the feature grid is
-   * now a pure function of one frame's bag proxies and the two cameras.
+   * `histAge` (frames since a tile last changed) took the only per-frame STATE
+   * this class kept with it - the counters and their prevDepth/prevCover - so
+   * the feature grid is a pure function of one frame's bag proxies and the two
+   * cameras.
+   *
+   * `luma` took the one quantity THIS SIDE COULD NOT PRODUCE. A bag hands BLSS
+   * a single brightness scalar, and StaPipCore could only fill it for bags with
+   * a single colour; every per-vertex-lit mesh a generated game submits read a
+   * constant 0.5, while the corpus that trained the weights spread the channel
+   * over 0..0.48. Held out it scored +0.43 dB without the channel against +0.41
+   * with, against a control worth 0.06 - so it was not neutral, it was mildly
+   * harmful, and it cost a whole kMaxTiles accumulator and twelve weights.
    */
-  static constexpr int kFeatures = 7;
+  static constexpr int kFeatures = 6;
   static constexpr int kHidden = 12;
   static constexpr int kOutputs = 3;  // wA (point), wC (temporal), wD (sharpen)
 
@@ -171,7 +176,7 @@ class RendererCoreBlss {
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
                  int debugView);
 
-  /** The trained weights (135 at the shipped kFeatures = 7, kHidden = 12),
+  /** The trained weights (123 at the shipped kFeatures = 6, kHidden = 12),
    * emitted into the
    * game as BLSS_NET_* tables by the editor's --blss-emit - so kHidden here
    * must equal blss::kHidden there, or the tables and these arrays disagree
@@ -214,12 +219,13 @@ class RendererCoreBlss {
   /**
    * Fed by the engine's own pipeline, not by generated games: one submitted
    * static-pipeline bag as the EE sees it (docs section 2 - `BagProxy`).
-   * Screen bbox in OUTPUT pixels, w range over the bbox, and the two material
-   * scalars. Accumulates straight into the tile grid, so there is no bag list
-   * and no cap. Inert unless called inside the beginScene/endScene bracket.
+   * Screen bbox in OUTPUT pixels, w range over the bbox, and the one material
+   * scalar left (the brightness went with the `luma` channel - see kFeatures).
+   * Accumulates straight into the tile grid, so there is no bag list and no
+   * cap. Inert unless called inside the beginScene/endScene bracket.
    */
   void addBag(float x0, float y0, float x1, float y1, float wNear, float wFar,
-              float texDetail, float luma);
+              float texDetail);
 
   /**
    * The form the static pipeline's hook actually calls (TyraX addition on top
@@ -237,7 +243,7 @@ class RendererCoreBlss {
    * camera. Inert unless called inside the beginScene/endScene bracket.
    */
   void addBagSphere(const Vec4& worldCenter, const float& worldRadius,
-                    const float& texelArea, const float& luma);
+                    const float& texelArea);
 
   /**
    * THE PROXY THE PIPELINE SHOULD PREFER, and the exact twin of the corpus'
@@ -260,7 +266,7 @@ class RendererCoreBlss {
    * beginScene/endScene bracket, and ignored under a foreign view.
    */
   void addBagBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
-                 const float& texelArea, const float& luma);
+                 const float& texelArea);
 
  private:
   /** A pinhole camera - the only form reprojection needs (docs section 3). */
@@ -369,7 +375,6 @@ class RendererCoreBlss {
   // --- per-tile accumulators (docs section 2), reset by beginScene ------
   float coverAcc[kMaxTiles];
   float depthAcc[kMaxTiles];
-  float lumaAcc[kMaxTiles];
   float detAcc[kMaxTiles];
   float edgeAcc[kMaxTiles];
   float dMin[kMaxTiles];
@@ -378,7 +383,6 @@ class RendererCoreBlss {
   // --- per-tile stats + features + outputs -----------------------------
   float tCover[kMaxTiles];
   float tDepth[kMaxTiles];  // depthMean, already 1/w
-  float tLuma[kMaxTiles];
   float tDetail[kMaxTiles];
   float tEdge[kMaxTiles];
   float tDepthMin[kMaxTiles];

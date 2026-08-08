@@ -1,12 +1,16 @@
 #include "blsscorpus.hpp"
 
+#include "blssscene.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The corpus generator (contract and rationale: blsscorpus.hpp; arithmetic:
@@ -17,12 +21,13 @@
 // they may be as good as the host can make them. Everything the NETWORK is told
 // about a frame must come out of a BagProxy: a screen bounding box, a w range
 // and two material constants, because that is all the EE holds while it submits
-// a frame (blss.hpp, "ONE SUBMITTED DRAW, AS THE EE SEES IT"). So `luma` here is
-// a material brightness times a baked light term, never the mean of the pixels
-// that were just rendered, and `texDetail` is the minification ratio of section
-// 2, computed from the material's dimensions and the bag's screen area. A
-// feature measured off the rendered image would train a network the console
-// cannot run.
+// a frame (blss.hpp, "ONE SUBMITTED DRAW, AS THE EE SEES IT"). So `texDetail`
+// is the minification ratio of section 2, computed from the material's
+// dimensions and the bag's screen area - never anything measured off the pixels
+// that were just rendered, which would train a network the console cannot run.
+// The proxy carried a brightness too, until the measurement in blss.hpp's
+// kFeatures note showed the EE could only ever fill it for single-coloured
+// bags; a channel one side cannot produce is worse than no channel.
 
 namespace blss {
 
@@ -50,8 +55,6 @@ inline V3 norm(const V3& v) {
 inline V3 lerp(const V3& a, const V3& b, float t) { return a + (b - a) * t; }
 inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 inline float clamp01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
-// ITU-R 601 luma - the same weights blss.cpp's psnr()/oracle work in.
-inline float lumaOf(const V3& c) { return 0.299f * c.x + 0.587f * c.y + 0.114f * c.z; }
 
 // xorshift32. Every random decision in this file is drawn from a stream seeded
 // by mix32(cfg.seed, purpose), never from rand(): the corpus has to be the same
@@ -99,6 +102,13 @@ inline float shadeOf(const V3& n) {
 // plane because the z-buffer stores 1/w.
 constexpr float kNear = 0.06f;
 
+// The engine's RendererSettings::aspectRatio for the shipped 512x448 raster -
+// the ratio of the PIXEL counts, which is what multiplies tan(fov/2) into the
+// horizontal tangent (see cameraAt, Move::Path). The procedural bestiary keeps
+// its own 4:3 display framing; a project shot uses this one, because a project
+// shot is compared against a console frame.
+constexpr float kRasterAspect = 512.0f / 448.0f;
+
 // The background. Deliberately FLAT: the sky is not a submitted bag, so the
 // feature vector describes those tiles as coverage 0, and a gradient there would
 // hand the oracle contrast the network has no way to predict. Flat sky teaches
@@ -107,9 +117,9 @@ constexpr uint8_t kSky[3] = {96, 116, 148};
 
 // ---------------------------------------------------------------- textures ---
 
-// One material. `luma` and the dimensions are the only things that reach the
-// network (through BagProxy), and both are properties of the ASSET, measured
-// once at load - a build-time bake, not a look at the frame.
+// One material. Its DIMENSIONS are the only thing that reaches the network
+// (through BagProxy::texDetail), and they are a property of the ASSET - a
+// build-time constant, not a look at the frame.
 //
 // Dimensions are always powers of two, because that is all the GS can address:
 // so REPEAT wrapping is a mask here, not a modulo, and the innermost loop of the
@@ -119,7 +129,6 @@ struct Texture {
     int wMask = 0, hMask = 0;
     std::vector<uint8_t> px;  // RGBA8, row-major
     bool cutout = false;      // alpha-tested (foliage); no blending anywhere
-    float luma = 0.5f;        // 0..1 mean brightness of the opaque texels
 
     void setSize(int width, int height) {
         w = width, h = height;
@@ -136,20 +145,6 @@ inline bool isPow2(int v) { return v > 0 && (v & (v - 1)) == 0; }
 inline int ifloor(float v) {
     const int i = (int)v;
     return (float)i > v ? i - 1 : i;
-}
-
-// Mean brightness over the texels that actually survive the alpha test - a
-// foliage sheet is 70% hole, and counting the holes would report a leaf material
-// as nearly black.
-void measureLuma(Texture& t) {
-    double acc = 0.0;
-    size_t n = 0;
-    for (size_t i = 0; i + 3 < t.px.size(); i += 4) {
-        if (t.cutout && t.px[i + 3] < 128) continue;
-        acc += 0.299 * t.px[i] + 0.587 * t.px[i + 1] + 0.114 * t.px[i + 2];
-        ++n;
-    }
-    t.luma = n ? (float)(acc / (255.0 * (double)n)) : 0.5f;
 }
 
 // Texel fetch, wrapped, NO MIPMAPS - the PS2 has none by default and the
@@ -195,7 +190,6 @@ Texture makeChecker(int size, int cell) {
             p[1] = on ? 228 : 38;
             p[2] = on ? 214 : 46;
         }
-    measureLuma(t);
     return t;
 }
 
@@ -213,7 +207,6 @@ Texture makeNoise(int size, uint32_t seed) {
         t.px[i + 1] = (uint8_t)(v * 0.94f);
         t.px[i + 2] = (uint8_t)(v * 0.82f);
     }
-    measureLuma(t);
     return t;
 }
 
@@ -255,7 +248,6 @@ Texture makeFoliage(int size, uint32_t seed) {
             }
         }
     t.cutout = true;
-    measureLuma(t);
     return t;
 }
 
@@ -282,7 +274,6 @@ Texture makeBands(int size, uint32_t seed) {
             p[2] = (uint8_t)std::clamp(base + g - (joint ? 0.0f : 16.0f), 0.0f, 255.0f);
         }
     }
-    measureLuma(t);
     return t;
 }
 
@@ -293,6 +284,10 @@ struct Materials {
     std::vector<Texture> tex;
     int checker = -1, noise = -1, foliage = -1, bands = -1;
     std::vector<int> asset;
+    // Project materials, by absolute path. A scene assigns the same handful of
+    // .mtl files to dozens of objects, and the ground texture of a 144-chunk
+    // terrain is one image, not 144.
+    std::map<std::string, int> byPath;
 
     // i-th real asset, or `fallback` when the tree had fewer than i+1 usable
     // PNGs.
@@ -365,8 +360,7 @@ Materials buildMaterials(const CorpusConfig& cfg) {
         // decision (foliage, below), and a decal or a partly transparent panel
         // texture would otherwise punch holes in a box for no training value.
         for (size_t i = 3; i < t.px.size(); i += 4) t.px[i] = 255;
-        measureLuma(t);
-        m.asset.push_back((int)m.tex.size());
+            m.asset.push_back((int)m.tex.size());
         m.tex.push_back(std::move(t));
         ++taken;
     }
@@ -376,6 +370,65 @@ Materials buildMaterials(const CorpusConfig& cfg) {
                     tried);
     }
     return m;
+}
+
+// --- project materials -------------------------------------------------------
+
+// Nearest power of two at or below `v`, clamped into what the GS can address.
+int potBelow(int v) {
+    int p = 1;
+    while (p * 2 <= v && p * 2 <= 1024) p *= 2;
+    return p < 8 ? 8 : p;
+}
+
+// The GS cannot address a non-power-of-two texture, so a project PNG that is
+// not one is box-resampled to the nearest power of two at or below its size -
+// which is what the texture bake would do to it on the way to the console
+// anyway. Resampling rather than rejecting matters: the ground texture is
+// usually the single biggest thing on screen, and a corpus that drew it flat
+// would train the texDetail channel on a scene the game does not render.
+Texture toTexture(const Image& img, bool keepAlpha) {
+    Texture t;
+    const int tw = isPow2(img.w) ? img.w : potBelow(img.w);
+    const int th = isPow2(img.h) ? img.h : potBelow(img.h);
+    t.setSize(tw, th);
+    for (int y = 0; y < th; ++y) {
+        const int sy0 = (int)((int64_t)y * img.h / th);
+        const int sy1 = std::max(sy0 + 1, (int)((int64_t)(y + 1) * img.h / th));
+        for (int x = 0; x < tw; ++x) {
+            const int sx0 = (int)((int64_t)x * img.w / tw);
+            const int sx1 = std::max(sx0 + 1, (int)((int64_t)(x + 1) * img.w / tw));
+            int acc[4] = {0, 0, 0, 0}, n = 0;
+            for (int sy = sy0; sy < sy1 && sy < img.h; ++sy)
+                for (int sx = sx0; sx < sx1 && sx < img.w; ++sx) {
+                    const uint8_t* p = img.at(sx, sy);
+                    for (int k = 0; k < 4; ++k) acc[k] += p[k];
+                    ++n;
+                }
+            uint8_t* d = &t.px[((size_t)y * tw + x) * 4];
+            for (int k = 0; k < 4; ++k) d[k] = (uint8_t)(n ? acc[k] / n : 0);
+            if (!keepAlpha) d[3] = 255;
+        }
+    }
+    return t;
+}
+
+// Loads one project texture, cached by absolute path. -1 = untextured (missing
+// file, unreadable PNG, or no texture assigned).
+int projectTexture(Materials& m, const std::string& absPath, bool cutout) {
+    if (absPath.empty()) return -1;
+    const auto it = m.byPath.find(absPath);
+    if (it != m.byPath.end()) return it->second;
+    Image img;
+    int idx = -1;
+    if (readPng(img, absPath) && img.w >= 2 && img.h >= 2) {
+        Texture t = toTexture(img, cutout);
+        t.cutout = cutout;
+            idx = (int)m.tex.size();
+        m.tex.push_back(std::move(t));
+    }
+    m.byPath.emplace(absPath, idx);
+    return idx;
 }
 
 // ------------------------------------------------------------------ objects ---
@@ -390,9 +443,10 @@ struct Vertex {
     V3 c{1, 1, 1};
 };
 
-// One drawn object == one BagProxy. Everything below the line is what the bag
-// submission carries; it is all computed here, at build time, from the mesh and
-// the material.
+// One drawn object == one submitted BAG, and one bag is SEVERAL BagProxies -
+// see `part` below. Everything under the line is what the bag submission
+// carries; it is all computed here, at build time, from the mesh and the
+// material.
 struct Object {
     std::vector<Vertex> vert;
     std::vector<int> idx;  // 3 per triangle
@@ -400,10 +454,45 @@ struct Object {
     bool bilinear = true;
     bool cutout = false;
     // ---- bag payload
-    float luma = 0.5f;       // material brightness x light, 0..1
     float texelArea = 0.0f;  // texels the material spans over this object
-    V3 lo{}, hi{};           // world AABB, the bbox the EE transforms
+    V3 lo{}, hi{};           // world AABB of the whole bag
+    // ONE BOX PER VU1 PACKAGE, in submission order - the exact shape
+    // StaPipBagPackagesBBox hands StaPipCore, which hands it to
+    // RendererCoreBlss::addBagBox. Filled by finishObject(); a single entry
+    // equal to lo/hi is the no-split case.
+    std::vector<std::pair<V3, V3>> part;
+    // A camera-centred shell (the sky dome, the star field, the sun and moon)
+    // is DRAWN and never DESCRIBED - the twin of PipelineInfoBag::blssProxy.
+    bool proxy = true;
+    // Not submitted past this distance from the camera (drawDistance / the
+    // terrain's streaming view distance). 0 = always submitted.
+    float viewDist = 0.0f;
+    V3 centre{};
 };
+
+// VERTICES PER PROXY, and it is derived rather than chosen. StaPipCore splits a
+// bag into packages of `maxVertCount` vertices and computes one bounding box per
+// `maxVertCount / 3` of them; maxVertCount comes out of
+// StaPipVU1Program::getMaxVertCount:
+//
+//   bufferSize   = (VU1_STAPIP_DBUFFER_END - VU1_STAPIP_LAST_ITEM_ADDR - 1)/2 - 1
+//                = (944 - 22)/2 - 1 = 460
+//   res          = (460 - 9) / (elementsPerVertex + reglistCount)
+//   maxVertCount = res / 9 * 9                       (whole triangles, twice)
+//
+// For the Cull-TC program - textured, per-vertex colours, which is what a
+// generated game's static geometry mostly is - that is (451 / 6) / 9 * 9 = 72,
+// so 72 / 3 = 24 vertices, eight triangles, per proxy. The untextured and
+// single-colour classes come out at 36 and 30; 24 is the finest of the three and
+// therefore the one that cannot flatter the corpus by describing it more
+// coarsely than the console does.
+constexpr int kProxyVerts = 24;
+
+// ...and the same cap the engine applies (RendererCoreBlss::kMaxProxiesPerBag).
+// Above it, CONSECUTIVE parts merge, which can only enlarge a box and never
+// move it - so the worst case degrades toward the whole-bag proxy rather than
+// lying about where the geometry is.
+constexpr int kMaxProxiesPerBag = 32;
 
 // Appends one quad. a,b,c,d run round the rim and the FRONT face - the one the
 // baked light is computed for - is the side from which they read CLOCKWISE, which
@@ -467,57 +556,64 @@ void addSphere(Object& o, const V3& c, float r, int slices, int stacks,
     }
 }
 
-// World AABB + the two bag material constants. `luma` is the mean vertex
-// brightness (albedo x the baked directional light) times the material's own
-// mean brightness - a product of two build-time constants, which is exactly the
-// per-bag scalar the EE would be handed. `texelArea` is the material's texel
-// count over this object's UV bounding rect, the twin of using the screen
-// BOUNDING BOX as the pixel area in section 2: both are bounding-rect
-// estimates, and only their ratio reaches the network.
+// World AABB + the one bag material constant left. `texelArea` is the
+// material's texel count, the numerator of the minification ratio of section 2 -
+// the denominator is the bag's screen area, and only their ratio reaches the
+// network.
 //
-// KNOWN DIVERGENCE, and it needs settling before anyone trusts this channel.
-// The engine's feed (stapip_core.cpp) passes texW * texH with no UV span, so a
-// bag that tiles its texture 40 times reports 1600x less texel area than the
-// same surface does here. The two agree exactly for UVs in 0..1 and disagree
-// wildly for any tiled floor or wall - which is most of what aliases. This side
-// is the one that predicts aliasing correctly (a floor really does cram
-// uvRep^2 texture copies into the screen); the fix belongs on the engine side,
-// as a per-material UV-repeat constant baked by the editor - the same "editor
-// bake" follow-up docs/neural-upscaler.md already flags for texDetail.
-void finishObject(Object& o, const Materials& m) {
+// PARITY, NOT PREFERENCE: the RAW texture area, with no UV span, because that is
+// all the engine can pass - `stapip_core.cpp` hands BLSS `texW * texH` and has
+// no idea how many times the material tiles over the surface. Folding the UV
+// span in here (which it used to) makes this channel a genuinely better
+// aliasing predictor and a genuinely different quantity from the one the
+// console computes: a floor tiling 100x trained at texDetail 1.0 and ran at
+// ~0.03. A weaker feature both sides agree on beats a strong feature only one
+// side has - the same judgement that deleted `luma` outright once it turned out
+// the EE could not produce it at all (blss.hpp, kFeatures).
+//
+// The fix that makes it strong again is a baked per-material UV-repeat constant
+// the engine can multiply in - docs/neural-upscaler.md's "bake real texture
+// detail" follow-up.
+void finishObject(Object& o, const Materials& m, bool packageSplit = true) {
     if (o.vert.empty()) return;
     o.lo = o.hi = o.vert[0].p;
-    float u0 = o.vert[0].u, u1 = u0, v0 = o.vert[0].v, v1 = v0;
-    double lumaAcc = 0.0;
     for (const Vertex& v : o.vert) {
         o.lo.x = std::min(o.lo.x, v.p.x), o.hi.x = std::max(o.hi.x, v.p.x);
         o.lo.y = std::min(o.lo.y, v.p.y), o.hi.y = std::max(o.hi.y, v.p.y);
         o.lo.z = std::min(o.lo.z, v.p.z), o.hi.z = std::max(o.hi.z, v.p.z);
-        u0 = std::min(u0, v.u), u1 = std::max(u1, v.u);
-        v0 = std::min(v0, v.v), v1 = std::max(v1, v.v);
-        lumaAcc += lumaOf(v.c);
     }
-    float lum = (float)(lumaAcc / (double)o.vert.size());
     if (o.tex >= 0) {
         const Texture& t = m.tex[(size_t)o.tex];
-        lum *= t.luma;
-        // PARITY, NOT PREFERENCE: the raw texture area, with NO UV span, because
-        // that is all the engine can pass - `stapip_core.cpp` hands BLSS
-        // `texW * texH` and has no idea how many times the material tiles over
-        // the surface. Folding the UV span in here (which it used to) makes this
-        // channel a genuinely better aliasing predictor and a genuinely
-        // different quantity from the one the console computes: a floor tiling
-        // 100x trained at texDetail 1.0 and ran at ~0.03. A weaker feature both
-        // sides agree on beats a strong feature only one side has.
-        //
-        // The fix that makes it strong again is a baked per-material UV-repeat
-        // constant the engine can multiply in - docs/neural-upscaler.md's
-        // "bake real texture detail" follow-up. Until then, u0/u1/v0/v1 are
-        // computed above only for the cutout/luma work.
         o.texelArea = (float)t.w * (float)t.h;
         o.cutout = t.cutout;
     }
-    o.luma = clamp01(lum);
+    o.centre = (o.lo + o.hi) * 0.5f;
+
+    // The package split, over the DRAWN vertex order (o.idx), because that is
+    // the order the EE uploads and therefore the order the boxes are cut in.
+    o.part.clear();
+    const int drawn = (int)o.idx.size();
+    if (!packageSplit || drawn <= kProxyVerts) {
+        o.part.emplace_back(o.lo, o.hi);
+        return;
+    }
+    const int parts = (drawn + kProxyVerts - 1) / kProxyVerts;
+    const int group = parts <= kMaxProxiesPerBag
+                          ? 1
+                          : (parts + kMaxProxiesPerBag - 1) / kMaxProxiesPerBag;
+    const int stride = kProxyVerts * group;
+    o.part.reserve((size_t)((drawn + stride - 1) / stride));
+    for (int base = 0; base < drawn; base += stride) {
+        const int end = std::min(base + stride, drawn);
+        V3 lo = o.vert[(size_t)o.idx[base]].p, hi = lo;
+        for (int k = base + 1; k < end; ++k) {
+            const V3& p = o.vert[(size_t)o.idx[k]].p;
+            lo.x = std::min(lo.x, p.x), hi.x = std::max(hi.x, p.x);
+            lo.y = std::min(lo.y, p.y), hi.y = std::max(hi.y, p.y);
+            lo.z = std::min(lo.z, p.z), hi.z = std::max(hi.z, p.z);
+        }
+        o.part.emplace_back(lo, hi);
+    }
 }
 
 // ---------------------------------------------------------------- rasteriser ---
@@ -607,6 +703,14 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
     const float cy = 0.5f * (float)rh + offY;
 
     for (const Object& o : objs) {
+        // The console's own submission test: past its draw distance a bag is
+        // not drawn, so it is not in the ground truth either (bagList applies
+        // the same test to the proxy list - the two must agree).
+        if (o.viewDist > 0.0f) {
+            const V3 d{o.centre.x - cam.pos[0], o.centre.y - cam.pos[1],
+                       o.centre.z - cam.pos[2]};
+            if (dot(d, d) > o.viewDist * o.viewDist) continue;
+        }
         const Texture* tex = o.tex >= 0 ? &mats.tex[(size_t)o.tex] : nullptr;
         const bool bilin = o.bilinear;
         const bool cutout = o.cutout;
@@ -745,12 +849,13 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
 
 // ----------------------------------------------------------------- bags ------
 
-// The object, as the EE would submit it: its world AABB transformed, clipped to
-// the near plane and projected into OUTPUT pixels (unjittered - the bag list
-// describes the frame, not the raster offset it happened to be drawn with).
-// Twelve edges of eight corners, which is the whole cost of a bag on the EE.
-bool bagOf(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
-           int outH, BagProxy& out) {
+// One PACKAGE of the object, as the EE would submit it: its world AABB
+// transformed, clipped to the near plane and projected into OUTPUT pixels
+// (unjittered - the bag list describes the frame, not the raster offset it
+// happened to be drawn with). Twelve edges of eight corners, which is the whole
+// cost of a proxy on the EE.
+bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
+           const Pinhole& cam, int outW, int outH, BagProxy& out) {
     const float sxScale = 0.5f * (float)outW / cam.tanHalfFovX;
     const float syScale = 0.5f * (float)outH / cam.tanHalfFovY;
     struct P {
@@ -758,8 +863,8 @@ bool bagOf(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
     };
     P corner[8];
     for (int c = 0; c < 8; ++c) {
-        const V3 p{(c & 1) ? o.hi.x : o.lo.x, (c & 2) ? o.hi.y : o.lo.y,
-                   (c & 4) ? o.hi.z : o.lo.z};
+        const V3 p{(c & 1) ? bhi.x : blo.x, (c & 2) ? bhi.y : blo.y,
+                   (c & 4) ? bhi.z : blo.z};
         const V3 rel{p.x - cam.pos[0], p.y - cam.pos[1], p.z - cam.pos[2]};
         corner[c].vx = rel.x * cam.right[0] + rel.y * cam.right[1] + rel.z * cam.right[2];
         corner[c].vy = rel.x * cam.up[0] + rel.y * cam.up[1] + rel.z * cam.up[2];
@@ -819,7 +924,6 @@ bool bagOf(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
     out.y1 = std::min(y1, (float)outH);
     out.wNear = std::max(wn, kNear);
     out.wFar = std::max(wf, out.wNear);
-    out.luma = o.luma;
     // Section 2's minification ratio: texels per screen pixel over 4, clamped.
     // NOT clamped up off a thin bbox - a pole one pixel wide really does cram
     // its whole texture into a column, and that is the case the feature exists
@@ -838,8 +942,21 @@ std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& 
     std::vector<BagProxy> out;
     out.reserve(objs.size());
     BagProxy b;
-    for (const Object& o : objs)
-        if (bagOf(o, mats, cam, outW, outH, b)) out.push_back(b);
+    for (const Object& o : objs) {
+        // A bag the console never submits describes nothing and is drawn by
+        // nothing - see Object::proxy and Object::viewDist. Both tests are here
+        // rather than at render time so the two lists cannot disagree; the
+        // renderer applies viewDist itself for the same reason.
+        if (!o.proxy) continue;
+        if (o.viewDist > 0.0f) {
+            const V3 d{o.centre.x - cam.pos[0], o.centre.y - cam.pos[1],
+                       o.centre.z - cam.pos[2]};
+            if (dot(d, d) > o.viewDist * o.viewDist) continue;
+        }
+        for (const std::pair<V3, V3>& p : o.part)
+            if (bagOf(o, p.first, p.second, mats, cam, outW, outH, b))
+                out.push_back(b);
+    }
     return out;
 }
 
@@ -855,11 +972,18 @@ enum class Move {
     Orbit,   // eye circles a centre, always looking at it
     Dolly,   // eye translates (into the scene, or along a wall)
     Whip,    // a pan so fast that reprojection cannot help at all
+    // A POLYLINE of (eye, look-at) keys - what a project scene produces. Every
+    // move blssscene builds, authored or automatic, arrives in this one form,
+    // so there is a single evaluator rather than a second copy of the five
+    // above that could drift from them.
+    Path,
 };
 
 struct Shot {
-    const char* name = "";
-    const char* moveName = "";
+    // Owning, because a project's shot names are built at runtime. The
+    // bestiary's literals cost one small allocation each at corpus build.
+    std::string name;
+    std::string moveName;
     Move move = Move::Static;
     std::vector<Object> objs;
     V3 eye0{}, eye1{};
@@ -867,6 +991,15 @@ struct Shot {
     float pitch0 = 0, pitch1 = 0;  // negative = looking down
     V3 centre{};                   // orbit only
     float orbitR = 6.0f, orbitH = 2.0f;
+    // Move::Path only. Shared objects: a project scene contributes several
+    // shots over ONE geometry set, and copying a 200 000-triangle scene six
+    // times is minutes of wall clock and a gigabyte for nothing.
+    const std::vector<Object>* shared = nullptr;
+    std::vector<float> pathEye, pathLook;  // 3 per key
+    float ease = 0.0f;                     // 1 = smoothstep in t (the whip)
+    float fovDeg = 60.0f;
+
+    const std::vector<Object>& geometry() const { return shared ? *shared : objs; }
 };
 
 // Yaw is measured from +Z toward +X, pitch is up. Left-handed basis: with
@@ -879,6 +1012,44 @@ Pinhole cameraAt(const Shot& s, float t) {
     // frames where history is fine, frames where it is useless, and the two
     // transitions - which is what the temporal weight has to learn to gate on.
     if (s.move == Move::Whip) u = t * t * (3.0f - 2.0f * t);
+
+    // A project shot: a polyline of (eye, look-at) keys, sampled at u.
+    if (s.move == Move::Path) {
+        const int n = (int)(s.pathEye.size() / 3);
+        Pinhole p;
+        if (n <= 0) return p;
+        if (s.ease > 0.0f)
+            u = lerpf(u, u * u * (3.0f - 2.0f * u), clamp01(s.ease));
+        const float f = clamp01(u) * (float)(n - 1);
+        const int i0 = std::min((int)f, n - 1);
+        const int i1 = std::min(i0 + 1, n - 1);
+        const float k = f - (float)i0;
+        const auto key = [&](const std::vector<float>& a, int i) {
+            return V3{a[(size_t)i * 3], a[(size_t)i * 3 + 1], a[(size_t)i * 3 + 2]};
+        };
+        const V3 eye = lerp(key(s.pathEye, i0), key(s.pathEye, i1), k);
+        const V3 look = lerp(key(s.pathLook, i0), key(s.pathLook, i1), k);
+        V3 fwd = norm(look - eye);
+        V3 wup{0, 1, 0};
+        if (std::fabs(fwd.y) > 0.999f) wup = {0, 0, 1};
+        const V3 right = norm(cross(wup, fwd));
+        const V3 up = cross(fwd, right);
+        p.pos[0] = eye.x, p.pos[1] = eye.y, p.pos[2] = eye.z;
+        p.right[0] = right.x, p.right[1] = right.y, p.right[2] = right.z;
+        p.up[0] = up.x, p.up[1] = up.y, p.up[2] = up.z;
+        p.fwd[0] = fwd.x, p.fwd[1] = fwd.y, p.fwd[2] = fwd.z;
+        // THE ENGINE'S OWN PROJECTION, not the bestiary's. RendererCoreBlss
+        // takes tanHalfFovY = tan(fov/2) and tanHalfFovX = that times
+        // RendererSettings::aspectRatio, which for the shipped 512x448 raster
+        // is 512/448 - the RASTER ratio, not the 4:3 display one the procedural
+        // shots assume. Getting this wrong would put every bag proxy in the
+        // wrong tile column, which is the one error no feature table can see.
+        const float tang = std::tan(s.fovDeg * 0.5f * kPi / 180.0f);
+        p.tanHalfFovY = tang;
+        p.tanHalfFovX = tang * kRasterAspect;
+        return p;
+    }
+
     V3 eye = lerp(s.eye0, s.eye1, u);
     const float yaw = lerpf(s.yaw0, s.yaw1, u);
     const float pitch = lerpf(s.pitch0, s.pitch1, u);
@@ -1158,14 +1329,16 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
         // Three walls around the camera, not one: a 150 degree sweep starts and
         // ends pointing at nothing, and a frame of empty sky teaches the
         // temporal weight nothing about fast motion. Wound so each faces inward
-        // (see addQuad) - a wall lit from behind would be flat ambient and the
-        // luma channel would go quiet exactly where the motion peaks.
+        // (see addQuad) - a wall lit from behind would be flat ambient, and a
+        // flat wall has nothing to reconstruct exactly where the motion peaks.
         pieceWall(s.objs, m, m.bands, {-14.0f, 0.0f, 14.0f}, {14.0f, 0.0f, 14.0f}, 6.0f,
                   20.0f, 4.0f, {0.9f, 0.88f, 0.86f});
         // The -X wall faces away from the light and is therefore on ambient
         // alone, so it gets the CHECKER: at 34% brightness a mid-contrast
         // material has nothing left to alias, and a shot whose left half is a
-        // black slab is a shot half wasted.
+        // black slab is a shot half wasted (the network no longer has a
+        // brightness channel, but the GROUND TRUTH still has contrast, and a
+        // dark slab has none for the oracle to reconstruct).
         pieceWall(s.objs, m, m.checker, {-12.0f, 0.0f, -8.0f}, {-12.0f, 0.0f, 16.0f},
                   6.0f, 18.0f, 4.0f, {1.0f, 1.0f, 1.0f});
         pieceWall(s.objs, m, m.noise, {12.0f, 0.0f, 16.0f}, {12.0f, 0.0f, -8.0f}, 6.0f,
@@ -1372,6 +1545,73 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
     return shots;
 }
 
+// --------------------------------------------------- the project as a corpus ---
+
+// blssscene's neutral form -> this file's Objects. The only thing that happens
+// here is a change of representation: no geometry is merged, split, culled or
+// re-lit, because every one of those would make the corpus describe a frame the
+// console does not draw.
+std::vector<Object> objectsOf(const ProjectScene& ps, Materials& mats,
+                              bool packageSplit) {
+    std::vector<Object> objs;
+    objs.reserve(ps.mesh.size());
+    for (const SceneMesh& sm : ps.mesh) {
+        Object o;
+        o.vert.reserve(sm.vert.size());
+        for (const SceneVert& sv : sm.vert) {
+            Vertex v;
+            v.p = {sv.p[0], sv.p[1], sv.p[2]};
+            v.u = sv.u, v.v = sv.v;
+            v.c = {sv.c[0], sv.c[1], sv.c[2]};
+            o.vert.push_back(v);
+        }
+        o.idx = sm.idx;
+        o.tex = projectTexture(mats, sm.texture, sm.cutout);
+        o.bilinear = sm.bilinear;
+        o.cutout = sm.cutout;
+        o.proxy = sm.proxy;
+        o.viewDist = sm.viewDist;
+        finishObject(o, mats, packageSplit);
+        // finishObject recomputes the centre from the mesh; the scene walker's
+        // is the same box, so this is belt and braces rather than a fix.
+        o.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
+        objs.push_back(std::move(o));
+    }
+    return objs;
+}
+
+// The project's scenes, as the corpus' shot table. `geometry` is filled first
+// and never resized afterwards - every shot of a scene POINTS at one geometry
+// set, because copying a real scene once per camera move is minutes of wall
+// clock for nothing.
+std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
+                                    std::vector<std::vector<Object>>& geometry,
+                                    const std::vector<ProjectScene>& scenes) {
+    std::vector<Shot> shots;
+    geometry.clear();
+    geometry.reserve(scenes.size());
+    for (const ProjectScene& ps : scenes)
+        geometry.push_back(objectsOf(ps, mats, cfg.packageSplit));
+
+    for (size_t i = 0; i < scenes.size(); ++i) {
+        const ProjectScene& ps = scenes[i];
+        for (const SceneShot& ss : ps.shot) {
+            if (ss.keys() < 1) continue;
+            Shot s;
+            s.name = ss.name;
+            s.moveName = ss.move;
+            s.move = Move::Path;
+            s.shared = &geometry[i];
+            s.pathEye = ss.eye;
+            s.pathLook = ss.look;
+            s.ease = ss.ease;
+            s.fovDeg = ss.fovDeg > 5.0f ? ss.fovDeg : 60.0f;
+            shots.push_back(std::move(s));
+        }
+    }
+    return shots;
+}
+
 }  // namespace
 
 // -------------------------------------------------------------------- entry ---
@@ -1386,8 +1626,43 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     const int lowW = std::max(outW / sx, 1), lowH = std::max(outH / sy, 1);
 
     const auto t0 = std::chrono::steady_clock::now();
-    const Materials mats = buildMaterials(cfg);
-    std::vector<Shot> shots = buildShots(cfg, mats);
+    Materials mats = buildMaterials(cfg);
+
+    // THE SCENE SOURCE, and it is the only fork in this file. Everything below
+    // - the jitter, the supersampled truth, the bag list, the features - runs
+    // on whichever list of shots comes out of here, which is what makes a
+    // project-trained net and a procedurally-trained one comparable.
+    std::vector<std::vector<Object>> projectGeometry;  // outlives `shots`
+    std::vector<Shot> shots;
+    if (!cfg.projectDir.empty()) {
+        std::string err;
+        const std::vector<ProjectScene> scenes =
+            loadProject(cfg.projectDir, &err, cfg.verbose);
+        if (!err.empty())
+            std::printf("[blss] project: %s\n", err.c_str());
+        if (scenes.empty()) {
+            // The documented fallback: a project that will not load, or that
+            // has nothing to draw, still produces a corpus - just not its own.
+            std::printf(
+                "[blss] project '%s' has no drawable scene - falling back to the "
+                "procedural bestiary\n",
+                cfg.projectDir.c_str());
+        } else {
+            shots = buildProjectShots(cfg, mats, projectGeometry, scenes);
+        }
+    }
+    if (shots.empty()) {
+        shots = buildShots(cfg, mats);
+        // `--no-package-split`: one proxy per object, which is what the
+        // bestiary's hand-chunked floors and walls were built around and what
+        // every fold table published before the split existed was measured on.
+        if (!cfg.packageSplit)
+            for (Shot& s : shots)
+                for (Object& o : s.objs) {
+                    o.part.clear();
+                    o.part.emplace_back(o.lo, o.hi);
+                }
+    }
 
     // Frames spread round-robin over the shots, remainder to the first ones. A
     // shot that got a single frame would have no history at all and teach the
@@ -1403,10 +1678,24 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     }
 
     if (cfg.verbose) {
+        size_t proxies = 0;
+        for (const Shot& s : shots)
+            for (const Object& o : s.geometry())
+                if (o.proxy) proxies += o.part.size();
         std::printf(
-            "[blss] corpus: %d frame(s) over %d shot(s), %dx%d out, %dx%d low, "
+            "[blss] corpus: %s, %d frame(s) over %d shot(s), %dx%d out, %dx%d low, "
             "%dx supersample, %dx%d tiles, seed 0x%X\n",
+            projectGeometry.empty() ? "procedural bestiary" : cfg.projectDir.c_str(),
             cfg.frames, shotCount, outW, outH, lowW, lowH, ss, cols, rows, cfg.seed);
+        // How finely the frame can be described AT ALL - the one number the
+        // console's own instrument prints next to its feature spread, and the
+        // one that was 2 on the day this feature was found running on a
+        // distribution nothing had measured.
+        std::printf("[blss] %zu bag proxy(ies) over %s, %s\n", proxies,
+                    projectGeometry.empty() ? "the bestiary"
+                                            : "the project's scenes",
+                    cfg.packageSplit ? "one per VU1 package (the engine's split)"
+                                     : "one per object (--no-package-split)");
     }
 
     out.reserve((size_t)cfg.frames);
@@ -1416,6 +1705,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const int n = perShot[(size_t)si];
         if (n <= 0) continue;
         const Shot& shot = shots[(size_t)si];
+        const std::vector<Object>& geo = shot.geometry();
         const auto ts = std::chrono::steady_clock::now();
 
         Image prevLow;
@@ -1444,20 +1734,20 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             // definition the oracle and psnr() are measured against, and 16
             // samples per output pixel is far past what the console will ever
             // see.
-            renderScene(shot.objs, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, big, zb);
+            renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, big, zb);
             cf.truth = ss > 1 ? boxDown(big, ss) : big;
             // The "no BLSS" baseline: full resolution, one sample, no jitter.
-            renderScene(shot.objs, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, zb);
+            renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, zb);
             // What the console actually has: the jittered low-res target. The
             // jitter is in LOW-RES pixels and this render's pixels ARE low-res
             // pixels, so it goes straight in as the raster offset.
-            renderScene(shot.objs, mats, cur, lowW, lowH, jitterX(fr.phase),
+            renderScene(geo, mats, cur, lowW, lowH, jitterX(fr.phase),
                         jitterY(fr.phase), fr.low, zb);
             fr.prevLow = i > 0 ? prevLow : fr.low;
 
             // ...and what the EE knows ABOUT it: one bag per drawn object, from
             // the unjittered display-resolution projection.
-            const std::vector<BagProxy> bags = bagList(shot.objs, mats, cur, outW, outH);
+            const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH);
             const std::vector<TileStats> stats =
                 accumulate(cols, rows, outW, outH, bags);
             // History size is the DISPLAY size: the runtime's history is the
@@ -1481,8 +1771,9 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             const double ms = std::chrono::duration<double, std::milli>(
                                   std::chrono::steady_clock::now() - ts)
                                   .count();
-            std::printf("[blss]   shot %d %-14s %-11s %2d frame(s)  %7.0f ms (%.0f ms/frame)\n",
-                        si, shot.name, shot.moveName, n, ms, ms / (double)n);
+            std::printf("[blss]   shot %d %-18s %-13s %2d frame(s)  %7.0f ms (%.0f ms/frame)\n",
+                        si, shot.name.c_str(), shot.moveName.c_str(), n, ms,
+                        ms / (double)n);
         }
     }
 

@@ -37,6 +37,7 @@ class PipelineInfoBag {
     fogDisabled = false;
     additiveBlendFix = 0;
     dynLightPick = true;
+    blssProxy = true;
   }
   ~PipelineInfoBag() {}
 
@@ -93,6 +94,32 @@ class PipelineInfoBag {
    * instead. Also for bags a nearby light must never tint (the sky dome).
    */
   bool dynLightPick;
+
+  /**
+   * Modified by TyraX: opt-out from the BLSS neural upscaler's per-tile
+   * feature grid (docs/neural-upscaler.md). BLSS describes a frame to its
+   * network as a list of screen-space bounding boxes with a depth range
+   * (docs/blss-reconstruction.md section 2), and a bag that is a SHELL AROUND
+   * THE CAMERA cannot be described that way: the sky dome is a sphere centred
+   * on the eye, so every one of its package boxes wraps the near plane, its
+   * screen box is the frame by construction and its wNear is the clip
+   * constant rather than a measurement. Feeding one to addBag() pins
+   * `coverage`, `depth` and `depthGrad` at 1 over every tile it touches - the
+   * exact failure 6a4cbead measured and only half-fixed.
+   *
+   * addBagBox() already rejects a box that straddles the eye AND still fills
+   * the frame, but that rule cannot catch a dome CAP: the top patch of the
+   * dome straddles the eye and covers only the top band of the screen, which
+   * is a perfectly well-formed box describing nothing. The bag is the only
+   * thing that knows it is a shell, so the bag says so.
+   *
+   * Set false for the sky dome, the star field and the sun/moon discs; leave
+   * true for everything the player can walk up to. It costs the network
+   * nothing: those bags carry no reconstructible detail, and a tile they alone
+   * cover reads coverage 0, which is what kMinCoverage already treats as "do
+   * nothing here".
+   */
+  bool blssProxy;
 };
 
 }  // namespace Tyra

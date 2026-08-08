@@ -175,6 +175,7 @@ add_executable(tyrax-editor
     src/assetbrowser.cpp
     src/blss.cpp
     src/blsscorpus.cpp
+    src/blssscene.cpp
     src/blss_ui.cpp
     src/blss_window.cpp
     src/camtake.cpp

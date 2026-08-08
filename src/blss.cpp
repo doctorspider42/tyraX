@@ -28,8 +28,8 @@
 
 namespace blss {
 
-const char* const kFeatureNames[kFeatures] = {"motion",    "depth",    "depthGrad", "edgeDens",
-                                              "texDetail", "coverage", "luma"};
+const char* const kFeatureNames[kFeatures] = {"motion",    "depth",    "depthGrad",
+                                              "edgeDens", "texDetail", "coverage"};
 const char* const kOutputNames[kOutputs] = {"point", "temporal", "sharpen"};
 
 namespace {
@@ -246,7 +246,7 @@ std::vector<TileStats> accumulate(int cols, int rows, int outW, int outH,
     (void)outH;
     std::vector<TileStats> stats(static_cast<size_t>(cols) * rows);
     std::vector<float> coverAcc(stats.size(), 0.0f), depthAcc(stats.size(), 0.0f),
-        lumaAcc(stats.size(), 0.0f), detAcc(stats.size(), 0.0f),
+        detAcc(stats.size(), 0.0f),
         edgeAcc(stats.size(), 0.0f), dmin(stats.size(), 1e30f), dmax(stats.size(), 0.0f);
 
     for (const BagProxy& b : bags) {
@@ -268,7 +268,6 @@ std::vector<TileStats> accumulate(int cols, int rows, int outW, int outH,
                 const float a = (ox * oy) / (static_cast<float>(kTile) * kTile);
                 coverAcc[k] += a;
                 depthAcc[k] += a * invNear;
-                lumaAcc[k] += a * b.luma;
                 detAcc[k] += a * b.texDetail;
                 dmin[k] = std::min(dmin[k], invFar);
                 dmax[k] = std::max(dmax[k], invNear);
@@ -289,7 +288,6 @@ std::vector<TileStats> accumulate(int cols, int rows, int outW, int outH,
         s.cover = std::min(1.0f, coverAcc[k]);
         if (coverAcc[k] > 0.0f) {
             s.depthMean = depthAcc[k] / cw;
-            s.luma = lumaAcc[k] / cw;
             s.texDetail = detAcc[k] / cw;
             s.depthMin = dmin[k] > 1e29f ? 0.0f : dmin[k];
             s.depthMax = dmax[k];
@@ -392,7 +390,6 @@ std::vector<Features> buildFeatures(int cols, int rows,
             f.edgeDens() = clamp01(s.edge);
             f.texDetail() = clamp01(s.texDetail);
             f.coverage() = clamp01(s.cover);
-            f.luma() = clamp01(s.luma);
         }
     return out;
 }
@@ -445,12 +442,12 @@ void Net::forward(const Features& f, float out[kOutputs]) const {
 }
 
 namespace {
-// 2: kFeatures went 8 -> 7 when the recurrent histAge channel was measured and
-// removed (see blss.hpp). The file carries no topology, only a flat float run,
-// so a version-1 net would load silently into a differently shaped Net and
-// produce nonsense - bump this with ANY change to kFeatures / kHidden /
-// kOutputs.
-constexpr uint32_t kNetVersion = 2;
+// 3: kFeatures went 8 -> 7 -> 6 as the recurrent `histAge` channel and then the
+// photometric `luma` one were measured and removed (see blss.hpp). The file
+// carries no topology, only a flat float run, so an older net would load
+// silently into a differently shaped Net and produce nonsense - bump this with
+// ANY change to kFeatures / kHidden / kOutputs.
+constexpr uint32_t kNetVersion = 3;
 constexpr size_t kNetFloats = kHidden * kFeatures + kHidden + kOutputs * kHidden + kOutputs;
 
 void netToFlat(const Net& n, float* d) {
@@ -520,7 +517,7 @@ namespace {
 // exist, so the generated header fails to compile with
 // `unable to find numeric literal operator 'operator""F'`. Every bias starts at
 // exactly 0 (Net::randomize), and templates.cpp emits a DEFAULT-CONSTRUCTED Net
-// when a project has BLSS enabled and no blss.net - all 147 weights zero - so
+// when a project has BLSS enabled and no blss.net - all 123 weights zero - so
 // the "a missing net is not a build failure, just an untrained network and a
 // warning banner" path in blssNetHeader could never once have worked. It was
 // never executed, which is the same class of miss as the rest of this feature's
@@ -1017,10 +1014,10 @@ float train(Net& net, const std::vector<Sample>& samples, const TrainConfig& cfg
     // INPUT STANDARDISATION, FOLDED BACK INTO THE FIRST LAYER. OFF BY DEFAULT,
     // AND THE MEASUREMENT THAT TURNED IT OFF IS THE DIAGNOSIS OF THIS NETWORK.
     //
-    // The eight channels do not remotely share a scale over the corpus
+    // The channels do not remotely share a scale over the corpus
     // (--blss-eval --features prints the table): texDetail lives in 0.00 .. 0.20
-    // with sd 0.14, luma never exceeds 0.48, coverage is 1.0 on seven tenths of
-    // all tiles. One learning rate and one weight decay serve all of them, so the
+    // with sd 0.14, motion is zero in a quarter of all tiles, coverage is 1.0 on
+    // seven tenths of them. One learning rate and one weight decay serve all of them, so the
     // narrow channels get smaller gradients and are the first thing decay pulls
     // to zero - and texDetail is the channel most correlated with what the oracle
     // asks of the temporal weight. That looks exactly like an optimisation
@@ -1186,6 +1183,16 @@ struct CliOpts {
     std::string outPath;
     std::string dumpDir;
     std::string assetDir = "examples";
+    // `--blss-train <projectDir>` / `--blss-eval <projectDir>`: train on the
+    // USER'S OWN SCENE instead of the procedural bestiary. A positional
+    // argument rather than a flag because it is the thing you are training ON,
+    // not a knob - and because "train this project" is the shape the docs and
+    // the panel already promise.
+    std::string projectDir;
+    // `--no-package-split`: one bag proxy per object instead of one per VU1
+    // package. Off is what the console does; on reproduces every fold table
+    // published before the split existed. See CorpusConfig::packageSplit.
+    bool packageSplit = true;
     // 12 frames per shot over the 13-shot bestiary. Frames are split evenly, so
     // this number and the shot count have to move together: at the old default of
     // 48 the tail shots got three frames each, and a shot with three frames
@@ -1216,7 +1223,7 @@ struct CliOpts {
     // For the net you SHIP, not for the net you measure - see trainMain.
     bool allShots = false;
     bool standardise = false;  // --standardise for the A/B, see train()
-    // --features: what the eight input channels actually look like over the
+    // --features: what the six input channels actually look like over the
     // corpus. A channel that is constant is a channel the net cannot use, and
     // nothing printed that until this flag existed.
     bool featureStats = false;
@@ -1310,6 +1317,10 @@ CliOpts parseCli(int argc, char** argv) {
             }
         }
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
+        else if (a == "--no-package-split") o.packageSplit = false;
+        // The only positional argument: the project to train on. Taken as the
+        // FIRST bare word so `--blss-train ~/game --cv` reads the way it looks.
+        else if (!a.empty() && a[0] != '-' && o.projectDir.empty()) o.projectDir = a;
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
     }
     return o;
@@ -1422,6 +1433,8 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.scale = o.scale;
     cc.seed = o.seed;
     cc.assetDir = o.assetDir;
+    cc.projectDir = o.projectDir;
+    cc.packageSplit = o.packageSplit;
     std::printf("blss: rendering %d corpus frames at %dx%d (this is the slow part)\n",
                 cc.frames, cc.outW, cc.outH);
     std::vector<CorpusFrame> corpus = generate(cc);
@@ -1918,8 +1931,8 @@ int crossValidate(const CliOpts& o) {
 
 // ----------------------------------------------------- feature diagnostics ---
 
-// WHAT THE EIGHT INPUTS ACTUALLY LOOK LIKE. A channel that never moves is a
-// channel the 147 weights cannot use, and no amount of training fixes it - this
+// WHAT THE SIX INPUTS ACTUALLY LOOK LIKE. A channel that never moves is a
+// channel the 123 weights cannot use, and no amount of training fixes it - this
 // is the same class of bug as a term missing from the objective, one level
 // further down. Prints, per feature: the distribution over the corpus, and how
 // strongly it correlates with what the ORACLE asked for (weighted by importance,
@@ -1973,11 +1986,20 @@ std::array<ProbeChannel, kFeatures> parseProbe(const std::string& text, int* unk
             static const struct {
                 const char* alias;
                 int idx;
-            } kAliases[] = {{"grad", 2}, {"edge", 3}, {"detail", 4}, {"cover", 5}, {"hist", 7}};
+            } kAliases[] = {{"grad", 2}, {"edge", 3}, {"detail", 4}, {"cover", 5}};
             for (const auto& a : kAliases)
                 if (key == a.alias) idx = a.idx;
         }
         if (idx < 0) {
+            // RETIRED CHANNELS, skipped in silence rather than counted as
+            // garbage: an old console log or an old commit message still has
+            // `histAge` and `luma` in it, and a probe that refused to read the
+            // rest of the line would make the historical vectors unplaceable -
+            // which is exactly the failure that put this tool in the tree.
+            static const char* const kRetired[] = {"histAge", "hist", "luma"};
+            bool retired = false;
+            for (const char* r : kRetired) retired = retired || key == r;
+            if (retired) continue;
             ++*unknown;
             continue;
         }

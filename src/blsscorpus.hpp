@@ -8,10 +8,18 @@
 // exact and comes out of the same buildFeatures() the runtime calls - there is
 // no "training-time approximation of a runtime feature" to drift.
 //
-// Host-only: no GL, no ImGui, no Project (the aobake/dronegen pattern), so
-// --blss-train runs headless in CI. Deterministic by seed.
+// Host-only: no GL, no ImGui (the aobake/dronegen pattern), so --blss-train
+// runs headless in CI. Deterministic by seed.
 //
-// The corpus is procedural on purpose. It is a bestiary of the cases that
+// TWO SCENE SOURCES, ONE RASTERISER. `CorpusConfig::projectDir` swaps the
+// bestiary below for the USER'S OWN PROJECT (blssscene.{hpp,cpp} walks it), and
+// that is the whole extent of the difference: the rasteriser, the jitter, the
+// supersampled ground truth, bagOf(), accumulate() and buildFeatures() are the
+// same code either way, so a project-trained net and a procedurally-trained one
+// are comparable by construction. A project that will not load, or loads with
+// nothing to draw, falls back to the bestiary rather than producing no corpus.
+//
+// The procedural corpus is procedural on purpose. It is a bestiary of the cases that
 // actually alias on a PS2 - a checkerboard floor running to the horizon, thin
 // poles, cutout foliage, a curved silhouette, high-frequency textures at
 // grazing angles - shot with camera moves (still, pan, orbit, dolly) so the
@@ -46,6 +54,21 @@ struct CorpusConfig {
     uint32_t seed = 0xB1557u;
     std::string assetDir;         // examples/ tree scanned for real PNG materials
     bool verbose = true;
+    // Non-empty: render the PROJECT in this directory instead of the bestiary
+    // (`--blss-train <projectDir>`). Everything else in this struct still
+    // applies - the resolution, the jitter, the supersample, the frame budget.
+    std::string projectDir;
+    // ONE PROXY PER PACKAGE, the way the engine submits them. StaPipCore hands
+    // BLSS one bounding box per run of maxVertCount/3 consecutive vertices
+    // (StaPipBagPackagesBBox), capped at 32 per bag, because a bag carries one
+    // bbox and one w range and a whole mesh cannot describe itself with those.
+    // The corpus does the same to every object it draws.
+    //
+    // OFF reproduces the pre-split behaviour - one proxy per object, which is
+    // what every fold table published before this existed was measured on, and
+    // the bestiary's hand-chunked floors and walls were its stand-in for. Kept
+    // as `--no-package-split` so those tables stay reproducible.
+    bool packageSplit = true;
 };
 
 // One training/eval item: what the console would hold, and what it should have
@@ -59,9 +82,11 @@ struct CorpusFrame {
     // What that shot IS. Carried per frame rather than looked up, because the
     // consumer that needs it most - leave-one-shot-out cross-validation - reports
     // one row per shot and "fold 4 lost 0.3 dB" is useless without "fold 4 is the
-    // grazing wall". Static string literals owned by the shot table.
-    const char* shotName = "";
-    const char* moveName = "";
+    // grazing wall". OWNED, not a literal: a project's shots are named from its
+    // own scene names at run time, and a pointer into the shot table would
+    // dangle the moment generate() returned.
+    std::string shotName;
+    std::string moveName;
 };
 
 // Renders the whole corpus. Frame N's `prevLow` is frame N-1 of the same shot
