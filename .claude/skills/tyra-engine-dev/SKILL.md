@@ -400,10 +400,24 @@ Eight things here that were paid for, and that any edit must keep:
   `ZBUF` bases are independent registers, so the low-res pass writes a contiguous
   prefix of z at the low-res stride.
   **The invariant that makes it safe is `zBuffer.mask == 0` only INSIDE the
-  low-res bracket** (`configure()` sets 1, `beginScene`/`endScene` open and close
-  it): every `draw_enable_tests` / `draw_setup_environment` in the engine reads
+  low-res bracket** (`allocateVramBuffers` DERIVES the flag from the allocation
+  it just made — 1 whenever z came out smaller than the display raster — and
+  `beginScene`/`endScene` open and close it): every `draw_enable_tests` /
+  `draw_setup_environment` in the engine reads
   that one field, so the 2D/HUD/post-fx half of the frame — full-screen sprites
-  at `z = 0xFFFFFFFF` — cannot stamp past the smaller allocation. Sizing z needs
+  at `z = 0xFFFFFFFF` — cannot stamp past the smaller allocation.
+  **Deriving it there is the fix for this feature's worst bug and must not be
+  moved back to a caller**: `configure()` used to assign the flag one statement
+  before the rebuild it triggers, the rebuild runs `allocateVramBuffers`, and
+  that cleared it again — so the mask was 0 for the whole run and every
+  full-resolution pass stamped depth 512×448 words past `ZBP` (`ZBUF` carries no
+  width; the stride comes from `FRAME.FBW`), straight through the texture heap
+  that starts just above the small allocation. Symptom: **every 4-bit palettised
+  texture in the scene drew NOTHING** — the depth landed on the 8×2 CLUT, a
+  zeroed CLUT has alpha 0, and `ATEST NOTEQUAL`/`AREF 0` discards it; 24-bit
+  textures (no CLUT, alpha from `TEXA`) kept drawing, which made it look like a
+  CLUT-descriptor bug for two sessions. General lesson for any buffer this
+  engine shrinks: **an allocation is not an addressable extent.** Sizing z needs
   the scale, which only `blss.configure()` knows, and z is allocated third in
   `gs.init()`: the ordering is resolved by re-laying the permanent region from
   `configure()` through `RendererCore::rebuildPermanentBuffers()` (gated on

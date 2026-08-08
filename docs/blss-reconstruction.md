@@ -616,51 +616,80 @@ disassembly, not a measured picture change: on PCSX2's software renderer a
 the register semantics are. It is still wrong to hand a register back a value
 its owner never had, and hardware is the machine that decides.
 
-### OPEN: BLSS deletes PALETTISED textures
+### FIXED: BLSS deleted PALETTISED textures — the z mask was never on
 
-**Not fixed, and narrowed rather than solved.** With BLSS on, a static
-primitive or terrain chunk whose texture is **indexed** (`PSMT4`/`PSMT8` plus a
-CLUT — which is what the editor's texture bake produces for a material
-regardless of the project's `textureQuant`) draws nothing at all. Same scene,
-BLSS off: it draws. `examples/upscaler-lab` and the `blssbug` minimal fixture
-(one untextured box, one `map_Kd` box, `--new … fpp`) both reproduce it.
+**Closed 2026-08-08.** With BLSS on, a static primitive or terrain chunk whose
+texture was **indexed** (`PSMT4`/`PSMT8` plus a CLUT — which is what the
+editor's texture bake produces for a material regardless of the project's
+`textureQuant`) drew nothing at all. Same scene, BLSS off: it drew.
+`examples/upscaler-lab` and the `blssbug` minimal fixture (one untextured box,
+one `map_Kd` box, `--new … fpp`) both reproduced it.
 
-What the split actually is — measured, and it is **not** the one the symptom
-report guessed:
+The measured split, which is what made it look like a texturing bug:
 
-| texture | under BLSS |
+| texture | under BLSS (before the fix) |
 |---|---|
 | none (vertex colour) | draws |
 | 24-bit RGB (`PSMCT32/24`, `TCC = 0`) | **draws** |
 | 4-bit palettised (`PSMT4` + CLUT) | **gone** |
 
-so it is the CLUT/indexed path, and `TEXA` — which only ever governs `TCC = 0`
-— cannot be the cause. What has been eliminated, each by its own booted
-experiment on the fixture (all with BLSS on, textured box absent in every one):
+**It was not a texturing bug at all. It was the z-buffer shrink writing over
+the texture heap**, and it is the same field section 7 calls "the safety
+invariant": `zBuffer.mask`.
 
-- **the alpha test** — `ATE = DRAW_DISABLE` on StaPip's standard path: still gone;
-- **alpha blending** — `prim.blending = DRAW_DISABLE`: still gone, so it is not
-  "blended to the background at `As = 0`";
-- **the z test** — `ZTEST_METHOD_ALLPASS`: still gone;
-- **the GS texture cache** — a `TEXFLUSH` prepended to `beginScene`: still gone;
-- **frustum culling / submission** — the bag is logged as `IN_FRUSTUM` with 36
-  vertices and reaches `sendObjectData` on every frame;
-- **VRAM overlap** — logged addresses: texture 669696, CLUT 679936, low-res
-  target 593920…651264, z 458752…516096, frame buffers 0 / 229376. Nothing
-  overlaps, `VRAMSTAT` reports `evict=0` and `reup=0`;
-- **the composite's own passes** — debug view 2 reports `point 0.0%`,
-  `sharpen 0.0%`, `temporal` mean 0.049 / max 0.229, so nothing is painting
-  over it;
-- **draw order** — texturing *both* boxes removes *both*; swapping their
-  positions moves the survivor. The variable is the texture, not the slot.
+The mechanism, end to end:
 
-With the alpha test, alpha blending and the z test all disabled and the
-primitive still invisible, the fragments are not being rasterised — which
-points at the GS state an **indexed** fetch consumes and an RGB one does not
-(the CLUT descriptor in `TEX0`: `CBP`/`CPSM`/`CSM`/`CSA`/`CLD`, which
-`emitPassState` writes as all-zero with `CLD = 0`). That is where the next
-session should start, with a VU1 packet capture (`--dump-vucap`) of the
-textured bag under BLSS as the first read.
+1. `RendererCoreBlss::configure()` set `gs->zBuffer.mask = enabled ? 1 : 0`
+   **one statement before** the VRAM rebuild it triggers.
+2. That rebuild runs `RendererCoreGS::allocateVramBuffers()`, whose opening
+   block assigns `zBuffer.mask = 0` unconditionally — it is the initial value
+   for a fresh allocation. So the mask the invariant depends on was **cleared
+   again on the same call**, and stayed 0 for the whole run.
+3. Every `draw_enable_tests` outside the low-res bracket therefore emitted
+   `ZBUF` with `ZMSK = 0`: z writes **enabled**, at display resolution.
+4. The GS addresses the z buffer at `FRAME.FBW` stride, and outside the bracket
+   `FBW` is the display width. So a 512×448 pass stamps depth across
+   `458 752 … 688 128` words regardless of the 256×224 = 57 344-word
+   allocation. Under BLSS the texture heap starts just above that allocation —
+   measured on `blssbug`: texture at **669 696**, its CLUT at **679 936**, both
+   *inside* the range.
+5. A palettised texture's CLUT is 16 `PSMCT32` entries in one 8×2 block. Depth
+   values written over it destroy every entry **including its alpha byte**
+   (`0x80` → whatever depth lands there, in practice 0). StaPip's standard path
+   runs `ATEST_METHOD_NOTEQUAL` / `AREF = 0`, so **every fragment failed the
+   alpha test and nothing was rasterised** — which is exactly what the earlier
+   eliminations observed. A 24-bit texture has no CLUT and takes its alpha from
+   `TEXA`, so it kept drawing; it merely lost some texels to the same writes.
+
+Two things about the earlier elimination round are worth keeping, because both
+were correct work that pointed the wrong way:
+
+- **"VRAM overlap — nothing overlaps"** compared the *allocations*. The
+  allocation was never the addressable extent: `ZBUF` carries no width, so the
+  bytes a pass can reach come from `FRAME.FBW`, not from what
+  `allocateBuffer()` handed out. That is the hole, and it is a general lesson
+  for any buffer this engine shrinks.
+- **The alpha test, blending and z-test experiments** were all done on the
+  *drawing* side. The data was already gone before the draw started.
+
+The fix moves the invariant to where the buffer is sized: `allocateVramBuffers`
+now **derives** `zBuffer.mask` from its own allocation (1 whenever the z buffer
+is smaller than the display raster, 0 otherwise) and `configure()` no longer
+assigns it. Nothing can clear it on the way through any more, the mask is right
+for the "no VRAM rebuild hook" path too (z keeps display size ⇒ mask 0), and
+the VRAM saving is untouched — the fixed build reports the same
+`low-res target at VRAM 593920` and `texture heap free MB: 1.73438` as the
+broken one.
+
+**Also settled by this, and it is a correction.** The comment on `composite()`'s
+`TEXA`/`COLCLAMP` restore claimed the previous zero-valued restore "deleted
+every textured primitive and every textured terrain chunk in the game". **That
+attribution was wrong** — the deletion was this z-mask bug, which is
+CLUT-specific and was present either way. The restore itself is still correct
+and stays (it is argued from the `libdraw.a` disassembly above), but it remains
+**unconfirmed by any picture**: `TEXA` governs `TCC = 0` only, and both fixtures
+now draw their 24-bit and their palettised box with the restore in place. Do
+not re-attribute a symptom to it without a screenshot.
 
 ### One known parity gap: the UV clamp at the top-left edge
 
@@ -756,8 +785,15 @@ case regardless — see the packet budget above.
   low-res stride, not a top-left rectangle of a wider layout.
 
   **The safety invariant is one field: `zBuffer.mask` is 0 only INSIDE the
-  low-res bracket.** `configure()` sets it to 1 when BLSS is on,
-  `beginScene()`/`endScene()` open and close the window. Every
+  low-res bracket.** `RendererCoreGS::allocateVramBuffers()` **derives** it from
+  the allocation it just made — 1 whenever the z buffer came out smaller than
+  the display raster — and `beginScene()`/`endScene()` open and close the
+  window. Deriving it there is not tidiness: `configure()` used to assign the
+  field itself, one statement before the rebuild it triggers, and the rebuild
+  runs `allocateVramBuffers`, which cleared it again. The flag was 0 for the
+  whole run, and the depth that leaked past the allocation deleted every 4-bit
+  palettised texture in the scene — see
+  [§6](#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on). Every
   `draw_enable_tests` / `draw_setup_environment` in the engine reads that single
   field, so the 2D/HUD/post-fx half of the frame — which draws full-screen
   sprites at `z = 0xFFFFFFFF` and would otherwise stamp 448 rows at a 512 stride

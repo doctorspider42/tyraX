@@ -281,7 +281,12 @@ the verification, and any fact worth reusing belongs in the relevant
     invariant holds.
 
     What makes it safe is one invariant, and it is the thing to keep: **
-    `zBuffer.mask` is 0 only INSIDE the low-res bracket.** Every
+    `zBuffer.mask` is 0 only INSIDE the low-res bracket** - DERIVED in
+    `allocateVramBuffers` from the allocation, never assigned by a caller.
+    `configure()` used to set it one statement before the rebuild that cleared
+    it again, and the depth that then leaked past the allocation deleted every
+    4-bit palettised texture in the scene (docs/blss-reconstruction.md
+    section 6). Every
     `draw_enable_tests` / `draw_setup_environment` in the engine reads that one
     field, so the 2D/HUD/post-fx half of the frame - full-screen sprites at
     z = 0xFFFFFFFF, which would otherwise stamp 448 rows at a 512 stride -

@@ -2190,17 +2190,22 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
 
 ### What is still open
 
-- **BLOCKING BUG: with BLSS on, PALETTISED textures draw nothing.** A static
-  primitive or terrain chunk whose texture is indexed (`PSMT4`/`PSMT8` + CLUT —
-  which is what the texture bake produces for a material whatever the project's
-  `textureQuant` says) is submitted, in frustum, its texture resident and bound,
-  and no pixel of it reaches the low-res target. Untextured geometry and 24-bit
-  RGB textures are fine. **Do not ship the feature on until this is closed.**
-  The full elimination table — the alpha test, alpha blending, the z test, the
-  texture cache, VRAM overlap, the composite's own passes and draw order are all
-  ruled out by booted experiments — is in
-  [§6 of the math doc](blss-reconstruction.md#open-blss-deletes-palettised-textures),
-  together with where to look next.
+- **CLOSED (2026-08-08): palettised textures drew nothing under BLSS.** It was
+  never a texturing bug. `RendererCoreBlss::configure()` set `zBuffer.mask`
+  one statement before the VRAM rebuild it triggers, and the rebuild's
+  `allocateVramBuffers()` cleared the field again — so the shrunken z buffer ran
+  **unmasked at display resolution** all run, and since `ZBUF` has no width of
+  its own a 512-wide pass stamps depth 512×448 words past `ZBP` whatever the
+  256×224 allocation says. That range covered the texture heap: on the `blssbug`
+  fixture the texture sat at 669 696 and its CLUT at 679 936, both inside
+  458 752…688 120. Zeroing a CLUT zeroes its alpha, so `ATEST NOTEQUAL`/`AREF 0`
+  discarded every fragment of 4-bit geometry while 24-bit textures (no CLUT,
+  alpha from `TEXA`) kept drawing. The mask is now **derived from the
+  allocation** in `allocateVramBuffers`, where it cannot be undone; the VRAM
+  saving is unchanged. Verified with before/after screenshots on `blssbug` and
+  `examples/upscaler-lab`. Full account, including why the earlier
+  "VRAM overlap — nothing overlaps" elimination missed it, in
+  [§6 of the math doc](blss-reconstruction.md#fixed-blss-deleted-palettised-textures--the-z-mask-was-never-on).
 - **TWO TWIN CHANGES ARE MEASURED AND WAITING ON THE ENGINE, and this is the top
   of the list now that the frame has been timed.** Both attack the 5.10 ms of EE
   inside `composite()`; both are switched off on the host until their engine half

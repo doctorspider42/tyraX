@@ -117,6 +117,27 @@ void RendererCoreGS::allocateVramBuffers() {
   const int zHeight = static_cast<int>(settings->getRasterHeightUI());
   zBuffer.address = vram.allocateBuffer(zWidth, zHeight, zBuffer.zsm);
 
+  // Modified by TyraX (BLSS): the mask is DERIVED from the allocation here,
+  // never assigned by a caller. A z buffer smaller than the display raster is
+  // only safe while every pass that draws at DISPLAY resolution has its z
+  // writes masked, because the GS addresses z at FRAME.FBW stride - a
+  // 512-wide pass reaches 512*448 words past ZBP whatever this allocation
+  // says, i.e. straight through the texture heap that starts just above it.
+  // RendererCoreBlss::configure() used to set the flag itself, one line
+  // BEFORE the rebuild it triggers - and the rebuild lands here, where the
+  // flag was unconditionally cleared again. The result was z enabled at
+  // display resolution over a 256x224 allocation: every frame stamped depth
+  // across 458 752..688 128 words, and the first textures allocated (669 696
+  // and, fatally, the 8x2 CLUT at 679 936) were inside it. Zeroing a CLUT
+  // zeroes its alpha too, so ATEST NOTEQUAL/AREF 0 discarded every fragment
+  // and 4-bit palettised geometry vanished completely while 24-bit textures -
+  // no CLUT, alpha from TEXA - merely lost texels nobody looked at.
+  zBuffer.mask =
+      (zWidth < static_cast<int>(settings->getWidth()) ||
+       zHeight < static_cast<int>(settings->getRenderHeightF()))
+          ? 1
+          : 0;
+
   TYRA_LOG("GS buffers: frame ", static_cast<int>(frameBuffers[0].width), "x",
            static_cast<int>(frameBuffers[0].height), " x2, z ", zWidth, "x",
            zHeight, " at ", static_cast<int>(zBuffer.address));

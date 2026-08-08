@@ -284,13 +284,16 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // rebuild performs has nothing to evict and docs/gs-vram.md's "permanent
   // buffers before any texture" invariant holds.
   if (gs != nullptr) {
-    // Mask scene-depth writes for everything OUTSIDE the low-res bracket, and
-    // do it before the rebuild - reallocateBuffers() re-sends the drawing
-    // environment, which is what puts the new mask on the GS. Every
-    // draw_enable_tests / draw_setup_environment in the engine reads this one
-    // field, so one assignment covers the frame clear, post fx, the 2D path
-    // and the env-map / shadow-map restores.
-    gs->zBuffer.mask = enabled ? 1 : 0;
+    // NOTE: zBuffer.mask is NOT set here. Masking scene-depth writes outside
+    // the low-res bracket is the invariant that makes a smaller z buffer safe,
+    // so it belongs to whoever SIZES the buffer - RendererCoreGS::
+    // allocateVramBuffers derives it from the allocation now. This line used
+    // to assign it one statement before the rebuild below, and the rebuild
+    // runs allocateVramBuffers, which cleared it again: the flag was 0 for the
+    // whole run, display-resolution passes wrote z at a 512 stride over a
+    // 256x224 allocation, and the depth they stamped landed on the texture
+    // heap - see the comment there for why that deleted 4-bit palettised
+    // textures specifically.
     if (gs->needsBufferRealloc()) {
       if (vramRebuild != nullptr) {
         vramRebuild(vramRebuildUser);
