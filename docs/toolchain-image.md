@@ -2495,6 +2495,76 @@ On the console that is 3120 → 3360 frames, 77.98 → 83.98 FPS, the gap to Son
 -20%. The frame gap closes by less than the modelled one, which is what you expect when VU1
 is one stage of several.
 
+### Two families, two different causes - the allocation story is only half of it
+
+Everything above about welded chains is true of the `vu_script*` family. **It is falsified for
+the clip and cull programs**, and by the cleanest evidence available: in `stapip_cull_c`'s
+`processing` block openvcl and SCE emit the *same instruction multiset* - upper 117, lower 43,
+both sides. SCE places them in 130 rows and stalls 7 cycles; openvcl in 125 rows and stalls 41.
+The upper pipe alone bounds the block at 117 rows. **Same instructions, same pipes, fewer rows,
+three times the stalls: the entire gap is scheduling order.**
+
+That has its own one-line cause. Under `--fmac-interlock`,
+`VuSchedulerAnalysis::pairingHazardDelay` asks `manualReadHazardDelay`, which returns 0 for
+every VF operand still in flight - correctly, because the hardware interlocks and no `nop` is
+emitted. But `chooseReadyPairPartner` filters candidates on that same number, so it is **blind
+to FMAC read-after-write hazards**: a lower-pipe token four rows behind its producer looks
+free, gets paired onto a row that was ready now, and drags the primary into the stall with it.
+The comment next to it states the reasoning that fails - *"refusing to pair over it only costs
+instruction words"*. Refusing costs words; accepting costs cycles. It is why openvcl emits
+`sq X` on the row after `ftoi4 X, X` (19 stall cycles in one store tail) where SCE drains its
+stores four rows later for nothing.
+
+Measured per loop iteration, rows/cycles, which is what says where to look:
+
+| program | loop | SCE | openvcl |
+|---|---|---:|---:|
+| `cull_c` | `processing` (per triangle) | 130/137 | 125/**166** |
+| `cull_tce` | `processing` | 118/145 | 107/**223** |
+| `clip_d`/`td` | `triLoop` | 70/73 | 73/**131** |
+| `clip_*` | `planeLoop` (6x per crossing tri) | 8/23 | 8/**23** |
+| `clip_*` | `edgeLoop` (3-9x per plane) | 22/45 | 21/**48** |
+| `clip_*` | `fanEmitLoop` (3x per emitted tri) | 22/34 | 20/**47** |
+
+**The plane loop is at exact parity and the edge loop is three cycles behind.** The deficit is
+in the once-per-triangle transform block and in the fan emitter - not, as the console result
+first suggested, spread through the clipper's inner loops.
+
+`--pair-best-of-cycles` (the twenty-second flag) mirrors every entry of `--pair-best-of-many`'s
+strategy table with the partner filter asking the *cycle* question instead of the word
+question, and lets a segment take the cycle winner only when `cyclesSaved >= extraWords x 2`.
+That exchange rate is measured against the 2042-word ceiling the resident ten share, not
+chosen:
+
+| rate | resident words | resident cycles |
+|---|---:|---:|
+| off | 1968 | 3010 |
+| 4 | 1984 | 2956 |
+| **2** | **2016** | **2847** |
+| 1 | 2086 | **over the ceiling** |
+| SCE | 2028 | 2433 |
+
+**It is shipped and deliberately NOT in `VCL_FLAGS`.** Turned on it is worth -5.9% modelled
+cycles corpus-wide (gap to SCE +31.8% → +24.0%) and closes 90% of the gap on `cull_tc`'s
+once-per-triangle block, the dominant textured path. It costs 48 of the resident set's 74 spare
+words and puts the *generated* corpus 128 words **over** Sony, reversing the size claim this
+file makes three sections up. Calibrating against `--split-dead-float-ranges` (-16.8% modelled
+bought +7.7% frames), -5.9% predicts roughly +2.5-3% frames - below what this harness can
+confirm. Trading a published size result and two thirds of the micro-memory headroom for an
+unconfirmable few percent is not a trade to make silently; enabling it is one word appended to
+`ARG VCL_FLAGS` in both Dockerfiles when someone decides it is worth it.
+
+**Four doors this closed, all measured.** The ready-list *strategy* space is exhausted: 128
+strategy points (priority weight 6-400 x unblocking x cheap-partner x no-long-latency x
+stall-aware) with cycle-first selection at zero word cost buy 10 cycles on the resident ten,
+and the wide table matches the 7-arm one at every budget - the lever is the partner filter, not
+the rank function. Load sinking is not the cause (removing all four `--sink-loads*` makes the
+resident set *worse*, 3035 against 3010). `--fmac-interlock` is not the cause: with it off,
+openvcl pays 604 extra rows to remove 903 stalls, a 1:1.5 exchange, where SCE's own output
+trades 58 rows for 620 stalls, 1:10.7 - openvcl cannot buy SCE's schedule with rows. And
+blanket stall-aware pairing is not shippable at all: -290 cycles for +780 words puts the
+resident set over the hardware ceiling.
+
 ### The ladder, and three corrections to the paragraph that used to be here
 
 This section previously said seven programs fell back, worth about 1200 modelled cycles, and

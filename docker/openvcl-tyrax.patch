@@ -755,15 +755,16 @@ index 1845035..d05414a 100644
  
  	// 9.G-1h-4a-2: out-of-band MAIN-body ranges produced by the
 diff --git a/src/CommandLine.cpp b/src/CommandLine.cpp
-index e6a6dea..8337e2d 100644
+index e6a6dea..756dc55 100644
 --- a/src/CommandLine.cpp
 +++ b/src/CommandLine.cpp
-@@ -75,6 +75,29 @@ CommandLine::CommandLine()
+@@ -75,6 +75,30 @@ CommandLine::CommandLine()
  	m_dumpScheduleInfo = false;
  	m_dumpScheduleInfoJson = false;
  	m_knownLoopOptimizations = false;
 +	m_scheduleFlagReaders = false;
 +	m_fmacInterlock = false;
++	m_pairBestOfCycles = false;
 +	m_sceLatencies = false;
 +	m_emitDelayFillers = false;
 +	m_branchInterlock = false;
@@ -788,12 +789,13 @@ index e6a6dea..8337e2d 100644
  	m_genericSoftwarePipelining = true;
  	m_strictScheduleSlots = false;
  
-@@ -125,6 +148,29 @@ CommandLine::CommandLine()
+@@ -125,6 +149,30 @@ CommandLine::CommandLine()
  	m_options.push_back(Option('\0',"dump-schedule-info",DUMP_SCHEDULE_INFO,false));
  	m_options.push_back(Option('\0',"dump-schedule-info-json",DUMP_SCHEDULE_INFO_JSON,false));
  	m_options.push_back(Option('\0',"enable-known-loop-optimizations",ENABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
 +	m_options.push_back(Option('\0',"schedule-flag-readers",SCHEDULE_FLAG_READERS,false));
 +	m_options.push_back(Option('\0',"fmac-interlock",FMAC_INTERLOCK,false));
++	m_options.push_back(Option(0,"pair-best-of-cycles",PAIR_BEST_OF_CYCLES,false));
 +	m_options.push_back(Option(0,"sce-latencies",SCE_LATENCIES,false));
 +	m_options.push_back(Option(0,"emit-delay-fillers",EMIT_DELAY_FILLERS,false));
 +	m_options.push_back(Option(0,"branch-interlock",BRANCH_INTERLOCK,false));
@@ -818,12 +820,13 @@ index e6a6dea..8337e2d 100644
  	m_options.push_back(Option('\0',"disable-known-loop-optimizations",DISABLE_KNOWN_LOOP_OPTIMIZATIONS,false));
  	m_options.push_back(Option('\0',"enable-generic-software-pipelining",ENABLE_GENERIC_SOFTWARE_PIPELINING,false));
  	m_options.push_back(Option('\0',"disable-generic-software-pipelining",DISABLE_GENERIC_SOFTWARE_PIPELINING,false));
-@@ -239,6 +285,29 @@ bool CommandLine::parse( int argc, char* argv[] )
+@@ -239,6 +287,30 @@ bool CommandLine::parse( int argc, char* argv[] )
  				case DUMP_SCHEDULE_INFO: m_dumpScheduleInfo = true; break;
  				case DUMP_SCHEDULE_INFO_JSON: m_dumpScheduleInfo = true; m_dumpScheduleInfoJson = true; break;
  				case ENABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = true; break;
 +				case SCHEDULE_FLAG_READERS: m_scheduleFlagReaders = true; break;
 +				case FMAC_INTERLOCK: m_fmacInterlock = true; break;
++				case PAIR_BEST_OF_CYCLES: m_pairBestOfCycles = true; break;
 +				case SCE_LATENCIES: m_sceLatencies = true; break;
 +				case EMIT_DELAY_FILLERS: m_emitDelayFillers = true; break;
 +				case BRANCH_INTERLOCK: m_branchInterlock = true; break;
@@ -848,26 +851,28 @@ index e6a6dea..8337e2d 100644
  				case DISABLE_KNOWN_LOOP_OPTIMIZATIONS: m_knownLoopOptimizations = false; break;
  				case ENABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = true; break;
  				case DISABLE_GENERIC_SOFTWARE_PIPELINING: m_genericSoftwarePipelining = false; break;
-@@ -330,6 +399,9 @@ void CommandLine::showUsage( std::ostream& stream )
+@@ -330,6 +402,10 @@ void CommandLine::showUsage( std::ostream& stream )
  	stream << "  --dump-schedule-info       Print generic ready-scheduler issue slots." << std::endl;
  	stream << "  --dump-schedule-info-json  Print generic ready-scheduler issue slots as JSON." << std::endl;
  	stream << "  --enable-known-loop-optimizations  Compile with ps2gl-shaped loop reference emitters." << std::endl;
 +	stream << "  --schedule-flag-readers            Let MAC/CLIP flag readers take part in scheduling." << std::endl;
 +	stream << "  --fmac-interlock                   Trust the VU FMAC interlock; do not pad VF waits with nops." << std::endl;
++	stream << "  --pair-best-of-cycles              Also try each ready strategy with a stall-aware partner filter; take it when it is faster and no bigger." << std::endl;
 +	stream << "  --sce-latencies                    Non-interlocked latencies calibrated to what SCE vcl emits." << std::endl;
  	stream << "  --disable-known-loop-optimizations  Kept for compatibility; generic compilation is the default." << std::endl;
  	stream << "  --enable-generic-software-pipelining  Enable generic software-pipeline rewrites. (Default)" << std::endl;
  	stream << "  --disable-generic-software-pipelining  Disable generic software-pipeline rewrites." << std::endl;
 diff --git a/src/CommandLine.h b/src/CommandLine.h
-index f5e4b3d..5d18e55 100644
+index f5e4b3d..0688b79 100644
 --- a/src/CommandLine.h
 +++ b/src/CommandLine.h
-@@ -56,6 +56,29 @@ public:
+@@ -56,6 +56,30 @@ public:
  	bool dumpScheduleInfo() const;
  	bool dumpScheduleInfoJson() const;
  	bool knownLoopOptimizations() const;
 +	bool scheduleFlagReaders() const;
 +	bool fmacInterlock() const;
++	bool pairBestOfCycles() const;
 +	bool sceLatencies() const;
 +	bool emitDelayFillers() const;
 +	bool branchInterlock() const;
@@ -892,12 +897,13 @@ index f5e4b3d..5d18e55 100644
  	bool genericSoftwarePipelining() const;
  	bool strictScheduleSlots() const;
  	const std::vector< std::pair<std::string, unsigned int> >& costLoops() const;
-@@ -130,6 +153,29 @@ private:
+@@ -130,6 +154,30 @@ private:
  		DUMP_SCHEDULE_INFO,
  		DUMP_SCHEDULE_INFO_JSON,
  		ENABLE_KNOWN_LOOP_OPTIMIZATIONS,
 +		SCHEDULE_FLAG_READERS,
 +		FMAC_INTERLOCK,
++		PAIR_BEST_OF_CYCLES,
 +		SCE_LATENCIES,
 +		EMIT_DELAY_FILLERS,
 +		BRANCH_INTERLOCK,
@@ -922,12 +928,13 @@ index f5e4b3d..5d18e55 100644
  		DISABLE_KNOWN_LOOP_OPTIMIZATIONS,
  		ENABLE_GENERIC_SOFTWARE_PIPELINING,
  		DISABLE_GENERIC_SOFTWARE_PIPELINING,
-@@ -185,6 +231,29 @@ private:
+@@ -185,6 +233,30 @@ private:
  	bool m_dumpScheduleInfo;
  	bool m_dumpScheduleInfoJson;
  	bool m_knownLoopOptimizations;
 +	bool m_scheduleFlagReaders;
 +	bool m_fmacInterlock;
++	bool m_pairBestOfCycles;
 +	bool m_sceLatencies;
 +	bool m_emitDelayFillers;
 +	bool m_branchInterlock;
@@ -953,10 +960,10 @@ index f5e4b3d..5d18e55 100644
  	bool m_strictScheduleSlots;
  	std::vector< std::pair<std::string, unsigned int> > m_costLoops;
 diff --git a/src/CommandLine.inl b/src/CommandLine.inl
-index 5500026..c4f7d3f 100644
+index 5500026..e596b8e 100644
 --- a/src/CommandLine.inl
 +++ b/src/CommandLine.inl
-@@ -175,6 +175,167 @@ inline bool CommandLine::knownLoopOptimizations() const
+@@ -175,6 +175,174 @@ inline bool CommandLine::knownLoopOptimizations() const
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -970,6 +977,13 @@ index 5500026..c4f7d3f 100644
 +inline bool CommandLine::fmacInterlock() const
 +{
 +	return m_fmacInterlock;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++inline bool CommandLine::pairBestOfCycles() const
++{
++	return m_pairBestOfCycles;
 +}
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1195,7 +1209,7 @@ index a9a3c8e..7458bcf 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..5179e5e 100644
+index b8b1946..463202c 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1215,7 +1229,7 @@ index b8b1946..5179e5e 100644
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -2045,6 +2048,38 @@ bool Parser::tokenize()
+@@ -2045,6 +2048,39 @@ bool Parser::tokenize()
  	m_tokenizer.setNewSyntax( m_cmdLine.newSyntax() );
  	m_tokenizer.setOperands( m_operands );
  
@@ -1226,6 +1240,7 @@ index b8b1946..5179e5e 100644
 +	// emit is worse than no diagnostic.
 +	setVuScheduleFlagReadersEnabled( m_cmdLine.scheduleFlagReaders() );
 +	setVuFmacInterlockEnabled( m_cmdLine.fmacInterlock() );
++	setVuPairBestOfCyclesEnabled( m_cmdLine.pairBestOfCycles() );
 +	setVuFlagVisibilityLatency( m_cmdLine.sceLatencies() ? 1u : 4u );
 +	setVuClipFlagVisibilityLatency( 4u );
 +	setVuClipFlagSchedulingLatency( 4u );
@@ -1254,7 +1269,7 @@ index b8b1946..5179e5e 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2063,34 +2098,324 @@ bool Parser::tokenize()
+@@ -2063,34 +2099,324 @@ bool Parser::tokenize()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -1590,7 +1605,7 @@ index b8b1946..5179e5e 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2451,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2452,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {
@@ -3922,10 +3937,10 @@ index 2c14ff6..f0502c8 100644
  	int m_pReadyCycle;
  	int m_lastFMACCycle;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..1b69e74 100644
+index 3260370..b66b562 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
-@@ -28,6 +28,12 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
+@@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
  
  namespace
  {
@@ -3933,15 +3948,32 @@ index 3260370..1b69e74 100644
 +	int pairingHazardDelay( const VuLatencyTracker& latencyTracker,
 +	                        const Token& token,
 +	                        const Token* partner,
-+	                        int currentCycle );
++	                        int currentCycle,
++	                        bool stallAware = false );
 +
  	bool containsKey( const std::list<std::string>& keys, const std::string& key )
  	{
  		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
-@@ -124,13 +130,43 @@ namespace
+@@ -124,13 +131,64 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
++	// How many modelled cycles one extra instruction word has to buy before
++	// --pair-best-of-cycles will spend it.
++	//
++	// A cycle-cheaper schedule has ALREADY paid for its own extra rows - the trial
++	// cycle count includes them - so at rate 1 the flag takes every net win. It is
++	// not 1 because VU1 micro memory is a hard ceiling and a frame rate is not.
++	// Measured over the ten resident programs, which share one 2042-word upload:
++	//
++	//   rate  1: 2086 words / 2750 cycles   - over the ceiling, unusable
++	//   rate  2: 2016 words / 2847 cycles   - 26 words of headroom left
++	//   rate  4: 1984 words / 2956 cycles
++	//   off:     1968 words / 3010 cycles      (SCE: 2028 / 2433)
++	//
++	// 2 is the fastest point that still fits, and it is under SCE's own 2028.
++	const unsigned int VU_PAIR_CYCLES_PER_WORD = 2;
++
 +	// One point in the space of ready-list heuristics. The default values are the
 +	// only behaviour openvcl had before --pair-best-of-many; the alternatives exist
 +	// so that several complete schedules can be tried per segment and the shortest
@@ -3961,6 +3993,7 @@ index 3260370..1b69e74 100644
 +			priorityWeight = 20;
 +			longLatencyProducerBonus = 500;
 +			partnerPrefersWorst = false;
++			stallAwarePairing = false;
 +		}
 +
 +		bool preferUnblockingWhenUnpaired;
@@ -3969,6 +4002,10 @@ index 3260370..1b69e74 100644
 +		// Fill the row with the least valuable legal partner rather than the best one,
 +		// leaving the valuable one to be a primary on a row of its own.
 +		bool partnerPrefersWorst;
++		// Judge a partner by the cycles it costs the row rather than by the nop words
++		// it saves - see pairingHazardDelay. Only --pair-best-of-cycles sets it, and
++		// only as an EXTRA arm to compare against, never as the sole behaviour.
++		bool stallAwarePairing;
 +	};
 +
  	int readyCandidateScore( unsigned int candidate,
@@ -3983,7 +4020,7 @@ index 3260370..1b69e74 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +174,7 @@ namespace
+@@ -138,7 +196,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -3992,7 +4029,7 @@ index 3260370..1b69e74 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +182,7 @@ namespace
+@@ -146,7 +204,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4001,7 +4038,7 @@ index 3260370..1b69e74 100644
  
  		return score;
  	}
-@@ -208,7 +244,8 @@ namespace
+@@ -208,7 +266,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4011,16 +4048,17 @@ index 3260370..1b69e74 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +254,7 @@ namespace
+@@ -217,7 +276,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
 -		    latencyTracker.readHazardDelay( *block.tokens[primary], NULL, static_cast<int>( currentCycle ) );
-+		    pairingHazardDelay( latencyTracker, *block.tokens[primary], NULL, static_cast<int>( currentCycle ) );
++		    pairingHazardDelay( latencyTracker, *block.tokens[primary], NULL,
++		                        static_cast<int>( currentCycle ), strategy.stallAwarePairing );
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +269,10 @@ namespace
+@@ -232,9 +292,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4030,11 +4068,12 @@ index 3260370..1b69e74 100644
 +			if( pairingHazardDelay( latencyTracker,
 +			                        *block.tokens[primary],
 +			                        block.tokens[i],
-+			                        static_cast<int>( currentCycle ) ) > primaryDelay )
++			                        static_cast<int>( currentCycle ),
++			                        strategy.stallAwarePairing ) > primaryDelay )
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +281,10 @@ namespace
+@@ -243,8 +305,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4047,7 +4086,7 @@ index 3260370..1b69e74 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +294,69 @@ namespace
+@@ -254,6 +318,69 @@ namespace
  		return best;
  	}
  
@@ -4117,7 +4156,7 @@ index 3260370..1b69e74 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +452,22 @@ namespace
+@@ -349,6 +476,36 @@ namespace
  		return 1;
  	}
  
@@ -4127,12 +4166,26 @@ index 3260370..1b69e74 100644
 +	// to it is different: it asks whether an earlier producer is still in flight,
 +	// and that is exactly what the FMAC interlock stalls for. Under
 +	// --fmac-interlock, refusing to pair over it only costs instruction words.
++	// Two different questions, and which one the partner filter should ask is the
++	// whole of --pair-best-of-cycles.
++	//
++	//   stallAware = false (what openvcl has always asked): how many nop WORDS
++	//     would this pairing cost me? Under --fmac-interlock that is 0 for every
++	//     VF operand still in flight, because the hardware stalls by itself.
++	//   stallAware = true: how many CYCLES would it cost? A lower-pipe token whose
++	//     producer is four rows back holds the WHOLE row when it is paired, so a
++	//     primary that was ready this cycle waits with it. Declining costs one
++	//     word and never a cycle.
++	//
++	// The first answer is why openvcl pairs a store onto the row right after the
++	// ftoi that feeds it; SCE drains its stores four rows later and pays nothing.
 +	int pairingHazardDelay( const VuLatencyTracker& latencyTracker,
 +	                        const Token& token,
 +	                        const Token* partner,
-+	                        int currentCycle )
++	                        int currentCycle,
++	                        bool stallAware )
 +	{
-+		return vuFmacInterlockEnabled()
++		return ( vuFmacInterlockEnabled() && !stallAware )
 +		           ? latencyTracker.manualReadHazardDelay( token, partner, currentCycle )
 +		           : latencyTracker.readHazardDelay( token, partner, currentCycle );
 +	}
@@ -4140,7 +4193,7 @@ index 3260370..1b69e74 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +487,28 @@ namespace
+@@ -368,9 +525,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4172,7 +4225,7 @@ index 3260370..1b69e74 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +697,7 @@ namespace
+@@ -559,6 +735,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4180,7 +4233,7 @@ index 3260370..1b69e74 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +744,8 @@ namespace
+@@ -605,7 +782,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4190,7 +4243,7 @@ index 3260370..1b69e74 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +763,9 @@ namespace
+@@ -623,7 +801,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4201,7 +4254,7 @@ index 3260370..1b69e74 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +823,7 @@ namespace
+@@ -681,6 +861,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4209,7 +4262,7 @@ index 3260370..1b69e74 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +858,8 @@ namespace
+@@ -715,7 +896,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4219,7 +4272,7 @@ index 3260370..1b69e74 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +888,58 @@ namespace
+@@ -744,7 +926,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4279,7 +4332,7 @@ index 3260370..1b69e74 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -879,6 +1074,136 @@ namespace
+@@ -879,6 +1112,188 @@ namespace
  		return liveness;
  	}
  
@@ -4369,12 +4422,39 @@ index 3260370..1b69e74 100644
 +	                                       unsigned int& currentCycle )
 +	{
 +		const std::vector<VuReadySegmentStrategy>& strategies = readySegmentStrategies();
++		// --pair-best-of-cycles mirrors every entry of the table with its partner
++		// filter asking the cycle question instead of the word one. The arms are
++		// EXTRA, never a replacement: the word winner below is still whatever the
++		// shipped table produced, so the flag can only ever trade a word it is
++		// allowed to spend for a cycle it measures.
++		std::vector<VuReadySegmentStrategy> mirrored;
++		if( vuPairBestOfCyclesEnabled() )
++		{
++			for( unsigned int i = 0; i < strategies.size(); ++i )
++			{
++				VuReadySegmentStrategy stallAware = strategies[i];
++				stallAware.stallAwarePairing = true;
++				mirrored.push_back( stallAware );
++			}
++		}
++		const unsigned int trialCount =
++			static_cast<unsigned int>( strategies.size() + mirrored.size() );
++
 +		unsigned int bestIndex = 0;
 +		unsigned int bestWords = 0;
 +		unsigned int plainWords = 0;
++		// The cycle winner is tracked separately: only a schedule that is no LONGER
++		// than the word winner may take the segment on cycles, so the emitted size
++		// is bounded by what ships today whatever the cycle model says.
++		unsigned int cycleIndex = 0;
++		unsigned int cycleCycles = 0;
++		unsigned int cycleWords = 0;
++		unsigned int bestIndexCycles = 0;
 +
-+		for( unsigned int i = 0; i < strategies.size(); ++i )
++		for( unsigned int i = 0; i < trialCount; ++i )
 +		{
++			const VuReadySegmentStrategy& strategy =
++				i < strategies.size() ? strategies[i] : mirrored[i - strategies.size()];
 +			VuLatencyTracker trialTracker = latencyTracker;
 +			unsigned int trialCycle = currentCycle;
 +			const std::vector<VuScheduledIssueSlot> trial =
@@ -4383,14 +4463,36 @@ index 3260370..1b69e74 100644
 +				                                trialTracker,
 +				                                blockStartCycle,
 +				                                trialCycle,
-+				                                strategies[i] );
++				                                strategy );
 +			const unsigned int words = issueSlotEmittedWordCount( trial );
++			const unsigned int cycles = trialCycle - currentCycle;
 +			if( i == 0 )
 +				plainWords = words;
-+			if( i == 0 || words < bestWords )
++			// The word winner is decided over the SHIPPED table only, so with the
++			// flag on the fallback is bit-for-bit the schedule chosen without it.
++			if( i < strategies.size() && ( i == 0 || words < bestWords ) )
 +			{
 +				bestWords = words;
 +				bestIndex = i;
++				bestIndexCycles = cycles;
++			}
++			if( i == 0 || cycles < cycleCycles
++			    || ( cycles == cycleCycles && words < cycleWords ) )
++			{
++				cycleCycles = cycles;
++				cycleWords = words;
++				cycleIndex = i;
++			}
++		}
++
++		if( vuPairBestOfCyclesEnabled() && cycleCycles < bestIndexCycles )
++		{
++			const unsigned int saved = bestIndexCycles - cycleCycles;
++			const unsigned int extra = cycleWords > bestWords ? cycleWords - bestWords : 0;
++			if( saved >= extra * VU_PAIR_CYCLES_PER_WORD )
++			{
++				bestIndex = cycleIndex;
++				bestWords = cycleWords;
 +			}
 +		}
 +
@@ -4403,20 +4505,23 @@ index 3260370..1b69e74 100644
 +			          << " plain=" << plainWords
 +			          << " saved=" << ( plainWords - bestWords ) << std::endl;
 +
++		const VuReadySegmentStrategy& winner =
++			bestIndex < strategies.size() ? strategies[bestIndex]
++			                             : mirrored[bestIndex - strategies.size()];
 +		std::vector<VuScheduledIssueSlot> segmentSlots =
 +			scheduleReadySegmentIssueSlots( segment,
 +			                                ignoredImplicitWawResources,
 +			                                latencyTracker,
 +			                                blockStartCycle,
 +			                                currentCycle,
-+			                                strategies[bestIndex] );
++			                                winner );
 +		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
 +	}
 +
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1211,64 @@ namespace
+@@ -886,12 +1301,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -4482,7 +4587,7 @@ index 3260370..1b69e74 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1281,7 @@ namespace
+@@ -904,6 +1371,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -4490,7 +4595,7 @@ index 3260370..1b69e74 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1291,32 @@ namespace
+@@ -913,45 +1381,32 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -4558,7 +4663,7 @@ index 3260370..1b69e74 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1329,7 @@ namespace
+@@ -964,7 +1419,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -4567,7 +4672,7 @@ index 3260370..1b69e74 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1358,9 @@ namespace
+@@ -993,6 +1448,9 @@ namespace
  			}
  		}
  
@@ -4577,7 +4682,7 @@ index 3260370..1b69e74 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6050,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6140,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -4585,7 +4690,7 @@ index 3260370..1b69e74 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -6114,6 +6483,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6573,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -4633,7 +4738,7 @@ index e51b7f2..386308c 100644
                                                      std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
-index c28ec6d..9170013 100644
+index c28ec6d..c250808 100644
 --- a/src/VuSchedulingRules.cpp
 +++ b/src/VuSchedulingRules.cpp
 @@ -6,6 +6,7 @@
@@ -4653,7 +4758,7 @@ index c28ec6d..9170013 100644
  		return false;
  
  	const std::list<Token::Argument>& args = token.arguments();
-@@ -547,12 +548,402 @@ bool isVuReadyScheduleCandidate( const Token& token )
+@@ -547,12 +548,413 @@ bool isVuReadyScheduleCandidate( const Token& token )
  	    && access.memoryKind != VU_MEMORY_LOAD
  	    && access.memoryKind != VU_MEMORY_STORE )
  		return false;
@@ -4684,6 +4789,7 @@ index c28ec6d..9170013 100644
 +{
 +	bool g_scheduleFlagReaders = false;
 +	bool g_fmacInterlock = false;
++	bool g_pairBestOfCycles = false;
 +	unsigned int g_flagVisibilityLatency = 4;
 +	unsigned int g_clipFlagVisibilityLatency = 4;
 +	unsigned int g_clipFlagSchedulingLatency = 4;
@@ -4728,6 +4834,16 @@ index c28ec6d..9170013 100644
 +bool vuFmacInterlockEnabled()
 +{
 +	return g_fmacInterlock;
++}
++
++void setVuPairBestOfCyclesEnabled( bool enabled )
++{
++	g_pairBestOfCycles = enabled;
++}
++
++bool vuPairBestOfCyclesEnabled()
++{
++	return g_pairBestOfCycles;
 +}
 +
 +void setVuFlagVisibilityLatency( unsigned int cycles )
@@ -5058,10 +5174,10 @@ index c28ec6d..9170013 100644
  {
  	return token.operand() && token.operand()->isLowerExecutionPath();
 diff --git a/src/VuSchedulingRules.h b/src/VuSchedulingRules.h
-index 8188099..928c846 100644
+index 8188099..db498c1 100644
 --- a/src/VuSchedulingRules.h
 +++ b/src/VuSchedulingRules.h
-@@ -55,6 +55,293 @@ bool isVuMemoryOrderingAccess( const Token& token );
+@@ -55,6 +55,311 @@ bool isVuMemoryOrderingAccess( const Token& token );
  bool isVuBoundaryOperand( const Token& token );
  bool isVuSchedulingBarrier( const Token& token );
  bool isVuReadyScheduleCandidate( const Token& token );
@@ -5075,6 +5191,24 @@ index 8188099..928c846 100644
 +// emitted nop words. Same cycles, smaller program.
 +void setVuFmacInterlockEnabled( bool enabled );
 +bool vuFmacInterlockEnabled();
++
++// --pair-best-of-cycles: give --pair-best-of-many a second copy of every ready
++// strategy whose PARTNER FILTER asks the cycle question instead of the word one,
++// and let a segment take it when it is strictly faster and no larger.
++//
++// The filter it fixes: under --fmac-interlock the filter asks
++// manualReadHazardDelay, which reports 0 for every VF operand still in flight
++// because the hardware stalls by itself. So a lower-pipe token four rows behind
++// its producer looks free, is paired onto a row that was ready NOW, and holds
++// the primary with it. That is why openvcl puts `sq X` on the row after
++// `ftoi4 X, X` and SCE drains its stores four rows later for nothing.
++//
++// Selection is bounded on purpose: the word winner is still chosen over the
++// SHIPPED table alone, and the cycle winner only takes the segment when its
++// emitted size is <= the word winner's. The flag therefore cannot grow a
++// program - VU1 micro memory is a hard ceiling and a frame rate is not.
++void setVuPairBestOfCyclesEnabled( bool enabled );
++bool vuPairBestOfCyclesEnabled();
 +
 +// How many cycles after its producer the MAC/CLIP flags may be read. Default 4.
 +// --sce-latencies sets 1, which is what SCE's vcl emits: over the 25
