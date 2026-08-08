@@ -4275,7 +4275,7 @@ index 2c14ff6..c791db3 100644
  	std::map<std::string, int> m_registerReadyCycle;
  	std::map<std::string, std::string> m_registerProducerMnemonic;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..c218ea5 100644
+index 3260370..ec63e2d 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -4292,7 +4292,7 @@ index 3260370..c218ea5 100644
  	bool containsKey( const std::list<std::string>& keys, const std::string& key )
  	{
  		for( std::list<std::string>::const_iterator i = keys.begin(); i != keys.end(); ++i )
-@@ -53,11 +60,30 @@ namespace
+@@ -53,11 +60,42 @@ namespace
  		edges.push_back( VuDependencyEdge( before, after, kind ) );
  	}
  
@@ -4304,11 +4304,17 @@ index 3260370..c218ea5 100644
 +	// (`fcand VI01,0x3CA3CA` names all four entries) sees which push landed in
 +	// which entry, so the writers must keep their program order among themselves
 +	// as well. Chaining is what says that.
++	// `alreadyBarriered` is how many of `writers` a previous call already covered.
++	// The list is no longer emptied at a reader (see below), so this runs once per
++	// reader over a list that only grows, and without it the fan-in would be
++	// re-emitted in full every time - correct, because duplicate edges cancel
++	// between `incoming` and `outgoing`, but quadratic for nothing.
  	void addImplicitFlagWriterBarrierEdges( std::vector<VuDependencyEdge>& edges,
  	                                        const std::vector<unsigned int>& writers,
 -	                                        bool preserveFinalWriter )
 +	                                        bool preserveFinalWriter,
-+	                                        bool chainWriters )
++	                                        bool chainWriters,
++	                                        unsigned int alreadyBarriered = 0 )
  	{
 -		if( !preserveFinalWriter || writers.size() < 2 )
 +		if( writers.size() < 2 )
@@ -4316,16 +4322,22 @@ index 3260370..c218ea5 100644
 +
 +		if( chainWriters )
 +		{
-+			for( unsigned int i = 1; i < writers.size(); ++i )
++			unsigned int first = alreadyBarriered < 1 ? 1 : alreadyBarriered;
++			for( unsigned int i = first; i < writers.size(); ++i )
 +				addEdge( edges, writers[i - 1], writers[i], VU_DEPENDENCY_RESOURCE_WAW );
 +			return;
 +		}
 +
 +		if( !preserveFinalWriter )
++			return;
++
++		// Nothing has been added since the last call, so the final writer is the
++		// one that was already fanned into.
++		if( alreadyBarriered == writers.size() )
  			return;
  
  		const unsigned int finalWriter = writers.back();
-@@ -69,6 +95,97 @@ namespace
+@@ -69,13 +107,110 @@ namespace
  		}
  	}
  
@@ -4336,9 +4348,10 @@ index 3260370..c218ea5 100644
 +	//
 +	// This is deliberately NOT addPreciseImplicitFlagDependencies with a flag. That
 +	// one models a register: it edges the writers into the LAST writer and only the
-+	// last writer into the reader, and it FLUSHES its writer list at every reader,
-+	// both of which are right for a value that gets replaced and wrong for one that
-+	// gets merged. Here:
++	// last writer into the reader, which is right for a value that gets replaced
++	// and wrong for one that gets merged. (It used also to empty its writer list at
++	// a reader. That was not a difference between the two, it was a bug in that
++	// one, and this pass is what it was fixed against.) Here:
 +	//
 +	//   * every contributor since the last clear is edged into every reader, because
 +	//     every one of them is part of the answer the reader gets;
@@ -4423,9 +4436,10 @@ index 3260370..c218ea5 100644
  	void addPreciseImplicitFlagDependencies( std::vector<VuDependencyEdge>& edges,
  	                                         const std::vector<VuTokenResourceAccess>& accesses,
  	                                         unsigned int resource,
-@@ -76,6 +193,10 @@ namespace
+ 	                                         unsigned int ignoredImplicitWawResources )
  	{
  		std::vector<unsigned int> pendingWriters;
++		unsigned int barrieredWriters = 0;
  		const bool preserveLiveOutWriter = (ignoredImplicitWawResources & resource) == 0;
 +		// Only CLIP shifts; every other implicit resource here is a plain register.
 +		// Not behind a flag: which push landed in which entry is a property of the
@@ -4434,16 +4448,41 @@ index 3260370..c218ea5 100644
  
  		for( unsigned int index = 0; index < accesses.size(); ++index )
  		{
-@@ -86,7 +207,7 @@ namespace
+@@ -86,17 +221,45 @@ namespace
  			{
  				if( !pendingWriters.empty() )
  				{
 -					addImplicitFlagWriterBarrierEdges( edges, pendingWriters, true );
-+					addImplicitFlagWriterBarrierEdges( edges, pendingWriters, true, chainWriters );
++					addImplicitFlagWriterBarrierEdges( edges, pendingWriters, true, chainWriters,
++					                                   barrieredWriters );
++					barrieredWriters = pendingWriters.size();
  					addEdge( edges, pendingWriters.back(), index, VU_DEPENDENCY_RESOURCE_RAW );
  				}
- 				pendingWriters.clear();
-@@ -96,7 +217,12 @@ namespace
+-				pendingWriters.clear();
++
++				// AND THE LIST IS NOT EMPTIED HERE. A reader consumes nothing: the
++				// value it read is still the value in the register, so the NEXT
++				// reader of the same resource observes the same writers and needs
++				// the same edges. Clearing left a second reader with no edge at
++				// all - free to be scheduled above the writers it reads, and above
++				// the first reader - and that is a miscompile, not a relaxation.
++				//
++				// It survived because something else usually orders the pair by
++				// accident: two `fcand`s writing the same VI register have a
++				// register WAW between them, and the RAW into the first one then
++				// holds the second down transitively. Give them different
++				// destinations, or make the second reader's fields disjoint from
++				// the first's - `madd.x`/`madd.y`/`madd.z` draining one ACC seed -
++				// and nothing holds it at all. Both shapes are in this engine.
++				//
++				// Only an actual KILL retires a writer, and for these resources
++				// there is no kill to model: a later write is edged into the
++				// readers after it by the same fan-in, so keeping the earlier ones
++				// in the list costs redundant WAW edges and nothing else. This is
++				// what addAccumulatingImplicitFlagDependencies has always done.
+ 			}
+ 
+ 			if( writesResource )
  				pendingWriters.push_back( index );
  		}
  
@@ -4453,11 +4492,12 @@ index 3260370..c218ea5 100644
 +		// is as unordered as a plain one. `preserveLiveOutWriter` gates the chain
 +		// for the same reason it gates the fan-in.
 +		addImplicitFlagWriterBarrierEdges( edges, pendingWriters, preserveLiveOutWriter,
-+		                                   chainWriters && preserveLiveOutWriter );
++		                                   chainWriters && preserveLiveOutWriter,
++		                                   barrieredWriters );
  	}
  
  	bool memoryOrderRequiresDependency( const VuTokenResourceAccess& beforeAccess,
-@@ -124,13 +250,85 @@ namespace
+@@ -124,13 +287,85 @@ namespace
  		return VU_BASIC_BLOCK_TERMINATOR_NONE;
  	}
  
@@ -4544,7 +4584,7 @@ index 3260370..c218ea5 100644
  	{
  		int score = static_cast<int>( candidate );
  		const int delay =
-@@ -138,7 +336,7 @@ namespace
+@@ -138,7 +373,7 @@ namespace
  		score += delay * 1000;
  
  		if( isVuLongLatencyProducer( *block.tokens[candidate] ) )
@@ -4553,7 +4593,7 @@ index 3260370..c218ea5 100644
  		else if( isVuLatencyLoad( *block.tokens[candidate] ) )
  			score -= 300;
  
-@@ -146,7 +344,7 @@ namespace
+@@ -146,7 +381,7 @@ namespace
  			score -= 100;
  
  		if( delay == 0 && candidate < priority.size() )
@@ -4562,7 +4602,7 @@ index 3260370..c218ea5 100644
  
  		return score;
  	}
-@@ -208,7 +406,8 @@ namespace
+@@ -208,7 +443,8 @@ namespace
  	                                     const std::vector<unsigned int>& priority,
  	                                     const VuLatencyTracker& latencyTracker,
  	                                     unsigned int ignoredImplicitWawResources,
@@ -4572,7 +4612,7 @@ index 3260370..c218ea5 100644
  	{
  		unsigned int best = static_cast<unsigned int>( block.tokens.size() );
  		int bestScore = 0;
-@@ -217,7 +416,8 @@ namespace
+@@ -217,7 +453,8 @@ namespace
  		const bool primaryWritesMac = tokenWritesMacForPair( *block.tokens[primary],
  		                                                     ignoredImplicitWawResources );
  		const int primaryDelay =
@@ -4582,7 +4622,7 @@ index 3260370..c218ea5 100644
  
  		for( unsigned int i = 0; i < block.tokens.size(); ++i )
  		{
-@@ -232,9 +432,11 @@ namespace
+@@ -232,9 +469,11 @@ namespace
  			                                         tokenWritesMacForPair( *block.tokens[i],
  			                                                               ignoredImplicitWawResources ) ) )
  				continue;
@@ -4597,7 +4637,7 @@ index 3260370..c218ea5 100644
  				continue;
  
  			const int score = readyCandidateScore( i,
-@@ -243,8 +445,10 @@ namespace
+@@ -243,8 +482,10 @@ namespace
  			                                       block,
  			                                       priority,
  			                                       latencyTracker,
@@ -4610,7 +4650,7 @@ index 3260370..c218ea5 100644
  			{
  				best = i;
  				bestScore = score;
-@@ -254,6 +458,69 @@ namespace
+@@ -254,6 +495,69 @@ namespace
  		return best;
  	}
  
@@ -4680,7 +4720,7 @@ index 3260370..c218ea5 100644
  	void markReadyTokenScheduled( unsigned int token,
  	                              std::vector<unsigned int>& incoming,
  	                              const std::vector< std::vector<unsigned int> >& outgoing,
-@@ -349,6 +616,36 @@ namespace
+@@ -349,6 +653,36 @@ namespace
  		return 1;
  	}
  
@@ -4717,7 +4757,7 @@ index 3260370..c218ea5 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +665,28 @@ namespace
+@@ -368,9 +702,28 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -4749,7 +4789,7 @@ index 3260370..c218ea5 100644
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +875,7 @@ namespace
+@@ -559,6 +912,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -4757,7 +4797,7 @@ index 3260370..c218ea5 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +922,8 @@ namespace
+@@ -605,7 +959,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4767,7 +4807,7 @@ index 3260370..c218ea5 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +941,9 @@ namespace
+@@ -623,7 +978,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -4778,7 +4818,7 @@ index 3260370..c218ea5 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +1001,7 @@ namespace
+@@ -681,6 +1038,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -4786,7 +4826,7 @@ index 3260370..c218ea5 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +1036,8 @@ namespace
+@@ -715,7 +1073,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -4796,7 +4836,7 @@ index 3260370..c218ea5 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +1066,58 @@ namespace
+@@ -744,7 +1103,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -4856,7 +4896,7 @@ index 3260370..c218ea5 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -837,10 +1210,14 @@ namespace
+@@ -837,10 +1247,14 @@ namespace
  		{
  			lastMacReader = -1;
  			lastClipReader = -1;
@@ -4871,7 +4911,7 @@ index 3260370..c218ea5 100644
  	};
  
  	bool tokenReadsMac( const Token& token )
-@@ -853,16 +1230,30 @@ namespace
+@@ -853,16 +1267,30 @@ namespace
  		return token.operand() && isVuClipReader( token.operand()->name() );
  	}
  
@@ -4904,7 +4944,7 @@ index 3260370..c218ea5 100644
  	}
  
  	VuFlagLiveness analyzeFlagLiveness( const std::list<Token>& tokens )
-@@ -875,10 +1266,195 @@ namespace
+@@ -875,10 +1303,195 @@ namespace
  				liveness.lastMacReader = static_cast<int>( index );
  			if( tokenReadsClip( *i ) )
  				liveness.lastClipReader = static_cast<int>( index );
@@ -5100,7 +5140,7 @@ index 3260370..c218ea5 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1462,64 @@ namespace
+@@ -886,12 +1499,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -5166,7 +5206,7 @@ index 3260370..c218ea5 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1532,7 @@ namespace
+@@ -904,6 +1569,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -5174,7 +5214,7 @@ index 3260370..c218ea5 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1542,34 @@ namespace
+@@ -913,45 +1579,34 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -5244,7 +5284,7 @@ index 3260370..c218ea5 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1582,7 @@ namespace
+@@ -964,7 +1619,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -5253,7 +5293,7 @@ index 3260370..c218ea5 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1611,11 @@ namespace
+@@ -993,6 +1648,11 @@ namespace
  			}
  		}
  
@@ -5265,7 +5305,7 @@ index 3260370..c218ea5 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6305,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6342,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -5273,7 +5313,7 @@ index 3260370..c218ea5 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -5875,7 +6499,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5875,7 +6536,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  		{
  			const VuTokenResourceAccess& a = accesses[before];
  			const VuTokenResourceAccess& b = accesses[after];
@@ -5288,7 +5328,7 @@ index 3260370..c218ea5 100644
  			const unsigned int pairwiseImplicitResources = ~preciseImplicitResources;
  
  			if( intersects( a.registerWrites, b.registerReads ) )
-@@ -5913,6 +6543,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5913,6 +6580,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  	                                    accesses,
  	                                    VU_RESOURCE_CLIP,
  	                                    ignoredImplicitWawResources );
@@ -5299,7 +5339,7 @@ index 3260370..c218ea5 100644
  
  	return edges;
  }
-@@ -6114,6 +6748,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6785,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -5315,7 +5355,7 @@ index 3260370..c218ea5 100644
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
  {
  	std::list<Token> scheduled;
-@@ -6130,10 +6773,14 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6130,10 +6810,14 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
  {
  	bool readsMac = false;
  	bool readsClip = false;
@@ -5330,7 +5370,7 @@ index 3260370..c218ea5 100644
  	}
  
  	unsigned int mask = VU_RESOURCE_NONE;
-@@ -6141,7 +6788,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6141,7 +6825,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
  		mask |= VU_RESOURCE_MAC;
  	if( !readsClip )
  		mask |= VU_RESOURCE_CLIP;

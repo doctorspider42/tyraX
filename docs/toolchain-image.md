@@ -2479,6 +2479,68 @@ the target was wrong: `cull_d vertexLoop` was named here as the immovable block 
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
 
+### A third one, and this time the detector came first
+
+Two bugs of the same family had been found by accident - one while chasing frames, one while
+auditing after the fact - and a third was known, named in both reports, and left twice as
+"latent". That word had already been wrong twice, and both times it meant *our instrument could
+not see it*. So this round the order was inverted: **build the detector, run it against SCE as a
+control, and only then touch the compiler.**
+
+`p8-flagorder.py` replays the source to give every flag reader the writer identities it must
+observe, replays the emitted `.vsm` the same way, and names which writer the reader should have
+seen and which it got. Three things make it trustworthy where the earlier instruments were not:
+
+* **The ISA table is parsed out of `VuInstructionInfo.cpp` at run time rather than retyped**, and
+  its self-test asserts `add.xy acc` → `ADDA`, an ACC *writer* - the exact dest-operand rule
+  whose absence hid the env-map miscompile from the previous audit.
+* It has fixtures that must FIRE (reader hoisted above its writer, two readers swapped) as well
+  as fixtures that must stay clean (a writer issued early but not yet landed - SCE does that
+  constantly).
+* **SCE is the control, and SCE corrected the instrument twice.** The ACC model had to become
+  per-field, because SCE interleaves `add.xy acc … madd.x` with `add.z acc … madd.z` and a
+  whole-register chain model called that a reorder - 57 false failures. And SCE's own
+  `STALL_LATENCY ?N` annotations are cycles during which a flag is still landing; ignoring them
+  invented divergences that were not there.
+
+That census is itself a result: **ACC has 1247 readers across 66 programs, CLIP 234 across 49,
+MAC 0 and STATUS 0.** "MAC is unreachable in this corpus" had been an inference from a quick grep
+for three mnemonics; it is now a measurement. The same sweep confirms the CLIP latency of 4
+against SCE's output - 2 / 3 / 4 / 5 give 129 / 106 / **2** / 44 findings - a constant that until
+now rested on an assertion in an upstream test.
+
+| | reader hoisted | readers swapped | ACC chain | not yet landed |
+|---|---:|---:|---:|---:|
+| SCE (control) | 0 | 0 | 0 | 2 |
+| openvcl, before | 0 | 0 | **7** | 23 |
+| openvcl, after | 0 | 0 | **0** | 23 |
+
+**And the bug was live.** `addPreciseImplicitFlagDependencies()` flushed its pending-writer list
+at a reader, so the *second* reader of a chain got no edge to the writers the first one consumed.
+In `stapip_clip_tce` and `vu_script2_tce` the env-map seeds sit at rows 52 / 101 / 137 and their
+`maddx.z` readers at 62 / **90** / **131** - two of the three above their own seed. Row 90 reads
+the `ACC.z` left by the *scale* chain instead. One of every three per-triangle `stq.z` values in
+those programs was that.
+
+The fix is deleting the flush, exactly as the accumulating-status pass already does. **Zero
+words** - 1992 / 3900 / 9216 unchanged - three programs reordered, all prior invariants intact
+(`clipw` 7 per clip program, `addaw` 3 per env-mapped program), and the `examples/reflections`
+frame is byte-identical to the previous build. Its reproducer fires on **stock upstream openvcl
+with no flags**, which makes it item 8 in `docs/upstream-openvcl.md`; the fix there is one
+deleted statement.
+
+**Still open, measured, not fixed.** The 23 "not yet landed" findings are real and are a
+different mechanism: in 13 programs a `fcand VI01,0x3FFFF` issues **one row after** its `clipw`,
+so the newest judgement has not landed and the reader judges the *previous vertex*. SCE never
+does this. The obvious escape - a hardware interlock stall filling the gap - was checked on
+`cull_tce` and does not apply: the stall lands *before* the `clipw` and moves both. The cause is
+upstream's `padForClipFlagWindow`, which has always exempted full-window masks; turning our own
+`--exempt-full-clip-masks` off only takes 23 to 19. The reasoning in `vuClipReadIsFullWindow` -
+"0x3FFFF asks *is anything outside*, so which entry it sits in does not matter" - covers *which
+position* a judgement occupies but not *whether the newest one has arrived*, and 0x3FFFF is three
+entries wide. Same shape as the two before it: safe by an argument about one property, wrong
+about another.
+
 ### A second live miscompile, and this one was visible: environment mapping did not render
 
 The CLIP bug cost frames and changed no pixel. The ACC bug **deleted environment mapping

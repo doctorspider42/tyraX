@@ -292,7 +292,27 @@ accumulator form, so `add.xy acc, …` is an ACC writer while matching none of
 `adda|mula|madda|msuba`. An audit that greps for the accumulator mnemonics reports zero
 occurrences and is wrong.
 
-## 8. Twenty-one flags, all off by default
+## 8. The flag dependency pass flushes its writer list at a reader
+
+`addPreciseImplicitFlagDependencies()` clears `pendingWriters` once it has edged them into a
+reader. So the **second** reader of the same chain gets no edge to those writers at all, and the
+scheduler may hoist it above them.
+
+Fires on stock upstream at `a5867c3` with no flags — reproducer
+`acc_second_reader_upstream.vcl`, where `maddx.y` is emitted at row 19 while the `addaw.xy` and
+`addaz.z` it reads sit at rows 22 and 23. Two more, `clip_second_reader.vcl` (a
+`fcand VI02,0x8` emitted *above* its `clipw`) and `acc_second_reader.vcl`, fail before and pass
+after.
+
+In TyraX this reordered the environment-map accumulation in two programs, so one of every three
+per-triangle `stq.z` values was built from the scale chain's leftover `ACC.z` rather than from
+`envConsts.z`.
+
+Fix: do not clear the list at a reader; keep contributors edged into every subsequent reader
+until an actual kill. One deleted statement, plus a counter to keep the fan-in incremental rather
+than quadratic. Zero words on a 70-program corpus, three programs reordered.
+
+## 9. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's
