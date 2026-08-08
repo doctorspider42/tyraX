@@ -29,6 +29,27 @@
 
 namespace Tyra {
 
+// The TEXA the DRAWING ENVIRONMENT runs with - NOT the GS reset value, and the
+// difference cost this feature every textured primitive in the game.
+//
+// Nothing in the engine writes TEXA except these passes, so it holds whatever
+// ps2sdk's draw_setup_environment left. That helper ships no sources in the
+// toolchain image; disassembling libdraw.a settles it - its 15-register block
+// ends with TEXA = TA0 0x80, AEM 0, TA1 0x80 (and COLCLAMP = 1, i.e. CLAMP,
+// not MASK). Both restores here used to write ZERO, on the belief that the
+// engine ran on GS reset values.
+//
+// Why TA0 = 0 is fatal rather than cosmetic: a 24-bit texture loads as
+// TEXTURE_COMPONENTS_RGB (png_loader.cpp handle24bpp), so its draws set
+// TEX0.TCC = 0 and the fragment takes its alpha from TEXA.TA0. The drawing
+// environment's alpha test is ATE=1 / ATST=NOTEQUAL / AREF=0, and StaPip's
+// per-bag TEST keeps that method - so alpha 0 FAILS and the fragment writes no
+// colour at all. Untextured geometry (vertex alpha 0x80) and RGBA/palettised
+// textures (TCC = 1) are unaffected, which is exactly the three-way split the
+// bug presented as. The composite runs at the END of a frame, so the damage
+// lands on the NEXT frame's scene.
+static const u64 kEnvTexa = GS_SET_TEXA(0x80, 0, 0x80);
+
 // ceil(log2(v)) - the GS TEX0 TW/TH fields are log2 of a power-of-two extent
 // that must COVER the real one; the region CLAMP below cuts it back down.
 static u8 lg2(int v) {
@@ -39,6 +60,99 @@ static u8 lg2(int v) {
 
 static inline float clamp01(float v) {
   return v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
+}
+
+// ------------------------------------------------- the activation table ---
+// The engine half of docs/blss-reconstruction.md S5, "The activation table".
+// The contract is written there; this is a transcription, and the literals
+// below are `tyrax-editor --blss-emit --act-table 512` verbatim.
+//
+// SHIPS OFF, and it must stay in lockstep with the host. src/blss.cpp
+// implements the same table behind `--act-table N` and defaults to N = 0
+// (libm). A net is fitted against whichever activation the HOST evaluated and
+// nothing in blss.net records which one it was, so flipping one side alone is
+// silent twin divergence. Turn both on in the same commit or neither.
+//
+// What it buys when it is turned on (measured on the host: 0.01 dB against a
+// fold sd of 0.35, i.e. free): runNet() drops 12 tanhf + 3 expf + 3 fdiv per
+// tile - 2 688 tanhf, 672 expf and 672 fdiv a frame over a 16x14 grid, in a
+// build with no -ffast-math - for 15 table lookups. ONE table serves both,
+// because logistic(z) = (1 + tanh(z/2)) / 2 exactly, so the divide dies with
+// the expf. MACs are unchanged.
+#ifndef TYRA_BLSS_ACT_TABLE
+#define TYRA_BLSS_ACT_TABLE 0  // 0 = libm (the host's default); 512 = table
+#endif
+
+#if TYRA_BLSS_ACT_TABLE
+static constexpr int kActN = TYRA_BLSS_ACT_TABLE;  // INTERVALS; kActN+1 entries
+static constexpr float kActRange = 4.0F;           // domain [-4, +4]
+static constexpr float kActQ15 = 3.0517578125e-05F;  // 2^-15, exact
+
+// BLSS activation table - docs/blss-reconstruction.md S5.
+// tanh over [-4, +4], 512 intervals, Q15, odd-symmetric:
+// only the upper half is stored, T[i] = -T[n-i] below it.
+// FNV-1a over all 513 int16 entries (LE): 0x47A59E3C
+static const short kBlssTanhHalf[257] = {
+         0,    512,   1024,   1535,   2045,   2555,   3063,   3570,   4075,   4578,   5079,   5577,
+      6073,   6566,   7056,   7542,   8025,   8505,   8980,   9452,   9919,  10382,  10840,  11294,
+     11743,  12186,  12625,  13058,  13486,  13909,  14326,  14737,  15143,  15542,  15936,  16324,
+     16706,  17082,  17452,  17816,  18173,  18525,  18870,  19209,  19542,  19869,  20189,  20504,
+     20813,  21115,  21411,  21702,  21986,  22265,  22538,  22804,  23066,  23321,  23571,  23815,
+     24054,  24287,  24516,  24738,  24956,  25168,  25376,  25578,  25776,  25969,  26157,  26340,
+     26519,  26694,  26864,  27029,  27191,  27348,  27502,  27651,  27797,  27938,  28076,  28211,
+     28341,  28469,  28592,  28713,  28830,  28944,  29055,  29163,  29268,  29370,  29470,  29566,
+     29660,  29751,  29840,  29926,  30010,  30091,  30170,  30247,  30322,  30394,  30465,  30533,
+     30600,  30664,  30727,  30788,  30847,  30904,  30960,  31014,  31067,  31118,  31167,  31215,
+     31262,  31307,  31351,  31394,  31435,  31476,  31515,  31553,  31589,  31625,  31659,  31693,
+     31726,  31757,  31788,  31817,  31846,  31874,  31901,  31928,  31953,  31978,  32002,  32025,
+     32048,  32070,  32091,  32112,  32132,  32151,  32170,  32188,  32206,  32223,  32240,  32256,
+     32271,  32287,  32301,  32316,  32329,  32343,  32356,  32368,  32381,  32392,  32404,  32415,
+     32426,  32436,  32447,  32456,  32466,  32475,  32484,  32493,  32501,  32509,  32517,  32525,
+     32532,  32540,  32547,  32553,  32560,  32566,  32573,  32579,  32584,  32590,  32596,  32601,
+     32606,  32611,  32616,  32620,  32625,  32629,  32634,  32638,  32642,  32646,  32649,  32653,
+     32657,  32660,  32663,  32667,  32670,  32673,  32676,  32678,  32681,  32684,  32686,  32689,
+     32691,  32694,  32696,  32698,  32700,  32702,  32704,  32706,  32708,  32710,  32712,  32714,
+     32715,  32717,  32718,  32720,  32721,  32723,  32724,  32726,  32727,  32728,  32729,  32731,
+     32732,  32733,  32734,  32735,  32736,  32737,  32738,  32739,  32740,  32741,  32741,  32742,
+     32743,  32744,  32745,  32745,  32746,
+};
+
+// Entry i of the FULL table, 0 <= i <= kActN. The lower half is COMPUTED as
+// -T[kActN - i] rather than stored, so the two ends cannot round apart and the
+// table costs 514 bytes instead of 1 026.
+static inline float actEntry(int i) {
+  const int half = kActN / 2;
+  return i >= half ? static_cast<float>(kBlssTanhHalf[i - half]) * kActQ15
+                   : -static_cast<float>(kBlssTanhHalf[half - i]) * kActQ15;
+}
+#endif
+
+// Clamp FIRST, then nearest index via a truncating cast of x + 0.5 - so the
+// index can never leave [0, kActN] and the result is a table value EXACTLY.
+// No interpolation: that exactness is the whole bit-identity argument, and a
+// lerp would put a float multiply back between the twins for ~2e-5 that a byte
+// cannot hold anyway.
+static inline float actTanh(float a) {
+#if TYRA_BLSS_ACT_TABLE
+  if (a <= -kActRange) return actEntry(0);
+  if (a >= kActRange) return actEntry(kActN);
+  const float x = (a + kActRange) *
+                  (static_cast<float>(kActN) / (2.0F * kActRange));
+  return actEntry(static_cast<int>(x + 0.5F));
+#else
+  return tanhf(a);
+#endif
+}
+
+static inline float actLogistic(float z) {
+#if TYRA_BLSS_ACT_TABLE
+  // Both constants are powers of two, so this is one multiply and one
+  // multiply-add and loses nothing. |z| >= 8 saturates, which is alpha 127.96
+  // against libm's 128 - one byte at the extreme and nowhere else.
+  return 0.5F + 0.5F * actTanh(0.5F * z);
+#else
+  return 1.0F / (1.0F + expf(-z));
+#endif
 }
 
 // The composite packet, in qwords. Worst case over ALL passes of the FULL
@@ -1102,16 +1216,16 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
     PACK_GIFTAG(q, GS_SET_CLAMP(2, 2, 0, texW - 1, 0, texH - 1),
                 GS_REG_CLAMP_1);
     q++;
-    // The first TEXA write in the engine. Without it the passes inherit the GS
-    // reset value (0), TCC = 0 would hand every texel alpha 0, and the vertex
-    // alpha trick above would multiply everything by zero.
-    PACK_GIFTAG(q, GS_SET_TEXA(0x80, 0, 0x80), GS_REG_TEXA);
+    // The first TEXA write in the engine's own code. It happens to re-state
+    // what ps2sdk's draw_setup_environment already established (kEnvTexa
+    // below), which is why it is safe - but it is written explicitly so the
+    // per-vertex-alpha trick above does not depend on a helper's choice.
+    PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
     q++;
   }
-  // COLCLAMP is never written anywhere else either, so it also holds the GS
-  // reset value - which is MASK, i.e. blend results WRAP. Section 6 assumes
-  // 0..255 clamping and the host clamps, so a saturated pixel would diverge
-  // spectacularly. Set it per pass and restore the engine-wide value on exit.
+  // COLCLAMP: section 6 assumes 0..255 clamping and the host twin clamps, so a
+  // saturated pixel would diverge spectacularly if the GS wrapped. This too is
+  // what draw_setup_environment leaves (see kEnvTexa), re-stated per pass.
   PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
   PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
@@ -1362,13 +1476,13 @@ void RendererCoreBlss::composite() {
   q++;
   PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
   q++;
-  // TEXA and COLCLAMP go back to the GS reset values, which is what the whole
-  // engine has always run with (neither register is written anywhere else), so
-  // nothing outside these passes changes behaviour. Making those defaults
-  // engine-wide would be a separate, deliberate decision.
-  PACK_GIFTAG(q, GS_SET_TEXA(0, 0, 0), GS_REG_TEXA);
+  // TEXA and COLCLAMP go back to what the DRAWING ENVIRONMENT holds, which is
+  // NOT the GS reset value - this block used to write zero into both and it
+  // deleted every textured primitive and every textured terrain chunk in the
+  // game (see kEnvTexa above for the mechanism and the disassembly).
+  PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
   q++;
-  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_MASK), GS_REG_COLCLAMP);
+  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
   q = gs->emitRasterRestore(q, false);
 

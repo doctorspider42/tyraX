@@ -2190,16 +2190,31 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
 
 ### What is still open
 
+- **BLOCKING BUG: with BLSS on, PALETTISED textures draw nothing.** A static
+  primitive or terrain chunk whose texture is indexed (`PSMT4`/`PSMT8` + CLUT —
+  which is what the texture bake produces for a material whatever the project's
+  `textureQuant` says) is submitted, in frustum, its texture resident and bound,
+  and no pixel of it reaches the low-res target. Untextured geometry and 24-bit
+  RGB textures are fine. **Do not ship the feature on until this is closed.**
+  The full elimination table — the alpha test, alpha blending, the z test, the
+  texture cache, VRAM overlap, the composite's own passes and draw order are all
+  ruled out by booted experiments — is in
+  [§6 of the math doc](blss-reconstruction.md#open-blss-deletes-palettised-textures),
+  together with where to look next.
 - **TWO TWIN CHANGES ARE MEASURED AND WAITING ON THE ENGINE, and this is the top
   of the list now that the frame has been timed.** Both attack the 5.10 ms of EE
   inside `composite()`; both are switched off on the host until their engine half
   exists, because `blss.net` cannot record which configuration fitted it.
-  - **The transcendental table — do it.**
-    [Free](#the-transcendentals-as-a-table): 0.01 dB against a fold sd of 0.35,
-    no change in occupancy or passes. Deletes 2 688 `tanhf`, 672 `expf` and 672
-    divides per frame. The engine side is `runNet` in `renderer_core_blss.cpp`
-    and the definition is
-    [§5 of the math doc](blss-reconstruction.md#the-activation-table--the-contract-not-yet-the-code).
+  - **The transcendental table — the engine half is WRITTEN now, and both
+    halves are still off.** [Free](#the-transcendentals-as-a-table): 0.01 dB
+    against a fold sd of 0.35, no change in occupancy or passes. Deletes
+    2 688 `tanhf`, 672 `expf` and 672 divides per frame. `runNet` in
+    `renderer_core_blss.cpp` calls `actTanh` / `actLogistic`, which are libm
+    unless `TYRA_BLSS_ACT_TABLE` is 512; the host is libm unless `--act-table`
+    is passed. What remains is the **switch-on**, and it is one commit that
+    moves both defaults together plus a `--blss-eval -i` parity run — never one
+    side at a time. Definition:
+    [§5 of the math doc](blss-reconstruction.md#the-activation-table--both-halves-now-exist-both-are-off).
   - **`kTile` 32 → 64 — do NOT do it on this evidence, but the price is now
     known.** [4× less inference and 3.5× less packet build](#the-tile-size-swept)
     for a mean that is a draw (+0.46 against +0.42) and a tail that is worse:

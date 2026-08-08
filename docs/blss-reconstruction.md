@@ -350,15 +350,27 @@ both sides, so the per-frame count below is the worst case rather than the
 typical one — the one console frame that has been instrumented had 159 of 196
 tiles covered.
 
-### The activation table — the contract, not yet the code
+### The activation table — both halves now exist, both are OFF
 
 **Nothing in this subsection is switched on.** The host implements it behind
 `--act-table N` and ships with `N = 0`, i.e. `std::tanh` and
 `1/(1+std::exp(-z))`, because a host that fits against a table while the console
-evaluates libm is exactly the twin drift this page exists to prevent. It is
-written down here first so that the engine half is a transcription rather than a
-design. The measurement that says it is free is
+evaluates libm is exactly the twin drift this page exists to prevent. The
+measurement that says it is free is
 [on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table).
+
+**The engine half landed too, and it is off by the same default.**
+`renderer_core_blss.cpp` now carries the `N = 512` table and `actTanh` /
+`actLogistic` behind `TYRA_BLSS_ACT_TABLE`, which defaults to **0 = libm** —
+the host's default, register for register. The 257 stored `short`s are
+`tyrax-editor --blss-emit --act-table 512` **verbatim**, so the FNV-1a below is
+theirs by construction; it was checked against the constant before the literals
+were pasted. Compile-checked with the switch forced to 512; never yet executed
+on a console, because turning it on is a decision about both twins at once.
+**Flipping one side alone is silent divergence** — nothing in `blss.net`
+records which activation fitted it — so the switch-on is its own commit that
+moves `src/blss.cpp`'s default and `TYRA_BLSS_ACT_TABLE` together, followed by
+a `--blss-eval -i` parity run.
 
 Why it is worth doing at all: the engine evaluates `12 tanhf + 3 expf + 3 fdiv`
 per tile (`renderer_core_blss.cpp`, the `logFeatureSpread` neighbourhood), in a
@@ -550,6 +562,105 @@ matter here, and a third piece of state comes from the drawing environment:
 
 `PRIM.IIP` must be 1 or there is no Gouraud interpolation and the whole weight
 field collapses to flat per-triangle values (`blit` passes 0).
+
+### …and what they must RESTORE, which is not the GS reset value
+
+This subsection exists because the one above was **incomplete, and being
+incomplete is what let a real defect ship**. It said what the passes must
+write. It said nothing about what they must put back, and the code guessed:
+`composite()`'s restore block wrote `TEXA = (0, 0, 0)` and
+`COLCLAMP = COLOR_CLAMP_MASK`, with a comment claiming those were "the GS reset
+values, which is what the whole engine has always run with". **They are not.**
+The engine runs on whatever ps2sdk's `draw_setup_environment` left, and that
+function ships no sources in the toolchain image — so the only way to know is to
+disassemble `libdraw.a`:
+
+```
+mips64r5900el-ps2-elf-objdump -d $(find /usr/local/ps2dev -name libdraw.a)
+```
+
+Its `draw_setup_environment` is one 15-register A+D block, and the registers it
+writes — the complete list of what a bracket may be inheriting — are:
+
+| register | value it leaves |
+|---|---|
+| `FRAME_1` `ZBUF_1` `XYOFFSET_1` `SCISSOR_1` | from the framebuffer/z arguments |
+| `PRMODECONT` | 1 (PRIM register, not PRMODE) |
+| `TEST_1` | `ATE=1`, `ATST=NOTEQUAL`, `AREF=0`, `AFAIL=ZB_ONLY`, `ZTE=1`, `ZTST` from the z buffer |
+| `ALPHA_1` | `(Cs−Cd)·As + Cd` |
+| `CLAMP_1` | `WMS=1, WMT=1` (plain CLAMP) |
+| `FOGCOL` `PABE` `DTHE` `FBA_1` | 0 |
+| `DIMX` | the stock dither matrix |
+| **`COLCLAMP`** | **1 — CLAMP, not MASK** |
+| **`TEXA`** | **`TA0 = 0x80`, `AEM = 0`, `TA1 = 0x80`** |
+
+Note what is **absent**: `TEX0` and `TEX1` are never written by the environment,
+so they belong entirely to whoever drew last — the pipelines set both per mesh,
+which is why leaving them is harmless.
+
+So the rule is: **a bracket restores the drawing environment's value, not zero,
+and if you do not know that value, disassemble it — do not assume the register
+is at its reset state just because no engine code writes it.** `TEXA` in
+particular is load-bearing for any 24-bit (`TEXTURE_COMPONENTS_RGB`, `TCC = 0`)
+texture, whose fragment alpha *is* `TEXA.TA0`; with `TA0 = 0` such a fragment
+has alpha 0 and the environment's `ATEST_METHOD_NOTEQUAL`/`AREF = 0` discards
+it. `COLCLAMP` back at MASK makes every saturated blend in the rest of the
+frame wrap instead of clamp. Both are now written from one constant,
+`kEnvTexa`, with the mechanism recorded at the top of
+`renderer_core_blss.cpp`.
+
+**Honesty about what that fixed.** It is a correctness fix argued from the
+disassembly, not a measured picture change: on PCSX2's software renderer a
+24-bit-textured box draws under BLSS both with and without it (A/B'd on the
+`blssbug` fixture, 2026-08-08), so PCSX2 is evidently more forgiving here than
+the register semantics are. It is still wrong to hand a register back a value
+its owner never had, and hardware is the machine that decides.
+
+### OPEN: BLSS deletes PALETTISED textures
+
+**Not fixed, and narrowed rather than solved.** With BLSS on, a static
+primitive or terrain chunk whose texture is **indexed** (`PSMT4`/`PSMT8` plus a
+CLUT — which is what the editor's texture bake produces for a material
+regardless of the project's `textureQuant`) draws nothing at all. Same scene,
+BLSS off: it draws. `examples/upscaler-lab` and the `blssbug` minimal fixture
+(one untextured box, one `map_Kd` box, `--new … fpp`) both reproduce it.
+
+What the split actually is — measured, and it is **not** the one the symptom
+report guessed:
+
+| texture | under BLSS |
+|---|---|
+| none (vertex colour) | draws |
+| 24-bit RGB (`PSMCT32/24`, `TCC = 0`) | **draws** |
+| 4-bit palettised (`PSMT4` + CLUT) | **gone** |
+
+so it is the CLUT/indexed path, and `TEXA` — which only ever governs `TCC = 0`
+— cannot be the cause. What has been eliminated, each by its own booted
+experiment on the fixture (all with BLSS on, textured box absent in every one):
+
+- **the alpha test** — `ATE = DRAW_DISABLE` on StaPip's standard path: still gone;
+- **alpha blending** — `prim.blending = DRAW_DISABLE`: still gone, so it is not
+  "blended to the background at `As = 0`";
+- **the z test** — `ZTEST_METHOD_ALLPASS`: still gone;
+- **the GS texture cache** — a `TEXFLUSH` prepended to `beginScene`: still gone;
+- **frustum culling / submission** — the bag is logged as `IN_FRUSTUM` with 36
+  vertices and reaches `sendObjectData` on every frame;
+- **VRAM overlap** — logged addresses: texture 669696, CLUT 679936, low-res
+  target 593920…651264, z 458752…516096, frame buffers 0 / 229376. Nothing
+  overlaps, `VRAMSTAT` reports `evict=0` and `reup=0`;
+- **the composite's own passes** — debug view 2 reports `point 0.0%`,
+  `sharpen 0.0%`, `temporal` mean 0.049 / max 0.229, so nothing is painting
+  over it;
+- **draw order** — texturing *both* boxes removes *both*; swapping their
+  positions moves the survivor. The variable is the texture, not the slot.
+
+With the alpha test, alpha blending and the z test all disabled and the
+primitive still invisible, the fragments are not being rasterised — which
+points at the GS state an **indexed** fetch consumes and an RGB one does not
+(the CLUT descriptor in `TEX0`: `CBP`/`CPSM`/`CSM`/`CSA`/`CLD`, which
+`emitPassState` writes as all-zero with `CLD = 0`). That is where the next
+session should start, with a VU1 packet capture (`--dump-vucap`) of the
+textured bag under BLSS as the first read.
 
 ### One known parity gap: the UV clamp at the top-left edge
 
