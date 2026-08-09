@@ -577,10 +577,14 @@ Eight things here that were paid for, and that any edit must keep:
   transfer, so the clear sprite must complete before VU1 kicks, or the scene is
   drawn and then cleared over.
 - **AND THE FEATURE HAS A REGIME AFTER ALL - IT IS HEAVY OVERDRAW.** On
-  `examples/upscaler-lab` (3 072 large alpha-blended billboards) a real PS2
-  measured **530 ms with BLSS off against 157 ms with it on** - a **3.37x**
-  speedup, on a scene running at **1.9 FPS** that nobody could watch. **Re-tuned
-  against the console** (6 banks x 32 instead of 12 x 256) it measures
+  `examples/upscaler-lab` **as it stood at `0c3f05c3`** - 12 haze banks x 256
+  large alpha-blended billboards = 3 072, plus the 2 fire, 2 smoke and rain that
+  were always there and were never counted, for **3 448 billboards over 17
+  emitters** whole-scene - a real PS2 measured **530 ms with BLSS off against
+  157 ms with it on** - a **3.37x** speedup, on a scene running at **1.9 FPS**
+  that nobody could watch. **Re-tuned against the console** (6 banks x 32 instead
+  of 12 x 256, i.e. **11 emitters / 568 billboards** today - that is the figure
+  to quote for the shipped demo, never the 3 072) it measures
   **52.95 ms off against 32.42 ms on** - d = +20.53 ms, 95 % CI [+20.46, +20.61],
   n = 1024 paired frames per pairing, **1.63x**, for **4.60 ms of EE** plus
   0.50 ms of composite fill. That second table is the one to quote, and it is the
