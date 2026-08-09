@@ -77,12 +77,42 @@ motion reads as ordinary judder instead of distortion, and the HUD does not
 double either. Turning still reprojects exactly. `setPlaneDistance(d)` folds
 translation back in for a scene that really is planar at a known distance.
 
+## When it helps, and when it COSTS you
+
+Presenting twice per loop means the loop can hand the display at most one frame
+per field, so **the world is hard-capped at half the field rate** — 25 Hz on
+PAL, 30 on NTSC. That is the whole bargain, and it only pays when the game was
+already at or below that. Measured on `examples/showcase` (BLSS on, PAL):
+
+| | world (real frames) | presented |
+|---|---|---|
+| extrapolation off | **44.71 Hz** | 44.7 |
+| on, double buffered | 24.25 Hz | ~48 |
+| on, triple buffered | 24.97 Hz | ~50 |
+
+That scene renders 44.7 real frames a second on its own, so turning this on
+**takes 20 of them away** and hands back synthesised frames that carry only
+camera motion. Animation, moving objects and the HUD all drop from 44.7 to 25.
+It reads exactly as "half the frame rate", and it is: the picture is smoother
+only if you were below 25 to begin with.
+
+So the rule is: **turn it on for a game that already cannot reach half the field
+rate, and leave it off for one that can.** A scene at 25 Hz keeps its world rate
+(measured 25 -> 24) and doubles what the television sees; a scene at 45 loses
+nearly half its world updates to buy motion it already had. Triple buffering
+changes this barely at all (24.25 -> 24.97) — the cap is the two presents, not
+the pacing.
+
+Making that decision automatically, per frame, is the obvious next step and is
+not done: see [backlog](backlog.md).
+
 ## The measurements
 
-Fixture: the fpp preset, interlaced-field, PAL, triple buffering on. Measured
-twice — once with a script calling `presentWarpFrame` by hand, then again
-through the generated `FRAME_EXTRAPOLATION` hook, which reached 25.31 Hz for the
-same 50.4 presented.
+Fixture: the fpp preset, interlaced-field, PAL, triple buffering on — a scene
+light enough that the world rate is the field rate, so the doubling is visible
+without the trade above muddying it. Measured twice: once with a script calling
+`presentWarpFrame` by hand, then through the generated `FRAME_EXTRAPOLATION`
+hook, which reached 25.31 Hz for the same 50.4 presented.
 
 | | before | with extrapolation |
 |---|---|---|

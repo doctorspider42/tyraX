@@ -13403,7 +13403,14 @@ void App::drawPreferencesModal() {
         "turning does not. Dynamic objects and the HUD FREEZE for the\n"
         "synthesised frame, and the frame edge stretches where the source\n"
         "has no pixels for what just came into view. Experimental - try it\n"
-        "on a scene before shipping it.");
+        "on a scene before shipping it.\n\n"
+        "WHEN IT IS A LOSS: presenting twice per loop caps the world at HALF\n"
+        "the field rate (25 Hz on PAL, 30 on NTSC), so this only pays if the\n"
+        "game was already at or below that. Measured on the showcase example:\n"
+        "44.7 real frames a second became 25 real + 25 synthesised - animation\n"
+        "and moving objects lost nearly half their updates to buy camera\n"
+        "smoothness the scene already had. Check the game\'s FPS readout with\n"
+        "this off before turning it on.");
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md

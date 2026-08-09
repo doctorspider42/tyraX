@@ -45,6 +45,15 @@ the verification, and any fact worth reusing belongs in the relevant
     to verify a synthesised frame** (see the doc - the compositor screencast
     cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
     objects and the HUD on top of a warped frame, and hardware.
+  - **Frame extrapolation should decide for itself whether it is worth it.**
+    Two presents per loop cap the world at half the field rate, so the feature
+    is a LOSS on any game already faster than that - measured on
+    examples/showcase: 44.71 Hz of real frames becomes 24.97 (docs/
+    frame-extrapolation.md). Today that is a documented judgement the author has
+    to make; it should be a per-frame gate: time the frame's WORK (not the vsync
+    stalls) and synthesise only while it exceeds one field. Note the hysteresis
+    trap - switching the extra present on and off changes the very rate the
+    decision is read from.
   - **BLSS makes examples/showcase lose its terrain.** With `blssEnabled` on,
     the palettised ground renders as flat sky colour while untextured
     primitives (trees, the crate) draw correctly - the exact signature the
