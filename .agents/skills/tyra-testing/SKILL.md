@@ -659,15 +659,50 @@ Notes:
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
-  script — a GDI capture that works reliably:
+  script, which has **two capture back-ends** — and picking the wrong one is how
+  a whole run becomes fiction, so read this before the flags:
 
   ```powershell
   powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
-      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
+      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png              # GDI (default)
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -PrintWindow -Auto -OutFile <scratchpad>\shot.png
   ```
+
+  | | default (GDI `CopyFromScreen`) | `-PrintWindow` |
+  |---|---|---|
+  | reads | the SCREEN | the window's own content |
+  | occluded window | **captures whatever covers it, silently** | works, fully covered |
+  | focus | raises the window first (steals it) | raises nothing, moves nothing |
+  | fails by | looking perfectly fine | coming back black — and saying so |
+
+  **Use `-PrintWindow` whenever a human is at the machine, whenever anything
+  might be in front of the window, and whenever you must not steal focus** —
+  which on this repo's constraints is most of the time. Use the GDI default when
+  the window is demonstrably clear and you want the exact path every `-Watch`
+  number below was measured on. The default is still GDI for one reason: a
+  renderer that refuses to redraw on demand prints black, and no flag can make
+  that window's pixels appear — whereas GDI's hazard is at least fixable by
+  uncovering the window. So the script MEASURES the first `-PrintWindow` grab and
+  warns once if it is entirely black, rather than handing back a plausible
+  screenshot of a game that looks like it never booted. It never falls back to
+  GDI on its own: a silent switch to the unsafe path is the bug this exists to
+  prevent.
+
+  Verified on PCSX2 v2.3.205 (software renderer, `examples/upscaler-lab`):
+  `-PrintWindow -Auto` captures the render child (958x965, `-Trim` → 958x828)
+  during live 50 FPS gameplay **without the window ever coming to the front**,
+  drives the whole `-Watch` path unchanged, and on an unoccluded window returns
+  the same rect and the same picture as the GDI arm.
 
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
+
+  **`-ProcessId <pid>` picks WHICH instance.** `-ProcessName` takes the first
+  match, and with parallel worktree sessions each running their own PCSX2 that
+  silently captures somebody else's game (the script now warns when more than one
+  window matches). Select the pid off the `-elf` path:
+  `Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" | Where-Object CommandLine -like '*<project>*'`.
 
   **To WATCH the game over time, use `-Watch DIR`** — the Windows twin of
   `wayland-control.py watch` (below), with the same flag names, the same output
@@ -678,7 +713,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -701,14 +736,21 @@ Notes:
     status-bar noise the whole window carries (87 px in one second here) — a
     clean instrument, so any non-zero row means the game.
   - **A GDI grab reads the SCREEN, so an occluded window captures whatever is on
-    top of it** — silently, and for every frame of a long run. This bit during
-    development: a plain `SetForegroundWindow` from a background shell does
-    nothing at all (the same trap as synthetic input above), and the "PCSX2
-    screenshot" came back as another application's window. The script now raises
-    the window with the ALT-tap + `AttachThreadInput` trick, VERIFIES
-    `GetForegroundWindow` and **warns** when it still failed — if you see that
-    warning the frames are worthless, so uncover the window, or pass
-    `-NoActivate` when it is already clear and you do not want the focus stolen.
+    top of it** — silently, and for every frame of a long run. This has now bitten
+    twice. First during development: a plain `SetForegroundWindow` from a
+    background shell does nothing at all (the same trap as synthetic input
+    above), and the "PCSX2 screenshot" came back as another application's window.
+    The script answered that by raising the window with the ALT-tap +
+    `AttachThreadInput` trick, VERIFYING `GetForegroundWindow` and **warning**
+    when it still failed. Then it bit again in the field, the expensive way: with
+    the owner sitting at the machine an agent captured **their browser instead of
+    the emulator** and did not notice, because a wrong-window capture is a
+    perfectly good-looking PNG. **That is what `-PrintWindow` is for** (see the
+    table above) — it reads the window's own content, so nothing has to be in
+    front and nothing gets raised. Reach for it by default when a human is
+    present; keep `-NoActivate` for the case where the window is already clear
+    and you merely do not want the focus stolen, and remember that `-NoActivate`
+    alone removes the raise **without** removing the hazard.
   - `-Area X,Y,W,H` is **window-relative** — the coordinates you read straight
     off a capture — and it is deliberately NOT cached the way Linux caches
     `area.txt`: the window may have moved since the last run, and its geometry is
@@ -1011,8 +1053,11 @@ Notes:
   [docs/gs-vram.md](../../../docs/gs-vram.md). A `--build --run` also kills
   every other PCSX2 instance, and parallel worktree sessions run their own —
   when several are up, `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs
-  whichever it finds first, so check the window title in the capture (or
-  select the process by `MainWindowTitle`) before trusting a screenshot.
+  whichever it finds first (it warns, but the frames are already wrong), so pass
+  **`-ProcessId <pid>`** with the pid whose `-elf` path is your project. Note
+  that when another agent's session is live you cannot use `--build --run` at
+  all: build with plain `--build` and launch PCSX2 yourself on `bin/<name>.elf`
+  (`-logfile <path>` keeps your emulog out of theirs).
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
@@ -1048,12 +1093,13 @@ Notes:
   threshold you chose.
   And on Windows **select the PCSX2 instance by the
   project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
-  -like "*<project>*"`) — `-ProcessName pcsx2-qt` takes the first one it finds,
-  and with parallel worktrees running that silently captures somebody else's
-  game and looks exactly like a screenshot. **A GDI grab reads the SCREEN**, so
-  an occluded PCSX2 captures as whatever is on top of it and yields a
-  plausible, entirely fictional "stable" table — diff frame 0 of one arm against
-  frame 0 of another before believing any of it.
+  -like "*<project>*"`, then `-ProcessId` that pid) — `-ProcessName pcsx2-qt`
+  takes the first one it finds, and with parallel worktrees running that silently
+  captures somebody else's game and looks exactly like a screenshot. **A GDI grab
+  reads the SCREEN**, so an occluded PCSX2 captures as whatever is on top of it
+  and yields a plausible, entirely fictional "stable" table — capture with
+  **`-PrintWindow`**, which cannot see anything but the window itself, and diff
+  frame 0 of one arm against frame 0 of another before believing any of it.
 
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
@@ -1374,7 +1420,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
