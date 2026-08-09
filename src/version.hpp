@@ -98,7 +98,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_MINOR 14
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -224,6 +224,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // than two because they landed as one feature set with one meaning - "the
 // pacing work" - which is the test this list applies. Nothing on disk changes;
 // both are additive, so a project written at the old v6 opens at v13 unchanged.)
-inline constexpr int kFormatVersion = 13;
+// v14 (frame extrapolation, the translation model as a control):
+// ProjectSettings::frameExtrapolationPlane and frameExtrapolationForce. Both
+// additive and both default to what the previous version did - plane 0 is
+// rotation only, force off leaves the gate in charge - so an older file opens
+// unchanged and regenerates byte for byte. No migration step.
+inline constexpr int kFormatVersion = 14;
 
 }  // namespace version

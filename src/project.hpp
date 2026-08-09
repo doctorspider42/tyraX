@@ -1038,6 +1038,22 @@ struct ProjectSettings {
     // dynamic objects plus the HUD freeze for the synthesised frame.
     bool frameExtrapolation = false;
 
+    // Frame extrapolation: how camera TRANSLATION is reprojected when no
+    // per-tile depth is available (i.e. the neural upscaler is off - with it
+    // on, its real depth wins and this is ignored). 0 = rotation only, the
+    // default: a walk in a straight line then reproduces the previous frame
+    // exactly. A positive distance assumes the world sits on one plane that far
+    // away, which moves the whole picture uniformly and reads as a lens ZOOM -
+    // wrong, but it is MOTION, and on some content that beats a duplicated
+    // frame. 12 is the value the first version shipped with. World units.
+    float frameExtrapolationPlane = 0.0f;
+
+    // Ignore the per-frame gate and always synthesise. The gate declines
+    // whenever the EE is not what is slow - a GS-bound scene can sit at 26 fps
+    // with the gate shut - so this is how a scene gets tested at all without
+    // placing a Set Frame Extrapolation node.
+    bool frameExtrapolationForce = false;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -1477,6 +1493,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
            a.frameExtrapolation == b.frameExtrapolation &&
+           a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
+           a.frameExtrapolationForce == b.frameExtrapolationForce &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.showCollision == b.showCollision &&

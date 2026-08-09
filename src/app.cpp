@@ -13415,6 +13415,33 @@ void App::drawPreferencesModal() {
         "while the loop\'s work already overruns a field (two fields when\n"
         "triple buffered), so leaving it on costs a fast scene nothing. Each\n"
         "flip is logged to the game\'s bin/log.txt.");
+    ImGui::BeginDisabled(!prefSettings_.frameExtrapolation);
+    ImGui::DragFloat("Translation plane", &prefSettings_.frameExtrapolationPlane,
+                     0.5f, 0.0f, 200.0f,
+                     prefSettings_.frameExtrapolationPlane <= 0.0f
+                         ? "rotation only"
+                         : "%.1f units");
+    prefHelp(
+        "How camera TRANSLATION is reprojected when the neural upscaler is\n"
+        "OFF (with it on, its real per-tile depth wins and this is ignored).\n\n"
+        "0 (default) = rotation only. Exact, but a walk in a straight line\n"
+        "then reproduces the previous frame EXACTLY - the synthesised frame\n"
+        "is a duplicate, which reads as judder.\n\n"
+        "A positive distance assumes the whole world sits on one plane that\n"
+        "far away. That moves the entire picture uniformly, which looks like\n"
+        "a lens ZOOM rather than parallax - geometrically wrong, but it IS\n"
+        "motion, and on some content that beats a duplicated frame. 12 is\n"
+        "what the first version shipped with. Worth trying both.");
+    ImGui::Checkbox("Always synthesise (ignore the gate)",
+                    &prefSettings_.frameExtrapolationForce);
+    prefHelp(
+        "Skip the per-frame decision and always present a synthesised frame.\n\n"
+        "The gate measures EE work, so a scene held back by the GS rather\n"
+        "than the EE keeps it shut - examples/raytraced-mirror sits at 26 fps\n"
+        "with the gate never opening. This is how such a scene gets tested at\n"
+        "all without placing a Set Frame Extrapolation node. Expect it to\n"
+        "cost frames where the gate would have declined.");
+    ImGui::EndDisabled();
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md

@@ -194,6 +194,27 @@ It pairs naturally with [triple buffering](frame-pacing.md), but does not need
 it: with two buffers each of the two presents waits for its own vsync, which
 reaches the same 25 Hz world / 50 Hz picture (measured both ways).
 
+## Getting the zoom back on purpose
+
+The single-plane translation model — the one that reads as a lens zoom — is a
+**setting**, not a deleted version: *Preferences > Build > Translation plane*.
+0 (the default) is rotation only; **12** is exactly what the first version
+shipped with. It only applies while the neural upscaler is off, since real
+per-tile depth wins over a guessed plane wherever it exists.
+
+It is worth having both because "geometrically wrong" and "looks worse" are not
+the same claim. Rotation-only is exact, and on a straight walk that exactness
+means the synthesised frame is a pixel-perfect DUPLICATE — which reads as
+judder. The plane moves the whole picture uniformly, which is wrong, but it is
+motion. Which one wins is a question about content and about a real display, and
+it is not settled here.
+
+**Always synthesise (ignore the gate)** is next to it, and exists because the
+gate measures EE work: a scene held back by the GS rather than the EE keeps it
+shut. `examples/raytraced-mirror` sits at 26.36 Hz with the gate never opening
+once. Forced, with the plane at 12, it runs 23.03 Hz of world for ~46 presented
+— which is the configuration to judge on hardware.
+
 ## Steering it from the game
 
 The project preference is what **compiles the feature in**; the **Set Frame

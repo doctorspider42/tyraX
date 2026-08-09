@@ -1339,6 +1339,13 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
+         << (p.settings.frameExtrapolationPlane != 0.0f
+                 ? "    \"frameExtrapolationPlane\": " +
+                       fmtFloat(p.settings.frameExtrapolationPlane) + ",\n"
+                 : "")
+         << (p.settings.frameExtrapolationForce
+                 ? "    \"frameExtrapolationForce\": true,\n"
+                 : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -4703,6 +4710,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.tripleBuffering = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolation"))
             st.frameExtrapolation = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolationPlane"))
+            st.frameExtrapolationPlane = (float)v->numberOr(0.0);
+        if (const auto* v = s->find("frameExtrapolationForce"))
+            st.frameExtrapolationForce = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))

@@ -542,6 +542,16 @@ constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 // frame edge stretches where the source has no pixels.
 constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
 
+// Frame extrapolation, translation model (Preferences > Build): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = {{FRAME_EXTRAPOLATION_PLANE}};
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = {{FRAME_EXTRAPOLATION_FORCE}};
+
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
 // distance (staggered per object). 0 = off. Playback time is unaffected.
@@ -5827,7 +5837,7 @@ bool TerrainGame::extrapolationWorthIt() {
     scriptCtx.frameExtrapolation = -1;
   }
   if (extrapolationMode == 0) return false;
-  if (extrapolationMode == 2) return true;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
   const float refresh = engine->renderer.core.getSettings().getRefreshRate();
   if (refresh < 1.0F) return false;
   const unsigned int field = (unsigned int)(294912000.0F / refresh);
@@ -5893,6 +5903,7 @@ bool TerrainGame::extrapolationWorthIt() {
 // field is half a loop period once the world is running at half the field rate.
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
   Tyra::WarpCamera cur;
   cur.position = cameraPosition;
   float fx = cameraLookAt.x - cameraPosition.x;
@@ -18985,7 +18996,7 @@ bool TerrainGame::extrapolationWorthIt() {
     scriptCtx.frameExtrapolation = -1;
   }
   if (extrapolationMode == 0) return false;
-  if (extrapolationMode == 2) return true;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
   const float refresh = engine->renderer.core.getSettings().getRefreshRate();
   if (refresh < 1.0F) return false;
   const unsigned int field = (unsigned int)(294912000.0F / refresh);
@@ -19051,6 +19062,7 @@ bool TerrainGame::extrapolationWorthIt() {
 // field is half a loop period once the world is running at half the field rate.
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
   Tyra::WarpCamera cur;
   cur.position = cameraPosition;
   float fx = cameraLookAt.x - cameraPosition.x;
@@ -24863,6 +24875,10 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
     s = replaceAll(s, "{{FRAME_EXTRAPOLATION}}",
                    st.frameExtrapolation ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_PLANE}}",
+                   floatLit(st.frameExtrapolationPlane));
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_FORCE}}",
+                   st.frameExtrapolationForce ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
