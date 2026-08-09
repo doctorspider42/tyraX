@@ -28,6 +28,82 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
+  - **DONE: plain mode - the reduced raster with no network at all**
+    (`ProjectSettings::blssNetwork`, format v12, docs/neural-upscaler.md
+    "Plain mode"). The network is nearly the whole EE bill (`proxy` 2.34 +
+    `reproj` 0.28 + `feat` 0.19 + `net` 0.78 of 4.60), and a net that asks
+    for nothing still costs every millisecond of it. Plain deletes the bag
+    feed, the reprojection, the feature grid, the MLP and 472 of the grid's
+    476 vertices, keeps the raster, the VRAM saving and the build interlock,
+    and takes break-even from **13.1 full-screen coverages to 2.6** at
+    512x448. Byte-identical picture, measured: 0 differing pixels of 811 426
+    over nine cross-pairings against a build whose net asks for nothing.
+    **What is still owed: one console run.** The 0.52 ms bill is arithmetic
+    over hardware terms (begin 0.41 + end 0.10 survive; the four deleted
+    terms read exactly 0.000 in PCSX2, which is the half an emulator can
+    settle) rather than a hardware measurement of the mode, because
+    192.168.100.150 answered `reset` with 0 and nothing else for the whole
+    round. docs/profiling.md, "Plain mode's EE bill".
+  - **Switching BLSS on and off at runtime - NOT BUILT, and the arithmetic is
+    why.** Asked for as a comparison and debugging tool: flip the feature every
+    N frames and an A/B has no scene or camera variance at all, which is what
+    docs/profiling.md recommends and what this branch has never been able to
+    do (every measurement it has published needed two builds and paired
+    frames). It is a good idea and it is filed rather than dropped.
+
+    **The obstacle.** `RendererCoreBlss::configure()` re-lays the whole
+    permanent GS VRAM region and evicts every texture, because the z buffer's
+    SIZE follows the raster and z is allocated third, long before a generated
+    game's `init()` runs. That is safe at the top of `init()` and nowhere
+    else, which is exactly what codegen says out loud.
+
+    **The way through, and its price.** Allocate both layouts up front - a
+    display-sized z AND the low-res target - so a switch touches no
+    allocation. Checked against `allocateVramBuffers` + `RendererCoreGSVRam::
+    getSize` (width to a multiple of 64, `width*height` words at 32bpp, page-
+    aligned to 2048) at 512x448 output, 2x2:
+
+    | layout | permanent | texture heap |
+    |---|---|---|
+    | native (2 frame + z 512x448) | 688 128 w = 2 688 KB | **1 408 KB** |
+    | BLSS baked (z 256x224 + target) | 573 440 w = 2 240 KB | **1 856 KB** (+448) |
+    | both layouts resident | 745 472 w = 2 912 KB | **1 184 KB** (-224) |
+
+    The +448 KB row is not arithmetic on its own: the running game reports
+    `VRAMSTAT ... freeMB=0.75708` with BLSS off and `1.19458` with it on,
+    a difference of exactly **0.4375 MB = 448 KB**, and the two reconstruction
+    modes report the identical figure. So the toggle would cost **672 KB of
+    texture VRAM against a baked BLSS build and 224 KB against native** - it
+    gives up the whole memory win and then some, out of a budget
+    docs/gs-vram.md puts at ~1.33 MB. Correct framing if it is ever built: a
+    project setting, **off by default**, documented with that cost.
+
+    **Why it is filed and not built, beyond the memory.** (1) It requires
+    relaxing the one invariant this feature has already paid catastrophically
+    for - `zBuffer.mask` is DERIVED from the z allocation, and the round that
+    set it by hand one statement before the rebuild that cleared it again
+    stamped depth across the texture heap and deleted every 4-bit palettised
+    texture in the game. A live per-frame mask is that invariant made
+    conditional. (2) `blssClashes()` would still have to refuse depth of
+    field, portals and split view, because the BLSS half of the toggle still
+    has no display-resolution depth - so the projects most likely to want an
+    A/B are exactly the ones it cannot serve. (3) `needsBufferRealloc()` keys
+    on the raster scale, so every toggle would ask for the rebuild the design
+    exists to avoid; it has to be decoupled from the allocation. (4) The
+    measurement it buys is now much cheaper without it: **plain mode makes the
+    interesting comparison a build-time one**, and the paired-build method
+    works - an object script that pins the camera and hides every emitter
+    gives frames that are byte-identical between captures, which is a cleaner
+    instrument than an in-run flip (no history buffer to invalidate, no
+    settling frames to discard on each side of the switch).
+
+    **What would have to be checked if it is built**, all of which assume
+    BLSS-ness is fixed for a frame today: the post-fx bracket and
+    `getRasterTarget()`, the HUD path's z masking, the interlaced-field Y bias
+    (applied by `composite()` and deliberately not by `beginScene()`),
+    `hasPrev` across a switch, and the projection rebuild
+    (`core3D->setFov`). And it wants hardware: PCSX2's renderers mask GS
+    raster-window bugs that a real console shows.
   - **DONE, and it answers "can one net ship for every project": YES, if the
     bestiary and real projects are in the SAME corpus.** Leave-one-PROJECT-out
     (`--cv-groups`, new) over seven projects chosen by oracle ceiling, 18

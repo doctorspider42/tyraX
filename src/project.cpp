@@ -1421,6 +1421,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
          << ",\n"
          << "    \"blssScale\": " << p.settings.blssScale << ",\n"
+         << "    \"blssNetwork\": "
+         << (p.settings.blssNetwork ? "true" : "false") << ",\n"
          << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
          << "    \"blssTemporal\": "
          << (p.settings.blssTemporal ? "true" : "false") << ",\n"
@@ -4874,6 +4876,13 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.blssScale = (int)v->numberOr(0.0);
         if (st.blssScale < 0) st.blssScale = 0;
         if (st.blssScale > 1) st.blssScale = 1;
+        // PLAIN MODE, and it reads like blssTemporal rather than like
+        // blssJitter: absent means the NETWORK, which is the only thing a
+        // project saved before this key existed can have meant. There is no
+        // "the old behaviour was harmful" argument here - the reconstruction a
+        // legacy BLSS project shipped with is the one it was trained for.
+        if (const auto* v = s->find("blssNetwork"))
+            st.blssNetwork = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = s->find("blssSharpen"))
             st.blssSharpen = clamp01((float)v->numberOr(0.5));
         if (const auto* v = s->find("blssTemporal"))

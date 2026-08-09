@@ -1265,6 +1265,69 @@ visual. **The grazing-angle ground streaking this branch documents is
 unconfirmed for this fixture** and would want a look before anyone quotes it
 here.
 
+### Plain mode's EE bill (2026-08-09)
+
+BLSS' **plain** reconstruction (docs/neural-upscaler.md, "Plain mode") keeps the
+reduced raster and deletes the network, so its bill is the same seven terms with
+four gone and a fifth collapsed. **The console was unreachable for this whole
+round** — `ps2client -h 192.168.100.150 -t 10 reset` returns 0 and nothing
+answers `execee` afterwards — so this section is deliberately in two halves.
+
+**What was measured, in PCSX2**, which this page admits for EE aggregates and
+counts and for nothing else. Fixture `examples/upscaler-lab` at 512×448, debug
+profile, every live channel off, an object script that hides every emitter and
+pins the camera from frame 900 so the frame is a pure function of the frame
+index; windows at `f ≥ 1000`, 56–65 windows per arm.
+
+| arm | `work` | `begin` | `end` | `comp` EE | `proxy` | `reproj` | `feat` | `net` | `pkt` |
+|---|---|---|---|---|---|---|---|---|---|
+| BLSS off | **11.68** | — | — | — | — | — | — | — | — |
+| neural (`passes=1.00`) | **14.19** | 0.074 | 0.318 | 1.397 | 1.680/0.653 | 0.290 | 0.090 | 0.794 | 0.188 |
+| **plain** | **12.34** | 0.058 | 1.527 | 0.043 | **0.000**/0.000 | **0.000** | **0.000** | **0.000** | **0.003** |
+
+Every deleted term reads **exactly 0.000** — that is a count, and it is the half
+of this an emulator can settle. The composite packet build falls to **1.6 %** of
+the grid's (13 qwords against ~1450). What BLSS charges the frame over native
+goes from **+2.51 ms to +0.66 ms**.
+
+**What was carried over from hardware rather than re-measured:** `begin` 0.41 and
+`end` 0.10 — plain mode does not touch either bracket — and the 3.59 ms the four
+deleted terms cost there. `pkt` is the PCSX2 ratio applied to the same 13-vs-1450
+qword packet. So
+
+> **plain EE = begin 0.41 + end 0.10 + pkt ≈0.01 = 0.52 ms**,
+> and `breakEven` = (0.52 + 0.50) / (0.7548 × 0.5167) = **2.6 coverages at
+> 512×448**, 2.3 at 512×512.
+
+That is arithmetic over hardware measurements, not a hardware measurement of
+plain mode, and it is `fill::kEeCostPlainMs` in `src/blss_ui.hpp` with the same
+caveat attached. **One console run would settle it.**
+
+> **`begin` + `end` is a FLOOR, and it is bigger than it looks.** Those two are
+> the raster redirect itself — two GIF packets each ending in `draw_finish` and a
+> wait, i.e. a GS round trip — and plain mode still renders small, so it still
+> pays both. Half a millisecond of the network's bill was never the network's. An
+> estimate of ~0.2 ms for this mode is therefore unreachable and the ~1.8
+> break-even that follows from it is about 30 % optimistic.
+
+**And a caveat this round is the first to see directly.** BLSS' brackets are
+serialised, so in a frame whose GS is still busy at `endScene`, EE work deleted
+before it comes back as `end`. The two arms above show **3.4 ms of EE removed
+against 1.9 ms of frame removed**, the balance landing in `end` (0.318 → 1.527).
+That is the fill-bound regime, which is where the model's fill term already says
+BLSS wins — but it is why a plain break-even is a floor and not a promise, and it
+is a reason to prefer a frame-level A/B to a counter sum whenever both are
+available.
+
+**The picture is unchanged, and that was checked before any of the above.** Three
+captures per arm, `-PrintWindow`, the same pinned still scene: neural-with-a-net-
+that-asks-for-nothing against plain is **0 differing pixels of 811 426 in all
+nine cross-pairings**, with 0-pixel within-arm controls. The construction of "a
+net that asks for nothing" is the interesting part and is written up in
+neural-upscaler.md — `examples/upscaler-lab`'s own net does *not* qualify
+(`passes=1.58`, all temporal), and the first attempt at this comparison measured
+that pass and nearly blamed the composite.
+
 ### The stability gate (period-2 / the "bob")
 
 BLSS' ±¼-pixel raster jitter is the confirmed cause of a shaking picture

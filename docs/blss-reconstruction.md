@@ -832,6 +832,26 @@ blend equations the GS has. Every pass clamps to 0..255 (the GS's default
 `COLCLAMP`), and `>> 7` **truncates** — the host uses an arithmetic shift, not a
 divide, so negative intermediates round the same way.
 
+### Plain mode is pass 1 and nothing else, and has no twin
+
+`configure()`'s `network` argument (docs/neural-upscaler.md, "Plain mode")
+runs the composite above with `wA = wC = wD = 0` by construction rather than by
+inference: no proxies, no reprojection, no features, no network, and passes 2-5
+never emitted. **Nothing on this page has a plain-mode variant**, and that is
+the point of the mode - it is the degenerate case of the contract, not a second
+one. The corpus, the oracle, the twin arithmetic and every published fold table
+describe the NEURAL mode and are unaffected.
+
+The one thing worth stating here, because it is a claim about the GS: the base
+pass is emitted as ONE CELL of the same grid (four vertices, same `PRIM` flags,
+same vertex order, same diagonal) rather than as a GS **sprite**. `u(x) =
+(x << 4)/scaleX + jitter` is linear, so both describe the same drawing in exact
+arithmetic - but a sprite goes through a different rasteriser path, and whether
+its texture DDA is set up bit for bit like the triangle one is a question about
+hardware. A one-cell strip makes the identity a property of the packet. Checked
+on the fixture: a build whose net asks for nothing and a plain build are
+byte-identical over 811 426 compared pixels in nine cross-pairings.
+
 ### Getting per-vertex alpha out of a textured draw
 
 The blend factor must be the *vertex* alpha while RGB stays the untouched texel.

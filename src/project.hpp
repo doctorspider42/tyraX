@@ -1353,6 +1353,32 @@ struct ProjectSettings {
     // need real GS depth at display resolution, which a low-res z cannot give).
     bool blssEnabled = false;
     int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
+    // WHETHER THE NETWORK RUNS AT ALL. true (the default, and what every
+    // project written before this key existed reads as) is the neural
+    // reconstruction; false is PLAIN MODE - the reduced raster blown back up
+    // by one bilinear pass, with no bag proxies, no reprojection, no feature
+    // grid and no MLP.
+    //
+    // ITS OWN SWITCH RATHER THAN A THIRD VALUE OF blssEnabled OR blssScale,
+    // and the reason is that it is a third question. `blssEnabled` asks
+    // whether the 3D scene is rasterised at a reduced size - which is where
+    // the VRAM saving comes from, and plain mode keeps ALL of it. `blssScale`
+    // asks how much smaller, and plain mode is as meaningful at 1x2 as at 2x2,
+    // so folding it into that combo would forbid half the real combinations.
+    // This asks what reconstructs the result, which is orthogonal to both. It
+    // is also the shape that costs nothing on disk: an additive bool defaulting
+    // to true regenerates every existing project byte for byte, where a
+    // tri-state replacing blssEnabled would change the serialized shape of
+    // every BLSS project and need a migration step to say what `true` meant.
+    //
+    // Why anyone would want it: on every project measured so far the trained
+    // net asks for NOTHING - all three outputs quantise under the deadzone and
+    // BLSSFILL reports 1.00 passes, i.e. the composite is already a single
+    // bilinear pass - while the frame still pays 4.60 ms of EE to reach that
+    // conclusion. Plain mode is that same picture without the bill, which
+    // moves the break-even from ~13 full-screen coverages to low single digits
+    // (blssui::fill::breakEven, docs/profiling.md).
+    bool blssNetwork = true;
     float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
     bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
     // The +-1/4-pixel raster jitter that alternates every frame (the temporal
@@ -1485,8 +1511,14 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
            a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
+           a.blssNetwork == b.blssNetwork &&
            a.blssSharpen == b.blssSharpen &&
            a.blssTemporal == b.blssTemporal &&
+           // blssJitter was missing from this list until plain mode added the
+           // field above it. Harmless so far - the BLSS group is project-wide
+           // and edited outside undo - but a field absent from an operator==
+           // is the exact shape of bug this list exists to prevent.
+           a.blssJitter == b.blssJitter &&
            a.blssDebugView == b.blssDebugView &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&

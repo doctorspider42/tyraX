@@ -234,8 +234,13 @@ void StaPipCore::render(StaPipBag* bag) {
   // discs - has no describable screen box: it wraps the near plane, so its
   // proxy is "the whole frame, at the nearest representable depth" and it
   // flattens every channel it touches. See PipelineInfoBag::blssProxy.
+  // wantsProxies(), NOT isEnabled(): in BLSS' PLAIN mode there is no network
+  // to describe the frame to, so the whole branch below - and the world
+  // bounding sphere it shares with the light pick - must not run at all. The
+  // entry points are inert there anyway, but "inert" still pays two sqrtf and
+  // a texel-area lookup per bag, and `proxy` is 2.34 ms of a 4.60 ms bill.
   const bool blssOn =
-      rendererCore->blss.isEnabled() && bag->info->blssProxy;
+      rendererCore->blss.wantsProxies() && bag->info->blssProxy;
   const bool wantsLightPick = !bag->lighting && bag->info->dynLightPick;
 
   const M4x4& m = *bag->info->model;

@@ -349,6 +349,25 @@ target and a per-tile MLP decides how to reconstruct it. Reached as
 `init()` and bracket their scene with `beginScene()` / `endScene()` /
 `composite()`. Inert and zero-VRAM when a project has it off.
 
+**PLAIN MODE (`configure()`'s seventh argument, `network`) DELETES THE HALF THIS
+CLASS IS NAMED AFTER**, and it is the mode most projects should be in
+(docs/neural-upscaler.md, "Plain mode"). false = no bag proxies, no tile
+accumulators, no reprojection, no feature grid, no MLP, and a composite that is
+ONE textured quad instead of the 476-vertex Gouraud grid; the raster redirect,
+the shrunken z buffer and the whole VRAM saving are untouched. Three things to
+know before changing anything here. The gate the pipeline asks is
+**`wantsProxies()`, never `isEnabled()`** — StaPipCore computes a world bounding
+sphere per bag before it calls, so "the entry points are inert" is not the same
+as free, and `proxy` is 2.34 ms of a 4.60 ms bill. `configure()` **forces
+`jitterOn` false** there, in one place, because the only thing that can fuse two
+jitter phases is the temporal pass and plain mode has none. And the base pass is
+emitted as one CELL of the grid rather than as a GS **sprite** — a sprite would
+save seven qwords and would hand the picture to a different rasteriser path,
+which is a question about hardware nobody can answer from here; a one-cell
+TRIANGLE_STRIP makes the identity a property of the packet. Checked: a neural
+build whose net asks for nothing and a plain build are byte-identical over
+811 426 compared pixels, nine cross-pairings.
+
 **It is one half of a TWIN.** `src/blss.cpp` in the editor is the other, and
 `docs/blss-reconstruction.md` is the contract: the same sampling (12.4 UV
 quantisation, bilinear taps at UV − half a texel with 4-bit weights combined

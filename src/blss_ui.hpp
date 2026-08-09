@@ -460,8 +460,56 @@ inline double passMs(double rasterPx) { return kPassMsPerMpx * rasterPx / 1.0e6;
 // BLSS' EE bill as shipped: proxy 2.34 + reproj 0.28 + feat 0.19 + net 0.78 +
 // pkt 0.50 + begin 0.41 + end 0.10.
 constexpr double kEeCostMs = 4.60;
+// PLAIN MODE'S EE BILL - the same seven terms with four of them deleted and a
+// fifth collapsed (docs/neural-upscaler.md, "Plain mode"; docs/profiling.md,
+// "Plain mode's EE bill"). No proxies (2.34), no reprojection (0.28), no
+// features (0.19), no MLP (0.78), and the composite packet becomes ONE QUAD
+// instead of a 476-vertex Gouraud grid. What is left is what the mode cannot
+// delete:
+//
+//   begin 0.41 + end 0.10 + pkt(~0.01) = 0.52
+//
+// AND THAT FLOOR IS THE FINDING, because it is bigger than it looks. `begin`
+// and `end` are the raster redirect itself - two GIF packets each ending in
+// draw_wait_finish, i.e. a GS round trip - and plain mode still renders into a
+// low-res target, so it still pays both. Half a millisecond of "4.58 ms to
+// produce a weight field that is zero" was never the network's: it is the price
+// of rendering small at all, and no amount of deleting decision machinery
+// touches it. An estimate of ~0.2 ms for this mode is therefore not reachable,
+// and the break-even that follows from it (~1.8) is about 30 % optimistic.
+//
+// PROVENANCE, because this one is NOT a single measurement. The four deleted
+// terms and the two survivors are the HARDWARE figures already published above;
+// what this round measured is that they really are deleted, in PCSX2, where
+// `FTSPLIT` reads `proxy=0.000/0.000 reproj=0.000 feat=0.000 net=0.000
+// pkt=0.003` against the neural arm's `1.680/0.653 0.290 0.090 0.794 0.188` on
+// the identical fixture and camera. Counts and zeroes are what an emulator is
+// admissible for; per-function milliseconds are not, so the 0.41 and the 0.10
+// are carried over from hardware rather than re-measured, and `pkt` is taken as
+// the PCSX2 ratio (1.6 % of the grid's) applied to a term that is 13 qwords
+// against ~1450. The console was unreachable for the whole of this round.
+//
+// One caveat the same PCSX2 arms make visible and that this constant cannot
+// carry: BLSS' brackets are serialised, so in a frame whose GS is still busy at
+// endScene, EE work deleted before it comes back as `end`. The two arms measure
+// 3.4 ms of EE removed and 1.9 ms of frame removed, the balance landing in
+// `end`. That is the fill-bound regime, which is exactly where the model's own
+// fill term already says BLSS wins - but it is why the break-even below is a
+// floor and not a promise.
+constexpr double kEeCostPlainMs = 0.52;
 // ...and the fill the composite itself adds back, measured in the same runs.
+//
+// THE SAME IN BOTH MODES, and deliberately one constant rather than two. It is
+// the cost of ONE full-screen textured pass, which is exactly what a neural
+// frame draws today (BLSSFILL reports 1.00 passes on every project measured)
+// and exactly what plain mode draws by construction. The primitive differs - a
+// sprite against a Gouraud triangle strip - and a sprite is if anything the
+// GS' faster path, so using the strip's measured figure for both is the
+// conservative direction.
 constexpr double kCompositeGsMs = 0.50;
+// The EE bill of whichever reconstruction is configured. One accessor, because
+// breakEven() and speedFrom() must not each decide which constant applies.
+inline double eeCostMs(bool network) { return network ? kEeCostMs : kEeCostPlainMs; }
 // THE ONE SCENE WHERE BOTH ENDS OF THIS MODEL HAVE BEEN MEASURED, and the
 // number that moved most. Working back from the five-point fit,
 // `examples/upscaler-lab`'s true fill is 34.46 ms, which at kPassMs is 58.7
@@ -535,19 +583,26 @@ constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;
 // the low-res target costs precisely what the z-buffer saves.
 constexpr int kVramBackKb2x2 = 448;
 
-// 0.7548 x passMs(raster) x C > 4.60 + 0.50. DERIVED rather than written down,
-// so a millisecond taken off the EE bill moves it - which is exactly what an
-// earlier round's re-measurement did (13 -> 11.5) - and now so does the RASTER:
+// 0.7548 x passMs(raster) x C > eeCost + 0.50. DERIVED rather than written
+// down, so a millisecond taken off the EE bill moves it - which is exactly what
+// an earlier round's re-measurement did (13 -> 11.5) - and so do the RASTER and
+// now the MODE:
 //
-//   512x448 (ordinary PAL)   13.1 full-screen coverages
-//   512x512 (PAL 576i)       11.4
+//                        neural   plain
+//   512x448 (PAL)         13.1     2.6
+//   512x512 (PAL 576i)    11.4     2.3
 //
-// QUOTE THE BREAK-EVEN WITH ITS RASTER OR NOT AT ALL. The single 11.5 this
-// used to print was a 576i number applied to every project, i.e. 14 % optimistic
-// for the common case - it told a scene sitting at 12 coverages that BLSS would
-// pay for itself when it would not.
-inline double breakEven(double rasterPx = kRasterPxPal) {
-    return (kEeCostMs + kCompositeGsMs) / (kSavedFraction * passMs(rasterPx));
+// QUOTE THE BREAK-EVEN WITH ITS RASTER AND ITS MODE OR NOT AT ALL. The single
+// 11.5 this used to print was a 576i number applied to every project, i.e. 14 %
+// optimistic for the common case - it told a scene sitting at 12 coverages that
+// BLSS would pay for itself when it would not. A bare 13.1 quoted at a plain
+// project is the same mistake four times over in the other direction: it would
+// tell a scene at 4 coverages to leave the feature off when it is a clear win.
+//
+// THAT COLUMN IS WHY PLAIN MODE EXISTS. 13.1 full-screen coverages is a fog
+// demo; under 3 is most 3D scenes with any overdraw at all.
+inline double breakEven(double rasterPx = kRasterPxPal, bool network = true) {
+    return (eeCostMs(network) + kCompositeGsMs) / (kSavedFraction * passMs(rasterPx));
 }
 }  // namespace fill
 
@@ -562,6 +617,12 @@ inline double breakEven(double rasterPx = kRasterPxPal) {
 // would be the sixth number this feature measured on the wrong thing.
 struct SpeedEstimate {
     bool ok = false;
+    // Which reconstruction the numbers below price. False = PLAIN mode, whose
+    // EE bill is a seventh of the neural one and whose break-even is therefore
+    // a quarter of it. Carried on the estimate rather than left to the caller
+    // because every sentence printed from this struct has to name the mode: a
+    // break-even is meaningless without it, exactly as it is without a raster.
+    bool network = true;
     double coverages = 0;   // what went in
     // The raster the coverages were counted per, and the price of one
     // full-screen pass at it. Carried so a caller PRINTS the resolution its
@@ -584,7 +645,9 @@ struct SpeedEstimate {
 // `CoverageReport::outW * outH`, which measureCoverage echoes back for exactly
 // this. It defaults to the ordinary PAL raster so a caller that genuinely has
 // no screen to name still gets the common case rather than a 576i one.
-SpeedEstimate speedFrom(double coverages, double rasterPx = fill::kRasterPxPal);
+// `network` is ProjectSettings::blssNetwork - false prices the PLAIN mode.
+SpeedEstimate speedFrom(double coverages, double rasterPx = fill::kRasterPxPal,
+                        bool network = true);
 
 // ------------------------------------------------------------- one answer ---
 
@@ -608,8 +671,15 @@ struct Recommendation {
     std::string headline;  // one sentence, the answer
     std::string why;       // the two facts behind it
 };
+// `network` is ProjectSettings::blssNetwork. In PLAIN mode the picture half
+// stops being a term of the verdict and becomes a footnote, because there is no
+// network to capture the ceiling with - the answer is the speed answer, and the
+// oracle margin is then a statement about the OTHER mode. Passed explicitly
+// rather than read off `speed.network` so the six outcomes are still decidable
+// when the speed half has not been measured.
 Recommendation recommend(const EvalSummary& quality, bool haveQuality,
-                         const SpeedEstimate& speed, bool haveSpeed);
+                         const SpeedEstimate& speed, bool haveSpeed,
+                         bool network = true);
 
 // Below this many dB the ORACLE - the best any per-tile weighting can do under
 // the exact GS composite - is indistinguishable from plain bilinear, and no

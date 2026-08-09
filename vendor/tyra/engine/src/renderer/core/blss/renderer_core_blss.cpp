@@ -288,7 +288,7 @@ void RendererCoreBlss::allocate() {
 
 void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
                                  bool t_temporal, int t_debugView,
-                                 bool t_jitter) {
+                                 bool t_jitter, bool t_network) {
   TYRA_ASSERT(settings != nullptr,
               "BLSS configure() before the renderer was initialized!");
   if (settings == nullptr) return;
@@ -297,7 +297,14 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   sharpen = clamp01(t_sharpen);
   temporal = t_temporal;
   debugView = t_debugView;
-  jitterOn = t_jitter;
+  useNet = t_network;
+  // PLAIN MODE FORCES THE JITTER OFF, in one place, here. The temporal pass is
+  // the only thing that can fuse two sub-pixel phases back into one image and
+  // plain mode has no temporal pass - so jitter without it is not a cheaper
+  // supersample, it is the period-2 bob with nothing left to average it. Doing
+  // it here rather than in the caller keeps it a property of the mode instead
+  // of a rule codegen and an embedder each have to remember.
+  jitterOn = t_jitter && useNet;
   // 1x1 is "off" - nothing is allocated and the projection keeps its full
   // raster scale, so a project without BLSS costs zero words and zero cycles.
   enabled = (scaleX * scaleY) > 1;
@@ -360,6 +367,13 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   hasPrev = false;
   phase = 0;
 
+  if (!useNet) {
+    // The one line that says which of the two composites this ELF runs. The
+    // rest of the log line would describe knobs plain mode does not read.
+    TYRA_LOG("BLSS configured: scale ", scaleX, "x", scaleY,
+             ", PLAIN (no network, no proxies, one composite pass)");
+    return;
+  }
   TYRA_LOG("BLSS configured: scale ", scaleX, "x", scaleY, ", sharpen ",
            static_cast<int>(sharpen * 100.0F), "%, temporal ",
            temporal ? 1 : 0, ", debug ", debugView);
@@ -428,7 +442,7 @@ void RendererCoreBlss::capturePinhole() {
 // --------------------------------------------------------------- section 2 ---
 void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
                               float wNear, float wFar, float texDetail) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   if (x1 <= x0 || y1 <= y0) return;
 
   // Only the tile RANGE is clamped to the screen, never the bbox itself: a
@@ -528,7 +542,7 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
 void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
                                     const float& worldRadius,
                                     const float& texelArea) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   // A reflection probe / camera feed / shadow caster re-submits the SAME bags
   // through a foreign camera, inside this bracket (that is what the nesting
   // fix made actually happen). Their screen bboxes would be computed with that
@@ -721,7 +735,7 @@ bool RendererCoreBlss::projectBox(const M4x4& mvp, const Vec4& objMin,
 // --------------------------------------------------------------- section 2 ---
 void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
                                  const Vec4& objMax, const float& texelArea) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   if (core3D->isForeignViewActive()) return;
   proxyCalls++;  // every box the frame projects, accepted or not
 
@@ -760,7 +774,7 @@ void RendererCoreBlss::addBagBillboard(const M4x4& mvp, const Vec4* centres,
                                        const u32& count, const Vec4* params,
                                        const Vec4& right, const Vec4& up,
                                        const float& texelArea) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   if (core3D->isForeignViewActive()) return;
   if (centres == nullptr || params == nullptr || count == 0) return;
 
@@ -812,7 +826,7 @@ void RendererCoreBlss::addBagBillboard(const M4x4& mvp, const Vec4* centres,
 // section 2. See the header for why the tile count is the right budget.
 int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
                                   const Vec4& objMax) const {
-  if (!enabled || !inScene) return kMaxProxiesPerBag;
+  if (!wantsProxies() || !inScene) return kMaxProxiesPerBag;
   float b[6];
   // A bag whose WHOLE box describes nothing (behind the eye, off screen, or
   // dropped by the straddle rule) keeps the full cap: the budget may only ever
@@ -1301,24 +1315,32 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   jitter16Y = jitterOn ? (phase == 0 ? -4 : 4) : 0;
   phase ^= 1;
 
-  const int n = cols * rows;
-  for (int i = 0; i < n; i++) {
-    coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
-    dMin[i] = 1e30F;
-    dMax[i] = 0.0F;
-  }
+  // PLAIN MODE skips every line of this: the accumulators feed a feature grid
+  // that is never built, the instrument counters describe a proxy feed that is
+  // never fed, and capturePinhole() exists for a reprojection that never runs.
+  // What survives below - the redirect, the clear, the z unmask - is the whole
+  // of the mode.
   proxies = 0;
   proxyTiles = 0;
   proxyCalls = 0;
   worstTiles = 0;
 #if TYRA_FRAME_PROFILE
   // StaPipCore accumulates into this across the whole scene; the frame's owner
-  // is this bracket, so it is cleared here.
+  // is this bracket, so it is cleared here. Cleared in plain mode too, and on
+  // purpose: nothing writes them there, so a counter left at its last neural
+  // value would report a proxy feed that is not running.
   FrameProfile::tBlssProxy = 0;
   FrameProfile::tBlssAccum = 0;
 #endif
-
-  capturePinhole();
+  if (useNet) {
+    const int n = cols * rows;
+    for (int i = 0; i < n; i++) {
+      coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
+      dMin[i] = 1e30F;
+      dMax[i] = 0.0F;
+    }
+    capturePinhole();
+  }
   inScene = true;
 
   // XYOFFSET is written RAW (not through draw_primitive_xyoffset) so the
@@ -1715,6 +1737,96 @@ qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
   return q;
 }
 
+// Put back the TEXTURE / BLEND state only the composite passes touch (the
+// raster registers come from emitRasterRestore, which is also what puts the
+// window-centred XYOFFSET the VU1 3D pipeline expects back - with the per-field
+// bias, in one place).
+//
+// ONE COPY, because both composites end with it and a plain-mode frame that
+// restored four of the five registers would break the NEXT frame's scene in
+// exactly the way this block already paid for once.
+qword_t* RendererCoreBlss::emitCompositeRestore(qword_t* q) {
+  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
+  q++;
+  // TEXA and COLCLAMP go back to what the DRAWING ENVIRONMENT holds, which is
+  // NOT the GS reset value - this block used to write zero into both and it
+  // deleted every textured primitive and every textured terrain chunk in the
+  // game (see kEnvTexa above for the mechanism and the disassembly).
+  PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
+  q++;
+  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
+  q++;
+  return gs->emitRasterRestore(q, false);
+}
+
+// --------------------------------------------------------------- plain mode ---
+// The base pass as ONE CELL of the grid instead of 224 of them. Everything
+// about the sampling is copied from emitGrid(q, 0) rather than restated: the
+// same u(x) = (x << 4) / scaleX + jitter, the same 14-bit UV clamp, the same
+// screen-origin XY, the same primitive, the same vertex order. See the header
+// for why that makes the two pictures the same one, and for the measurement.
+qword_t* RendererCoreBlss::emitBaseQuad(qword_t* q) {
+  const int uMax = 0x3FFF;
+  auto uvOf = [&](int px, int py, s16 out[2]) {
+    int u = (px << 4) / scaleX + jitter16X;
+    int v = (py << 4) / scaleY + jitter16Y;
+    if (u < 0) u = 0;
+    if (v < 0) v = 0;
+    if (u > uMax) u = uMax;
+    if (v > uMax) v = uMax;
+    out[0] = static_cast<s16>(u);
+    out[1] = static_cast<s16>(v);
+  };
+
+  // NLOOP = 1 (PRIM) + 3 registers per vertex, four vertices. A miscount
+  // stalls the GIF forever - the same counting rule every packet in this file
+  // lives by.
+  PACK_GIFTAG(q, GIF_SET_TAG(1 + 3 * 4, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
+  q++;
+  // THE SAME PRIMITIVE emitGrid GIVES PASS 0, and that is the whole reason this
+  // is not a GS sprite. A sprite is the obvious shape for "one full-screen
+  // blit" and would save seven qwords, but it hands the picture to a DIFFERENT
+  // rasteriser path, and whether that path sets its texture DDA up bit for bit
+  // like the triangle one is a question about hardware nobody here can answer.
+  // A one-cell TRIANGLE_STRIP asks no such question: same PRIM flags, same
+  // vertex order, same linear UV, so the identity below is a property of the
+  // packet rather than a comparison that happened to come out clean. (A sprite
+  // was written first and then abandoned before it was ever measured against a
+  // valid reference - the arm it was compared against had its temporal pass
+  // running, so the difference that reading showed was the network's, not the
+  // primitive's. It remains an open, and uninteresting, question.)
+  PACK_GIFTAG(q, GS_SET_PRIM(4, 1, 1, 0, 0, 0, 1 /* FST */, 0, 0), GS_REG_PRIM);
+  q++;
+  // THE VERTEX ORDER IS emitGrid'S: (i,j) (i,j+1) (i+1,j) (i+1,j+1), so the
+  // quad's diagonal runs the same way. It carries no weight field here, but a
+  // diagonal the other way is a different pair of triangles and therefore a
+  // different pair of interpolation planes.
+  const int px[4] = {0, 0, outW, outW};
+  const int py[4] = {0, outH, 0, outH};
+  for (int k = 0; k < 4; k++) {
+    s16 uv[2];
+    uvOf(px[k], py[k], uv);
+    // RGB pinned to 128 so MODULATE is the identity on the texel and alpha
+    // 0x80, exactly what cornerAlpha() returns for pass 0.
+    PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+                GS_REG_RGBAQ);
+    q++;
+    PACK_GIFTAG(q, GS_SET_UV(uv[0], uv[1]), GS_REG_UV);
+    q++;
+    PACK_GIFTAG(q, GS_SET_XYZ((2048 + px[k]) << 4, (2048 + py[k]) << 4, 0),
+                GS_REG_XYZ2);
+    q++;
+  }
+  return q;
+}
+
 void RendererCoreBlss::composite() {
   if (!enabled || gs == nullptr || packet == nullptr) return;
 #if TYRA_FRAME_PROFILE
@@ -1724,6 +1836,44 @@ void RendererCoreBlss::composite() {
   // Defensive: endScene() already drained, but the composite must never race
   // the tail of the low-res render it is about to sample.
   if (path1->isVU1Configured()) sync->align3D();
+
+  // PLAIN MODE: no tile stats, no reprojection, no features, no MLP - one
+  // sprite. The FrameProfile terms those four fill are ZEROED rather than left
+  // alone, so `FTSPLIT` reports the mode honestly instead of repeating the last
+  // neural frame's attribution.
+  if (!useNet) {
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssReproj = 0;
+    FrameProfile::tBlssFeat = 0;
+    FrameProfile::tBlssNet = 0;
+    const u32 fpP0 = FrameProfile::ticks();
+#endif
+    packet2_reset(packet, false);
+    qword_t* q = packet->base;
+    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q,
+                GS_SET_XYOFFSET(2048 * 16, 2048 * 16 + gs->getFieldYOffset16()),
+                GS_REG_XYOFFSET_1);
+    q++;
+    q = emitPassState(q, lowVram, lowBufW, lowW, lowH, true,
+                      GS_SET_ALPHA(0, 1, 0, 1, 0), true);
+    q = emitBaseQuad(q);
+    q = emitCompositeRestore(q);
+    packet2_update(packet, q);
+    packet2_update(packet, draw_finish(packet->next));
+    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssPacket = FrameProfile::ticks() - fpP0;
+    FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
+#endif
+    dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+    draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
+#endif
+    return;
+  }
 
 #if TYRA_FRAME_PROFILE
   const u32 fpS0 = FrameProfile::ticks();
@@ -1814,27 +1964,7 @@ void RendererCoreBlss::composite() {
     q = emitGrid(q, 5);
   }
 
-  // Restore the TEXTURE / BLEND state only these passes touch (the raster
-  // registers come from emitRasterRestore below, which is also what puts the
-  // window-centred XYOFFSET the VU1 3D pipeline expects back - with the
-  // per-field bias, in one place).
-  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
-  q++;
-  // TEXA and COLCLAMP go back to what the DRAWING ENVIRONMENT holds, which is
-  // NOT the GS reset value - this block used to write zero into both and it
-  // deleted every textured primitive and every textured terrain chunk in the
-  // game (see kEnvTexa above for the mechanism and the disassembly).
-  PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
-  q++;
-  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
-  q++;
-  q = gs->emitRasterRestore(q, false);
+  q = emitCompositeRestore(q);
 
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));

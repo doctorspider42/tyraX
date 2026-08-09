@@ -777,6 +777,12 @@ static int blssCoverageFromCli(int argc, char** argv) {
     // the console will present rather than per a nominal 512x448 - the same
     // resolution App::blssStartCoverage passes, or the verb and the window
     // would answer slightly different questions.
+    // ...and the project's own RECONSTRUCTION, for the same reason: plain mode
+    // (ProjectSettings::blssNetwork false) pays a seventh of the neural EE bill,
+    // so the verdict below is against a break-even four times lower. A CLI that
+    // priced every project as neural would tell a plain project at 5 coverages
+    // to leave the feature off when it is a clear win.
+    bool network = true;
     {
         Project p;
         if (project::load(p, argv[2]).empty()) {
@@ -784,6 +790,7 @@ static int blssCoverageFromCli(int argc, char** argv) {
                 project::displayModeInfo(project::bootDisplayMode(p.settings));
             cfg.outW = dm.bufW;
             cfg.outH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
+            network = p.settings.blssNetwork;
         }
     }
     for (int i = 3; i < argc; ++i) {
@@ -837,14 +844,26 @@ static int blssCoverageFromCli(int argc, char** argv) {
     // rather than 13.1. The single scalar this replaces was a 576i measurement
     // quoted at every resolution.
     const blssui::SpeedEstimate sp =
-        blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH);
+        blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, network);
     const char* band = sp.band == blssui::SpeedEstimate::Band::Win      ? "win"
                        : sp.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
                                                                           : "loss";
-    std::printf("\nblss: %.2f coverages against a %.1f break-even at %dx%d -> %s%.2f ms a "
-                "frame (%s)\n",
-                rep.mean, sp.breakEven, rep.outW, rep.outH, sp.savedMs >= 0 ? "+" : "",
-                sp.savedMs, band);
+    std::printf("\nblss: %.2f coverages against a %.1f break-even at %dx%d, %s mode -> %s%.2f ms "
+                "a frame (%s)\n",
+                rep.mean, sp.breakEven, rep.outW, rep.outH, network ? "neural" : "plain",
+                sp.savedMs >= 0 ? "+" : "", sp.savedMs, band);
+    // The OTHER mode's line, always, because it is one project setting away and
+    // the two answers can disagree about the verdict entirely.
+    {
+        const blssui::SpeedEstimate other =
+            blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, !network);
+        std::printf("blss: in %s mode the same scene is a %.1f break-even -> %s%.2f ms (%s)\n",
+                    network ? "plain" : "neural", other.breakEven,
+                    other.savedMs >= 0 ? "+" : "", other.savedMs,
+                    other.band == blssui::SpeedEstimate::Band::Win        ? "win"
+                    : other.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
+                                                                          : "loss");
+    }
     if (sp.band == blssui::SpeedEstimate::Band::Win)
         std::printf("blss: roughly %.2f-%.2fx, the ends being 'the frame is 60%% fill' and "
                     "'the frame is nothing but fill'\n", sp.lo, sp.hi);
@@ -878,10 +897,11 @@ static int blssCoverageFromCli(int argc, char** argv) {
                 rep.sawAnimated ? 1 : 0, rep.sawDisabledEmitter ? 1 : 0);
     std::printf("[blss] coverage verdict coverages=%.4f fillMs=%.4f savedMs=%.4f breakEven=%.4f "
                 "lo=%.4f hi=%.4f band=%s anchorCoverages=%.4f passMs=%.4f raster=%dx%d "
-                "perMpx=%.4f\n",
+                "perMpx=%.4f network=%d eeMs=%.4f\n",
                 sp.coverages, sp.fillMs, sp.savedMs, sp.breakEven, sp.lo, sp.hi, band,
                 blssui::fill::kAnchorCoverages, sp.passMs, rep.outW, rep.outH,
-                blssui::fill::kPassMsPerMpx);
+                blssui::fill::kPassMsPerMpx, network ? 1 : 0,
+                blssui::fill::eeCostMs(network));
     return 0;
 }
 

@@ -640,6 +640,71 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             }
         }
 
+        // THE MODE, directly under the raster it shares. Above the four knobs
+        // below it on purpose: every one of them is a knob on the network, so a
+        // reader who picks Plain here should see them go grey rather than tune
+        // four settings that do nothing.
+        {
+            int mode = s.blssNetwork ? 0 : 1;
+            const char* modeNames[] = {
+                "Neural - a network picks a reconstruction per 32x32 tile",
+                "Plain - one bilinear pass, no network (far cheaper, same picture "
+                "when the net chooses nothing)"};
+            ImGui::SetNextItemWidth(scaled(560));
+            if (ImGui::Combo("Reconstruction", &mode, modeNames, 2)) {
+                s.blssNetwork = mode == 0;
+                changed = true;
+            }
+            prefHelp(
+                "WHAT BLOWS THE REDUCED RENDER BACK UP, and it is the setting that\n"
+                "decides whether this feature is for fog demos or for ordinary\n"
+                "scenes.\n"
+                "\n"
+                "Neural runs the trained MLP: per 32x32 output tile it chooses how\n"
+                "much crisp point sampling, reprojected previous frame and\n"
+                "sharpening to blend, and the frame pays 4.60 ms of EE to decide\n"
+                "that - the bag proxies (2.34), the reprojection, the feature grid,\n"
+                "the MLP and a 476-vertex Gouraud packet.\n"
+                "\n"
+                "Plain runs none of it. The scene still renders at the reduced\n"
+                "raster, the z-buffer still shrinks with it (the VRAM saving is\n"
+                "UNCHANGED - it comes from the raster, not from the network), and\n"
+                "the display buffer is one full-screen bilinear pass.\n"
+                "\n"
+                "WHY PLAIN IS THE HONEST DEFAULT FOR MOST SCENES. On every project\n"
+                "measured so far the trained net already asks for nothing: all\n"
+                "three outputs quantise under the deadzone, BLSSFILL reports 1.00\n"
+                "passes, and the composite IS a single bilinear pass. The picture\n"
+                "is the same one either way - the frame just stops paying to work\n"
+                "that out.\n"
+                "\n"
+                "What it is worth, at this project's raster:\n"
+                "     EE a frame        neural 4.60 ms     plain 0.61 ms\n"
+                "     break-even        neural 13.1        plain 2.9 coverages\n"
+                "The floor plain mode cannot go below is the raster redirect\n"
+                "itself - two GS round-trips, 0.51 ms - which is a cost of\n"
+                "rendering small and not of the network.\n"
+                "\n"
+                "Pick Neural when 'Is there a picture to gain?' above reports a\n"
+                "real oracle ceiling AND the scene has enough fill to pay 13\n"
+                "coverages. Otherwise Plain: it is the same picture, it keeps the\n"
+                "whole VRAM saving, and it wins on any scene with meaningful\n"
+                "overdraw.\n"
+                "\n"
+                "Plain mode also forces the sub-pixel jitter off. Nothing but the\n"
+                "temporal pass can fuse two jitter phases, and plain mode has no\n"
+                "temporal pass - jitter without one is the period-2 bob and\n"
+                "nothing else.");
+            if (!s.blssNetwork)
+                ImGui::TextColored(
+                    ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
+                    "    No blss.net is baked into the build and the four settings below do\n"
+                    "    nothing - the sharpen, temporal, jitter and debug-view knobs are all\n"
+                    "    knobs on the network. Training and evaluating still work: they answer\n"
+                    "    what the NEURAL mode would be worth on this scene.");
+        }
+
+        ImGui::BeginDisabled(!s.blssNetwork);
         ImGui::SetNextItemWidth(scaled(120));
         ImGui::DragFloat("Sharpen strength", &s.blssSharpen, 0.01f, 0.0f, 1.0f, "%.2f");
         // Asked BEFORE prefHelp: a tooltip is a window and ImGui's "last item"
@@ -761,6 +826,7 @@ bool App::drawBlssSettings(ProjectSettings& s) {
                 "    The game writes BLSSFEAT into bin/log.txt about once a second; feed one\n"
                 "    line to --blss-eval --features --probe to place it in this corpus' "
                 "distribution.");
+        ImGui::EndDisabled();  // !s.blssNetwork - the four knobs above are the net's
     }
     ImGui::EndDisabled();
     return changed;
@@ -1640,8 +1706,14 @@ void App::blssCoverageTick() {
     // a coverage is a fraction of one screen and one full-screen pass costs
     // 14.3 % more at 512x512 than at 512x448, so the break-even moves with the
     // display mode (13.1 against 11.4).
+    // ...and at the RECONSTRUCTION the project is set to. Plain mode's EE bill
+    // is a seventh of the neural one, so the same coverage count lands on a
+    // very different side of a very different break-even; pricing both modes
+    // with one constant is the same class of error as pricing two rasters with
+    // one pass cost was.
     blssSpeed_ = blssCov_.ok ? blssui::speedFrom(blssCov_.mean,
-                                                 (double)blssCov_.outW * blssCov_.outH)
+                                                 (double)blssCov_.outW * blssCov_.outH,
+                                                 project_.settings.blssNetwork)
                              : blssui::SpeedEstimate{};
     if (blssCov_.ok)
         statusMessage_ = "BLSS: coverage estimate finished";
@@ -1874,7 +1946,7 @@ void App::drawBlssAnswer() {
     const bool haveQ = blssSummary_.ok;
     const bool haveS = blssCov_.ok && blssSpeed_.ok;
     const blssui::Recommendation rec =
-        blssui::recommend(blssSummary_, haveQ, blssSpeed_, haveS);
+        blssui::recommend(blssSummary_, haveQ, blssSpeed_, haveS, project_.settings.blssNetwork);
 
     const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
         good(0.45f, 0.85f, 0.45f, 1.0f), dim(0.65f, 0.65f, 0.65f, 1.0f);
@@ -1914,6 +1986,26 @@ void App::drawBlssAnswer() {
     // the estimate is from a measurement.
     if (haveS) {
         const blssui::SpeedEstimate& sp = blssSpeed_;
+        // WHICH RECONSTRUCTION THE LINE ABOVE PRICED. A break-even without its
+        // mode is as unreadable as one without its raster, and the two modes
+        // are more than four times apart - so this is stated before the numbers
+        // rather than left for the reader to infer from the settings tab.
+        if (!sp.network)
+            ImGui::TextColored(
+                good,
+                "    Priced for PLAIN mode (no network): %.2f ms of EE instead of %.2f, so "
+                "break-even is\n    %.1f coverages instead of %.1f at this raster. The picture is "
+                "the same bilinear composite\n    a net that chooses nothing already produces.",
+                blssui::fill::kEeCostPlainMs, blssui::fill::kEeCostMs, sp.breakEven,
+                blssui::fill::breakEven(sp.rasterPx, true));
+        else
+            ImGui::TextDisabled(
+                "    Priced for the NEURAL mode: %.2f ms of EE a frame. If this scene's net "
+                "chooses nothing -\n    BLSSFILL 1.00 passes, which is every project measured so "
+                "far - Plain mode draws the same\n    picture for %.2f ms and break-even falls to "
+                "%.1f.",
+                blssui::fill::kEeCostMs, blssui::fill::kEeCostPlainMs,
+                blssui::fill::breakEven(sp.rasterPx, false));
         if (sp.band == blssui::SpeedEstimate::Band::Win) {
             ImGui::TextWrapped(
                 "    Expect roughly %.1f-%.1fx, the two ends being 'the frame is 60 %% fill' "
@@ -1931,10 +2023,10 @@ void App::drawBlssAnswer() {
                 sp.savedMs, sp.breakEven, blssui::fill::kAnchorCoverages);
         } else {
             ImGui::TextWrapped(
-                "    The floor of that loss is %.1f ms - BLSS' own bill with no fill at all to "
-                "trade against it. Measured: blssrig, a terrain and six slabs, loses by 4.6 ms "
-                "of EE plus its composite.",
-                blssui::fill::kEeCostMs + blssui::fill::kCompositeGsMs);
+                "    The floor of that loss is %.1f ms - BLSS' own bill in this mode with no "
+                "fill at all to trade against it. Measured: blssrig, a terrain and six slabs, "
+                "loses by 4.6 ms of EE plus its composite in the NEURAL mode.",
+                blssui::fill::eeCostMs(sp.network) + blssui::fill::kCompositeGsMs);
         }
         ImGui::TextDisabled(
             "    Mean %.1f coverages, p95 %.1f (geometry %.1f counted + emitters %.1f "

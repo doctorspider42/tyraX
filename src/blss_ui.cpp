@@ -1276,19 +1276,23 @@ std::vector<CorpusScene> parseCorpusScenes(const std::string& text) {
 
 // -------------------------------------------------------------- will it be faster ---
 
-SpeedEstimate speedFrom(double coverages, double rasterPx) {
+SpeedEstimate speedFrom(double coverages, double rasterPx, bool network) {
     SpeedEstimate e;
     if (!(coverages >= 0.0)) return e;  // NaN-safe
     // A raster of zero reaches here from a FAILED coverage report; fall back to
     // the common case rather than dividing the whole model by nothing.
     if (!(rasterPx > 0.0)) rasterPx = fill::kRasterPxPal;
     e.ok = true;
+    e.network = network;
     e.coverages = coverages;
     e.rasterPx = rasterPx;
     e.passMs = fill::passMs(rasterPx);
-    e.breakEven = fill::breakEven(rasterPx);
+    e.breakEven = fill::breakEven(rasterPx, network);
     e.fillMs = coverages * e.passMs;
-    e.savedMs = fill::kSavedFraction * e.fillMs - (fill::kEeCostMs + fill::kCompositeGsMs);
+    // The ONE place the mode's bill enters, so `savedMs`, `breakEven` and the
+    // two multipliers below cannot end up priced against different modes.
+    const double cost = fill::eeCostMs(network) + fill::kCompositeGsMs;
+    e.savedMs = fill::kSavedFraction * e.fillMs - cost;
     if (e.savedMs <= 0.0) {
         e.band = SpeedEstimate::Band::Loss;
         return e;  // lo/hi stay 1.0: a slowdown is stated in ms, not as a ratio
@@ -1297,7 +1301,7 @@ SpeedEstimate speedFrom(double coverages, double rasterPx) {
                                            : SpeedEstimate::Band::Win;
     // The GS-bound limit: the whole frame is fill, so the whole frame shrinks
     // to what survives plus what BLSS costs. Nothing can beat this.
-    const double onAllFill = fill::kKeptFraction * e.fillMs + fill::kEeCostMs + fill::kCompositeGsMs;
+    const double onAllFill = fill::kKeptFraction * e.fillMs + cost;
     e.hi = onAllFill > 1e-6 ? e.fillMs / onAllFill : 1.0;
     // ...and the other end: fill is 60 % of the frame, the rest is EE work BLSS
     // does not touch. That fraction is an assumption and is named wherever this
@@ -1327,14 +1331,35 @@ std::string rangeText(const SpeedEstimate& s) {
 }  // namespace
 
 Recommendation recommend(const EvalSummary& quality, bool haveQuality, const SpeedEstimate& speed,
-                         bool haveSpeed) {
+                         bool haveSpeed, bool network) {
     Recommendation r;
-    const bool q = haveQuality && quality.ok;
+    // PLAIN MODE HAS NO PICTURE HALF, so the quality measurement stops being a
+    // term of the verdict. It is not discarded - the oracle margin is still the
+    // most interesting thing a reader could learn there - but it describes what
+    // the OTHER reconstruction could add, and a verdict that said "turn it on
+    // for the picture" about a mode with no network in it would be a confident
+    // wrong answer of exactly the kind this function exists to prevent.
+    const bool measuredQ = haveQuality && quality.ok;
+    const bool q = measuredQ && network;
     const bool s = haveSpeed && speed.ok;
-    if (!q && !s) {
+    if (!measuredQ && !s) {
         r.headline = "Nothing has been measured yet.";
         r.why = "The two buttons above answer the two halves: whether the picture has anything "
                 "to gain, and whether the frame will get shorter.";
+        return r;
+    }
+    // Plain mode with only the picture measured has nothing to say at all: the
+    // ceiling belongs to the other reconstruction and the speed half - the only
+    // half that decides anything here - has not been run.
+    if (!q && !s) {
+        r.verdict = Recommendation::Verdict::Mixed;
+        r.headline = "Plain mode is a SPEED decision, and the speed half is unmeasured.";
+        char b[256];
+        std::snprintf(b, sizeof(b),
+                      "The %+.2f dB ceiling measured above is what a NETWORK could capture here; "
+                      "plain mode does not run one. Press 'Will the frame get faster?'.",
+                      quality.oracleMargin);
+        r.why = b;
         return r;
     }
     const bool headroom = q && quality.oracleMargin >= kNoHeadroomDb;
@@ -1379,6 +1404,18 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality, const Spe
             r.verdict = Recommendation::Verdict::On;
             r.headline = "TURN IT ON. The picture has room and the frame gets shorter.";
         }
+    } else if (s && !network) {
+        // PLAIN MODE: one term, so one sentence, and no hedging about a picture
+        // half that does not exist. The picture is plain bilinear either way -
+        // the same picture a degenerate network already produces - so the whole
+        // question is whether the reduced raster pays for the redirect.
+        r.verdict = win    ? Recommendation::Verdict::SpeedOnly
+                    : close ? Recommendation::Verdict::Mixed
+                            : Recommendation::Verdict::Off;
+        r.headline = win ? "TURN IT ON. Plain mode makes this frame shorter."
+                    : close
+                        ? "TOO CLOSE TO CALL - plain mode is near this scene's break-even."
+                        : "LEAVE IT OFF. Even without the network there is too little fill here.";
     } else if (s) {
         r.verdict = win ? Recommendation::Verdict::SpeedOnly : Recommendation::Verdict::Mixed;
         r.headline = win    ? "The frame should get shorter - the picture half is unmeasured."
@@ -1400,6 +1437,16 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality, const Spe
         std::snprintf(b, sizeof(b), "Picture: the oracle ceiling is %+.2f dB at %.2f passes%s. ",
                       quality.oracleMargin, quality.oraclePasses,
                       headroom ? "" : " - indistinguishable from plain bilinear");
+        why += b;
+    } else if (measuredQ) {
+        // The measurement is still reported in plain mode, labelled as what it
+        // is: an argument for the OTHER mode, not a fact about this one.
+        char b[256];
+        std::snprintf(b, sizeof(b),
+                      "Picture: unchanged - plain mode IS the bilinear baseline. (A network "
+                      "here could reach %+.2f dB above it, at %.2f passes and the neural EE "
+                      "bill.) ",
+                      quality.oracleMargin, quality.oraclePasses);
         why += b;
     }
     if (s) {

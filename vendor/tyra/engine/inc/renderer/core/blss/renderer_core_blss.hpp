@@ -104,6 +104,13 @@ namespace Tyra {
  * buffer shrinks to the raster size at the same time (672 KB back at 2x2, see
  * RendererCoreGS::allocateVramBuffers). Nothing at all when it is off - VRAM
  * and the packet are allocated by configure().
+ *
+ * PLAIN MODE (configure()'s `network` = false) keeps the raster redirect and
+ * the VRAM arithmetic EXACTLY as above and deletes everything between them:
+ * the bag feed, the tile accumulators, the reprojection, the feature grid, the
+ * MLP and 472 of the grid's 476 vertices, leaving beginScene / endScene / one
+ * full-screen textured quad. It is the mode to reach for whenever the trained
+ * net asks for nothing, and it draws the identical picture when it does.
  */
 class RendererCoreBlss {
  public:
@@ -232,9 +239,32 @@ class RendererCoreBlss {
    * left doing it and the alternation reaches the screen. false = a pure
    * spatial upscale, stable by construction. Defaulted so previously generated
    * games keep their historical behaviour.
+   *
+   * `network` (TyraX): PLAIN MODE - the reduced raster with NO reconstruction
+   * at all (docs/neural-upscaler.md, "Plain mode"). false means the whole
+   * decision machinery is not merely idle but ABSENT: no bag proxies are fed
+   * (StaPipCore asks wantsProxies() and skips the branch outright), no tile
+   * accumulators are cleared, no reprojection, no feature grid, no MLP, and the
+   * composite is ONE full-screen quad instead of the Gouraud grid.
+   *
+   * It exists because a trained net very often chooses NOTHING - all three
+   * outputs quantise below the deadzone, BLSSFILL reports 1.00 passes, and the
+   * composite is already a single bilinear pass - while the frame still pays
+   * the whole EE bill to reach that conclusion. Plain mode pays the raster
+   * redirect and that one pass and no more, which is what moves the break-even
+   * from 13.1 full-screen coverages to 2.6 at an ordinary PAL raster (the
+   * numbers are in blssui::fill:: and docs/profiling.md). Read BLSSFILL under
+   * debugView 2 before assuming a given project is in that case: on
+   * examples/upscaler-lab's own net it is 1.58 passes, all of it temporal.
+   *
+   * The picture is the base pass and only the base pass, i.e. exactly what a
+   * degenerate network already produces. `jitter` is FORCED OFF here and that
+   * is not a policy choice made twice: the only thing that can fuse two jitter
+   * phases is the temporal pass, and in plain mode there is none - jittered
+   * sampling with nothing to fuse it is the period-2 bob and nothing else.
    */
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
-                 int debugView, bool jitter = true);
+                 int debugView, bool jitter = true, bool network = true);
 
   /** The trained weights (123 at the shipped kFeatures = 6, kHidden = 12),
    * emitted into the
@@ -248,6 +278,18 @@ class RendererCoreBlss {
               const float* b2);
 
   bool isEnabled() const { return enabled; }
+  /** False in PLAIN MODE - see configure()'s `network`. */
+  bool usesNetwork() const { return useNet; }
+  /**
+   * THE ONE QUESTION THE BAG FEED ASKS, and it must be asked instead of
+   * isEnabled(). Every addBag* entry point below is already inert in plain
+   * mode, but "inert" is not "free": StaPipCore computes a world bounding
+   * sphere (two sqrtf) and a texel area per bag before it calls, and that work
+   * exists ONLY to describe a frame to a network that is not there. The
+   * measured `proxy` term is 2.34 ms of a 4.60 ms bill - by far the largest
+   * single item - so the caller's gate has to be this, not enabled.
+   */
+  bool wantsProxies() const { return enabled && useNet; }
   int getLowResW() const { return lowW; }
   int getLowResH() const { return lowH; }
 
@@ -466,6 +508,28 @@ class RendererCoreBlss {
   qword_t* emitPassState(qword_t* q, int srcVram, int srcBufW, int texW,
                          int texH, bool linear, u64 alpha, bool textured);
   qword_t* emitGrid(qword_t* q, int pass);
+  /**
+   * PLAIN MODE's whole composite: the base pass as ONE CELL of the grid - four
+   * vertices instead of emitGrid(q, 0)'s 476.
+   *
+   * It is the same picture, and the equality is a property of the packet
+   * rather than a hope. Pass 0's UV is u(x) = (x << 4) / scaleX + jitter, a
+   * LINEAR function of the output pixel; the grid samples it at every 32-pixel
+   * corner and lets the rasteriser interpolate between them, and this samples
+   * it at the four screen corners and lets the SAME rasteriser interpolate
+   * between those - same PRIM flags, same vertex order, same diagonal, same
+   * gradient (an exact 16/scaleX per pixel), same bilinear filter, same region
+   * clamp, same opaque blend, same constant vertex colour.
+   *
+   * Checked rather than argued: on examples/upscaler-lab, parked camera, every
+   * emitter hidden, a neural build whose network asks for nothing and a plain
+   * build are BYTE-IDENTICAL over 811 426 compared pixels in all nine
+   * cross-pairings of three captures each (docs/neural-upscaler.md, "Plain mode
+   * draws the same picture").
+   */
+  qword_t* emitBaseQuad(qword_t* q);
+  /** The texture/blend state both composites hand back - see the .cpp. */
+  qword_t* emitCompositeRestore(qword_t* q);
   /** 0..255 alpha byte of a pass at a grid corner (docs section 6). */
   u8 cornerAlpha(int pass, int corner) const;
 
@@ -495,6 +559,10 @@ class RendererCoreBlss {
   void* vramRebuildUser = nullptr;
 
   bool enabled = false;
+  // PLAIN MODE's flag. Defaults true so an embedder calling the six-argument
+  // configure() - and every generated game built before plain mode existed -
+  // keeps the reconstruction it always had.
+  bool useNet = true;
   bool allocated = false;
   bool inScene = false;
   int scaleX = 1, scaleY = 1;

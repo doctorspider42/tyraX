@@ -23369,6 +23369,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             // oscillation") at the cost of the temporal supersampling.
             << "constexpr int BLSS_JITTER = "
             << (p.settings.blssJitter ? 1 : 0) << ";\n"
+            // PLAIN MODE. 0 = the reduced raster and one bilinear pass, with
+            // no proxy feed, no reprojection, no feature grid and no MLP. The
+            // four constants above are still emitted and still say what the
+            // project holds: configure() is what decides which of them plain
+            // mode reads (none of them, and it forces the jitter off), so the
+            // policy lives in one place instead of being restated here.
+            << "constexpr int BLSS_NETWORK = "
+            << (p.settings.blssNetwork ? 1 : 0) << ";\n"
             << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
             << ";\n";
     }
@@ -24314,8 +24322,15 @@ static std::string blssNetHeader(const Project& p) {
 }
 
 // The prolog's include line for the baked net.
+//
+// PLAIN MODE INCLUDES NOTHING, and that is the point of doing it here rather
+// than leaving a header nobody reads: the weights are ~2 KB of .rodata and the
+// banner above them describes a network that will not run, so a plain build
+// would ship - and a plain boot log would announce - a net it never loads. The
+// FILE is still generated (blssNetHeader is emitted whenever the upscaler is
+// on), so which files a BLSS project has stays a function of blssEnabled alone.
 static std::string blssInclude(const Project& p) {
-    if (!p.settings.blssEnabled) return "";
+    if (!p.settings.blssEnabled || !p.settings.blssNetwork) return "";
     return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
            "(--blss-train)\n";
 }
@@ -24326,21 +24341,33 @@ static std::string blssInit(const Project& p) {
     std::string s =
         "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
         "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
-        "  // the low-res render target and the reconstruction knobs, setNet()\n"
-        "  // hands over the MLP that picks the per-tile blend weights.\n"
+        "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
+        "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
+        "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
+        "  // raster and one bilinear composite pass.\n"
         "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
         "BLSS_SHARPEN,\n"
         "                                       BLSS_TEMPORAL, "
         "BLSS_DEBUG_VIEW,\n"
-        "                                       BLSS_JITTER);\n"
-        "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
-        "BLSS_NET_W2,\n"
-        "                                    BLSS_NET_B2);\n";
-    // WHICH NET, IN THE BOOT LOG, ALWAYS. Said here and not only in a generated
-    // header, because the person wondering why the picture looks wrong is
-    // reading bin/log.txt. It used to be printed only in the untrained case,
-    // which meant the interesting cases - "I trained one and it is not being
-    // used" and "I never trained one and it works anyway" - were both silent.
+        "                                       BLSS_JITTER, BLSS_NETWORK);\n";
+    if (p.settings.blssNetwork)
+        s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
+             "BLSS_NET_W2,\n"
+             "                                    BLSS_NET_B2);\n";
+    // WHICH RECONSTRUCTION, AND WHICH NET, IN THE BOOT LOG, ALWAYS. Said here
+    // and not only in a generated header, because the person wondering why the
+    // picture looks wrong is reading bin/log.txt. It used to be printed only in
+    // the untrained case, which meant the interesting cases - "I trained one
+    // and it is not being used" and "I never trained one and it works anyway" -
+    // were both silent. Plain mode is a third such case and the loudest of
+    // them: a reader who does not know the mode exists would otherwise measure
+    // a frame with no network in it and attribute the numbers to one.
+    if (!p.settings.blssNetwork) {
+        s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
+             "raster is blown up by one bilinear pass. No proxies, no reprojection, "
+             "no feature grid, no MLP.\");\n";
+        return s;
+    }
     const BlssBake b = blssBake(p);
     s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
     for (const std::string& n : b.notes)

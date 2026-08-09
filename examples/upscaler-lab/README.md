@@ -150,6 +150,17 @@ in [Measured](#measured) — PCSX2 mis-prices GS fill by a large factor
   prices it — 27.17 dB against 28.52 native (the 27.25 this line used to quote
   was the jitter-on net, which is not what ships). What you buy for it is the frame
   rate in [Measured](#measured).
+- **Switch *Reconstruction* to Plain and rebuild.** This project is the reason
+  the mode exists and the reason it has to be measured rather than assumed: its
+  own trained net does **not** ask for nothing. Under *Debug view* > *Log the
+  feature spread* it reads `BLSSOUT temporal=0.000/0.044/0.169` and
+  `BLSSFILL ... temporal=58.0% passes=1.58` - point and sharpen are dead, the
+  temporal pass is not - so here Plain is a genuinely different picture and a
+  4.08 ms cheaper frame, not a free lunch. On a project whose net **does** ask
+  for nothing (this one with *Temporal* switched off is the constructed case)
+  the two builds are byte-identical: 0 differing pixels of 811 426, nine
+  cross-pairings, camera pinned and every emitter hidden. See
+  [Plain mode](../../docs/neural-upscaler.md#plain-mode--the-reduced-raster-without-the-network).
 - Re-run the training and watch the ceiling move:
   `tyrax-editor --blss-eval <this folder>` prints the oracle row before any net
   exists.

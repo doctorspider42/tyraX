@@ -176,7 +176,11 @@ and the headless twin of the window's *Will the frame get faster?* button — sa
 prints per-shot and overall mean/p95 coverages with the **geometry/emitter
 split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
 Use the project's own raster (the default) or the verb and the button answer
-slightly different questions. It exists because the round that *measured* the
+slightly different questions. It also reads the project's **reconstruction mode**
+(`blssNetwork`) and prices the verdict for it — plain mode's EE bill is a
+seventh of the neural one, so the same coverage count lands against a **2.6**
+break-even instead of a 13.1 one — and prints the OTHER mode's line beside it,
+because the two verdicts routinely disagree and the switch is one setting away. It exists because the round that *measured* the
 speed model could not re-derive the estimator's own figure — it was a button in
 a GUI — and **a number nobody can re-run is a number nobody can check.** Its
 first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass

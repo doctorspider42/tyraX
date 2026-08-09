@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.12.0 (the upscaler without the upscaler): BLSS gains a PLAIN mode -
+// ProjectSettings::blssNetwork, format v12 - which keeps the reduced raster and
+// the VRAM it hands back and deletes everything between: no bag proxies, no
+// reprojection, no feature grid, no MLP, and one full-screen sprite instead of
+// the Gouraud grid. It exists because on every project measured the trained net
+// already asks for NOTHING (all three outputs under the deadzone, BLSSFILL
+// 1.00 passes) while the frame pays the full EE bill to find that out. MINOR
+// because a new mode appears in the editor and in the generated game; the
+// default is unchanged, so an existing project regenerates byte for byte.
+//
 // 1.11.0 (the feature grid can describe particles): the SIXTH rule of the BLSS
 // twin contract. An emitter bag used to contribute no proxy at all - a
 // billboard bag runs frustumCulling None, so StaPipCore had no package bbox,
@@ -71,7 +81,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 11
+#define TYRAX_VERSION_MINOR 12
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -172,6 +182,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // can bring it back; what the bump buys is that an older editor now refuses the
 // file instead of dropping the key on ITS next save, which is the whole job of
 // this number.
-inline constexpr int kFormatVersion = 11;
+// v12 (the upscaler's plain mode, docs/neural-upscaler.md):
+// ProjectSettings::blssNetwork - false renders at the reduced raster and blows
+// it back up with one bilinear pass, with no network, no bag proxies, no
+// reprojection and no feature grid. Purely additive and it defaults to TRUE,
+// which is the only thing a project saved before the key existed can have
+// meant: the reconstruction it shipped with is the one its blss.net was fitted
+// for. So an older file opens as the neural mode it already was and regenerates
+// byte for byte, and no migration step is needed. (Note the deliberate contrast
+// with v9's blssJitter, which does NOT preserve what it was saved with - that
+// exception was bought by a visibly shaking picture, and there is no equivalent
+// argument here.)
+inline constexpr int kFormatVersion = 12;
 
 }  // namespace version

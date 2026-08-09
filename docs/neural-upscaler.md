@@ -43,6 +43,18 @@ rasteriser and no pixel shaders at all.
 > unchanged — but that is a prediction and the re-run is still owed. See
 > [examples/upscaler-lab](../examples/upscaler-lab/README.md).)
 >
+> **That regime is ONE OF TWO, and the second one is most 3D scenes.** The
+> break-even above is the price of the *network* — 4.60 ms of EE to decide, per
+> tile, how to blow the image up. **Plain mode
+> ([below](#plain-mode--the-reduced-raster-without-the-network)) buys none of
+> that and keeps everything else**: the same reduced raster, the same VRAM
+> saving, one bilinear composite pass, **0.52 ms** of EE and a break-even of
+> **2.6 full-screen coverages at 512×448** (2.3 at 512×512). It draws the
+> **byte-identical picture** to the neural mode whenever the network asks for
+> nothing, which is often. Ask the Evaluate tab whether your scene has a ceiling
+> before paying for a network; if it has none, the mode to turn on is the plain
+> one.
+>
 > **The regime is heavy alpha-blended overdraw.** Haze, smoke, layered
 > billboards, anything that paints the same pixels many times. Triangle count is
 > not the trigger and neither is texture size: it is coverage. Run
@@ -555,6 +567,167 @@ of that table. Derived, not measured: the arithmetic is the engine's own
 (`renderer_core_gs.cpp` allocates z at `getRasterWidthUI/HeightUI`;
 `renderer_core_blss.cpp` allocates the target at `lowBufW × lowH`), and no `1×2`
 project has been booted to read a `VRAMSTAT` line back.
+
+## Plain mode — the reduced raster without the network
+
+Plain mode is BLSS with the neural half deleted: the 3D scene still rasterises
+into the reduced-resolution target, the z buffer still shrinks with it, and the
+display buffer is reconstructed by **one full-screen bilinear pass** — no bag
+proxies, no reprojection, no feature grid, no MLP, and four grid vertices
+instead of 476. It is *Reconstruction: Plain* in the settings block
+(`ProjectSettings::blssNetwork`, `BLSS_NETWORK` in the generated
+`scene_data.hpp`, `configure()`'s seventh argument in the engine).
+
+**Why it exists.** Every measurement above prices the *network*, and the network
+is nearly the whole bill: `proxy` 2.34 + `reproj` 0.28 + `feat` 0.19 + `net` 0.78
+of a 4.60 ms total, all of it spent deciding what to do per tile. On a project
+whose trained net asks for nothing — all three outputs under the inference
+deadzone, `BLSSFILL … passes=1.00`, the composite already a single bilinear pass
+— **the frame pays that bill to produce a weight field of zeros.** Plain mode is
+the same picture without the bill.
+
+| | neural | plain |
+|---|---|---|
+| EE a frame | **4.60 ms** | **0.52 ms** |
+| composite fill | 0.50 ms | 0.50 ms (one pass, by construction) |
+| break-even, 512×448 | **13.1** coverages | **2.6** |
+| break-even, 512×512 | 11.4 | 2.3 |
+| GS VRAM handed back at 2×2 | 448 KB | 448 KB — *unchanged* |
+| picture | the network's | identical, when the network asks for nothing |
+
+**That is what changes the feature's reach.** 13.1 full-screen coverages is a
+fog demo. 2.6 is most 3D scenes with any overdraw at all — a room with a floor,
+walls, props and a couple of transparent surfaces clears it.
+
+### The floor plain mode cannot go below, and it is bigger than it looks
+
+`begin` 0.41 + `end` 0.10 = **0.51 ms** survives every deletion. Those two are
+the raster redirect itself — two GIF packets, each ending in `draw_finish` and a
+wait, i.e. a GS round trip — and plain mode still renders into a low-res target,
+so it still pays both. Half a millisecond of *"4.58 ms to produce a weight field
+that is zero"* was never the network's; it is the price of rendering small at
+all.
+
+So an estimate of ~0.2 ms for this mode is not reachable, and a break-even
+derived from it (~1.8) is about 30 % optimistic. The number is 2.6, and
+`blssui::fill::breakEven(rasterPx, network)` derives it rather than storing it,
+exactly as the neural one is derived — take a millisecond off either bill and
+both move.
+
+> **Quote a break-even with its raster AND its mode.** They are more than four
+> times apart. A bare 13.1 read against a plain project would tell a scene at 4
+> coverages to leave the feature off when it is a clear win, which is the same
+> class of mistake as the bare 11.5 that was a 576i figure quoted at every
+> resolution.
+
+### Plain mode draws the same picture
+
+Not asserted — **measured, and the first attempt at the measurement was
+invalid.**
+
+The composite's base pass reads the low-res target with `u(x) = (x << 4)/scaleX
++ jitter`, a linear function of the output pixel, through a bilinear filter and
+a region clamp. The grid samples that function at every 32-pixel corner; plain
+mode samples it at the four screen corners. Same `PRIM` flags, same vertex
+order, same diagonal, same gradient, same constant vertex colour — so the packet
+the GS receives is the same drawing, and identity is a property of the packet
+rather than of a comparison that happened to come out clean. (A GS **sprite** was
+written first and would have saved seven qwords. It hands the picture to a
+different rasteriser path, and whether that path sets its texture DDA up bit for
+bit like the triangle one is a question about hardware nobody here can answer, so
+it was dropped rather than measured.)
+
+**The fixture, because the obvious one is not valid.** `examples/upscaler-lab`'s
+own net does **not** ask for nothing: under `blssDebugView 2` it reads
+
+```
+BLSSOUT  point=0.000/0.000/0.000 temporal=0.000/0.044/0.169 sharpen=0.000/0.000/0.000
+BLSSFILL point=0.0% temporal=58.0% sharpen=0.0% passes=1.58
+```
+
+— point and sharpen are dead, but the temporal pass runs on 58 % of the grid. A
+naive plain-vs-neural A/B on that project reads **230 930 of 811 426 pixels
+different, every one by at most 2/255 in one channel**, and the difference is the
+*temporal pass*, not the composite. It looked exactly like a primitive-level
+divergence and was not one. The degenerate case has to be *constructed*: the same
+project with **Temporal** off, so the network still runs and still measures
+point 0.000 / sharpen 0.000, and the composite is pass 0 and nothing else.
+
+**The result.** Fixture: `examples/upscaler-lab` at 512×448, the Cutscene tour
+allowed to park, every emitter hidden and the camera pinned by an object script
+so the frame is a pure function of the frame index; PCSX2 software renderer,
+`-PrintWindow` captures, three frames per arm.
+
+| comparison | differing pixels of 811 426 | max Δ |
+|---|---|---|
+| neural vs neural (control, 3 pairs) | **0** | 0 |
+| plain vs plain (control, 3 pairs) | **0** | 0 |
+| **neural vs plain (all 9 cross-pairings)** | **0** | **0** |
+
+The compared region excludes three bands that move by design and are named
+rather than trimmed away: PCSX2's own FPS overlay, the game's `FPS`/`MEM` HUD
+text, and 40 rows at the two campfires, whose light pools flicker. Including the
+last one the whole frame differs by 880 pixels — the fires — in *both* arms
+equally.
+
+The controls are what make the zero mean anything: a fixture whose own frames are
+byte-identical between captures is a clean instrument, and this one is.
+
+### What it costs, and what is inferred rather than measured
+
+**The console was unreachable for this whole round** (`ps2client reset` returns 0
+and nothing answers), so the numbers split into two kinds and the split is
+stated rather than blurred.
+
+**Measured, in PCSX2, on the identical fixture and camera** — counts and EE
+aggregates, which is what an emulator is admissible for here:
+
+| arm | `work` (frame EE) | `FTSPLIT proxy/reproj/feat/net/pkt` |
+|---|---|---|
+| BLSS off | **11.68 ms** | — |
+| neural, `passes=1.00` | **14.19 ms** | `1.680/0.653 0.290 0.090 0.794 0.188` |
+| **plain** | **12.34 ms** | `0.000/0.000 0.000 0.000 0.000 0.003` |
+
+Every deleted term reads **exactly 0.000**, and the composite packet build falls
+to **1.6 %** of the grid's. What BLSS charges the frame over native drops from
+**+2.51 ms to +0.66 ms**. (These are emulator milliseconds and are quoted only as
+an aggregate and a ratio: PCSX2 under-reports GS fill by 76× and its per-function
+attribution does not transfer — its `begin` reads 0.07 where hardware reads 0.41.)
+
+**Carried over from hardware, not re-measured:** `begin` 0.41 and `end` 0.10,
+which plain mode does not change, and the four deleted terms' 3.59 ms. `pkt` is
+taken as the PCSX2 ratio applied to a packet that is 13 qwords against ~1450.
+Hence **0.52 ms**, and it is arithmetic over hardware measurements rather than a
+hardware measurement of plain mode. It wants one run on a console.
+
+> **One caveat the PCSX2 arms make visible.** BLSS' brackets are serialised, so
+> in a frame whose GS is still busy at `endScene`, EE work deleted before it
+> comes back as `end`: the two arms show **3.4 ms of EE removed and 1.9 ms of
+> frame removed**, the balance landing there. That is the fill-bound regime,
+> which is exactly where the model's own fill term already says BLSS wins — but
+> it is why the plain break-even is a floor and not a promise.
+
+### What plain mode does not change
+
+- **The VRAM saving is identical.** It comes from the z buffer following the
+  raster (`RendererCoreGS::allocateVramBuffers`), which is a property of the
+  reduced render and has nothing to do with the network: 448 KB back at 2×2 on a
+  512×448 output, and [exactly zero at 1×2](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so).
+- **The build interlock is identical.** Depth of field, portals and split screen
+  still want real GS depth at display resolution, which the shrunken z buffer
+  still does not allocate, so `blssClashes()` refuses the same combinations.
+- **The sub-pixel jitter is forced off**, in one place, in `configure()`. The
+  only thing that can fuse two jitter phases back into one image is the temporal
+  pass, and plain mode has none — jitter without it is the
+  [period-2 bob](#the-oscillation) and nothing else.
+- **Training and evaluation still work and still mean something.** They answer
+  what the *neural* mode would be worth on this scene, which is exactly the
+  question a reader of the Plain setting is asking. The window says so and prices
+  both modes side by side.
+- **No `blss.net` is baked into a plain build** — no `#include`, no `setNet()`,
+  ~2 KB less `.rodata` — and the boot log says
+  `BLSS: reconstruction = PLAIN (no network) …` rather than naming a network it
+  never loads.
 
 ## Training
 
@@ -1655,6 +1828,7 @@ controls nobody could stand behind at the time.
 |---|---|
 | **Enabled** | render the 3D scene at reduced resolution and reconstruct |
 | **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
+| **Reconstruction** | **Neural** (the per-tile network) or **Plain** — one bilinear pass, no network, 0.52 ms of EE instead of 4.60 and a break-even of 2.6 coverages instead of 13.1, with the VRAM saving and the picture unchanged whenever the network asks for nothing. [Plain mode](#plain-mode--the-reduced-raster-without-the-network). Its own switch rather than a third value of the two rows above, because it is a third question: *Enabled* asks whether the raster shrinks, *Scale* by how much, this asks what blows it back up. Picking Plain greys the four rows below it — every one of them is a knob on the network |
 | **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
 | **Debug view** | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |
