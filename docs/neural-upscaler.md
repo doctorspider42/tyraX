@@ -900,6 +900,25 @@ read. The explicit `-o` / `-i` above were the workaround; they still override,
 and a bestiary or multi-project corpus still writes to the current directory
 because a net fitted on several projects belongs to none of them.
 
+> **THE CORPUS RENDERER DRAWS NO EMITTERS, so a PSNR number for a
+> particle-heavy project is not measured — it is measured on a different
+> scene.** `blsscorpus.cpp` models emitters only in the coverage counter; the
+> renderer that produces the truth images and the `--dump` comparisons has no
+> emitter path and no blending at all. On `examples/upscaler-lab` — 3 072
+> alpha-blended billboards, **1.63x measured on a real PS2** — `--blss-eval`
+> renders bare sky and flat ground, reads `headroom=+0.000` and prints *"THIS
+> SCENE WILL NOT BENEFIT. Leave the upscaler off."* while `--blss-coverage` on
+> the same directory calls it a clear win. **The two verbs disagree about what
+> is in the scene and the quality one is the one that is wrong.**
+>
+> Both `--blss-train` and `--blss-eval` now print a WARNING naming the emitter
+> count whenever a project has any, so no table leaves the tool without the
+> caveat attached. Until the renderer grows billboards: read the **speed**
+> verdict for such a project, treat its decibels as absent, and note that the
+> published *"`examples/showcase` has a +0.00 dB ceiling"* row was measured
+> without that project's 8 emitters too. What a fix needs, and why it is not a
+> small one, is in [backlog.md](backlog.md).
+
 Both entry points take an optional **positional project directory**, and with one
 the corpus is the project's own scenes — real geometry, real materials, real
 terrain, walked / panned / orbited / whipped / pitched / strafed by six camera
@@ -1056,7 +1075,7 @@ jitter off, `--blss-eval --features`:
 
 | | peak \|r\| | verdict |
 |---|---|---|
-| `examples/showcase` | **0.015** | THERE IS NOTHING HERE TO LEARN — and its oracle ceiling is **+0.00 dB**, which is the independent confirmation |
+| `examples/showcase` | **0.015** | THERE IS NOTHING HERE TO LEARN — and its oracle ceiling is **+0.00 dB**, which is the independent confirmation. Both were measured **without its 8 emitters**, which the corpus renderer does not draw ([backlog](backlog.md)) |
 | `examples/upscaler-lab` | **0.277** | trainable, but thin — `coverage` is saturated on two thirds of its tiles |
 
 Both are an order of magnitude away from the 0.05 line, which is what makes it a

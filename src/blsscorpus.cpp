@@ -1968,6 +1968,44 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         if (jitterSeen && mine.jitter != pb.jitter) jitterConflict = true;
         if (!jitterSeen) pb = mine;
         jitterSeen = true;
+        // THE RENDERER DRAWS NO EMITTERS, AND A PROJECT THAT HAS THEM MUST BE
+        // TOLD SO HERE, where its ground truth is about to be manufactured.
+        //
+        // The emitters exist in this file only for the COVERAGE COUNTER
+        // (billboardOf / emitterCentres / countEmitter, the --blss-coverage
+        // path); renderScene() takes geometry and has no blending at all. So on
+        // a project whose overdraw IS its particles the truth images are bare
+        // sky and flat ground, and every PSNR in the table describes a frame the
+        // game never displays. That is not a rounding error: on
+        // examples/upscaler-lab - 3 072 alpha-blended billboards, measured at
+        // 1.63x on a real PS2 - `--blss-eval` reads +0.00 dB of headroom and
+        // prints "THIS SCENE WILL NOT BENEFIT. Leave the upscaler off", while
+        // `--blss-coverage` on the same directory calls it a win. The two verbs
+        // disagree about what is in the scene, and the quality one is the one
+        // that is wrong.
+        //
+        // Drawing them is a real piece of work and is filed in docs/backlog.md
+        // rather than half-landed (it needs a blending path in a rasteriser
+        // whose stated invariant is that it has none, back-to-front sorting, a
+        // particle-simulation twin, and a refit of every published net). Until
+        // then the honest thing is that no number leaves this tool without the
+        // caveat attached - a silently wrong verdict is worse than a missing
+        // one, which is the rule this whole feature was rebuilt around.
+        int liveEmitters = 0;
+        for (const ProjectScene& s : scenes)
+            for (const SceneEmitter& e : s.emitter)
+                if (e.enabled) ++liveEmitters;
+        if (liveEmitters > 0)
+            std::printf(
+                "[blss] WARNING: '%s' has %d enabled emitter(s) and the corpus renderer draws "
+                "NONE of them.\n"
+                "[blss]          Its ground truth is the scene without its particles, so every "
+                "PSNR and every\n"
+                "[blss]          verdict below describes a frame the game does not display. "
+                "Use --blss-coverage\n"
+                "[blss]          for a project whose overdraw is its emitters "
+                "(docs/backlog.md).\n",
+                dir.c_str(), liveEmitters);
         const size_t before = shots.size();
         buildProjectShots(cfg, mats, projectGeometry, projectAnim, scenes,
                           static_cast<int>(groupNames.size()), dir, shots);

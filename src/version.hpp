@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.10.2 (the corpus says what it does not draw): a project with enabled
+// emitters gets a warning from --blss-train / --blss-eval, because the corpus
+// renderer draws none of them and the PSNR table therefore describes a frame
+// the game never displays - on examples/upscaler-lab, measured at 1.63x on real
+// hardware, it printed "THIS SCENE WILL NOT BENEFIT". Drawing them is filed in
+// docs/backlog.md; this is the caveat, not the fix.
+//
+// 1.10.1 (two things hardware testing found, both fixes rather than features):
+// `--blss-train <projectDir>` writes its net into the PROJECT instead of the
+// current directory, so the documented "train, then rebuild" flow stops
+// silently rebuilding with the shipped default; and the GS fill price is per
+// PIXEL rather than one scalar measured at 512x512, which moves the published
+// break-even to 13.1 coverages at an ordinary PAL raster. PATCH by this file's
+// own rule - no capability appears, two published numbers become right.
+//
 // 1.10.0 (the neural upscaler, docs/neural-upscaler.md): the BLSS branch and
 // main both climbed from 1.3.0 while they were apart and both arrived at 1.9.x
 // - a collision, since 1.9.0 on one side names the widescreen/World Facts set
@@ -24,16 +39,9 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
-// 1.10.1 (two things hardware testing found, both fixes rather than features):
-// `--blss-train <projectDir>` writes its net into the PROJECT instead of the
-// current directory, so the documented "train, then rebuild" flow stops
-// silently rebuilding with the shipped default; and the GS fill price is per
-// PIXEL rather than one scalar measured at 512x512, which moves the published
-// break-even to 13.1 coverages at an ordinary PAL raster. PATCH by this file's
-// own rule - no capability appears, two published numbers become right.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 10
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

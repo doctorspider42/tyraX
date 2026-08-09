@@ -285,16 +285,61 @@ the verification, and any fact worth reusing belongs in the relevant
     window runs its job with cwd = the project AND passes `-o`, so the two
     spellings named one file and only the shell could ever see the bug.
   - **The corpus renderer draws no emitters, so the QUALITY half of the feature
-    is blind to the scenes the SPEED half exists for.** `blsscorpus.cpp` models
-    emitters only in the coverage counter (`billboardOf` / `emitterCentres`, the
-    `--blss-coverage` path); the renderer that produces the PSNR tables and
-    `--dump` images does not draw them. On a fixture whose entire overdraw is
-    192 alpha-blended billboards the dumped frames are bare sky and flat ground,
-    so `--blss-eval`'s dB figures describe a frame the game never displays -
-    while `--blss-coverage` on the same project counts all 192. The two verbs
-    disagree about what is in the scene. Until the renderer grows billboards,
-    treat a PSNR number for a particle-heavy project as not-measured, and pin the
-    vantage (`blssShots`) before quoting one at all.
+    is blind to the scenes the SPEED half exists for. The tools now SAY so
+    (2026-08-09); drawing them is still owed and is not small.**
+    `blsscorpus.cpp` models emitters only in the coverage counter
+    (`billboardOf` / `emitterCentres` / `countEmitter`, the
+    `--blss-coverage` path); `renderScene()` takes geometry and materials and
+    has no emitter parameter at all.
+
+    **How bad it is, measured rather than described.** On
+    `examples/upscaler-lab` - the flagship demo, 3 072 alpha-blended
+    billboards, measured at **1.63x on a real PS2** - `--blss-eval` renders
+    bare sky and flat ground and prints `headroom=+0.000`, `oracle ==
+    bilinear`, and the verdict **"THIS SCENE WILL NOT BENEFIT. Leave the
+    upscaler off."** `--blss-coverage` on the same directory reads 65.6
+    coverages against a 13.1 break-even and calls it a win. So the two verbs
+    do not merely disagree about what is in the scene: the quality one gives
+    a CONFIDENT WRONG ANSWER about the one project this feature exists to
+    demonstrate, in the voice the window quotes verbatim.
+
+    **And it reaches a published claim.** `examples/showcase` has **8**
+    enabled emitters, so the "+0.00 dB oracle, some projects have nothing to
+    win" result quoted in docs/neural-upscaler.md and the skills was also
+    measured without a cavern of fog. Re-measure it when the renderer grows
+    billboards; do not assume it survives.
+
+    **Landed instead, because a silently wrong verdict is worse than a
+    missing one:** the corpus builder counts a project's enabled emitters and
+    prints a four-line WARNING naming the count, saying the ground truth is
+    the scene without its particles, and pointing at `--blss-coverage`.
+    It fires on upscaler-lab (11) and showcase (8) and stays silent on
+    `examples/cube` and the bestiary. It costs nothing and it is a caveat,
+    not a fix.
+
+    **What the fix actually needs**, which is why it was not half-landed:
+    (1) a BLENDING path in a rasteriser whose own comment says "no blending
+    anywhere in this" - today it is opaque plus the GS alpha TEST only;
+    (2) back-to-front sorting of the transparent quads, because a z-buffer
+    cannot order blended geometry; (3) a particle SIMULATION twin - the
+    counter places modelled centres on a rise, which is fine for counting
+    area and would be a fabricated ground truth if rendered, and a wrong
+    truth image is worse than none because the PSNR computed against it
+    looks valid; (4) camera-facing quad construction matching VU1's
+    billboard expansion, and a `BagProxy` for those bags matching what
+    `StaPipBillboardBag` submits, or the network is handed a description the
+    EE does not produce - the `luma` mistake again.
+
+    **The ordering constraint that makes it expensive:** the oracle fits its
+    labels against the rendered truth, so drawing particles changes the
+    labels for every project that has any. That invalidates every published
+    fold table AND `resources/blss-default.net`, which was fitted on seven
+    projects several of which have emitters. Land it with the refit and the
+    re-publication in the same commit, the way `kNetVersion` changes are
+    handled, or the numbers and the shipped net silently stop describing the
+    same thing. Until then: treat a PSNR for a particle-heavy project as
+    NOT MEASURED, read the speed verdict instead, and pin the vantage
+    (`blssShots`) before quoting anything at all.
   - **The degenerate-net fast path is designed and unlanded.** When every output
     is deadzoned (measured: `point 0 % / temporal 0 % / sharpen 0 %` on a real
     project's own net) the composite is exactly one full-screen bilinear blit,
