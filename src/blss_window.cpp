@@ -291,6 +291,14 @@ App::BlssClash App::blssClashesFor(const ProjectSettings& staged) const {
     const bool splitPref = staged.multiplayer == "split";
     for (size_t si = 0; si < project_.scenes.size(); ++si) {
         const SceneData& sc = project_.scenes[si];
+        // PER SCENE, exactly like blssClashes() (docs/neural-upscaler.md, "Per
+        // scene"): a scene that resolves the upscaler OFF cannot clash with
+        // anything, and reporting it would send someone hunting for a portal
+        // that is doing no harm. Resolved against the STAGED project default,
+        // which is what project::resolvedSettings would use if the modal's
+        // edits were already committed.
+        if (!(sc.overrides.upscaler ? sc.settings.blssEnabled : staged.blssEnabled))
+            continue;
         const auto ref = [&](int obj, const std::string& what) {
             BlssClashRef r;
             r.scene = (int)si;
@@ -593,12 +601,36 @@ bool App::drawBlssSettings(ProjectSettings& s) {
             "    anything. On a frame with too little fill it also measured 9.83 ms a frame\n"
             "    SLOWER (9.42 -> 19.25), and textured primitives and terrain can vanish\n"
             "    with it on - both are open work.");
+    // Per-scene note (docs/neural-upscaler.md, "Per scene"): this checkbox is
+    // the project DEFAULT. Said here because the setting stopped being the
+    // whole answer, and a reader looking at "off" while one scene has it on
+    // would otherwise be reading a lie.
+    {
+        int overriding = 0;
+        if (hasProject_)
+            for (const SceneData& sc : project_.scenes) overriding += sc.overrides.upscaler ? 1 : 0;
+        if (overriding > 0)
+            ImGui::TextDisabled(
+                "    %d of this project's %d scenes override this in Scene > Scene\n"
+                "    Preferences > Neural upscaler and ignore the setting above.",
+                overriding, (int)project_.scenes.size());
+    }
     // ALWAYS, not only when the feature is on. The person who most needs to
     // know that this project uses depth of field is the one deciding whether to
     // tick the box above; drawing it only for `s.blssEnabled` meant the answer
     // arrived one click too late, and the first thing they would then hit is a
     // build refusing with a wall of #error.
-    drawBlssClashWarning(blssClashesFor(s), !s.blssEnabled);
+    //
+    // "Informational" is now "no scene resolves it on" and not "this checkbox is
+    // off": a project whose default is off while one scene overrides it ON will
+    // have its build refused, and calling that informational would be wrong.
+    {
+        bool anyOn = false;
+        if (hasProject_)
+            for (const SceneData& sc : project_.scenes)
+                anyOn |= sc.overrides.upscaler ? sc.settings.blssEnabled : s.blssEnabled;
+        drawBlssClashWarning(blssClashesFor(s), !anyOn);
+    }
 
     ImGui::BeginDisabled(!s.blssEnabled);
     {

@@ -130,6 +130,45 @@ class RendererCoreGS {
    * permanent VRAM region has to be laid out again. */
   bool needsBufferRealloc() const;
 
+  /**
+   * Modified by TyraX (BLSS per scene): PIN the raster scale the z buffer is
+   * sized for, independently of the scale the projection is currently using.
+   *
+   * The two are normally the same and this is never called - a game that
+   * rasterises reduced for its whole run wants the small z buffer, which is
+   * where BLSS' VRAM saving comes from. A game whose SCENES differ - some
+   * upscaled, some native - cannot have that: a native scene writes depth over
+   * the whole display raster. So it pins 1,1 here once, at init, and the layout
+   * is decided for the whole run: needsBufferRealloc() then stays false however
+   * often the active raster scale changes, and a scene change costs no
+   * eviction, no vram.reset() and no re-placement of anything.
+   *
+   * 0,0 (the default) means "follow the settings", i.e. the original behaviour.
+   * Set it BEFORE the buffers are allocated or re-allocated; changing it later
+   * is a request for a rebuild like any other.
+   */
+  void setZRasterScale(const int& sx, const int& sy);
+
+  /**
+   * Modified by TyraX (BLSS): what zBuffer.mask must be OUTSIDE a low-res
+   * raster bracket, derived from the allocation by allocateVramBuffers().
+   *
+   * 1 when the z buffer came out smaller than the display raster (every
+   * full-resolution pass must have its depth writes masked, or it stamps past
+   * the allocation and through the texture heap); 0 when z covers the display
+   * and there is nothing to protect. RendererCoreBlss::endScene() restores
+   * THIS rather than a literal, because in a game that mixes upscaled and
+   * native scenes the literal 1 would leave the next native scene rendering
+   * with its depth writes masked.
+   *
+   * Read-only on purpose. The mask is derived from the allocation and never
+   * assigned from outside - see the comment in allocateVramBuffers() for what
+   * an externally-assigned mask cost.
+   */
+  const u8& getZMaskDefault() const { return zMaskDefault; }
+
+  void flipBuffers();
+
   void enableZTests();
 
   /** Set the GS FOGCOL register (TyraX fork, hardware fog). */
@@ -271,6 +310,13 @@ class RendererCoreGS {
   // so a later configure() can tell whether the layout has to be redone.
   int zRasterScaleX = 1;
   int zRasterScaleY = 1;
+  // Modified by TyraX (BLSS per scene): the pinned z raster scale, 0 = follow
+  // the settings' active raster scale. See setZRasterScale().
+  int zPinScaleX = 0;
+  int zPinScaleY = 0;
+  // Modified by TyraX (BLSS): zBuffer.mask outside a low-res bracket, derived
+  // by allocateVramBuffers(). See getZMaskDefault().
+  u8 zMaskDefault = 0;
 
   void allocateBuffers();
   void allocateVramBuffers();

@@ -1386,8 +1386,15 @@ struct ProjectSettings {
     // The neural upscaler (docs/neural-upscaler.md). The 3D scene renders into
     // a reduced-resolution GS target and a small MLP - trained on the host,
     // baked into the game - decides per 32x32 screen tile how to blow it back
-    // up to the display buffer. Project-wide and baked at build time, like
-    // custom screen effects: no per-scene override and no flow-graph control.
+    // up to the display buffer. Baked at build time, like custom screen
+    // effects: no flow-graph control.
+    //
+    // THE PROJECT DEFAULT, which a scene may override for `blssEnabled` and
+    // `blssNetwork` (SceneOverrides::upscaler - see the note there for why
+    // those two and not the other four). Read the resolved answer with
+    // project::resolvedSettings(p, scene); reading p.settings.blssEnabled
+    // directly asks "what does a scene that inherits do", which is a different
+    // question and is almost never the one being asked.
     //
     // Off by default, and deliberately so: it is a proof of concept, and it is
     // incompatible with depth of field, portals and split-screen (all three
@@ -1591,12 +1598,33 @@ struct SceneOverrides {
     bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
+    // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
+    // neural-upscaler.md, "Per scene"). The other four BLSS settings stay
+    // project-wide and the reasons are different for each pair:
+    //
+    //   blssScale sizes the two PERMANENT GS allocations - the low-res colour
+    //   target and, through it, the z buffer - and the permanent region cannot
+    //   be re-laid after init without evicting every resident texture. It is
+    //   also recorded in a net's provenance sidecar and REFUSED on mismatch
+    //   (blss::checkProvenance), so a per-scene scale would need a net per
+    //   scale, not a setting.
+    //
+    //   blssJitter is the sampler the net was FITTED for, recorded in the same
+    //   sidecar. Sharpen and temporal are that net's tuning, and the debug view
+    //   is a developer instrument. A per-scene value for any of them would be a
+    //   knob on a network that does not vary with it.
+    //
+    // What DOES vary per scene is the pair of questions that have a per-scene
+    // answer: does this scene rasterise reduced at all, and does the MLP
+    // reconstruct it or does one bilinear pass. Both are free at a fixed scale.
+    bool upscaler = false;    // blssEnabled, blssNetwork
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
-           a.fog == b.fog && a.highlight == b.highlight;
+           a.fog == b.fog && a.highlight == b.highlight &&
+           a.upscaler == b.upscaler;
 }
 
 class History;
@@ -3256,6 +3284,25 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
 // runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// What the neural upscaler resolves to across the WHOLE project (docs/
+// neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build
+// interlock, by the editor's clash warning and by the BLSS window - so none of
+// them can decide "does this project mix" differently, which is exactly how the
+// old dialog-vs-build split drifted.
+//
+// `mixed` is decided on the RESOLVED values, never on the override flags: a
+// project whose every scene overrides to the same answer is not mixed, and it
+// keeps generating the sources a project-wide setting generated. That is what
+// makes byte-identical regeneration a property of the OUTCOME rather than of
+// how somebody happened to author it.
+struct BlssUse {
+    bool any = false;         // some scene rasterises reduced
+    bool anyNative = false;   // some scene renders at the full raster
+    bool anyNetwork = false;  // some scene reconstructs with the MLP
+    bool mixed = false;       // the scenes do not all resolve alike
+};
+BlssUse blssUse(const Project& p);
 
 // Fold the editable ranges onto a cycle / one of its keys. Called by the
 // .tyra reader (a hand-edited file is not to be trusted) and by the Ambience

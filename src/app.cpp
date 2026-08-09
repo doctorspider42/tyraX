@@ -14529,10 +14529,17 @@ void App::drawScenePreferencesModal() {
 
     // One category: a header, an override toggle, then its widgets disabled
     // (grayed, previewing the inherited value) until the toggle is on.
-    auto category = [&](const char* title, bool& flag, auto widgets) {
+    // `toggle` is the override checkbox's VISIBLE label, and it is a parameter
+    // rather than a constant because a label is what `--ui-script` targets: five
+    // categories all saying "Override project settings" cannot be told apart by
+    // a scripted run (`find` takes the first match, and `visibleLabel()` cuts a
+    // `##` suffix off on purpose, so an invisible discriminator does not help
+    // either). Anything added here that has to be TESTED needs its own wording.
+    auto category = [&](const char* title, bool& flag, auto widgets,
+                        const char* toggle = "Override project settings") {
         ImGui::SeparatorText(title);
         ImGui::PushID(title);
-        ImGui::Checkbox("Override project settings", &flag);
+        ImGui::Checkbox(toggle, &flag);
         ImGui::BeginDisabled(!flag);
         widgets();
         ImGui::EndDisabled();
@@ -14663,6 +14670,32 @@ void App::drawScenePreferencesModal() {
         ImGui::SliderFloat("Opacity", &s.highlightOpacity, 0.0f, 1.0f, "%.2f");
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
+
+    // The neural upscaler, per scene (docs/neural-upscaler.md, "Per scene").
+    // Deliberately the two questions that HAVE a per-scene answer and nothing
+    // else - the scale, the jitter and the reconstruction tuning stay in
+    // Project > Preferences because one project ships one net and its
+    // provenance records the scale and the sampler that net was fitted for.
+    category("Neural upscaler (BLSS)", ov.upscaler, [&] {
+        ImGui::Checkbox("Reconstruct from a reduced-resolution render",
+                        &s.blssEnabled);
+        ImGui::BeginDisabled(!s.blssEnabled);
+        ImGui::Checkbox("Reconstruct with the neural network", &s.blssNetwork);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled(
+            "Everything else about the upscaler - the scale, the jitter, the\n"
+            "sharpen and temporal knobs - stays in Project > Preferences: one\n"
+            "project ships one blss.net and it was fitted for one of each.");
+        // The whole point of the per-scene setting, said where the decision is
+        // made: a scene that clashes can drop the upscaler on its own.
+        if (project_.scenes.size() > 1 && !project_.settings.blssEnabled &&
+            s.blssEnabled && ov.upscaler)
+            ImGui::TextDisabled(
+                "The project default is OFF, so this turns it on for this scene\n"
+                "alone. Mixing costs the z-buffer saving: a project whose scenes\n"
+                "disagree keeps the low-res target as overhead (224 KB at 2x2 on\n"
+                "a 512x448 output) instead of trading it for 672 KB of z.");
+    }, "Override the upscaler for this scene");
 
     ImGui::EndChild();
     ImGui::Separator();

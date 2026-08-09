@@ -67,6 +67,17 @@ texture, `vram.reset()`, re-run the allocation sequence:
   break that rule**, which is why the hook is gated on
   `RendererCoreGS::needsBufferRealloc()` and fires at most once.
 
+  **A game whose SCENES disagree about the upscaler pins the layout instead**
+  (per-scene BLSS, docs/neural-upscaler.md). `RendererCoreGS::setZRasterScale`
+  fixes what the z buffer is sized for independently of the raster scale the
+  projection is currently using, so a project with some scenes upscaled and some
+  native sizes z for the FULL display once, at init, and `needsBufferRealloc()`
+  stays false for the rest of the run. That is what makes a per-scene switch
+  cost no eviction: it never asks for this branch at all. The price is the
+  z-buffer saving — such a project keeps the low-res colour target resident
+  through its native scenes (0.25 MB at 512x512) instead of trading it for a
+  smaller z (0.75 MB).
+
 VRAM-*resident* textures — the dynamic env map and the camera feed, whose
 pixels are rendered into GS memory rather than uploaded — bind their own
 `texbuffer_t` (`Texture::vramResident`) and never enter the heap or the

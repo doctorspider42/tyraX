@@ -126,10 +126,16 @@ void RendererCoreGS::allocateVramBuffers() {
   // so the 2D/HUD/post-fx half of the frame - which draws full-screen sprites
   // at z = 0xFFFFFFFF and would otherwise stamp 448 rows at a 512 stride -
   // cannot reach past the smaller allocation.
-  zRasterScaleX = settings->getRasterScaleX();
-  zRasterScaleY = settings->getRasterScaleY();
-  const int zWidth = static_cast<int>(settings->getRasterWidthUI());
-  const int zHeight = static_cast<int>(settings->getRasterHeightUI());
+  // Modified by TyraX (BLSS per scene): the scale the z buffer is sized for is
+  // normally the settings' active one, but a game whose scenes differ pins it
+  // (setZRasterScale) so the layout is decided once and no scene change can
+  // ask for a different one.
+  zRasterScaleX = zPinScaleX > 0 ? zPinScaleX : settings->getRasterScaleX();
+  zRasterScaleY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
+  const int zWidth = static_cast<int>(settings->getWidth() /
+                                      static_cast<float>(zRasterScaleX));
+  const int zHeight = static_cast<int>(settings->getRenderHeightF() /
+                                       static_cast<float>(zRasterScaleY));
   zBuffer.address = vram.allocateBuffer(zWidth, zHeight, zBuffer.zsm);
 
   // Modified by TyraX (BLSS): the mask is DERIVED from the allocation here,
@@ -152,6 +158,10 @@ void RendererCoreGS::allocateVramBuffers() {
        zHeight < static_cast<int>(settings->getRenderHeightF()))
           ? 1
           : 0;
+  // Modified by TyraX (BLSS per scene): remember what the derived answer WAS,
+  // so the one place that has to put it back after a low-res bracket
+  // (RendererCoreBlss::endScene) can ask for it instead of writing a literal.
+  zMaskDefault = zBuffer.mask;
 
   // Modified by TyraX (docs/frame-pacing.md): the third display buffer, and
   // it is allocated LAST on purpose - it is the one allocation here that may
@@ -221,9 +231,19 @@ void RendererCoreGS::allocateVramBuffers() {
            static_cast<int>(zBuffer.address));
 }
 
+// Modified by TyraX (BLSS per scene) - see the header.
+void RendererCoreGS::setZRasterScale(const int& sx, const int& sy) {
+  zPinScaleX = sx < 0 ? 0 : sx;
+  zPinScaleY = sy < 0 ? 0 : sy;
+}
+
 bool RendererCoreGS::needsBufferRealloc() const {
-  return zRasterScaleX != settings->getRasterScaleX() ||
-         zRasterScaleY != settings->getRasterScaleY();
+  // Against the PINNED scale when there is one: that is the whole point of
+  // pinning, and comparing the active scale here would report a rebuild on
+  // every scene that switches the upscaler on or off.
+  const int wantX = zPinScaleX > 0 ? zPinScaleX : settings->getRasterScaleX();
+  const int wantY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
+  return zRasterScaleX != wantX || zRasterScaleY != wantY;
 }
 
 // Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video

@@ -568,6 +568,153 @@ of that table. Derived, not measured: the arithmetic is the engine's own
 `renderer_core_blss.cpp` allocates the target at `lowBufW × lowH`), and no `1×2`
 project has been booted to read a `VRAMSTAT` line back.
 
+## Per scene
+
+**A scene decides for itself whether it is upscaled**, and whether the network
+reconstructs it. `SceneOverrides::upscaler` (Scene ▸ Scene Preferences ▸ Neural
+upscaler) carries `blssEnabled` and `blssNetwork`; a scene that does not override
+inherits Project ▸ Preferences, which is what every existing project does and
+what keeps its generated sources byte for byte what they were.
+
+### Why this is here, and it is not the frame rate
+
+The obvious reason is per-scene tuning — a cheap indoor corridor has nothing to
+win, a hazy exterior has a lot — and that is real. But the reason it was worth
+doing is the **build interlock**. BLSS cannot be combined with depth of field,
+portals or split view, and `blssClashes()` refused the build for the whole
+PROJECT: a single linked portal in scene 7 turned the upscaler off in all ten
+scenes, including the nine that had never heard of a portal. That question is now
+asked per scene, and the remedy is per scene too — the `#error` names the scene
+and tells you to untick it *there*.
+
+So the shape of the answer is: **portals in one scene, the upscaler in another.**
+
+### What is per scene and what is not
+
+| setting | per scene? | why |
+|---|---|---|
+| `blssEnabled` | **yes** | does this scene rasterise reduced |
+| `blssNetwork` | **yes** | the MLP, or [plain mode](#plain-mode--the-reduced-raster-without-the-network) |
+| `blssScale` | no | it sizes the two PERMANENT GS allocations — the low-res colour target and, through it, the z buffer — and the permanent region cannot be re-laid after init without evicting every resident texture. A net's provenance sidecar also records the scale it was fitted for and `blss::checkProvenance` **refuses** a mismatch: one project ships one net, so one project has one scale. |
+| `blssJitter` | no | the sampler that net was fitted for, in the same sidecar |
+| `blssSharpen`, `blssTemporal` | no | that net's tuning |
+| `blssDebugView` | no | a developer instrument |
+
+The rule underneath is that a per-scene value only means something when the thing
+it tunes can vary per scene. There is one network, so its scale, its sampler and
+its knobs are properties of the network, not of a scene.
+
+### Why the switch is free, and why it nearly could not have been
+
+`RendererCoreBlss::configure()` **re-lays the whole permanent VRAM region and
+evicts every resident texture** — which is why it is safe at the top of `init()`,
+before a single asset is loaded, and nowhere later. That is what killed the
+proposed per-*frame* toggle (`docs/backlog.md`).
+
+The hopeful theory for per-scene was that a scene change already churns the
+texture heap, so a reconfiguration would ride along for nearly nothing. **That
+theory is false, and it was checked before anything was designed around it.**
+`loadScene()` releases and re-acquires textures one at a time, ref-counted, and
+only those the incoming scene does not also need (`applyLayerResidency`); it
+never calls `vram.reset()`, never calls `evictAll()`, and never moves a permanent
+buffer. A `configure()` at scene load would have been the per-frame problem in a
+quieter place.
+
+So the switch does not reconfigure at all. The one thing that must be decided
+before any texture exists is **how big the z buffer is**, because the z buffer
+follows the raster; everything else about BLSS is a flag. A project whose scenes
+disagree therefore pins the z buffer at the **full display raster**, once, at init
+(`RendererCoreGS::setZRasterScale`, reached through `configure()`'s
+`nativeScenes` argument) — and `RendererCoreBlss::setScene()`, called from
+`loadScene()` next to `setVU1Clipping()`, flips two flags, republishes the
+projection's raster scale and drops the temporal history. No allocation, no
+eviction, no re-placement.
+
+Two consequences worth knowing:
+
+- **`endScene()` restores the DERIVED z mask, not a literal 1.** The mask is 1
+  whenever the z buffer came out smaller than the display raster — true of every
+  project that upscales throughout, which is why nothing moved for them — and 0
+  in a mixed project, where z covers the display. Leaving the literal there would
+  have left the next NATIVE scene rendering its whole depth pass into a mask.
+  `RendererCoreGS` owns the answer because it owns the allocation: assigning that
+  mask from outside is the bug that once stamped depth across the texture heap
+  and deleted every 4-bit texture.
+- **`beginScene`/`endScene`/`composite` need no `if` around them.** All three
+  return immediately when the scene is native, so the frame loop emits the same
+  three calls either way and the mixed and uniform builds share one hot loop.
+
+### What it costs
+
+Only a project that actually mixes pays anything, and what it pays is the
+**z-buffer saving**, once, for the whole run — not per switch. Measured in PCSX2
+on a two-scene fixture at 512×512 (`VRAMSTAT`, free texture heap):
+
+| build | z buffer | free VRAM |
+|---|---|---|
+| BLSS off everywhere | 512×512 | 0.375 MB |
+| BLSS on everywhere (uniform) | 256×256 | 0.875 MB |
+| **mixed: one scene upscaled, one native** | 512×512 | **0.125 MB** |
+
+Mixing is **0.25 MB worse than native and 0.75 MB worse than uniform BLSS** on
+that raster: the low-res colour target stays resident through the native scenes
+instead of being traded for a smaller z. (At 512×448 the same arithmetic gives
+the 224 KB / 672 KB figures `docs/backlog.md` quotes for the per-frame toggle —
+the difference is that this is per PROJECT and only for projects that mix.) On a
+texture-hungry project that is the whole decision, and the editor says so where
+the setting is.
+
+**The switch itself is below the resolution of any instrument available here.**
+Same fixture, driven into a scene load on *every presented frame* so the load
+rate IS the frame rate; ~200 loads per arm in a 20 s wall-clock window (PCSX2,
+software renderer — an emulator number, admissible only because all three arms
+are one fixture on one machine):
+
+| arm | scene loads/s | ms per scene load | `evict` over the run |
+|---|---|---|---|
+| upscaled ↔ native (flips every load) | 10.04 | 99.6 | **0** |
+| uniform BLSS on (no per-scene machinery) | 10.02 | 99.8 | **0** |
+| BLSS off entirely | 9.99 | 100.1 | **0** |
+
+A 0.5 ms spread over a ~100 ms scene load, with the flipping arm nominally the
+fastest of the three — i.e. not resolvable. The number that actually carries the
+claim is the last column: **zero evictions over ~1 200 scene switches**, with the
+resident texture count and the free-VRAM figure constant throughout. A
+`configure()` at scene load would have evicted the entire working set on every
+one of them.
+
+### Nothing breaks across the transition
+
+Same fixture switching every ~4 s, captured frame by frame. A **native** scene
+inside a mixed build, compared pixel by pixel against the same scene in a build
+with BLSS switched off entirely: **96 of 307 200 pixels differ by more than
+7/255, and all 96 sit in a 14×9 box in the top-right corner** — the debug HUD's
+frame counter. **Zero pixels differ in the 3D picture.** The upscaled scene of
+the same build differs by 4.64 %, which is the upscaler doing its job.
+
+So a scene that turns the upscaler off renders exactly as it would in a project
+that never had one: the raster redirect closes, the depth mask comes back, and
+the post-fx bracket, the interlace field bias and the HUD path are untouched.
+
+### What it does to the generated sources
+
+Nothing at all, unless the scenes actually disagree. `project::blssUse()` is the
+single answer to "does this project mix", and it is decided on the RESOLVED
+values, never on the override flags — a project whose every scene overrides to
+the same answer is not mixed and keeps generating exactly what a project-wide
+setting generated. When they do disagree, `inc/scene_data.hpp` gains
+`BLSS_ENABLEDS[]` / `BLSS_NETWORKS[]` / `BLSS_NATIVE_SCENES`, `init()` passes the
+eighth `configure()` argument, and `loadScene()` gains one `setScene()` call.
+
+### What the trainer still does not know
+
+`--blss-train` shoots **every** scene, including scenes that resolve the upscaler
+off, so a project with one upscaled scene out of ten fits its net mostly on
+frames the net will never see. That is left alone deliberately for now: making
+the corpus skip native scenes needs a special case for "no scene uses it yet"
+(the normal way to train is *before* switching it on), and whether it improves
+the net at all is a measurement nobody has taken. It is in `docs/backlog.md`.
+
 ## Plain mode — the reduced raster without the network
 
 Plain mode is BLSS with the neural half deleted: the 3D scene still rasterises
@@ -4410,8 +4557,12 @@ Occupancy is a count of grid cells, not a millisecond.
   representative depth per tile. Disocclusion inside a tile ghosts; the net
   learns to distrust history where `depthGrad` is high, which mitigates it
   rather than fixing it.
-- **No per-scene overrides and no flow-graph control** — project-wide, baked at
-  build time, like [custom screen effects](custom-screen-effects.md).
+- **FIXED — it is a per-scene setting now**, and the half that matters is the
+  build interlock: one portal anywhere used to refuse the build for every scene
+  in the project. See [Per scene](#per-scene). Still **no flow-graph control**
+  and still baked at build time, like
+  [custom screen effects](custom-screen-effects.md) — nothing turns it on or off
+  inside a scene.
 - **FIXED — it can be trained on your project now**, and it turns out to matter
   more than anything else on this list: `--blss-train <projectDir>` walks the
   project's own scenes, and a bestiary-trained net measured **worse than doing
