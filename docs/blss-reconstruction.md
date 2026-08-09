@@ -331,8 +331,87 @@ them at all. `SceneMesh::proxy` is its corpus-side twin. It costs the network
 nothing: those tiles read `coverage = 0`, which `kMinCoverage` already treats as
 "do nothing here".
 
+**A SIXTH RULE, ALSO WRITTEN AND ALSO SWITCHED OFF: an emitter bag describes
+itself.** Until now a particle emitter contributed **no proxy at all**, on either
+side. The console's billboard bag runs `frustumCulling = None` on purpose (VU1
+culls per quad), so `StaPipCore` has no package bbox for it, falls back to
+`addBagSphere(modelTranslation, radius 0)` and `addBag()` rejects the empty box
+at `x1 <= x0`; `bagList()` agreed by accident, because it only walked geometry.
+The two halves matched, and what they matched on was **silence over 95–99 % of
+the frame's fill** — 71.65 of 72.63 counted coverages on `examples/upscaler-lab`
+and 14.57 of 15.24 on `examples/showcase`. The network chose its kernels over
+fire, fog and rain entirely from the geometry behind them.
+
+The rule that closes it. A billboard bag hands VU1 one **centre** per particle
+plus a 2×2 basis-weight qword `(m00, m01, m10, m11)` per particle, and VU1
+expands each centre into
+
+```
+corner = C ± (R*m00 + U*m01) ± (R*m10 + U*m11)
+```
+
+carrying the bag's own `right`/`up` through the **same** `mvp` as the centres
+(`stapip_billboard_{c,t}_vu1.vclpp`). So in the space `addBagBox()` projects
+from, every quad of the bag lies inside the AABB over the centres grown per axis
+by
+
+```
+sR   = max|m00| + max|m10|          (maxima over THIS bag's particles)
+sU   = max|m01| + max|m11|
+e.axis = |R.axis| * sR + |U.axis| * sU
+box  = [min C - e, max C + e]       then projected exactly as a package box
+                                    (eight corners, twelve-edge near clip,
+                                     straddle rule, screen clamp, texDetail)
+```
+
+`R` is the camera right for every kind; `U` is the camera up for all of them
+except **rain**, whose quads hang from world up. `texelArea` is the emitter
+material's texel count, 0 when it has no `map_Kd`.
+
+The bound is **tight** for an ordinary emitter — `m01 = m10 = 0`, so `sR` and
+`sU` are exactly the quad's half-width along `R` and half-height along `U` — and
+conservative by at most √2 for the one kind that rotates its quads (fog's
+per-puff swirl, where all four maxima reach the same `size`). Growing a box can
+only enlarge it, never move it, which is the fidelity argument the
+consecutive-part merge already relies on.
+
+**It is ONE BOX PER BAG, not one per VU1 package, and that is a twin decision
+rather than a saving.** Geometry splits per package because both halves agree on
+which vertices land in which package: the vertex order is the authored order and
+it is the same on both machines. A particle pool's order is its **spawn** order,
+an artefact of a simulation the corpus does not run (it has no `dt` — see
+docs/backlog.md), so any sub-bag split would put different particles in each box
+on each side. **The AABB of a SET does not depend on the order of the set**,
+which is exactly what makes one box per bag a rule both halves can meet.
+
+The one asymmetry, stated rather than hidden: the console **reads** the pool it
+is about to submit and scans the four maxima; the corpus **states its
+distribution**, reusing `emitterCentres()` (a deterministic Halton pool) and
+`billboardOf()` (the per-kind life-averaged half extents) that `--blss-coverage`
+already models, with `sR = sU = 2 * halfW` for fog's swirl and `sR = halfW`,
+`sU = halfH` for every other kind. Those two functions now serve both consumers
+from one definition, so the pixel estimate and the box cannot drift apart.
+
+Engine half **`TYRA_BLSS_EMITTER_PROXY`**, host half **`--emitter-proxy`**, and
+**both ship at 0** — one number in two files, moved in the same commit or not at
+all. Measured on `examples/upscaler-lab` with it on (PCSX2, parked fixture, the
+full account is on [the upscaler page](neural-upscaler.md#the-sixth-rule-emitter-bags-describe-themselves)):
+**198 proxies → 207, 262 projections → 273, 147 covered tiles → 224 of 224**,
+and `BLSSWORST` becomes an emitter box covering the whole frame at
+`w 18.30..42.80`. What that buys and what it costs are both real: `texDetail`
+stops describing the geometry's textures and starts describing `puff.png`
+(0.466 → 0.211), and **`coverage` becomes a CONSTANT — `1.000/1.000/1.000`,
+min = mean = max** — because one AABB over a haze bank fills the frame, with
+`depthGrad` nearly so at a spread of 0.101. A constant channel is a network
+making no per-tile decision, which is the exact failure this section was written
+about. The EE bill goes **3.21 → 4.09 ms** and break-even **13.1 → ~15.3**
+coverages at 512×448. So the rule is stated, twinned and off, and the thing that
+would make it worth flipping — splitting a pool **spatially**, which is
+order-independent and therefore still twinnable — is in `docs/backlog.md`.
+
 The corpus also honours what the console does **not** submit — a bag past its
-`drawDistance`, or a terrain chunk past the streaming view distance, is neither
+`drawDistance`, a terrain chunk past the streaming view distance, or a
+**disabled emitter** (whose bag the runtime leaves at `count = 0`) — is neither
 drawn into the ground truth nor described by a proxy.
 
 ## 2a. The instrument, and it is permanent this time

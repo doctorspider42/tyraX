@@ -749,6 +749,65 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
 }
 
 // --------------------------------------------------------------- section 2 ---
+// THE EMITTER PROXY - the sixth rule of the twin contract. The header carries
+// the derivation; this is the two passes it reduces to.
+//
+// Both loops read memory the EE wrote moments ago (updateParticles fills the
+// centre and param arrays every frame), so this is a scan of the bag rather
+// than a re-simulation of anything - which is the whole reason the rule is
+// affordable at all. The two maxima loops are fused: one walk, ten compares.
+void RendererCoreBlss::addBagBillboard(const M4x4& mvp, const Vec4* centres,
+                                       const u32& count, const Vec4* params,
+                                       const Vec4& right, const Vec4& up,
+                                       const float& texelArea) {
+  if (!enabled || !inScene) return;
+  if (core3D->isForeignViewActive()) return;
+  if (centres == nullptr || params == nullptr || count == 0) return;
+
+  float lox = centres[0].x, loy = centres[0].y, loz = centres[0].z;
+  float hix = lox, hiy = loy, hiz = loz;
+  // max|m00|, max|m01|, max|m10|, max|m11| over the pool. Kept as four separate
+  // maxima rather than one radius because the two half-axes are independent:
+  // rain is a thin streak (m00 = 0.06 * size, m11 = 0.5 * size) hanging from
+  // WORLD up, and a single isotropic radius would describe it as a square.
+  float m00 = 0.0F, m01 = 0.0F, m10 = 0.0F, m11 = 0.0F;
+  for (u32 i = 0; i < count; i++) {
+    const Vec4& c = centres[i];
+    if (c.x < lox) lox = c.x;
+    if (c.y < loy) loy = c.y;
+    if (c.z < loz) loz = c.z;
+    if (c.x > hix) hix = c.x;
+    if (c.y > hiy) hiy = c.y;
+    if (c.z > hiz) hiz = c.z;
+    const Vec4& p = params[i];
+    const float a0 = p.x < 0.0F ? -p.x : p.x;
+    const float a1 = p.y < 0.0F ? -p.y : p.y;
+    const float a2 = p.z < 0.0F ? -p.z : p.z;
+    const float a3 = p.w < 0.0F ? -p.w : p.w;
+    if (a0 > m00) m00 = a0;
+    if (a1 > m01) m01 = a1;
+    if (a2 > m10) m10 = a2;
+    if (a3 > m11) m11 = a3;
+  }
+
+  // e.axis = |R.axis| * (max|m00| + max|m10|) + |U.axis| * (max|m01| + max|m11|)
+  const float sR = m00 + m10;
+  const float sU = m01 + m11;
+  const float rxA = right.x < 0.0F ? -right.x : right.x;
+  const float ryA = right.y < 0.0F ? -right.y : right.y;
+  const float rzA = right.z < 0.0F ? -right.z : right.z;
+  const float uxA = up.x < 0.0F ? -up.x : up.x;
+  const float uyA = up.y < 0.0F ? -up.y : up.y;
+  const float uzA = up.z < 0.0F ? -up.z : up.z;
+  const float ex = rxA * sR + uxA * sU;
+  const float ey = ryA * sR + uyA * sU;
+  const float ez = rzA * sR + uzA * sU;
+
+  addBagBox(mvp, Vec4(lox - ex, loy - ey, loz - ez, 1.0F),
+            Vec4(hix + ex, hiy + ey, hiz + ez, 1.0F), texelArea);
+}
+
+// --------------------------------------------------------------- section 2 ---
 // THE PROXY BUDGET - the twin rule stated in docs/blss-reconstruction.md
 // section 2. See the header for why the tile count is the right budget.
 int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,

@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.11.0 (the feature grid can describe particles): the SIXTH rule of the BLSS
+// twin contract. An emitter bag used to contribute no proxy at all - a
+// billboard bag runs frustumCulling None, so StaPipCore had no package bbox,
+// fell to a radius-0 sphere and addBag threw it away, and bagList() only walked
+// geometry - so on examples/upscaler-lab the network chose its kernels over
+// 98.7 % of the frame's fill from the geometry behind it. Now an emitter is
+// described by one box: the AABB over the centres it submits, grown by the
+// widest quad they expand into. BOTH HALVES SHIP OFF (TYRA_BLSS_EMITTER_PROXY
+// and --emitter-proxy), so no fold table and no shipped net moves; MINOR
+// because --emitter-proxy is a new verb-level capability, not because anything
+// changed by default. Measured before the flip and not after: it works
+// (147 -> 224 of 224 covered tiles, texDetail finally reports puff.png) and it
+// costs (coverage becomes a CONSTANT, +0.88 ms of EE, break-even 13.1 -> 15.3),
+// so it stays off and the spatial-split follow-up is in docs/backlog.md.
+//
 // 1.10.3 (three things that were wrong, none of them a new capability): a FOG
 // emitter's Opacity survives a save (format v11 - it was written only inside
 // the custom block, so the one non-custom kind that reads the value reloaded
@@ -52,8 +67,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 10
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 11
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

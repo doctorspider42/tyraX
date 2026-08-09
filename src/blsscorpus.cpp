@@ -896,8 +896,15 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
 // (unjittered - the bag list describes the frame, not the raster offset it
 // happened to be drawn with). Twelve edges of eight corners, which is the whole
 // cost of a proxy on the EE.
-bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
-           const Pinhole& cam, int outW, int outH, BagProxy& out) {
+// One box -> one BagProxy. Split out of bagOf() so the emitter proxy (the sixth
+// twin rule) goes through the SAME projection, the same near clip, the same
+// straddle rule and the same texDetail as geometry does - a second copy of this
+// arithmetic is precisely the drift docs/blss-reconstruction.md exists to stop.
+// `tex` is the Materials index (-1 = untextured) and `texelArea` the material's
+// texel count over the bag, exactly the pair Object carries.
+bool bagOfBox(const V3& blo, const V3& bhi, int tex, float texelArea,
+              const Materials& mats, const Pinhole& cam, int outW, int outH,
+              BagProxy& out) {
     const float sxScale = 0.5f * (float)outW / cam.tanHalfFovX;
     const float syScale = 0.5f * (float)outH / cam.tanHalfFovY;
     struct P {
@@ -970,13 +977,19 @@ bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
     // NOT clamped up off a thin bbox - a pole one pixel wide really does cram
     // its whole texture into a column, and that is the case the feature exists
     // to flag.
-    if (o.tex >= 0 && mats.tex[(size_t)o.tex].w > 0) {
+    if (tex >= 0 && mats.tex[(size_t)tex].w > 0) {
         const float area = std::max((out.x1 - out.x0) * (out.y1 - out.y0), 1.0f);
-        out.texDetail = clamp01(std::sqrt(o.texelArea / area) * 0.25f);
+        out.texDetail = clamp01(std::sqrt(texelArea / area) * 0.25f);
     } else {
         out.texDetail = 0.0f;
     }
     return true;
+}
+
+// The geometry form: one of a bag's package boxes, with the bag's own material.
+bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
+           const Pinhole& cam, int outW, int outH, BagProxy& out) {
+    return bagOfBox(blo, bhi, o.tex, o.texelArea, mats, cam, outW, outH, out);
 }
 
 // THE PROXY BUDGET, and it is the fifth rule of the twin contract
@@ -1032,10 +1045,177 @@ int proxyGroupSize(const Object& o, const Materials& mats, const Pinhole& cam, i
     return (parts + cap - 1) / cap;
 }
 
+// --- the emitter half, which is MODELLED and says so ------------------------
+//
+// Two consumers now, and that is why these live up here with the proxies rather
+// than down in the coverage counter where they were written: `--blss-coverage`
+// turns the pool into PIXELS, and `bagList()` under `--emitter-proxy` turns the
+// same pool into a BOX. One model, so the two cannot drift into disagreeing
+// about where a project's particles are.
+//
+// A billboard's half extents are `m00` and `m11` in updateParticles(), and both
+// are the emitter's `size` scaled by a per-kind curve of the particle's life
+// fraction. Averaged over a uniformly distributed life, those curves are the
+// constants below - the same arithmetic templates.cpp runs per particle per
+// frame, integrated once. Getting the fog one wrong would be a factor of three.
+struct CovBillboard {
+    float halfW = 0.5f, halfH = 0.5f;
+};
+CovBillboard billboardOf(const SceneEmitter& e) {
+    CovBillboard b;
+    float mul = 1.0f;
+    switch (e.kind) {
+        case 0: mul = 0.9f; break;   // fire:   size * (0.5 + 0.8 t)
+        case 1: mul = 1.1f; break;   // smoke:  size * (1.6 - t)
+        case 2: mul = 3.0f; break;   // fog:    size * 3
+        case 3: mul = 0.35f; break;  // sparks: size * 0.35
+        case 4:                      // rain: a thin streak, width != height
+            b.halfW = e.size * 0.06f;
+            b.halfH = e.size * 0.5f;
+            return b;
+        default:                     // custom: 1 -> Grow over the life
+            mul = 1.0f + (e.grow - 1.0f) * 0.5f;
+            break;
+    }
+    b.halfW = b.halfH = e.size * mul;
+    return b;
+}
+
+// How far a particle gets from where it spawned, per kind, over its life. The
+// runtime spawns on the emitter's own XZ rectangle and integrates a velocity;
+// this spreads the pool through a box instead. It is the coarsest thing in the
+// estimate and it is second order - the distance to the CAMERA and the
+// billboard's own size are what set the pixels - but a fire whose flames all
+// sat at the emitter's y would read as one hot spot rather than a column.
+float emitterRise(const SceneEmitter& e) {
+    switch (e.kind) {
+        case 0: return 1.4f;   // fire:   ~1.8 u/s over ~0.8 s
+        case 1: return 2.0f;   // smoke:  ~0.75 u/s over ~2.75 s
+        case 2: return 0.1f;   // fog:    hugs the ground
+        case 3: return 1.5f;   // sparks
+        case 4: return e.box[1];  // rain falls the emitter's own height
+        default: return std::min(e.speed * e.life * 0.5f, 40.0f);  // custom
+    }
+}
+
+// The pool, as world-space centres. Deterministic (a fixed low-discrepancy
+// sequence, never rand()), so pressing the button twice gives the same answer -
+// the same rule the corpus itself is built on.
+std::vector<V3> emitterCentres(const SceneEmitter& e) {
+    int n = e.count;
+    if (n < 1) n = 1;
+    if (n > 256) n = 256;  // the runtime's own clamp (buildParticles)
+    const float rise = emitterRise(e);
+    std::vector<V3> out;
+    out.reserve((size_t)n);
+    // Halton (2, 3) over XZ and a straight stratification up Y: the pool is
+    // small and a hashed uniform draw clumps visibly at n = 32.
+    const auto halton = [](int i, int base) {
+        float f = 1.0f, r = 0.0f;
+        while (i > 0) {
+            f /= (float)base;
+            r += f * (float)(i % base);
+            i /= base;
+        }
+        return r;
+    };
+    for (int i = 0; i < n; ++i) {
+        const float hx = halton(i + 1, 2), hz = halton(i + 1, 3);
+        const float hy = ((float)i + 0.5f) / (float)n;
+        V3 c;
+        c.x = e.pos[0] + (hx - 0.5f) * e.box[0];
+        c.z = e.pos[2] + (hz - 0.5f) * e.box[2];
+        c.y = e.kind == 4 ? e.pos[1] - hy * rise : e.pos[1] + hy * rise;
+        out.push_back(c);
+    }
+    return out;
+}
+
+// THE SIXTH RULE OF THE TWIN CONTRACT - one emitter, as the thing bagList()
+// describes. docs/blss-reconstruction.md section 2 is the normative statement;
+// RendererCoreBlss::addBagBillboard is the other half.
+//
+// The console reads the pool it is about to submit: an AABB over the particle
+// CENTRES, grown per axis by
+//
+//     e.axis = |R.axis| * (max|m00| + max|m10|)
+//            + |U.axis| * (max|m01| + max|m11|)
+//
+// where R/U are the bag's billboard basis and the four maxima are over that
+// bag's own particles. This side runs the same formula over the MODELLED pool
+// above, with the four maxima in closed form instead of scanned - which is the
+// one asymmetry, and it is the same one the coverage counter already carries:
+// the corpus does not simulate particles (it has no dt - docs/backlog.md), so
+// where the console reads the pool the corpus states its distribution.
+//
+// The two half-axis sums, per kind, straight out of updateParticles():
+//   kinds 0/1/3/4/5   m01 = m10 = 0, m00 = halfW, m11 = halfH
+//                     -> sR = halfW, sU = halfH
+//   kind 2 (fog)      the puffs SWIRL: m00 = cos(a)*s, m01 = sin(a)*s,
+//                     m10 = -sin(a)*s, m11 = cos(a)*s, and the angles are
+//                     spread over the pool by index and age, so all four
+//                     maxima reach s = halfW
+//                     -> sR = sU = 2 * halfW
+// The swirl case is conservative by at most sqrt(2) (a rotating square's
+// circumradius against the bound), which is a growth of the BOX and never a
+// move of it - the same fidelity argument the consecutive-part merge uses.
+//
+// It is ONE BOX PER EMITTER, not one per VU1 package, and that is a twin
+// decision. Geometry splits per package because both halves agree on which
+// vertices land in which package: the vertex order is the authored order. A
+// particle pool's order is its SPAWN order, an artefact of a simulation this
+// side does not run, so any sub-bag split would put different particles in each
+// box on each machine. The AABB of a SET is order-independent, which is exactly
+// what makes one box per bag a rule both halves can meet.
+struct EmitterBag {
+    V3 lo{}, hi{};         // AABB over the modelled pool's centres
+    float sR = 0.0f;       // max|m00| + max|m10|
+    float sU = 0.0f;       // max|m01| + max|m11|
+    bool worldUp = false;  // rain hangs from world up, not from the camera's
+    int tex = -1;
+    float texelArea = 0.0f;
+};
+
+std::vector<EmitterBag> emitterBagsOf(const ProjectScene& ps, Materials& mats) {
+    std::vector<EmitterBag> out;
+    out.reserve(ps.emitter.size());
+    for (const SceneEmitter& e : ps.emitter) {
+        // A disabled emitter starts hidden, so `updateParticles` leaves its bag
+        // at count 0 and StaPipCore never sees it - neither drawn nor
+        // described, the same rule Object::proxy and Object::viewDist follow.
+        if (!e.enabled) continue;
+        const std::vector<V3> centres = emitterCentres(e);
+        if (centres.empty()) continue;
+        EmitterBag b;
+        b.lo = b.hi = centres[0];
+        for (const V3& c : centres) {
+            b.lo.x = std::min(b.lo.x, c.x), b.hi.x = std::max(b.hi.x, c.x);
+            b.lo.y = std::min(b.lo.y, c.y), b.hi.y = std::max(b.hi.y, c.y);
+            b.lo.z = std::min(b.lo.z, c.z), b.hi.z = std::max(b.hi.z, c.z);
+        }
+        const CovBillboard q = billboardOf(e);
+        const float swirl = e.kind == 2 ? 2.0f : 1.0f;
+        b.sR = q.halfW * swirl;
+        b.sU = q.halfH * swirl;
+        b.worldUp = e.kind == 4;
+        // The emitter's material texture, as the console binds it into the
+        // particle texture bag - `texDetail` is one of the six channels and it
+        // is the one this rule exists to stop reading zero over a particle.
+        b.tex = projectTexture(mats, e.texture, /*cutout=*/false);
+        if (b.tex >= 0) {
+            const Texture& t = mats.tex[(size_t)b.tex];
+            b.texelArea = (float)t.w * (float)t.h;
+        }
+        out.push_back(b);
+    }
+    return out;
+}
+
 std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& mats,
                               const Pinhole& cam, int outW, int outH,
                               const std::vector<const Object*>* extra = nullptr,
-                              bool proxyBudget = false) {
+                              bool proxyBudget = false,
+                              const std::vector<EmitterBag>* emitters = nullptr) {
     std::vector<BagProxy> out;
     out.reserve(objs.size() + (extra ? extra->size() : 0));
     BagProxy b;
@@ -1083,6 +1263,27 @@ std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& 
             if (bagOf(o, lo, hi, mats, cam, outW, outH, b)) out.push_back(b);
         }
     }
+    // THE EMITTERS, LAST, because the console submits them last: the generated
+    // renderScene() draws every static bag and then walks `particles`. Order
+    // does not reach a feature (accumulate() sums over bags and every reduction
+    // in it is a sum, a min or a max), but the two lists should still read the
+    // same way round when someone puts BLSSGRID next to this one.
+    if (emitters) {
+        for (const EmitterBag& e : *emitters) {
+            // The per-axis growth, in the camera basis the console uploads:
+            // camera right for every kind, and camera up for all but rain,
+            // whose quads hang from WORLD up (templates.cpp updateParticles,
+            // and the same split billboardOf() already models).
+            const float ux = e.worldUp ? 0.0f : cam.up[0];
+            const float uy = e.worldUp ? 1.0f : cam.up[1];
+            const float uz = e.worldUp ? 0.0f : cam.up[2];
+            const V3 g{std::fabs(cam.right[0]) * e.sR + std::fabs(ux) * e.sU,
+                       std::fabs(cam.right[1]) * e.sR + std::fabs(uy) * e.sU,
+                       std::fabs(cam.right[2]) * e.sR + std::fabs(uz) * e.sU};
+            if (bagOfBox(e.lo - g, e.hi + g, e.tex, e.texelArea, mats, cam, outW, outH, b))
+                out.push_back(b);
+        }
+    }
     return out;
 }
 
@@ -1126,6 +1327,12 @@ struct Shot {
     // frame loop picks pose i and pose i-1 and hands them to renderScene and
     // bagList, so the ground truth and the proxy list describe the same pose.
     const std::vector<std::vector<Object>>* animShared = nullptr;
+    // ...and the scene's EMITTERS, as the boxes bagList() describes them with
+    // (the sixth twin rule). Shared for the same reason, and pose-free: the
+    // corpus has no particle simulation, so an emitter's box is a property of
+    // the scene and only the CAMERA moves under it. Null for the bestiary,
+    // which has no emitters, and ignored entirely unless --emitter-proxy.
+    const std::vector<EmitterBag>* emitShared = nullptr;
     std::vector<float> pathEye, pathLook;  // 3 per key
     float ease = 0.0f;                     // 1 = smoothstep in t (the whip)
     float fovDeg = 60.0f;
@@ -1761,6 +1968,7 @@ std::vector<std::vector<Object>> animObjectsOf(const ProjectScene& ps, Materials
 void buildProjectShots(const CorpusConfig& cfg, Materials& mats,
                        std::vector<std::unique_ptr<std::vector<Object>>>& geometry,
                        std::vector<std::unique_ptr<std::vector<std::vector<Object>>>>& anim,
+                       std::vector<std::unique_ptr<std::vector<EmitterBag>>>& emit,
                        const std::vector<ProjectScene>& scenes, int group,
                        const std::string& groupName, std::vector<Shot>& shots) {
     const size_t base = geometry.size();
@@ -1769,6 +1977,11 @@ void buildProjectShots(const CorpusConfig& cfg, Materials& mats,
             std::make_unique<std::vector<Object>>(objectsOf(ps, mats, cfg.packageSplit)));
         anim.push_back(std::make_unique<std::vector<std::vector<Object>>>(
             animObjectsOf(ps, mats, cfg.packageSplit)));
+        // ALWAYS built, never conditioned on cfg.emitterProxy - exactly like
+        // the animated poses above and for the same reason: it costs a few
+        // dozen boxes, and building it only in one arm would put a different
+        // number of loaded TEXTURES in `mats` between the two arms of the A/B.
+        emit.push_back(std::make_unique<std::vector<EmitterBag>>(emitterBagsOf(ps, mats)));
     }
 
     for (size_t i = 0; i < scenes.size(); ++i) {
@@ -1781,6 +1994,7 @@ void buildProjectShots(const CorpusConfig& cfg, Materials& mats,
             s.move = Move::Path;
             s.shared = geometry[base + i].get();
             s.animShared = anim[base + i].get();
+            s.emitShared = emit[base + i].get();
             s.pathEye = ss.eye;
             s.pathLook = ss.look;
             s.ease = ss.ease;
@@ -1918,6 +2132,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
     // member of a union corpus - see buildProjectShots().
     std::vector<std::unique_ptr<std::vector<Object>>> projectGeometry;  // outlives `shots`
     std::vector<std::unique_ptr<std::vector<std::vector<Object>>>> projectAnim;  // ... so does this
+    std::vector<std::unique_ptr<std::vector<EmitterBag>>> projectEmit;  // ... and this
     std::vector<Shot> shots;
     ProjectBlss pb;
     // The corpus SOURCES, in order. One entry is the ordinary
@@ -2031,7 +2246,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
                 "(docs/backlog.md).\n",
                 dir.c_str(), liveEmitters);
         const size_t before = shots.size();
-        buildProjectShots(cfg, mats, projectGeometry, projectAnim, scenes,
+        buildProjectShots(cfg, mats, projectGeometry, projectAnim, projectEmit, scenes,
                           static_cast<int>(groupNames.size()), dir, shots);
         groupNames.push_back(dir);
         groupShots.push_back(static_cast<int>(shots.size() - before));
@@ -2081,6 +2296,14 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
             "TYRA_BLSS_PROXY_BUDGET IS 0 - this run describes the frame more coarsely "
             "than the console does, which is a MEASUREMENT and not a twin.\n",
             kMaxProxiesPerBag);
+    if (cfg.verbose && cfg.emitterProxy)
+        std::printf(
+            "[blss] EMITTER PROXY ON (--emitter-proxy): each enabled emitter contributes "
+            "ONE bag proxy - the box over its modelled pool, grown by the widest quad. "
+            "THE ENGINE'S TYRA_BLSS_EMITTER_PROXY IS 0, so this run describes a frame "
+            "the console does not. And the renderer still draws no particles, so a PSNR "
+            "from this run prices the DESCRIPTION against a particle-free truth - read "
+            "--features and a console BLSSFEAT through --probe, not the dB.\n");
     // THE SAMPLER IS ANNOUNCED IN BOTH DIRECTIONS, and the reason is the eighth
     // entry of "measured is not optimised" (docs/neural-upscaler.md): this page
     // carried a row whose margins were taken jitter-off and whose ceiling was
@@ -2335,7 +2558,8 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
         // ...and what the EE knows ABOUT it: one bag per drawn object, from
         // the unjittered display-resolution projection.
         const std::vector<BagProxy> bags =
-            bagList(geo, mats, cur, outW, outH, &animNow, cfg.proxyBudget);
+            bagList(geo, mats, cur, outW, outH, &animNow, cfg.proxyBudget,
+                    cfg.emitterProxy ? shot.emitShared : nullptr);
         const std::vector<TileStats> stats = accumulate(cols, rows, outW, outH, bags);
         // History size is the DISPLAY size: the runtime's history is the other
         // display framebuffer (docs/blss-reconstruction.md section 6), so one
@@ -2508,86 +2732,6 @@ uint64_t countMesh(const CovMesh& m, const Pinhole& cam, int rw, int rh) {
                           rh);
     }
     return n;
-}
-
-// --- the emitter half, which is MODELLED and says so ------------------------
-//
-// A billboard's half extents are `m00` and `m11` in updateParticles(), and both
-// are the emitter's `size` scaled by a per-kind curve of the particle's life
-// fraction. Averaged over a uniformly distributed life, those curves are the
-// constants below - the same arithmetic templates.cpp runs per particle per
-// frame, integrated once. Getting the fog one wrong would be a factor of three.
-struct CovBillboard {
-    float halfW = 0.5f, halfH = 0.5f;
-};
-CovBillboard billboardOf(const SceneEmitter& e) {
-    CovBillboard b;
-    float mul = 1.0f;
-    switch (e.kind) {
-        case 0: mul = 0.9f; break;   // fire:   size * (0.5 + 0.8 t)
-        case 1: mul = 1.1f; break;   // smoke:  size * (1.6 - t)
-        case 2: mul = 3.0f; break;   // fog:    size * 3
-        case 3: mul = 0.35f; break;  // sparks: size * 0.35
-        case 4:                      // rain: a thin streak, width != height
-            b.halfW = e.size * 0.06f;
-            b.halfH = e.size * 0.5f;
-            return b;
-        default:                     // custom: 1 -> Grow over the life
-            mul = 1.0f + (e.grow - 1.0f) * 0.5f;
-            break;
-    }
-    b.halfW = b.halfH = e.size * mul;
-    return b;
-}
-
-// How far a particle gets from where it spawned, per kind, over its life. The
-// runtime spawns on the emitter's own XZ rectangle and integrates a velocity;
-// this spreads the pool through a box instead. It is the coarsest thing in the
-// estimate and it is second order - the distance to the CAMERA and the
-// billboard's own size are what set the pixels - but a fire whose flames all
-// sat at the emitter's y would read as one hot spot rather than a column.
-float emitterRise(const SceneEmitter& e) {
-    switch (e.kind) {
-        case 0: return 1.4f;   // fire:   ~1.8 u/s over ~0.8 s
-        case 1: return 2.0f;   // smoke:  ~0.75 u/s over ~2.75 s
-        case 2: return 0.1f;   // fog:    hugs the ground
-        case 3: return 1.5f;   // sparks
-        case 4: return e.box[1];  // rain falls the emitter's own height
-        default: return std::min(e.speed * e.life * 0.5f, 40.0f);  // custom
-    }
-}
-
-// The pool, as world-space centres. Deterministic (a fixed low-discrepancy
-// sequence, never rand()), so pressing the button twice gives the same answer -
-// the same rule the corpus itself is built on.
-std::vector<V3> emitterCentres(const SceneEmitter& e) {
-    int n = e.count;
-    if (n < 1) n = 1;
-    if (n > 256) n = 256;  // the runtime's own clamp (buildParticles)
-    const float rise = emitterRise(e);
-    std::vector<V3> out;
-    out.reserve((size_t)n);
-    // Halton (2, 3) over XZ and a straight stratification up Y: the pool is
-    // small and a hashed uniform draw clumps visibly at n = 32.
-    const auto halton = [](int i, int base) {
-        float f = 1.0f, r = 0.0f;
-        while (i > 0) {
-            f /= (float)base;
-            r += f * (float)(i % base);
-            i /= base;
-        }
-        return r;
-    };
-    for (int i = 0; i < n; ++i) {
-        const float hx = halton(i + 1, 2), hz = halton(i + 1, 3);
-        const float hy = ((float)i + 0.5f) / (float)n;
-        V3 c;
-        c.x = e.pos[0] + (hx - 0.5f) * e.box[0];
-        c.z = e.pos[2] + (hz - 0.5f) * e.box[2];
-        c.y = e.kind == 4 ? e.pos[1] - hy * rise : e.pos[1] + hy * rise;
-        out.push_back(c);
-    }
-    return out;
 }
 
 // One emitter's fill under one camera: `count` camera-facing quads, which is

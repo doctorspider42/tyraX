@@ -280,11 +280,19 @@ void StaPipCore::render(StaPipBag* bag) {
   // The packages this bag is about to be split into already carry their own
   // axis-aligned boxes - cached, and computed for frustum classification
   // whether or not BLSS is on - so the grid gets the corpus' granularity for
-  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise
-  // - particle billboards) fall back to the bounding-sphere proxy, which for
-  // them means contributing nothing at all: without a bbox the sphere is the
-  // model translation at radius 0 and addBag rejects the empty box. That is
-  // the behaviour those bags already had, not a new hole.
+  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise)
+  // fall back to the bounding-sphere proxy, which for them means contributing
+  // nothing at all: without a bbox the sphere is the model translation at
+  // radius 0 and addBag rejects the empty box.
+  //
+  // THAT SILENCE IS NOT HARMLESS FOR ONE BAG SHAPE, and it is the one the
+  // straddle rule and the blssProxy opt-out cannot help with. A particle
+  // emitter runs frustumCulling None deliberately (VU1 culls per quad), so it
+  // has never contributed a proxy - while on the fixtures BLSS is measured on
+  // the emitters are 95-99 % of the frame's fill. The network therefore chose
+  // its kernels over fire, fog and rain entirely from the geometry BEHIND
+  // them. TYRA_BLSS_EMITTER_PROXY is the sixth twin rule that closes it; it
+  // ships at 0, because turning it on moves every label and needs a refit.
   if (blssOn) {
 #if TYRA_FRAME_PROFILE
     // Charged to FrameProfile::tBlssProxy, which beginScene clears - so the
@@ -309,6 +317,21 @@ void StaPipCore::render(StaPipBag* bag) {
     // the corpus trained the network on a real spread. See
     // RendererCoreBlss::kFeatures.
 
+#if TYRA_BLSS_EMITTER_PROXY
+    // THE SIXTH RULE: an emitter bag describes itself from the centres it is
+    // about to submit. It is the one bag shape that reaches here with no
+    // package bbox BY DESIGN rather than by omission - a billboard bag runs
+    // frustumCulling None because VU1 culls per quad - so without this branch
+    // it falls to the radius-0 sphere below and addBag rejects it. On the
+    // fixtures this feature is measured on that silence is 95-99 % of the
+    // frame's fill. See RendererCoreBlss::addBagBillboard for the box, and the
+    // BLSS header for why it is one box and not one per VU1 package.
+    if (bag->billboard != nullptr) {
+      rendererCore->blss.addBagBillboard(
+          mvp, bag->vertices, bag->count, bag->texture->coordinates,
+          bag->billboard->right, bag->billboard->up, texelArea);
+    } else
+#endif
     if (bbox != nullptr) {
       // bbox is non-null only for Precise frustum culling, and the assert
       // above makes that imply TyraMVP - so `mvp` below really is the

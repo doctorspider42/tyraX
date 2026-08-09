@@ -107,6 +107,26 @@ struct CorpusConfig {
     // on so the cost can be measured BEFORE the paired flip, which is what it
     // is for.
     bool proxyBudget = false;
+    // EMITTER BAGS DESCRIBE THEMSELVES - the SIXTH rule of the twin contract,
+    // and it SHIPS OFF on both sides. docs/blss-reconstruction.md section 2 is
+    // the normative statement; emitterBagsOf() in the .cpp is this side of it.
+    //
+    // The engine's half is `TYRA_BLSS_EMITTER_PROXY`, which is 0. With both off
+    // a particle emitter contributes NO proxy on either machine (the console's
+    // billboard bag runs frustumCulling None, so it has no package bbox and
+    // addBag rejects the radius-0 sphere it falls back to) - the two halves
+    // agree, and they agree on describing NOTHING over 95-99 % of the fill on
+    // the fixtures this feature wins on. `--emitter-proxy` turns this side on
+    // so the cost and the benefit can be measured BEFORE the paired flip.
+    //
+    // READ THIS BEFORE QUOTING A PSNR FROM AN --emitter-proxy RUN. It makes the
+    // six channels DESCRIBE the particles; it does not make renderScene() DRAW
+    // them. So with it on the corpus predicts a frame whose ground truth still
+    // contains no particles, and a PSNR delta here is a cost, not the benefit -
+    // the benefit is on the console, where the description matches the picture.
+    // `--blss-eval --features` and a console BLSSFEAT line through
+    // `--blss-eval --probe` are the measurements this flag is FOR.
+    bool emitterProxy = false;
     // FOLLOW THE PROJECT'S TRAINING-SHOT PLAN (Project::blssShots): which of the
     // six automatic camera moves survive, how many frames each gets, whether
     // Cutscene Director takes join, and the author's own vantages.

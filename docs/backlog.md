@@ -330,33 +330,79 @@ the verification, and any fact worth reusing belongs in the relevant
     still md5 `e069f286ea0c524999bfd9dac769608c` at `--threads 1` and at auto.
     It is a caveat, not a fix.
 
-    **THE BLOCKER IS THE ENGINE, NOT THE RASTERISER, and that is the finding
-    that should decide when this is attempted.** An emitter bag contributes
-    **no BagProxy at all** on the console: `buildParticles` sets
-    `frustumCulling = None` (templates.cpp), so `stapip_core.cpp` has no bbox,
-    falls to `addBagSphere(modelTranslation, radius = 0)`, and `addBag` rejects
-    it at `x1 <= x0`. Confirmed by reading both files; the corpus agrees by
-    accident, because `bagList()` only walks geometry.
+    **THE BLOCKER WAS THE ENGINE, AND HALF OF IT IS NOW GONE - BEHIND A SWITCH
+    THAT SHIPS OFF (2026-08-09).** An emitter bag used to contribute **no
+    BagProxy at all** on the console: `buildParticles` sets
+    `frustumCulling = None` (templates.cpp), so `stapip_core.cpp` had no bbox,
+    fell to `addBagSphere(modelTranslation, radius = 0)`, and `addBag` rejected
+    it at `x1 <= x0`; the corpus agreed by accident, because `bagList()` only
+    walked geometry.
 
-    So **drawing particles moves every LABEL and cannot move one INPUT.** All
+    The **sixth rule of the twin contract** closes that
+    (docs/blss-reconstruction.md section 2, measured up on the upscaler page):
+    an emitter bag is described by ONE box - the AABB over the centres it is
+    about to submit, grown per axis by `|R.axis|*(max|m00|+max|m10|) +
+    |U.axis|*(max|m01|+max|m11|)` - and `--emitter-proxy` makes `bagList()`
+    build the same box from the modelled pool `--blss-coverage` already uses.
+    **`TYRA_BLSS_EMITTER_PROXY` and `--emitter-proxy` are both 0**, and the
+    measurement is why:
+
+    - it works - `upscaler-lab` goes 198 -> 207 proxies, 147 -> **224 of 224**
+      covered tiles, and `texDetail` stops describing the crates and starts
+      describing `puff.png` (0.466 -> 0.211);
+    - the twin checker works too, which is the part that unblocks everything
+      else here: a console `BLSSFEAT` line probed against the matching corpus
+      arm reads 96.9 % support on `coverage` against 67.9 % for the
+      deliberately mismatched arm, so the two halves can now be caught drifting;
+    - **and `coverage` becomes a CONSTANT** - `1.000/1.000/1.000` in every tile
+      - with `depthGrad` nearly so (spread 0.101), because one AABB over a haze
+      bank hands every tile the whole bank's depth range. That is the sky-dome
+      failure again, in the channel the rule was supposed to rescue;
+    - for **+0.88 ms of EE** (BLSS 3.21 -> 4.09 ms in PCSX2; `net` and `reproj`
+      grow too, because covering 224 tiles instead of 147 runs the MLP on all of
+      them) and **break-even 13.1 -> ~15.3 coverages** at 512x448.
+
+    **THE NEXT STEP IS A SPATIAL SPLIT, and it is the one remaining lever.**
+    Bin an emitter's centres by their COORDINATES - the pool's longest axis, or
+    a fixed 2x2x2 of its own box - and take one AABB per bin. Each box then
+    carries a *local* depth range, which is precisely what `depth` and
+    `depthGrad` lost, and it is **order-independent**, so unlike a split by pool
+    slot it is still twinnable across a corpus that does not simulate particles.
+    It costs more projections, so it has to be measured against the EE delta
+    above and not assumed. Until that is done and measured, both switches stay
+    at 0 and no fold table or shipped net changes.
+
+    What has NOT changed: the corpus renderer still draws no particles. So an
+    `--emitter-proxy` run predicts a frame whose ground truth has none, and its
+    PSNR is the cost of the description (measured: -0.02 dB against a fold sd
+    of 0.20-0.27, i.e. nothing) rather than the benefit. The rest of this entry
+    is still owed.
+
+    So **drawing particles with BOTH switches still at 0 would move every LABEL
+    and not one INPUT.** All
     six channels would still describe the opaque geometry alone while the truth
     image became 96-99 % particles. On `showcase` the oracle would be re-fitted
     against a frame whose predictors describe 4.4 % of it - not a harder
     learning problem, an *unlearnable* one - and the net would fit whatever
     geometry feature happened to correlate. That is worse than not drawing them,
-    and it is why the honest order is: **engine describes emitter bags first,
-    corpus draws them second.**
+    and it is why the honest order was and remains: **engine describes emitter
+    bags first, corpus draws them second.** The first half is written and
+    measured now; it is not yet ON, so the constraint is unchanged in practice.
 
-    Two things that ordering also fixes, and neither is available today:
-    - **the twin contract would become uncheckable.** Its instrument is a
+    Two things that ordering fixes, and ONE OF THEM NOW WORKS:
+    - **the twin contract is checkable again** (2026-08-09). Its instrument is a
       console `BLSSFEAT` line probed against the corpus distribution
-      (`--blss-eval --probe`), which compares FEATURE VECTORS. Emitters produce
-      no feature vector, so every rule below could be transcribed wrongly and
-      nothing in this repo would notice;
+      (`--blss-eval --probe`), which compares FEATURE VECTORS - and with the two
+      emitter switches on, emitters finally produce one. Confirmed against a
+      deliberately MISMATCHED pairing, which loses a third of `coverage`'s
+      support and half of `depthGrad`'s reachable band. Every rule below can now
+      be transcribed and CHECKED rather than transcribed and hoped for;
     - **`--blss-coverage`'s emitter model could stop being modelled.**
       `billboardOf`/`emitterCentres` average the life curves and spread the pool
       through a box; a real simulation would replace them - at the cost of
-      re-publishing every coverage number, so it is its own tail.
+      re-publishing every coverage number, so it is its own tail. Note they are
+      now SHARED with the proxy rule (one definition, two consumers), so a
+      change there moves the described boxes as well as the pixel estimate.
 
     **The sixteen twin rules a correct particle corpus owes**, all read out of
     `templates.cpp` `updateParticles` / the billboard `.vclpp` / the GS setup,
@@ -370,8 +416,12 @@ the verification, and any fact worth reusing belongs in the relevant
        console iterates `particles` and submits each pool as one bag;
     3. z-test GEQUAL **with z-write** (`PipelineZTest_Standard`), so particles
        occlude each other in draw order;
-    4. **no proxy for the bag** - which is the exact console match, so this rule
-       is free and is the one the old entry got backwards;
+    4. **the bag's proxy follows `--emitter-proxy`** - no proxy with the switch
+       at 0 (the shipped state, and the exact console match), and the sixth
+       rule's single box with it at 1. This is the rule the entry has now got
+       backwards TWICE: it first prescribed "a BagProxy matching what
+       `StaPipBillboardBag` submits", then "no proxy, and that is free"; the
+       truth is that it is a switch and both halves have to read it;
     5. alpha test `!= 0` with `AFAIL = KEEP_ALL` (a zero-alpha particle writes
        nothing at all, not even z);
     6. MODULATE with TCC = RGBA, so `As = At * Af >> 7` for the textured

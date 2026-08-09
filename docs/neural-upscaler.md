@@ -620,6 +620,7 @@ on the page is a table nobody can reproduce:
 | `--no-anim` | leaves the project's animated models out of the corpus, the way it worked before they were added | [The animated models the corpus was not drawing](#the-animated-models-the-corpus-was-not-drawing) |
 | `--still` | freezes each shot at one camera and one pose so only the jitter phase advances — the host twin of the console's frozen-camera experiment, and a **fixture for the period-2 table only** (it is refused by `--blss-train` and by `--cv`) | [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was) |
 | `--proxy-budget` | caps a bag's proxy count at the tiles it covers — the fifth rule of the twin contract, which **ships off on both sides** | [The proxy budget](#the-proxy-budget-what-the-cheaper-frame-description-costs-the-network) |
+| `--emitter-proxy` | gives each enabled particle emitter a bag proxy — the sixth rule of the twin contract, which **ships off on both sides**. It changes what the network is SHOWN, not what the corpus DRAWS, so a PSNR taken with it on is a cost and not the benefit | [The sixth rule](#the-sixth-rule-emitter-bags-describe-themselves) |
 | `--ignore-shot-plan` | do not read the project's training-shot plan — six automatic moves, takes on, no authored vantages, an equal frame share | [Choosing what the corpus sees](#choosing-what-the-corpus-sees) |
 
 ```bash
@@ -2908,6 +2909,137 @@ the right direction for a page that keeps complaining about
 on the engine side: a rule that can take a distant bag's proxy count to *zero*
 hands its tiles `coverage = 0`, which the network reads as "there is nothing
 here" rather than "there is something small here". The cap is never below 1.
+
+### The sixth rule: emitter bags describe themselves
+
+**The feature grid did not describe particles at all, and now it can — behind a
+switch that ships off, because measuring it is what says whether to flip it.**
+The rule is stated normatively in
+[§2 of the math doc](blss-reconstruction.md); this section is the measurement.
+
+The gap first, because it is larger than it sounds. A billboard bag runs
+`frustumCulling = None` (VU1 culls per quad), so `StaPipCore` had no package
+bbox for it, fell back to a radius-0 bounding sphere and `addBag()` threw the
+empty box away. The corpus agreed by accident — `bagList()` only walked
+geometry. **Both halves matched, and what they matched on was describing
+nothing over 71.65 of 72.63 counted coverages on `upscaler-lab` (98.7 %) and
+14.57 of 15.24 on `showcase` (95.6 %).** Every kernel the network chose over
+fire, fog and rain, it chose from the geometry behind them.
+
+The rule gives such a bag one box: the AABB over the particle centres it is
+about to submit, grown per axis by the widest quad those centres expand into,
+then projected exactly as a package box. It is **one box per bag and not one per
+VU1 package** — a pool's order is its spawn order, which the corpus does not
+simulate, and the AABB of a *set* is the one description that does not depend on
+that order. `TYRA_BLSS_EMITTER_PROXY` and `--emitter-proxy`, both 0.
+
+**What the console does with it.** PCSX2, `examples/upscaler-lab` at its parked
+boot vantage, jitter off, 2×2, debug channels off, `blssDebugView 2`; the OFF
+arm reproduces this page's published figures exactly (198 proxies of 262, 147
+covered tiles, `coverage` 0.631, `BLSSFILL passes = 1.56`), which is the
+regression check that the switch at 0 changes nothing.
+
+| `BLSSGRID` / `BLSSFEAT` | off | **on** |
+|---|---|---|
+| proxies / projections | 198 / 262 | **207 / 273** |
+| covered tiles | 147 of 224 | **224 of 224** |
+| tile updates | ~1 495 | **~2 649** |
+| `depth` min/mean/max | 0.000/0.461/1.000 | 0.292/**0.610**/1.000 |
+| `depthGrad` | 0.000/0.455/1.000 | **0.899**/0.938/1.000 |
+| `edgeDens` | 0.000/0.455/1.000 | 0.000/**0.614**/1.000 |
+| `texDetail` | 0.000/0.466/1.000 | 0.069/**0.211**/0.789 |
+| `coverage` | 0.000/**0.631**/1.000 | **1.000/1.000/1.000** |
+| `BLSSWORST` | 36 of 224 tiles | **224 of 224**, `w 18.30..42.80` |
+
+Nine of the eleven emitters are accepted (all eleven are projected), and they
+touch about **128 tiles each** — the tile-update column nearly doubles for nine
+boxes. `texDetail` is the channel that most clearly starts telling the truth: it
+stops reporting the walls' and crates' textures and starts reporting `puff.png`
+over its real screen footprint.
+
+**And `coverage` becomes a constant.** `1.000/1.000/1.000`, min = mean = max, in
+every tile of the frame; `depthGrad` follows it with a spread of 0.101. The
+mechanism is exactly the one this feature already paid for once with the sky
+dome, and §4's formula names it:
+`depthGrad = clamp(max(neighbour delta, (depthMax − depthMin) * 8), 0, 1)` — one
+AABB over a haze bank 24 world units deep reports **the whole bank's depth
+range in every tile it touches**, so the term saturates everywhere. A constant
+channel is a network making no per-tile decision. `--blss-eval --probe` says so
+in as many words: the console's own vector goes from *one* constant channel
+(`motion`, an artefact of the parked camera) to **two**.
+
+**What it costs the EE.** Same two runs, `FTSPLIT`, means over 50-frame windows,
+PCSX2 — admissible for the aggregate and the counts, **not** for per-function
+attribution, which the emulator gets wrong in a known direction:
+
+| term | off | on | Δ |
+|---|---|---|---|
+| `proxy` total | 1.656 | 2.139 | **+0.483** |
+| …of which `accum` | 0.626 | 0.920 | +0.294 |
+| `reproj` | 0.290 | 0.359 | +0.069 |
+| `feat` | 0.090 | 0.091 | +0.001 |
+| `net` | 0.795 | **1.143** | **+0.348** |
+| `pkt` | 0.380 | 0.361 | −0.019 |
+| **BLSS EE** | **3.211** | **4.093** | **+0.882 (+27 %)** |
+
+Two of those terms are second-order effects worth naming, because neither is
+about proxies: `net` runs the MLP per *covered* tile, so covering 224 tiles
+instead of 147 costs 52 % more inference, and `reproj` averages over adjacent
+covered tiles for the same reason. **Describing more of the frame makes the rest
+of the pipeline do more work**, which is not what "one extra box per emitter"
+suggests.
+
+Carried into the break-even formula
+(`0.7548 × 0.5174 × C > EE + composite`, 512×448) that takes the bill from
+4.60 + 0.50 to ~5.48 + 0.50 and **break-even from 13.1 to ~15.3 full-screen
+coverages** — the outcome the flag exists to make visible before it is flipped.
+(The ON arm's `BLSSFILL` actually *falls*, 1.56 → 1.34 passes, but that is the
+**shipped net running out of distribution** on inputs it was never fitted to,
+not a saving anyone may bank.)
+
+**What it costs the host, which is a cost and not the benefit.** The corpus
+renderer still draws no particles, so with the flag on it predicts a frame whose
+ground truth has none — `--blss-eval --cv` here prices the *description* against
+a particle-free truth:
+
+| project | flag | margin | fold sd | folds | below bilinear | passes (sd) | proxies/frame |
+|---|---|---|---|---|---|---|---|
+| `upscaler-lab` | off | +0.25 dB | 0.27 | 6 | 1 of 6 | 1.66 (0.24) | 187.2 |
+| `upscaler-lab` | **on** | +0.23 dB | 0.20 | 6 | 0 of 6 | 1.73 (0.30) | 194.1 |
+| `showcase` | off | +0.00 dB | 0.00 | 12 | 0 of 12 | 1.00 (0.00) | 169.9 |
+| `showcase` | **on** | +0.00 dB | 0.00 | 12 | 0 of 12 | 1.00 (0.00) | 171.8 |
+
+−0.02 dB against a fold sd of 0.20–0.27, i.e. **nothing this instrument can
+resolve**, and exactly zero on `showcase`, whose oracle equals bilinear on most
+folds either way. Read that as "adding the predictor costs the geometry fit
+nothing", not as "it does not help" — the host cannot see the help. (Its
+period-2 tables are *not* comparable across the two arms: the stability gate is
+derived from the feature grid, so the two runs measure different pixel sets.)
+
+**The twin checker works, and it can see drift** — which is the thing this repo
+has to be able to do before either switch may move. Pasting the console's own
+`BLSSFEAT` line into `--blss-eval --probe`:
+
+| pairing | `coverage` support | `depth` band | `depthGrad` band |
+|---|---|---|---|
+| console **on** vs corpus **on** | **96.9 %** | **97.7 %** | **89.4 %** |
+| console **on** vs corpus **off** | 67.9 % | 62.2 % | 42.6 % |
+
+The matched pairing places the console's frame inside the corpus distribution;
+the deliberately mismatched one loses a third of the support on `coverage` and
+more than half the reachable band on `depthGrad`. That is the instrument
+detecting exactly the class of divergence it exists for, on a real vector rather
+than a hypothetical.
+
+**The verdict, and it is a "not yet" with a named next step.** Describing an
+emitter with **one** box makes three channels see the particles and turns a
+fourth into a constant, for +0.88 ms of EE and +2.2 coverages of break-even.
+That trade is not worth flipping. What would change it is splitting a pool
+**spatially** rather than as one box — bin the centres by their coordinates, so
+each box carries a *local* depth range instead of the bank's whole range. That
+is order-independent, so unlike a pool-order split it is still twinnable, and it
+is the only remaining lever on the two channels the one-box rule flattens. It is
+written up in `docs/backlog.md`; it is not half-landed here.
 
 ### The transcendentals, as a table
 

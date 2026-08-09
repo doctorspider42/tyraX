@@ -38,6 +38,36 @@
 #define TYRA_BLSS_PROXY_BUDGET 0
 #endif
 
+/**
+ * EMITTER BAGS DESCRIBE THEMSELVES - the sixth rule of the twin contract, and
+ * the same kind of switch as the two above: one number in two files, moved in
+ * the same commit or not at all.
+ *
+ * 0 = a particle emitter contributes NO proxy at all (what has shipped so far).
+ * A billboard bag runs `frustumCulling = None`, so StaPipCore has no package
+ * bbox for it, falls back to addBagSphere(modelTranslation, radius 0) and
+ * addBag() rejects the empty box at `x1 <= x0`. Nothing describes it.
+ * 1 = the bag is described by ONE box: the AABB over the particle centres it is
+ * about to submit, grown by the widest quad those centres expand into.
+ * RendererCoreBlss::addBagBillboard states the exact rule.
+ *
+ * Why it matters more than its one line suggests: on `examples/upscaler-lab`
+ * the emitters are 71.65 of 72.63 counted coverages (98.7 %) and on
+ * `examples/showcase` 14.57 of 15.24 (95.6 %), so with this at 0 the network
+ * chooses its kernels over fire, fog and rain ENTIRELY FROM THE GEOMETRY
+ * BEHIND THEM. All six channels describe the opaque scene while the picture is
+ * mostly particles.
+ *
+ * It changes WHAT THE CONSOLE DESCRIBES, therefore the network's labels,
+ * therefore every published fold table and the shipped resources/blss-default.
+ * net. `bagList()` in the editor's src/blsscorpus.cpp (`--emitter-proxy`) must
+ * cut identically before this may go to 1, and flipping it is a decision that
+ * comes with a refit.
+ */
+#ifndef TYRA_BLSS_EMITTER_PROXY
+#define TYRA_BLSS_EMITTER_PROXY 0
+#endif
+
 namespace Tyra {
 
 /**
@@ -297,6 +327,53 @@ class RendererCoreBlss {
    */
   void addBagBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
                  const float& texelArea);
+
+  /**
+   * THE PROXY FOR A PARTICLE EMITTER - the sixth rule of the twin contract
+   * (docs/blss-reconstruction.md section 2), gated by TYRA_BLSS_EMITTER_PROXY
+   * at the CALL SITE in StaPipCore so a build with the switch off carries not
+   * one extra instruction.
+   *
+   * A billboard bag hands VU1 one CENTRE per particle plus a 2x2 basis weight
+   * qword `(m00, m01, m10, m11)` per particle, and VU1 expands each centre into
+   *
+   *     corner = C +- (R*m00 + U*m01) +- (R*m10 + U*m11)
+   *
+   * with the bag's own `right`/`up` carried through the SAME `mvp` as the
+   * centres (stapip_billboard_{c,t}_vu1.vclpp). So in the space this function
+   * projects from, the union of every quad is contained in the AABB over the
+   * centres grown per axis by
+   *
+   *     e.axis = |R.axis| * (max|m00| + max|m10|)
+   *            + |U.axis| * (max|m01| + max|m11|)
+   *
+   * with the four maxima taken over the bag's own particles. That bound is
+   * TIGHT for the ordinary emitter (m01 = m10 = 0, so it is exactly the quad's
+   * half-width along R and half-height along U) and conservative by at most
+   * sqrt(2) for the one kind that rotates its quads (fog's per-puff swirl).
+   * Both passes are over memory the EE has just written, and it is one box, so
+   * the whole feed for an emitter is `count` qword pairs and one projection.
+   *
+   * ONE BOX PER BAG, NOT ONE PER VU1 PACKAGE, and that is a twin decision
+   * rather than a saving. Geometry splits per package because both halves can
+   * agree on which vertices land in which package - the vertex order is the
+   * authored order and it is the same on both machines. A particle pool's
+   * order is its SPAWN order, an artefact of a simulation the corpus does not
+   * run (it has no dt - see docs/backlog.md), so any sub-bag split would put
+   * different particles in each box on each side. The AABB of a SET does not
+   * depend on the order of the set, which is exactly what makes one box per
+   * bag statable as a rule both halves can meet.
+   *
+   * `centres` and `params` must both hold `count` entries (the vertex slot and
+   * the texture bag's `coordinates` slot of the same bag). `texelArea` is the
+   * emitter material's texel count, 0 for an untextured emitter, and is turned
+   * into section 2's minification ratio by addBagBox() exactly as for geometry.
+   * Inert unless called inside the beginScene/endScene bracket, and ignored
+   * under a foreign view.
+   */
+  void addBagBillboard(const M4x4& mvp, const Vec4* centres, const u32& count,
+                       const Vec4* params, const Vec4& right, const Vec4& up,
+                       const float& texelArea);
 
   /**
    * HOW MANY BOXES THIS BAG IS WORTH DESCRIBING WITH - the twin rule, and the

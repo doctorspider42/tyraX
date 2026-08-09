@@ -190,13 +190,20 @@ read its output as an overdraw **index** that over-states its scale by about a
 third, not as milliseconds: docs/neural-upscaler.md, "The overdraw count is an
 INDEX", and docs/profiling.md, "Calibrating the speed model against hardware".
 
-**Seven flags measure a configuration no project can currently ask for, and each
+**Eight flags measure a configuration no project can currently ask for, and each
 prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
 ENGINE is generic, it is `blssScale` that can only name 2x2 and 1x2),
 `--act-table N`, `--no-anim`, `--still` (freeze each shot at one camera and one
 pose so only the jitter phase advances — the period-2 metric's fixture, refused
 by `--blss-train` and by `--cv`), `--proxy-budget` (the fifth twin-contract
-rule, off on both sides) and `--ignore-shot-plan` (do not read the project's
+rule, off on both sides), **`--emitter-proxy`** (the SIXTH twin-contract rule —
+give each enabled particle emitter a bag proxy; also off on both sides, the
+engine's half being `TYRA_BLSS_EMITTER_PROXY`. Mind what it does and does not
+change: it makes the six channels DESCRIBE the particles, and the corpus
+renderer still DRAWS none, so a PSNR from an `--emitter-proxy` run prices the
+description against a particle-free truth. Read `--features` and a console
+`BLSSFEAT` line through `--probe`, not the dB) and `--ignore-shot-plan` (do not
+read the project's
 training-shot plan — six automatic moves, takes on, an equal frame share, which
 is how a table taken before the plan existed stays runnable). A table of decibels
 whose configuration is not written down is a table nobody can reproduce, which is

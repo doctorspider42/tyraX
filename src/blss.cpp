@@ -1772,6 +1772,12 @@ struct CliOpts {
     // fifth rule of the twin contract, off on BOTH sides. See
     // CorpusConfig::proxyBudget and docs/blss-reconstruction.md section 2.
     bool proxyBudget = false;
+    // `--emitter-proxy`: describe particle emitters with a bag proxy - the
+    // SIXTH rule of the twin contract, off on BOTH sides (the engine's half is
+    // TYRA_BLSS_EMITTER_PROXY). It changes what the network is SHOWN, not what
+    // the corpus draws - see CorpusConfig::emitterProxy before quoting a PSNR
+    // taken with it on.
+    bool emitterProxy = false;
     // `--no-anim`: leave animated models out of the project corpus, the way it
     // worked before they were added. The console draws and describes them, so
     // this is a reproduction switch, not a setting - see CorpusConfig::animated.
@@ -2027,6 +2033,7 @@ CliOpts parseCli(int argc, char** argv) {
         }
         else if (a == "--no-package-split") o.packageSplit = false;
         else if (a == "--proxy-budget") o.proxyBudget = true;
+        else if (a == "--emitter-proxy") o.emitterProxy = true;
         else if (a == "--no-anim") o.animated = false;
         else if (a == "--ignore-shot-plan") o.shotPlan = false;
         else if (a == "--still") o.still = true;
@@ -2261,6 +2268,7 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     if (o.projectDirs.size() > 1) cc.projectDirs = o.projectDirs;
     cc.packageSplit = o.packageSplit;
     cc.proxyBudget = o.proxyBudget;
+    cc.emitterProxy = o.emitterProxy;
     cc.animated = o.animated;
     cc.shotPlan = o.shotPlan;
     cc.still = o.still;

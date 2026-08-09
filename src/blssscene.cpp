@@ -930,14 +930,20 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
                 appendAnimObject(ps.anim, ps.embedded, p, o, light, bakes);
                 continue;
             }
-            // EMITTERS ARE RECORDED, NOT DRAWN. They produce no host triangles
-            // and no BagProxy (the corpus must stay a description of what the
-            // EE submits), but they are most of the GS fill on the one fixture
-            // this feature is measured to win on - so the coverage estimator
-            // gets to see them. See SceneEmitter in the header.
+            // EMITTERS ARE RECORDED, NOT DRAWN. They produce no host triangles,
+            // but they are most of the GS fill on the fixtures this feature is
+            // measured to win on - so the coverage estimator gets to see them,
+            // and since the sixth twin rule so does `bagList()` under
+            // `--emitter-proxy`. What is recorded here is what the console's
+            // `buildParticles` reads off the same object; the corpus renderer
+            // still draws nothing. See SceneEmitter in the header.
             if (o.type == PrimitiveType::Emitter) {
                 SceneEmitter e;
                 e.name = o.name;
+                // The emitter's material supplies the billboard texture (its Kd
+                // is ignored - the emitter colour is the tint), which is
+                // exactly what codegen binds into the particle texture bag.
+                e.texture = materialOf(p, o.materialPath, cache).texture;
                 for (int k = 0; k < 3; ++k) {
                     e.pos[k] = o.position[k];
                     e.box[k] = o.scale[k];

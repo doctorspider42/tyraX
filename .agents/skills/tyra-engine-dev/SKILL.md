@@ -458,6 +458,27 @@ Eight things here that were paid for, and that any edit must keep:
   fallback for a bag with no package bbox. Measured on a booted `fpp` fixture,
   debug view 2, before → after: **2 → 41 proxies, 196/196 → 159/196 tiles covered,
   `depth` 1/1/1 → 0/.737/1, and 5.00 → 1.96 mean passes.**
+  **A SIXTH RULE landed 2026-08-09 and it also SHIPS OFF: emitter bags.** A
+  billboard bag runs `frustumCulling = None` on purpose, so it had no package
+  bbox, fell to the radius-0 sphere and was rejected — i.e. **nothing described
+  the particles**, which on `upscaler-lab` is 98.7 % of the fill and on
+  `showcase` 95.6 %. `TYRA_BLSS_EMITTER_PROXY` (default 0, host twin
+  `--emitter-proxy`) gives such a bag ONE box: the AABB over the centres it is
+  about to submit, grown per axis by `|R.axis|*(max|m00|+max|m10|) +
+  |U.axis|*(max|m01|+max|m11|)` off the params channel — exact for an ordinary
+  emitter, √2-conservative for fog's swirl, and one box per BAG rather than per
+  VU1 package because a pool's order is its SPAWN order and only a set's AABB is
+  order-independent enough for the corpus to match. Measured with it on (PCSX2,
+  parked `upscaler-lab`): 198 → 207 proxies, 147 → **224 of 224** covered tiles,
+  `texDetail` 0.466 → 0.211 (it finally reports `puff.png`) — **and `coverage`
+  becomes a CONSTANT 1.000/1.000/1.000** with `depthGrad` spread 0.101, because
+  one AABB over a haze bank hands every tile the bank's whole depth range. That
+  is the sky-dome failure in the channel the rule meant to rescue. Cost: BLSS EE
+  **3.21 → 4.09 ms** (+0.88; `net` and `reproj` grow too — covering 224 tiles
+  instead of 147 runs the MLP on all of them) and break-even **13.1 → ~15.3**
+  coverages. So it stays at 0, and the identified next step is a SPATIAL split
+  of the pool (bin the centres by coordinate, still order-independent, gives
+  each box a local depth range) — `docs/backlog.md`.
 - **The instrument is PERMANENT, and deleting it is how this went unseen.**
   `logFeatureSpread()` under `blssDebugView = 2` logs one group a second into the
   game's `bin/log.txt`: `BLSSGRID` (tile/proxy counts), **`BLSSWORST`** (the widest

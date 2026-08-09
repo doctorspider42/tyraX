@@ -148,12 +148,21 @@ constexpr int kAnimPoses = 48;
 // alpha-blended puffs. A coverage estimate taken from geometry alone reads that
 // scene as a handful of coverages and tells the user to leave the feature off.
 //
-// So the emitters are carried, unused by generate() and read by
+// So the emitters are carried, unused by the corpus RENDERER and read by
 // blss::measureCoverage(). Everything here is what `MeshData`/`RuntimeObject`
 // hand `TerrainGame::buildParticles` and `updateParticles`; the billboard is
 // `2 * size` world units across (`m00 = size`, `m11 = size`, corner = centre +-
 // right*m00 +- up*m11 - templates.cpp), which is the one number the estimate
 // turns into pixels.
+//
+// SINCE THE SIXTH TWIN RULE they are also read by `bagList()` under
+// `--emitter-proxy`, which turns each one into a BagProxy the way the console's
+// TYRA_BLSS_EMITTER_PROXY does (docs/blss-reconstruction.md section 2). Both
+// halves ship OFF. Note what that does and does not fix: it makes the six
+// feature channels DESCRIBE the particles, and it does not make the corpus
+// renderer DRAW them - so with the flag on, the corpus predicts a frame whose
+// ground truth still has no particles in it. Drawing them is the other half and
+// is still filed in docs/backlog.md.
 struct SceneEmitter {
     std::string name;
     float pos[3] = {0, 0, 0};    // world position
@@ -165,6 +174,14 @@ struct SceneEmitter {
     int count = 24;              // pool size, clamped to 256 by the runtime
     int kind = 0;                // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain, 5 custom
     bool enabled = true;         // false = starts hidden, so it draws nothing
+    // ABSOLUTE path to the emitter material's map_Kd PNG, "" = untextured.
+    // Needed because texDetail is one of the six channels: the console reads
+    // the bound texture's texel count straight off the billboard bag's texture
+    // bag (`puff.png` for upscaler-lab's haze), so a corpus that called every
+    // emitter untextured would report 0 on exactly the channel the emitter
+    // proxy exists to populate. Ignored by measureCoverage(), which counts
+    // pixels and does not care what is in them.
+    std::string texture;
 };
 
 // One scene of the project, drawn and shot.
