@@ -25,6 +25,7 @@ RendererCoreGS::RendererCoreGS() {
   context = 0;
   currentField = 0;
   alphaPacket = nullptr;
+  wrapPacket = nullptr;
 }
 
 RendererCoreGS::~RendererCoreGS() {
@@ -37,6 +38,9 @@ RendererCoreGS::~RendererCoreGS() {
   if (alphaPacket) {
     packet2_free(alphaPacket);
   }
+  if (wrapPacket) {
+    packet2_free(wrapPacket);
+  }
 }
 
 void RendererCoreGS::init(RendererSettings* t_settings) {
@@ -48,6 +52,7 @@ void RendererCoreGS::init(RendererSettings* t_settings) {
   flipPacket = packet2_create(8, P2_TYPE_UNCACHED_ACCL, P2_MODE_NORMAL, 0);
   zTestPacket = packet2_create(8, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   alphaPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  wrapPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   allocateBuffers();
   initDrawingEnvironment();
 
@@ -289,6 +294,30 @@ void RendererCoreGS::setAlpha(const u64& alpha) {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
 
+// Modified by TyraX: per-bag texture wrap (see the header). Mirrors setAlpha
+// exactly - the CLAMP register is global GS state and the caller owns the
+// PATH1 drain around it.
+const texwrap_t& RendererCoreGS::repeatWrap() {
+  static const texwrap_t repeat = {WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0};
+  return repeat;
+}
+
+void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
+  packet2_reset(wrapPacket, false);
+  qword_t* q = wrapPacket->base;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_CLAMP(wrap.horizontal, wrap.vertical, wrap.minu, wrap.maxu,
+                           wrap.minv, wrap.maxv),
+              GS_REG_CLAMP_1);
+  q++;
+  packet2_update(wrapPacket, q);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(wrapPacket, DMA_CHANNEL_GIF, true);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+}
+
 void RendererCoreGS::enableZTests() {
   packet2_reset(zTestPacket, false);
   packet2_update(zTestPacket,
@@ -299,9 +328,26 @@ void RendererCoreGS::enableZTests() {
 }
 
 void RendererCoreGS::initDrawingEnvironment() {
-  packet2_t* packet2 = packet2_create(20, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  packet2_t* packet2 = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
+  // Modified by TyraX: draw_setup_environment() ends with "Setup whole texture
+  // clamping" - it programs GS_REG_CLAMP to CLAMP/CLAMP. Nothing in the 3D
+  // pipelines ever writes that register again, so every 3D mesh inherited it,
+  // and a mesh whose STs leave 0..1 (the terrain: world position x tile
+  // factor) drew one tile at the world origin with the edge texels smeared
+  // along both axes everywhere else. REPEAT is the contract here; Path3::
+  // clearScreen re-asserts it every frame because the post-fx blits and 2D
+  // texture uploads write the same register for their own purposes.
+  {
+    qword_t* q = packet2->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
+                GS_REG_CLAMP_1);
+    q++;
+    packet2_update(packet2, q);
+  }
   packet2_update(packet2, draw_primitive_xyoffset(
                               packet2->next, 0,
                               screenCenter - (settings->getWidth() / 2.0F),

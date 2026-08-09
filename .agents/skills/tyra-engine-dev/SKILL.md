@@ -45,7 +45,12 @@ does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
 2. The Runner checksum-rsyncs `/engine-src` into the shared volume
    `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
    by every project built from the same checkout — parallel worktrees get their
-   own, or they would rsync diverging engines over each other forever.
+   own, or they would rsync diverging engines over each other forever. Because
+   it is shared it is declared **`external: true`** in the generated
+   `docker-compose.yml` and created by the Runner (`docker volume create`,
+   idempotent) rather than by compose: a volume compose creates is labelled with
+   whichever project got there first, and every other project then warns on
+   every `up` that it "already exists but was created for project X".
 3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
    it relinks.
 4. Unchanged engine → the rsync is a no-op and builds take seconds.
@@ -72,7 +77,12 @@ again from source.
 game, so an edit there moves both. TyraX changes in it: single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, and `cp -ru` for the resource copy. Verified
+reach an absent `bin/`, `cp -ru` for the resource copy, and **`src/vu/` and
+`src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
+programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
+by the container's g++, and handing them to the PS2 compiler fails on the very
+first include. A new host-code directory has to be added to that `find`
+exclusion or its first file breaks every build that has one. Verified
 byte-identical: the same project built with the old and new rules produced the
 same `md5` for its stripped ELF.
 
@@ -354,11 +364,15 @@ tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budge
   delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
   registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
   is not authoritatively simulated).
-- The five `as_is` programs also have C++ descriptions that generate them; a
+- **All fifteen StaPip programs** (five `as_is` + five `cull` + the five
+  Sutherland-Hodgman `clip`) also have C++ descriptions that generate them; a
   generated program is proven **bit-identical** to the handwritten one by
-  simulating both on randomized input. If you change one of those five by hand,
-  `--vu-check` starts failing - update the description in `vugen.cpp` too, or
-  the two have genuinely diverged and you should say which is right.
+  simulating both on randomized input, and each emits the same instruction COUNT
+  as its handwritten file. If you change one of those fifteen by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
+  two have genuinely diverged and you should say which is right. (Only the
+  `as_is` five are *adopted* so far: the files in `vendor/tyra` ARE the generated
+  ones. The `cull` and `clip` families are still the handwritten originals.)
 - **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
   diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
   36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
@@ -453,17 +467,47 @@ banner both, so a previously built ELF still reports.
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
-- **A texture's wrap mode does nothing in 3D.** `Texture::setWrapSettings`
-  reaches the GS only through `path3` (2D sprites) and the post-fx blits;
-  NOTHING in the static or dynamic 3D pipeline ever emits `GS_REG_CLAMP`, so a
-  3D mesh samples with whatever the last 2D draw or post-fx pass left in that
-  register - which is global state you do not control. If a 3D mesh's texture
-  coordinates can leave 0..1, clamp them where you BUILD them, on the EE, and
-  do not reason about wrap modes at all. (Found via the projected shadows: the
-  receiver patch's STs come out of a light projection and ran -0.38..1.39, so
-  the silhouette was sampled a second time and left thin dark streaks at the
-  patch edges. Writing `GS_SET_CLAMP` from the shadow pass changed nothing
-  measurable; clamping the STs fixed it exactly.)
+- **3D texture wrap is REPEAT, asserted once per frame - it used to be
+  whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
+  state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
+  (there is no micro memory left to carry it in-band the way the ALPHA qword
+  is - the clip program set sits at ~2036/2042). What nobody had noticed is
+  that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
+  clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
+  generated game sampled clamped**. Harmless for a model whose STs are 0..1;
+  ruinous for the terrain, whose STs are world position x tile factor and run
+  far outside it - the ground texture drew ONCE around the world origin and
+  the texture's edge texels were stretched along the world axes everywhere
+  else. On screen that is long continuous streaks converging on the vanishing
+  point with flat washed ground between them, worst at grazing angles, and it
+  reads exactly like a mipmapping or upscaler problem (it was reported as
+  one). `Path3::clearScreen` now writes REPEAT into the one PATH3 packet that
+  always precedes the frame's 3D pass, so REPEAT is a contract 3D can rely on
+  and no extra transfer is paid for it; `initDrawingEnvironment` writes it too,
+  right after the `draw_setup_environment` call that caused this.
+  **The diagnostic that settles this class of question in one boot**: swap the
+  ground texture for four saturated quadrant colours with a black border. A
+  correct REPEAT tiles them across the map; a clamped one shows a single tile
+  at the origin and the border colour everywhere else. Do not try to reason it
+  out from a photograph of soft ground texture - both failure modes look like
+  "the ground is smeared".
+- **A texture that needs clamping in 3D gets it per bag, and it costs a PATH1
+  drain.** `StaPipCore::render` brackets any bag whose texture asked for
+  something other than `WRAP_REPEAT` with `sync.align3D()` +
+  `RendererCoreGS::setTextureWrap`, and restores REPEAT after
+  `flushBuffers()` - the same drain-write-restore shape `additiveBlendFix`
+  used before the blend equation moved in-band. Only the render targets ask
+  (the camera feeds and the raytraced mirror, whose edge rows must not
+  bilinear-wrap into the opposite side), so an ordinary mesh pays one pointer
+  comparison. Do NOT reach for it per mesh at scale: the drain is exactly the
+  barrier the pipeline exists to avoid. **The older advice still applies to
+  STs that leave 0..1 for geometric reasons** - clamp them where you BUILD
+  them, on the EE. (Found via the projected shadows: the receiver patch's STs
+  come out of a light projection and ran -0.38..1.39, so the silhouette was
+  sampled a second time and left thin dark streaks at the patch edges. Writing
+  `GS_SET_CLAMP` from the shadow pass changed nothing measurable - now known to
+  be because the pass never drained PATH1 first; clamping the STs fixed it
+  exactly, and remains the cheaper answer.)
 - **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
   the GS 4096-px raster window → "objects render twice / giant smeared
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
@@ -562,7 +606,11 @@ banner both, so a previously built ELF still reports.
   (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
   headroom; measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
-  after ANY edit there.
+  after ANY edit there. **And the clip family now has a C++ description**
+  (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
+  has to be made in BOTH places or `--vu-check` fails — which is the point:
+  the ceiling above is exactly the kind of change that used to be applied to
+  `clip_c` and forgotten on `clip_tc`.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

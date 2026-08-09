@@ -209,6 +209,24 @@ void StaPipCore::render(StaPipBag* bag) {
     texBuffers = &texBuffersStorage;
   }
 
+  // Modified by TyraX: per-bag texture wrap. GS_REG_CLAMP is global state and
+  // the VU1 programs have no micro memory left to carry it in-band the way
+  // the ALPHA qword is (the clip family sits at ~2036/2042), so a bag whose
+  // texture asked for anything but REPEAT gets it the way the blend equation
+  // used to: drain PATH1, write the register, draw, put REPEAT back.
+  // Path3::clearScreen guarantees REPEAT for every other mesh in the frame,
+  // which is what the terrain needs (its STs are world position x tile
+  // factor). Only the render targets ask - camera feeds and the raytraced
+  // mirror, whose edge rows must not bilinear-wrap into the opposite side -
+  // so an ordinary mesh pays one pointer comparison.
+  const bool clampedBag =
+      bag->texture && bag->texture->texture &&
+      bag->texture->texture->getWrapSettings()->horizontal != WRAP_REPEAT;
+  if (clampedBag) {
+    rendererCore->sync.align3D();
+    rendererCore->gs.setTextureWrap(*bag->texture->texture->getWrapSettings());
+  }
+
   // Modified by TyraX: billboard bags run from their own on-demand program
   // set (micro memory is full - see ensureProgramSet); non-billboard bags
   // lazily restore the resident set.
@@ -299,6 +317,11 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 
   qbufferRenderer.flushBuffers();
+
+  if (clampedBag) {  // Modified by TyraX: restore the frame's REPEAT contract
+    rendererCore->sync.align3D();
+    rendererCore->gs.setTextureWrap(RendererCoreGS::repeatWrap());
+  }
 
   Verbose("Render finished");
 }
