@@ -467,17 +467,47 @@ banner both, so a previously built ELF still reports.
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
-- **A texture's wrap mode does nothing in 3D.** `Texture::setWrapSettings`
-  reaches the GS only through `path3` (2D sprites) and the post-fx blits;
-  NOTHING in the static or dynamic 3D pipeline ever emits `GS_REG_CLAMP`, so a
-  3D mesh samples with whatever the last 2D draw or post-fx pass left in that
-  register - which is global state you do not control. If a 3D mesh's texture
-  coordinates can leave 0..1, clamp them where you BUILD them, on the EE, and
-  do not reason about wrap modes at all. (Found via the projected shadows: the
-  receiver patch's STs come out of a light projection and ran -0.38..1.39, so
-  the silhouette was sampled a second time and left thin dark streaks at the
-  patch edges. Writing `GS_SET_CLAMP` from the shadow pass changed nothing
-  measurable; clamping the STs fixed it exactly.)
+- **3D texture wrap is REPEAT, asserted once per frame - it used to be
+  whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
+  state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
+  (there is no micro memory left to carry it in-band the way the ALPHA qword
+  is - the clip program set sits at ~2036/2042). What nobody had noticed is
+  that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
+  clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
+  generated game sampled clamped**. Harmless for a model whose STs are 0..1;
+  ruinous for the terrain, whose STs are world position x tile factor and run
+  far outside it - the ground texture drew ONCE around the world origin and
+  the texture's edge texels were stretched along the world axes everywhere
+  else. On screen that is long continuous streaks converging on the vanishing
+  point with flat washed ground between them, worst at grazing angles, and it
+  reads exactly like a mipmapping or upscaler problem (it was reported as
+  one). `Path3::clearScreen` now writes REPEAT into the one PATH3 packet that
+  always precedes the frame's 3D pass, so REPEAT is a contract 3D can rely on
+  and no extra transfer is paid for it; `initDrawingEnvironment` writes it too,
+  right after the `draw_setup_environment` call that caused this.
+  **The diagnostic that settles this class of question in one boot**: swap the
+  ground texture for four saturated quadrant colours with a black border. A
+  correct REPEAT tiles them across the map; a clamped one shows a single tile
+  at the origin and the border colour everywhere else. Do not try to reason it
+  out from a photograph of soft ground texture - both failure modes look like
+  "the ground is smeared".
+- **A texture that needs clamping in 3D gets it per bag, and it costs a PATH1
+  drain.** `StaPipCore::render` brackets any bag whose texture asked for
+  something other than `WRAP_REPEAT` with `sync.align3D()` +
+  `RendererCoreGS::setTextureWrap`, and restores REPEAT after
+  `flushBuffers()` - the same drain-write-restore shape `additiveBlendFix`
+  used before the blend equation moved in-band. Only the render targets ask
+  (the camera feeds and the raytraced mirror, whose edge rows must not
+  bilinear-wrap into the opposite side), so an ordinary mesh pays one pointer
+  comparison. Do NOT reach for it per mesh at scale: the drain is exactly the
+  barrier the pipeline exists to avoid. **The older advice still applies to
+  STs that leave 0..1 for geometric reasons** - clamp them where you BUILD
+  them, on the EE. (Found via the projected shadows: the receiver patch's STs
+  come out of a light projection and ran -0.38..1.39, so the silhouette was
+  sampled a second time and left thin dark streaks at the patch edges. Writing
+  `GS_SET_CLAMP` from the shadow pass changed nothing measurable - now known to
+  be because the pass never drained PATH1 first; clamping the STs fixed it
+  exactly, and remains the cheaper answer.)
 - **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
   the GS 4096-px raster window → "objects render twice / giant smeared
   polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real

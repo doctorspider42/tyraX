@@ -163,6 +163,32 @@ the verification, and any fact worth reusing belongs in the relevant
   Nothing measures it today; sorting bags by program set would bound it to two
   swaps a frame.
 
+- **Texture minification: the terrain still has no mip chain.** With the wrap
+  bug fixed (the ground repeats again) the remaining distance artefact is
+  ordinary minification aliasing: `max_level = 0` and `LOD_USE_K` with K = 0 in
+  every pipeline (`stapip_core.cpp`, `dynpip_core.cpp`, `renderer_core_2d.cpp`,
+  `minecraft_pipeline.cpp`), i.e. the GS always samples level 0 bilinearly, so
+  a high-frequency tiling ground shimmers and moirés at grazing angles. The GS
+  can do it - `LOD_MIPMAP_CALCULATE` (TEX1.MTBA) derives levels 1..6 from TBP0
+  with no per-mesh register, so this needs **no VU1 change**: a mip chain built
+  at bake or load, uploaded contiguously after level 0, `calculation = 0` so LOD
+  comes from Q per pixel, and a per-texture K to match its texel density. The
+  two things to settle before starting: it costs **+33 % VRAM per mipped
+  texture** on a ~1.08 MB heap (so it wants to be opt-in per texture, terrain
+  first), and MTBA's auto-addressing has documented quirks for levels whose TBW
+  falls to 1 - measure it on hardware before trusting it over explicit
+  MIPTBP1/2, which would need the register in-band and there is no micro memory
+  for that.
+
+- **Terrain ST magnitude on very large maps.** Terrain STs are world position x
+  tiling factor, so they scale with map size: 192 units at `-s 0.125` is a
+  harmless +-12, but 2048 units at `-s 1.0` would be +-1024 (x 2^TW texels),
+  which the GS's fixed-point texture coordinates will not carry. No shipped
+  example hits it (`examples/large-terrain` has no terrain material), and the
+  fix is cheap when someone does - fold each chunk's STs by a whole number of
+  tiles at build, which is invisible under REPEAT and bounds the magnitude by
+  the chunk instead of by the map.
+
 - **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
   *recommends* (does not require) attaching its short header comment to each
   source file. TyraX is Apache-2.0 (`LICENSE`) but no source file carries the

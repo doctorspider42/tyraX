@@ -84,6 +84,37 @@ size), so the tell-tale grid leaves the visible range.
   detail on very large source textures (a source bigger than 256px is sampled
   down so at least a 2x2 arrangement fits the 512 cap).
 
+## How the ground tiles at all (and what it looked like when it didn't)
+
+Terrain texture coordinates are **world position x the material's tiling
+factor**, so they run far outside 0..1 - a 192-unit map at `map_Kd -s 0.125`
+covers 24 tiles per axis, i.e. STs from -12 to +12. Everything on this page
+depends on the GS repeating the texture over that range.
+
+Until TyraX 1.9.1 it did not. `GS_REG_CLAMP` (the GS's wrap mode) is one global
+register, no 3D pipeline writes it per mesh, and ps2sdk's `draw_setup_environment`
+leaves it at CLAMP at boot - so the ground texture was drawn **once**, in the
+8x8-unit patch around the world origin, and its edge texels were stretched along
+the world axes over the entire rest of the map. On screen: long continuous
+streaks converging on the vanishing point with flat, washed ground between them,
+worst when you look along the ground toward the horizon. It is now asserted as
+REPEAT at the top of every frame, which is what every layer, supertile and macro
+variation on this page assumes.
+
+Two things follow if you are chasing something similar:
+
+- A tiling problem is diagnosed in one boot with a **deliberately unmistakable
+  texture** - four saturated quadrant colours with a contrasting border. Correct
+  tiling repeats the quadrants across the map; a clamped one shows a single tile
+  at the origin and the border colour everywhere else. Soft, organic ground
+  textures make both failure modes look like "the ground is smeared", which is
+  how this survived so long.
+- **Repeat is the only wrap mode 3D geometry gets.** A surface that must not
+  repeat (a projected decal, a shadow receiver patch) clamps its own texture
+  coordinates where they are built; only the engine's render-target textures
+  (camera feeds, the raytraced mirror) get a real per-bag clamp, and that costs
+  a pipeline drain.
+
 ## Macro variation (breaking uniformity at the group-of-tiles scale)
 
 The supertile itself still repeats every 2-8 tiles - the GS texture cap is a
