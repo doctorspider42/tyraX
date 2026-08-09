@@ -106,6 +106,33 @@ carries no bars and no fades on purpose: both are full-screen 2D passes drawn
 Afterwards you are standing at the south edge of the yard. Walk north into the
 bank.
 
+### Under a controller
+
+Everything above was measured from a **parked or frame-indexed** camera, which is
+what makes an A/B possible and is also the one thing a player never does. First
+pad-driven run, 2026-08-09: ~110 s of `--pad` driving (`tyra-testing`) in PCSX2's
+software renderer, shipped configuration, one 20 640-frame boot.
+
+- **`bin/log.txt` is clean** — no assert, no `Max buffer size in VU1`, zero
+  texture evictions and zero re-uploads, GS free VRAM flat at 1.19 MB the whole
+  way. The only two lines are the pre-existing `DynamicMesh` notes for the
+  spiders, printed at load.
+- **The frame splits exactly where this example says it does.** Away from the
+  haze it holds `FRAME 20.00 ms` at 50 FPS; driven into the bank at the south end
+  of the yard it runs **23.2–31.7 ms at 25 FPS** — and `PART`, the EE particle
+  phase on the HUD, reads **0.46 ms in every single sample**, moving or not. The
+  emitters cost the EE nothing and the frame everything, under a pad, without a
+  measurement rig.
+- **Standing inside a bank costs about double.** With one haze emitter moved to
+  eye height 5 m ahead (a scratch copy — do not commit it), walking in and
+  stopping reads `FRAME 40.0 / SCENE 15.6 / PART 0.46`. Near puffs drop out as
+  described above; nothing corrupts, and no raster-window wrap smear appears —
+  the quad is discarded cleanly rather than wrapping.
+
+These are **emulator** milliseconds and are not comparable to the console table
+in [Measured](#measured) — PCSX2 mis-prices GS fill by a large factor
+(`docs/profiling.md`). They are the shape, on the hardware nobody was driving.
+
 ## Things worth trying
 
 - **Square / Circle** — the particle A/B, from the same camera, in the same run.
