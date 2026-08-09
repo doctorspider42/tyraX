@@ -2603,6 +2603,66 @@ control and was thrown away rather than reported as agreement. A third had a rec
 Python's stack at ~1000 nodes and survived the 70 by luck; a detector that raises reads as
 "nothing here".
 
+### Six blind spots, two more bugs, and a refusal to declare it clean
+
+Every named blind spot was closed with an instrument that had to prove a **positive control**
+first. Two of the six yielded a bug; a third yielded one during triage; three yielded nothing but
+now carry a detector that demonstrably could have found something.
+
+**Bug 10 - pre-decrement addressing has never worked, in any version.** `src/Token.cpp` parses
+`(--base)` and then sets `Argument::POSTINC`. `Argument::PREDEC` is therefore never set on any
+argument, the emitter's `--` branch is dead code, and every `lqd`/`sqd` comes out as
+`lqd VF01,(VI02++)` - which **`dvp-as` rejects**. No source using pre-decrement addressing could
+be assembled at all. Upstream's, unmodified by the fork, and loud rather than silent - but total.
+The census that found it is worth keeping: `(base++)` has 363 sites in the generated corpora and
+**none in the 70**; `(--base)` has **zero sites anywhere** - 70 real, 1360 generated, 3780
+narrowed, every upstream example. That is why nobody had noticed.
+
+**Bug 11 - "last reader" is a position in a linear token list, and programs are not linear.**
+`ignoredFlagWawMaskForIndex` treats a flag resource as dead once the writer's index passes
+`lastClipReader`. Two `clipw` in a loop's *last* block sit past the `fceq` at the loop *head*,
+read as dead, lose the shift-register writer chain - and `--fmac-interlock` then issues the ready
+one first, transposing them. Since `fceq VI01,0x3CA3CA` has non-zero mask bits in all four 6-bit
+generations, that changes what the branch tests. Fixed by extending each resource's liveness
+across back edges to a fixpoint, and by giving the emission-time helper the program start so it
+can follow its own back edge. **109 of the 1360 generated stress programs carry that shape; 0 of
+the 70 do.**
+
+The flag ablation that isolated it is a method worth copying: comparing *emitted text* across
+flag sets is unsound, because register allocation moves with the flags. It was ablated by
+**oracle verdict** instead.
+
+**What the other four spots gave:**
+
+* **The "unpairable" programs were never unjudged.** 239 programs that SCE declines - it reorders
+  whole blocks - are all fully judged by the same oracle run against their *own source*, which
+  needs no reference. 400/400, 480/480, 479/480 in scope. The gap was in the cross-check only.
+* **Register-pool exhaustion**: nothing found, and the census is the finding. Both synthetic
+  corpora salvaged **zero** programs - every one fitted on rung 0 or on no rung, so the retry
+  ladders ran 3811 times and their *output* stayed unexamined. Narrowing the real 70's register
+  pools is what finally reached it: **100 programs where a rung fired and allocation then
+  succeeded**, all in scope, 0 divergent. openvcl and SCE agree exactly on which programs fit.
+* **Infeasible paths** explain **46 of the 66** residual divergences: the path policies force both
+  edges of every branch, including ones the source's own constant folding proves cannot be taken.
+  Now labelled rather than silent.
+* **The interlock error bar contained nothing.** Marking the ambiguous Q/P *value* instead of
+  rejecting the whole program takes one corpus from 305 in scope / 175 skipped to **480 / 0**,
+  with the same 22 findings as at margin 0. Only **4 of 37 762** conditions are genuinely
+  unjudgeable. The 175-program gap was an artefact of rejecting a program for one ambiguous read.
+
+Both fixes are **zero-cost on the 70: zero bytes, zero programs**, words unchanged at
+1998 / 3908 / 9242. On the generated corpora the CLIP fix does move bytes (11 of 400, 19 of 480,
+22 of 480) and closes four divergent programs.
+
+**And the round declined to declare the compiler clean**, which is the part I asked for and the
+part worth recording. Its own reasoning: the tenth and eleventh bugs were in the "still
+unexamined" list that morning. What is left is now *counted and labelled* rather than silent - 20
+reachable residuals, all of them `undef(Q)` in the ruled-out FDIV completion bucket; 46 findings
+on provably unreachable paths that nobody has read; one program openvcl takes twenty minutes to
+compile that was excluded from every run without anyone asking why; and `--fmac-interlock`
+itself, which triggered bug 11 and is the only flag whose removal cleared it, with nothing
+systematically comparing its output against the same programs with it off.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now

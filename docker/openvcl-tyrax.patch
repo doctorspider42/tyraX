@@ -154,7 +154,7 @@ index 5bec71c..739b634 100644
  		if( state.dependency() )
  			newDependency->depend( state.dependency() );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..21e1955 100644
+index 699abe7..37ccc21 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -24,6 +24,7 @@
@@ -187,6 +187,15 @@ index 699abe7..21e1955 100644
  	m_enableUpperMoves = macFlagsDead;
  	m_ignoredImplicitWawResources = VU_RESOURCE_NONE;
  
+@@ -1073,7 +1080,7 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
+ 
+ 		for( std::list<Token>::iterator k = workTokens.begin(); k != workTokens.end(); )
+ 		{
+-			m_ignoredImplicitWawResources = ignoredImplicitWawResourcesForRemaining(k, workTokens.end());
++			m_ignoredImplicitWawResources = ignoredImplicitWawResourcesForRemaining(workTokens.begin(), k, workTokens.end());
+ 
+ 		if( tryEmitKnownLoopOptimization(workTokens, k) )
+ 		{
 @@ -1450,6 +1457,11 @@ bool CodeGenerator::beginProcess(const std::list<Token>& tokens)
  		// Do not treat as an error; some VCL programs end in a loop
  	}
@@ -923,7 +932,21 @@ index 699abe7..21e1955 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2397,8 +3043,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2365,10 +3011,11 @@ void CodeGenerator::recordRegisterWrites( const Token& token, int issueCycle )
+ 	m_latencyTracker.recordWrites( token, issueCycle, emitsAsUpperMove( token ) );
+ }
+ 
+-unsigned int CodeGenerator::ignoredImplicitWawResourcesForRemaining( std::list<Token>::const_iterator begin,
++unsigned int CodeGenerator::ignoredImplicitWawResourcesForRemaining( std::list<Token>::const_iterator programBegin,
++                                                                     std::list<Token>::const_iterator begin,
+                                                                      std::list<Token>::const_iterator end ) const
+ {
+-	return vuIgnoredFlagWawResourcesForRemaining( begin, end );
++	return vuIgnoredFlagWawResourcesForRemaining( programBegin, begin, end );
+ }
+ 
+ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +3044,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -971,7 +994,7 @@ index 699abe7..21e1955 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2646,6 +3330,14 @@ bool CodeGenerator::moveDeadFallthroughIntoBranchDelaySlot( std::list<Token>& to
+@@ -2646,6 +3331,14 @@ bool CodeGenerator::moveDeadFallthroughIntoBranchDelaySlot( std::list<Token>& to
  		return false;
  	if( !writesAreDeadFromTarget(candidateAccess.registerWrites, target, tokens.end()) )
  		return false;
@@ -986,7 +1009,7 @@ index 699abe7..21e1955 100644
  
  	Token filler = *candidate;
  	filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +3359,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +3360,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -1005,7 +1028,7 @@ index 699abe7..21e1955 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +3380,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +3381,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -1023,7 +1046,7 @@ index 699abe7..21e1955 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
-@@ -2759,6 +3468,153 @@ bool CodeGenerator::writesAreDeadFromTarget( const std::list<std::string>& write
+@@ -2759,6 +3469,153 @@ bool CodeGenerator::writesAreDeadFromTarget( const std::list<std::string>& write
  	return true;
  }
  
@@ -1177,7 +1200,7 @@ index 699abe7..21e1955 100644
  bool CodeGenerator::tryEmitKnownLoopOptimization( std::list<Token>& tokens,
                                                    std::list<Token>::iterator& token )
  {
-@@ -9833,6 +10689,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+@@ -9833,6 +10690,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
  		if(token.fields() & (1<<t))
  			fields += fieldnames[t];
  	}
@@ -1189,7 +1212,7 @@ index 699abe7..21e1955 100644
  	std::list<Token::Argument>::const_iterator dst = token.arguments().begin();
  	std::list<Token::Argument>::const_iterator src = dst;
 diff --git a/src/CodeGenerator.h b/src/CodeGenerator.h
-index 1845035..8c07018 100644
+index 1845035..8bec0ef 100644
 --- a/src/CodeGenerator.h
 +++ b/src/CodeGenerator.h
 @@ -43,6 +43,11 @@ public:
@@ -1229,7 +1252,17 @@ index 1845035..8c07018 100644
  	void emitSingleToken( const Token& token );
  	void emitBranchWithDelayFiller( const Token& branch, const Token& filler );
  	void emitPairedTokens( const Token& a, const Token& b );
-@@ -101,6 +119,9 @@ private:
+@@ -83,7 +101,8 @@ private:
+ 	int readHazardDelay( const Token& token, const Token* partner ) const;
+ 	void padForReadHazards( const Token& token, const Token* partner );
+ 	void recordRegisterWrites( const Token& token, int issueCycle );
+-	unsigned int ignoredImplicitWawResourcesForRemaining( std::list<Token>::const_iterator begin,
++	unsigned int ignoredImplicitWawResourcesForRemaining( std::list<Token>::const_iterator programBegin,
++	                                                       std::list<Token>::const_iterator begin,
+ 	                                                       std::list<Token>::const_iterator end ) const;
+ 	void fillPreIncrementStoreBranchDelaySlots( std::list<Token>& tokens ) const;
+ 	void fillBranchDelaySlots( std::list<Token>& tokens ) const;
+@@ -101,6 +120,9 @@ private:
  	bool writesAreDeadFromTarget( const std::list<std::string>& writes,
  	                              std::list<Token>::iterator target,
  	                              std::list<Token>::iterator end ) const;
@@ -1239,7 +1272,7 @@ index 1845035..8c07018 100644
  	bool emitsAsUpperMove( const Token& token ) const;
  	bool tokenIsLowerExecutionPath( const Token& token ) const;
  	bool tokenIsUpperExecutionPath( const Token& token ) const;
-@@ -195,11 +216,15 @@ private:
+@@ -195,11 +217,15 @@ private:
  	bool m_knownLoopOptimizations;
  	bool m_genericSoftwarePipelining;
  	bool m_strictScheduleSlots;
@@ -4459,7 +4492,7 @@ index 738fca5..067d7c0 100644
  
  #include "RegisterAllocator.inl"
 diff --git a/src/Token.cpp b/src/Token.cpp
-index 586585b..606b02d 100644
+index 586585b..34ef948 100644
 --- a/src/Token.cpp
 +++ b/src/Token.cpp
 @@ -367,9 +367,25 @@ bool Token::processOperand( const Operand* operand, bool newSyntax, Token::Argum
@@ -4503,6 +4536,22 @@ index 586585b..606b02d 100644
  		else if( name == "noalias" )
  			modifiers |= (1<<NOALIAS);
  		else if( name == "write" )
+@@ -650,7 +669,14 @@ bool Token::extractRegister( std::string name, Argument& argument, unsigned int
+ 				return false;
+ 
+ 			start += 2;
+-			argument.setFlags( argument.flags() | Argument::POSTINC );			
++			// PREDEC, not POSTINC.  `Argument::PREDEC` is the flag the emitter
++			// tests to write `(--VI02)` back out (CodeGenerator::emitArgument);
++			// tagging a pre-decrement as a post-increment meant the flag was
++			// never set on any argument in the program, the emitter's `--`
++			// branch was dead, and every `lqd`/`sqd` came out as
++			// `lqd VF01,(VI02++)` - which dvp-as rejects, so no source using
++			// pre-decrement addressing could be built at all.
++			argument.setFlags( argument.flags() | Argument::PREDEC );
+ 		}
+ 
+ 		std::string extra = name.substr(name.find(')',stop)+1);
 diff --git a/src/Token.h b/src/Token.h
 index ba4e871..614d628 100644
 --- a/src/Token.h
@@ -4994,7 +5043,7 @@ index 2c14ff6..c791db3 100644
  	std::map<std::string, int> m_registerReadyCycle;
  	std::map<std::string, std::string> m_registerProducerMnemonic;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..ec63e2d 100644
+index 3260370..f371ee5 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -5630,7 +5679,7 @@ index 3260370..ec63e2d 100644
  	};
  
  	bool tokenReadsMac( const Token& token )
-@@ -853,16 +1267,30 @@ namespace
+@@ -853,16 +1267,104 @@ namespace
  		return token.operand() && isVuClipReader( token.operand()->name() );
  	}
  
@@ -5660,10 +5709,84 @@ index 3260370..ec63e2d 100644
 +		// how a `clipw` the dead-write pass correctly kept could still be permuted
 +		// out of the window position its successor reads it in.
 +		return mask & ~declaredLiveResources;
++	}
++
++	// A writer past the last reader is dead ONLY IF CONTROL NEVER COMES BACK.
++	//
++	// "Last reader" is a position in the token list, and the token list is
++	// linear while the program is not. A `clipw` in a loop's last block sits at
++	// a higher index than the `fceq` at the loop's head, so it read as dead -
++	// and CLIP is a SHIFT REGISTER, so dropping its writer chain let the
++	// scheduler exchange two `clipw` and hand the next iteration's `fceq` a
++	// window with two entries transposed. The dead-write pass never removed
++	// them; nothing was missing from the output except the order, which is why
++	// four rounds of value oracles walked past it and only a branch-condition
++	// comparison caught it.
++	//
++	// So each back edge extends its resources' liveness to the end of its own
++	// loop: a reader anywhere inside [target, branch] keeps every writer in
++	// that range live, because the next iteration reaches it. Run to a fixpoint
++	// for nested and overlapping loops - an outer back edge can be pulled past
++	// an inner one's end. A program with no backward branch is unaffected, and
++	// so is a loop whose reader already sits last.
++	bool branchTargetLabel( const Token& token, std::string& label );
++
++	void extendFlagLivenessAcrossBackEdges( const std::list<Token>& tokens,
++	                                        VuFlagLiveness& liveness )
++	{
++		std::vector<const Token*> indexed;
++		std::map<std::string, unsigned int> labels;
++		unsigned int index = 0;
++		for( std::list<Token>::const_iterator i = tokens.begin(); i != tokens.end(); ++i, ++index )
++		{
++			indexed.push_back( &*i );
++			if( (*i).label().length() != 0 )
++				labels[(*i).label()] = index;
++		}
++
++		std::vector<std::pair<unsigned int, unsigned int> > backEdges;   // (target, branch)
++		for( unsigned int b = 0; b < indexed.size(); ++b )
++		{
++			std::string label;
++			if( !branchTargetLabel( *indexed[b], label ) )
++				continue;
++			std::map<std::string, unsigned int>::const_iterator t = labels.find( label );
++			if( t == labels.end() || t->second > b )
++				continue;
++			backEdges.push_back( std::make_pair( t->second, b ) );
++		}
++		if( backEdges.empty() )
++			return;
++
++		bool changed = true;
++		for( int guard = 0; changed && guard < 64; ++guard )
++		{
++			changed = false;
++			for( unsigned int e = 0; e < backEdges.size(); ++e )
++			{
++				const int lo = static_cast<int>( backEdges[e].first );
++				const int hi = static_cast<int>( backEdges[e].second );
++				if( liveness.lastMacReader >= lo && liveness.lastMacReader < hi )
++				{
++					liveness.lastMacReader = hi;
++					changed = true;
++				}
++				if( liveness.lastClipReader >= lo && liveness.lastClipReader < hi )
++				{
++					liveness.lastClipReader = hi;
++					changed = true;
++				}
++				if( liveness.lastStatusReader >= lo && liveness.lastStatusReader < hi )
++				{
++					liveness.lastStatusReader = hi;
++					changed = true;
++				}
++			}
++		}
  	}
  
  	VuFlagLiveness analyzeFlagLiveness( const std::list<Token>& tokens )
-@@ -875,10 +1303,195 @@ namespace
+@@ -875,10 +1377,196 @@ namespace
  				liveness.lastMacReader = static_cast<int>( index );
  			if( tokenReadsClip( *i ) )
  				liveness.lastClipReader = static_cast<int>( index );
@@ -5671,6 +5794,7 @@ index 3260370..ec63e2d 100644
 +				liveness.lastStatusReader = static_cast<int>( index );
 +			liveness.declaredLiveResources |= vuDeclaredHardwareResource( *i );
  		}
++		extendFlagLivenessAcrossBackEdges( tokens, liveness );
  		return liveness;
  	}
  
@@ -5859,7 +5983,7 @@ index 3260370..ec63e2d 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1499,64 @@ namespace
+@@ -886,12 +1574,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -5925,7 +6049,7 @@ index 3260370..ec63e2d 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1569,7 @@ namespace
+@@ -904,6 +1644,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -5933,7 +6057,7 @@ index 3260370..ec63e2d 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1579,34 @@ namespace
+@@ -913,45 +1654,34 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -6003,7 +6127,7 @@ index 3260370..ec63e2d 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1619,7 @@ namespace
+@@ -964,7 +1694,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -6012,7 +6136,7 @@ index 3260370..ec63e2d 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1648,11 @@ namespace
+@@ -993,6 +1723,11 @@ namespace
  			}
  		}
  
@@ -6024,7 +6148,7 @@ index 3260370..ec63e2d 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6342,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6417,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -6032,7 +6156,7 @@ index 3260370..ec63e2d 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -5875,7 +6536,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5875,7 +6611,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  		{
  			const VuTokenResourceAccess& a = accesses[before];
  			const VuTokenResourceAccess& b = accesses[after];
@@ -6047,7 +6171,7 @@ index 3260370..ec63e2d 100644
  			const unsigned int pairwiseImplicitResources = ~preciseImplicitResources;
  
  			if( intersects( a.registerWrites, b.registerReads ) )
-@@ -5913,6 +6580,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5913,6 +6655,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  	                                    accesses,
  	                                    VU_RESOURCE_CLIP,
  	                                    ignoredImplicitWawResources );
@@ -6058,7 +6182,7 @@ index 3260370..ec63e2d 100644
  
  	return edges;
  }
-@@ -6114,6 +6785,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6860,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -6074,7 +6198,17 @@ index 3260370..ec63e2d 100644
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
  {
  	std::list<Token> scheduled;
-@@ -6130,10 +6810,14 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6127,13 +6882,53 @@ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& prog
+ 
+ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator begin,
+                                                     std::list<Token>::const_iterator end )
++{
++	return vuIgnoredFlagWawResourcesForRemaining( begin, begin, end );
++}
++
++unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator programBegin,
++                                                    std::list<Token>::const_iterator begin,
++                                                    std::list<Token>::const_iterator end )
  {
  	bool readsMac = false;
  	bool readsClip = false;
@@ -6086,10 +6220,39 @@ index 3260370..ec63e2d 100644
  		readsClip = readsClip || tokenReadsClip( *i );
 +		readsStatus = readsStatus || tokenReadsStatus( *i );
 +		declared |= vuDeclaredHardwareResource( *i );
++	}
++
++	// The same back edge the scheduler's liveness has to cross. "Remaining" is
++	// the rest of the LIST; a loop's remaining execution includes everything
++	// from the back edge's target, which is behind `begin`. A reader there is
++	// reached by the next iteration, so a writer here is not dead. Only the
++	// labels the remaining range actually branches BACK to are re-scanned, so a
++	// straight-line tail costs nothing and behaves exactly as before.
++	std::set<std::string> backTargets;
++	for( std::list<Token>::const_iterator i = begin; i != end; ++i )
++	{
++		std::string label;
++		if( branchTargetLabel( *i, label ) )
++			backTargets.insert( label );
++	}
++	if( !backTargets.empty() && begin != programBegin )
++	{
++		bool inLoop = false;
++		for( std::list<Token>::const_iterator i = programBegin; i != begin; ++i )
++		{
++			if( (*i).label().length() != 0
++			    && backTargets.find( (*i).label() ) != backTargets.end() )
++				inLoop = true;
++			if( !inLoop )
++				continue;
++			readsMac = readsMac || tokenReadsMac( *i );
++			readsClip = readsClip || tokenReadsClip( *i );
++			readsStatus = readsStatus || tokenReadsStatus( *i );
++		}
  	}
  
  	unsigned int mask = VU_RESOURCE_NONE;
-@@ -6141,7 +6825,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6141,7 +6936,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
  		mask |= VU_RESOURCE_MAC;
  	if( !readsClip )
  		mask |= VU_RESOURCE_CLIP;
@@ -6105,7 +6268,7 @@ index 3260370..ec63e2d 100644
  
  std::vector<VuLoopCandidate> findVuLoopCandidates( const std::list<Token>& tokens )
 diff --git a/src/VuSchedulerAnalysis.h b/src/VuSchedulerAnalysis.h
-index e51b7f2..386308c 100644
+index e51b7f2..0c4b26c 100644
 --- a/src/VuSchedulerAnalysis.h
 +++ b/src/VuSchedulerAnalysis.h
 @@ -121,6 +121,12 @@ struct VuScheduledIssueSlot
@@ -6121,7 +6284,7 @@ index e51b7f2..386308c 100644
  };
  
  struct VuScheduledBasicBlock
-@@ -534,6 +540,13 @@ std::vector< std::vector<VuScheduledIssueSlot> > scheduleVuBasicBlocksReadyIssue
+@@ -534,8 +540,22 @@ std::vector< std::vector<VuScheduledIssueSlot> > scheduleVuBasicBlocksReadyIssue
      const std::list<Token>& tokens );
  VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::list<Token>& tokens );
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program );
@@ -6134,7 +6297,16 @@ index e51b7f2..386308c 100644
 +unsigned int vuScheduledProgramEmittedWordCount( const VuScheduledProgram& program );
  unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator begin,
                                                      std::list<Token>::const_iterator end );
++// The three-iterator form knows where the PROGRAM starts, not just where the
++// remaining range does, so a back edge out of the remaining range can be
++// followed to the readers ahead of it. The two-iterator form is the old
++// behaviour and is what a caller with no list start can still ask for.
++unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator programBegin,
++                                                    std::list<Token>::const_iterator begin,
++                                                    std::list<Token>::const_iterator end );
  VuScheduledPaddingKind vuScheduledPaddingKindForReadHazard( const Token& token,
+                                                             const Token* partner,
+                                                             const VuLatencyTracker& latencyTracker,
 diff --git a/src/VuSchedulingRules.cpp b/src/VuSchedulingRules.cpp
 index c28ec6d..aa5f34b 100644
 --- a/src/VuSchedulingRules.cpp
