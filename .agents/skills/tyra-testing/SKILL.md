@@ -651,6 +651,13 @@ Notes:
   frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
   than screenshotting for assert text; the running editor also pops that dump in
   a copyable dialog. (A screenshot still shows *where* the game froze.)
+  **On a ps2link deploy there is no `bin/log.txt` at all** — the generated
+  `main.cpp` logs to the EE console there instead (a host: write per line is a
+  network round trip), and ps2link forwards it to `ps2client`. So the game's log
+  is the `[ps2] …` lines of the runner output: the Output panel in the GUI, plain
+  stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
+  the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
+  EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script — a GDI capture that works reliably:
 
@@ -671,7 +678,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -1367,7 +1374,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL

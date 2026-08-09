@@ -77,7 +77,7 @@ console draws. The other four modes divide at 32 and at 64: 512 × 448, 448 × 4
 ## 1. Jitter
 
 **Jitter is a MODE, not a constant, and that is the newest thing on this page.**
-The project setting is `blssJitter` (`ProjectSettings`, format v5, **default
+The project setting is `blssJitter` (`ProjectSettings`, format v9, **default
 false** since 2026-08-08 — a human watched a jitter-on build and called it "like
 an earthquake", so the default is now the configuration that can be looked at)
 and codegen bakes it into the generated game, because the bob this feature has

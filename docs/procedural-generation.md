@@ -66,9 +66,11 @@ type is still written to the project file as `scatter`, and the enum is still
 region after one of its source nodes made it look like a choice of method.)
 
 The volume itself is authoring-only: a wireframe box in the editor, nothing at
-all in the game. It is not click-selectable in the viewport (its box usually
-covers half the map, which would swallow every click) — select it in the
-Project panel or from the Procedural window, then the gizmo works as usual.
+all in the game. Its box usually covers half the map, so it never wins a click
+outright — everything else under the cursor is offered first. Click the **same
+spot again** and the pick steps through what is stacked there, the volume
+included; selecting it in the Project panel or the Procedural window works as
+before. Either way the gizmo then works as usual.
 
 A scene can hold as many volumes as you like: one per species mix, one per
 region, one for the roadside lamps.

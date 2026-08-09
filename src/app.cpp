@@ -875,6 +875,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
@@ -1346,6 +1347,17 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                                hasProject_))
+                showCollisionBoxes_ = !showCollisionBoxes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the box the GAME blocks the player and the "
+                    "third-person\ncamera with (red). A model collides as its "
+                    "bounding box, not its\nmesh, so this is what explains a "
+                    "prop you cannot walk up to or a\ncamera that pulls in "
+                    "early. The running game can draw the same\nboxes - "
+                    "Preferences > Build > Show collision boxes.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -1564,6 +1576,14 @@ void App::drawMenuBar() {
                     "posterize - and see the micro memory it costs, the VCL it\n"
                     "generates and what it computes, without a console. Also\n"
                     "VU0 compute kernels.");
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -2119,6 +2139,7 @@ void App::updateProjectedDecals() {
             mix((uint64_t)o.type);
             for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
             mix((uint64_t)o.primDetail);
+            mix(o.primRings ? 1u : 0u);
             for (char c : o.id) mix((uint8_t)c);
             for (char c : o.modelPath) mix((uint8_t)c);
             if (o.type == PrimitiveType::Decal) {
@@ -2527,6 +2548,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        viewport_.setCollisionOverlay(showCollisionBoxes_);
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -2566,7 +2588,11 @@ void App::drawViewportWindow() {
             const ImU32 black = IM_COL32(0, 0, 0, 255);
             if (seqBarsNow_ > 0.0f) {
                 float ft, fb, fl, fr;
-                seqBarsFractions(seqBarsStyleNow_, ft, fb, fl, fr);
+                // A letterbox is measured against the picture the console
+                // outputs, so a widescreen project gets thinner Cinema bars and
+                // no Wide ones at all - exactly what the game will composite.
+                seqBarsFractions(seqBarsStyleNow_, ps2ViewportOutput().tvAspect,
+                                 ft, fb, fl, fr);
                 const float t = ft * seqBarsNow_ * avail.y;
                 const float b = fb * seqBarsNow_ * avail.y;
                 const float l = fl * seqBarsNow_ * avail.x;
@@ -3120,18 +3146,25 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
+        // Clicking the same spot again walks the stack under it (viewportPick).
         if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
-            const int hit = viewport_.pick(u, v, project_.objects());
+            bool cycled = false;
+            const int hit = viewportPick(u, v, io.MousePos, &cycled);
             if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
             }
+            // A cycle click is hunting through a stack, not a new framing:
+            // leave the orbit pivot where it is (the block below re-snaps it
+            // to the selection otherwise), or the camera walks away under the
+            // cursor while you are still clicking the same spot.
+            if (cycled) navFocusedIndex_ = selectedObject_;
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -4237,6 +4270,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
@@ -4264,7 +4298,7 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "menupreview", "grading", "ambience", "loading", "disc",  "anim",
     "tree",     "debugger", "phonecam", "assets",   "gibake", "input",
-    "drone",    "pad",      "proc",     "prefabs",  "save",
+    "drone",    "pad",      "proc",     "prefabs",  "save",    "facts",
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
@@ -4625,6 +4659,9 @@ void App::commitChange() {
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    // Same contract for a freshly added fact: its id is what a player's save
+    // file is keyed by, so it must exist before the fact can be persisted.
+    project::ensureFactIds(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -5552,6 +5589,39 @@ void App::redo() {
     statusMessage_ = "Redo";
 }
 
+// One viewport click -> one object index (-1 for empty space). Clicking the
+// same spot AGAIN steps to the next object stacked under the cursor and wraps
+// at the end, so props standing inside each other - and the areas and
+// procedural volumes enclosing them, which the pick order deliberately ranks
+// last - can all be reached without leaving the viewport. Any click a few
+// pixels away starts a fresh cycle at the frontmost hit.
+int App::viewportPick(float u, float v, ImVec2 mouse, bool* cycled) {
+    if (cycled) *cycled = false;
+    const float kSameSpot = 4.0f;  // a click, not a nudge of the mouse
+    const bool sameSpot = std::fabs(mouse.x - pickCyclePos_.x) < kSameSpot &&
+                          std::fabs(mouse.y - pickCyclePos_.y) < kSameSpot;
+    const int n = (int)project_.objects().size();
+    if (sameSpot && pickCycle_.size() > 1) {
+        for (size_t k = 0; k < pickCycle_.size(); ++k) {
+            if (pickCycle_[k] != pickCycleLast_) continue;
+            // Next still-existing candidate, wrapping (an undo or a delete may
+            // have shortened the scene since the cycle started).
+            for (size_t s = 1; s <= pickCycle_.size(); ++s) {
+                const int cand = pickCycle_[(k + s) % pickCycle_.size()];
+                if (cand < 0 || cand >= n) continue;
+                pickCycleLast_ = cand;
+                if (cycled) *cycled = true;
+                return cand;
+            }
+            break;
+        }
+    }
+    viewport_.pickAll(u, v, project_.objects(), pickCycle_);
+    pickCyclePos_ = mouse;
+    pickCycleLast_ = pickCycle_.empty() ? -1 : pickCycle_[0];
+    return pickCycleLast_;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
@@ -5620,10 +5690,14 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
         const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
         float oMinX = 1e30f, oMinY = 1e30f, oMaxX = -1e30f, oMaxY = -1e30f;
         bool anyFront = false;
+        // The box the object DRAWS as, scale folded in - the same bounds a
+        // click tests, so a marquee over a model's upper half catches it.
+        float bmn[3], bmx[3];
+        viewport_.pickBounds(o, bmn, bmx);
         for (int s = 0; s < 8; ++s) {
-            const float lx = ((s & 1) ? 0.5f : -0.5f) * o.scale[0];
-            const float ly = ((s & 2) ? 0.5f : -0.5f) * o.scale[1];
-            const float lz = ((s & 4) ? 0.5f : -0.5f) * o.scale[2];
+            const float lx = (s & 1) ? bmx[0] : bmn[0];
+            const float ly = (s & 2) ? bmx[1] : bmn[1];
+            const float lz = (s & 4) ? bmx[2] : bmn[2];
             const float y1 = ly * cx - lz * sx, z1 = ly * sx + lz * cx, x1 = lx;  // Rx
             const float x2 = x1 * cy + z1 * sy, z2 = -x1 * sy + z1 * cy, y2 = y1;  // Ry
             const float x3 = x2 * cz - y2 * sz, y3 = x2 * sz + y2 * cz, z3 = z2;  // Rz
@@ -6126,6 +6200,11 @@ void App::addObject(PrimitiveType type, bool commit) {
     o.name = name;
     o.type = type;
     o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
+    // A cylinder placed today gets the axial rings; one loaded from a project
+    // that predates them does not (project.cpp's "rings" key defaults off), so
+    // no existing scene silently grows triangles. The tri readout next to the
+    // Properties checkbox is what an author reads before deciding otherwise.
+    o.primRings = type == PrimitiveType::Cylinder;
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -8890,14 +8969,36 @@ void App::drawSaveEditorWindow() {
              " slots x 32 B)")
                 .c_str(),
             bytes(sz.objectsBytes));
+        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
+        // a computed or scene-scoped fact stores nothing, and a session-lived
+        // one is not in a save at all.
+        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
+            bytes(sz.factsBytes));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::Text("Save slot file (64-byte aligned)");
         ImGui::TableNextColumn();
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        row("All data (3 slots + icon, raw bytes)",
-            bytes(sz.payloadBytes * templates::saveSlotCount(project_) + sz.iconBytes));
+        if (sz.profileBytes > 0) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Facts kept in the PROFILE live in their own file beside\n"
+                    "the slots, shared by every save - unlocks, a best time,\n"
+                    "'has seen the intro'. It is padded to a whole cluster\n"
+                    "because a smaller payload did not round-trip through the\n"
+                    "card, so it costs the same 1 KB whatever is in it.");
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
+        }
+        row("All data (slots + icon + profile, raw bytes)",
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
+                  sz.iconBytes + sz.profileBytes));
         // What the card actually loses, which is the number that matters and
         // is always bigger: files are allocated in whole 1 KB clusters and
         // the save directory costs one of its own.
@@ -12074,6 +12175,29 @@ void App::drawOutputWindow() {
 // emulog.txt - boot progress, BIOS/ELF-load errors). The game log is the
 // primary channel; EE printf does not reliably reach emulog (see tyra-testing).
 // ---------------------------------------------------------------------------
+
+// "Run on PS2" games do NOT write bin/log.txt: the generated main.cpp turns
+// Tyra::Info::writeLogsToFile off under ps2link, because a host: write per log
+// line is a network round trip, and ps2link forwards the EE console instead.
+// That stream reaches the editor as "[ps2] ..." lines in the runner log, so the
+// Debug window's "Game log" falls back to it - same window, same severity
+// classification, whichever transport the game was launched on.
+static std::string ps2ConsoleLog(const std::string& runnerLog) {
+    static const std::string kTag = "[ps2] ";
+    std::string out;
+    for (size_t i = 0; i < runnerLog.size();) {
+        size_t e = runnerLog.find('\n', i);
+        if (e == std::string::npos) e = runnerLog.size();
+        const size_t tag = runnerLog.find(kTag, i);
+        if (tag != std::string::npos && tag < e) {
+            out.append(runnerLog, tag + kTag.size(), e - (tag + kTag.size()));
+            out += '\n';
+        }
+        i = e + 1;
+    }
+    return out;
+}
+
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
@@ -12091,7 +12215,11 @@ void App::drawDebugWindow() {
     // (per-frame file reads would be wasteful for a possibly large log).
     const double now = ImGui::GetTime();
     if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
-        logSetText(logDbg_, readTextFileTail(path, 1u << 20));  // last 1 MB
+        std::string text = readTextFileTail(path, 1u << 20);  // last 1 MB
+        // No log file? On a PS2 deploy there never is one - take the console
+        // stream the runner captured instead (see ps2ConsoleLog above).
+        if (debugLogSource_ == 0 && text.empty()) text = ps2ConsoleLog(runner_.log());
+        logSetText(logDbg_, std::move(text));
         debugNextReload_ = now + 0.5;
     }
     debugReloadNow_ = false;
@@ -13307,6 +13435,18 @@ void App::drawPreferencesModal() {
         "the console by design, which is exactly why \"why did that layer not\n"
         "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
         "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();

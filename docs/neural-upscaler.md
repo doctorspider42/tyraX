@@ -966,7 +966,7 @@ you find that out before shipping BLSS on it, and the window says it in one line
 The six automatic camera moves are derived from the scene's own bounds and its
 player start, and for a long time that was the whole story: whatever they framed
 was what the network learned. **The training-shot plan** (*Tools ▸ Neural
-Upscaler (BLSS)*, and `Project::blssShots` in the `.tyra`, format v6) makes it an
+Upscaler (BLSS)*, and `Project::blssShots` in the `.tyra`, format v10) makes it an
 authoring decision instead. It carries four things:
 
 | | |

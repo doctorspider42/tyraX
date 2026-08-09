@@ -24,7 +24,18 @@ static u32 frameStart = 0;
 }  // namespace FrameProfile
 #endif
 
-RendererCore::RendererCore() { isFrameLimitOn = true; }
+RendererCore::RendererCore() {
+  isFrameLimitOn = true;
+  // Modified by TyraX: bgColor was never initialised, and it is READ before
+  // any game code can set it - Engine::init runs banner.show() right after
+  // renderer.init(), and the logo hold clears the framebuffer with it every
+  // frame for two seconds. Color's default constructor deliberately leaves its
+  // fields alone ("Initialize Color without setting default values" - it is a
+  // vector type used in hot paths), so the boot logo came up on whatever
+  // happened to be in that memory: black on one build, blue on the next, and
+  // nothing in the game changed to explain it. Black, deterministically.
+  bgColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
+}
 RendererCore::~RendererCore() {}
 
 void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,

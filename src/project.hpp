@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ambience.hpp"
+#include "facts.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
 #include "input.hpp"
@@ -182,16 +183,36 @@ inline int primSphereStacks(int detail) {
     const int s = detail * 5 / 7;
     return s < 2 ? 2 : s;
 }
+// Cylinder rings ALONG THE AXIS, same idea. Without them the side is one quad
+// tall however high the detail goes, so anything that varies vertically - a
+// lamp above the pillar, the contact darkening at its foot, a probe gradient -
+// can only be a linear ramp between the top and bottom rims, and every segment
+// shows that ramp's diagonal seam as a full-height stripe. Measured on the
+// PS2: raising detail 4 -> 32 multiplied the stripes (0 -> 15 reversals across
+// the silhouette) without shrinking their amplitude at all, because the added
+// vertices all went AROUND the cylinder and none of them went up it.
+// One ring per four radial segments keeps a side quad roughly square at the
+// default 16 and leaves detail < 8 emitting exactly what it emitted before.
+// Opt-in per object (SceneObject::primRings): the rings only pay for
+// themselves when something lights the cylinder from above or below, so a
+// fencepost under a plain sun keeps the classic single-quad side.
+inline int primCylinderStacks(int detail, bool rings) {
+    if (!rings) return 1;
+    const int s = detail / 4;
+    return s < 1 ? 1 : s;
+}
 // Triangles a primitive tessellates to at the given detail - for the UI
 // readout. Marker/geometry-less types report 0.
-inline int primTriangleCount(PrimitiveType type, int detail) {
+inline int primTriangleCount(PrimitiveType type, int detail, bool rings = false) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint:
             return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
-        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        // side (2 per seg per ring) + 2 caps (1 per seg each)
+        case PrimitiveType::Cylinder:
+            return d * 2 * (primCylinderStacks(d, rings) + 1);
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
@@ -291,6 +312,16 @@ struct SceneObject {
     // more triangles. Type-dependent range/default - see clampPrimDetail /
     // defaultPrimDetail / primTriangleCount.
     int primDetail = kDefaultPrimDetail;
+    // Cylinders only: subdivide the side ALONG THE AXIS too (see
+    // primCylinderStacks). Off = the classic side, one quad tall however high
+    // the detail goes - cheapest, and correct whenever nothing lights the
+    // object from above or below, because then there is no vertical gradient
+    // to resolve and the rings are pure triangle cost. On = one ring per four
+    // radial segments, which is what a baked point light overhead or a probe
+    // gradient needs to stop showing up as full-height diagonal stripes.
+    // Defaults OFF so that opening an old project changes no geometry and no
+    // frame budget; App::addObject turns it on for newly created cylinders.
+    bool primRings = false;
     // Rendering cut-off: farther than this from the camera the object is not
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
@@ -465,6 +496,18 @@ struct SceneObject {
     float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
     bool soundOnPlayer = false; // plays centered on the player (plain stereo,
                                 // full volume, no distance/pan) - e.g. dialogs
+    // Send this emitter into the SPU2 reverb bus (docs/reverb.md). The send is
+    // one BIT per voice in hardware - there is no per-emitter wet amount, only
+    // the zone's global depth. Off = this emitter stays dry wherever the
+    // listener stands (a UI beep, a sound already recorded with its own room).
+    bool soundReverb = true;
+    // Which emitters win when there are more audible ones than voices
+    // (docs/sound.md). The SPU2 gives the emitters EIGHT channels per reverb
+    // bus, so a ninth audible emitter has to lose one; higher priority wins,
+    // and among equals the loudest does. 0 is "ordinary ambience" - raise it
+    // for the one sound a scene cannot afford to drop (an alarm, a boss's
+    // loop, a hint the player is waiting on).
+    int soundPriority = 0;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -517,6 +560,25 @@ struct SceneObject {
     // is by construction the set static batching already refuses). Ignored by
     // raytraced mirrors: their proxy meshes are baked per mirror at build.
     bool catchAreaLive = false;
+
+    // Reverb zone (docs/reverb.md): make this Area a room for the SPU2's
+    // hardware reverb. While the listener stands inside it, the sound effects
+    // play through `reverbPreset` at `reverbAmount`.
+    // The console has ONE reverb unit, so zones do not mix: the highest
+    // `reverbPriority` inside wins (ties: the later object). A move between
+    // two zones of the same preset is a smooth ramp of the amount; a move
+    // between different presets ramps to zero, swaps, and ramps back, because
+    // switching the algorithm means zeroing its work area in SPU2 RAM.
+    // Outside every zone the reverb is off.
+    bool reverbZone = false;
+    int reverbPreset = 1;        // 0 off, 1 room, 2-4 studio A/B/C, 5 hall,
+                                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                                 // (the values ARE AudioReverb::Preset)
+    float reverbAmount = 0.5f;   // 0..1, wet return level
+    int reverbDelay = 64;        // 0..127, read by echo/delay/pipe only
+    int reverbFeedback = 64;     // 0..127, read by echo/delay only
+    int reverbPriority = 0;      // overlapping zones: the highest wins, so a
+                                 // small closet inside a hall can override it
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -813,7 +875,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
-           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.primDetail == b.primDetail && a.primRings == b.primRings &&
+           a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
@@ -860,7 +923,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterDieOnGround == b.emitterDieOnGround &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
-           a.soundOnPlayer == b.soundOnPlayer &&
+           a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
+           a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
@@ -870,6 +934,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.textureFeed == b.textureFeed &&
            a.catchArea == b.catchArea &&
            a.catchAreaLive == b.catchAreaLive &&
+           a.reverbZone == b.reverbZone && a.reverbPreset == b.reverbPreset &&
+           a.reverbAmount == b.reverbAmount && a.reverbDelay == b.reverbDelay &&
+           a.reverbFeedback == b.reverbFeedback &&
+           a.reverbPriority == b.reverbPriority &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
@@ -969,6 +1037,12 @@ struct ProjectSettings {
     // is exactly why "why did the layer not unload / why is that not
     // reflecting" is hard to see - this puts the volume back on screen.
     bool showAreas = false;
+    // Debug profile only: draw every collider's COLLISION BOX in the game as a
+    // red wireframe (docs/collision-boxes.md). What the walker and the
+    // third-person camera boom test is that box, not the mesh - so a prop that
+    // blocks short of its surface, or a camera that pulls in early, cannot be
+    // explained by what is on screen until the box is too.
+    bool showCollision = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
@@ -1356,6 +1430,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
+           a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&
@@ -2716,6 +2791,20 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // World Facts (Tools > World Facts, docs/world-facts.md): the project's
+    // central memory of game state - the declared catalog, the reusable named
+    // conditions over it, the rules that react to it and the saved fact sets
+    // the devkit pushes into a running game. Project-wide like the preset
+    // collections above and persisted through save(), but not part of
+    // undo/redo: a fact is a declaration, and undoing one halfway through a
+    // scene edit would leave graphs referencing something that stopped
+    // existing. `factScenarios` is editing/test data and never reaches the
+    // console; the other three are compiled into the game.
+    std::vector<facts::Fact> facts;
+    std::vector<facts::Query> factQueries;
+    std::vector<facts::Rule> factRules;
+    std::vector<facts::Scenario> factScenarios;
+
     // The project's own VU1 microprograms and its VU0 kernel
     // (docs/vu-authoring.md). Project-wide like the preset collections above,
     // persisted through save(), not part of undo/redo - a microprogram is a
@@ -2852,6 +2941,48 @@ void ensureObjectIds(Project& p);
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
 
+// Assigns a stable id to every fact that lacks one and repairs duplicates.
+// A fact's id is what a PLAYER'S SAVE FILE stores, so it must exist before
+// anything is written and must never be reused - which is why this runs on
+// load and on create like ensureObjectIds, and why the save payload is keyed
+// by it instead of by position (docs/world-facts.md "Saving").
+void ensureFactIds(Project& p);
+
+// Where one fact is used. `graphs` names owning objects as "scene / object",
+// the rest name the query, rule or scenario. The single answer to "what
+// breaks if I change this" - read by the Facts window's Used by list and by
+// the delete confirmation.
+struct FactUsage {
+    std::vector<std::string> graphs;     // "Main / Door" (flow-graph nodes)
+    std::vector<std::string> queries;    // query names
+    std::vector<std::string> rules;      // rule names
+    std::vector<std::string> scenarios;  // scenario names
+    std::vector<std::string> computed;   // facts computed from a query using it
+    bool any() const {
+        return !graphs.empty() || !queries.empty() || !rules.empty() ||
+               !scenarios.empty() || !computed.empty();
+    }
+    int count() const {
+        return (int)(graphs.size() + queries.size() + rules.size() +
+                     scenarios.size() + computed.size());
+    }
+};
+FactUsage factUsage(const Project& p, const std::string& factName);
+
+// Same question for a query - which facts compute from it, which rules and
+// queries name it, which graph nodes evaluate it.
+FactUsage queryUsage(const Project& p, const std::string& queryName);
+
+// Renames a fact everywhere it is referenced: flow-graph node params, query
+// leaves, rule conditions and actions, scenario rows, and the `computed` link.
+// The renameObjectRefs contract - a by-name reference that does not join this
+// goes stale on the first rename.
+void renameFactRefs(Project& p, const std::string& from, const std::string& to);
+// The same for a query name (fact.computed, Condition::query, the FactQuery
+// flow node's param).
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to);
+
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so
 // a project from an older TyraX plays identically. Only ADDS what is missing:
@@ -2958,6 +3089,7 @@ enum class Section {
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Count            // not a section - the enum size, see kSectionCount below
 };
@@ -2970,7 +3102,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 19,
+static_assert(kSectionCount == 20,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

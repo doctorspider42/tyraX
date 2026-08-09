@@ -216,7 +216,14 @@ PAL - so UI authored in one logical space must be drawn into a differently
 proportioned rect per mode. Neither existing field could express that: `scale`
 is one float, and in `MODE_REPEAT` `size` is the SOURCE rect, so changing it
 would sample different texels. Used by the generated menu compositor -
-docs/menu-styles.md "Resolutions"), the **scene dynamic lights** registry
+docs/menu-styles.md "Resolutions"), **`RendererSettings::getWindowAspect()`**
+(the PHYSICAL shape of the display window on the TV - 4:3, 16:9 when widescreen
+is on, the pillarboxed 1792/1920 window in widescreen 1080i. `updateGeometry`
+already computed it to derive the projection aspect; it is exposed because 2D
+needs it too. Widescreen is ANAMORPHIC, so a sprite gets stretched a third wider
+with nothing to widen it back - anything that must keep its authored proportions
+divides its horizontal scale by this over 4:3, which is what the generated menu
+compositor and the cutscene letterbox masks do), the **scene dynamic lights** registry
 (`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
 `pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
 `StaPipCore::render` picks the strongest contributor - flashlight or point
@@ -501,8 +508,12 @@ Eight things here that were paid for, and that any edit must keep:
   (0 %) and only temporal is drawn over most of the screen. Occupancy is noisy
   (sd 0.30 over 39 cross-validation fold-runs, one fold at 2.12), and these are
   **fill counts, not timings** - and the conversion is measured now, not
-  guessed: on a real PS2 one full-screen textured blended pass is **0.587 ms**
-  (the calibration in docs/profiling.md), and PCSX2 reports **0.0077 ms** for
+  guessed: on a real PS2 one full-screen textured blended pass is **0.5896 ms
+  at 512x512 and 0.5174 ms at 512x448** - the calibration gate is per RASTER,
+  which it did not used to say, and 0.587 was a 512x512 (PAL 576i) figure read
+  against 512x448 coverages for a year; both are now measured back to back on
+  one console and `perMpx` agrees to 0.3 % (docs/profiling.md, "The calibration
+  gate") - and PCSX2 reports **0.0077 ms** for
   the same sweep - it under-reports GS fill by **76x**, so NO PCSX2 GS number
   about this feature is admissible. The first real A/B on hardware: BLSS cost
   **+9.83 ms per frame and saved nothing**, because the frame was EE-bound
@@ -578,9 +589,13 @@ Eight things here that were paid for, and that any edit must keep:
   jitter-ON timing, the off arm is unchanged and the BLSS arm came out 0.56 ms
   faster, and `BLSSFILL` reads **`passes = 1.56`** in both - i.e. the prediction
   ("the jitter moves where the half-res raster samples, not how much of it there
-  is") held. Keep both tables, labelled. Break-even is **11.5 full-screen
-  coverages** (10.5 with the proxy budget on, which ships off), derived from
-  `0.7548 x 0.5872 x C > 4.60 + 0.50`: BLSS keeps about a quarter of the fill,
+  is") held. Keep both tables, labelled. Break-even is **13.1 full-screen
+  coverages at 512x448** (`0.7548 x 0.5174 x C > 4.60 + 0.50`) and **11.5 at
+  512x512** - same formula, different pass price - so quote the break-even WITH
+  its raster or not at all. `breakEven()` and `--blss-coverage` still print the
+  11.5, because `kPassMs` is one scalar and has deliberately NOT been rescaled
+  (docs/backlog.md); that figure is right for a 576i project and 14 % optimistic
+  for an ordinary PAL one. BLSS keeps about a quarter of the fill,
   because `blssScale 0` is `Scale::X2Y2` - half in *each* axis, a quarter of the
   pixels, NOT half the fill, which is what the ~22 figure had assumed. The
   retention term is now FITTED on hardware over five load points (0.7548 saved,
@@ -632,6 +647,28 @@ Eight things here that were paid for, and that any edit must keep:
   `BLSSGRID`'s proxy count is the guard, read it before trusting any `proxy`
   number and discard a run whose count does not match. `reproj`/`feat`
   reproduce to +-0.001.
+- **THE SHIPPED DEFAULT NET WORKS ON A SCENE IT HAS NEVER SEEN, AND THE MLP IS
+  NOT WHY** (2026-08-09, real hardware, docs/profiling.md "The shipped default
+  net"). A stock `--new` fpp project plus six haze banks, **no `blss.net` of its
+  own**, so `blssBake` falls back to `resources/blss-default.net`: **30.65 ms
+  off against 15.62 ms on, d = +15.03 ms, CI [+14.96, +15.10], n = 1024 paired
+  frames, four cross-pairings spanning 0.018 ms - a 1.96x speedup, 25 FPS to a
+  locked 50.** The boot log names the net (`BLSS: network = the editor's
+  built-in default network (fitted on ...)`), which is what that line is for.
+  **But `BLSSFILL` reads `passes = 1.00` and every `BLSSOUT` channel is 0.000**:
+  the composite is ONE bilinear pass and the network chooses nothing, so the
+  win is the quarter-area raster alone. `BLSSFEAT` shows `texDetail` identically
+  **zero** - a stock project's terrain is vertex-coloured, not textured, and
+  `texDetail` comes from a bag's `texelArea` - which is the same channel the
+  one-net-lottery result named. This is NOT a defect: re-evaluated at that exact
+  vantage the scene's headroom is **+0.000 dB** (`bilinear = oracle = 38.435`,
+  native 45.543), i.e. bilinear IS optimal there and zero passes is the correct
+  and cheapest answer. Training a project net changed frame time by **+0.03 ms
+  (1.00x)** - the leave-one-project-out tie holds on hardware. Two traps this
+  cost: `--blss-train <projectDir>` writes `blss.net` into the **cwd**, not the
+  project, so the rebuild silently keeps using the default; and the corpus
+  RENDERER draws no emitters, so a PSNR number for a billboard-heavy scene
+  describes a frame the game never displays (both in docs/backlog.md).
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The
   +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
   person watched three builds of `examples/upscaler-lab` differing in nothing
@@ -1085,15 +1122,137 @@ banner both, so a previously built ELF still reports.
   the first `loadScene` runs from the loop (not `init()`) so its loading-screen
   progress is vsync-paced (see the editor's loading-screen feature).
 
+- **`Color`'s default constructor does not initialise anything** ("Initialize
+  Color without setting default values" - it is a vector type used in hot
+  paths), so any `Color` MEMBER is garbage until something assigns it. That is
+  fine for a value that is always written before it is read, and it was not:
+  `RendererCore::bgColor` is the clear colour, and `Engine::init` calls
+  `banner.show()` immediately after `renderer.init()` - the logo hold clears the
+  framebuffer with it, every frame, for two seconds, long before any game code
+  can call `setClearScreenColor`. The boot logo therefore came up on whatever
+  was in that memory: black on one build, BLUE on the next, with nothing in the
+  game changed to explain it (reported from the console exactly that way, and
+  any change to the binary or heap layout can move it). Initialised in the
+  constructor now. The general rule this leaves: anything read before the first
+  game frame - a clear colour, a mode, a flag - must be initialised where it is
+  DECLARED or in its owner's constructor, because "the game sets it at startup"
+  is not true of the engine's own boot screens.
+
 **Audio**
-- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and ADPCM
-  voices cannot be stopped — the editor round-robins SPU channels to avoid
-  drop-outs. Channels 16–23 are reserved by generated games for sound emitters.
+- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
+  ADPCM voice cannot be STOPPED - only started, or started over.
+  **The channel budget of a generated game**, per bus (every new sound goes to
+  the CURRENT room's bus, so this is what is available at once): 0-15 for Play
+  Sound, 16-23 for the sound emitters. The auto cycle runs 16, not 24 — it used
+  to run the full 24 and walked into the emitters' slots, so one auto play in
+  three stole an emitter's channel or bounced off it as "busy". Who gets one
+  when they are all busy is **docs/sound.md** (priority, then loudness); the
+  engine's part of it is `forcePlay` and `endedMask` below.
+- **`AudioAdpcm::forcePlay` plays over a busy channel** - `AUDSRV_ADPCM_FORCE`,
+  a flag bit ORed into the channel number, which the fork masks off and uses to
+  skip its own ENDX busy check. The refusal was always a software check in
+  `audsrv_ch_play_adpcm`, not a hardware limit: KON on a sounding voice
+  restarts it. The bit rides in the channel because that number already travels
+  EE -> RPC -> IOP untouched, so this cost no new export and no signature
+  change (adding an IRX export means touching the import list of everything
+  that links it). **Whether a forced restart CLICKS is a hardware question and
+  is not settled** - it depends where in the waveform the victim was, and PCSX2
+  is not a witness worth trusting on the SPU2. If it turns out to click, the
+  fixes in order are: drop the victim's volume and play on the next frame, or
+  KOFF first and let the ADSR release run (both cost a frame of latency).
+- **`AudioAdpcm::endedMask(core)` is how to ask what is still playing** - the
+  SPU2's own ENDX register, one bit per voice, one IOP RPC. Ask it per PLAY
+  REQUEST, never per frame (a play already costs two or three RPCs; a per-frame
+  poll is what the emitter loop's whole quantization exists to avoid).
+- **An EE buffer handed to a SIF DMA must be written back to main memory
+  first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
+  it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
+  read with `fread()` reaches the IOP as *whatever was in that memory before* —
+  for whichever loads happen to still be cached, which in practice is never the
+  first one. **PCSX2 emulates no EE cache, so every load looks perfect there**;
+  on a console the second sound of a project was silent (the SPU2 dutifully
+  played the garbage, which is usually zeros) while the first worked. Fixed
+  2026-08-06 in the vendored fork. Two things to take from it: the same rule
+  applies to ANY EE→IOP transfer you add, and the tell is cheap — audsrv
+  reports the sample's header back, so a **nonsense `pitch` for a file whose
+  earlier load reported a sane one** identifies a corrupt upload in one log
+  line (1881 vs 0x41C00000 was the actual pair).
+- **`AudioAdpcm` logs why a sound did not play** (debug builds): once per
+  channel per reason - no sample, channel busy, audsrv error - plus a one-line
+  SPU2 dump (per-voice volume/ADSR/start address, the core's VMIX masks, MMIX,
+  master and reverb volume) at each channel's first successful play. That dump
+  is the instrument for "it plays but I hear nothing": diff a channel that
+  works against one that does not.
+- **`audsrv_ch_play_adpcm` reports "I do not know this sample" as a POSITIVE
+  `AUDSRV_ERR_ARGS` (5)**, which no sign test can tell from a channel number.
+  `tryPlay` now demands that an explicit channel comes back as itself; before
+  that, playing a freed/never-loaded sample looked like success and simply made
+  no sound.
 - WAV files: 8-bit PCM is unsigned (0x80 = silence) but audsrv mixes signed —
   convert (XOR 0x80) or it wraps at every zero crossing (loud crackle at
   correct pitch — that exact symptom happened).
 - Mono/low-rate streams need smaller chunk size + fill threshold or audsrv's
   ring buffer starves.
+- **The SPU2's hardware reverb is reachable, and only through a second RPC
+  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
+  exposes playback and nothing else, so the registers come from PS2SDK's
+  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
+  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself,
+  which is LGPL v2 per every file header), so this cost one `.irx-em`, one
+  loader call and `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd
+  directly on the IOP; the two are ordinary co-clients of one driver.
+- **audsrv is a SOURCE fork, not a blob** (`vendor/tyra/audsrv/`): the IOP and
+  EE sources are in-tree at ps2sdk `e78a9cb2`, and `build.sh`/`build.ps1`
+  rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
+  build container. Change the sources and you must re-run that script and commit
+  `bin/` in the same commit - nothing in the game build compiles audsrv.
+  `./build.sh --check` diffs a fresh build against the committed artifacts;
+  `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
+  members, gcc's LTO section names carry a random per-compilation id), so the
+  member SIZES are what that check compares.
+  The ps2sdk that script fetches (a build TREE - these Makefiles include
+  `$(PS2SDKSRC)/Defs.make`) has a **mirror** fallback like every entry in
+  `deps.sh`: `doctorspider42/tyrax-vendor-ps2sdk`. Losing upstream costs the
+  ability to REBUILD the module, not the module (its sources are in-tree) and
+  not game builds (those use the SDK installed in the `h4570/tyra` image).
+- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
+  streaming ring installs.** So the reverb's RPC bind runs BEFORE
+  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
+  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
+  MUSIC goes silent with no error anywhere while the sfx keep working - which
+  points the investigation at completely the wrong subsystem.
+- **libsd's defaults send EVERYTHING to the effect bus**, music included:
+  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
+  the core input (the streamed song) into the reverb. So a per-voice send
+  normally REMOVES a voice, and keeping the music dry is an explicit write.
+  (Those bit meanings were confirmed against libsd's own block-transfer
+  handler, which clears bits 6/7 - the dry pair - when a stream ends.)
+- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
+  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
+  preset set with the core's effect bit still off leaves whatever was in SPU2
+  RAM circulating as noise. Enable, then set.
+- **Reverb RPCs cost what audsrv's do**: synchronous SIF calls sharing the bus
+  with the music stream, so the generated game quantizes the wet depth to 64
+  steps and sends only real changes - the discipline `updateSoundEmitters`
+  already follows for volume/pan. A per-frame RPC is measurable in frame rate.
+- Reverb presets occupy 8-96 KB of SPU2 RAM at the TOP of the 2 MB while audsrv
+  loads ADPCM samples from 0x5010 upward, so they collide only past ~1.9 MB of
+  effects. Changing preset zeroes that area, which is why the game only does it
+  at zero wet level and never per frame.
+- **The audsrv fork plays voices on BOTH cores**: channels 0-23 are core 1
+  (unchanged, so old callers cannot tell), 24-47 are core 0. Upstream muted
+  core 0's master outright, which is what made the SECOND reverb unit
+  unreachable - a reverb is per core and only that core's voices feed it.
+  Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
+  volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
+  master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
 
 **Files / assets**
 - `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser

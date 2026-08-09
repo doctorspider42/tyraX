@@ -63,7 +63,9 @@ The host twin of Tyra's `RendererSettings::updateGeometry` (see
 | `pal576` | 512×512 | the full-height PAL frame |
 
 *Widescreen* widens the projection and the picture; it does not change the
-framebuffer.
+framebuffer. That is anamorphic output, so 2D has no projection to widen and is
+stretched by the TV instead — game menus cancel that stretch themselves (see
+[menu-styles.md](menu-styles.md) "Widescreen"), the HUD does not.
 
 **One thing the editor cannot know**: with `videoSystem: auto`, whether
 *PAL picture* (`palFullHeight`) promotes `interlaced` to the 512-line frame

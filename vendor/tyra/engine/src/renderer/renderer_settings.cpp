@@ -21,6 +21,7 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->far = in->far;
   out->projectionScale = in->projectionScale;
   out->aspectRatio = in->aspectRatio;
+  out->windowAspect = in->windowAspect;  // Modified by TyraX
   out->interlacedHeightF = in->interlacedHeightF;
   out->interlacedHeightUI = in->interlacedHeightUI;
   out->videoMode = in->videoMode;

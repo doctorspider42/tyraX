@@ -36,7 +36,6 @@ struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
              int bars; int skippable; float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
-             float barTB; float barLR;  // mask coverage per edge
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
@@ -49,7 +48,7 @@ static const Track kS0Tracks[] = {{0, 2, 1, 1, 0, 0, 0, kS0T0K, 4}, {0, 3, 0, 0,
 static const CamKey kS0Cam[] = {{0.0F, {-14.0F, 6.0F, 16.0F}, {-13.311F, 5.77505F, 15.311F}, 65.0F, 0.0F, 0.0F, 2, 0, 7} /* "cam-wide" */, {3.5F, {7.0F, 1.0F, 9.0F}, {6.29462F, 1.06976F, 8.29462F}, 90.0F, 0.08F, 0.0F, 2, 0, 8} /* "cam-low" */, {5.0F, {-16.0F, 2.5F, -10.0F}, {-16.0F, 2.36083F, -9.00973F}, 45.0F, 0.0F, 0.0F, 2, 0, 9} /* "cam-dolly" */, {10.0F, {5.0F, 1.5F, 7.0F}, {4.46146F, 1.87687F, 6.24638F}, 55.0F, 0.1F, 0.0F, 1, 0, 10} /* "cam-hero" */, {13.0F, {12.0F, 10.0F, 16.0F}, {11.4117F, 9.80388F, 15.2155F}, 60.0F, 0.0F, 0.0F, 1, 0, 11} /* "cam-crane" */};
 
 static const Seq kSeqs[] = {
-  {"The Reveal", 14.0F, 0, 1, 0, 1, 1, 0.8F, 1.0F, 0.6F, 1.0F, 0.22106F, 0.0F, kS0Tracks, 5, kS0Cam, 5}
+  {"The Reveal", 14.0F, 0, 1, 0, 1, 1, 0.8F, 1.0F, 0.6F, 1.0F, kS0Tracks, 5, kS0Cam, 5}
 };
 static const int kSeqCount = 1;
 
@@ -340,11 +339,40 @@ void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
 
-// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame
 // and clears everything on release.
-float g_flowBarTB = 0.0F;
-float g_flowBarLR = 0.0F;
+int g_flowBarStyle = 0;
+
+// Style -> coverage per edge, the runtime twin of seqBarsFractions in
+// src/sequence.hpp (the editor's viewport overlay reads that one). It cannot be
+// baked like the rest of a cutscene: Cinema and Wide letterbox INSIDE the
+// picture the console is currently outputting, and Set Widescreen / the
+// widescreen option row change that shape while the game runs. On a 16:9 output
+// the Wide mask therefore covers nothing at all, which is the correct answer
+// and not a missing feature.
+static void barsFractions(int style, float displayAspect, float* tb,
+                          float* lr) {
+  *tb = 0.0F;
+  *lr = 0.0F;
+  float target = 0.0F;
+  if (style == 1) {
+    target = 2.39F;  // cinema scope
+  } else if (style == 2) {
+    target = 16.0F / 9.0F;  // TV widescreen
+  } else if (style == 3) {
+    *lr = 0.13F;  // pillarbox
+    return;
+  } else if (style == 4) {
+    *tb = 0.08F;  // vintage frame, all four edges
+    *lr = 0.08F;
+    return;
+  } else {
+    return;
+  }
+  const float f = 0.5F * (1.0F - displayAspect / target);
+  *tb = f > 0.0F ? f : 0.0F;
+}
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -371,11 +399,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
-  // A cutscene's baked style, or the flow node's coverage when none is
-  // playing - the two never both apply, so one pair of fractions is enough.
+  // A cutscene's style, or the flow node's when none is playing - the two never
+  // both apply, so one pair of fractions is enough. Resolved against the shape
+  // of the picture on the TV, which widescreen changes without touching the
+  // framebuffer these quads are measured in.
   const int idx = g_seqDirector.activeIndex();
-  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
-  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  const int barStyle = idx >= 0 ? kSeqs[idx].bars : g_flowBarStyle;
+  float barTB = 0.0F, barLR = 0.0F;
+  barsFractions(barStyle, scr.getWindowAspect(), &barTB, &barLR);
   if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
     const float tb = barTB * ctx.barsAmount * H;
     const float lr = barLR * ctx.barsAmount * W;

@@ -16,18 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.9.1 (the calibration gate reports its own raster): FrameProfile::
-// gsFillProbe hands back the resolution it swept and the generated GSFILL line
-// carries `raster=WxH` + `perMpx=`, because the 0.5872 ms per-pass constant was
-// measured at 512x512 and then read against 512x448 coverages. PATCH and not
-// MINOR by this file's own rule - nothing here is a feature: it is a diagnostic
-// behind TYRA_FRAME_PROFILE (default 0, so a shipped libtyra.a and every
-// generated game carry zero bytes of it), no editor capability appears, and
-// what changed for a user is that a published number is now right, which is
-// what "fix" means. Format stays v6: project::save() is untouched.
+// 1.10.0 (the neural upscaler, docs/neural-upscaler.md): the BLSS branch and
+// main both climbed from 1.3.0 while they were apart and both arrived at 1.9.x
+// - a collision, since 1.9.0 on one side names the widescreen/World Facts set
+// and on the other the upscaler's last patch. The merge takes the MINOR above
+// both rather than picking a side: the tree now carries a feature main did not
+// have, which is what MINOR means, and a number that is strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 9
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -54,12 +53,40 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive with safe defaults - an empty `style` IS the old look, byte
 // for byte (checked by diffing the baked panels of every example against the
 // previous baker), so no migration step.
-// v4 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
+// v4 (SPU2 reverb, docs/reverb.md): an Area's reverb zone (the "reverb" object
+// on an Area: preset / amount / delay / feedback / priority) and the sound
+// emitter's "reverb" send flag. Purely additive - an older file has no zones,
+// which reads as a dry game exactly as it was - so no migration step. (This
+// was authored as v3 on its own branch and renumbered on the merge: menu
+// stylesheets took that number first.)
+// v5 (sound priority, docs/sound.md): a sound emitter's "priority" - who
+// keeps one of the eight emitter voices when more emitters are audible than
+// there are channels. Purely additive and it defaults to 0, which is what
+// every emitter in an older file gets, so the ranking then falls back to
+// loudness alone - no migration step. (The Play Sound node's matching
+// Priority parameter is a flow-node param and rides the existing num array,
+// which needs no format bump of its own.)
+// v6 (collision-box overlay, docs/collision-boxes.md):
+// ProjectSettings::showCollision - the debug-profile preference that draws
+// every collider's box in the running game, next to showAreas. Purely additive
+// and it defaults to false, which is what every older file gets and what the
+// game did before, so no migration step.
+// v7 (World Facts, docs/world-facts.md): the "facts" section - the declared
+// fact catalog, the named queries over it, the reaction rules and the saved
+// test scenarios. Purely additive: a project with no facts writes no section
+// and behaves exactly as it did, so no migration step. A fact's `id` is
+// stamped by project::ensureFactIds on load, which is what lets a player's
+// save survive renames and reordering later. (Authored as v4 on its own branch
+// and renumbered TWICE on the way in - the reverb and sound-priority bumps took
+// 4 and 5, then the collision-box overlay landed on main and took 6. A branch
+// that lives a while renumbers rather than argues; the number means "what the
+// file may contain", and only main gets to say which is which.)
+// v8 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
 // blssEnabled / blssScale / blssSharpen / blssTemporal / blssDebugView, the
 // project-wide BLSS group. Purely additive - blssEnabled defaults to false, so
 // an older file opens as "no upscaler", which is exactly what it was, and the
 // codegen is byte-identical while the flag is off. No migration step.
-// v5 (the upscaler's jitter kill switch): ProjectSettings gains blssJitter,
+// v9 (the upscaler's jitter kill switch): ProjectSettings gains blssJitter,
 // the +-1/4-pixel per-frame raster jitter that is the confirmed cause of the
 // screen shake (docs/neural-upscaler.md, "The oscillation"). Purely additive,
 // and since 2026-08-08 it defaults to FALSE - so a file saved before the key
@@ -69,7 +96,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // declines to preserve is a visibly shaking picture. Nothing else about the
 // project changes and no migration step is needed: the codegen difference is
 // one constant, and a project that wants the samples back sets the key.
-// v6 (the upscaler's training-shot plan, docs/neural-upscaler.md): Project
+// v10 (the upscaler's training-shot plan, docs/neural-upscaler.md): Project
 // gains blssShots - which of the six automatic camera moves the corpus shoots,
 // how many frames each gets, whether Cutscene Director takes join, and the
 // author's own vantages (typed, grabbed from the viewport, or bound to a placed
@@ -77,6 +104,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // entries above: a DEFAULT plan writes nothing at all, so every project saved
 // before the key existed round-trips byte-identically and every published fold
 // table stays reproducible. No migration step.
-inline constexpr int kFormatVersion = 6;
+// (v8-v10 were authored as v4-v6 on the upscaler's branch and renumbered on
+// this merge - reverb, sound priority, the collision-box overlay and World
+// Facts had taken 4 through 7 on main while it was away. Three numbers for one
+// branch rather than one, because each was a separate landing with its own
+// meaning and the list is what an older editor's refusal is read against; two
+// features may never share a number. Nothing on disk changes: every one of them
+// is additive, so a project written at the old v6 opens at v10 unchanged and no
+// migration step is needed for the renumber either - a file claiming 6 now
+// means "collision-box overlay", which a BLSS-less project is.)
+inline constexpr int kFormatVersion = 10;
 
 }  // namespace version

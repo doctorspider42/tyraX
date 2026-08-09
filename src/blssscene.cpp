@@ -194,13 +194,19 @@ void appendSoup(SceneMesh& out, const std::vector<float>& verts,
     for (size_t i = 0; i < n; ++i) out.idx.push_back(base + static_cast<int>(i));
 }
 
-std::vector<float> primitiveSoup(PrimitiveType type, int detail) {
+// `rings` is SceneObject::primRings - a cylinder's optional subdivision along
+// its axis. It has to be threaded through rather than defaulted: the corpus
+// renders what the CONSOLE will draw, and a cylinder tessellated one way here
+// and another way in the game is exactly the kind of divergence the twin
+// contract exists to prevent (the vertex-baked light resolves vertically only
+// with the rings, so the shading differs too, not just the silhouette).
+std::vector<float> primitiveSoup(PrimitiveType type, int detail, bool rings) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint: return primmesh::unitBox(d);
         case PrimitiveType::Sphere: return primmesh::unitSphere(d);
-        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d);
+        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d, rings);
         case PrimitiveType::Cone: return primmesh::unitCone(d);
         case PrimitiveType::Plane: return primmesh::unitPlane();
         // A decal is a unit quad in XY facing +Z, textured through its
@@ -287,7 +293,7 @@ void appendObject(std::vector<SceneMesh>& out, const Project& p,
         return;
     }
 
-    const std::vector<float> soup = primitiveSoup(o.type, o.primDetail);
+    const std::vector<float> soup = primitiveSoup(o.type, o.primDetail, o.primRings);
     if (soup.empty()) return;
     SceneMesh mesh;
     float tint[3];

@@ -1179,6 +1179,24 @@ void App::menuPreviewControls(const GameMenu& m, int& mode) {
     // unchecked (see docs/ui-scripting.md).
     ImGui::Combo("Preview in", &mode, modeItems.c_str());
     ImGui::SameLine();
+    // Widescreen is ANAMORPHIC: the same framebuffer, stretched to 16:9 by the
+    // TV. It changes what a baked panel looks like without changing one pixel
+    // of it, so the preview has to be able to show the other case - and the
+    // player can pick it at runtime anyway (the DISPLAY menu's widescreen row).
+    // Disabled in the 1:1 mode, which draws the panel's own texels.
+    static const char* kMenuAspects[] = {"Follow project", "4:3", "16:9"};
+    ImGui::BeginDisabled(mode == 0);
+    ImGui::SetNextItemWidth(scaled(130.0f));
+    ImGui::Combo("Aspect", &menuPreviewAspect_, kMenuAspects, 3);
+    ImGui::EndDisabled();
+    prefHelp("Follow project reads Preferences > Widescreen.\n"
+             "The panel keeps its authored proportions either way (the game\n"
+             "squeezes it to cancel the stretch) - what changes is how much of\n"
+             "the screen it covers, and how the shot around it frames.");
+    // Two rows, and it has to stay two: the Menu Editor is a docked COLUMN and
+    // one row of all of this ran off its right edge, where a widget is drawn,
+    // dumped with a rect and simply cannot be clicked (docs/ui-scripting.md).
+    // What the panel IS goes above, what the preview is DOING goes below.
     // The simulated cursor: a styled menu's whole point is what the SELECTED
     // row looks like, so the preview has to be able to move it.
     const int rows = (int)m.entries.size();
@@ -1295,9 +1313,10 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
         const DisplayModeInfo& dm = project::displayModeInfo(modeKey);
         const float bufW = (float)dm.bufW;
         const float bufH = (float)dm.logicalH;
-        float windowAspect =
-            project_.settings.widescreen ? (16.0f / 9.0f) : (4.0f / 3.0f);
-        if (modeKey == "1080i" && project_.settings.widescreen)
+        const bool wide = menuPreviewAspect_ == 0 ? project_.settings.widescreen
+                                                  : (menuPreviewAspect_ == 2);
+        float windowAspect = wide ? (16.0f / 9.0f) : (4.0f / 3.0f);
+        if (modeKey == "1080i" && wide)
             windowAspect = (1792.0f / 1920.0f) * (16.0f / 9.0f);
         const float sw = scaled(320.0f * zoom);
         const float sh = sw / windowAspect;
@@ -1306,8 +1325,12 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
         const ImVec2 p1(p0.x + sw, p0.y + sh);
         dl->AddRectFilled(p0, p1, IM_COL32(18, 20, 26, 255));
         if (m.pauseGame) dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 115));
-        // The runtime's own scale, then buffer -> screen.
-        const float uiSX = bufW / 512.0f, uiSY = bufH / 448.0f;
+        // The runtime's own scale, then buffer -> screen. The horizontal factor
+        // carries renderGameMenu's anamorphic compensation, so a widescreen
+        // preview shows what it shows there: the same proportions, covering
+        // three quarters of the width it did on 4:3.
+        const float uiSX = bufW / 512.0f * (4.0f / 3.0f) / windowAspect;
+        const float uiSY = bufH / 448.0f;
         const float toX = sw / bufW, toY = sh / bufH;
         const float panelW = menuPreviewW_ * uiSX;
         const float panelH = menuPreviewContentH_ * uiSY;
@@ -1342,7 +1365,7 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
         dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 120));
         char tag[96];
         std::snprintf(tag, sizeof(tag), "%s  %.0fx%.0f  %s", dm.label, bufW, bufH,
-                      project_.settings.widescreen ? "16:9" : "4:3");
+                      wide ? "16:9" : "4:3");
         dl->AddText(ImVec2(p0.x + 4, p1.y - 18), IM_COL32(255, 255, 255, 160), tag);
         ImGui::Dummy(ImVec2(sw, sh + 4.0f));
         // Does it still fit? A panel authored for 512x448 is 87.5% as wide in
@@ -1363,6 +1386,23 @@ void App::menuPreviewDraw(const GameMenu& m, int mode, float zoom) {
 void App::drawMenuPreview(const GameMenu& m) {
     ImGui::SeparatorText("Preview");
     menuPreviewControls(m, menuPreviewMode_);
+    // A shortcut to the roomy one. This preview is sized to leave the tabs
+    // below it visible, so a full-screen panel is judged at a size that is not
+    // the size anything ships at - which is what the standalone window exists
+    // for. Reaching it through Tools means leaving the menu you are editing, so
+    // it gets a button on the row it belongs to; the window it opens is docked
+    // beside this one in the Menu Designer layout, hence focus rather than just
+    // "shown" (a tab that opens behind another one reads as nothing happening).
+    // Not in menuPreviewControls: that row is shared with the standalone window,
+    // where a button opening itself would be nonsense.
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Big preview")) {
+        showMenuPreview_ = true;
+        pendingFocusWindow_ = "Menu Preview";
+    }
+    prefHelp("Opens the standalone Menu Preview window (Tools > Menu Preview):\n"
+             "the same panel with a zoom, its own display mode and the VRAM\n"
+             "cost next to it. The Menu Designer layout docks the two together.");
     menuPreviewRefresh(m);
     menuPreviewDraw(m, menuPreviewMode_, 1.0f);
 }

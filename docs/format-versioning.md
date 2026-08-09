@@ -84,6 +84,23 @@ than a resave would drop whatever it skipped.
    transforms the **loaded model** where the old data's *meaning* changed;
    a step that needs data the reader no longer parses can re-read files
    itself via `Project::dir`.
+5. **A branch renumbers its bump on the way in — it never argues for the
+   number it authored.** Two features may not share a format number: the
+   number is the whole basis on which an older editor refuses a file, so if
+   `6` means "collision-box overlay" to main and "the upscaler's shot plan"
+   to a branch, an editor that knows only the first will happily open the
+   second and drop the fields it cannot see on its next save. Whoever merges
+   moves their entries to the top of the list, keeping one number per landing
+   (a branch that bumped three times keeps three), and says in the comment
+   what the old numbers were — the version-history comment in
+   `src/version.hpp` is the record, and the reverb, sound-priority, World
+   Facts and BLSS entries all carry that note. **Grep the docs for the old
+   numbers in the same commit**: the meaning is quoted in prose
+   (`docs/neural-upscaler.md`, `docs/blss-reconstruction.md`,
+   `docs/backlog.md`, the skills) as often as it is in the header, and a
+   renumber that stops at `version.hpp` leaves every one of them lying.
+   No migration step is needed for a renumber itself when both sides were
+   additive: nothing on disk changes shape, only the label the file claims.
 
 ### Adding a migration step
 

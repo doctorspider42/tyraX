@@ -49,6 +49,7 @@ class RendererSettings {
         far(51200.0F),
         projectionScale(4096.0F),
         aspectRatio(width / height),
+        windowAspect(4.0F / 3.0F),
         interlacedHeightUI(static_cast<unsigned int>(interlacedHeightF)),
         videoMode(VideoMode::Auto),
         displayMode(DisplayMode::Interlaced) {}
@@ -150,6 +151,12 @@ class RendererSettings {
   const float& getFar() const { return far; }
   const float& getProjectionScale() const { return projectionScale; }
   const float& getAspectRatio() const { return aspectRatio; }
+  /** Physical shape of the display window on the TV (TyraX fork): 4:3, 16:9
+   * when widescreen is on, and the pillarboxed 1792/1920 window in widescreen
+   * 1080i. The framebuffer is NOT this shape - widescreen is anamorphic - so
+   * anything 2D that must keep its authored proportions (a baked menu panel,
+   * a letterbox mask) divides its HORIZONTAL scale by this over 4:3. */
+  const float& getWindowAspect() const { return windowAspect; }
   const float& getInterlacedHeightF() const { return interlacedHeightF; }
   const unsigned int& getInterlacedHeightUI() const {
     return interlacedHeightUI;
@@ -163,7 +170,7 @@ class RendererSettings {
 
  private:
   float width, height, interlacedHeightF, near, far, projectionScale,
-      aspectRatio;
+      aspectRatio, windowAspect;
   unsigned int interlacedHeightUI;
   VideoMode videoMode;
   DisplayMode displayMode;
@@ -202,7 +209,7 @@ class RendererSettings {
     // stretches the same signal to 16:9. 1080i's raster is natively 16:9:
     // 4:3 games get a pillarboxed 1344-VCK window, widescreen ones a
     // 1792/1920 window (the widest 448 * integer-magh fit).
-    float windowAspect = widescreen ? (16.0F / 9.0F) : (4.0F / 3.0F);
+    windowAspect = widescreen ? (16.0F / 9.0F) : (4.0F / 3.0F);
     if (displayMode == DisplayMode::HiDef1080i && widescreen)
       windowAspect = (1792.0F / 1920.0F) * (16.0F / 9.0F);
     aspectRatio = (512.0F / 448.0F) * windowAspect / (4.0F / 3.0F);

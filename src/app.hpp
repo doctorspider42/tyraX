@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <array>
 #include <map>
 #include <memory>
 #include <set>
@@ -816,6 +817,39 @@ private:
     // both Preferences and the window. Returns true when something changed.
     bool drawBlssSettings(ProjectSettings& s);
 
+    // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
+    // catalog, the named queries over it, the reaction rules, the saved test
+    // scenarios and the live World Blackboard. Its own TU (the prefab_ui.cpp
+    // precedent) - it is a self-contained subsystem and app.cpp is already the
+    // build's critical path.
+    void drawWorldFactsWindow();
+    void drawFactCatalogTab();
+    void drawFactQueriesTab();
+    void drawFactRulesTab();
+    void drawFactScenariosTab();
+    void drawFactBlackboardTab();
+    // The recursive condition editor, shared by queries and rules. Returns
+    // true when the tree changed. `depth` guards the nesting the UI draws.
+    bool drawFactCondition(facts::Condition& c, int depth, const char* id);
+    // A fact / query picker, the paramCombo idiom - used by the condition
+    // editor, the rule actions, the scenarios AND the flow-graph node params,
+    // so every place a fact is named offers the same list.
+    bool factCombo(const char* id, std::string& value, bool positionsToo);
+    bool factQueryCombo(const char* id, std::string& value);
+    // The catalog's Name field plus its completion dropdown - the whole
+    // widget in one place, because the popup and the field have to agree
+    // about focus and about which candidate is highlighted.
+    void drawFactNameField(facts::Fact& f);
+    // The value widget for one fact, chosen from its declared type (a checkbox
+    // for a yes/no, a combo of option names for a one-of-several). One
+    // function so the catalog, the rules, the scenarios and the blackboard
+    // cannot each invent their own idea of what a fact's value looks like.
+    bool factValueWidget(const char* id, const facts::Fact& f, float* v3);
+    // Live values for the Why? explanation and the blackboard: the running
+    // game's, or the catalog defaults when nothing is attached.
+    bool factLiveValue(const std::string& name, float* out3) const;
+    void factPushOverrides();
+
     // Tools > VU Programs (vu_ui.cpp, docs/vu-authoring.md).
     void drawVuProgramsWindow();
     void drawVuStageList(std::vector<VuStage>& stages, bool kernel);
@@ -1346,6 +1380,23 @@ private:
     std::vector<int> selection_;
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
+    // Click cycling: clicking the same spot again walks the objects stacked
+    // under the cursor (Viewport::pickAll order) instead of re-selecting the
+    // front one, which is the only way to reach something enclosed by or
+    // hidden behind another with the mouse alone. The candidate list is
+    // captured when the cycle STARTS and then walked - selecting something
+    // moves the orbit pivot (View > Orbit around selected object), so
+    // re-picking on the second click would ask a different camera a different
+    // question. pickCycleLast_ is what the previous click at that spot chose;
+    // the selection is not the anchor, because it may have been changed from
+    // the outliner in between.
+    ImVec2 pickCyclePos_{-1e9f, -1e9f};
+    std::vector<int> pickCycle_;
+    int pickCycleLast_ = -1;
+    // Resolves a viewport click into an object index (-1 = empty space),
+    // advancing the cycle. `cycled` reports that this click stepped through
+    // the stack rather than starting a new pick.
+    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1444,6 +1495,33 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
+    // the window is a tabbed list with an index and nothing about it is per
+    // scene.
+    bool showWorldFacts_ = false;
+    int factSel_ = -1;        // selected catalog row
+    int factQuerySel_ = -1;   // selected query
+    int factRuleSel_ = -1;    // selected rule
+    int factScenarioSel_ = -1;
+    std::string factFilter_;  // catalog search box
+    // The name a rename is being typed over, so renameFactRefs can retarget
+    // every reference when the field commits - the objRenameFrom_ idiom.
+    std::string factRenameFrom_, factQueryRenameFrom_;
+    // Name-completion dropdown state. It lives here rather than in the draw
+    // function because every part of it is read a FRAME LATER than it is
+    // written: the InputText eats Enter itself, so the accept has to be
+    // decided before the field is submitted, from what was true last frame.
+    std::vector<std::string> factNameSuggest_;  // full strings to complete to
+    int factNameSuggestSel_ = -1;    // highlighted row, -1 = none
+    bool factNameSuggestOpen_ = false;
+    bool factNameSuggestHover_ = false;  // the list was hovered last frame
+    bool factNameActive_ = false;    // the field had keyboard focus last frame
+    bool factNameCaretEnd_ = false;  // put the caret past the accepted text
+    bool factNameRefocus_ = false;   // hand the keyboard back after an accept
+    // Manual blackboard overrides, keyed by fact name. Held here rather than
+    // in the Command so the list survives a game restart and can be edited
+    // while nothing is running.
+    std::map<std::string, std::array<float, 3>> factOverrides_;
     bool showVuPrograms_ = false;
     // Rebuilt every frame the VU window is open (milliseconds), so the
     // listing, the budget bar and the simulation are one answer rather than
@@ -1937,6 +2015,13 @@ private:
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
     int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    // Preview aspect: 0 = follow the project (Preferences > Widescreen), 1 =
+    // force 4:3, 2 = force 16:9 - the safe-area overlay's Aspect control, for
+    // the same reason. Widescreen is anamorphic, so it changes what a baked
+    // panel looks like without changing a single pixel of it, and checking the
+    // other case must not mean editing the project. Shared by both preview
+    // surfaces: it is a question about the menu, not about the window.
+    int menuPreviewAspect_ = 0;
     std::string menuPreviewKey_;  // serialized menu the texture was baked from
 
     // Color grading (Tools > Color Grading): selected preset + whether the
@@ -2481,6 +2566,10 @@ private:
     // walkable grid, recomputed only when its inputs change (same signature
     // trick as the projected decals). Session state, not persisted.
     bool showNavOverlay_ = false;
+    // Collision-box overlay (View > Collision boxes, docs/collision-boxes.md):
+    // the volume the game blocks the player and the camera boom with. Session
+    // state like the other view toggles - the viewport is told each frame.
+    bool showCollisionBoxes_ = false;
     navmesh::NavGrid navGrid_;
     uint64_t navOverlaySig_ = 0;
     uint64_t navOverlayVersion_ = 0;
@@ -2834,6 +2923,7 @@ private:
     uint32_t dbgSnapPrevFrame_ = 0;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
+    std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
     void drawDebuggerWindow();
 
