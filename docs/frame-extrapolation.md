@@ -45,11 +45,23 @@ v = (0.5 - dot(rel, from.up) / (wPrev * from.tanHalfFovY) * 0.5) * outH
 
 **Rotation is exact.** When `to.pos == from.pos`, `rel` is `dir * planeDistance`
 and that factor divides out of both ratios — the mapping is a homography, right
-at every scene depth, with no depth buffer anywhere. `planeDistance`
-(`setPlaneDistance`) only ever approximates *translation*, by assuming the world
-sits on one plane. That is the whole design: a camera that turns is reproduced
-perfectly, and a camera that moves is reproduced well enough at the plane and
-sheared away from it.
+at every scene depth, with no depth buffer anywhere.
+
+**Translation is off by default** (`planeDistance` 0), and that is a decision,
+not caution. Approximating it with a single plane makes every pixel move as if
+it were the same distance away — but real forward motion is *parallax*: near
+things grow quickly, far things barely move, the sky does not move at all. One
+plane scales the whole picture uniformly, which the eye reads as a **lens
+zoom**, and a zooming frame alternating with a still one is far worse than a
+frame that simply did not move. Walking forward is where it shows worst, not
+least: at the 12-unit distance this originally shipped with, a half-unit step
+zoomed about 4% per synthesised frame.
+
+With translation off, walking in a straight line makes the warp an exact
+identity — the synthesised frame is a pixel copy of the one before it, so the
+motion reads as ordinary judder instead of distortion, and the HUD does not
+double either. Turning still reprojects exactly. `setPlaneDistance(d)` folds
+translation back in for a scene that really is planar at a known distance.
 
 ## The measurements
 

@@ -95,10 +95,17 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
       const Vec4 dir(to.forward.x + to.right.x * sX + to.up.x * sY,
                      to.forward.y + to.right.y * sX + to.up.y * sY,
                      to.forward.z + to.right.z * sX + to.up.z * sY, 0.0F);
+      // planeDistance 0 = rotation only: the eye is treated as unmoved, so
+      // `rel` is the ray itself and the mapping is the exact rotation
+      // homography. Any positive distance folds the translation in through the
+      // single-plane assumption - see setPlaneDistance for why that is off by
+      // default.
+      const float pd = planeDistance > 0.0F ? planeDistance : 1.0F;
       const Vec4 rel(
-          to.position.x + dir.x * planeDistance - from.position.x,
-          to.position.y + dir.y * planeDistance - from.position.y,
-          to.position.z + dir.z * planeDistance - from.position.z, 0.0F);
+          dir.x * pd + (planeDistance > 0.0F ? to.position.x - from.position.x : 0.0F),
+          dir.y * pd + (planeDistance > 0.0F ? to.position.y - from.position.y : 0.0F),
+          dir.z * pd + (planeDistance > 0.0F ? to.position.z - from.position.z : 0.0F),
+          0.0F);
 
       const float wPrev = dot3(rel, from.forward);
       float u, v;

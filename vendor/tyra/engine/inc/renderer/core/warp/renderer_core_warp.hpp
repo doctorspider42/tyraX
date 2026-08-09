@@ -54,13 +54,16 @@ struct WarpCamera {
  * - **Rotation is EXACT.** For a camera that only turned, the mapping is a
  *   homography and `planeDistance` cancels out of the arithmetic entirely - no
  *   depth buffer, no approximation, at any scene depth.
- * - **Translation is approximated** by assuming the world sits on one plane at
- *   `planeDistance`. Objects nearer or further than that shear. Strafing shows
- *   it first; walking forward barely does, because the flow it produces is
- *   radial and small near the centre.
- * - **Dynamic objects freeze** for the warped frame - they are pixels in the
- *   source image and the warp only knows about the camera. A game that cares
- *   redraws them on top; the HUD is the same problem and the same answer.
+ * - **Translation is OFF by default** (`planeDistance` 0), because the single
+ *   plane it would need is worse than not moving. Real forward motion is
+ *   parallax - near things grow fast, far things barely move, the sky not at
+ *   all - and one plane scales the whole picture uniformly, which reads as a
+ *   lens ZOOM. Walking forward is where it shows WORST, not least.
+ * - **Dynamic objects and the HUD MOVE WITH THE CAMERA**, which is worse than
+ *   freezing: they are pixels in the source image, so the warp carries them
+ *   along and the alternation reads as doubling and jitter. The HUD is the
+ *   loudest case because it is high-contrast and the eye knows exactly where it
+ *   belongs. Fixing it means keeping it out of the warp - see the doc.
  * - **Disocclusion at the frame edge stretches.** The source has no pixels for
  *   what just came into view, so the outermost cells clamp, which reads as a
  *   smear a few pixels wide. This is what VR reprojection does too. A guard
@@ -76,12 +79,25 @@ class RendererCoreWarp {
             RendererCoreSync* sync, Path1* path1);
 
   /**
-   * The depth the warp assumes the world sits at, in world units. Only affects
-   * camera TRANSLATION - a pure turn reprojects exactly whatever this is. Set
-   * it to something like the distance to what the player is looking at; the
-   * default suits a walking third/first person camera.
+   * How the warp treats camera TRANSLATION, in world units. Rotation is exact
+   * and unaffected by this.
+   *
+   * **0 (the default) means rotation only**, and that default is a measured
+   * decision rather than caution. Translation is approximated by assuming the
+   * whole world sits on one plane at this distance, so every pixel moves as if
+   * it were that far away - but real forward motion is PARALLAX: near things
+   * grow quickly, far things barely move and the sky does not move at all. One
+   * plane scales the entire picture uniformly, which the eye reads as a lens
+   * ZOOM, and it is far more objectionable than the frame simply not moving.
+   * At the old 12-unit default a half-unit step zoomed ~4% per synthesised
+   * frame, which is glaring.
+   *
+   * Set it only where the scene really is roughly planar at a known distance
+   * (a wall-facing camera, a top-down view). Fixing translation properly needs
+   * per-tile depth, which is the neural upscaler's tile stats - see
+   * docs/frame-extrapolation.md.
    */
-  void setPlaneDistance(const float& d) { planeDistance = d < 0.01F ? 0.01F : d; }
+  void setPlaneDistance(const float& d) { planeDistance = d < 0.0F ? 0.0F : d; }
   const float& getPlaneDistance() const { return planeDistance; }
 
   /**
@@ -113,7 +129,7 @@ class RendererCoreWarp {
   Path1* path1 = nullptr;
   packet2_t* packet = nullptr;
 
-  float planeDistance = 12.0F;
+  float planeDistance = 0.0F;  // 0 = rotation only (see setPlaneDistance)
 
   int outW = 0, outH = 0;
   int cols = 0, rows = 0, cornerCols = 0, cornerRows = 0;
