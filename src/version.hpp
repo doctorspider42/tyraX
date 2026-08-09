@@ -17,8 +17,8 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 7
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 8
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -60,6 +60,14 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // declines to preserve is a visibly shaking picture. Nothing else about the
 // project changes and no migration step is needed: the codegen difference is
 // one constant, and a project that wants the samples back sets the key.
-inline constexpr int kFormatVersion = 5;
+// v6 (the upscaler's training-shot plan, docs/neural-upscaler.md): Project
+// gains blssShots - which of the six automatic camera moves the corpus shoots,
+// how many frames each gets, whether Cutscene Director takes join, and the
+// author's own vantages (typed, grabbed from the viewport, or bound to a placed
+// Camera object). Purely additive, and additive in a stronger sense than the
+// entries above: a DEFAULT plan writes nothing at all, so every project saved
+// before the key existed round-trips byte-identically and every published fold
+// table stays reproducible. No migration step.
+inline constexpr int kFormatVersion = 6;
 
 }  // namespace version
